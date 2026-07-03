@@ -345,6 +345,18 @@ export const ExchangeTransactionSchema = z.object({
 export const LotoSellSchema = z.object({
   ticket_number: z.string().optional(),
   sale_amount: z.number().positive(),
+  // Structured legs in the currency the customer ACTUALLY paid (a 500,000 LBP
+  // ticket paid with $5 books General +5 USD, not +500,000 LBP).
+  payments: z
+    .array(
+      z.object({
+        method: z.string().min(1),
+        currencyCode: z.string().min(1),
+        amount: z.number(),
+        direction: z.enum(["IN", "OUT"]).optional(),
+      }),
+    )
+    .optional(),
   commission_rate: z.number().optional(),
   is_winner: z.boolean().optional(),
   prize_amount: z.number().optional(),

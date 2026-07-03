@@ -1288,4 +1288,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (113, 'normalize_staff_role'),
     (114, 'allow_alfa_gift_recharge_type'),
     (115, 'prepaid_units_supplier_debt_booked'),
-    (116, 'normalize_iso_created_at');
+    (116, 'normalize_iso_created_at'),
+    (117, 'rename_mtc_cards_to_face_value'),
+    (118, 'rename_alfa_cards_to_face_value');

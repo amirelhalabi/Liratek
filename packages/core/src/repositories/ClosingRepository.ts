@@ -483,6 +483,32 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
+   * True once at least one checkpoint exists in the timeline. The setup wizard
+   * ALWAYS writes an initial checkpoint on completion (StepComplete, A4), so the
+   * earliest daily_closings row IS the starting checkpoint — its mere existence
+   * means the timeline has a baseline. Used by the dashboard to nudge the
+   * operator to record a starting checkpoint when none has ever been created
+   * (mirrors hasInitialBalancesSet for opening drawer amounts).
+   */
+  hasStartingCheckpoint(): boolean {
+    const row = this.db.prepare(`SELECT 1 FROM daily_closings LIMIT 1`).get();
+    return row !== undefined;
+  }
+
+  /**
+   * The closing_date of the initial (setup) checkpoint — the very first
+   * daily_closings row (setup A4 always writes it first). Returns null if no
+   * checkpoint exists. Lets the timeline surface "initial setup was done at …"
+   * and jump the from-date to it when it falls outside the current filter.
+   */
+  getInitialCheckpointDate(): string | null {
+    const row = this.db
+      .prepare(`SELECT closing_date FROM daily_closings ORDER BY id ASC LIMIT 1`)
+      .get() as { closing_date: string } | undefined;
+    return row?.closing_date ?? null;
+  }
+
+  /**
    * Update an existing daily_closings record by id.
    */
   updateDailyClosing(data: {

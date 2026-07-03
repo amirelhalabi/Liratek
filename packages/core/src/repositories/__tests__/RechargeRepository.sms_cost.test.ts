@@ -415,4 +415,33 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
       expect(latestTxnProfit(db).profit_usd).toBeCloseTo(2.0, 4);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LBP-priced CREDIT_TRANSFER — SMS cost must be CONVERTED before subtracting
+  // (profit-audit fix 3). Pre-fix the USD SMS cost was subtracted from the LBP
+  // commission verbatim: 60,000 LBP − $0.32 = 59,999.68 "LBP" — the deduction
+  // effectively vanished (understated cost, overstated profit).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("CREDIT_TRANSFER — LBP-priced transfer converts the SMS cost", () => {
+    it("subtracts smsCostUsd × sellRate from profit_lbp (2 SMS at fallback 89,500)", () => {
+      // 6 USD credits sent, priced 600,000 LBP, cost 540,000 LBP.
+      // smsCount = ceil(6/3) = 2 → $0.32 → × 89,500 = 28,640 LBP.
+      repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 6,
+        cost: 540_000,
+        price: 600_000,
+        currency: "LBP",
+        paid_by_method: "CASH",
+        phoneNumber: "03444444",
+        userId: 1,
+      });
+      const profit = latestTxnProfit(db);
+      // gross 60,000 LBP − 28,640 LBP = 31,360 LBP
+      expect(profit.profit_lbp).toBeCloseTo(60_000 - 0.32 * 89_500, 2);
+      expect(profit.profit_usd).toBe(0);
+    });
+  });
 });

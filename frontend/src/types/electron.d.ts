@@ -1024,6 +1024,12 @@ export interface ElectronAPI {
     sell: (data: {
       ticket_number?: string;
       sale_amount: number;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
       commission_rate?: number;
       is_winner?: boolean;
       prize_amount?: number;
@@ -1443,6 +1449,8 @@ export interface ElectronAPI {
     }>;
     hasOpeningBalanceToday: () => Promise<boolean>;
     hasInitialBalancesSet: () => Promise<boolean>;
+    hasStartingCheckpoint: () => Promise<boolean>;
+    getInitialCheckpointDate: () => Promise<string | null>;
     updateDailyClosing: (data: {
       id: number;
       physical_usd?: number;
@@ -2108,6 +2116,13 @@ export interface ElectronAPI {
       phone_number?: string;
       note?: string;
       category?: string;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        voucher_code?: string;
+        direction?: "IN" | "OUT";
+      }>;
       transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;

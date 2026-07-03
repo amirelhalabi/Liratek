@@ -97,7 +97,9 @@ function createSchema(d: TestDb): void {
       cost REAL NOT NULL DEFAULT 0,
       commission REAL NOT NULL DEFAULT 0,
       omt_fee REAL,
+      payment_method_fee REAL NOT NULL DEFAULT 0,
       is_settled INTEGER NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -108,6 +110,7 @@ function createSchema(d: TestDb): void {
       currency_code TEXT NOT NULL DEFAULT 'USD',
       price REAL NOT NULL DEFAULT 0,
       cost REAL NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -120,6 +123,7 @@ function createSchema(d: TestDb): void {
       cost_lbp REAL NOT NULL DEFAULT 0,
       profit_usd REAL NOT NULL DEFAULT 0,
       profit_lbp REAL NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -127,7 +131,19 @@ function createSchema(d: TestDb): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       status TEXT NOT NULL DEFAULT 'Delivered_Paid',
       final_amount_usd REAL NOT NULL DEFAULT 0,
+      final_amount_lbp REAL NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0,
+      cost_lbp REAL NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE loto_tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_number TEXT,
+      sale_amount REAL NOT NULL DEFAULT 0,
+      commission_amount REAL NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -136,6 +152,7 @@ function createSchema(d: TestDb): void {
       amount_in REAL NOT NULL DEFAULT 0,
       leg1_profit_usd REAL,
       leg2_profit_usd REAL,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -549,5 +566,324 @@ describe("getByDate transaction-based profit + refund netting", () => {
     const day = rows.find((r) => r.date === "2026-03-01");
     expect(day).toBeDefined();
     expect(day?.profit_usd).toBe(40); // 80 - 40
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (e) Refunded module rows are excluded (profit-audit fix 1)
+//
+// Void AND refund both set is_refunded = 1 on the module source row
+// (TransactionRepository._markSourceRefunded), but no profit query checked it —
+// a refunded OMT/recharge/maintenance kept its full revenue AND profit forever.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("(e) refunded module rows excluded from profit", () => {
+  it("a refunded settled financial service drops out of realized commission", () => {
+    db.prepare(
+      `INSERT INTO financial_services (id, provider, currency, amount, commission, is_settled, is_refunded, created_at)
+       VALUES (1, 'OMT', 'USD', 1000, 12, 1, 1, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "FINANCIAL_SERVICE",
+      sourceTable: "financial_services",
+      sourceId: 1,
+      profitUsd: 12,
+      amountUsd: 1000,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.financial_services.commission_usd).toBe(0);
+    expect(summary.financial_services.revenue_usd).toBe(0);
+  });
+
+  it("a refunded unsettled financial service drops out of pending commission", () => {
+    db.prepare(
+      `INSERT INTO financial_services (id, provider, currency, amount, commission, is_settled, is_refunded, created_at)
+       VALUES (1, 'WHISH', 'USD', 500, 7, 0, 1, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "FINANCIAL_SERVICE",
+      sourceTable: "financial_services",
+      sourceId: 1,
+      profitUsd: 7,
+      amountUsd: 500,
+    });
+
+    expect(
+      service.getSummary(FROM, TO).financial_services.pending_commission_usd,
+    ).toBe(0);
+  });
+
+  it("a refunded recharge drops out of recharge profit and revenue", () => {
+    db.prepare(
+      `INSERT INTO recharges (id, carrier, currency_code, price, cost, is_refunded, created_at)
+       VALUES (1, 'MTC', 'USD', 10, 8, 1, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "RECHARGE",
+      sourceTable: "recharges",
+      sourceId: 1,
+      profitUsd: 2,
+      amountUsd: 10,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.recharges.profit_usd).toBe(0);
+    expect(summary.recharges.revenue_usd).toBe(0);
+  });
+
+  it("a refunded maintenance job drops out of maintenance profit", () => {
+    db.prepare(
+      `INSERT INTO maintenance (id, status, final_amount_usd, cost_usd, is_refunded, created_at)
+       VALUES (1, 'Delivered_Paid', 100, 70, 1, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "MAINTENANCE",
+      sourceTable: "maintenance",
+      sourceId: 1,
+      profitUsd: 30,
+      amountUsd: 100,
+    });
+
+    expect(service.getSummary(FROM, TO).maintenance.profit_usd).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (f) Maintenance LBP profit (profit-audit fix 4)
+//
+// LBP jobs stamp profit_lbp — summing only the USD columns made every LBP
+// maintenance job invisible in the profits views.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("(f) maintenance LBP profit", () => {
+  it("counts LBP maintenance revenue/cost/profit in summary + byModule", () => {
+    db.prepare(
+      `INSERT INTO maintenance (id, status, final_amount_usd, final_amount_lbp, cost_usd, cost_lbp, created_at)
+       VALUES (1, 'Delivered_Paid', 0, 900000, 0, 500000, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "MAINTENANCE",
+      sourceTable: "maintenance",
+      sourceId: 1,
+      profitLbp: 400000,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.maintenance.revenue_lbp).toBe(900000);
+    expect(summary.maintenance.cost_lbp).toBe(500000);
+    expect(summary.maintenance.profit_lbp).toBe(400000);
+    expect(summary.totals.gross_profit_lbp).toBe(400000);
+
+    const row = service
+      .getByModule(FROM, TO)
+      .find((m) => m.module === "MAINTENANCE");
+    expect(row?.profit_lbp).toBe(400000);
+
+    const day = service
+      .getByDate("2026-03-01", "2026-03-01")
+      .find((r) => r.date === "2026-03-01");
+    expect(day?.profit_lbp).toBe(400000);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (g) Loto commissions in the profits views (profit-audit fix 5)
+//
+// Loto stamps its commission as profit_lbp on the LOTO transaction at sale time
+// but was entirely absent from every profits view.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("(g) loto commission in profits", () => {
+  it("counts loto ticket commission in summary, byModule and byDate", () => {
+    db.prepare(
+      `INSERT INTO loto_tickets (id, ticket_number, sale_amount, commission_amount, created_at)
+       VALUES (1, 'T-1', 500000, 22250, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "LOTO",
+      sourceTable: "loto_tickets",
+      sourceId: 1,
+      profitLbp: 22250,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.loto.revenue_lbp).toBe(500000);
+    expect(summary.loto.profit_lbp).toBe(22250);
+    expect(summary.loto.count).toBe(1);
+    expect(summary.totals.gross_profit_lbp).toBe(22250);
+    expect(summary.totals.gross_revenue_lbp).toBe(500000);
+
+    const row = service.getByModule(FROM, TO).find((m) => m.module === "LOTO");
+    expect(row?.profit_lbp).toBe(22250);
+
+    const day = service
+      .getByDate("2026-03-01", "2026-03-01")
+      .find((r) => r.date === "2026-03-01");
+    expect(day?.profit_lbp).toBe(22250);
+  });
+
+  it("excludes refunded loto tickets", () => {
+    db.prepare(
+      `INSERT INTO loto_tickets (id, ticket_number, sale_amount, commission_amount, is_refunded, created_at)
+       VALUES (1, 'T-1', 500000, 22250, 1, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "LOTO",
+      sourceTable: "loto_tickets",
+      sourceId: 1,
+      profitLbp: 22250,
+    });
+
+    expect(service.getSummary(FROM, TO).loto.profit_lbp).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (h) Payment-method fees as profit (profit-audit fix 6, hardened by review)
+//
+// The pmFee is the shop's immediate profit on a wallet payment. It is sourced
+// from financial_services.payment_method_fee (NOT raw PM_FEE payment rows) and
+// gated by notRefunded — so it counts regardless of is_settled, and a
+// refund/void removes it retroactively (no report-boundary self-net bug).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("(h) payment-method fees in profits", () => {
+  it("counts a pending (unsettled) FS's payment_method_fee as immediate profit", () => {
+    db.prepare(
+      `INSERT INTO financial_services (id, provider, currency, amount, commission, payment_method_fee, is_settled, created_at)
+       VALUES (1, 'WHISH', 'USD', 100, 0, 0.5, 0, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "FINANCIAL_SERVICE",
+      sourceTable: "financial_services",
+      sourceId: 1,
+      amountUsd: 100,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    // Not gated by is_settled — realized immediately even while the commission
+    // is pending.
+    expect(summary.financial_services.pm_fee_usd).toBe(0.5);
+    expect(summary.totals.gross_profit_usd).toBe(0.5);
+
+    const row = service
+      .getByModule(FROM, TO)
+      .find((m) => m.module === "PM_FEE");
+    expect(row?.profit_usd).toBe(0.5);
+  });
+
+  it("a refunded/voided FS removes its pmFee retroactively (no period-boundary leak)", () => {
+    db.prepare(
+      `INSERT INTO financial_services (id, provider, currency, amount, commission, payment_method_fee, is_settled, is_refunded, created_at)
+       VALUES (1, 'WHISH', 'USD', 100, 0, 0.5, 1, 1, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "FINANCIAL_SERVICE",
+      sourceTable: "financial_services",
+      sourceId: 1,
+      amountUsd: 100,
+    });
+
+    expect(service.getSummary(FROM, TO).financial_services.pm_fee_usd).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (i) By-cashier / by-client corrections (adversarial-review fixes)
+//
+// The review found getByUser/getByClient (a) hardcoded profit_lbp = 0 (dropping
+// loto + LBP-maintenance profit), (b) excluded LOTO from PROFIT_TXN_TYPES, and
+// (c) let a refunded UNSETTLED commission fall to the ungated ELSE, posting a
+// phantom negative. These guard all three.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("(i) getByUser / getByClient corrections", () => {
+  it("surfaces LBP maintenance profit in getByUser.profit_lbp (was hardcoded 0)", () => {
+    db.prepare(
+      `INSERT INTO maintenance (id, status, final_amount_lbp, cost_lbp, created_at)
+       VALUES (1, 'Delivered_Paid', 900000, 500000, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "MAINTENANCE",
+      sourceTable: "maintenance",
+      sourceId: 1,
+      profitLbp: 400000,
+    });
+
+    const row = service.getByUser(FROM, TO).find((r) => r.user_id === 1);
+    expect(row).toBeDefined();
+    expect(row?.profit_lbp).toBe(400000);
+  });
+
+  it("includes loto commission in getByUser (LOTO now in PROFIT_TXN_TYPES)", () => {
+    db.prepare(
+      `INSERT INTO loto_tickets (id, ticket_number, sale_amount, commission_amount, created_at)
+       VALUES (1, 'T-1', 500000, 22250, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "LOTO",
+      sourceTable: "loto_tickets",
+      sourceId: 1,
+      profitLbp: 22250,
+    });
+
+    const row = service.getByUser(FROM, TO).find((r) => r.user_id === 1);
+    expect(row).toBeDefined();
+    expect(row?.transaction_count).toBe(1); // loto row is no longer filtered out
+    expect(row?.profit_lbp).toBe(22250);
+  });
+
+  it("refunding an UNSETTLED commission nets getByUser profit to 0 (no phantom loss)", () => {
+    // Pending OMT commission $3 (is_settled=0), stamped profit_usd=3.
+    db.prepare(
+      `INSERT INTO financial_services (id, provider, currency, amount, commission, is_settled, created_at)
+       VALUES (1, 'OMT', 'USD', 1000, 3, 0, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "FINANCIAL_SERVICE",
+      sourceTable: "financial_services",
+      sourceId: 1,
+      profitUsd: 3,
+      amountUsd: 1000,
+    });
+    // Generic refund stamps a REFUND row (source financial_services) with -3.
+    insertTxn({
+      type: "REFUND",
+      sourceTable: "financial_services",
+      sourceId: 1,
+      profitUsd: -3,
+      amountUsd: -1000,
+    });
+
+    const row = service.getByUser(FROM, TO).find((r) => r.user_id === 1);
+    // Original gated to 0 (unsettled) AND refund now gated the same way → 0.
+    // Pre-fix the refund fell to the ungated ELSE and reported -$3.
+    expect(row?.profit_usd).toBe(0);
+    expect(row?.revenue_usd).toBe(0);
+  });
+
+  it("refunding a SETTLED commission nets getByUser profit to 0", () => {
+    db.prepare(
+      `INSERT INTO financial_services (id, provider, currency, amount, commission, is_settled, created_at)
+       VALUES (1, 'OMT', 'USD', 1000, 3, 1, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "FINANCIAL_SERVICE",
+      sourceTable: "financial_services",
+      sourceId: 1,
+      profitUsd: 3,
+      amountUsd: 1000,
+    });
+    insertTxn({
+      type: "REFUND",
+      sourceTable: "financial_services",
+      sourceId: 1,
+      profitUsd: -3,
+      amountUsd: -1000,
+    });
+
+    const row = service.getByUser(FROM, TO).find((r) => r.user_id === 1);
+    expect(row?.profit_usd).toBe(0); // +3 (settled) + (−3) (settled refund)
   });
 });

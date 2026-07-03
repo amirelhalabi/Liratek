@@ -3,8 +3,8 @@
  *
  * Performs a checkpoint for a single drawer. Fields pre-fill with the
  * system-expected balance; the cashier edits only what differs. Each field
- * shows a live three-tier variance status (green match / amber within tolerance
- * / red beyond tolerance), and notes live on the same page — no wizard steps.
+ * shows a live two-tier variance status (green match / amber attention) — there
+ * is no tolerance, any difference is flagged. Notes live on the same page.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -36,8 +36,7 @@ interface CheckpointModalProps {
 /** Save-button styling per overall status. */
 const SAVE_STYLES: Record<VarianceStatus, string> = {
   match: "bg-green-600 hover:bg-green-500",
-  within: "bg-amber-600 hover:bg-amber-500",
-  beyond: "bg-red-600 hover:bg-red-500",
+  diff: "bg-amber-600 hover:bg-amber-500",
 };
 
 export default function CheckpointModal({
@@ -84,7 +83,6 @@ export default function CheckpointModal({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [varianceThresholdPct, setVarianceThresholdPct] = useState(5);
   const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
     Record<string, string[]>
   >({});
@@ -96,14 +94,6 @@ export default function CheckpointModal({
       .then(setDrawerCurrencyConfig)
       .catch(() => {});
     fetchSystemExpected();
-    api
-      .getAllSettings()
-      .then((settings: { key_name: string; value: string }[]) => {
-        const map = new Map(settings.map((s) => [s.key_name, s.value]));
-        const pct = Number(map.get("closing_variance_threshold_pct") ?? 5);
-        if (isFinite(pct) && pct >= 0) setVarianceThresholdPct(pct);
-      })
-      .catch((e) => logger.error("[Checkpoint] Failed to load threshold:", e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -163,12 +153,11 @@ export default function CheckpointModal({
     const { status, variance } = getVarianceStatus(
       drawerAmounts.amounts[drawer]?.[c.code] ?? 0,
       getExpectedValue(drawer, c.code),
-      varianceThresholdPct,
     );
-    if (status !== "match") diffs.push({ code: c.code, variance });
-    if (status === "beyond") overallStatus = "beyond";
-    else if (status === "within" && overallStatus === "match")
-      overallStatus = "within";
+    if (status !== "match") {
+      diffs.push({ code: c.code, variance });
+      overallStatus = "diff";
+    }
   }
 
   const saveLabel = (() => {
@@ -288,7 +277,6 @@ export default function CheckpointModal({
       const { status } = getVarianceStatus(
         drawerAmounts.amounts[drawer]?.[c.code] ?? 0,
         getExpectedValue(drawer, c.code),
-        varianceThresholdPct,
       );
       return status !== "match";
     });
@@ -398,7 +386,6 @@ export default function CheckpointModal({
                     }
                     onAmountChange={handleAmountChange}
                     getExpectedValue={getExpectedValue}
-                    varianceThresholdPct={varianceThresholdPct}
                     onResetToExpected={handleResetToExpected}
                     disabled={saving || isPartnerDrawerInactive}
                     focusRingColor="violet-500"

@@ -38,6 +38,19 @@ export default function StepComplete() {
         return;
       }
 
+      // Register any currencies the operator added to a drawer at the drawer-
+      // amounts step (e.g. EUR) BEFORE the checkpoint, so the currency is
+      // first-class (shows on the dashboard + is offered in future checkpoints).
+      // Admin-only IPC — safe here because login() ran just above.
+      if (window.api && payload.drawer_currency_config?.length) {
+        for (const cfg of payload.drawer_currency_config) {
+          await window.api.currencies.setDrawerCurrencies(
+            cfg.drawer_name,
+            cfg.currency_codes,
+          );
+        }
+      }
+
       // Record the initial setup checkpoint (A4): ALWAYS written, so the
       // checkpoint timeline starts with a baseline row — even when the
       // operator skipped the drawer amounts (all drawers start at zero).

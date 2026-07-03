@@ -60,6 +60,8 @@ interface CardGridPayViewProps {
   clientId: number | null;
   exchangeRate: number;
   onPaymentChange: (lines: PaymentLine[]) => void;
+  /** Change/return legs (shop hands money back) — forwarded to the PaymentSheet. */
+  onReturnChange?: (legs: PaymentLine[]) => void;
   onDiscountChange: (discount: number) => void;
   clientName: string;
   onClientNameChange: (value: string) => void;
@@ -87,6 +89,7 @@ export function CardGridPayView({
   clientId,
   exchangeRate,
   onPaymentChange,
+  onReturnChange,
   onDiscountChange,
   clientName,
   onClientNameChange,
@@ -223,6 +226,7 @@ export function CardGridPayView({
           selected ? selected.sellLbp - selected.costLbp : 0,
         )}
         onPaymentChange={onPaymentChange}
+        {...(onReturnChange ? { onReturnChange } : {})}
         onDiscountChange={onDiscountChange}
         summary={[
           ...(selected && selected.valueUsd !== undefined

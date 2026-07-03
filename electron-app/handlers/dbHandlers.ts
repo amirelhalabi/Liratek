@@ -379,6 +379,29 @@ export function registerDatabaseHandlers(): void {
     }
   });
 
+  // Check if a starting checkpoint has ever been recorded (no auth required)
+  ipcMain.handle("closing:has-starting-checkpoint", async () => {
+    try {
+      return getClosingService().hasStartingCheckpoint();
+    } catch (err) {
+      closingLogger.error({ err }, "closing:has-starting-checkpoint failed");
+      return true;
+    }
+  });
+
+  // Closing date of the initial (setup) checkpoint, or null (no auth required)
+  ipcMain.handle("closing:get-initial-checkpoint-date", async () => {
+    try {
+      return getClosingService().getInitialCheckpointDate();
+    } catch (err) {
+      closingLogger.error(
+        { err },
+        "closing:get-initial-checkpoint-date failed",
+      );
+      return null;
+    }
+  });
+
   // Update an existing daily closing record
   ipcMain.handle(
     "closing:update-daily-closing",

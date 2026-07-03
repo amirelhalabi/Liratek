@@ -2,9 +2,10 @@
  * DrawerCard Component
  * Reusable card component for displaying drawer information and currency inputs.
  *
- * When `getExpectedValue` is supplied, each field also shows a three-tier
- * variance status (green match / amber within-tolerance / red beyond-tolerance)
- * with the inline delta and a reset-to-expected affordance.
+ * When `getExpectedValue` is supplied, each field also shows a two-tier variance
+ * status (green match / amber attention). There is no tolerance — any difference
+ * from the expected value is flagged, with the inline signed delta and a
+ * reset-to-expected affordance.
  */
 
 import { useState, useRef } from "react";
@@ -15,8 +16,7 @@ import {
   Coins,
   X,
   Check,
-  TrendingUp,
-  TrendingDown,
+  AlertTriangle,
   RotateCcw,
 } from "lucide-react";
 import { DecimalInput } from "@liratek/ui";
@@ -38,15 +38,10 @@ const STATUS_STYLES: Record<
     text: "text-emerald-400",
     ring: "focus:ring-emerald-500",
   },
-  within: {
+  diff: {
     border: "border-amber-500/60",
     text: "text-amber-400",
     ring: "focus:ring-amber-500",
-  },
-  beyond: {
-    border: "border-red-500/60",
-    text: "text-red-400",
-    ring: "focus:ring-red-500",
   },
 };
 
@@ -61,8 +56,6 @@ interface DrawerCardProps {
   otherCurrencies?: Currency[];
   /** When provided, enables per-field variance status against this expected value. */
   getExpectedValue?: (drawer: DrawerType, code: string) => number;
-  /** Variance tolerance (%) separating amber (within) from red (beyond). */
-  varianceThresholdPct?: number;
   /** Snap a field back to its expected value. */
   onResetToExpected?: (drawer: DrawerType, code: string) => void;
 }
@@ -76,7 +69,6 @@ export function DrawerCard({
   focusRingColor = "violet-500",
   otherCurrencies,
   getExpectedValue,
-  varianceThresholdPct = 0,
   onResetToExpected,
 }: DrawerCardProps) {
   const config = DRAWER_CONFIGS[drawer];
@@ -107,9 +99,7 @@ export function DrawerCard({
     const showStatus = !!getExpectedValue;
     const expected = showStatus ? getExpectedValue!(drawer, currency.code) : 0;
     const physical = parseFloat(rawValue) || 0;
-    const info = showStatus
-      ? getVarianceStatus(physical, expected, varianceThresholdPct)
-      : null;
+    const info = showStatus ? getVarianceStatus(physical, expected) : null;
     const styles = info ? STATUS_STYLES[info.status] : null;
     const borderClass = styles ? styles.border : "border-slate-600";
     const ringClass = styles ? styles.ring : `focus:ring-${focusRingColor}`;
@@ -147,11 +137,7 @@ export function DrawerCard({
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 justify-end">
-                  {info.variance > 0 ? (
-                    <TrendingUp className="w-3.5 h-3.5" />
-                  ) : (
-                    <TrendingDown className="w-3.5 h-3.5" />
-                  )}
+                  <AlertTriangle className="w-3.5 h-3.5" />
                   {info.variance > 0 ? "+" : ""}
                   {formatCurrencyAmount(info.variance, currency.code)}
                 </span>

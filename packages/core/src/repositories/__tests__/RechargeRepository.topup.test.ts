@@ -349,3 +349,77 @@ describe("RechargeRepository.topUpFromClient()", () => {
     expect(txn.profit_usd).toBeCloseTo(0, 2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// topUpFromCustomer — LBP cash converts into the USD profit (profit-audit fix 3)
+//
+// Credits are always USD; pre-fix an LBP cash payout was recorded as
+// profit_usd = FULL credits (no cost!) plus a phantom NEGATIVE profit_lbp,
+// inflating the USD bucket and polluting the LBP bucket.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("RechargeRepository.topUpFromCustomer()", () => {
+  let db: Database.Database;
+  let repo: RechargeRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    repo = new RechargeRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("USD cash path: profit_usd = credits − cashPaid", () => {
+    db.prepare(
+      "UPDATE drawer_balances SET balance = 500 WHERE drawer_name = 'General' AND currency_code = 'USD'",
+    ).run();
+
+    const result = repo.topUpFromCustomer({
+      provider: "MTC",
+      creditsAmount: 10,
+      cashPaid: 9,
+      cashPaidCurrency: "USD",
+      userId: 1,
+    });
+    expect(result.success).toBe(true);
+
+    const txn = db
+      .prepare(
+        "SELECT * FROM transactions ORDER BY id DESC LIMIT 1",
+      )
+      .get() as any;
+    expect(txn.profit_usd).toBeCloseTo(1, 2); // 10 − 9
+    expect(txn.profit_lbp).toBeCloseTo(0, 2);
+  });
+
+  it("LBP cash path: profit_usd = credits − cashPaid/sellRate, profit_lbp = 0", () => {
+    db.prepare(
+      "UPDATE drawer_balances SET balance = 10000000 WHERE drawer_name = 'General' AND currency_code = 'LBP'",
+    ).run();
+
+    // $10 of credits bought for 850,500 LBP cash. At the fallback sell rate of
+    // 89,500: cash cost = 850,500 / 89,500 = $9.503… → profit ≈ $0.497.
+    const result = repo.topUpFromCustomer({
+      provider: "MTC",
+      creditsAmount: 10,
+      cashPaid: 850_500,
+      cashPaidCurrency: "LBP",
+      userId: 1,
+    });
+    expect(result.success).toBe(true);
+
+    const txn = db
+      .prepare(
+        "SELECT * FROM transactions ORDER BY id DESC LIMIT 1",
+      )
+      .get() as any;
+    expect(txn.profit_usd).toBeCloseTo(10 - 850_500 / 89_500, 4);
+    // No phantom negative LBP profit anymore.
+    expect(txn.profit_lbp).toBeCloseTo(0, 2);
+  });
+});

@@ -21,7 +21,17 @@ type Api = {
         ticket_number?: string;
         sale_amount: number;
         payment_method?: string;
+        payments?: Array<{
+          method: string;
+          currencyCode: string;
+          amount: number;
+        }>;
       }) => Promise<{ success: boolean; error?: string }>;
+    };
+    recharge: {
+      getDrawerBalances: () => Promise<
+        Array<{ name: string; usdBalance: number; lbpBalance: number }>
+      >;
     };
     transactions: {
       getRecent: (limit: number) => Promise<
@@ -83,5 +93,42 @@ test.describe("LIRA-082 (B7) — loto in/out", () => {
       "in",
     );
     await expect(row.getByTestId("payment-legs")).toContainText("in:");
+  });
+
+  test("LBP ticket paid in USD books the PAID currency (owner-reported bug)", async ({
+    appPage,
+  }) => {
+    const result = await appPage.evaluate(async () => {
+      const w = window as unknown as Api;
+      const general = async () => {
+        const g = (await w.api.recharge.getDrawerBalances()).find(
+          (d) => d.name === "General",
+        );
+        return { usd: g?.usdBalance ?? 0, lbp: g?.lbpBalance ?? 0 };
+      };
+
+      const before = await general();
+      // 500,000 LBP ticket, customer hands over $5.
+      const res = await w.api.loto.sell({
+        ticket_number: `B-USD-${Date.now()}`,
+        sale_amount: 500_000,
+        payment_method: "CASH",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+      });
+      const after = await general();
+
+      return {
+        ok: res.success === true,
+        error: res.error ?? null,
+        usdDelta: after.usd - before.usd,
+        lbpDelta: after.lbp - before.lbp,
+      };
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.ok).toBe(true);
+    // The $5 the customer handed over — NOT a phantom +500,000 LBP.
+    expect(result.usdDelta).toBeCloseTo(5, 2);
+    expect(result.lbpDelta).toBeCloseTo(0, 2);
   });
 });

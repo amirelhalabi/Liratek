@@ -471,10 +471,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: data.userId,
           amount_usd: credits,
           amount_lbp: 0,
-          // Profit is only tracked in USD (credits are always USD); LBP cash
-          // payments are recorded on the drawer side only, not as profit_lbp
-          profit_usd: cashCurrency === "USD" ? credits - cashPaid : credits,
-          profit_lbp: cashCurrency === "LBP" ? -cashPaid : 0,
+          // Profit is tracked in USD only (the gained asset — credits — is
+          // always USD). LBP cash paid out is converted at the sell rate and
+          // subtracted here; splitting it as +credits USD / −cash LBP inflated
+          // the USD profit bucket and dumped a phantom negative on LBP.
+          profit_usd:
+            credits -
+            (cashCurrency === "LBP"
+              ? cashPaid / getUsdLbpSellRate(this.db)
+              : cashPaid),
+          profit_lbp: 0,
           summary: `${data.provider} top-up from customer: +${credits} credits, -${cashPaid} ${cashCurrency} cash`,
           metadata_json: {
             provider: data.provider,
@@ -634,6 +640,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
         // 2. Create unified transaction row
+        // rechargeCommission is denominated in the SALE currency (price and
+        // cost share it), but the SMS cost is a USD figure — for LBP-priced
+        // transfers it must be converted before subtracting, otherwise ~$0.32
+        // is shaved off an LBP amount (currency mixing).
         const rechargeCommission = data.price - data.cost;
         const SMS_COST_PER_SMS_USD = 0.16;
         const MAX_USD_PER_SMS = 3;
@@ -642,7 +652,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             ? Math.ceil(data.amount / MAX_USD_PER_SMS)
             : 0;
         const smsCostUsd = smsCount * SMS_COST_PER_SMS_USD;
-        const netRechargeCommission = rechargeCommission - smsCostUsd;
+        const sellRate = getUsdLbpSellRate(this.db);
+        const smsCostInSaleCurrency =
+          currency === "LBP" ? smsCostUsd * sellRate : smsCostUsd;
+        const netRechargeCommission = rechargeCommission - smsCostInSaleCurrency;
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE,
           source_table: "recharges",
@@ -665,7 +678,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             paid_by: paidBy,
             phone: data.phoneNumber,
           },
-          exchange_rate: getUsdLbpSellRate(this.db),
+          exchange_rate: sellRate,
           transaction_time: data.transaction_time,
         });
 

@@ -46,6 +46,7 @@ export function LotoPage() {
   // Sell ticket form state
   const [saleAmount, setSaleAmount] = useState<string>("");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   const [clientId, setClientId] = useState<number | null>(null);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
@@ -234,6 +235,24 @@ export function LotoPage() {
       payment_method:
         paymentLines.length > 1 ? "SPLIT" : paymentLines[0]?.method || "CASH",
       currency: "LBP",
+      // What the customer ACTUALLY handed over, per currency — the backend
+      // books these legs into the drawers (a 500,000 LBP ticket paid with $5
+      // must credit General +$5, not +500,000 LBP).
+      payments: [
+        ...paymentLines.map((l) => ({
+          method: l.method,
+          currencyCode: l.currencyCode,
+          amount: l.amount,
+          ...(l.direction ? { direction: l.direction } : {}),
+        })),
+        // Change handed back to the customer — booked negative by the repo.
+        ...returnLegs.map((l) => ({
+          method: l.method,
+          currencyCode: l.currencyCode,
+          amount: l.amount,
+          direction: "OUT" as const,
+        })),
+      ],
       transaction_time: transactionTime,
       clientId: resolvedClientId,
       clientName: resolvedClientName,
@@ -252,6 +271,7 @@ export function LotoPage() {
 
       setSaleAmount("");
       setPaymentLines([]);
+      setReturnLegs([]);
       setClientId(null);
       setClientName("");
       setClientPhone("");
@@ -269,6 +289,7 @@ export function LotoPage() {
         alert("Ticket sold successfully!");
         setSaleAmount("");
         setPaymentLines([]);
+        setReturnLegs([]);
         setClientId(null);
         setClientName("");
         setClientPhone("");
@@ -483,6 +504,7 @@ export function LotoPage() {
                     totalAmountCurrency="LBP"
                     currency="LBP"
                     onChange={setPaymentLines}
+                    onReturnChange={setReturnLegs}
                     showPmFee={false}
                     paymentMethods={methods}
                     currencies={[

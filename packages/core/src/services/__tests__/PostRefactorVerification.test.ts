@@ -591,6 +591,58 @@ describe("Post-Refactor Verification", () => {
   // 1. Module transaction creation
   // ══════════════════════════════════════════════════════════════════
 
+  describe("Sale change legs — mixed-currency change (owner-reported 2026-07-03)", () => {
+    it("$20 sale paid $50 with $25 + 450,000 LBP change books ALL legs", () => {
+      const service = new SalesService();
+      const balance = (currency: string) =>
+        (
+          db
+            .prepare(
+              `SELECT balance FROM drawer_balances WHERE drawer_name='General' AND currency_code=?`,
+            )
+            .get(currency) as { balance: number }
+        ).balance;
+      const usdBefore = balance("USD");
+      const lbpBefore = balance("LBP");
+
+      const result = service.processSale(
+        {
+          client_id: null,
+          items: [{ product_id: 1, quantity: 1, price: 20, imei: undefined }],
+          total_amount: 20,
+          discount: 0,
+          final_amount: 20,
+          payment_usd: 50,
+          payment_lbp: 0,
+          payments: [{ method: "CASH", currency_code: "USD", amount: 50 }],
+          change_given_usd: 25,
+          change_given_lbp: 450_000,
+          exchange_rate: 90000,
+          status: "completed",
+        },
+        1,
+      );
+      expect(result.success).toBe(true);
+
+      // The transaction carries all THREE legs: in $50, out $25, out 450k LBP.
+      const legs = db
+        .prepare(
+          `SELECT currency_code, amount FROM payments
+            WHERE transaction_id = (SELECT MAX(id) FROM transactions WHERE type='SALE')
+            ORDER BY id ASC`,
+        )
+        .all() as Array<{ currency_code: string; amount: number }>;
+      expect(legs).toHaveLength(3);
+      expect(legs[0]).toMatchObject({ currency_code: "USD", amount: 50 });
+      expect(legs[1]).toMatchObject({ currency_code: "USD", amount: -25 });
+      expect(legs[2]).toMatchObject({ currency_code: "LBP", amount: -450_000 });
+
+      // Net drawer effect: +$25 USD, −450,000 LBP.
+      expect(balance("USD")).toBeCloseTo(usdBefore + 25, 2);
+      expect(balance("LBP")).toBeCloseTo(lbpBefore - 450_000, 2);
+    });
+  });
+
   describe("Module transaction creation", () => {
     it("SalesService.processSale() creates a sale successfully", () => {
       const service = new SalesService();

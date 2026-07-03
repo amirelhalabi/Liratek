@@ -317,7 +317,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }
 
         // Create unified transaction row
-        // Calculate profit from items (sold_price - cost_price) × quantity
+        // Calculate profit from items (sold_price - cost_price) × quantity,
+        // minus the sale-level discount — the discount comes straight out of
+        // the shop's margin (final_amount = total − discount), so gross item
+        // margins alone overstate profit on every discounted sale.
         let saleProfitUsd = 0;
         for (const item of sale.items) {
           const costRow = db
@@ -326,6 +329,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           const costPrice = costRow?.cost_price_usd ?? 0;
           saleProfitUsd += (item.price - costPrice) * item.quantity;
         }
+        saleProfitUsd -= sale.discount || 0;
 
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SALE,
@@ -874,9 +878,22 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       //     NEGATIVE on transactions.profit_usd. SUM(profit) over a sale's
       //     SALE + REFUND rows then equals the net (post-refund) profit, attributed
       //     at the refund's date (accrual — intended).
-      const refundProfitUsd =
+      //
+      //     The SALE stamps profit = Σ item margins − sale.discount (see
+      //     processSale). So the refund of an item must give back its gross
+      //     margin MINUS its pro-rata share of that sale-level discount, or a
+      //     discounted sale never nets to zero when fully refunded (it would
+      //     leave a phantom loss equal to the discount). Pro-rate by the item's
+      //     share of the sale's pre-discount total.
+      const grossMarginUsd =
         (item.sold_price_usd - item.cost_price_snapshot_usd) *
         params.refundQuantity;
+      const saleTotalUsd = sale.total_amount_usd || 0;
+      const discountShareUsd =
+        saleTotalUsd > 0
+          ? (sale.discount_usd || 0) * (refundAmount / saleTotalUsd)
+          : 0;
+      const refundProfitUsd = grossMarginUsd - discountShareUsd;
 
       // 5. Get the original SALE transaction
       const originalTxn = db

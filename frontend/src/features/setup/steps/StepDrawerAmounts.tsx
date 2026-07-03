@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
-import { Wallet } from "lucide-react";
+import { Wallet, Plus, X } from "lucide-react";
 import { DecimalInput } from "@liratek/ui";
 import { useSetup } from "../context/SetupContext";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../../closing/config/drawers";
 import type { DrawerType } from "../../closing/types";
+
+interface CurrencyOption {
+  code: string;
+  name: string;
+  is_active: number;
+}
 
 // Module required to show each drawer
 const DRAWER_MODULE_REQUIREMENT: Record<string, string> = {
@@ -43,6 +49,13 @@ export default function StepDrawerAmounts() {
   const [drawerCurrencies, setDrawerCurrencies] = useState<
     Record<string, string[]>
   >({});
+  // drawer → extra currency_code[] the operator added here (e.g. EUR) on top of
+  // the configured set. Persisted to currency_drawers on completion.
+  const [extraCurrencies, setExtraCurrencies] = useState<
+    Record<string, string[]>
+  >({});
+  // All active currencies, for the "add currency" picker.
+  const [allCurrencies, setAllCurrencies] = useState<CurrencyOption[]>([]);
 
   const enabledModules = payload.enabled_modules;
 
@@ -55,7 +68,49 @@ export default function StepDrawerAmounts() {
     window.api?.currencies
       .allDrawerCurrencies()
       .then((configured) => setDrawerCurrencies(configured ?? {}));
+    window.api?.currencies
+      .list()
+      .then((rows) =>
+        setAllCurrencies(
+          (Array.isArray(rows) ? rows : []).filter(
+            (c: CurrencyOption) => c.is_active,
+          ),
+        ),
+      );
   }, []);
+
+  // Configured + operator-added currencies for a drawer, de-duplicated.
+  function currenciesFor(drawer: string): string[] {
+    return Array.from(
+      new Set([...(drawerCurrencies[drawer] ?? []), ...(extraCurrencies[drawer] ?? [])]),
+    );
+  }
+
+  // Active currencies not already shown for this drawer (picker options).
+  function addableCurrencies(drawer: string): CurrencyOption[] {
+    const shown = new Set(currenciesFor(drawer));
+    return allCurrencies.filter((c) => !shown.has(c.code));
+  }
+
+  function handleAddCurrency(drawer: string, currency: string) {
+    if (!currency) return;
+    setExtraCurrencies((prev) => ({
+      ...prev,
+      [drawer]: [...(prev[drawer] ?? []), currency],
+    }));
+  }
+
+  function handleRemoveExtra(drawer: string, currency: string) {
+    setExtraCurrencies((prev) => ({
+      ...prev,
+      [drawer]: (prev[drawer] ?? []).filter((c) => c !== currency),
+    }));
+    setAmounts((prev) => {
+      const next = { ...(prev[drawer] ?? {}) };
+      delete next[currency];
+      return { ...prev, [drawer]: next };
+    });
+  }
 
   function handleChange(drawer: string, currency: string, value: number) {
     setAmounts((prev) => ({
@@ -71,7 +126,7 @@ export default function StepDrawerAmounts() {
       amount: number;
     }> = [];
     for (const drawer of visibleDrawers) {
-      for (const currency of drawerCurrencies[drawer] ?? []) {
+      for (const currency of currenciesFor(drawer)) {
         const amt = amounts[drawer]?.[currency] ?? 0;
         if (amt !== 0) {
           rows.push({
@@ -85,14 +140,29 @@ export default function StepDrawerAmounts() {
     return rows;
   }
 
+  // Only drawers the operator extended need a currency_drawers rewrite; each
+  // carries its FULL currency set (configured + added) since the persist
+  // replaces the drawer's mapping.
+  function buildDrawerCurrencyConfig() {
+    return visibleDrawers
+      .filter((drawer) => (extraCurrencies[drawer] ?? []).length > 0)
+      .map((drawer) => ({
+        drawer_name: drawer,
+        currency_codes: currenciesFor(drawer),
+      }));
+  }
+
   function handleNext() {
-    // Store amounts in payload so StepComplete can apply them post-setup
-    updatePayload({ drawer_amounts: buildDrawerAmounts() });
+    // Store amounts + any drawer currency additions so StepComplete applies them
+    updatePayload({
+      drawer_amounts: buildDrawerAmounts(),
+      drawer_currency_config: buildDrawerCurrencyConfig(),
+    });
     setStep(7);
   }
 
   function handleSkip() {
-    updatePayload({ drawer_amounts: [] });
+    updatePayload({ drawer_amounts: [], drawer_currency_config: [] });
     setStep(7);
   }
 
@@ -112,7 +182,9 @@ export default function StepDrawerAmounts() {
       <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
         {visibleDrawers.map((drawer) => {
           const config = DRAWER_CONFIGS[drawer as DrawerType];
-          const currencies = drawerCurrencies[drawer] ?? [];
+          const currencies = currenciesFor(drawer);
+          const extras = extraCurrencies[drawer] ?? [];
+          const options = addableCurrencies(drawer);
           const accent = DRAWER_ACCENT[drawer] ?? "slate";
 
           return (
@@ -139,8 +211,18 @@ export default function StepDrawerAmounts() {
                     key={currency}
                     data-testid={`setup-amount-${drawer}-${currency}`}
                   >
-                    <label className="text-xs text-slate-400 block mb-1">
-                      {currency}
+                    <label className="text-xs text-slate-400 mb-1 flex items-center justify-between">
+                      <span>{currency}</span>
+                      {extras.includes(currency) && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveExtra(drawer, currency)}
+                          className="text-slate-500 hover:text-red-400 transition-colors"
+                          title={`Remove ${currency}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
                     </label>
                     <DecimalInput
                       value={amounts[drawer]?.[currency] ?? 0}
@@ -152,6 +234,31 @@ export default function StepDrawerAmounts() {
                   </div>
                 ))}
               </div>
+
+              {/* Add another currency (e.g. EUR) — only on the General till,
+                  where physical foreign cash is held. Provider drawers keep
+                  their fixed business currency. */}
+              {drawer === "General" && options.length > 0 && (
+                <div className="mt-3 flex items-center gap-2">
+                  <Plus className="w-3 h-3 text-slate-500" />
+                  <select
+                    value=""
+                    data-testid={`setup-add-currency-${drawer}`}
+                    onChange={(e) => {
+                      handleAddCurrency(drawer, e.target.value);
+                      e.target.value = "";
+                    }}
+                    className="bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-slate-300 text-xs focus:outline-none focus:border-violet-500"
+                  >
+                    <option value="">Add currency…</option>
+                    {options.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code} — {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           );
         })}

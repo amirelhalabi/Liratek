@@ -15,6 +15,7 @@ import {
 import type { CreateCustomServiceInput } from "../validators/customService.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
+import { getDebtService } from "../services/DebtService.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
@@ -147,6 +148,115 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // Session-basket deferred mode: the basket owns the customer-cash price
           // inflow + any on-account debt. The shop's own cost is still spent
           // out-of-pocket from the General drawer, so book ONLY the cost outflow.
+          if ((data.cost_usd ?? 0) > 0) {
+            insertPayment.run(
+              txnId,
+              "CASH",
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+              `${noteText} (cost outflow)`,
+              createdBy,
+            );
+            upsertBalance.run("General", "USD", -Math.abs(data.cost_usd!));
+          }
+          if ((data.cost_lbp ?? 0) > 0) {
+            insertPayment.run(
+              txnId,
+              "CASH",
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+              `${noteText} (cost outflow)`,
+              createdBy,
+            );
+            upsertBalance.run("General", "LBP", -Math.abs(data.cost_lbp!));
+          }
+        } else if (data.payments && data.payments.length > 0) {
+          // Structured payment legs (rule 16): book what the customer ACTUALLY
+          // handed over — split payments, pay-in-another-currency, and change.
+          // Pre-fix these legs were sent by the form and silently IGNORED: the
+          // repo booked paid_by × price only, so a $-paid LBP service or any
+          // change never reached the books.
+          let debtUsd = 0;
+          let debtLbp = 0;
+          for (const leg of data.payments) {
+            const amt = Math.abs(leg.amount);
+            if (amt <= 0) continue;
+            const isOut = leg.direction === "OUT";
+
+            if (!isOut && leg.method === "GIFT_CARD") {
+              // Voucher pays: deposit its value to the owner's account and
+              // charge this leg's share against that account as debt.
+              getVoucherRepository().redeemByCode({
+                code: (leg.voucher_code ?? "").trim().toUpperCase(),
+                context: "custom_service",
+                transactionId: txnId,
+                userId: createdBy,
+              });
+              if (leg.currency_code === "USD") debtUsd += amt;
+              else debtLbp += amt;
+              continue;
+            }
+
+            if (!isDrawerAffectingMethod(leg.method)) {
+              if (isOut) {
+                // Change kept on the customer's account → store credit.
+                if (!data.client_id) {
+                  throw new Error(
+                    "Client is required to return change as store credit",
+                  );
+                }
+                getDebtService().addCredit({
+                  clientId: data.client_id,
+                  amountUsd: leg.currency_code === "USD" ? amt : 0,
+                  amountLbp: leg.currency_code === "LBP" ? amt : 0,
+                  note: "Change returned",
+                  userId: createdBy,
+                });
+              } else {
+                // On-account (CUSTOMER_ACCOUNT) share → debt.
+                if (leg.currency_code === "USD") debtUsd += amt;
+                else debtLbp += amt;
+              }
+              continue;
+            }
+
+            const drawer = paymentMethodToDrawerName(leg.method);
+            const signed = isOut ? -amt : amt;
+            insertPayment.run(
+              txnId,
+              leg.method,
+              drawer,
+              leg.currency_code,
+              signed,
+              isOut ? "Change returned" : noteText,
+              createdBy,
+            );
+            upsertBalance.run(drawer, leg.currency_code, signed);
+          }
+
+          if (debtUsd > 0 || debtLbp > 0) {
+            if (!data.client_id) {
+              throw new Error("Cannot create debt without a client");
+            }
+            this.db
+              .prepare(
+                `INSERT INTO debt_ledger (
+                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+                ) VALUES (?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+              )
+              .run(
+                data.client_id,
+                debtUsd,
+                debtLbp,
+                txnId,
+                noteText,
+                createdBy,
+              );
+          }
+
+          // Cost outflow — shop pays the cost out-of-pocket, same as all paths.
           if ((data.cost_usd ?? 0) > 0) {
             insertPayment.run(
               txnId,

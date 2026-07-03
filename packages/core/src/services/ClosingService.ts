@@ -150,6 +150,38 @@ export class ClosingService {
   }
 
   /**
+   * Check whether a starting checkpoint has ever been recorded (timeline
+   * non-empty). Returns true on error to avoid nagging the operator on a
+   * transient failure (same conservative default as hasInitialBalancesSet).
+   */
+  hasStartingCheckpoint(): boolean {
+    try {
+      return this.repo.hasStartingCheckpoint();
+    } catch (error) {
+      closingLogger.error(
+        { error },
+        "ClosingService.hasStartingCheckpoint error",
+      );
+      return true;
+    }
+  }
+
+  /**
+   * Closing date of the initial (setup) checkpoint, or null if none exists.
+   */
+  getInitialCheckpointDate(): string | null {
+    try {
+      return this.repo.getInitialCheckpointDate();
+    } catch (error) {
+      closingLogger.error(
+        { error },
+        "ClosingService.getInitialCheckpointDate error",
+      );
+      return null;
+    }
+  }
+
+  /**
    * Update an existing daily_closings record by id.
    */
   updateDailyClosing(data: {

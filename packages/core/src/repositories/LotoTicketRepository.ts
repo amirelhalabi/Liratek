@@ -55,6 +55,19 @@ export interface LotoTicketCreate {
   clientId?: number | null;
   clientName?: string | null;
   /**
+   * Structured payment legs in the currency the customer ACTUALLY paid
+   * (e.g. a 500,000 LBP ticket paid with $5). When present, each
+   * drawer-affecting leg is booked in its own currency; the ticket's LBP
+   * face value is never blindly credited. Legs without a direction are IN;
+   * direction "OUT" legs are change returned (booked negative).
+   */
+  payments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+    direction?: "IN" | "OUT";
+  }>;
+  /**
    * Session-basket deferred payment mode. When true, the ticket + unified
    * transaction + supplier ledger are created but the customer-cash drawer post
    * is skipped — the basket recorder owns the customer payment. Non-session
@@ -144,16 +157,48 @@ export class LotoTicketRepository {
       // 3. Record payment and update drawer balance.
       // Deferred (session basket): the basket recorder owns the customer-cash
       // post, so skip the drawer movement here (the supplier ledger below stays).
-      if (!data.deferPayment && isDrawerAffectingMethod(paymentMethod)) {
+      const insertPayment = this.db.prepare(`
+        INSERT INTO payments (
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const upsertBalanceLeg = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+
+      if (!data.deferPayment && data.payments && data.payments.length > 0) {
+        // Structured legs: book what the customer ACTUALLY handed over, each
+        // leg in its own currency (a 500,000 LBP ticket paid with $5 books
+        // General +5 USD — not a phantom +500,000 LBP). IN legs positive,
+        // OUT (change) legs negative.
+        for (const leg of data.payments) {
+          if (!isDrawerAffectingMethod(leg.method)) continue;
+          const legDrawer = paymentMethodToDrawerName(leg.method);
+          const signed =
+            leg.direction === "OUT"
+              ? -Math.abs(leg.amount)
+              : Math.abs(leg.amount);
+          insertPayment.run(
+            txnId,
+            leg.method,
+            legDrawer,
+            leg.currencyCode,
+            signed,
+            data.note || txnSummary,
+            data.userId,
+          );
+          upsertBalanceLeg.run(legDrawer, leg.currencyCode, signed);
+        }
+      } else if (!data.deferPayment && isDrawerAffectingMethod(paymentMethod)) {
+        // Legacy fallback (no legs provided): single payment at the ticket's
+        // denominated currency.
         const drawerName = paymentMethodToDrawerName(paymentMethod);
         const currency = data.currency || "LBP";
 
-        // Insert payment record (positive = money IN)
-        const insertPayment = this.db.prepare(`
-          INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
         insertPayment.run(
           txnId,
           paymentMethod,

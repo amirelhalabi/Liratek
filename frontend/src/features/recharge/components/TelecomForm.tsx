@@ -288,6 +288,7 @@ export function TelecomForm({
           clientId={telecomClientId}
           exchangeRate={exchangeRate}
           onPaymentChange={handleCardPaymentChange}
+          {...(onReturnChange ? { onReturnChange } : {})}
           onDiscountChange={handleDiscountChange}
           clientName={telecomClientName}
           onClientNameChange={setTelecomClientName}

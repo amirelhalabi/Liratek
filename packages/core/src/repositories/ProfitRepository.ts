@@ -68,8 +68,23 @@ export interface CustomTotalsRow {
 
 export interface MaintTotalsRow {
   revenue_usd: number;
+  revenue_lbp: number;
   cost_usd: number;
+  cost_lbp: number;
   profit_usd: number;
+  profit_lbp: number;
+  count: number;
+}
+
+export interface LotoTotalsRow {
+  revenue_lbp: number;
+  profit_lbp: number;
+  count: number;
+}
+
+export interface PmFeeCurrencyRow {
+  currency_code: string;
+  total: number;
   count: number;
 }
 
@@ -205,6 +220,17 @@ function saleNotFullyPaid(alias: string): string {
   return `(${alias}.paid_usd + COALESCE(${alias}.paid_lbp, 0) / COALESCE(NULLIF(${alias}.exchange_rate_snapshot, 0), 1)) < ${alias}.final_amount_usd - 0.05`;
 }
 
+/**
+ * Module-source row not refunded/voided. Void and refund both set
+ * `is_refunded = 1` on the source row (see TransactionRepository
+ * `_markSourceRefunded`) — without this gate a refunded service keeps its full
+ * revenue AND profit forever, because the REFUND/VOID reversal transaction row
+ * never enters the module joins (they join on the module's own type).
+ */
+function notRefunded(alias: string): string {
+  return `COALESCE(${alias}.is_refunded, 0) = 0`;
+}
+
 /** Inclusive [from, to] date-range bound on a column (two bind params). */
 function dateRange(col: string): string {
   return `${col} >= ? AND ${col} <= ?`;
@@ -232,7 +258,7 @@ const INTERNAL_PAYMENT_METHODS =
 
 /** Transaction types that count toward per-user / per-client profit. */
 const PROFIT_TXN_TYPES =
-  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'REFUND'";
+  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND'";
 
 /**
  * Maintenance jobs that count as completed revenue: the device was delivered.
@@ -320,6 +346,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE fs.is_settled = 1
           AND fs.provider IN (${COMMISSION_PROVIDERS})
           AND t.status = 'ACTIVE'
+          AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
         GROUP BY fs.currency`,
       )
@@ -343,6 +370,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE fs.is_settled = 0
           AND fs.provider IN (${COMMISSION_PROVIDERS})
           AND t.status = 'ACTIVE'
+          AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
         GROUP BY fs.currency`,
       )
@@ -366,6 +394,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
         WHERE fs.provider IN (${MOBILE_PROVIDERS})
           AND t.status = 'ACTIVE'
+          AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
         GROUP BY fs.currency`,
       )
@@ -385,6 +414,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM recharges r
         JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
         WHERE t.status = 'ACTIVE'
+          AND ${notRefunded("r")}
           AND ${dateRange("r.created_at")}
         GROUP BY r.currency_code`,
       )
@@ -407,27 +437,87 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'custom_services' AND t.source_id = cs.id AND t.type = 'CUSTOM_SERVICE'
         WHERE cs.status = 'completed'
           AND t.status = 'ACTIVE'
+          AND ${notRefunded("cs")}
           AND ${dateRange("cs.created_at")}`,
       )
       .get(fromDt, toDt) as CustomTotalsRow;
   }
 
-  /** Maintenance totals (revenue/cost from source, profit from transactions). */
+  /**
+   * Maintenance totals (revenue/cost from source, profit from transactions).
+   * LBP jobs stamp profit_lbp (not profit_usd) — summing only the USD columns
+   * made every LBP maintenance job invisible in the profits views.
+   */
   getMaintenanceTotals(fromDt: string, toDt: string): MaintTotalsRow {
     return this.db
       .prepare(
         `SELECT
           COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
+          COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
           COALESCE(SUM(m.cost_usd), 0) AS cost_usd,
+          COALESCE(SUM(m.cost_lbp), 0) AS cost_lbp,
           COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
           COUNT(*) AS count
         FROM maintenance m
         JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
         WHERE ${MAINTENANCE_COMPLETED}
           AND t.status = 'ACTIVE'
+          AND ${notRefunded("m")}
           AND ${dateRange("m.created_at")}`,
       )
       .get(fromDt, toDt) as MaintTotalsRow;
+  }
+
+  /**
+   * Loto ticket commissions (LBP). Loto stamps its commission as profit_lbp on
+   * the LOTO transaction at sale time but was absent from every profits view.
+   * Revenue is the ticket face value; profit is the shop's commission cut.
+   */
+  getLotoTotals(fromDt: string, toDt: string): LotoTotalsRow {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(lt.sale_amount), 0) AS revenue_lbp,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
+          COUNT(*) AS count
+        FROM loto_tickets lt
+        JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
+        WHERE t.status = 'ACTIVE'
+          AND ${notRefunded("lt")}
+          AND ${dateRange("lt.created_at")}`,
+      )
+      .get(fromDt, toDt) as LotoTotalsRow;
+  }
+
+  /**
+   * Payment-method fees (PM_FEE audit rows) per currency. The fee the customer
+   * pays on top when paying through a wallet stays in the wallet drawer as
+   * immediate shop profit (realized at once — NOT gated by is_settled), but was
+   * never counted in any profits view.
+   *
+   * Sourced from `financial_services.payment_method_fee` (the fee is stored on
+   * the FS row) gated by `notRefunded`, dated by fs.created_at — the SAME
+   * retroactive-removal semantics as commissions. Summing raw PM_FEE payment
+   * rows instead would break at report boundaries: a void/refund's negated
+   * PM_FEE row lands in the reversal's period (created_at = reversal time), so a
+   * cross-period reversal would overstate the original period while the
+   * commission was removed retroactively.
+   */
+  getPmFeeTotals(fromDt: string, toDt: string): PmFeeCurrencyRow[] {
+    return this.db
+      .prepare(
+        `SELECT
+          fs.currency AS currency_code,
+          COALESCE(SUM(fs.payment_method_fee), 0) AS total,
+          COUNT(*) AS count
+        FROM financial_services fs
+        WHERE COALESCE(fs.payment_method_fee, 0) <> 0
+          AND ${notRefunded("fs")}
+          AND ${dateRange("fs.created_at")}
+        GROUP BY fs.currency`,
+      )
+      .all(fromDt, toDt) as PmFeeCurrencyRow[];
   }
 
   /** Exchange totals (v30+: leg1 + leg2 profit; revenue = sum of amount_in). */
@@ -439,7 +529,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM(amount_in), 0) AS revenue_usd,
           COUNT(*) AS count
         FROM exchange_transactions
-        WHERE ${dateRange("created_at")}`,
+        WHERE ${notRefunded("exchange_transactions")}
+          AND ${dateRange("created_at")}`,
       )
       .get(fromDt, toDt) as ExchangeTotalsRow;
   }
@@ -481,6 +572,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
         WHERE fs.is_settled = 1
           AND t.status = 'ACTIVE'
+          AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
         GROUP BY fs.provider`,
       )
@@ -503,6 +595,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM recharges r
         JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
         WHERE t.status = 'ACTIVE'
+          AND ${notRefunded("r")}
           AND ${dateRange("r.created_at")}
         GROUP BY r.carrier`,
       )
@@ -571,6 +664,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
           WHERE fs.is_settled = 1
             AND t.status = 'ACTIVE'
+            AND ${notRefunded("fs")}
             AND ${dateRange("fs.created_at")}
           GROUP BY DATE(fs.created_at)
         ),
@@ -586,6 +680,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           FROM recharges r
           JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
           WHERE t.status = 'ACTIVE'
+            AND ${notRefunded("r")}
             AND ${dateRange("r.created_at")}
           GROUP BY DATE(r.created_at)
         ),
@@ -602,6 +697,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           JOIN transactions t ON t.source_table = 'custom_services' AND t.source_id = cs.id AND t.type = 'CUSTOM_SERVICE'
           WHERE cs.status = 'completed'
             AND t.status = 'ACTIVE'
+            AND ${notRefunded("cs")}
             AND ${dateRange("cs.created_at")}
           GROUP BY DATE(cs.created_at)
         ),
@@ -609,14 +705,30 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           SELECT
             DATE(m.created_at) AS d,
             COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
+            COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
             COALESCE(SUM(m.cost_usd), 0) AS cost_usd,
-            COALESCE(SUM(t.profit_usd), 0) AS profit_usd
+            COALESCE(SUM(m.cost_lbp), 0) AS cost_lbp,
+            COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+            COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
           FROM maintenance m
           JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
           WHERE ${MAINTENANCE_COMPLETED}
             AND t.status = 'ACTIVE'
+            AND ${notRefunded("m")}
             AND ${dateRange("m.created_at")}
           GROUP BY DATE(m.created_at)
+        ),
+        daily_loto AS (
+          SELECT
+            DATE(lt.created_at) AS d,
+            COALESCE(SUM(lt.sale_amount), 0) AS revenue_lbp,
+            COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+          FROM loto_tickets lt
+          JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
+          WHERE t.status = 'ACTIVE'
+            AND ${notRefunded("lt")}
+            AND ${dateRange("lt.created_at")}
+          GROUP BY DATE(lt.created_at)
         ),
         daily_expenses AS (
           SELECT
@@ -634,21 +746,36 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             COALESCE(SUM(amount_in), 0) AS revenue_usd,
             COALESCE(SUM(${EXCHANGE_LEG_PROFIT}), 0) AS profit_usd
           FROM exchange_transactions
-          WHERE ${dateRange("created_at")}
+          WHERE ${notRefunded("exchange_transactions")}
+            AND ${dateRange("created_at")}
           GROUP BY DATE(created_at)
+        ),
+        daily_pmfee AS (
+          -- Payment-method fees from financial_services (notRefunded, dated by
+          -- fs.created_at) — same retroactive-removal semantics as commissions,
+          -- so a cross-period void/refund never overstates the original period.
+          SELECT
+            DATE(fs.created_at) AS d,
+            COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_usd,
+            COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_lbp
+          FROM financial_services fs
+          WHERE COALESCE(fs.payment_method_fee, 0) <> 0
+            AND ${notRefunded("fs")}
+            AND ${dateRange("fs.created_at")}
+          GROUP BY DATE(fs.created_at)
         )
         SELECT
           dates.d AS date,
           COALESCE(ds.revenue_usd, 0) + COALESCE(dc.revenue_usd, 0) + COALESCE(dr.revenue_usd, 0) + COALESCE(dcm.revenue_usd, 0) + COALESCE(dm.revenue_usd, 0) + COALESCE(dex.revenue_usd, 0) AS revenue_usd,
-          COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) AS revenue_lbp,
+          COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) + COALESCE(dm.revenue_lbp, 0) + COALESCE(dl.revenue_lbp, 0) AS revenue_lbp,
           COALESCE(ds.cost_usd, 0) + COALESCE(dr.cost_usd, 0) + COALESCE(dcm.cost_usd, 0) + COALESCE(dm.cost_usd, 0) + COALESCE(dex.revenue_usd, 0) - COALESCE(dex.profit_usd, 0) AS cost_usd,
-          COALESCE(dr.cost_lbp, 0) + COALESCE(dcm.cost_lbp, 0) AS cost_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) AS profit_usd,
-          COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) AS profit_lbp,
+          COALESCE(dr.cost_lbp, 0) + COALESCE(dcm.cost_lbp, 0) + COALESCE(dm.cost_lbp, 0) AS cost_lbp,
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) AS profit_usd,
+          COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) AS profit_lbp,
           COALESCE(de.expenses_usd, 0) AS expenses_usd,
           COALESCE(de.expenses_lbp, 0) AS expenses_lbp,
-          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
-          COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
+          COALESCE(dsp.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) + COALESCE(dpf.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
+          COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) + COALESCE(dm.profit_lbp, 0) + COALESCE(dl.profit_lbp, 0) + COALESCE(dpf.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
         FROM dates
         LEFT JOIN daily_sales ds ON ds.d = dates.d
         LEFT JOIN daily_sales_profit dsp ON dsp.d = dates.d
@@ -656,8 +783,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         LEFT JOIN daily_recharges dr ON dr.d = dates.d
         LEFT JOIN daily_custom dcm ON dcm.d = dates.d
         LEFT JOIN daily_maint dm ON dm.d = dates.d
+        LEFT JOIN daily_loto dl ON dl.d = dates.d
         LEFT JOIN daily_expenses de ON de.d = dates.d
         LEFT JOIN daily_exchange dex ON dex.d = dates.d
+        LEFT JOIN daily_pmfee dpf ON dpf.d = dates.d
         ORDER BY dates.d DESC`,
       )
       .all(
@@ -676,9 +805,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         fromDt,
         toDt, // daily_maint
         fromDt,
+        toDt, // daily_loto
+        fromDt,
         toDt, // daily_expenses
         fromDt,
         toDt, // daily_exchange
+        fromDt,
+        toDt, // daily_pmfee
       ) as ProfitByDateRow[];
   }
 
@@ -725,6 +858,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM financial_services
         WHERE is_settled = 1
           AND commission > 0
+          AND ${notRefunded("financial_services")}
           AND ${dateRange("created_at")}`,
       )
       .get(fromDt, toDt) as CommissionTotalsRow;
@@ -744,6 +878,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM financial_services
         WHERE is_settled = 0
           AND commission > 0
+          AND ${notRefunded("financial_services")}
           AND ${dateRange("created_at")}`,
       )
       .get(fromDt, toDt) as CommissionTotalsRow;
@@ -761,6 +896,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
            COUNT(*) AS count
          FROM financial_services
          WHERE is_settled = 0 AND commission > 0
+           AND ${notRefunded("financial_services")}
            AND ${dateRange("created_at")}
          GROUP BY provider`,
       )
@@ -783,9 +919,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           t.user_id,
           COALESCE(u.username, 'Unknown') AS username,
           SUM(CASE
-            WHEN t.type = 'FINANCIAL_SERVICE' THEN (
+            WHEN t.source_table = 'financial_services' THEN (
+              -- Original FINANCIAL_SERVICE and its REFUND both gated by
+              -- is_settled; the REFUND negates so a settled FS refund nets to 0
+              -- and an UNSETTLED FS refund contributes 0 (was: refund fell to
+              -- the ungated ELSE and drove per-user/client revenue negative).
               SELECT CASE WHEN fs.is_settled = 1
-                THEN COALESCE(${fsRevenue("fs")}, 0)
+                THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0)
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id
             )
@@ -808,21 +948,39 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 THEN t.profit_usd ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id
             )
-            WHEN t.type = 'FINANCIAL_SERVICE' THEN (
+            WHEN t.source_table = 'financial_services' THEN (
+              -- FS + its REFUND both gated by is_settled (t.profit_usd already
+              -- carries the sign: +commission on the original, -commission on
+              -- the refund). Fixes: refunding an UNSETTLED commission used to
+              -- fall to the ungated ELSE and post a phantom -commission here.
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_usd ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id
             )
             ELSE t.profit_usd
           END) AS profit_usd,
-          0 AS profit_lbp,
+          SUM(CASE
+            WHEN t.source_table = 'financial_services' THEN (
+              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
+              FROM financial_services fs WHERE fs.id = t.source_id
+            )
+            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
+              SELECT CASE
+                WHEN ${saleFullyPaid("s2")}
+                THEN t.profit_lbp ELSE 0 END
+              FROM sales s2 WHERE s2.id = t.source_id
+            )
+            ELSE t.profit_lbp
+          END) AS profit_lbp,
           COUNT(*) AS transaction_count,
           COALESCE((
             SELECT SUM(fs2.commission)
             FROM financial_services fs2
             JOIN transactions t2 ON t2.source_table = 'financial_services' AND t2.source_id = fs2.id
+              AND t2.type = 'FINANCIAL_SERVICE'
             WHERE t2.user_id = t.user_id
               AND fs2.is_settled = 0
               AND fs2.commission > 0
+              AND ${notRefunded("fs2")}
               AND ${dateRange("fs2.created_at")}
           ), 0) AS pending_profit_usd
         FROM transactions t
@@ -853,9 +1011,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(t.client_name, c.full_name, 'Walk-in') AS client_name,
           COALESCE(t.client_phone, c.phone_number) AS client_phone,
           SUM(CASE
-            WHEN t.type = 'FINANCIAL_SERVICE' THEN (
+            WHEN t.source_table = 'financial_services' THEN (
+              -- Original FINANCIAL_SERVICE and its REFUND both gated by
+              -- is_settled; the REFUND negates so a settled FS refund nets to 0
+              -- and an UNSETTLED FS refund contributes 0 (was: refund fell to
+              -- the ungated ELSE and drove per-user/client revenue negative).
               SELECT CASE WHEN fs.is_settled = 1
-                THEN COALESCE(${fsRevenue("fs")}, 0)
+                THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0)
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id
             )
@@ -878,24 +1040,42 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 THEN t.profit_usd ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id
             )
-            WHEN t.type = 'FINANCIAL_SERVICE' THEN (
+            WHEN t.source_table = 'financial_services' THEN (
+              -- FS + its REFUND both gated by is_settled (t.profit_usd already
+              -- carries the sign: +commission on the original, -commission on
+              -- the refund). Fixes: refunding an UNSETTLED commission used to
+              -- fall to the ungated ELSE and post a phantom -commission here.
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_usd ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id
             )
             ELSE t.profit_usd
           END) AS profit_usd,
-          0 AS profit_lbp,
+          SUM(CASE
+            WHEN t.source_table = 'financial_services' THEN (
+              SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
+              FROM financial_services fs WHERE fs.id = t.source_id
+            )
+            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
+              SELECT CASE
+                WHEN ${saleFullyPaid("s2")}
+                THEN t.profit_lbp ELSE 0 END
+              FROM sales s2 WHERE s2.id = t.source_id
+            )
+            ELSE t.profit_lbp
+          END) AS profit_lbp,
           COUNT(*) AS transaction_count,
           COALESCE((
             SELECT SUM(fs2.commission)
             FROM financial_services fs2
             JOIN transactions t2 ON t2.source_table = 'financial_services' AND t2.source_id = fs2.id
+              AND t2.type = 'FINANCIAL_SERVICE'
             WHERE (
               (t.client_id IS NOT NULL AND t2.client_id = t.client_id)
               OR (t.client_id IS NULL AND t2.client_name = t.client_name)
             )
               AND fs2.is_settled = 0
               AND fs2.commission > 0
+              AND ${notRefunded("fs2")}
               AND ${dateRange("fs2.created_at")}
           ), 0) AS pending_profit_usd
         FROM transactions t
@@ -960,6 +1140,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         FROM financial_services
         WHERE is_settled = 0
           AND commission > 0
+          AND ${notRefunded("financial_services")}
           AND ${dateRange("created_at")}
         ORDER BY created_at DESC`,
       )

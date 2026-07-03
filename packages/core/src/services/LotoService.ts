@@ -63,6 +63,13 @@ export interface SellTicketData {
   transaction_time?: string;
   clientId?: number | null;
   clientName?: string | null;
+  /** Structured legs in the currency the customer ACTUALLY paid. */
+  payments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+    direction?: "IN" | "OUT";
+  }>;
   /** Session-basket deferred payment mode (basket owns the customer-cash post). */
   deferPayment?: boolean;
   /** Operator-edited USD↔LBP rate of record, threaded by the session checkout. */
@@ -150,6 +157,7 @@ export class LotoService {
         transaction_time: data.transaction_time,
         clientId: data.clientId,
         clientName: data.clientName,
+        payments: data.payments,
         deferPayment: data.deferPayment,
         exchange_rate: data.exchange_rate,
       };

@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { PageHeader, Select } from "@liratek/ui";
-import { Clock, Eye, X, Check, TrendingUp, TrendingDown } from "lucide-react";
+import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
 import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";
-import { formatCurrencyAmount } from "../../utils/variance";
+import { formatCurrencyAmount, getVarianceStatus } from "../../utils/variance";
 import type { DrawerType } from "../../types";
 
 interface CheckpointCurrency {
@@ -53,6 +53,19 @@ export default function CheckpointTimeline() {
   const [viewCheckpoint, setViewCheckpoint] = useState<CheckpointRecord | null>(
     null,
   );
+  // closing_date of the initial (setup) checkpoint, for the "jump to setup" hint.
+  const [initialCheckpointDate, setInitialCheckpointDate] = useState<
+    string | null
+  >(null);
+
+  // Fetch the setup checkpoint date once so we can surface it when it falls
+  // outside the current filter window.
+  useEffect(() => {
+    window.api.closing
+      .getInitialCheckpointDate()
+      .then(setInitialCheckpointDate)
+      .catch(() => setInitialCheckpointDate(null));
+  }, []);
 
   // Refresh the timeline after a checkpoint completes
   useEffect(() => {
@@ -128,6 +141,31 @@ export default function CheckpointTimeline() {
     return parts.join(" + ") || "—";
   };
 
+  // Currencies whose counted amount differs from expected (opening). No
+  // tolerance — any difference beyond a rounding epsilon is a variance.
+  const getCheckpointDiffs = (checkpoint: CheckpointRecord) =>
+    checkpoint.currencies
+      .map((c) => {
+        const expected = c.opening_amount ?? 0;
+        const counted = c.physical_amount ?? c.opening_amount ?? 0;
+        const { status, variance } = getVarianceStatus(counted, expected);
+        return { code: c.currency_code, status, variance };
+      })
+      .filter((d) => d.status === "diff");
+
+  // Compact one-line variance summary for the timeline row.
+  const getVarianceSummary = (
+    diffs: ReturnType<typeof getCheckpointDiffs>,
+  ): string => {
+    if (diffs.length > 2) return `Variance in ${diffs.length} currencies`;
+    return diffs
+      .map(
+        (d) =>
+          `${d.code} ${d.variance > 0 ? "+" : ""}${formatCurrencyAmount(d.variance, d.code)}`,
+      )
+      .join(", ");
+  };
+
   const filteredCheckpoints = useMemo(() => {
     if (!search.trim()) return checkpoints;
     const q = search.toLowerCase();
@@ -143,6 +181,24 @@ export default function CheckpointTimeline() {
     () => filteredCheckpoints.slice(0, limit),
     [filteredCheckpoints, limit],
   );
+
+  // The setup checkpoint exists but sits before the current from-date, so it is
+  // not in the table. Offer to move the from-date back to it (to-date untouched).
+  const showInitialSetupHint =
+    !!initialCheckpointDate && initialCheckpointDate < filters.date_from;
+
+  const jumpToInitialSetup = () => {
+    if (initialCheckpointDate) {
+      setFilters((f) => ({ ...f, date_from: initialCheckpointDate }));
+    }
+  };
+
+  const formatDateLabel = (iso: string) =>
+    new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
@@ -189,6 +245,26 @@ export default function CheckpointTimeline() {
           </div>
         </div>
       </div>
+
+      {/* Initial-setup hint — the setup checkpoint is older than the from-date */}
+      {showInitialSetupHint && (
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-violet-500/10 border border-violet-500/30 rounded-xl">
+          <Clock className="w-4 h-4 text-violet-300 shrink-0" />
+          <p className="text-xs text-violet-200 flex-1 min-w-0">
+            Initial drawer setup was recorded on{" "}
+            <span className="font-semibold">
+              {formatDateLabel(initialCheckpointDate!)}
+            </span>{" "}
+            — before the selected date range, so it isn&apos;t shown below.
+          </p>
+          <button
+            onClick={jumpToInitialSetup}
+            className="text-xs font-medium text-violet-100 bg-violet-600/40 hover:bg-violet-600/60 px-3 py-1.5 rounded-lg transition-colors shrink-0"
+          >
+            Show from setup →
+          </button>
+        </div>
+      )}
 
       {/* Timeline Table */}
       <div className="min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto">
@@ -272,6 +348,7 @@ export default function CheckpointTimeline() {
               const drawerLabel =
                 DRAWER_CONFIGS[checkpoint.drawer_name as DrawerType]?.label ??
                 checkpoint.drawer_name;
+              const diffs = getCheckpointDiffs(checkpoint);
               return (
                 <tr
                   key={checkpoint.id}
@@ -282,9 +359,17 @@ export default function CheckpointTimeline() {
                   </td>
                   <td className="p-2 text-slate-300">{drawerLabel}</td>
                   <td className="p-2">
-                    <span className="text-emerald-400 font-mono font-medium">
-                      {getAmountDisplay(checkpoint)}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-emerald-400 font-mono font-medium">
+                        {getAmountDisplay(checkpoint)}
+                      </span>
+                      {diffs.length > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 font-mono">
+                          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                          {getVarianceSummary(diffs)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="p-2 text-slate-300">{checkpoint.user_name}</td>
                   <td className="p-2 text-slate-400 italic max-w-xs truncate">
@@ -373,9 +458,11 @@ export default function CheckpointTimeline() {
                 return (
                   <div className="space-y-2">
                     {entries.map(({ code, amount, expected }) => {
-                      const variance = amount - expected;
-                      const matched = Math.abs(variance) <= 0.01;
-                      const positive = variance > 0;
+                      const { status, variance } = getVarianceStatus(
+                        amount,
+                        expected,
+                      );
+                      const matched = status === "match";
                       return (
                         <div
                           key={code}
@@ -403,17 +490,9 @@ export default function CheckpointTimeline() {
                               <Check className="w-3.5 h-3.5" /> Matched
                             </span>
                           ) : (
-                            <span
-                              className={`flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono ${
-                                positive ? "text-green-400" : "text-red-400"
-                              }`}
-                            >
-                              {positive ? (
-                                <TrendingUp className="w-3.5 h-3.5" />
-                              ) : (
-                                <TrendingDown className="w-3.5 h-3.5" />
-                              )}
-                              {positive ? "+" : ""}
+                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              {variance > 0 ? "+" : ""}
                               {formatCurrencyAmount(variance, code)}
                             </span>
                           )}

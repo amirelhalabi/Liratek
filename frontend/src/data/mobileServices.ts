@@ -314,26 +314,30 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
   Katsh: {
     alfa: {
       Prepaid: {
-        "3.6": { cost: "318978", sell: "355000" },
-        "5.24": { cost: "462075", sell: "500000" },
-        "8.65": { cost: "765007", sell: "800000" },
-        "11.32": { cost: "1003274", sell: "1100000" },
-        "17.06": { cost: "1511601", sell: "1600000" },
-        "25.47": { cost: "2256769", sell: "2400000" },
-        "86": { cost: "7620030", sell: "8000000" },
+        // Named by the CARD FACE VALUE (printed on the card), not the sell
+        // price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
+        "3.03": { cost: "318978", sell: "355000" },
+        "4.5": { cost: "462075", sell: "500000" },
+        "7.58": { cost: "765007", sell: "800000" },
+        "10": { cost: "1003274", sell: "1100000" },
+        "15.15": { cost: "1511601", sell: "1600000" },
+        "22.73": { cost: "2256769", sell: "2400000" },
+        "77.28": { cost: "7620030", sell: "8000000" },
       },
     },
     mtc: {
       Prepaid: {
-        "1.35": { cost: "119617", sell: "150000" },
-        "2.10": { cost: "186071", sell: "235000" },
-        "4.45": { cost: "398723", sell: "440000" },
-        "5.24": { cost: "462518", sell: "500000" },
-        "8.65": { cost: "765007", sell: "800000" },
-        "11.32": { cost: "1003274 ", sell: "1100000" },
-        "17.06": { cost: "1509829", sell: "1600000" },
-        "25.47": { cost: "2255883", sell: "2400000" },
-        "86": { cost: "7620030", sell: "8000000" },
+        // Named by the CARD FACE VALUE (what's printed on the card), not the
+        // sell price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
+        "1": { cost: "119617", sell: "150000" },
+        "1.67": { cost: "186071", sell: "235000" },
+        "3.79": { cost: "398723", sell: "440000" },
+        "4.5": { cost: "462518", sell: "500000" },
+        "7.58": { cost: "765007", sell: "800000" },
+        "10": { cost: "1003274 ", sell: "1100000" },
+        "15.15": { cost: "1509829", sell: "1600000" },
+        "22.73": { cost: "2255883", sell: "2400000" },
+        "77.28": { cost: "7620030", sell: "8000000" },
         start: { cost: "464290", sell: "500000" },
         startSOS: { cost: "141768", sell: "2000000" },
         smart: { cost: "765547", sell: "800000" },
@@ -513,26 +517,30 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
   WHISH_APP: {
     alfa: {
       Prepaid: {
-        "3.6": { cost: "318978", sell: "355000" },
-        "5.24": { cost: "462075", sell: "500000" },
-        "8.65": { cost: "765007", sell: "800000" },
-        "11.32": { cost: "1003274 ", sell: "1100000" },
-        "17.06": { cost: "1511601", sell: "1600000" },
-        "25.47": { cost: "2256769", sell: "2400000" },
-        "86": { cost: "7620030", sell: "8000000" },
+        // Named by the CARD FACE VALUE (printed on the card), not the sell
+        // price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
+        "3.03": { cost: "318978", sell: "355000" },
+        "4.5": { cost: "462075", sell: "500000" },
+        "7.58": { cost: "765007", sell: "800000" },
+        "10": { cost: "1003274 ", sell: "1100000" },
+        "15.15": { cost: "1511601", sell: "1600000" },
+        "22.73": { cost: "2256769", sell: "2400000" },
+        "77.28": { cost: "7620030", sell: "8000000" },
       },
     },
     mtc: {
       Prepaid: {
-        "1.35": { cost: "119617", sell: "150000" },
-        "2.10": { cost: "186071", sell: "235000" },
-        "4.45": { cost: "398723", sell: "440000" },
-        "5.24": { cost: "462518", sell: "500000" },
-        "8.65": { cost: "765007", sell: "800000" },
-        "11.32": { cost: "1003274 ", sell: "1100000" },
-        "17.06": { cost: "1509829", sell: "1600000" },
-        "25.47": { cost: "2255883", sell: "2400000" },
-        "86": { cost: "7620030", sell: "8000000" },
+        // Named by the CARD FACE VALUE (what's printed on the card), not the
+        // sell price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
+        "1": { cost: "119617", sell: "150000" },
+        "1.67": { cost: "186071", sell: "235000" },
+        "3.79": { cost: "398723", sell: "440000" },
+        "4.5": { cost: "462518", sell: "500000" },
+        "7.58": { cost: "765007", sell: "800000" },
+        "10": { cost: "1003274 ", sell: "1100000" },
+        "15.15": { cost: "1509829", sell: "1600000" },
+        "22.73": { cost: "2255883", sell: "2400000" },
+        "77.28": { cost: "7620030", sell: "8000000" },
         start: { cost: "464290", sell: "500000" },
         startSOS: { cost: "141768", sell: "2000000" },
         smart: { cost: "765547", sell: "800000" },

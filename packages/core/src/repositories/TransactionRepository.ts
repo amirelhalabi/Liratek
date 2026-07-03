@@ -267,6 +267,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "user_id",
       "amount_usd",
       "amount_lbp",
+      "profit_usd",
+      "profit_lbp",
       "exchange_rate",
       "client_id",
       "client_name",
@@ -736,19 +738,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
 
     return this.transaction(() => {
-      // 1. Create refund transaction row
+      // 1. Create refund transaction row. The refund carries NEGATED profit:
+      // the original stays ACTIVE (profit queries sum SALE + REFUND rows), so
+      // without the negative stamp a refunded transaction keeps its full
+      // profit forever.
       const result = this.execute(
         `INSERT INTO transactions
           (type, status, source_table, source_id, user_id,
-           amount_usd, amount_lbp, exchange_rate,
+           amount_usd, amount_lbp, exchange_rate, profit_usd, profit_lbp,
            client_id, reverses_id, summary, metadata_json, device_id)
-         VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         original.source_table,
         original.source_id,
         userId,
         -original.amount_usd,
         -original.amount_lbp,
         original.exchange_rate,
+        -original.profit_usd,
+        -original.profit_lbp,
         original.client_id,
         id,
         `REFUND: ${original.summary ?? original.type}`,

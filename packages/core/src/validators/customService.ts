@@ -21,6 +21,20 @@ export const createCustomServiceSchema = z
     category: z.string().max(100).optional(),
     transaction_time: transactionTimeSchema,
     voucher_code: z.string().optional(),
+    // Structured payment legs in the currency the customer ACTUALLY paid
+    // (split payments, pay-in-other-currency, and change/return legs). Snake
+    // case — the form serializes with toSnakeLegs.
+    payments: z
+      .array(
+        z.object({
+          method: z.string().min(1),
+          currency_code: z.string().min(1),
+          amount: z.number(),
+          voucher_code: z.string().optional(),
+          direction: z.enum(["IN", "OUT"]).optional(),
+        }),
+      )
+      .optional(),
     // Session-basket deferred payment mode: basket owns the customer-cash price
     // inflow + debt; the shop's own cost outflow (General drawer) is still booked.
     deferPayment: z.boolean().optional(),

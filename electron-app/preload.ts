@@ -440,6 +440,12 @@ contextBridge.exposeInMainWorld("api", {
     sell: (data: {
       ticket_number?: string;
       sale_amount: number;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
       commission_rate?: number;
       is_winner?: boolean;
       prize_amount?: number;
@@ -613,6 +619,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("closing:has-opening-balance-today"),
     hasInitialBalancesSet: () =>
       ipcRenderer.invoke("closing:has-initial-balances-set"),
+    hasStartingCheckpoint: () =>
+      ipcRenderer.invoke("closing:has-starting-checkpoint"),
+    getInitialCheckpointDate: () =>
+      ipcRenderer.invoke("closing:get-initial-checkpoint-date"),
     updateDailyClosing: (data: any) =>
       ipcRenderer.invoke("closing:update-daily-closing", data),
   },
@@ -1138,6 +1148,13 @@ contextBridge.exposeInMainWorld("api", {
       phone_number?: string;
       note?: string;
       category?: string;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        voucher_code?: string;
+        direction?: "IN" | "OUT";
+      }>;
     }) => ipcRenderer.invoke("custom-services:add", data),
     delete: (id: number) => ipcRenderer.invoke("custom-services:delete", id),
     updateMetadata: (data: {

@@ -4837,6 +4837,118 @@ export const MIGRATIONS: Migration[] = [
       // carried is gone, and the normalized format is the correct one.
     },
   },
+  {
+    version: 117,
+    name: "rename_mtc_cards_to_face_value",
+    description:
+      "A1: MTC prepaid recharge cards under Katsh and WHISH_APP were labeled by their USD sell price (e.g. '8.65') instead of the face value printed on the card (e.g. '7.58'). Rename existing mobile_service_items rows to the card face values (owner-provided card photos, 2026-07-03). Costs/sells unchanged; historical transactions keep the item labels they were sold under. Alfa pending owner-provided face values.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const RENAMES: Array<[string, string]> = [
+        ["1.35", "1"],
+        ["2.10", "1.67"],
+        ["4.45", "3.79"],
+        ["5.24", "4.5"],
+        ["8.65", "7.58"],
+        ["11.32", "10"],
+        ["17.06", "15.15"],
+        ["25.47", "22.73"],
+        ["86", "77.28"],
+      ];
+      const stmt = db.prepare(
+        `UPDATE mobile_service_items SET label = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE provider IN ('Katsh', 'WHISH_APP')
+            AND category = 'mtc'
+            AND subcategory = 'Prepaid'
+            AND label = ?`,
+      );
+      let changed = 0;
+      for (const [oldLabel, newLabel] of RENAMES) {
+        changed += stmt.run(newLabel, oldLabel).changes;
+      }
+      console.log(
+        `Migration v117: renamed ${changed} MTC prepaid card items to face values`,
+      );
+    },
+    down(db: Database.Database) {
+      const RENAMES: Array<[string, string]> = [
+        ["1", "1.35"],
+        ["1.67", "2.10"],
+        ["3.79", "4.45"],
+        ["4.5", "5.24"],
+        ["7.58", "8.65"],
+        ["10", "11.32"],
+        ["15.15", "17.06"],
+        ["22.73", "25.47"],
+        ["77.28", "86"],
+      ];
+      const stmt = db.prepare(
+        `UPDATE mobile_service_items SET label = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE provider IN ('Katsh', 'WHISH_APP')
+            AND category = 'mtc'
+            AND subcategory = 'Prepaid'
+            AND label = ?`,
+      );
+      for (const [oldLabel, newLabel] of RENAMES) {
+        stmt.run(newLabel, oldLabel);
+      }
+      console.log("Migration v117 rolled back: MTC card labels restored");
+    },
+  },
+  {
+    version: 118,
+    name: "rename_alfa_cards_to_face_value",
+    description:
+      "A1 (alfa half): ALFA prepaid recharge cards under Katsh and WHISH_APP renamed from their USD sell price (e.g. '8.65') to the face value printed on the card (e.g. '7.58') — owner-provided card photos, 2026-07-03. Costs/sells unchanged; history keeps the labels items were sold under.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const RENAMES: Array<[string, string]> = [
+        ["3.6", "3.03"],
+        ["5.24", "4.5"],
+        ["8.65", "7.58"],
+        ["11.32", "10"],
+        ["17.06", "15.15"],
+        ["25.47", "22.73"],
+        ["86", "77.28"],
+      ];
+      const stmt = db.prepare(
+        `UPDATE mobile_service_items SET label = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE provider IN ('Katsh', 'WHISH_APP')
+            AND category = 'alfa'
+            AND subcategory = 'Prepaid'
+            AND label = ?`,
+      );
+      let changed = 0;
+      for (const [oldLabel, newLabel] of RENAMES) {
+        changed += stmt.run(newLabel, oldLabel).changes;
+      }
+      console.log(
+        `Migration v118: renamed ${changed} ALFA prepaid card items to face values`,
+      );
+    },
+    down(db: Database.Database) {
+      const RENAMES: Array<[string, string]> = [
+        ["3.03", "3.6"],
+        ["4.5", "5.24"],
+        ["7.58", "8.65"],
+        ["10", "11.32"],
+        ["15.15", "17.06"],
+        ["22.73", "25.47"],
+        ["77.28", "86"],
+      ];
+      const stmt = db.prepare(
+        `UPDATE mobile_service_items SET label = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE provider IN ('Katsh', 'WHISH_APP')
+            AND category = 'alfa'
+            AND subcategory = 'Prepaid'
+            AND label = ?`,
+      );
+      for (const [oldLabel, newLabel] of RENAMES) {
+        stmt.run(newLabel, oldLabel);
+      }
+      console.log("Migration v118 rolled back: ALFA card labels restored");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

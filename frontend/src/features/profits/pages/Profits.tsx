@@ -48,6 +48,8 @@ interface ProfitSummary {
     commission_lbp: number;
     pending_commission_usd: number;
     pending_commission_lbp: number;
+    pm_fee_usd: number;
+    pm_fee_lbp: number;
     count: number;
   };
   mobile_services: {
@@ -79,8 +81,16 @@ interface ProfitSummary {
   };
   maintenance: {
     revenue_usd: number;
+    revenue_lbp: number;
     cost_usd: number;
+    cost_lbp: number;
     profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
+  loto: {
+    revenue_lbp: number;
+    profit_lbp: number;
     count: number;
   };
   exchange: {
@@ -136,6 +146,7 @@ interface UserRow {
   username: string;
   revenue_usd: number;
   profit_usd: number;
+  profit_lbp: number;
   transaction_count: number;
   pending_profit_usd: number;
 }
@@ -146,6 +157,7 @@ interface ClientRow {
   client_phone: string | null;
   revenue_usd: number;
   profit_usd: number;
+  profit_lbp: number;
   transaction_count: number;
   pending_profit_usd: number;
 }
@@ -647,6 +659,20 @@ export default function Profits() {
                       </span>
                     </div>
                   )}
+                  {((summary.financial_services.pm_fee_usd ?? 0) !== 0 ||
+                    (summary.financial_services.pm_fee_lbp ?? 0) !== 0) && (
+                    <div className="flex justify-between">
+                      <span>Payment Method Fees</span>
+                      <span className="text-emerald-400">
+                        {formatAmount(
+                          summary.financial_services.pm_fee_usd,
+                          "USD",
+                        )}
+                        {(summary.financial_services.pm_fee_lbp ?? 0) !== 0 &&
+                          ` + ${formatAmount(summary.financial_services.pm_fee_lbp, "LBP")}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -785,22 +811,56 @@ export default function Profits() {
                     <span>Charged Amount</span>
                     <span className="text-white">
                       {formatAmount(summary.maintenance.revenue_usd, "USD")}
+                      {(summary.maintenance.revenue_lbp ?? 0) > 0 &&
+                        ` + ${formatAmount(summary.maintenance.revenue_lbp, "LBP")}`}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Cost</span>
                     <span className="text-red-400">
                       -{formatAmount(summary.maintenance.cost_usd, "USD")}
+                      {(summary.maintenance.cost_lbp ?? 0) > 0 &&
+                        ` − ${formatAmount(summary.maintenance.cost_lbp, "LBP")}`}
                     </span>
                   </div>
                   <div className="flex justify-between border-t border-slate-700 pt-1">
                     <span className="font-semibold">Profit</span>
                     <span className="text-emerald-400 font-semibold">
                       {formatAmount(summary.maintenance.profit_usd, "USD")}
+                      {(summary.maintenance.profit_lbp ?? 0) !== 0 &&
+                        ` + ${formatAmount(summary.maintenance.profit_lbp, "LBP")}`}
                     </span>
                   </div>
                 </div>
               </div>
+
+              {/* Loto */}
+              {summary.loto && summary.loto.count > 0 && (
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white">
+                      Loto Tickets
+                    </span>
+                    <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full">
+                      {summary.loto.count} tickets
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Ticket Sales</span>
+                      <span className="text-white">
+                        {formatAmount(summary.loto.revenue_lbp, "LBP")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-700 pt-1">
+                      <span className="font-semibold">Commission</span>
+                      <span className="text-emerald-400 font-semibold">
+                        {formatAmount(summary.loto.profit_lbp, "LBP")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Exchange */}
               {summary.exchange && summary.exchange.count > 0 && (
@@ -1237,6 +1297,11 @@ export default function Profits() {
                   </td>
                   <td className="px-4 py-3 text-right text-emerald-400 font-medium">
                     {formatAmount(row.profit_usd, "USD")}
+                    {(row.profit_lbp ?? 0) !== 0 && (
+                      <div className="text-xs text-emerald-500/80">
+                        {formatAmount(row.profit_lbp, "LBP")}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {(row.pending_profit_usd ?? 0) > 0 ? (
@@ -1307,6 +1372,11 @@ export default function Profits() {
                   </td>
                   <td className="px-4 py-3 text-right text-emerald-400 font-medium">
                     {formatAmount(row.profit_usd, "USD")}
+                    {(row.profit_lbp ?? 0) !== 0 && (
+                      <div className="text-xs text-emerald-500/80">
+                        {formatAmount(row.profit_lbp, "LBP")}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {(row.pending_profit_usd ?? 0) > 0 ? (

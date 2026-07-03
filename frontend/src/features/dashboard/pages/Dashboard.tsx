@@ -157,6 +157,7 @@ export default function Dashboard() {
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [initialBalancesSet, setInitialBalancesSet] = useState(true);
   const [showInitialDrawerModal, setShowInitialDrawerModal] = useState(false);
+  const [startingCheckpointSet, setStartingCheckpointSet] = useState(true);
 
   type ActiveHold = {
     id: number;
@@ -324,6 +325,23 @@ export default function Dashboard() {
     });
   }, []);
 
+  // Whether a starting checkpoint has ever been recorded. Only relevant when
+  // checkpoints (session management) are enabled; otherwise treat as satisfied
+  // so the banner never shows for shops that don't use the timeline.
+  const refreshStartingCheckpoint = useCallback(() => {
+    if (!checkpointsEnabled) {
+      setStartingCheckpointSet(true);
+      return;
+    }
+    window.api.closing
+      .hasStartingCheckpoint()
+      .then((isSet) => setStartingCheckpointSet(isSet));
+  }, [checkpointsEnabled]);
+
+  useEffect(() => {
+    refreshStartingCheckpoint();
+  }, [refreshStartingCheckpoint]);
+
   useEffect(() => {
     const t = setTimeout(() => {
       loadData();
@@ -338,6 +356,8 @@ export default function Dashboard() {
     // Refresh balances + checkpoint staleness after a checkpoint completes
     const offClosing = appEvents.on("closing:completed", () => {
       loadData();
+      // The first checkpoint clears the "no starting checkpoint" banner.
+      refreshStartingCheckpoint();
     });
     // Refresh after a money hold is created or collected
     const offHold = appEvents.on("holdMoney:changed", () => {
@@ -351,7 +371,7 @@ export default function Dashboard() {
       offClosing();
       offHold();
     };
-  }, [loadData]);
+  }, [loadData, refreshStartingCheckpoint]);
 
   // Financial Metrics (Row 1)
   const financialCards = [
@@ -604,6 +624,33 @@ export default function Dashboard() {
             </div>
             <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
               Set now →
+            </span>
+          </button>
+        )}
+
+        {/* Starting-checkpoint banner — shown (when checkpoints are enabled)
+            until the operator records the first checkpoint in the timeline */}
+        {checkpointsEnabled && !startingCheckpointSet && (
+          <button
+            onClick={() =>
+              appEvents.emit("checkpoint:open", {
+                drawerName: drawerEntries[0]?.[0] ?? "General",
+              })
+            }
+            className="flex items-center gap-3 w-full px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-left hover:bg-amber-500/15 transition-colors group"
+          >
+            <ClipboardCheck className="w-5 h-5 text-amber-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-300">
+                No starting checkpoint recorded
+              </p>
+              <p className="text-xs text-amber-400/70">
+                Record an opening checkpoint so the timeline has a baseline to
+                reconcile against.
+              </p>
+            </div>
+            <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
+              Record now →
             </span>
           </button>
         )}

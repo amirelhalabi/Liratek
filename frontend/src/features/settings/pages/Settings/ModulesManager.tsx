@@ -701,8 +701,6 @@ function DrawerLimitsSection() {
   const api = useApi();
   const [drawerLimitGeneral, setDrawerLimitGeneral] = useState("");
   const [drawerLimitOMT, setDrawerLimitOMT] = useState("");
-  const [closingVarianceThresholdPct, setClosingVarianceThresholdPct] =
-    useState("5");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -718,9 +716,6 @@ function DrawerLimitsSection() {
       );
       setDrawerLimitGeneral((map.get("drawer_limit_general") as string) || "");
       setDrawerLimitOMT((map.get("drawer_limit_omt") as string) || "");
-      setClosingVarianceThresholdPct(
-        String(map.get("closing_variance_threshold_pct") ?? "5"),
-      );
     } finally {
       setIsLoading(false);
     }
@@ -735,20 +730,13 @@ function DrawerLimitsSection() {
     try {
       const gen = Number(drawerLimitGeneral);
       const omt = Number(drawerLimitOMT);
-      const thresholdPct = Number(closingVarianceThresholdPct);
 
       if (!gen || gen <= 0) throw new Error("General drawer limit must be > 0");
       if (!omt || omt <= 0) throw new Error("OMT drawer limit must be > 0");
-      if (!isFinite(thresholdPct) || thresholdPct < 0 || thresholdPct > 100)
-        throw new Error("Closing variance threshold must be between 0 and 100");
 
       await Promise.all([
         api.updateSetting("drawer_limit_general", drawerLimitGeneral),
         api.updateSetting("drawer_limit_omt", drawerLimitOMT),
-        api.updateSetting(
-          "closing_variance_threshold_pct",
-          String(thresholdPct),
-        ),
       ]);
       appEvents.emit("notification:show", "Drawer limits saved", "success");
     } catch (e) {
@@ -777,7 +765,7 @@ function DrawerLimitsSection() {
           exceed these limits.
         </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label
             htmlFor="drawerLimitGeneral"
@@ -805,28 +793,6 @@ function DrawerLimitsSection() {
             onChange={(n) => setDrawerLimitOMT(n ? String(n) : "")}
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
           />
-        </div>
-        <div>
-          <label
-            htmlFor="closingVarianceThresholdPct"
-            className="block text-sm text-slate-400 mb-1"
-          >
-            Closing Variance Threshold (%)
-          </label>
-          <input
-            id="closingVarianceThresholdPct"
-            type="number"
-            min={0}
-            max={100}
-            step={0.1}
-            value={closingVarianceThresholdPct}
-            onChange={(e) => setClosingVarianceThresholdPct(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
-          />
-          <p className="text-xs text-slate-500 mt-1">
-            Warning banner in Closing when variance exceeds this %. Set to 0 to
-            disable.
-          </p>
         </div>
       </div>
       <div className="flex gap-2 justify-end">

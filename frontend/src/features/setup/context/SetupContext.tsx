@@ -31,6 +31,13 @@ export interface SetupPayload {
     currency_code: string;
     amount: number;
   }>;
+  // Step 6 - Per-drawer currency config for drawers the operator extended with
+  // extra currencies (e.g. EUR). Applied on completion via setDrawerCurrencies
+  // so the added currency is first-class (dashboard + future checkpoints).
+  drawer_currency_config?: Array<{
+    drawer_name: string;
+    currency_codes: string[];
+  }>;
   // Step 3 - Database path (optional, network mode)
   database_path?: string | null;
   database_type?: "local" | "network";

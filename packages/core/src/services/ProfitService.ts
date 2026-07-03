@@ -92,6 +92,9 @@ export interface ProfitSummary {
     commission_lbp: number;
     pending_commission_usd: number;
     pending_commission_lbp: number;
+    /** Payment-method fees kept by the shop (immediate profit, PM_FEE rows) */
+    pm_fee_usd: number;
+    pm_fee_lbp: number;
     count: number;
   };
   mobile_services: {
@@ -123,8 +126,16 @@ export interface ProfitSummary {
   };
   maintenance: {
     revenue_usd: number;
+    revenue_lbp: number;
     cost_usd: number;
+    cost_lbp: number;
     profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
+  loto: {
+    revenue_lbp: number;
+    profit_lbp: number;
     count: number;
   };
   exchange: {
@@ -221,6 +232,8 @@ export class ProfitService {
         commission_lbp: 0,
         pending_commission_usd: 0,
         pending_commission_lbp: 0,
+        pm_fee_usd: 0,
+        pm_fee_lbp: 0,
         count: 0,
       };
       for (const row of finRows) {
@@ -245,6 +258,16 @@ export class ProfitService {
           finSvc.revenue_usd += row.revenue;
         }
         finSvc.count += row.count;
+      }
+
+      // Payment-method fees — immediate shop profit kept in the wallet drawer,
+      // recorded as PM_FEE payment rows but previously never counted anywhere.
+      for (const row of this.repo.getPmFeeTotals(fromDt, toDt)) {
+        if (row.currency_code === "LBP") {
+          finSvc.pm_fee_lbp += row.total;
+        } else {
+          finSvc.pm_fee_usd += row.total;
+        }
       }
 
       // 2b. Mobile services (iPick, Katsh, BOB) — cost/price flow.
@@ -303,6 +326,9 @@ export class ProfitService {
       // 5. Maintenance.
       const maint = this.repo.getMaintenanceTotals(fromDt, toDt);
 
+      // 5b. Loto ticket commissions (LBP).
+      const loto = this.repo.getLotoTotals(fromDt, toDt);
+
       // 6. Exchange profit (v30+: sum leg profits).
       const exchange = this.repo.getExchangeTotals(fromDt, toDt);
 
@@ -322,6 +348,8 @@ export class ProfitService {
         finSvc.revenue_lbp +
         recharges.revenue_lbp +
         custom.revenue_lbp +
+        maint.revenue_lbp +
+        loto.revenue_lbp +
         mobileSvc.revenue_lbp;
       const totalCostUsd =
         sales.cost_usd +
@@ -330,10 +358,14 @@ export class ProfitService {
         maint.cost_usd +
         mobileSvc.cost_usd;
       const totalCostLbp =
-        recharges.cost_lbp + custom.cost_lbp + mobileSvc.cost_lbp;
+        recharges.cost_lbp +
+        custom.cost_lbp +
+        maint.cost_lbp +
+        mobileSvc.cost_lbp;
       const grossProfitUsd =
         sales.profit_usd +
         finSvc.commission_usd +
+        finSvc.pm_fee_usd +
         recharges.profit_usd +
         custom.profit_usd +
         maint.profit_usd +
@@ -341,8 +373,11 @@ export class ProfitService {
         mobileSvc.profit_usd;
       const grossProfitLbp =
         finSvc.commission_lbp +
+        finSvc.pm_fee_lbp +
         recharges.profit_lbp +
         custom.profit_lbp +
+        maint.profit_lbp +
+        loto.profit_lbp +
         mobileSvc.profit_lbp;
 
       return {
@@ -353,6 +388,7 @@ export class ProfitService {
         recharges,
         custom_services: custom,
         maintenance: maint,
+        loto,
         exchange,
         expenses,
         totals: {
@@ -454,12 +490,54 @@ export class ProfitService {
           module: "MAINTENANCE",
           label: "Maintenance",
           revenue_usd: maintRow.revenue_usd,
-          revenue_lbp: 0,
+          revenue_lbp: maintRow.revenue_lbp,
           cost_usd: maintRow.cost_usd,
-          cost_lbp: 0,
+          cost_lbp: maintRow.cost_lbp,
           profit_usd: maintRow.profit_usd,
-          profit_lbp: 0,
+          profit_lbp: maintRow.profit_lbp,
           count: maintRow.count,
+        });
+      }
+
+      // Loto ticket commissions (LBP). Loto is a commission service like
+      // OMT/WHISH: revenue = ticket face value, cost = 0, profit = commission.
+      // (The ticket face passes through to the loto provider; only the
+      // commission is the shop's margin — same convention as the FS rows above.)
+      const lotoRow = this.repo.getLotoTotals(fromDt, toDt);
+      if (lotoRow.count > 0) {
+        results.push({
+          module: "LOTO",
+          label: "Loto Tickets",
+          revenue_usd: 0,
+          revenue_lbp: lotoRow.revenue_lbp,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: 0,
+          profit_lbp: lotoRow.profit_lbp,
+          count: lotoRow.count,
+        });
+      }
+
+      // Payment-method fees (immediate shop profit on wallet payments).
+      const pmFeeRows = this.repo.getPmFeeTotals(fromDt, toDt);
+      const pmFeeUsd = pmFeeRows
+        .filter((r) => r.currency_code !== "LBP")
+        .reduce((s, r) => s + r.total, 0);
+      const pmFeeLbp = pmFeeRows
+        .filter((r) => r.currency_code === "LBP")
+        .reduce((s, r) => s + r.total, 0);
+      const pmFeeCount = pmFeeRows.reduce((s, r) => s + r.count, 0);
+      if (pmFeeCount > 0 && (pmFeeUsd !== 0 || pmFeeLbp !== 0)) {
+        results.push({
+          module: "PM_FEE",
+          label: "Payment Method Fees",
+          revenue_usd: pmFeeUsd,
+          revenue_lbp: pmFeeLbp,
+          cost_usd: 0,
+          cost_lbp: 0,
+          profit_usd: pmFeeUsd,
+          profit_lbp: pmFeeLbp,
+          count: pmFeeCount,
         });
       }
 
