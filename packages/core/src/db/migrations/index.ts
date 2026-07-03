@@ -4781,6 +4781,62 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v114 rolled back: removed 'ALFA_GIFT' from recharges.recharge_type CHECK");
     },
   },
+  {
+    version: 115,
+    name: "prepaid_units_supplier_debt_booked",
+    description:
+      "C5 prepaid-units redesign: supplier debt is booked ONCE at top-up time (TOP_UP ledger entry) and sales only draw down the provider drawer — no per-sale SALE_COST ledger entry. Adds financial_services.supplier_debt_booked to mark LEGACY cost-flow SEND rows that DID book a per-sale SALE_COST (backfilled to 1); only those stay individually settleable in the Settle tab. New sales default to 0 — settling them would write a SETTLEMENT with no offsetting SALE_COST and corrupt the supplier balance.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        ALTER TABLE financial_services
+          ADD COLUMN supplier_debt_booked INTEGER NOT NULL DEFAULT 0;
+
+        UPDATE financial_services
+           SET supplier_debt_booked = 1
+         WHERE service_type = 'SEND'
+           AND cost > 0;
+      `);
+      console.log(
+        "Migration v115: prepaid-units — supplier_debt_booked added; legacy cost-flow SENDs backfilled",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(
+        `ALTER TABLE financial_services DROP COLUMN supplier_debt_booked;`,
+      );
+      console.log(
+        "Migration v115 rolled back: supplier_debt_booked dropped",
+      );
+    },
+  },
+  {
+    version: 116,
+    name: "normalize_iso_created_at",
+    description:
+      "A6: supplier settlement/cashflow paths stamped created_at with JS toISOString() ('2026-07-02T20:55:08.710Z') while every other writer uses CURRENT_TIMESTAMP ('2026-07-02 20:55:19'). Since 'T' > ' ' in string ordering, ISO rows sort as permanently-newest for their whole day in every ORDER BY created_at DESC list — settlement rows pinned to the top of the transactions table. The writers now use datetime('now'); this normalizes the historical rows (both are UTC, so trimming to 'YYYY-MM-DD HH:MM:SS' preserves chronology).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const norm = (table: string, column: string) =>
+        db
+          .prepare(
+            `UPDATE ${table}
+                SET ${column} = REPLACE(SUBSTR(${column}, 1, 19), 'T', ' ')
+              WHERE ${column} LIKE '____-__-__T%'`,
+          )
+          .run().changes;
+      const t = norm("transactions", "created_at");
+      const l = norm("supplier_ledger", "created_at");
+      const f = norm("financial_services", "settled_at");
+      console.log(
+        `Migration v116: normalized ISO timestamps — transactions:${t}, supplier_ledger:${l}, financial_services.settled_at:${f}`,
+      );
+    },
+    down() {
+      // Irreversible by design: the sub-second precision the ISO strings
+      // carried is gone, and the normalized format is the correct one.
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

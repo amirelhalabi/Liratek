@@ -830,45 +830,56 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         const isWHISH = data.provider === "WHISH";
         const useSystemDrawerFlow = isOMT || isWHISH;
         const isBINANCE = data.provider === "BINANCE";
+        // App-wallet transfers (OMT_APP / WHISH_APP without a cost/price pair)
+        // move money the same way Binance does: the shop's wallet balance on one
+        // side, customer cash on the other. Before C4 they fell through to the
+        // generic single-drawer path, so the app drawer never moved on SEND and
+        // RECEIVE credited the wrong side.
+        const isAppWallet =
+          data.provider === "OMT_APP" || data.provider === "WHISH_APP";
 
-        if (isBINANCE) {
-          // ─── BINANCE: crypto sent/received from shop's Binance account ───
+        if (isBINANCE || isAppWallet) {
+          // ─── WALLET TRANSFER (BINANCE / OMT_APP / WHISH_APP) ───
           //
-          // The crypto leg moves in USDT against the Binance drawer; the cash
-          // leg moves in the customer's payment currency (USD) against the cash /
-          // wallet drawer. These are two DIFFERENT currencies — never conflate
-          // `currency` (USDT, the crypto denomination) with the cash drawer.
+          // The wallet leg moves against the provider's wallet drawer; the cash
+          // leg moves in the customer's payment currency against the cash /
+          // wallet drawer. For Binance these are two DIFFERENT currencies —
+          // never conflate `currency` (USDT, the crypto denomination) with the
+          // cash drawer. App wallets are denominated in the service currency.
           //
-          // SEND: shop sends crypto from its Binance account to a customer.
-          //   - Binance drawer (USDT): -cryptoAmount   (crypto leaves the account)
-          //   - Cash drawer (USD):     +(cryptoAmount + fee)  (customer pays cash in)
-          //   - Fee is shop profit, captured implicitly (cash in − crypto out).
+          // SEND: shop sends from its wallet/account to a customer.
+          //   - Wallet drawer: -walletAmount   (funds leave the account)
+          //   - Cash drawer:   +(walletAmount + fee)  (customer pays cash in)
+          //   - Fee is shop profit, captured implicitly (cash in − wallet out).
           //
-          // RECEIVE: someone sends crypto to the shop's Binance account.
-          //   - Binance drawer (USDT): +cryptoAmount   (crypto arrives)
-          //   - Cash drawer (USD):     -(cryptoAmount - fee)  (shop pays customer out)
-          //   - Fee is shop profit, captured implicitly (crypto in − cash out).
+          // RECEIVE: someone sends funds to the shop's wallet/account.
+          //   - Wallet drawer: +walletAmount   (funds arrive)
+          //   - Cash drawer:   -(walletAmount - fee)  (shop pays customer out)
+          //   - Fee is shop profit, captured implicitly (wallet in − cash out).
           const cryptoAmount = Math.abs(data.amount);
           const fee = Math.abs(calculatedCommission);
 
           // The Binance drawer always tracks the crypto denomination (USDT),
-          // regardless of what `currency` was passed. The cash side uses the
-          // payment-leg currency, defaulting to USD when no legs are provided.
-          const cryptoCurrency = "USDT";
+          // regardless of what `currency` was passed; app wallets track the
+          // service currency. The cash side uses the payment-leg currency,
+          // defaulting to the service currency when no legs are provided.
+          const cryptoCurrency = isBINANCE ? "USDT" : currency;
           const cashCurrency =
             data.payments && data.payments.length > 0
               ? data.payments[0].currencyCode
-              : "USD";
+              : isBINANCE
+                ? "USD"
+                : currency;
 
           if (data.serviceType === "SEND") {
             // 1. Debit Binance drawer (USDT): crypto leaves the shop's account
             insertPayment.run(
               txnId,
-              "BINANCE",
-              systemDrawer, // "Binance"
+              data.provider,
+              systemDrawer, // "Binance" / "OMT_App" / "Whish_App"
               cryptoCurrency,
               -cryptoAmount,
-              `Crypto sent to customer`,
+              isBINANCE ? `Crypto sent to customer` : `Sent from ${systemDrawer} wallet`,
               createdBy,
             );
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, -cryptoAmount);
@@ -892,7 +903,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   drawerName,
                   p.currencyCode,
                   Math.abs(p.amount),
-                  `Binance SEND payment`,
+                  `${data.provider} SEND payment`,
                   createdBy,
                 );
                 upsertBalanceDelta.run(
@@ -960,7 +971,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   cashDrawer,
                   cashCurrency,
                   cashTotal,
-                  `Binance SEND payment`,
+                  `${data.provider} SEND payment`,
                   createdBy,
                 );
                 upsertBalanceDelta.run(cashDrawer, cashCurrency, cashTotal);
@@ -971,11 +982,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // 1. Credit Binance drawer (USDT): crypto arrives in the shop's account
             insertPayment.run(
               txnId,
-              "BINANCE",
-              systemDrawer, // "Binance"
+              data.provider,
+              systemDrawer, // "Binance" / "OMT_App" / "Whish_App"
               cryptoCurrency,
               cryptoAmount,
-              `Crypto received from customer`,
+              isBINANCE ? `Crypto received from customer` : `Received into ${systemDrawer} wallet`,
               createdBy,
             );
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
@@ -1034,7 +1045,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               systemDrawer,
               cashCurrency,
               0, // No drawer delta — fee already realized in the spread above
-              `Commission (Binance fee: $${fee})`,
+              `Commission (${data.provider} fee: $${fee})`,
               createdBy,
             );
           }
@@ -1577,16 +1588,49 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             ) {
               // CASH cashout: shop physically pays the customer from the General drawer.
               // Skipped for FOR-partner mode (partner handles the payout, not our cash).
-              insertPayment.run(
-                txnId,
-                "CASH",
-                "General",
-                currency,
-                -receiveAmount,
-                `Cash paid to customer (${data.provider} RECEIVE)`,
-                createdBy,
+              //
+              // A split payout (e.g. 190 USD + 540,000 LBP for one transfer) arrives
+              // as multi-currency IN legs (the "Cashout" payment lines). Deduct EACH
+              // in its own currency so both drawers move — otherwise the non-primary
+              // currency leg is silently dropped and the drawer over-counts the primary
+              // currency. Only the IN legs are the payout: OUT/return (change) legs are
+              // debited exactly once by the return-leg loop later in this transaction,
+              // so they must NOT be included here (doing so double-debits them). Fall
+              // back to the single-currency amount when no explicit legs are provided.
+              const payoutLegs = (data.payments ?? []).filter((p) =>
+                isDrawerAffectingMethod(p.method),
               );
-              upsertBalanceDelta.run("General", currency, -receiveAmount);
+              if (payoutLegs.length > 0) {
+                for (const leg of payoutLegs) {
+                  const legDrawer = paymentMethodToDrawerName(leg.method);
+                  const legAmount = Math.abs(leg.amount);
+                  insertPayment.run(
+                    txnId,
+                    leg.method,
+                    legDrawer,
+                    leg.currencyCode,
+                    -legAmount,
+                    `Cash paid to customer (${data.provider} RECEIVE)`,
+                    createdBy,
+                  );
+                  upsertBalanceDelta.run(
+                    legDrawer,
+                    leg.currencyCode,
+                    -legAmount,
+                  );
+                }
+              } else {
+                insertPayment.run(
+                  txnId,
+                  "CASH",
+                  "General",
+                  currency,
+                  -receiveAmount,
+                  `Cash paid to customer (${data.provider} RECEIVE)`,
+                  createdBy,
+                );
+                upsertBalanceDelta.run("General", currency, -receiveAmount);
+              }
             }
           }
         }
@@ -1596,7 +1640,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         //   The commission will be credited to General when the shop settles with OMT/WHISH.
         // - BINANCE: handled in the BINANCE-specific block above
         // - Other providers (BOB, etc.) SEND: commission earned immediately → General
-        if (calculatedCommission && calculatedCommission !== 0 && !isBINANCE) {
+        if (
+          calculatedCommission &&
+          calculatedCommission !== 0 &&
+          !isBINANCE &&
+          !isAppWallet
+        ) {
           const isOmtWhishProvider =
             data.provider === "OMT" || data.provider === "WHISH";
           if (!isOmtWhishProvider) {
@@ -1652,34 +1701,23 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             `Skipping supplier ledger for inactive provider: ${data.provider}`,
           );
         } else {
-          // Ledger amount:
-          // SEND:    shop owes supplier (amount + fee) — total OMT outflow
-          // RECEIVE: supplier owes shop (amount + commission) — total OMT debt to shop
-          const omtFeeForLedger =
-            !useCostPriceFlow &&
-            data.serviceType === "SEND" &&
-            (data.omtFee ?? 0) > 0
-              ? (data.omtFee ?? 0)
-              : 0;
-          const receiveCommissionForLedger =
-            !useCostPriceFlow && data.serviceType === "RECEIVE"
-              ? Math.abs(commission)
-              : 0;
-          const ledgerAmount =
-            useCostPriceFlow && cost > 0
-              ? cost
-              : Math.abs(data.amount) +
-                omtFeeForLedger +
-                receiveCommissionForLedger;
+          // Ledger amount (C3): the TRANSACTION amount only — never the
+          // customer-paid total. Fees and commissions are NOT part of the
+          // supplier balance: the provider fee is remitted/reconciled through
+          // the commission-settlement flow (Settle tab nets `owed − commission
+          // = amount`), so booking amount+fee/amount+commission here left a
+          // phantom fee/commission residue on the supplier balance after every
+          // settlement.
+          const ledgerAmount = Math.abs(data.amount);
 
-          // Ledger entry_type:
-          //   RECEIVE                  → PAYMENT   (supplier settles with shop, reduces debt)
-          //   SEND, cost/price flow    → SALE_COST (sale cost consumed from the provider
-          //                               balance — a settleable sale-cost, NOT a manual top-up)
-          //   SEND, legacy flow        → TOP_UP    (manual supplier top-up semantics)
-          // SALE_COST and TOP_UP both increase what the shop owes the supplier (positive
-          // amount). The distinct label lets the Settle tab surface real sale costs while
-          // keeping balance math identical (every balance sum treats both the same).
+          // Ledger entry_type (C5 prepaid-units model):
+          //   RECEIVE                  → PAYMENT (supplier settles with shop, reduces debt)
+          //   SEND, legacy system flow → TOP_UP  (per-transfer supplier debt)
+          //   SEND, cost/price flow    → NO ENTRY. The supplier debt was booked
+          //     once at top-up time (TOP_UP via topUpFromSupplier); the sale only
+          //     draws down the provider drawer (`cost` leg above). Booking a
+          //     per-sale SALE_COST double-counted the same debt. Loto is the
+          //     exception and books its own ledger in LotoTicketRepository.
           if (data.serviceType === "BILL") {
             // Bill commission: 20,000 LBP fixed, supplier owes shop (negative = credit to us).
             // No SALE_COST — the provider drawer debit already accounts for the bill amount.
@@ -1694,13 +1732,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 is_auto: true,
               });
             }
+          } else if (data.serviceType === "SEND" && useCostPriceFlow) {
+            // Prepaid-units sale: drawer draw-down only — no supplier ledger entry.
           } else {
             const isReceive = data.serviceType === "RECEIVE";
-            const entryType: "PAYMENT" | "SALE_COST" | "TOP_UP" = isReceive
+            const entryType: "PAYMENT" | "TOP_UP" = isReceive
               ? "PAYMENT"
-              : useCostPriceFlow
-                ? "SALE_COST"
-                : "TOP_UP";
+              : "TOP_UP";
             if (!skipSecondarySupplierLedger) {
               supplierRepo.addLedgerEntry({
                 supplier_id: supplier.id,
@@ -1848,14 +1886,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    *     is_settled = 0. Here owed = amount + commission and the shop keeps the
    *     commission, so net pay = amount.
    *
-   *  2. Cost/price-flow sale costs — SEND rows written through a cost/price provider
-   *     (iPick / Katsh / Whish App / OMT App) where cost > 0 and the supplier debt is
-   *     not yet settled (settlement_id IS NULL). The shop owes the supplier the sale
-   *     `cost` (booked as a SALE_COST ledger entry, never TOP_UP), with no supplier
-   *     commission. These rows are projected with amount = cost and commission = 0 so
-   *     net pay = cost. Settling one writes a negative SETTLEMENT ledger entry that nets
-   *     the matching positive SALE_COST entry to zero — keeping getSupplierBalances()
-   *     (which sums every ledger row) mathematically correct.
+   *  2. LEGACY cost/price-flow sale costs — SEND rows written through a cost/price
+   *     provider (iPick / Katsh / Whish App / OMT App) BEFORE the C5 prepaid-units
+   *     redesign (supplier_debt_booked = 1), where cost > 0 and the supplier debt is
+   *     not yet settled (settlement_id IS NULL). Those rows booked a per-sale
+   *     SALE_COST ledger entry; settling one writes a negative SETTLEMENT entry that
+   *     nets it to zero. Post-C5 sales (supplier_debt_booked = 0) book NO per-sale
+   *     debt — the debt lives in the top-up TOP_UP entry — so they are excluded:
+   *     settling one would write a SETTLEMENT with no offsetting SALE_COST and
+   *     corrupt getSupplierBalances().
    *
    * NOTE on is_settled vs settlement_id: cost-flow SEND rows are created with
    * is_settled = 1 (their price−cost profit is realized immediately, so analytics keep
@@ -1877,6 +1916,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
              AND service_type = 'SEND'
              AND cost > 0
              AND settlement_id IS NULL
+             AND supplier_debt_booked = 1
          ORDER BY created_at ASC`,
       )
       .all(provider, provider) as FinancialServiceEntity[];

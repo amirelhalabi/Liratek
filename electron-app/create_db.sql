@@ -511,7 +511,10 @@ CREATE TABLE IF NOT EXISTS financial_services (
     is_refunded INTEGER DEFAULT 0,
     refunded_at TEXT DEFAULT NULL,
     partner_id INTEGER REFERENCES partners(id),
-    partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR'))
+    partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
+    -- v115: 1 = legacy row that booked a per-sale SALE_COST supplier debt
+    -- (individually settleable); 0 = prepaid-units model (debt booked at top-up)
+    supplier_debt_booked INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
@@ -1283,4 +1286,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (111, 'add_hold_money'),
     (112, 'add_phone_to_hold_money'),
     (113, 'normalize_staff_role'),
-    (114, 'allow_alfa_gift_recharge_type');
+    (114, 'allow_alfa_gift_recharge_type'),
+    (115, 'prepaid_units_supplier_debt_booked'),
+    (116, 'normalize_iso_created_at');

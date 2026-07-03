@@ -1,19 +1,21 @@
 /**
- * FinancialServiceRepository — Sale-cost supplier ledger (LIRA-061)
+ * FinancialServiceRepository — prepaid-units supplier debt model (C5)
  *
- * Regression coverage for the bug where a SALE through a cost/price provider
- * (Katsh / iPick, and the SEND side of Whish App / OMT App) auto-wrote a
- * `TOP_UP` entry into the supplier ledger — indistinguishable from a manual
- * supplier top-up, and never reconcilable through the Settle tab.
+ * Supplier debt is booked ONCE at top-up time (a TOP_UP ledger entry via
+ * topUpFromSupplier); a SALE through a cost/price provider (Katsh / iPick,
+ * card sales via Whish App / OMT App) only draws down the provider drawer —
+ * it books NO per-sale supplier ledger entry. (Pre-C5, every sale booked a
+ * SALE_COST entry, double-counting the debt already created by the top-up.
+ * Loto is the exception and books its own ledger in LotoTicketRepository.)
  *
- * After the fix:
- *   1. Cost/price-flow SEND books a distinctly-labeled `SALE_COST` ledger entry
- *      (never `TOP_UP`), with the same positive balance sign so the owed balance
- *      stays mathematically correct (no double counting).
- *   2. These rows surface in getUnsettledBySupplier() projected so the Settle tab
- *      nets correctly (amount = cost, commission = 0), and settleTransactions()
- *      nets the SALE_COST entry to zero.
- *   3. A cumulative-balance pay-down (PAYMENT) also reconciles them.
+ * Covered here:
+ *   1. Cost/price-flow SEND: no ledger entry; drawers still move (−cost/+price).
+ *   2. Settle tab: post-C5 sales (supplier_debt_booked=0) are NOT individually
+ *      settleable; LEGACY rows (backfilled supplier_debt_booked=1, which DID
+ *      book a SALE_COST) still surface and settle to a zero balance.
+ *   3. Prepaid reconciliation: TOP_UP at top-up → sales leave the balance
+ *      unchanged → PAYMENT pays it down.
+ *   4. BILL commission (LIRA-062) unchanged: one SUPPLIER_PAYS_US −20,000 LBP.
  *
  * All tests run against an in-memory SQLite database. DebtService is mocked.
  */
@@ -109,7 +111,8 @@ function createTestDb(): Database.Database {
       paid_amount           REAL DEFAULT NULL,
       paid_currency         TEXT DEFAULT NULL,
       partner_id            INTEGER,
-      partner_mode          TEXT
+      partner_mode          TEXT,
+      supplier_debt_booked  INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE transactions (
@@ -238,10 +241,9 @@ function balanceUsd(db: Database.Database, supplierId: number): number {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("FinancialServiceRepository — cost/price SEND books SALE_COST (LIRA-061)", () => {
+describe("FinancialServiceRepository — cost/price SEND books NO supplier debt (C5 prepaid-units)", () => {
   let db: Database.Database;
   let repo: FinancialServiceRepository;
-  let supplierRepo: SupplierRepository;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { setDb } = require("../../db/connection");
 
@@ -249,7 +251,6 @@ describe("FinancialServiceRepository — cost/price SEND books SALE_COST (LIRA-0
     db = createTestDb();
     setDb(db);
     repo = new FinancialServiceRepository();
-    supplierRepo = new SupplierRepository();
     mockAddCredit.mockClear();
   });
 
@@ -257,10 +258,21 @@ describe("FinancialServiceRepository — cost/price SEND books SALE_COST (LIRA-0
     db.close();
   });
 
-  // ── Katsh SEND ───────────────────────────────────────────────────────────
+  function drawer(name: string, currency = "USD"): number {
+    const row = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?",
+      )
+      .get(name, currency) as { balance: number } | undefined;
+    return row ? row.balance : 0;
+  }
 
-  it("Katsh SEND books a SALE_COST ledger entry (not TOP_UP)", () => {
+  // ── The C5 model: sale = drawer draw-down only ─────────────────────────────
+
+  it("Katsh SEND books NO supplier ledger entry — the drawer draw-down is the whole story", () => {
     const supplierId = seedSupplier(db, "Katsh");
+    const katshBefore = drawer("Katsh");
+    const generalBefore = drawer("General");
 
     // cost $90 from Katsh balance, price $100 to customer → $10 profit
     repo.createTransaction({
@@ -274,37 +286,15 @@ describe("FinancialServiceRepository — cost/price SEND books SALE_COST (LIRA-0
       paidByMethod: "CASH",
     });
 
-    const rows = ledgerRows(db, supplierId);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].entry_type).toBe("SALE_COST");
-    // NEVER the old TOP_UP label
-    expect(rows[0].entry_type).not.toBe("TOP_UP");
+    // No per-sale supplier debt (pre-C5: a SALE_COST entry of +90).
+    expect(ledgerRows(db, supplierId)).toHaveLength(0);
+    expect(balanceUsd(db, supplierId)).toBeCloseTo(0, 4);
+    // The drawers still move: provider stock down by cost, cash up by price.
+    expect(drawer("Katsh")).toBeCloseTo(katshBefore - 90, 2);
+    expect(drawer("General")).toBeCloseTo(generalBefore + 100, 2);
   });
 
-  it("SALE_COST amount equals the sale cost and increases what's owed (positive sign)", () => {
-    const supplierId = seedSupplier(db, "Katsh");
-
-    repo.createTransaction({
-      provider: "Katsh",
-      serviceType: "SEND",
-      amount: 100,
-      currency: "USD",
-      commission: 0,
-      cost: 90,
-      price: 100,
-      paidByMethod: "CASH",
-    });
-
-    const rows = ledgerRows(db, supplierId);
-    expect(rows[0].amount_usd).toBeCloseTo(90, 2); // owes the COST, not the price/amount
-    expect(rows[0].amount_lbp).toBe(0);
-    // Owed balance increases by exactly the cost — no double counting
-    expect(balanceUsd(db, supplierId)).toBeCloseTo(90, 2);
-  });
-
-  // ── iPick SEND ───────────────────────────────────────────────────────────
-
-  it("iPick SEND also books a SALE_COST entry for its cost", () => {
+  it("iPick SEND also books no supplier ledger entry", () => {
     const supplierId = seedSupplier(db, "iPick");
 
     repo.createTransaction({
@@ -318,14 +308,11 @@ describe("FinancialServiceRepository — cost/price SEND books SALE_COST (LIRA-0
       paidByMethod: "CASH",
     });
 
-    const rows = ledgerRows(db, supplierId);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].entry_type).toBe("SALE_COST");
-    expect(rows[0].amount_usd).toBeCloseTo(45, 2);
-    expect(balanceUsd(db, supplierId)).toBeCloseTo(45, 2);
+    expect(ledgerRows(db, supplierId)).toHaveLength(0);
+    expect(balanceUsd(db, supplierId)).toBeCloseTo(0, 4);
   });
 
-  it("an LBP cost/price SEND records the cost in amount_lbp", () => {
+  it("an LBP cost/price SEND books no supplier ledger entry either", () => {
     const supplierId = seedSupplier(db, "Katsh");
 
     repo.createTransaction({
@@ -339,15 +326,12 @@ describe("FinancialServiceRepository — cost/price SEND books SALE_COST (LIRA-0
       paidByMethod: "CASH",
     });
 
-    const rows = ledgerRows(db, supplierId);
-    expect(rows[0].entry_type).toBe("SALE_COST");
-    expect(rows[0].amount_lbp).toBeCloseTo(900_000, 0);
-    expect(rows[0].amount_usd).toBe(0);
+    expect(ledgerRows(db, supplierId)).toHaveLength(0);
   });
 
-  // ── getUnsettledBySupplier surfaces the sale-cost row ──────────────────────
+  // ── Settle tab: post-C5 sales are NOT individually settleable ──────────────
 
-  it("surfaces the cost/price SEND in getUnsettledBySupplier projected as amount=cost, commission=0", () => {
+  it("does NOT surface a post-C5 sale in getUnsettledBySupplier (no SALE_COST to net)", () => {
     seedSupplier(db, "Katsh");
 
     repo.createTransaction({
@@ -360,18 +344,43 @@ describe("FinancialServiceRepository — cost/price SEND books SALE_COST (LIRA-0
       price: 100,
       paidByMethod: "CASH",
     });
+
+    // Settling this row would write a SETTLEMENT with no offsetting SALE_COST
+    // and corrupt the supplier balance — it must not be offered.
+    expect(repo.getUnsettledBySupplier("Katsh")).toHaveLength(0);
+  });
+
+  it("STILL surfaces a LEGACY sale (supplier_debt_booked=1) projected as amount=cost", () => {
+    const supplierId = seedSupplier(db, "Katsh");
+
+    repo.createTransaction({
+      provider: "Katsh",
+      serviceType: "SEND",
+      amount: 100,
+      currency: "USD",
+      commission: 0,
+      cost: 90,
+      price: 100,
+      paidByMethod: "CASH",
+    });
+    // Simulate a pre-C5 row: the migration backfills supplier_debt_booked=1 and
+    // the old code had booked a matching SALE_COST entry.
+    db.prepare(
+      "UPDATE financial_services SET supplier_debt_booked = 1 WHERE provider = 'Katsh'",
+    ).run();
+    db.prepare(
+      `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto)
+       VALUES (?, 'SALE_COST', 90, 0, 1)`,
+    ).run(supplierId);
 
     const unsettled = repo.getUnsettledBySupplier("Katsh");
     expect(unsettled).toHaveLength(1);
-    // Projected so the Settle tab's "owed = amount + commission, net = owed - commission"
-    // resolves to net = cost = 90.
     expect(unsettled[0].amount).toBeCloseTo(90, 2);
     expect(unsettled[0].commission).toBe(0);
-    expect(unsettled[0].cost).toBeCloseTo(90, 2);
     expect(unsettled[0].service_type).toBe("SEND");
   });
 
-  it("does NOT surface a settled sale-cost row again (settlement_id stamped)", () => {
+  it("does NOT surface a settled legacy row again (settlement_id stamped)", () => {
     seedSupplier(db, "Katsh");
 
     repo.createTransaction({
@@ -384,19 +393,17 @@ describe("FinancialServiceRepository — cost/price SEND books SALE_COST (LIRA-0
       price: 100,
       paidByMethod: "CASH",
     });
-
-    // Manually stamp settlement_id to simulate it being settled
     db.prepare(
-      "UPDATE financial_services SET settlement_id = 999 WHERE provider = 'Katsh'",
+      "UPDATE financial_services SET supplier_debt_booked = 1, settlement_id = 999 WHERE provider = 'Katsh'",
     ).run();
 
     expect(repo.getUnsettledBySupplier("Katsh")).toHaveLength(0);
   });
 });
 
-// ─── Settle / pay-down path ─────────────────────────────────────────────────
+// ─── Reconciliation paths under the C5 model ─────────────────────────────────
 
-describe("Sale-cost reconciliation paths (LIRA-061)", () => {
+describe("Supplier debt reconciliation (C5 prepaid-units)", () => {
   let db: Database.Database;
   let repo: FinancialServiceRepository;
   let supplierRepo: SupplierRepository;
@@ -415,7 +422,7 @@ describe("Sale-cost reconciliation paths (LIRA-061)", () => {
     db.close();
   });
 
-  it("per-transaction settle nets the SALE_COST entry to zero and stamps settlement_id", () => {
+  it("LEGACY per-transaction settle still nets its SALE_COST entry to zero", () => {
     const supplierId = seedSupplier(db, "Katsh");
 
     repo.createTransaction({
@@ -428,93 +435,53 @@ describe("Sale-cost reconciliation paths (LIRA-061)", () => {
       price: 100,
       paidByMethod: "CASH",
     });
-
-    // Owed before settling = +90
+    // Simulate the pre-C5 state for this row (backfilled flag + SALE_COST entry)
+    db.prepare(
+      "UPDATE financial_services SET supplier_debt_booked = 1 WHERE provider = 'Katsh'",
+    ).run();
+    db.prepare(
+      `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto)
+       VALUES (?, 'SALE_COST', 90, 0, 1)`,
+    ).run(supplierId);
     expect(balanceUsd(db, supplierId)).toBeCloseTo(90, 2);
 
     const unsettled = repo.getUnsettledBySupplier("Katsh");
     expect(unsettled).toHaveLength(1);
-    const fsId = unsettled[0].id;
 
-    // Settle: net pay = cost = 90, no commission
     supplierRepo.settleTransactions({
       supplier_id: supplierId,
-      financial_service_ids: [fsId],
+      financial_service_ids: [unsettled[0].id],
       amount_usd: 90,
       amount_lbp: 0,
       commission_usd: 0,
       commission_lbp: 0,
       drawer_name: "General",
       created_by: 1,
-      note: "Settle Katsh sale cost",
+      note: "Settle legacy Katsh sale cost",
     });
 
-    // SETTLEMENT (-90) nets the SALE_COST (+90) to zero
     expect(balanceUsd(db, supplierId)).toBeCloseTo(0, 4);
-
-    // financial_services row now carries a settlement_id and won't resurface
-    const fs = db
-      .prepare(
-        "SELECT is_settled, settlement_id FROM financial_services WHERE id = ?",
-      )
-      .get(fsId) as { is_settled: number; settlement_id: number | null };
-    expect(fs.settlement_id).not.toBeNull();
     expect(repo.getUnsettledBySupplier("Katsh")).toHaveLength(0);
   });
 
-  it("cumulative-balance pay-down (PAYMENT) reconciles the SALE_COST balance to zero", () => {
+  it("prepaid model: top-up books the debt once; sales leave it unchanged; PAYMENT pays it down", () => {
     const supplierId = seedSupplier(db, "iPick");
 
-    repo.createTransaction({
-      provider: "iPick",
-      serviceType: "SEND",
-      amount: 60,
-      currency: "USD",
-      commission: 0,
-      cost: 55,
-      price: 60,
-      paidByMethod: "CASH",
-    });
-
-    expect(balanceUsd(db, supplierId)).toBeCloseTo(55, 2);
-
-    // Pay the supplier $55 out of the iPick drawer
+    // Top-up: supplier extends $55 of credit → debt booked ONCE.
     supplierRepo.addLedgerEntry({
       supplier_id: supplierId,
-      entry_type: "PAYMENT",
+      entry_type: "TOP_UP",
       amount_usd: 55,
       amount_lbp: 0,
-      drawer_name: "iPick",
       created_by: 1,
-      note: "Pay down iPick sale costs",
+      note: "iPick supplier top-up",
+      is_auto: true,
     });
+    expect(balanceUsd(db, supplierId)).toBeCloseTo(55, 2);
 
-    // PAYMENT stored as -55 → balance nets to zero
-    expect(balanceUsd(db, supplierId)).toBeCloseTo(0, 4);
-
-    const payment = db
-      .prepare(
-        "SELECT amount_usd FROM supplier_ledger WHERE supplier_id = ? AND entry_type = 'PAYMENT'",
-      )
-      .get(supplierId) as { amount_usd: number };
-    expect(payment.amount_usd).toBeCloseTo(-55, 2);
-  });
-
-  it("multiple sale costs accumulate then settle together with no double counting", () => {
-    const supplierId = seedSupplier(db, "Katsh");
-
+    // Two sales draw down the drawer but do NOT touch the supplier balance.
     repo.createTransaction({
-      provider: "Katsh",
-      serviceType: "SEND",
-      amount: 100,
-      currency: "USD",
-      commission: 0,
-      cost: 90,
-      price: 100,
-      paidByMethod: "CASH",
-    });
-    repo.createTransaction({
-      provider: "Katsh",
+      provider: "iPick",
       serviceType: "SEND",
       amount: 30,
       currency: "USD",
@@ -523,28 +490,29 @@ describe("Sale-cost reconciliation paths (LIRA-061)", () => {
       price: 30,
       paidByMethod: "CASH",
     });
-
-    // Owed = 90 + 25 = 115
-    expect(balanceUsd(db, supplierId)).toBeCloseTo(115, 2);
-
-    const unsettled = repo.getUnsettledBySupplier("Katsh");
-    expect(unsettled).toHaveLength(2);
-    const ids = unsettled.map((u) => u.id);
-    const netPay = unsettled.reduce((s, u) => s + u.amount, 0); // 90 + 25
-
-    supplierRepo.settleTransactions({
-      supplier_id: supplierId,
-      financial_service_ids: ids,
-      amount_usd: netPay,
-      amount_lbp: 0,
-      commission_usd: 0,
-      commission_lbp: 0,
-      drawer_name: "General",
-      created_by: 1,
+    repo.createTransaction({
+      provider: "iPick",
+      serviceType: "SEND",
+      amount: 35,
+      currency: "USD",
+      commission: 0,
+      cost: 30,
+      price: 35,
+      paidByMethod: "CASH",
     });
+    expect(balanceUsd(db, supplierId)).toBeCloseTo(55, 2); // unchanged by sales
 
+    // Pay the supplier back → balance nets to zero.
+    supplierRepo.addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "PAYMENT",
+      amount_usd: 55,
+      amount_lbp: 0,
+      drawer_name: "iPick",
+      created_by: 1,
+      note: "Pay down iPick top-up",
+    });
     expect(balanceUsd(db, supplierId)).toBeCloseTo(0, 4);
-    expect(repo.getUnsettledBySupplier("Katsh")).toHaveLength(0);
   });
 });
 
