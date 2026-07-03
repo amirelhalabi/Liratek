@@ -62,6 +62,14 @@ let db: Database.Database;
 // Catch any unhandled error in the main process before it silently crashes.
 process.on("uncaughtException", (err) => {
   logger.fatal({ err }, "Uncaught exception in main process");
+  // Under the e2e harness (NODE_ENV=test) there is no user to click the dialog:
+  // showing it and quitting silently assassinates whichever test is running
+  // ("Target page has been closed", clean exit, no crash event). Log loudly —
+  // the harness pipes it as [electron] output — and keep the app alive.
+  if (process.env.NODE_ENV === "test") {
+    console.error("[uncaughtException]", err?.stack ?? String(err));
+    return;
+  }
   dialog
     .showMessageBox({
       type: "error",

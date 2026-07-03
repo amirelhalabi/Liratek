@@ -115,6 +115,17 @@ export const test = base.extend<
       }
       fs.mkdirSync(TEST_USER_DATA_DIR, { recursive: true });
 
+      // Stagger Electron boots across parallel workers (A7): simultaneous
+      // boots of multiple Electron instances race on shared macOS resources
+      // and can hard-kill a sibling's main process ~5-15s in — the recurring
+      // "Target page closed, pageCrashed=false" death that always hit
+      // whichever test occupied that wall-clock slot on worker 0. Boots are
+      // serialized (~2s apart); test execution stays fully parallel.
+      const workerIdx = Number(WORKER_INDEX) || 0;
+      if (workerIdx > 0) {
+        await new Promise((r) => setTimeout(r, workerIdx * 2000));
+      }
+
       sharedApp = await _electron.launch({
         executablePath: electronBin,
         args: [
@@ -524,11 +535,20 @@ export async function completeSetup(page: Page) {
     .first()
     .click();
 
-  // Step 6: Starting Drawer Amounts — skip (start at zero)
+  // Step 6: Starting Drawer Amounts — seed DISTINCT per-currency amounts for
+  // General (B1) so setup writes a real initial checkpoint (A4). Specs assert
+  // deltas (rule 15), so a non-zero baseline is safe; lira-085 asserts these
+  // exact values against the immutable setup-checkpoint row.
   await page.waitForSelector("text=Starting Drawer Amounts", { timeout: 5000 });
   await page
+    .locator('[data-testid="setup-amount-General-USD"] input')
+    .fill("500");
+  await page
+    .locator('[data-testid="setup-amount-General-LBP"] input')
+    .fill("9000000");
+  await page
     .locator("button")
-    .filter({ hasText: /^Skip$/ })
+    .filter({ hasText: /^Next →$/ })
     .click();
 
   // Step 7: Completion — Launch
@@ -539,4 +559,34 @@ export async function completeSetup(page: Page) {
   await page.waitForSelector('nav a[href], [data-testid="sidebar"]', {
     timeout: 15_000,
   });
+
+  // Validate the setup seeding at the ONLY deterministic moment (before any
+  // spec mutates the drawers): the dashboard must reflect the step-6 amounts
+  // (General USD 500 / LBP 9,000,000). A mismatch here means the setup wizard
+  // failed to seed the drawers — fail the whole worker loudly.
+  const seeded = await page.evaluate(async () => {
+    const api = (
+      window as unknown as {
+        api: {
+          dashboard: {
+            getDrawerBalances: () => Promise<{
+              generalDrawer: { usd: number; lbp: number };
+            }>;
+          };
+        };
+      }
+    ).api;
+    const balances = await api.dashboard.getDrawerBalances();
+    return balances.generalDrawer;
+  });
+  if (
+    Math.abs(seeded.usd - 500) > 0.01 ||
+    Math.abs(seeded.lbp - 9_000_000) > 0.5
+  ) {
+    throw new Error(
+      `Setup drawer seeding failed: General = $${seeded.usd} / ${seeded.lbp} LBP ` +
+        `(expected $500 / 9,000,000 LBP). The setup wizard did not apply the ` +
+        `step-6 per-currency amounts to drawer_balances.`,
+    );
+  }
 }

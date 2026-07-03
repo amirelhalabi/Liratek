@@ -113,4 +113,78 @@ test.describe("Transactions table — hidden types", () => {
     // …and the ⚙ System Transactions fold button never renders.
     await expect(appPage.getByText("⚙")).toHaveCount(0);
   });
+
+  test("B6: 'Cash only (till)' filter keeps cash rows and drops wallet-only rows", async ({
+    appPage,
+  }) => {
+    const ts = Date.now();
+    const cashName = `B6 CASH ${ts}`;
+    const walletName = `B6 WALLET ${ts}`;
+
+    // 1. A cash transaction (CASH leg → General) and a wallet-only transaction
+    //    (OMT_APP transfer paid from the OMT wallet — no CASH leg).
+    const created = await appPage.evaluate(
+      async ({ cashName, walletName }) => {
+        const w = window as unknown as {
+          api: {
+            omt: {
+              addTransaction: (d: Record<string, unknown>) => Promise<{
+                success?: boolean;
+                error?: string;
+              }>;
+            };
+          };
+        };
+        const cash = await w.api.omt.addTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 21,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          clientName: cashName,
+          paidByMethod: "CASH",
+        });
+        const wallet = await w.api.omt.addTransaction({
+          provider: "OMT_APP",
+          serviceType: "SEND",
+          amount: 13,
+          currency: "USD",
+          commission: 0,
+          clientName: walletName,
+          paidByMethod: "OMT",
+        });
+        return {
+          cashOk: cash.success === true,
+          cashError: cash.error ?? null,
+          walletOk: wallet.success === true,
+          walletError: wallet.error ?? null,
+        };
+      },
+      { cashName, walletName },
+    );
+    expect(created.cashError).toBeNull();
+    expect(created.cashOk).toBe(true);
+    expect(created.walletError).toBeNull();
+    expect(created.walletOk).toBe(true);
+
+    // 2. Fresh mount of /audit, then pick the cash filter.
+    await navigateTo(appPage, "/");
+    await navigateTo(appPage, "/audit");
+    await expect(appPage.locator("tbody tr").first()).toBeVisible({
+      timeout: 8_000,
+    });
+    await appPage
+      .locator("button")
+      .filter({ hasText: /^All types$/ })
+      .first()
+      .click();
+    await appPage.getByText("Cash only (till)", { exact: true }).click();
+
+    // Cash row visible; the wallet-only transfer is filtered out.
+    await expect(
+      appPage.locator("tr", { hasText: cashName }).first(),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(appPage.locator("tr", { hasText: walletName })).toHaveCount(0);
+  });
 });
