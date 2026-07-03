@@ -472,7 +472,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
     try {
       const settle = this.db.transaction(() => {
-        const now = new Date().toISOString();
+        // Timestamps are stamped by SQLite (datetime('now')) so they share the
+        // 'YYYY-MM-DD HH:MM:SS' format of every CURRENT_TIMESTAMP column. A JS
+        // toISOString() here ('...T...Z') string-sorts ABOVE all space-format
+        // rows of the same day, pinning settlement rows to the top of every
+        // ORDER BY created_at DESC list (A6).
 
         // ── 1. Insert SETTLEMENT ledger entry (net paid to supplier, stored negative) ──
         const netUsd = -Math.abs(data.amount_usd);
@@ -481,7 +485,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .prepare(
             `INSERT INTO supplier_ledger
                (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at)
-             VALUES (?, 'SETTLEMENT', ?, ?, ?, ?, ?)`,
+             VALUES (?, 'SETTLEMENT', ?, ?, ?, ?, datetime('now'))`,
           )
           .run(
             data.supplier_id,
@@ -489,7 +493,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             netLbp,
             data.note ?? null,
             data.created_by,
-            now,
           );
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
@@ -506,12 +509,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .prepare(
             `UPDATE financial_services
              SET is_settled = 1,
-                 settled_at = ?,
+                 settled_at = datetime('now'),
                  settlement_id = ?
              WHERE id IN (${placeholders})
                AND settlement_id IS NULL`,
           )
-          .run(now, ledgerEntryId, ...data.financial_service_ids);
+          .run(ledgerEntryId, ...data.financial_service_ids);
 
         // ── 3. Credit commission to General drawer ─────────────────────────
         const upsertBalance = this.db.prepare(`
@@ -535,7 +538,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             `INSERT INTO transactions
                (type, status, source_table, source_id, user_id,
                 amount_usd, amount_lbp, summary, metadata_json, created_at)
-             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, datetime('now'))`,
           )
           .run(
             TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
@@ -551,7 +554,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               commission_lbp: data.commission_lbp,
               drawer_name: data.drawer_name,
             }),
-            now,
           );
         const txnId = Number(txnRes.lastInsertRowid);
 
@@ -632,7 +634,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
     try {
       const run = this.db.transaction(() => {
-        const now = new Date().toISOString();
+        // SQLite-side timestamps — see settleTransactions (A6 ordering).
         const isPay = data.direction === "PAY";
         const entryType: SupplierLedgerEntryType = isPay
           ? "PAYMENT"
@@ -657,7 +659,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .prepare(
             `INSERT INTO supplier_ledger
                (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
           )
           .run(
             data.supplier_id,
@@ -666,7 +668,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             sign * lbp,
             data.note ?? null,
             data.created_by,
-            now,
           );
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
@@ -679,7 +680,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             `INSERT INTO transactions
                (type, status, source_table, source_id, user_id,
                 amount_usd, amount_lbp, summary, metadata_json, created_at)
-             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, datetime('now'))`,
           )
           .run(
             TRANSACTION_TYPES.SUPPLIER_PAYMENT,
@@ -693,7 +694,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               direction: data.direction,
               entry_type: entryType,
             }),
-            now,
           );
         const txnId = Number(txnRes.lastInsertRowid);
         this.db

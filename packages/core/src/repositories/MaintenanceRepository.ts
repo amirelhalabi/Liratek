@@ -158,7 +158,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       return stmt.all(statusFilter) as MaintenanceRow[];
     }
     const stmt = this.db.prepare(
-      `SELECT ${this.getColumns()} FROM maintenance WHERE status != 'Voided' ORDER BY created_at DESC`,
+      `SELECT ${this.getColumns()} FROM maintenance WHERE status NOT IN ('Voided', 'Deleted') ORDER BY created_at DESC`,
     );
     return stmt.all() as MaintenanceRow[];
   }
@@ -354,17 +354,24 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
    * Delete a job by ID and void its transaction
    */
   deleteJob(id: number): void {
-    this.db.transaction(() => {
-      const txnRepo = getTransactionRepository();
-      const originalTxn = txnRepo.getBySourceId("maintenance", id);
-      if (originalTxn) {
-        txnRepo.voidTransaction(originalTxn.id, 1);
-      }
-      // Soft-delete: mark as Voided instead of removing the record
-      this.db
-        .prepare("UPDATE maintenance SET status = 'Voided' WHERE id = ?")
-        .run(id);
-    })();
+    // A job with an ACTIVE unified transaction is money history (cash, debt,
+    // or a session-linked entry) — it must be refunded/voided explicitly,
+    // never deleted. Deleting an unpaid job is a PURE status change: no
+    // transaction voiding, no reversal rows (owner feedback 2026-07-03 — the
+    // old path voided the txn and emitted a confusing −amount reversal).
+    // getBySourceId returns only ACTIVE transactions.
+    const originalTxn = getTransactionRepository().getBySourceId(
+      "maintenance",
+      id,
+    );
+    if (originalTxn) {
+      throw new Error(
+        "This job has recorded payments — refund or void it instead of deleting.",
+      );
+    }
+    this.db
+      .prepare("UPDATE maintenance SET status = 'Deleted' WHERE id = ?")
+      .run(id);
   }
 
   /**

@@ -569,9 +569,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     created_by: number;
     created_at?: string;
   }): number {
+    // Normalize any ISO caller date ('2024-01-05T00:00:00.000Z') to the
+    // CURRENT_TIMESTAMP format ('YYYY-MM-DD HH:MM:SS') — ISO strings sort
+    // above every space-format row of the same day (A6). For an already
+    // SQLite-format string the SUBSTR+REPLACE is a no-op.
     const stmt = this.db.prepare(`
       INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      VALUES (?, ?, ?, ?, ?, ?, COALESCE(REPLACE(SUBSTR(?, 1, 19), 'T', ' '), CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
       data.client_id,
@@ -583,6 +587,44 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       data.created_at ?? null,
     );
     return Number(result.lastInsertRowid);
+  }
+
+  /**
+   * How many identical imported rows already exist — same client, type,
+   * amounts, note, and (normalized) date. Used to make the Excel debt import
+   * idempotent with MULTISET semantics: a file can legitimately contain N
+   * identical entries (e.g. two Alfa cards at 600,000 LBP on the same day),
+   * so re-imports must skip exactly as many occurrences as already exist and
+   * import any surplus — a boolean exists-check would under-import.
+   */
+  countIdenticalRawEntries(data: {
+    client_id: number;
+    transaction_type: string;
+    amount_usd: number;
+    amount_lbp: number;
+    note: string | null;
+    created_at?: string;
+  }): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) as n FROM debt_ledger
+          WHERE client_id = ?
+            AND transaction_type = ?
+            AND amount_usd = ?
+            AND amount_lbp = ?
+            AND COALESCE(note, '') = COALESCE(?, '')
+            AND (? IS NULL OR created_at = REPLACE(SUBSTR(?, 1, 19), 'T', ' '))`,
+      )
+      .get(
+        data.client_id,
+        data.transaction_type,
+        data.amount_usd,
+        data.amount_lbp,
+        data.note,
+        data.created_at ?? null,
+        data.created_at ?? null,
+      ) as { n: number };
+    return row.n;
   }
 
   // ---------------------------------------------------------------------------

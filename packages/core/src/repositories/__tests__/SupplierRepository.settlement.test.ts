@@ -78,6 +78,14 @@ function createTestDb(): Database.Database {
       user_id INTEGER NOT NULL DEFAULT 1,
       amount_usd REAL NOT NULL DEFAULT 0,
       amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL NOT NULL DEFAULT 0,
+      profit_lbp REAL NOT NULL DEFAULT 0,
+      exchange_rate REAL,
+      client_id INTEGER,
+      client_name TEXT,
+      client_phone TEXT,
+      reverses_id INTEGER,
+      device_id TEXT,
       summary TEXT,
       metadata_json TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -216,6 +224,44 @@ describe("SupplierRepository.settleTransactions()", () => {
     expect(entry.note).toBe("March settlement");
   });
 
+  it("stamps CURRENT_TIMESTAMP-format created_at — never ISO (A6 ordering)", () => {
+    const supplierId = seedSupplier(db);
+    const txn1 = seedUnsettledTransaction(db, "OMT", 100, 0.1);
+
+    repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [txn1],
+      amount_usd: 100,
+      amount_lbp: 0,
+      commission_usd: 0.1,
+      commission_lbp: 0,
+      drawer_name: "General",
+      created_by: 1,
+    });
+
+    // ISO strings ('...T...Z') string-sort ABOVE every 'YYYY-MM-DD HH:MM:SS'
+    // row of the same day ('T' > ' '), pinning settlement rows to the top of
+    // ORDER BY created_at DESC lists. All stamps must be SQLite-format.
+    const SQLITE_TS = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+    const ledger = db
+      .prepare("SELECT created_at FROM supplier_ledger WHERE supplier_id = ?")
+      .get(supplierId) as { created_at: string };
+    expect(ledger.created_at).toMatch(SQLITE_TS);
+
+    const txn = db
+      .prepare(
+        "SELECT created_at FROM transactions WHERE type = 'SUPPLIER_SETTLEMENT'",
+      )
+      .get() as { created_at: string };
+    expect(txn.created_at).toMatch(SQLITE_TS);
+
+    const fs = db
+      .prepare("SELECT settled_at FROM financial_services WHERE id = ?")
+      .get(txn1) as { settled_at: string };
+    expect(fs.settled_at).toMatch(SQLITE_TS);
+  });
+
   it("marks all selected financial_services rows as is_settled = 1", () => {
     const supplierId = seedSupplier(db);
     const txn1 = seedUnsettledTransaction(db, "OMT", 100, 0.1);
@@ -269,7 +315,13 @@ describe("SupplierRepository.settleTransactions()", () => {
       .get(txnId) as any;
 
     expect(row.settlement_id).toBe(result.id);
-    expect(new Date(row.settled_at).getTime()).toBeGreaterThanOrEqual(before);
+    // settled_at is a UTC 'YYYY-MM-DD HH:MM:SS' stamp (datetime('now'), A6) —
+    // parse it AS UTC; a bare new Date(...) would read it as local time.
+    const settledAtMs = new Date(
+      row.settled_at.replace(" ", "T") + "Z",
+    ).getTime();
+    // Second-granular stamp vs ms clock: allow the truncated second.
+    expect(settledAtMs).toBeGreaterThanOrEqual(before - 1000);
   });
 
   it("credits commission_usd to General drawer", () => {
@@ -687,6 +739,112 @@ function createExtendedTestDb(): Database.Database {
 
   return db;
 }
+
+// ─── Opening balances via signed ADJUSTMENT (B4) ─────────────────────────────
+//
+// A supplier can start with an owed amount in EITHER direction: positive
+// ADJUSTMENT = shop owes supplier; negative ADJUSTMENT = supplier owes the
+// shop. addLedgerEntry must pass ADJUSTMENT signs through untouched (only
+// PAYMENT forces negative) so getSupplierBalances() reflects the signed total.
+
+describe("SupplierRepository — opening balance via signed ADJUSTMENT (B4)", () => {
+  let db: Database.Database;
+  let repo: SupplierRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const {
+    resetTransactionRepository,
+  } = require("../TransactionRepository") as typeof import("../TransactionRepository");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    // ADJUSTMENT entries journal through the TransactionRepository singleton —
+    // rebind it to THIS test's in-memory DB.
+    resetTransactionRepository();
+    repo = new SupplierRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+    resetTransactionRepository();
+  });
+
+  const balanceOf = (supplierId: number) => {
+    const row = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_usd),0) usd, COALESCE(SUM(amount_lbp),0) lbp
+           FROM supplier_ledger WHERE supplier_id = ?`,
+      )
+      .get(supplierId) as { usd: number; lbp: number };
+    return row;
+  };
+
+  it("positive ADJUSTMENT books an opening 'shop owes supplier' balance", () => {
+    const supplierId = seedSupplier(db);
+    repo.addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "ADJUSTMENT",
+      amount_usd: 250,
+      amount_lbp: 1_000_000,
+      note: "Opening balance",
+      created_by: 1,
+    });
+
+    const bal = balanceOf(supplierId);
+    expect(bal.usd).toBeCloseTo(250, 2);
+    expect(bal.lbp).toBeCloseTo(1_000_000, 2);
+  });
+
+  it("negative ADJUSTMENT books an opening 'supplier owes shop' balance (sign passes through)", () => {
+    const supplierId = seedSupplier(db);
+    repo.addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "ADJUSTMENT",
+      amount_usd: -80,
+      amount_lbp: 0,
+      note: "Opening balance — supplier owes us",
+      created_by: 1,
+    });
+
+    expect(balanceOf(supplierId).usd).toBeCloseTo(-80, 2);
+    // The signed balance also flows through getSupplierBalances()
+    const balances = repo.getSupplierBalances(true);
+    const mine = balances.find((b) => b.supplier_id === supplierId);
+    expect(mine?.total_usd).toBeCloseTo(-80, 2);
+  });
+
+  it("no drawer movement for either direction (opening balances are book entries)", () => {
+    const supplierId = seedSupplier(db);
+    const general = () =>
+      (
+        db
+          .prepare(
+            `SELECT balance FROM drawer_balances WHERE drawer_name='General' AND currency_code='USD'`,
+          )
+          .get() as { balance: number }
+      ).balance;
+
+    const before = general();
+    repo.addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "ADJUSTMENT",
+      amount_usd: 100,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+    repo.addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "ADJUSTMENT",
+      amount_usd: -40,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+    expect(general()).toBeCloseTo(before, 2);
+    expect(balanceOf(supplierId).usd).toBeCloseTo(60, 2);
+  });
+});
 
 // ─── RechargeRepository.topUpFromSupplier() tests ────────────────────────────
 

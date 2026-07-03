@@ -234,6 +234,15 @@ const INTERNAL_PAYMENT_METHODS =
 const PROFIT_TXN_TYPES =
   "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'REFUND'";
 
+/**
+ * Maintenance jobs that count as completed revenue: the device was delivered.
+ * The maintenance workflow has NO "completed" status (its states are Received /
+ * In_Progress / Ready / Delivered / Delivered_Paid) — the old lowercase
+ * equality predicate matched nothing, so maintenance profit was always zero
+ * in every profits view (B5).
+ */
+const MAINTENANCE_COMPLETED = "m.status IN ('Delivered', 'Delivered_Paid')";
+
 // =============================================================================
 // Repository
 // =============================================================================
@@ -414,7 +423,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COUNT(*) AS count
         FROM maintenance m
         JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
-        WHERE LOWER(m.status) = 'completed'
+        WHERE ${MAINTENANCE_COMPLETED}
           AND t.status = 'ACTIVE'
           AND ${dateRange("m.created_at")}`,
       )
@@ -604,7 +613,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             COALESCE(SUM(t.profit_usd), 0) AS profit_usd
           FROM maintenance m
           JOIN transactions t ON t.source_table = 'maintenance' AND t.source_id = m.id AND t.type = 'MAINTENANCE'
-          WHERE LOWER(m.status) = 'completed'
+          WHERE ${MAINTENANCE_COMPLETED}
             AND t.status = 'ACTIVE'
             AND ${dateRange("m.created_at")}
           GROUP BY DATE(m.created_at)

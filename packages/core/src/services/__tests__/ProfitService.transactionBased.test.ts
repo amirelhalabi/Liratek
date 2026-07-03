@@ -104,6 +104,7 @@ function createSchema(d: TestDb): void {
     CREATE TABLE recharges (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       carrier TEXT NOT NULL,
+      recharge_type TEXT NOT NULL DEFAULT 'CREDIT_TRANSFER',
       currency_code TEXT NOT NULL DEFAULT 'USD',
       price REAL NOT NULL DEFAULT 0,
       cost REAL NOT NULL DEFAULT 0,
@@ -124,7 +125,7 @@ function createSchema(d: TestDb): void {
 
     CREATE TABLE maintenance (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      status TEXT NOT NULL DEFAULT 'completed',
+      status TEXT NOT NULL DEFAULT 'Delivered_Paid',
       final_amount_usd REAL NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -459,10 +460,14 @@ describe("(d) recharge / custom / maintenance profit from transactions", () => {
     expect(summary.custom_services.profit_usd).toBe(20); // from transactions, not 999
   });
 
-  it("maintenance profit equals the stamped transaction profit", () => {
+  it("maintenance profit equals the stamped transaction profit (B5: real Delivered_Paid status)", () => {
+    // The app's workflow statuses are Received/In_Progress/Ready/Delivered/
+    // Delivered_Paid — the old predicate matched only a fictional 'completed',
+    // so maintenance profit was ALWAYS zero (and this test used to seed that
+    // fictional status, hiding the bug).
     db.prepare(
       `INSERT INTO maintenance (id, status, final_amount_usd, cost_usd, created_at)
-       VALUES (1, 'completed', 100, 70, ?)`,
+       VALUES (1, 'Delivered_Paid', 100, 70, ?)`,
     ).run(TS);
     insertTxn({
       type: "MAINTENANCE",
@@ -481,6 +486,39 @@ describe("(d) recharge / custom / maintenance profit from transactions", () => {
       .getByModule(FROM, TO)
       .find((m) => m.module === "MAINTENANCE");
     expect(row?.profit_usd).toBe(30);
+  });
+
+  it("maintenance not yet delivered does NOT count as realized profit", () => {
+    db.prepare(
+      `INSERT INTO maintenance (id, status, final_amount_usd, cost_usd, created_at)
+       VALUES (2, 'In_Progress', 60, 40, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "MAINTENANCE",
+      sourceTable: "maintenance",
+      sourceId: 2,
+      profitUsd: 20,
+      amountUsd: 60,
+    });
+
+    expect(service.getSummary(FROM, TO).maintenance.profit_usd).toBe(0);
+  });
+
+  it("recharge teshriji (CREDIT_TRANSFER) profit counts in the recharge tab (B5)", () => {
+    db.prepare(
+      `INSERT INTO recharges (id, carrier, recharge_type, currency_code, price, cost, created_at)
+       VALUES (2, 'MTC', 'CREDIT_TRANSFER', 'USD', 3.5, 3, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "RECHARGE",
+      sourceTable: "recharges",
+      sourceId: 2,
+      profitUsd: 0.34, // (price - cost) - 1 SMS × $0.16, as stamped at sale time
+      amountUsd: 3.5,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.recharges.profit_usd).toBeCloseTo(0.34, 2);
   });
 });
 

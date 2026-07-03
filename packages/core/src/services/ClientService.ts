@@ -53,6 +53,8 @@ export interface ImportResult {
   clientsSkipped: number;
   clientsDiscarded: number;
   entriesImported: number;
+  /** Entries skipped because an identical row already exists (re-import). */
+  duplicatesSkipped: number;
   errors: string[];
 }
 
@@ -291,6 +293,7 @@ export class ClientService {
       clientsSkipped: 0,
       clientsDiscarded: 0,
       entriesImported: 0,
+      duplicatesSkipped: 0,
       errors: [],
     };
 
@@ -344,8 +347,50 @@ export class ClientService {
           result.clientsCreated++;
         }
 
+        // Idempotency with MULTISET semantics: count how many identical rows
+        // existed BEFORE this import and skip exactly that many occurrences
+        // from the file. Re-importing the same file duplicates nothing, while
+        // a file legitimately holding N identical entries (e.g. two Alfa cards
+        // at 600,000 LBP the same day) imports all N the first time — or just
+        // the missing surplus after a partial import. Counts are snapshotted
+        // for ALL entries before any insert.
+        const entryKey = (entry: (typeof clientData.entries)[number]) => {
+          const isPayment = entry.type === "payment";
+          return {
+            client_id: client.id,
+            transaction_type: isPayment ? "Repayment" : "Imported Debt",
+            amount_usd: isPayment ? -entry.amount_usd : entry.amount_usd,
+            amount_lbp: isPayment ? -entry.amount_lbp : entry.amount_lbp,
+            note: entry.description || null,
+            ...(entry.date ? { created_at: entry.date } : {}),
+          };
+        };
+        // Remaining skip-budget per identity key (DB counted once per key).
+        const skipBudget = new Map<string, number>();
+        const preExisting = clientData.entries.map((entry) => {
+          const key = entryKey(entry);
+          const mapKey = JSON.stringify(key);
+          if (!skipBudget.has(mapKey)) {
+            skipBudget.set(mapKey, debtRepo.countIdenticalRawEntries(key));
+          }
+          const remaining = skipBudget.get(mapKey)!;
+          if (remaining > 0) {
+            skipBudget.set(mapKey, remaining - 1);
+            return true;
+          }
+          return false;
+        });
+
         // Import debt entries
-        for (const entry of clientData.entries) {
+        for (const [entryIdx, entry] of clientData.entries.entries()) {
+          if (preExisting[entryIdx]) {
+            result.duplicatesSkipped++;
+            clientLogger.info(
+              { clientName: name, note: entry.description },
+              `Skipped duplicate imported entry for "${name}" (identical row already exists)`,
+            );
+            continue;
+          }
           // Defence-in-depth: never persist spreadsheet footer/summary rows
           // ("TOTAL ON ACCOUNT", "TOTAL PAID", "Balance Remaining"). The
           // frontend parser already drops these by their label column; this
