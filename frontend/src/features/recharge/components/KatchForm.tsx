@@ -10,7 +10,6 @@ import {
   useApi,
   DecimalInput,
   hasNewClientInfo,
-  Select,
 } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -57,6 +56,38 @@ function calcCost(
   const cost = item.catalogCost ?? 0;
   return onlyDays ? cost - returnedCredits * costRate : cost;
 }
+
+// Bill card follows each provider's own brand color (iPick = sky, Katsh =
+// orange) instead of a fixed color — mirrors the accent lookup pattern in
+// CardGridPayView.tsx so Tailwind's static scanner can see every literal class.
+const BILL_ACCENTS: Record<
+  "sky" | "orange",
+  {
+    border: string;
+    toggleActive: string;
+    inputFocus: string;
+    button: string;
+    pendingLabel: string;
+    pendingAmount: string;
+  }
+> = {
+  sky: {
+    border: "border-sky-700/40",
+    toggleActive: "bg-sky-600 text-white",
+    inputFocus: "focus:border-sky-500",
+    button: "bg-sky-600 hover:bg-sky-500",
+    pendingLabel: "text-sky-300",
+    pendingAmount: "text-sky-400",
+  },
+  orange: {
+    border: "border-orange-700/40",
+    toggleActive: "bg-orange-600 text-white",
+    inputFocus: "focus:border-orange-500",
+    button: "bg-orange-600 hover:bg-orange-500",
+    pendingLabel: "text-orange-300",
+    pendingAmount: "text-orange-400",
+  },
+};
 
 // ─── ItemCard (memo'd, module scope) ─────────────────────────────────────────
 
@@ -239,6 +270,9 @@ interface KatchFormProps {
   setShowHistory: (show: boolean) => void;
   onRefreshItems?: () => Promise<void>;
   isAdmin?: boolean;
+  /** Reports selected-item counts per provider tab (Katsh/iPick share one
+   *  mounted form and one cart, so both keys are always reported). */
+  onCartCountChange?: (counts: Record<string, number>) => void;
 }
 
 function KatchFormInner({
@@ -256,6 +290,7 @@ function KatchFormInner({
   setShowHistory,
   onRefreshItems,
   isAdmin,
+  onCartCountChange,
 }: KatchFormProps) {
   const api = useApi();
   const {
@@ -310,10 +345,57 @@ function KatchFormInner({
   // Bill card state (LBP default per spec)
   const [billAmount, setBillAmount] = useState("");
   const [billCurrency, setBillCurrency] = useState<"USD" | "LBP">("LBP");
-  const [pendingBill, setPendingBill] = useState<{
-    amount: number;
-    currency: "USD" | "LBP";
-  } | null>(null);
+  const [pendingBills, setPendingBills] = useState<
+    Array<{ amount: number; currency: "USD" | "LBP" }>
+  >([]);
+  // Bills check out as their OWN transactions (per-bill supplier commission +
+  // audit row), but ONE PaymentSheet payment covers the whole checkout: the
+  // legs book against exactly one CARRIER transaction — the aggregated items
+  // SEND when catalog items are in the cart, otherwise the first bill — and
+  // every other transaction is sent with deferPayment (cost + commission
+  // only). Attaching the same legs to two transactions double-books the till.
+  //
+  // Sheet total: USD when the checkout is bills-only and every bill is USD,
+  // otherwise LBP with USD bills converted at the current rate
+  // (MultiPaymentInput supports cross-currency legs against a single-currency
+  // total). Each bill still books its cost in its OWN currency.
+  const billsAllUsd =
+    pendingBills.length > 0 && pendingBills.every((b) => b.currency === "USD");
+  const billsLbpValue = Math.round(
+    pendingBills.reduce(
+      (s, b) => s + (b.currency === "LBP" ? b.amount : b.amount * exchangeRate),
+      0,
+    ),
+  );
+  const billsOnlyUsd = billsAllUsd && cart.size === 0;
+  const billsCurrency: "USD" | "LBP" = billsOnlyUsd ? "USD" : "LBP";
+  const billsTotal = billsOnlyUsd
+    ? pendingBills.reduce((s, b) => s + b.amount, 0)
+    : billsLbpValue;
+  const fmtBill = (amount: number, cur: "USD" | "LBP") =>
+    cur === "LBP"
+      ? `${Math.round(amount).toLocaleString()} LBP`
+      : `$${amount.toFixed(2)}`;
+
+  // Report selection counts to the provider tabs (quantities per the item's
+  // own provider — the cart survives Katsh↔iPick switches — plus staged bills
+  // under the tab they were added on).
+  useEffect(() => {
+    if (!onCartCountChange) return;
+    const counts: Record<string, number> = { Katsh: 0, iPick: 0 };
+    for (const line of cart.values()) {
+      counts[line.item.provider] =
+        (counts[line.item.provider] ?? 0) + line.quantity;
+    }
+    if (activeProvider) {
+      counts[activeProvider] =
+        (counts[activeProvider] ?? 0) + pendingBills.length;
+    }
+    onCartCountChange(counts);
+  }, [cart, pendingBills, activeProvider, onCartCountChange]);
+  useEffect(() => {
+    return () => onCartCountChange?.({});
+  }, [onCartCountChange]);
   const [historyTransactions, setHistoryTransactions] = useState<
     FinancialTransaction[]
   >([]);
@@ -452,6 +534,8 @@ function KatchFormInner({
 
   if (!activeConfig || !activeProvider) return null;
 
+  const billAccent = BILL_ACCENTS[activeProvider === "iPick" ? "sky" : "orange"];
+
   const categories = getCategoriesForProvider(activeProvider);
 
   const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
@@ -578,13 +662,28 @@ function KatchFormInner({
       });
       setBillAmount("");
     } else {
-      setPendingBill({ amount: parsed, currency: billCurrency });
+      // A USD bill needs a rate: as soon as an LBP bill joins it, the sheet
+      // total converts to LBP — with no rate the USD amount would count as 0.
+      const involvesUsd =
+        billCurrency === "USD" ||
+        pendingBills.some((b) => b.currency === "USD");
+      if (involvesUsd && !(exchangeRate > 0)) {
+        alert(
+          "An exchange rate is required to pay USD bills — set today's rate first.",
+        );
+        return;
+      }
+      setPendingBills((prev) => [
+        ...prev,
+        { amount: parsed, currency: billCurrency },
+      ]);
       setBillAmount("");
     }
   };
 
   const handleSubmit = async () => {
-    if ((cart.size === 0 && !pendingBill) || localSubmitting) return;
+    if ((cart.size === 0 && pendingBills.length === 0) || localSubmitting)
+      return;
 
     const clientResult = await ensureRechargeClient({
       clientId,
@@ -769,33 +868,51 @@ function KatchFormInner({
       }
     }
 
-    // Process pending bill (non-session mode only)
-    if (pendingBill && allSucceeded) {
-      try {
-        const billResult = await api.addOMTTransaction({
-          provider: activeProvider,
-          serviceType: "BILL",
-          amount: pendingBill.amount,
-          cost: pendingBill.amount,
-          price: pendingBill.amount,
-          currency: pendingBill.currency,
-          commission: 0,
-          paidByMethod: finalPaymentMethod,
-          payments: paymentsPayload,
-          clientId: resolvedClientId || undefined,
-          clientName: clientName || undefined,
-        });
-        if (billResult?.success) {
-          setPendingBill(null);
-        } else {
+    // Process pending bills (non-session mode only). Each bill is its own
+    // BILL transaction (per-bill supplier commission + audit row), but the
+    // PaymentSheet legs (incl. change/return OUT legs for overpayment) book
+    // exactly once against the checkout's CARRIER: the aggregated items SEND
+    // above when the cart had items, otherwise the first bill. Every other
+    // bill is deferPayment (cost + commission only) — attaching the same legs
+    // to a second transaction would multiply the drawer inflow.
+    if (pendingBills.length > 0 && allSucceeded) {
+      const itemsCarriedLegs = cart.size > 0;
+      for (let i = 0; i < pendingBills.length; i++) {
+        const bill = pendingBills[i];
+        const isCarrier = !itemsCarriedLegs && i === 0;
+        try {
+          const billResult = await api.addOMTTransaction({
+            provider: activeProvider,
+            serviceType: "BILL",
+            amount: bill.amount,
+            cost: bill.amount,
+            price: bill.amount,
+            currency: bill.currency,
+            commission: 0,
+            paidByMethod: finalPaymentMethod,
+            payments: isCarrier ? paymentsPayload : undefined,
+            deferPayment: isCarrier ? undefined : true,
+            clientId: resolvedClientId || undefined,
+            clientName: clientName || undefined,
+            transaction_time: transactionTime,
+          });
+          if (!billResult?.success) {
+            allSucceeded = false;
+            setPendingBills(pendingBills.slice(i));
+            logger.error("Bill submit failed:", billResult?.error);
+            alert(billResult?.error || "Failed to process bill");
+            break;
+          }
+        } catch (err) {
           allSucceeded = false;
-          logger.error("Bill submit failed:", billResult?.error);
-          alert(billResult?.error || "Failed to process bill");
+          setPendingBills(pendingBills.slice(i));
+          logger.error("Bill submit error:", err);
+          alert("Failed to process bill");
+          break;
         }
-      } catch (err) {
-        allSucceeded = false;
-        logger.error("Bill submit error:", err);
-        alert("Failed to process bill");
+      }
+      if (allSucceeded) {
+        setPendingBills([]);
       }
     }
 
@@ -883,26 +1000,20 @@ function KatchFormInner({
               )}
             </div>
           )}
-          {pendingBill && !activeSession && (
+          {pendingBills.length > 0 && !activeSession && (
             <div className="text-right leading-tight">
-              <div className="text-xs text-violet-300 font-bold">BILL</div>
-              <div className="text-xs text-violet-400 font-mono font-semibold">
-                {pendingBill.currency === "LBP"
-                  ? `${Math.round(pendingBill.amount).toLocaleString()} LBP`
-                  : `$${pendingBill.amount.toFixed(2)}`}
+              <div className={`text-xs font-bold ${billAccent.pendingLabel}`}>
+                {pendingBills.length > 1
+                  ? `${pendingBills.length} BILLS`
+                  : "BILL"}
+              </div>
+              <div
+                className={`text-xs font-mono font-semibold ${billAccent.pendingAmount}`}
+              >
+                {fmtBill(billsTotal, billsCurrency)}
               </div>
             </div>
           )}
-          {/* Payment method quick-select */}
-          <Select
-            value={initialPaymentMethod}
-            onChange={(v) => {
-              setInitialPaymentMethod(v);
-              setPaymentInputKey((k) => k + 1);
-            }}
-            options={methods.map((m) => ({ value: m.code, label: m.label }))}
-            buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-orange-500 transition-all cursor-pointer"
-          />
           <button
             type="button"
             onClick={() => {
@@ -914,9 +1025,9 @@ function KatchFormInner({
                 setShowPaymentSheet(true);
               }
             }}
-            disabled={totalItems === 0 && !pendingBill}
+            disabled={totalItems === 0 && pendingBills.length === 0}
             className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
-              totalItems === 0 && !pendingBill
+              totalItems === 0 && pendingBills.length === 0
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                 : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
             }`}
@@ -938,12 +1049,13 @@ function KatchFormInner({
         <div className="space-y-6 pb-2">
           {/* Bill card — always visible at top of grid */}
           {!searchQuery && (
-            <div className="bg-slate-800 rounded-xl border border-violet-700/40 p-4">
-              <div className="text-center text-sm font-bold text-white tracking-widest mb-3">
-                BILL
-              </div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-400">Currency</span>
+            <div
+              className={`bg-slate-800 rounded-xl border ${billAccent.border} p-4`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-sm font-bold text-white tracking-widest">
+                  BILL
+                </div>
                 <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
                   {(["USD", "LBP"] as const).map((cur) => (
                     <button
@@ -956,7 +1068,7 @@ function KatchFormInner({
                       }}
                       className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
                         billCurrency === cur
-                          ? "bg-violet-600 text-white"
+                          ? billAccent.toggleActive
                           : "text-slate-400 hover:text-slate-200"
                       }`}
                     >
@@ -965,48 +1077,54 @@ function KatchFormInner({
                   ))}
                 </div>
               </div>
-              <div className="mb-3">
-                <label className="text-xs text-slate-400 block mb-1">
-                  Amount ({billCurrency})
-                </label>
-                <DecimalInput
-                  value={parseFloat(billAmount.replace(/,/g, "")) || 0}
-                  onChange={(n) => setBillAmount(n ? String(n) : "")}
-                  decimals={billCurrency === "USD" ? 2 : 0}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-violet-500"
-                  placeholder={billCurrency === "LBP" ? "0" : "0.00"}
-                />
+              <div className="flex items-end gap-3">
+                <div className="w-1/2">
+                  <label className="text-xs text-slate-400 block mb-1">
+                    Amount ({billCurrency})
+                  </label>
+                  <DecimalInput
+                    value={parseFloat(billAmount.replace(/,/g, "")) || 0}
+                    onChange={(n) => setBillAmount(n ? String(n) : "")}
+                    decimals={billCurrency === "USD" ? 2 : 0}
+                    className={`w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none ${billAccent.inputFocus}`}
+                    placeholder={billCurrency === "LBP" ? "0" : "0.00"}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddBill}
+                  disabled={
+                    !billAmount || parseFloat(billAmount.replace(/,/g, "")) <= 0
+                  }
+                  className={`w-1/2 py-2 ${billAccent.button} disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors`}
+                >
+                  {activeSession ? "Add Bill to Cart" : "Add Bill"}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={handleAddBill}
-                disabled={
-                  !billAmount || parseFloat(billAmount.replace(/,/g, "")) <= 0
-                }
-                className="w-full py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors"
-              >
-                {activeSession
-                  ? "Add Bill to Cart"
-                  : pendingBill
-                    ? "Replace Bill"
-                    : "Add Bill"}
-              </button>
-              {pendingBill && !activeSession && (
-                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-violet-300 font-mono">
-                  <span>
-                    Pending:{" "}
-                    {pendingBill.currency === "LBP"
-                      ? `${Math.round(pendingBill.amount).toLocaleString()} LBP`
-                      : `$${pendingBill.amount.toFixed(2)}`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPendingBill(null)}
-                    className="text-slate-500 hover:text-red-400 transition-colors"
-                    aria-label="Clear pending bill"
-                  >
-                    ✕
-                  </button>
+              {pendingBills.length > 0 && !activeSession && (
+                <div className="mt-2 flex flex-col items-center gap-1">
+                  {pendingBills.map((bill, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-2 text-xs font-mono ${billAccent.pendingLabel}`}
+                    >
+                      <span>
+                        Pending: {fmtBill(bill.amount, bill.currency)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPendingBills((prev) =>
+                            prev.filter((_, i) => i !== idx),
+                          )
+                        }
+                        className="text-slate-500 hover:text-red-400 transition-colors"
+                        aria-label="Clear pending bill"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1216,16 +1334,22 @@ function KatchFormInner({
         onConfirm={handleSubmit}
         isSubmitting={localSubmitting}
         title={activeSession ? "Add to Cart" : "Confirm Payment"}
-        subtitle={`${totalItems} items — ${totalPrice.toLocaleString()} LBP`}
+        subtitle={
+          pendingBills.length > 0
+            ? cart.size > 0
+              ? `${totalItems} items + ${pendingBills.length} ${pendingBills.length > 1 ? "bills" : "bill"} — ${fmtBill(totalPrice + billsLbpValue, "LBP")}`
+              : `${pendingBills.length > 1 ? `${pendingBills.length} BILLS` : "BILL"} — ${fmtBill(billsTotal, billsCurrency)}`
+            : `${totalItems} items — ${totalPrice.toLocaleString()} LBP`
+        }
         accentColor="bg-orange-500 hover:bg-orange-600 text-white"
-        totalAmount={totalPrice}
-        totalAmountCurrency="LBP"
-        currency="LBP"
+        totalAmount={billsOnlyUsd ? billsTotal : totalPrice + billsLbpValue}
+        totalAmountCurrency={billsCurrency}
+        currency={billsCurrency}
         paymentMethods={methods}
         clientId={clientId}
         fetchClientVouchers={fetchClientVouchers}
         exchangeRate={exchangeRate}
-        showDiscount={true}
+        showDiscount={totalItems > 0}
         maxDiscount={maxDiscount}
         onDiscountChange={setDiscount}
         hasClient={!!clientId || (!!clientName.trim() && !!clientPhone.trim())}

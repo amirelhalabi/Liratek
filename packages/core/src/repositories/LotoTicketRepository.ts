@@ -170,13 +170,26 @@ export class LotoTicketRepository {
           updated_at = CURRENT_TIMESTAMP
       `);
 
+      // CUSTOMER_ACCOUNT (on-account) portion — accumulated from the legs and
+      // booked to debt_ledger below. Pre-fix these legs were silently DROPPED:
+      // the ticket sold and the supplier debt accrued, but the customer owed
+      // nothing anywhere (found by the lira-093 customer-account sweep).
+      let debtUsd = 0;
+      let debtLbp = 0;
+
       if (!data.deferPayment && data.payments && data.payments.length > 0) {
         // Structured legs: book what the customer ACTUALLY handed over, each
         // leg in its own currency (a 500,000 LBP ticket paid with $5 books
         // General +5 USD — not a phantom +500,000 LBP). IN legs positive,
         // OUT (change) legs negative.
         for (const leg of data.payments) {
-          if (!isDrawerAffectingMethod(leg.method)) continue;
+          if (!isDrawerAffectingMethod(leg.method)) {
+            if (leg.method === "CUSTOMER_ACCOUNT" && leg.direction !== "OUT") {
+              if (leg.currencyCode === "USD") debtUsd += Math.abs(leg.amount);
+              else debtLbp += Math.abs(leg.amount);
+            }
+            continue;
+          }
           const legDrawer = paymentMethodToDrawerName(leg.method);
           const signed =
             leg.direction === "OUT"
@@ -193,6 +206,10 @@ export class LotoTicketRepository {
           );
           upsertBalanceLeg.run(legDrawer, leg.currencyCode, signed);
         }
+      } else if (!data.deferPayment && paymentMethod === "CUSTOMER_ACCOUNT") {
+        // Legacy single-payment on account: the full ticket value is debt.
+        if ((data.currency || "LBP") === "USD") debtUsd += data.sale_amount;
+        else debtLbp += data.sale_amount;
       } else if (!data.deferPayment && isDrawerAffectingMethod(paymentMethod)) {
         // Legacy fallback (no legs provided): single payment at the ticket's
         // denominated currency.
@@ -220,6 +237,28 @@ export class LotoTicketRepository {
         upsertBalance.run(drawerName, currency, data.sale_amount);
       }
 
+      // 3b. Book the on-account portion as client debt (open-debt model, same
+      // as POS/custom services — 'Loto Debt'). Requires a real client row.
+      if (debtUsd > 0 || debtLbp > 0) {
+        if (!data.clientId) {
+          throw new Error("Cannot create debt without a client");
+        }
+        this.db
+          .prepare(
+            `INSERT INTO debt_ledger (
+              client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+            ) VALUES (?, 'Loto Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+          )
+          .run(
+            data.clientId,
+            debtUsd,
+            debtLbp,
+            txnId,
+            data.note || txnSummary,
+            data.userId,
+          );
+      }
+
       // 4. Create supplier ledger entry (we owe LOTO: sale_amount - commission)
       const amountWeOwe = data.sale_amount - data.commission_amount;
       const insertLedger = this.db.prepare(`
@@ -245,12 +284,15 @@ export class LotoTicketRepository {
 
       const supplierId = supplier.id;
 
-      // Negative amount = liability (we owe them)
+      // Positive amount = shop owes LOTO (standard supplier convention: the
+      // Suppliers page sums ledger rows and reads >0 as "You owe"). TOP_UP —
+      // not PAYMENT — because addLedgerEntry force-negates PAYMENT amounts; a
+      // future refactor through it would silently re-invert this row.
       insertLedger.run(
         supplierId,
-        "PAYMENT", // We will pay them later
+        "TOP_UP",
         0, // USD
-        -amountWeOwe, // Negative LBP = we owe them
+        amountWeOwe, // Positive LBP = we owe them
         `Ticket sale: we owe LOTO ${amountWeOwe} LBP (sale: ${data.sale_amount}, commission: ${data.commission_amount})`,
         data.userId,
         null, // Pass null to avoid FK constraint issues

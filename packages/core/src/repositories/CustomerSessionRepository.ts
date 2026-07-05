@@ -218,6 +218,32 @@ export class CustomerSessionRepository {
    * customer_session_transactions.unified_transaction_id = transactions.id).
    * The legacy `transactionId` is the source-module id (sale id, ticket id, …).
    */
+  /**
+   * Resolve the UNIFIED transactions row for a module record, so page-level
+   * links (session:linkTransaction IPC) carry unified_transaction_id — the
+   * join key the transactions view uses for session_id. Pre-fix those links
+   * stored NULL, so Exchange / direct financial submits linked to a session
+   * never showed session linkage in the viewer (lira-094). Unmapped types
+   * resolve to null (the link still counts toward session totals).
+   */
+  resolveUnifiedTransactionId(
+    transactionType: string,
+    moduleRowId: number,
+  ): number | null {
+    const typeToSourceTable: Record<string, string> = {
+      exchange: "exchange_transactions",
+      financial_service: "financial_services",
+    };
+    const sourceTable = typeToSourceTable[transactionType];
+    if (!sourceTable) return null;
+    const row = this.db
+      .prepare(
+        `SELECT id FROM transactions WHERE source_table = ? AND source_id = ? ORDER BY id DESC LIMIT 1`,
+      )
+      .get(sourceTable, moduleRowId) as { id: number } | undefined;
+    return row?.id ?? null;
+  }
+
   linkTransaction(
     sessionId: number,
     transactionType: string,

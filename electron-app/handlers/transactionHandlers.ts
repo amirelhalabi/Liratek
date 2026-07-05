@@ -3,6 +3,7 @@ import { getTransactionService, getReportingService } from "@liratek/core";
 import type { TransactionFilters } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import { PositiveIdSchema, validatePayload } from "../schemas/index.js";
 
 export function registerTransactionHandlers(): void {
   const txnService = getTransactionService();
@@ -56,12 +57,14 @@ export function registerTransactionHandlers(): void {
   // ==================== ACCOUNTING ====================
 
   /** Void a transaction (marks as VOIDED + creates reversal) */
-  ipcMain.handle("transactions:void", (e, id: number) => {
+  ipcMain.handle("transactions:void", (e, id: unknown) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+      const idV = validatePayload(PositiveIdSchema, id);
+      if (!idV.ok) return { success: false, error: idV.error };
       const userId = auth.userId ?? 1;
-      const reversalId = txnService.voidTransaction(id, userId);
+      const reversalId = txnService.voidTransaction(idV.data, userId);
       audit(e.sender.id, {
         action: "void",
         entity_type: "transaction",
@@ -79,12 +82,14 @@ export function registerTransactionHandlers(): void {
   });
 
   /** Refund a transaction (creates refund row, original stays ACTIVE) */
-  ipcMain.handle("transactions:refund", (e, id: number) => {
+  ipcMain.handle("transactions:refund", (e, id: unknown) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+      const idV = validatePayload(PositiveIdSchema, id);
+      if (!idV.ok) return { success: false, error: idV.error };
       const userId = auth.userId ?? 1;
-      const refundId = txnService.refundTransaction(id, userId);
+      const refundId = txnService.refundTransaction(idV.data, userId);
       audit(e.sender.id, {
         action: "refund",
         entity_type: "transaction",

@@ -184,6 +184,8 @@ function createTestDb(baseSystem = "OMT"): Database.Database {
       created_by INTEGER,
       transaction_id INTEGER,
       is_auto INTEGER NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      refunded_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

@@ -9,7 +9,7 @@
  * debt balance around the action.
  */
 
-import { test, expect } from "./fixtures";
+import { test, expect, navigateTo } from "./fixtures";
 
 test.describe.configure({ retries: 0 });
 
@@ -159,5 +159,59 @@ test.describe("LIRA-081 (B3) — maintenance on customer account", () => {
     expect(result.paidOk).toBe(true);
     expect(result.paidDeleteBlocked).toBe(true);
     expect(result.paidDeleteError).toMatch(/refund or void/i);
+  });
+
+  // B3 owner follow-up (2026-07-04): the original symptom was the debt not
+  // APPEARING IN THE DEBTS PAGE. The IPC test above proves the backend books
+  // it; this proves the full path — the debtor renders in the Debts page UI.
+  test("the maintenance debt APPEARS in the Debts page UI (debtor row with the amount)", async ({
+    appPage,
+  }) => {
+    const ts = Date.now();
+    const clientName = `B3 UI DEBTOR ${ts}`;
+    const phone = `79${String(ts).slice(-6)}`;
+
+    const created = await appPage.evaluate(
+      async ({ clientName, phone }) => {
+        const w = window as unknown as Api;
+        const res = await w.api.maintenance.save({
+          device_name: "B3 UI e2e phone",
+          issue_description: "battery",
+          client_name: clientName,
+          client_phone: phone,
+          cost_usd: 5,
+          price_usd: 33,
+          final_amount_usd: 33,
+          currency: "USD",
+          exchange_rate: 90000,
+          status: "Delivered_Paid",
+          paid_usd: 0,
+          paid_lbp: 0,
+          payments: [
+            { method: "CUSTOMER_ACCOUNT", currency_code: "USD", amount: 33 },
+          ],
+        });
+        return { ok: res.success === true, error: res.error ?? null };
+      },
+      { clientName, phone },
+    );
+    expect(created.error).toBeNull();
+    expect(created.ok).toBe(true);
+
+    await navigateTo(appPage, "/debts");
+
+    // Debtors render as <button> cards; narrow the (accumulating) list via
+    // the search box, then assert the card shows the name + charged amount.
+    const search = appPage.getByPlaceholder("Search client...");
+    await expect(search).toBeVisible({ timeout: 10_000 });
+    await search.fill(clientName);
+
+    const card = appPage
+      .locator("button")
+      .filter({ hasText: clientName })
+      .first();
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card).toContainText("33");
+    await expect(card).toContainText("Debtor");
   });
 });

@@ -75,6 +75,7 @@ Do NOT try to launch the app directly (`npx electron .`) to validate — it fail
 15. **E2E assertions over the shared DB** — the `test:e2e` suite shares ONE accumulating SQLite DB across all specs, run in order. NEVER assert "my transaction is the newest row" via `transactions.getRecent(...)[0]` or `tbody tr.first()`. Three traps make that wrong: (a) a single action can write **multiple** unified-transaction rows (e.g. a cost/price SEND or supplier-credit op writes a `FINANCIAL_SERVICE`/`RECHARGE` row **and** an auto `SUPPLIER_PAYMENT` supplier-ledger sibling); (b) `transactions.created_at` is **second-granular**, so same-second rows tie (`getRecent` orders `created_at DESC, id DESC`); (c) earlier specs leave rows that are "newer" than yours if yours didn't commit. Instead: match the row by **identity** (type + provider/`service_type`, `source_id`, `item_key`, or a unique amount/label), and assert **deltas** — snapshot the drawer/ledger/balance immediately before the action and compare — never absolute totals or row position.
 16. **Payment legs — flow branches consume IN legs only** — every money repository (`FinancialServiceRepository`, `RechargeRepository`, `SalesRepository`, `DebtRepository`) splits its `payments[]` with `partitionLegs` (`utils/payments.ts`): legs without a `direction` are IN (customer-paid / payout), `direction: "OUT"` marks change/return legs. Each repo has ONE shared end-of-transaction loop that debits every drawer-affecting OUT leg exactly once ("Change returned"). A flow-specific branch that iterates legs MUST build from the IN set only — including `returnLegs` double-debits the drawer (this exact bug was caught pre-merge in the C1 split-payout fix). The frontend sends split legs, return legs, and cashout method in ONE IPC call; there is never a follow-up call, so money-movement fixes belong in the repository layer.
 17. **Prove regression tests against the buggy code** — a test added to guard a fix only counts once it has been shown to FAIL on the pre-fix code: temporarily reintroduce the bug, watch the new test fail, revert. A guard test that has never failed proves nothing.
+18. **Read the Feature Guide before touching money** — before building or modifying ANY flow that writes transactions, payments, drawers, or ledgers, read `docs/FEATURE_GUIDE.md` and work through its §13 checklist (transaction row fields, IN/OUT badge case, payment legs, client propagation, CUSTOMER_ACCOUNT model, supplier/partner ledger, void path, profit stamping, session branch). Rules 11/15/16/17 above are the enforcement summary; the guide is the full map with the guarding spec named for each rule.
 
 ---
 
@@ -810,6 +811,8 @@ When adding a new feature module, complete every step:
 
 | What                | Where                                               |
 | ------------------- | --------------------------------------------------- |
+| Money rules & feature checklist | `docs/FEATURE_GUIDE.md`                 |
+| E2E suite index & conventions | `frontend/tests/e2e-electron/README.md`   |
 | Repository example  | `packages/core/src/repositories/SalesRepository.ts` |
 | Service example     | `packages/core/src/services/SalesService.ts`        |
 | IPC handler example | `electron-app/handlers/salesHandlers.ts`            |

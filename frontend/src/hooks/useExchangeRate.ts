@@ -5,12 +5,12 @@
  * Falls back to the legacy EXCHANGE_RATE constant when unavailable.
  *
  * Supports BOTH schemas:
- *   New 4-column: { to_code, market_rate, delta, is_stronger }
- *   Legacy:       { from_code, to_code, rate }
+ *   Current (v59+): { to_code, market_rate, buy_rate, sell_rate, is_stronger }
+ *   Legacy:         { from_code, to_code, rate }
  *
- * Direction semantics (matches currencyConverter.ts):
- *   fromCode="USD" → we give USD = GIVE_USD (+1) → sell rate (higher)
- *   fromCode≠"USD" → we take USD = TAKE_USD (−1) → buy rate (lower)
+ * Direction semantics (matches useSellRate / getExchangeRates):
+ *   fromCode="USD" → we give USD → sell rate (higher, favourable to us)
+ *   fromCode≠"USD" → we take USD → buy rate (lower, favourable to us)
  *
  * Usage:
  *   const { rate, isLoading } = useExchangeRate("USD", "LBP");
@@ -48,20 +48,31 @@ export function useExchangeRate(
         const rates = await api.getRates();
         if (cancelled) return;
 
-        // ── New 4-column schema ──────────────────────────────────────────
-        // The non-USD currency code is what we look up
+        // ── Current schema (v59+): explicit buy/sell columns ─────────────
+        // (The old `delta` field no longer exists — computing with it made
+        // the rate NaN for every consumer as soon as a real rate row existed.)
         const code = fromCode === "USD" ? toCode : fromCode;
-
         const newMatch = rates.find(
-          (r: any) => r.to_code === code && r.market_rate !== undefined,
+          (r: {
+            to_code?: string;
+            market_rate?: number;
+            buy_rate?: number;
+            sell_rate?: number;
+          }) => r.to_code === code && r.market_rate !== undefined,
         );
         if (newMatch) {
-          const { market_rate, delta, is_stronger } = newMatch;
-          // fromCode="USD" → we give USD (GIVE_USD, action=+1) → sell rate
-          // fromCode≠"USD" → we take USD (TAKE_USD, action=−1) → buy rate
-          const action = fromCode === "USD" ? +1 : -1;
-          const computed = market_rate + is_stronger * (action * delta);
-          setRate(computed);
+          // fromCode="USD" → we give USD → sell rate; else we take USD → buy.
+          const computed =
+            fromCode === "USD"
+              ? (newMatch.sell_rate ?? newMatch.market_rate)
+              : (newMatch.buy_rate ?? newMatch.market_rate);
+          if (
+            computed !== undefined &&
+            Number.isFinite(computed) &&
+            computed > 0
+          ) {
+            setRate(computed);
+          }
           return;
         }
 

@@ -12,12 +12,16 @@ interface ProviderTabsProps {
   providers: ProviderConfig[];
   activeProvider: AnyProvider | null;
   onSelectProvider: (provider: AnyProvider) => void;
+  /** Selected-item count per provider key — renders a count pill on the tab
+   *  (same treatment as the category headers' selection badge). */
+  cartCounts?: Record<string, number>;
 }
 
 export function ProviderTabs({
   providers,
   activeProvider,
   onSelectProvider,
+  cartCounts,
 }: ProviderTabsProps) {
   return (
     <div className="flex flex-wrap gap-1">
@@ -25,6 +29,7 @@ export function ProviderTabs({
         const IconComponent =
           ICON_COMPONENTS[provider.iconKey] || ICON_COMPONENTS.Zap;
         const isActive = activeProvider === provider.key;
+        const count = cartCounts?.[provider.key] ?? 0;
 
         return (
           <button
@@ -38,6 +43,17 @@ export function ProviderTabs({
           >
             <IconComponent size={16} />
             {provider.label}
+            {count > 0 && (
+              <span
+                className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full leading-none ${
+                  isActive
+                    ? "bg-white/25 text-white"
+                    : "bg-orange-500/20 text-orange-400"
+                }`}
+              >
+                {count}
+              </span>
+            )}
           </button>
         );
       })}

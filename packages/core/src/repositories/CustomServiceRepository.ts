@@ -114,6 +114,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           profit_lbp: (data.price_lbp ?? 0) - (data.cost_lbp ?? 0),
           exchange_rate: data.exchange_rate,
           client_id: data.client_id ?? null,
+          // Rule 11: the name/phone must reach the unified row too — a walk-in
+          // (name+phone, no clients row) otherwise shows "—" in the
+          // transactions table and session sweeps (lira-094).
+          client_name: data.client_name ?? null,
+          client_phone: data.phone_number ?? null,
           summary: `Custom Service: ${data.description}`,
           metadata_json: {
             cost_usd: data.cost_usd ?? 0,

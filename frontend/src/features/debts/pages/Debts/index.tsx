@@ -14,7 +14,6 @@ import {
   Briefcase,
   Clock,
   X as CloseIcon,
-  Zap,
   Upload,
   Pencil,
   Check,
@@ -122,7 +121,6 @@ export default function Debts() {
   const [creditAmountLbp, setCreditAmountLbp] = useState("");
   const [creditNote, setCreditNote] = useState("");
 
-  const [totalDebt, setTotalDebt] = useState(0);
   const [debtFilter, setDebtFilter] = useState<DebtFilter>("ongoing");
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
   const [showSaleDetails, setShowSaleDetails] = useState(false); // New state for filter
@@ -169,6 +167,11 @@ export default function Debts() {
   // Repayment State
   const [repayPaymentLines, setRepayPaymentLines] = useState<PaymentLine[]>([]);
   const [repayReturnLegs, setRepayReturnLegs] = useState<PaymentLine[]>([]);
+  // The rate the repayment modal actually displays/converts with (seeded from
+  // EXCHANGE_RATE on mount, updated when the operator edits it in the split
+  // header). LBP legs MUST convert at this rate — using a different one books
+  // a reduction the operator never saw.
+  const [repayModalRate, setRepayModalRate] = useState<number | null>(null);
   const [repayNote, setRepayNote] = useState("");
   const [repayTransactionTime, setRepayTransactionTime] = useState<
     string | undefined
@@ -196,13 +199,15 @@ export default function Debts() {
 
   useEffect(() => {
     if (selectedClient) {
+      setLedgerBalance(null);
       loadHistory(selectedClient.id);
-      loadClientTotal(selectedClient.id);
+      loadLedgerBalance(selectedClient.id);
       getDebtAging(selectedClient.id)
         .then(setAging)
         .catch(() => setAging(null));
     } else {
       setAging(null);
+      setLedgerBalance(null);
     }
   }, [selectedClient]);
 
@@ -315,17 +320,46 @@ export default function Debts() {
     setDateSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
   };
 
+  // Raw per-currency ledger sums for the selected client (debt:client-balance).
+  const [ledgerBalance, setLedgerBalance] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+  // Per-currency NET position: positive = client owes shop, negative = shop
+  // owes client. A client can be mixed — e.g. a USD credit AND an LBP debt
+  // that net to ~0 converted — so the currencies are tracked independently.
+  //
+  // Source of truth is the raw LEDGER SUM (debt:client-balance) — the same
+  // number the backend cash-out guard enforces. The history-derived sums
+  // below filter rows by type AND sign, so any row with an unexpected sign
+  // (imports, voids, legacy fixes) silently diverges from the ledger: the
+  // panel once showed a credit the service refused to cash out. The filtered
+  // sums remain only as a fallback while the ledger balance loads (web mode).
+  const netUsd = ledgerBalance?.usd ?? debtTotals.usd - paymentTotals.usd;
+  const netLbp = ledgerBalance?.lbp ?? debtTotals.lbp - paymentTotals.lbp;
+  const dueUsd = Math.max(0, netUsd);
+  const dueLbp = Math.max(0, netLbp);
+  const creditUsd = Math.max(0, -netUsd);
+  const creditLbp = Math.max(0, -netLbp);
   // Derived: is the selected client a creditor (shop owes them)?
-  const isSelectedCreditor = debtTotals.usd - paymentTotals.usd < 0;
+  const isSelectedCreditor = netUsd < 0;
+  // What the repayment modal is doing: collecting a debt or paying out credit.
+  // Set by the panel button that opened it — never inferred from a converted
+  // net total (a mixed position nets to ~0 and would misclassify).
+  const [repayMode, setRepayMode] = useState<"repay" | "cashout">("repay");
 
-  const loadClientTotal = async (clientId: number) => {
+  const loadLedgerBalance = async (clientId: number) => {
+    if (!window.api) return; // web mode falls back to the history-derived sums
     try {
-      const total = window.api
-        ? await window.api.debt.getClientTotal(clientId)
-        : await api.getClientDebtTotal(clientId);
-      setTotalDebt(total || 0);
+      const res = await window.api.debt.getClientBalance(clientId);
+      if (res.success && res.data) {
+        setLedgerBalance({
+          usd: res.data.balance_usd,
+          lbp: res.data.balance_lbp,
+        });
+      }
     } catch (error) {
-      logger.error("Failed to load client total:", error);
+      logger.error("Failed to load ledger balance:", error);
     }
   };
 
@@ -424,32 +458,144 @@ export default function Debts() {
       .filter((l) => l.currencyCode === "LBP")
       .reduce((s, l) => s + l.amount, 0);
 
-    // Debt reduction: USD lines reduce debt directly; LBP lines are converted
-    // using the fractional-debt logic (preserving the rounding behaviour).
-    const integerDebt = Math.floor(totalDebt);
-    const fractionalDebt = totalDebt - integerDebt;
-    const fractionalLBP = fractionalDebt * EXCHANGE_RATE;
-
-    let debtReductionUSD = paidUSD;
-
-    if (paidLBP > 0) {
-      const roundedFractionalLBP = Math.ceil(fractionalLBP / 5000) * 5000;
-      if (Math.abs(paidLBP - roundedFractionalLBP) < 1000) {
-        debtReductionUSD += fractionalDebt;
-      } else {
-        debtReductionUSD += paidLBP / EXCHANGE_RATE;
-      }
-    }
-
     // Map frontend PaymentLine[] → backend leg format (include OUT return leg if present)
     const paymentLegs = toCamelLegs(validLines, repayReturnLegs);
+
+    // CASH OUT (opened via the panel's Cash Out button): the shop pays the
+    // client their credit. Books a POSITIVE ledger entry PER CURRENCY and
+    // DEBITS the drawers (debt:cash-out). Routing it through addRepayment
+    // doubled the credit and moved the till the wrong way; deciding by the
+    // converted net total misclassified mixed positions (USD credit + LBP
+    // debt nets to ~0).
+    if (repayMode === "cashout") {
+      if (!window.api) {
+        alert("Cash out is only available in the desktop app.");
+        return;
+      }
+      // Allocate the payout against the PER-CURRENCY credit; a remainder in
+      // one currency settles the other's credit at the modal rate (paying an
+      // LBP credit out in USD is legitimate). The payout may never exceed the
+      // total credit — the excess would leave cash out of the till unbooked.
+      const cashOutRate = repayModalRate ?? EXCHANGE_RATE;
+      const rateNeeded = paidLBP > 0 || creditLbp > 0;
+      if (
+        rateNeeded &&
+        !(Number.isFinite(cashOutRate) && cashOutRate > 0)
+      ) {
+        alert(
+          "Exchange rate unavailable — set today's USD/LBP rate before a cash out involving LBP.",
+        );
+        return;
+      }
+      const paidConv = paidUSD + (paidLBP > 0 ? paidLBP / cashOutRate : 0);
+      const creditConv =
+        creditUsd + (creditLbp > 0 ? creditLbp / cashOutRate : 0);
+      if (paidConv > creditConv + 0.05) {
+        alert(
+          `Cash out ($${paidConv.toFixed(2)}) exceeds the client's credit ($${creditConv.toFixed(2)}).`,
+        );
+        return;
+      }
+      let outUsd = Math.min(paidUSD, creditUsd);
+      let outLbp = Math.min(paidLBP, creditLbp);
+      const leftUsd = paidUSD - outUsd;
+      const leftLbp = paidLBP - outLbp;
+      if (leftUsd > 0) {
+        outLbp = Math.min(creditLbp, outLbp + leftUsd * cashOutRate);
+      }
+      if (leftLbp > 0) {
+        outUsd = Math.min(creditUsd, outUsd + leftLbp / cashOutRate);
+      }
+      try {
+        const result = await window.api.debt.cashOut({
+          clientId: selectedClient.id,
+          amountUSD: outUsd,
+          amountLBP: outLbp,
+          payments: paymentLegs,
+          note: repayNote,
+          ...(repayTransactionTime
+            ? { transaction_time: repayTransactionTime }
+            : {}),
+        });
+        if (result.success) {
+          alert("Cash out processed!");
+          setShowRepaymentModal(false);
+          setRepayPaymentLines([]);
+          setRepayReturnLegs([]);
+          setRepayNote("");
+          setRepayTransactionTime(undefined);
+          await loadDebtors();
+          loadHistory(selectedClient.id);
+          loadLedgerBalance(selectedClient.id);
+        } else {
+          alert("Error: " + result.error);
+        }
+      } catch (error) {
+        logger.error("Cash out failed", { error });
+        alert("Failed to process cash out");
+      }
+      return;
+    }
+
+    // REPAYMENT — reduce the debt PER CURRENCY: USD paid settles USD debt,
+    // LBP paid settles LBP debt, and only the cross-currency remainder is
+    // converted (LBP→USD keeps the documented smart-rounding). Converting
+    // everything into one USD figure used to leave offsetting USD-credit /
+    // LBP-debt residues on clients who paid across currencies.
+    const conversionRate = repayModalRate ?? EXCHANGE_RATE;
+    const needsConversion =
+      paidLBP > dueLbp || (paidUSD > dueUsd && dueLbp > 0);
+    if (
+      needsConversion &&
+      !(Number.isFinite(conversionRate) && conversionRate > 0)
+    ) {
+      alert(
+        "Exchange rate unavailable — set today's USD/LBP rate before taking a cross-currency repayment.",
+      );
+      return;
+    }
+
+    let reduceUsd = Math.min(paidUSD, dueUsd);
+    let reduceLbp = Math.min(paidLBP, dueLbp);
+    const leftoverUsd = paidUSD - reduceUsd;
+    const leftoverLbp = paidLBP - reduceLbp;
+
+    if (leftoverLbp > 0) {
+      // LBP remainder against the remaining USD debt — smart rounding: paying
+      // the rounded fractional part clears the exact fraction (see README).
+      const remUsdDue = dueUsd - reduceUsd;
+      const fractionalDebt = remUsdDue - Math.floor(remUsdDue);
+      const roundedFractionalLBP =
+        Math.ceil((fractionalDebt * conversionRate) / 5000) * 5000;
+      if (Math.abs(leftoverLbp - roundedFractionalLBP) < 1000) {
+        reduceUsd += fractionalDebt;
+      } else {
+        reduceUsd += leftoverLbp / conversionRate;
+      }
+    }
+    if (leftoverUsd > 0) {
+      // USD remainder settles remaining LBP debt; anything beyond that stays
+      // as USD over-reduction (customer credit), matching overpay behaviour.
+      const remLbpDue = dueLbp - reduceLbp;
+      const asLbp = leftoverUsd * conversionRate;
+      const toLbp = Math.min(asLbp, remLbpDue);
+      reduceLbp += toLbp;
+      reduceUsd += (asLbp - toLbp) / conversionRate;
+    }
+
+    if (!Number.isFinite(reduceUsd) || !Number.isFinite(reduceLbp)) {
+      alert(
+        "Could not compute the repayment amount — check the entered lines.",
+      );
+      return;
+    }
 
     try {
       const result = window.api
         ? await window.api.debt.addRepayment({
             clientId: selectedClient.id,
-            amountUSD: debtReductionUSD,
-            amountLBP: 0,
+            amountUSD: reduceUsd,
+            amountLBP: reduceLbp,
             payments: paymentLegs,
             note: repayNote,
             ...(repayTransactionTime
@@ -459,8 +605,8 @@ export default function Debts() {
           })
         : await api.addRepayment({
             client_id: selectedClient.id,
-            amount_usd: debtReductionUSD,
-            amount_lbp: 0,
+            amount_usd: reduceUsd,
+            amount_lbp: reduceLbp,
             payments: paymentLegs,
             note: repayNote,
             ...(repayTransactionTime
@@ -488,12 +634,11 @@ export default function Debts() {
         if (updatedTotal > 0.01) {
           // Client still has debt, reload their history
           loadHistory(selectedClient.id);
-          loadClientTotal(selectedClient.id);
+          loadLedgerBalance(selectedClient.id);
         } else {
           // Client's debt is fully closed, deselect them
           setSelectedClient(null);
           setHistory([]);
-          setTotalDebt(0);
         }
       } else {
         alert("Error: " + result.error);
@@ -1000,8 +1145,6 @@ export default function Debts() {
             <>
               <div className="px-5 py-3 border-b border-slate-700 bg-slate-800/50">
                 {(() => {
-                  const netUsd = debtTotals.usd - paymentTotals.usd;
-                  const netLbp = debtTotals.lbp - paymentTotals.lbp;
                   const isCredit = netUsd < 0;
                   return (
                     <div className="flex items-center justify-between gap-4">
@@ -1010,25 +1153,34 @@ export default function Debts() {
                         {selectedClient.full_name}
                       </h2>
 
-                      {/* Center: Balance */}
+                      {/* Center: Balance — each currency carries its OWN sign
+                          and color: a client can hold a USD credit AND an LBP
+                          debt at the same time (forcing one sign on both once
+                          displayed a mixed position as double credit). */}
                       <div
-                        className={`flex items-center gap-3 px-5 py-2 rounded-xl border ${isCredit ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}
+                        className={`flex items-center gap-3 px-5 py-2 rounded-xl border ${
+                          netUsd < 0 && netLbp <= 0
+                            ? "bg-emerald-500/5 border-emerald-500/20"
+                            : netUsd >= 0 && netLbp >= 0
+                              ? "bg-red-500/5 border-red-500/20"
+                              : "bg-slate-500/5 border-slate-500/20"
+                        }`}
                       >
                         <span className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
                           Balance
                         </span>
                         <span
-                          className={`font-mono text-2xl font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
+                          className={`font-mono text-2xl font-bold ${netUsd < 0 ? "text-emerald-400" : "text-red-400"}`}
                         >
-                          {isCredit ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
+                          {netUsd < 0 ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
                         </span>
                         {netLbp !== 0 && (
                           <>
                             <span className="text-slate-600 text-lg">|</span>
                             <span
-                              className={`font-mono text-2xl font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
+                              className={`font-mono text-2xl font-bold ${netLbp < 0 ? "text-emerald-400" : "text-red-400"}`}
                             >
-                              {isCredit ? "+" : "-"}
+                              {netLbp < 0 ? "+" : "-"}
                               {Math.abs(netLbp).toLocaleString()} LBP
                             </span>
                           </>
@@ -1038,6 +1190,7 @@ export default function Debts() {
                       {/* Right: Action button */}
                       <button
                         onClick={() => {
+                          setRepayMode(isCredit ? "cashout" : "repay");
                           setRepayPaymentLines([]);
                           setRepayReturnLegs([]);
                           setShowRepaymentModal(true);
@@ -1659,7 +1812,7 @@ export default function Debts() {
             }}
           >
             <div
-              className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl overflow-hidden"
+              className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-xl shadow-2xl overflow-hidden"
               role="presentation"
               onMouseDown={(e) => e.stopPropagation()}
             >
@@ -1668,33 +1821,39 @@ export default function Debts() {
               </h3>
 
               <div className="space-y-4">
-                {/* Quick Fill — full debt in USD */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
-                    Quick Fill
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRepayPaymentLines([
-                        {
-                          id: crypto.randomUUID(),
-                          method: "CASH",
-                          currencyCode: "USD",
-                          amount: totalDebt,
-                        },
-                      ]);
-                    }}
-                    className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1"
-                  >
-                    <Zap size={14} />
-                    Full debt — ${totalDebt.toFixed(2)}
-                  </button>
-                </div>
-
-                {/* Multi-payment input */}
+                {/* Multi-payment input — opens pre-seeded with the mode's
+                    PER-CURRENCY position (one line per currency in its own
+                    currency). The seed is the single prefill mechanism: a
+                    separate quick-fill button used to write page state this
+                    component never displayed (book-what-you-don't-see). */}
                 <MultiPaymentInput
-                  totalAmount={totalDebt}
+                  totalAmount={
+                    (repayMode === "cashout" ? creditUsd : dueUsd) +
+                    (EXCHANGE_RATE > 0
+                      ? (repayMode === "cashout" ? creditLbp : dueLbp) /
+                        EXCHANGE_RATE
+                      : 0)
+                  }
+                  initialLines={[
+                    ...((repayMode === "cashout" ? creditUsd : dueUsd) > 0
+                      ? [
+                          {
+                            currencyCode: "USD",
+                            amount:
+                              repayMode === "cashout" ? creditUsd : dueUsd,
+                          },
+                        ]
+                      : []),
+                    ...((repayMode === "cashout" ? creditLbp : dueLbp) > 0
+                      ? [
+                          {
+                            currencyCode: "LBP",
+                            amount:
+                              repayMode === "cashout" ? creditLbp : dueLbp,
+                          },
+                        ]
+                      : []),
+                  ]}
                   currency="USD"
                   onChange={setRepayPaymentLines}
                   onReturnChange={setRepayReturnLegs}
@@ -1705,6 +1864,7 @@ export default function Debts() {
                     { code: "LBP", symbol: "LBP" },
                   ]}
                   exchangeRate={EXCHANGE_RATE}
+                  onExchangeRateChange={setRepayModalRate}
                 />
 
                 <div>
@@ -1896,7 +2056,7 @@ export default function Debts() {
                         loadDebtors();
                         if (selectedClient) {
                           loadHistory(selectedClient.id);
-                          loadClientTotal(selectedClient.id);
+                          loadLedgerBalance(selectedClient.id);
                         }
                       } else {
                         alert("Error: " + result.error);

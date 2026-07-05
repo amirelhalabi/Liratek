@@ -15,6 +15,7 @@ import {
   type PaymentLine,
 } from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
+import { binanceCashSide } from "../utils/binanceCart";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -221,13 +222,12 @@ export function SessionCheckoutModal({
   }, [isOpen, sessionPhone]);
 
   // ── MultiPaymentInput state ──────────────────────────────────────────────
-  // Payment legs emitted by MultiPaymentInput for USD totals
-  const [usdPaymentLines, setUsdPaymentLines] = useState<PaymentLine[]>([]);
-  // Payment legs emitted by MultiPaymentInput for LBP totals
-  const [lbpPaymentLines, setLbpPaymentLines] = useState<PaymentLine[]>([]);
-  // Return/change (OUT) legs emitted by each MultiPaymentInput
-  const [usdReturnLines, setUsdReturnLines] = useState<PaymentLine[]>([]);
-  const [lbpReturnLines, setLbpReturnLines] = useState<PaymentLine[]>([]);
+  // One pooled instance covers both currencies (any line, in either currency,
+  // can cover any part of the combined total — matches how the backend already
+  // treats payments[] as one flat pool per basket, see FEATURE_GUIDE §11).
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  // Return/change (OUT) legs emitted by MultiPaymentInput
+  const [returnLines, setReturnLines] = useState<PaymentLine[]>([]);
 
   // Key used to force-remount MultiPaymentInput when client context changes
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -258,6 +258,19 @@ export function SessionCheckoutModal({
 
   const totals = useMemo(() => getCartTotals(), [getCartTotals]);
 
+  // Customer NET position per currency (+ pays / − is paid). Every part of
+  // this modal — the Total row, the payment seeds, the required total, the
+  // payout instruction, and the net OUT leg — must speak this ONE number:
+  // a $50 purchase and a $50 cash-out cancel, so nothing is collected and
+  // nothing is paid out. The usdt fold covers legacy carts saved while
+  // Binance items still carried the old "USDT" bucket tag (their amount is
+  // the cash side in USD).
+  const netUsd = totals.usd + totals.usdt;
+  const netLbp = totals.lbp;
+
+  // Cash the operator must physically hand the customer on confirm (net).
+  const cashPayoutUsd = Math.min(0, netUsd);
+
   // Group items by module for display
   const groupedItems = useMemo(() => {
     const groups = new Map<string, CartItem[]>();
@@ -283,8 +296,29 @@ export function SessionCheckoutModal({
     label: m.label,
   }));
 
-  // Derive combined payment legs from both MultiPaymentInput instances. IN legs
-  // are what the customer paid; OUT legs are change handed back. `direction` is
+  // Combined total the pooled MultiPaymentInput must cover, expressed in USD
+  // (only the positive side of each currency — a negative total is a payout,
+  // handled separately below). LBP is converted to USD via the operator rate.
+  const combinedTotalUSD = useMemo(() => {
+    const posUsd = Math.max(0, netUsd);
+    const posLbp = Math.max(0, netLbp);
+    return posUsd + (exchangeRate > 0 ? posLbp / exchangeRate : 0);
+  }, [netUsd, netLbp, exchangeRate]);
+
+  // Seed one line per currency that has a positive total — this is what opens
+  // MultiPaymentInput directly in split mode with both rows pre-filled instead
+  // of showing two separate widget instances (initialLines is read once, on
+  // mount/remount, per the component's own contract).
+  const paymentInitialLines = useMemo(() => {
+    const lines: Array<{ currencyCode: string; amount: number }> = [];
+    if (netUsd > 0) lines.push({ currencyCode: "USD", amount: netUsd });
+    if (netLbp > 0) lines.push({ currencyCode: "LBP", amount: netLbp });
+    return lines;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentInputKey]);
+
+  // Derive combined payment legs from the pooled MultiPaymentInput. IN legs are
+  // what the customer paid; OUT legs are change handed back. `direction` is
   // carried through so the checkout handler can record the change (e.g. paid
   // $100, returned 180,000 LBP) rather than just the net. GIFT_CARD legs carry
   // their voucher_code so the basket recorder can redeem the voucher.
@@ -305,40 +339,35 @@ export function SessionCheckoutModal({
         : {}),
     });
     const legs = [
-      ...usdPaymentLines.map(toLeg("IN")),
-      ...lbpPaymentLines.map(toLeg("IN")),
-      ...usdReturnLines.map(toLeg("OUT")),
-      ...lbpReturnLines.map(toLeg("OUT")),
+      ...paymentLines.map(toLeg("IN")),
+      ...returnLines.map(toLeg("OUT")),
     ];
-    // Net-negative basket (e.g. a loto cash prize or an OMT/Whish RECEIVE): the
-    // shop owes the customer the net amount. No MultiPaymentInput renders for a
-    // non-positive total, so emit the net cash-OUT leg here (default CASH →
-    // General). Those items defer their payout to the basket recorder, so without
-    // this leg the payout would never be posted to any drawer.
-    if (totals.usd < 0) {
+    // NET-negative basket (e.g. a loto cash prize, an OMT/Whish RECEIVE, or a
+    // Binance cash out): the shop owes the customer the net amount. No
+    // MultiPaymentInput renders for a non-positive total, so emit the net
+    // cash-OUT leg here (default CASH → General). Those items defer their
+    // payout to the basket recorder, so without this leg the payout would
+    // never be posted to any drawer. Strictly the NET: when purchases cover
+    // the payout (e.g. a $50 bill + a $50 cash-out), nothing is collected
+    // and nothing is paid out.
+    if (netUsd < 0) {
       legs.push({
         method: "CASH",
         currency_code: "USD",
-        amount: -totals.usd,
+        amount: -netUsd,
         direction: "OUT",
       });
     }
-    if (totals.lbp < 0) {
+    if (netLbp < 0) {
       legs.push({
         method: "CASH",
         currency_code: "LBP",
-        amount: -totals.lbp,
+        amount: -netLbp,
         direction: "OUT",
       });
     }
     return legs;
-  }, [
-    usdPaymentLines,
-    lbpPaymentLines,
-    usdReturnLines,
-    lbpReturnLines,
-    totals,
-  ]);
+  }, [paymentLines, returnLines, netUsd, netLbp]);
 
   // Primary method is the first non-zero leg's method, or CASH as fallback
   const primaryMethod =
@@ -353,43 +382,30 @@ export function SessionCheckoutModal({
   );
   const customerAccountBlocked = usesCustomerAccount && !hasClient;
 
-  // Validate payment totals are covered
+  // Validate the combined (USD-equivalent) total is covered. Any line, in
+  // either currency, counts toward the whole pool — see combinedTotalUSD above.
   const usdPaymentTolerance = 0.01;
   const lbpPaymentTolerance = 100;
+  const combinedTolerance =
+    usdPaymentTolerance + lbpPaymentTolerance / (exchangeRate || 1);
 
-  const usdPaid = useMemo(
+  const paidUSD = useMemo(
     () =>
-      usdPaymentLines.reduce((sum, l) => {
+      paymentLines.reduce((sum, l) => {
         if (l.currencyCode === "USD") return sum + (l.amount || 0);
         if (l.currencyCode === "LBP")
-          return sum + (l.amount || 0) / exchangeRate;
+          return sum + (exchangeRate > 0 ? (l.amount || 0) / exchangeRate : 0);
         return sum;
       }, 0),
-    [usdPaymentLines, exchangeRate],
-  );
-
-  const lbpPaid = useMemo(
-    () =>
-      lbpPaymentLines.reduce((sum, l) => {
-        if (l.currencyCode === "LBP") return sum + (l.amount || 0);
-        if (l.currencyCode === "USD")
-          return sum + (l.amount || 0) * exchangeRate;
-        return sum;
-      }, 0),
-    [lbpPaymentLines, exchangeRate],
+    [paymentLines, exchangeRate],
   );
 
   // Payment is valid once the total is COVERED. Overpayment is allowed — the
   // operator hands back the difference as change (the Return/Change row), so we
   // must not require an exact match (that disabled Confirm whenever the customer
   // paid more than the total, e.g. $100 paid on a $98 total with $2 change).
-  const isUsdCovered =
-    totals.usd <= 0 || usdPaid >= totals.usd - usdPaymentTolerance;
-
-  const isLbpCovered =
-    totals.lbp <= 0 || lbpPaid >= totals.lbp - lbpPaymentTolerance;
-
-  const isPaymentValid = isUsdCovered && isLbpCovered;
+  const isPaymentValid =
+    combinedTotalUSD <= 0 || paidUSD >= combinedTotalUSD - combinedTolerance;
 
   if (!isOpen || !activeSession) return null;
 
@@ -533,7 +549,10 @@ export function SessionCheckoutModal({
                           <span className="text-sm text-slate-200 truncate flex-1 min-w-0">
                             {item.label}
                           </span>
-                          {/* Amount */}
+                          {/* Amount — customer perspective only. Binance
+                              items show their CASH side in USD (the USDT is
+                              the service, named in the label; the wallet
+                              movement is shop bookkeeping). */}
                           <span
                             className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right shrink-0 ${
                               item.amount < 0
@@ -542,7 +561,9 @@ export function SessionCheckoutModal({
                             }`}
                           >
                             {item.amount < 0 ? "-" : "+"}
-                            {formatAmount(item.amount, item.currency)}
+                            {binanceCashSide(item)
+                              ? `$${Math.abs(item.amount).toFixed(2)}`
+                              : formatAmount(item.amount, item.currency)}
                           </span>
                         </div>
 
@@ -584,19 +605,47 @@ export function SessionCheckoutModal({
             ))}
           </div>
 
-          {/* MultiPaymentInput — USD */}
-          {totals.usd > 0 && (
+          {/* Basket total — combined USD/LBP breakdown, shown once before the
+              payment section since the pooled MultiPaymentInput below only
+              displays its running total in USD-equivalent. */}
+          {(netUsd !== 0 || netLbp !== 0) && (
+            <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2 flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-300">Total</span>
+              <span className="flex items-center gap-3 font-mono text-sm">
+                {netUsd !== 0 && (
+                  <span
+                    className={netUsd < 0 ? "text-red-400" : "text-emerald-400"}
+                  >
+                    {netUsd < 0 ? "-" : ""}
+                    {formatAmount(netUsd, "USD")}
+                  </span>
+                )}
+                {netLbp !== 0 && (
+                  <span
+                    className={netLbp < 0 ? "text-red-400" : "text-emerald-400"}
+                  >
+                    {netLbp < 0 ? "-" : ""}
+                    {formatAmount(netLbp, "LBP")}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+
+          {/* MultiPaymentInput — one pooled section covering both currencies.
+              Pre-seeded with one row per positive currency total, opening
+              directly in split mode instead of two separate widgets. */}
+          {(totals.usd > 0 || totals.lbp > 0) && (
             <div className="space-y-1">
-              <h3 className="text-sm font-medium text-slate-300">
-                USD Payment
-              </h3>
+              <h3 className="text-sm font-medium text-slate-300">Payment</h3>
               <MultiPaymentInput
-                key={`usd-${paymentInputKey}`}
-                totalAmount={totals.usd}
+                key={`payment-${paymentInputKey}`}
+                totalAmount={combinedTotalUSD}
                 currency="USD"
                 totalAmountCurrency="USD"
-                onChange={setUsdPaymentLines}
-                onReturnChange={setUsdReturnLines}
+                initialLines={paymentInitialLines}
+                onChange={setPaymentLines}
+                onReturnChange={setReturnLines}
                 requiresClientForDebt={true}
                 hasClient={hasClient}
                 paymentMethods={paymentMethodOptions}
@@ -604,7 +653,7 @@ export function SessionCheckoutModal({
                 exchangeRate={exchangeRate}
                 onRateChange={handleRateChange}
                 showDiscount={false}
-                label="USD Payment"
+                label="Payment"
                 initialMethod={initialMethod}
                 clientId={sessionClientId}
                 fetchClientVouchers={fetchClientVouchers}
@@ -612,59 +661,21 @@ export function SessionCheckoutModal({
             </div>
           )}
 
-          {/* MultiPaymentInput — LBP */}
-          {totals.lbp > 0 && (
-            <div className="space-y-1">
-              <h3 className="text-sm font-medium text-slate-300">
-                LBP Payment
-              </h3>
-              <MultiPaymentInput
-                key={`lbp-${paymentInputKey}`}
-                totalAmount={totals.lbp}
-                currency="LBP"
-                totalAmountCurrency="LBP"
-                onChange={setLbpPaymentLines}
-                onReturnChange={setLbpReturnLines}
-                requiresClientForDebt={true}
-                hasClient={hasClient}
-                paymentMethods={paymentMethodOptions}
-                currencies={currencies}
-                exchangeRate={exchangeRate}
-                onRateChange={handleRateChange}
-                showDiscount={false}
-                label="LBP Payment"
-                initialMethod={initialMethod}
-                clientId={sessionClientId}
-                fetchClientVouchers={fetchClientVouchers}
-              />
-            </div>
-          )}
-
-          {/* USDT totals (display only — no MultiPaymentInput for USDT) */}
-          {totals.usdt !== 0 && (
-            <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-400">USDT Total</span>
-                <span className="font-mono text-yellow-400">
-                  {totals.usdt.toFixed(2)} USDT
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Net cash-OUT to the customer (e.g. loto prize / RECEIVE). Shown when
-              the basket nets negative in a cash currency — the shop pays this out
-              of the General drawer (cash) on confirm. */}
-          {(totals.usd < 0 || totals.lbp < 0) && (
+          {/* Net cash-OUT to the customer (loto prize / RECEIVE / Binance cash
+              out). Shown when the basket nets negative in cash — the shop pays
+              this out of the General drawer on confirm. Binance cash-outs live
+              in the usdt bucket (their payout is self-posted at replay) but the
+              operator still hands over CASH — include them here. */}
+          {(cashPayoutUsd < 0 || totals.lbp < 0) && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-1">
               <div className="text-xs font-medium text-amber-300">
                 Payout to customer (cash)
               </div>
-              {totals.usd < 0 && (
+              {cashPayoutUsd < 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">USD</span>
                   <span className="font-mono text-amber-400">
-                    {formatAmount(totals.usd, "USD")}
+                    {formatAmount(cashPayoutUsd, "USD")}
                   </span>
                 </div>
               )}

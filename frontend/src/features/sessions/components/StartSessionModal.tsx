@@ -4,8 +4,6 @@ import { useSession } from "../context/SessionContext";
 import { X } from "lucide-react";
 import type { Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
-import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 
 interface StartSessionModalProps {
@@ -24,13 +22,6 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [activeSessionNames, setActiveSessionNames] = useState<string[]>([]);
   const [loadingNames, setLoadingNames] = useState(false);
-  const {
-    saveAsClient,
-    setSaveAsClient,
-    showCheckbox: showSaveAsClient,
-    trySaveAsClient,
-    resetSaveAsClient,
-  } = useSaveAsClient(customerName, customerPhone);
 
   // Fetch the names of currently OPEN sessions when the modal opens. We only
   // block on active sessions (not closed ones), so the same customer can be
@@ -68,7 +59,6 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
       setSelectedClient(null);
       setError(null);
       setActiveSessionNames([]);
-      resetSaveAsClient();
     }
   }, [isOpen]);
 
@@ -93,8 +83,6 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
     setError(null);
 
     try {
-      await trySaveAsClient();
-
       await startSession({
         customer_name: customerName.trim(),
         ...(customerPhone.trim()
@@ -181,7 +169,6 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                     setSelectedClient(null);
                     setCustomerName("");
                     setCustomerPhone("");
-                    resetSaveAsClient();
                   }}
                   className="text-slate-400 hover:text-white"
                 >
@@ -197,14 +184,12 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                   if (!v) {
                     setSelectedClient(null);
                     setCustomerPhone("");
-                    resetSaveAsClient();
                   }
                 }}
                 onClientSelect={(client) => {
                   setSelectedClient(client);
                   setCustomerName(client.full_name);
                   setCustomerPhone(client.phone_number || "");
-                  resetSaveAsClient();
                 }}
                 placeholder="Search client by name or phone..."
                 className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
@@ -232,11 +217,6 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-violet-500"
               placeholder="+1234567890"
               disabled={loading}
-            />
-            <SaveAsClientCheckbox
-              checked={saveAsClient}
-              onChange={setSaveAsClient}
-              hidden={!!selectedClient || !showSaveAsClient}
             />
           </div>
 

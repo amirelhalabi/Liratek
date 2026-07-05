@@ -62,6 +62,7 @@ export function getCashFlowDirection(
     case "LOTO_SETTLEMENT":
     case "LOTO_CASH_PRIZE": // prize payout: shop cash out (B7 — was unmapped)
     case "SUPPLIER_SETTLEMENT":
+    case "CREDIT_CASH_OUT": // shop pays the client their credit
       return "out";
     case "EXCHANGE":
       return "both";

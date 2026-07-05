@@ -129,19 +129,24 @@ export class DebtService {
       };
     }
 
-    // Derive amountUSD / amountLBP from legs when not explicitly provided
-    const resolvedAmountUSD =
-      amountUSD > 0
-        ? amountUSD
-        : (payments
-            ?.filter((p) => p.currencyCode === "USD")
-            .reduce((s, p) => s + p.amount, 0) ?? 0);
-    const resolvedAmountLBP =
-      amountLBP > 0
-        ? amountLBP
-        : (payments
-            ?.filter((p) => p.currencyCode === "LBP")
-            .reduce((s, p) => s + p.amount, 0) ?? 0);
+    // amountUSD/amountLBP are the DEBT REDUCTION; payments[] is the cash the
+    // customer handed over. When the caller provides ANY explicit reduction,
+    // trust both fields verbatim — the Debts page converts LBP legs into the
+    // USD figure and sends amountLBP: 0, and re-deriving LBP from the legs
+    // here double-counted the reduction (paid $30-worth, credited $30 + the
+    // LBP legs again). Only derive from legs when BOTH amounts are absent
+    // (legs-only callers).
+    const callerProvidedAmounts = amountUSD > 0 || amountLBP > 0;
+    const resolvedAmountUSD = callerProvidedAmounts
+      ? amountUSD
+      : (payments
+          ?.filter((p) => p.currencyCode === "USD")
+          .reduce((s, p) => s + p.amount, 0) ?? 0);
+    const resolvedAmountLBP = callerProvidedAmounts
+      ? amountLBP
+      : (payments
+          ?.filter((p) => p.currencyCode === "LBP")
+          .reduce((s, p) => s + p.amount, 0) ?? 0);
 
     try {
       const result = this.debtRepo.addRepayment({
@@ -223,6 +228,81 @@ export class DebtService {
       debtLogger.error(
         { error, clientId, amountUsd, amountLbp },
         "Failed to add credit",
+      );
+      return { success: false, error: (error as Error).message };
+    }
+  }
+
+  /**
+   * Cash out a client's credit: the shop PAYS the customer. amountUSD is the
+   * credit reduction (LBP legs pre-converted by the caller, like repayments);
+   * payments[] are the physical payout legs that debit the drawers.
+   */
+  cashOut(data: {
+    clientId: number;
+    amountUSD: number;
+    amountLBP: number;
+    payments?: RepaymentPaymentLine[];
+    note?: string;
+    userId: number;
+    transaction_time?: string;
+  }): RepaymentResult {
+    const { clientId, amountUSD, amountLBP } = data;
+
+    if (!clientId) {
+      return { success: false, error: "Client ID is required" };
+    }
+    if ((amountUSD ?? 0) <= 0 && (amountLBP ?? 0) <= 0) {
+      return {
+        success: false,
+        error: "Cash out amount must be greater than zero",
+      };
+    }
+
+    // The payout may not exceed the client's credit PER CURRENCY — the excess
+    // would turn into NEW client debt, which a cash-out must never create.
+    // (A mixed position — USD credit + LBP debt — nets to ~0 converted, so
+    // the check must be per currency, never on the converted total.)
+    const balance = this.debtRepo.getClientBalance(clientId);
+    const creditUsd = Math.max(0, -balance.balance_usd);
+    const creditLbp = Math.max(0, -balance.balance_lbp);
+    if (creditUsd <= 0 && creditLbp <= 0) {
+      return { success: false, error: "Client has no credit to cash out" };
+    }
+    if (amountUSD > creditUsd + 0.05) {
+      return {
+        success: false,
+        error: `Cash out ($${amountUSD.toFixed(2)}) exceeds the client's USD credit ($${creditUsd.toFixed(2)})`,
+      };
+    }
+    if ((amountLBP ?? 0) > creditLbp + 1000) {
+      return {
+        success: false,
+        error: `Cash out (${(amountLBP ?? 0).toLocaleString()} LBP) exceeds the client's LBP credit (${creditLbp.toLocaleString()} LBP)`,
+      };
+    }
+
+    try {
+      const result = this.debtRepo.cashOutCredit({
+        client_id: clientId,
+        amount_usd: amountUSD,
+        amount_lbp: amountLBP ?? 0,
+        payments: data.payments,
+        note: data.note || null,
+        created_by: data.userId,
+        transaction_time: data.transaction_time,
+      });
+
+      debtLogger.info(
+        { clientId, amountUSD, amountLBP, cashOutId: result.id },
+        `Credit cash out of $${amountUSD} for client ${clientId}`,
+      );
+
+      return { success: true, id: result.id };
+    } catch (error) {
+      debtLogger.error(
+        { error, clientId, amountUSD, amountLBP },
+        "Failed to cash out credit",
       );
       return { success: false, error: (error as Error).message };
     }

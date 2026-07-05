@@ -178,7 +178,10 @@ export default function POS() {
       label,
       amount: totalAmount,
       currency: "USD",
-      ipcChannel: "sales:create",
+      // Must be the REAL handler channel — the session-checkout replayer
+      // invokes it verbatim ("sales:create" was a dead channel that failed
+      // every session checkout containing a POS sale; lira-094).
+      ipcChannel: "sales:process",
       formData: {
         status: "completed",
         items: cartItems.map((item) => ({
@@ -192,6 +195,11 @@ export default function POS() {
         final_amount: totalAmount,
         exchange_rate: defaultExchangeRate,
         payment_method: "CASH",
+        // Rule 11 (session flavor): the checkout replay spreads this payload
+        // verbatim and never injects the session client — without these the
+        // session sale booked with NO client at all (lira-094 sweep).
+        client_name: activeSession?.customer_name || undefined,
+        client_phone: activeSession?.customer_phone || undefined,
       },
     });
 

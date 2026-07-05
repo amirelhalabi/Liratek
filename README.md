@@ -28,8 +28,10 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
 - **Inventory Tracking**: Manage product stock, barcodes, and IMEI/Serial numbers with ease.
 - **Advanced POS**: Multi-item cart, multi-currency checkout, and sales draft support.
 - **Client & Debt Management**: Track customer history and manage dual-currency (USD/LBP) debts with smart rounding logic.
-- **Financial Services**: Built-in support for OMT, Whish, IPEC, Katch, Wish App, and Mobile Recharges (MTC/Alfa).
-- **Custom Services**: Ad-hoc services (screen protectors, software installs) with cost/price/profit tracking.
+- **Financial Services**: Primary/secondary system transfers (OMT/Whish send & receive), OMT App & Whish App wallets, Binance (send/cashout), iPick & Katsh bills and catalog items, and Mobile Recharges (MTC/Alfa incl. Alfa Gift).
+- **Loto**: Ticket sales, cash prizes, monthly fees, and supplier settlement with commission tracking.
+- **Customer Sessions**: Per-customer baskets that defer any module's transaction to a single pooled checkout with one payment, one debt entry, and full client propagation.
+- **Custom Services**: Ad-hoc services (screen protectors, software installs, hold money) with cost/price/profit tracking.
 - **Profits Dashboard**: Admin-only analytics with 6 views — by module, date, payment method, cashier, and client.
 - **Unified Transactions**: Full accounting journal with void/refund, debt aging, and advanced reporting.
 - **Table Export**: Export any data table to Excel (.xlsx) or PDF with one click.
@@ -43,7 +45,7 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 19 + TypeScript + Tailwind CSS
-- **Backend**: Electron 39 + Node.js (migrating to standalone Express server)
+- **Backend**: Electron 31 + Node.js (migrating to standalone Express server)
 - **Database**: Better SQLite3 (Local, Encrypted Session storage)
 - **Testing**: Jest + Playwright
 - **CI/CD**: GitHub Actions (Automated multi-platform releases)
@@ -548,6 +550,11 @@ npm run type-check         # TypeScript validation
 
 ## 💰 Business Logic
 
+> **📖 The full money-rules reference lives in [docs/FEATURE_GUIDE.md](docs/FEATURE_GUIDE.md)** —
+> transaction types and IN/OUT semantics, payment legs (split/change), client propagation,
+> void/refund rules, supplier & partner ledgers, profits, sessions, and the checklist every
+> new feature must satisfy. This section covers only selected highlights.
+
 ### Debt Repayment with Smart Rounding
 
 LiraTek implements intelligent debt repayment logic to handle real-world cash transactions while maintaining accounting accuracy.
@@ -644,14 +651,16 @@ Supported currencies: USD, LBP, EUR (via exchange module)
 
 ### Payment Methods & Drawers
 
-- **Cash** → General Drawer
-- **OMT** → OMT Drawer
-- **Whish** → Whish Drawer
-- **Binance** → Binance Drawer
-- **MTC** → MTC Drawer (recharges)
-- **Alfa** → Alfa Drawer (recharges)
+- **Cash** → General drawer (the till)
+- **Base system** (OMT or Whish, per `shop_base_system`) → its system drawer
+- **App wallets** → `OMT_App`, `Whish_App`, `Binance` drawers (SEND: wallet −, General + · RECEIVE: wallet +, General −)
+- **Provider stock** → MTC, Alfa, Katsh, iPick drawers (recharges/catalog)
+- **Non-drawer methods** → `CUSTOMER_ACCOUNT` (open debt or prepaid credit) and `GIFT_CARD` never touch a drawer
 
-Each drawer tracks balances independently with opening/closing audit workflow.
+Each drawer tracks balances independently with opening/closing audit workflow and a
+checkpoint timeline. A payment can be split into multiple legs (each its own method +
+currency), plus change/return (OUT) legs — see
+[docs/FEATURE_GUIDE.md](docs/FEATURE_GUIDE.md) for the leg rules.
 
 ---
 
@@ -1137,6 +1146,8 @@ npm run build
 
 ### Core Documentation
 
+- **[FEATURE_GUIDE.md](docs/FEATURE_GUIDE.md)**: Money rules & cross-cutting invariants — transaction types, IN/OUT semantics, payment legs, client propagation, voids, ledgers, profits, sessions, and the new-feature checklist
+- **[E2E suite index](frontend/tests/e2e-electron/README.md)**: Every e2e spec mapped to the invariants it guards, plus assertion discipline
 - **[SPRINT_FEB_19_28_2026.md](docs/SPRINT_FEB_19_28_2026.md)**: Active sprint tasks, roadmap, and recent completions
 - **[ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)**: Complete environment variable guide
 - **[HEALTH_CHECKS.md](docs/HEALTH_CHECKS.md)**: Health check endpoints and monitoring

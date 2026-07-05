@@ -1,0 +1,96 @@
+# E2E suite index (Electron + Playwright)
+
+Run procedure: see CLAUDE.md → "Running E2E tests" (`yarn dev` → stop → `yarn test:e2e`).
+Business rules these specs guard are documented in [docs/FEATURE_GUIDE.md](../../../docs/FEATURE_GUIDE.md).
+
+## Execution model
+
+- **One Electron instance + one SQLite DB per worker** (`fixtures.ts`), created fresh at
+  worker start, then **accumulating across every spec** that worker runs. Default 1 worker
+  (`PWTEST_WORKERS` to override), `fullyParallel: false`, files run **alphabetically**:
+  `app.spec.ts` → `lira-056…094` → unnumbered `lira-*` → `recharge.spec.ts`.
+- `completeSetup()` runs once per worker: base system **OMT**, all modules on, General
+  seeded **USD 500 / LBP 9,000,000** (lira-085 asserts these against the setup checkpoint).
+- Every spec sets `retries: 0` — a retry relaunches Electron and loses shared sequential
+  state (and would duplicate identity-marker rows, e.g. lira-091-variance).
+- Navigation is hash-routing via `navigateTo()` (never reload — it would drop the session).
+
+## Assertion discipline (CLAUDE.md rule 15)
+
+- **Deltas, never absolutes**: snapshot the drawer/ledger/balance/profit immediately
+  before the action, assert the delta after.
+- **Identity, never position**: match rows by `source_table`+`source_id`, unique client
+  name/phone, ticket number, unique cents, or a notes marker — never `getRecent()[0]`
+  or `tbody tr.first()`. One action can write multiple rows; `created_at` is
+  second-granular.
+- When asserting `/audit` UI, bounce `navigateTo("/")` → `navigateTo("/audit")` to force
+  a fresh mount (a parked viewer shows a stale list).
+- Guard tests must be proven to FAIL on the pre-fix code (rule 17).
+
+## Spec index
+
+| Spec | Area | Guards |
+| --- | --- | --- |
+| app.spec.ts | smoke: POS, inventory, clients, exchange, services, expenses, debts | page loads; POS→debt→repay lifecycle; CUSTOMER_ACCOUNT auto-select; WHISH gated without partner |
+| recharge.spec.ts | recharge MTC/Alfa | drawer − (amount + SMS `ceil(n/3)×$0.16`); per-provider drawer routing |
+| lira-056 | suppliers, Katsh/iPick | credit top-up: provider drawer +, General untouched; TOP_UP/PAYMENT signs; settle |
+| lira-057 | Whish top-up, partners | via-partner: no cash drawer, partner CREDIT; from-client: General −cashPaid, no partner row |
+| lira-059 | suppliers | PAY/SUPPLIER_PAYS_US both move General; overpay → negative balance; system vs manual supplier |
+| lira-060 | custom services (Hold Money) | HOLD_MONEY in-legs / COLLECT out-legs; net-zero drawer; double-collect rejected |
+| lira-061 | secondary sends, suppliers | C5: cost/price SEND draws provider drawer only, NO per-sale supplier debt |
+| lira-062 | iPick/Katsh bills | BILL books SUPPLIER_PAYS_US commission (negative LBP); Bill card renders |
+| lira-063 | OMT/Whish app transfers, clients | optional client (all-null ok); auto-create; client on unified row, FS row written once; 2 rows per SEND |
+| lira-064 | audit, sessions, legs | structured `payments[]`; OUT = negative signed_amount; no same-currency merge; internal legs hidden |
+| lira-071 | profits, auth | admin-only ×3 layers (nav, route, IPC) |
+| lira-073 | audit (DataTable) | export column picker defaults + toggling |
+| lira-074 | OMT receive, drawers | C1: split payout debits EACH leg's currency; OUT leg debited once; system drawer negative |
+| lira-075 | audit | C2: SEND badge=in, RECEIVE badge=out with payout legs |
+| lira-076 | suppliers | C3: auto ledger amount = transfer only (never total / amount±fee) |
+| lira-077 | OMT/Whish/Binance wallets | C4: SEND app−/General+, RECEIVE app+/General− |
+| lira-078 | suppliers, loto, Katsh | C5 prepaid-units; loto exception; BILL legs IN-only |
+| lira-079 | audit ordering | created_at SQLite format (not ISO) so ordering holds |
+| lira-080 | debts import | exact totals; idempotent re-import |
+| lira-081 | maintenance, debts | B3: CUSTOMER_ACCOUNT job books debt; draft delete clean, paid delete blocked; Debts UI shows it |
+| lira-082 | loto, audit | B7: loto badge/legs mapped; paid-currency booked (no phantom LBP) |
+| lira-083 | services + app transfer forms | A2/A3: SEND↔RECEIVE field visibility; summary strip; no stale party |
+| lira-084 | suppliers | B4: signed ADJUSTMENT opening balance, both directions |
+| lira-085 | checkpoint timeline | A4/B1: setup writes immutable baseline checkpoint with per-currency amounts |
+| lira-086 | profits | B5: maintenance + recharge teshriji profit reach summary |
+| lira-087 | audit (Cash Report) | by-date/by-currency in/out aggregation via transaction_time |
+| lira-088 | loto, Alfa gift, custom services | change (OUT) legs reach the books in every form; A5 input canary |
+| lira-089 | recharge catalog | card labels = printed face value (v117/118) |
+| lira-090 | profits | refund nets profit to 0; discount reduces; pro-rata item refund; LBP SMS/maintenance/loto buckets |
+| lira-091-checkpoint-timeline-variance | checkpoint timeline | any variance flagged, no tolerance, amber only |
+| lira-091-loto-ledger-sign | loto, suppliers | v119 standard signs: sale +(sale−commission), prize −prize |
+| lira-092 | suppliers, audit | v120 void restores balance+drawer, soft-flags row; non-reversible gating; void UI in table only |
+| lira-093 | clients, all payment forms | CUSTOMER_ACCOUNT everywhere; open-debt vs prepaid-credit models; loto leg-drop regression |
+| lira-094 | sessions, all modules | client_name on every session txn (23 flows + linked exchange) |
+| lira-095-multi-bill-checkout | recharge (Katsh/iPick bills+items), sessions, audit | N bills + M items in ONE payment: legs book once on the carrier (items SEND when items exist, else first bill; rest deferPayment); mixed USD+LBP bills (per-bill cost in own currency, LBP-converted sheet total); per-bill supplier commission, no per-sale item entry (C5); session pooled payment + client on every row |
+| lira-096-debt-split-repayment | debts, drawers | split USD+LBP repayment through the modal: LBP legs convert at the MODAL's rate (useExchangeRate sell/buy schema — the dead `delta` math made it NaN); repayment reduction not double-counted from legs (DebtService over-credit) |
+| lira-097-debt-cashout | debts, drawers | creditor Cash Out: ONE positive CREDIT_USED entry (balance → 0, not doubled), drawer DEBITED via CREDIT_CASH_OUT txn; modal prefills abs(credit); mixed USD-credit/LBP-debt position: per-currency panel signs + per-currency settle (cash out USD, repay LBP — no converted residue) |
+| lira-098-binance-session-cashout | Binance, sessions, drawers | basket is CUSTOMER-perspective: cash-out line shows −$cash only (USDT = label/service); Binance cash NETS in the USD bucket (Cart Total + modal Total net per currency; payout posts via the basket's net OUT leg — loto pattern, no repo self-post in deferred mode); amber payout instruction; UI checkout moves Binance +USDT / General −USD once |
+| lira-alfa-gift-recording | recharge (Alfa gift), sessions | payload shape {type,amount,cost,price}; defers to basket; session link |
+| lira-session-allocation | sessions, debts, vouchers | account-debt-to-sales-first; GIFT_CARD excluded from account debt |
+| lira-session-basket-debt | sessions, debts | ONE debt entry per basket |
+| lira-session-basket-payment | sessions, drawers | ONE pooled payment, posted once, attached to every session row |
+| lira-session-exchange-rate | sessions | operator rate stamped on financial + custom-service + loto txns |
+| lira-session-multiple-per-day | sessions | sequential same-day ok; concurrent duplicate blocked |
+| lira-session-payout | sessions, Binance, loto | payouts post exactly once (FS self-post; loto defers to one net OUT leg) |
+| lira-session-profits | sessions, profits | basket item books same profit as direct sale |
+| lira-supplier-secondary-system | suppliers, partners | secondary system → partner_ledger only; hidden from Suppliers page |
+| lira-transactions-hidden-types | audit | CLIENT_CREATED + non-credit SUPPLIER_PAYMENT hidden; Supplier Credit visible; cash-only filter |
+| lira-transactions-timezone | audit | UTC storage, local wall-clock display via parseDbDate |
+
+## Known couplings & hazards
+
+- `lira-alfa-gift-recording` documents that lira-064 leaves a session open; it (and
+  `lira-session-multiple-per-day`) close all sessions in `afterEach`. The other session
+  specs leave their sessions open — any new spec sensitive to an active session must
+  start with `closeAllActiveSessions`.
+- Fixed phone numbers are shared across specs (`03999222`, `03999333`, …) — safe only
+  because assertions are delta/identity based. Prefer `Date.now()`-unique identities.
+- Two files share the `091` number (checkpoint variance, loto ledger sign) — unrelated
+  topics; ticket-number collision only.
+- Renaming spec files changes alphabetical execution order. The suite is designed to be
+  order-tolerant (deltas + identity), but session leakage (above) is the exception —
+  verify a full run after any rename.

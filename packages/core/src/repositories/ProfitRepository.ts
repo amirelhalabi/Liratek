@@ -638,10 +638,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           GROUP BY DATE(s.created_at)
         ),
         daily_sales_profit AS (
-          -- Profit from the unified ledger (SALE + REFUND), grouped by the
-          -- TRANSACTION date. A REFUND nets the SALE at the refund's date (accrual).
+          -- Profit from the unified ledger (SALE + REFUND), grouped by the SALE
+          -- date (s.created_at — a REFUND row's source_id points at the original
+          -- sale) so a refund nets the sale at its ORIGINAL date, matching
+          -- daily_sales revenue/cost and getSalesProfit (no cross-window divergence).
           SELECT
-            DATE(t.created_at) AS d,
+            DATE(s.created_at) AS d,
             COALESCE(SUM(t.profit_usd), 0) AS profit_usd
           FROM transactions t
           JOIN sales s ON s.id = t.source_id
@@ -650,8 +652,8 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND t.type IN ('SALE', 'REFUND')
             AND s.status IN ('completed', 'refunded')
             AND ${saleFullyPaid("s")}
-            AND ${dateRange("t.created_at")}
-          GROUP BY DATE(t.created_at)
+            AND ${dateRange("s.created_at")}
+          GROUP BY DATE(s.created_at)
         ),
         daily_commissions AS (
           SELECT
@@ -916,7 +918,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     return this.db
       .prepare(
         `SELECT
-          t.user_id,
+          -- A REFUND is attributed to the ORIGINAL seller (orig.user_id via
+          -- reverses_id), not whoever clicked refund — so the seller's profit
+          -- for a reversed sale nets to 0 and the refunder is unaffected.
+          COALESCE(orig.user_id, t.user_id) AS user_id,
           COALESCE(u.username, 'Unknown') AS username,
           SUM(CASE
             WHEN t.source_table = 'financial_services' THEN (
@@ -977,18 +982,19 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             FROM financial_services fs2
             JOIN transactions t2 ON t2.source_table = 'financial_services' AND t2.source_id = fs2.id
               AND t2.type = 'FINANCIAL_SERVICE'
-            WHERE t2.user_id = t.user_id
+            WHERE t2.user_id = COALESCE(orig.user_id, t.user_id)
               AND fs2.is_settled = 0
               AND fs2.commission > 0
               AND ${notRefunded("fs2")}
               AND ${dateRange("fs2.created_at")}
           ), 0) AS pending_profit_usd
         FROM transactions t
-        LEFT JOIN users u ON u.id = t.user_id
+        LEFT JOIN transactions orig ON t.type = 'REFUND' AND orig.id = t.reverses_id
+        LEFT JOIN users u ON u.id = COALESCE(orig.user_id, t.user_id)
         WHERE t.status = 'ACTIVE'
           AND t.type IN (${PROFIT_TXN_TYPES})
           AND ${dateRange("t.created_at")}
-        GROUP BY t.user_id
+        GROUP BY COALESCE(orig.user_id, t.user_id)
         ORDER BY profit_usd DESC`,
       )
       .all(fromDt, toDt, fromDt, toDt) as ProfitByUserRow[];

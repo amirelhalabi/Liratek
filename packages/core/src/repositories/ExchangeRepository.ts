@@ -216,6 +216,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         amount_lbp,
         profit_usd: profitUsd,
         exchange_rate: rate,
+        // Rule 11: the (optional) client name must reach the unified row —
+        // without it every exchange showed "—" in the transactions table
+        // even when a name was entered (lira-094 sweep).
+        client_name: data.clientName ?? null,
         summary: `Exchange: ${data.amountIn} ${data.fromCurrency} → ${data.amountOut} ${data.toCurrency}${data.viaCurrency ? ` (via ${data.viaCurrency})` : ""}`,
         metadata_json: {
           type,

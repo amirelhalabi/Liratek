@@ -16,9 +16,10 @@
  * - **Exchange rate**: Immutable snapshot captured at creation time.
  */
 
-import type {
-  TransactionStatus,
-  TransactionType,
+import {
+  NON_REVERSIBLE_TRANSACTION_TYPES,
+  type TransactionStatus,
+  type TransactionType,
 } from "../constants/transactionTypes.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
@@ -635,6 +636,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         entityId: id,
       });
     }
+    this._assertReversible(original);
+    // A transaction that already has an ACTIVE REFUND reverser had its cash
+    // reversed once — voiding it too would double-reverse the drawers.
+    const refunded = this.queryOne<{ id: number }>(
+      `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND' AND status = 'ACTIVE'`,
+      id,
+    );
+    if (refunded) {
+      throw new DatabaseError(
+        "Transaction has already been refunded — cannot void it too",
+        { entityId: id },
+      );
+    }
 
     return this.transaction(() => {
       // 1. Mark original as VOIDED
@@ -682,6 +696,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         this._cancelDebt(id, userId);
       }
 
+      // 6. Supplier payment: un-apply the FIFO purchase coverage the payment
+      // consumed (the ledger row itself is soft-voided by step 4).
+      this._unapplySupplierPurchaseCoverage(original);
+
       return reversalId;
     });
   }
@@ -725,6 +743,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         entityId: id,
       });
     }
+    this._assertReversible(original);
 
     // Guard: prevent double-refund
     const existing = this.queryOne<{ id: number }>(
@@ -785,8 +804,31 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         this._cancelDebt(id, userId);
       }
 
+      // 5. Supplier payment: un-apply the FIFO purchase coverage
+      this._unapplySupplierPurchaseCoverage(original);
+
       return refundId;
     });
+  }
+
+  /**
+   * Shared void/refund gate: refuse types whose side effects the generic
+   * reversal cannot undo, and refuse reversing a reversal row (a VOID
+   * reversal keeps the original type but carries reverses_id).
+   */
+  private _assertReversible(original: TransactionEntity): void {
+    if (NON_REVERSIBLE_TRANSACTION_TYPES.has(original.type)) {
+      throw new DatabaseError(
+        `${original.type} transactions cannot be voided or refunded — reverse them from their own module`,
+        { entityId: original.id },
+      );
+    }
+    if (original.reverses_id != null) {
+      throw new DatabaseError(
+        "Cannot void or refund a reversal transaction",
+        { entityId: original.id },
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -816,8 +858,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Mark the source module record as refunded.
    * Tables with is_refunded column: recharges, financial_services,
    * exchange_transactions, custom_services, maintenance, expenses,
-   * loto_tickets, debt_ledger.
+   * loto_tickets, debt_ledger, supplier_ledger.
    * Sales are handled separately (status + sale_items).
+   *
+   * supplier_ledger uses this as a SOFT-VOID: balance/pool aggregates exclude
+   * flagged rows (SupplierRepository), so voiding a supplier payment restores
+   * the supplier balance without a compensating row — a compensator cannot
+   * net the sign-bucketed FIFO pools, only excluding the original can.
    */
   private _markSourceRefunded(
     sourceTable: string,
@@ -834,12 +881,63 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "expenses",
       "loto_tickets",
       "debt_ledger",
+      "supplier_ledger",
     ];
     if (!supported.includes(sourceTable)) return;
     this.execute(
       `UPDATE ${sourceTable} SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP WHERE id = ?`,
       sourceId,
     );
+  }
+
+  /**
+   * Reversing a SUPPLIER_PAYMENT whose ledger entry was a manual PAYMENT must
+   * also give back the FIFO purchase coverage the payment consumed
+   * (SupplierRepository.recordSupplierCashflow PAY walks supplier_purchases
+   * oldest-first and bumps paid_usd; nothing records the split, so we un-apply
+   * the same USD-equivalent reverse-FIFO: newest-covered first, capped at each
+   * purchase's paid_usd). No-op for every other transaction shape.
+   */
+  private _unapplySupplierPurchaseCoverage(original: TransactionEntity): void {
+    if (
+      original.type !== "SUPPLIER_PAYMENT" ||
+      original.source_table !== "supplier_ledger" ||
+      !original.source_id
+    ) {
+      return;
+    }
+    const ledger = this.queryOne<{
+      supplier_id: number;
+      entry_type: string;
+      amount_usd: number;
+      amount_lbp: number;
+    }>(
+      `SELECT supplier_id, entry_type, amount_usd, amount_lbp FROM supplier_ledger WHERE id = ?`,
+      original.source_id,
+    );
+    if (!ledger || ledger.entry_type !== "PAYMENT") return;
+
+    const rate = original.exchange_rate || 89000;
+    let remaining =
+      Math.abs(ledger.amount_usd) + Math.abs(ledger.amount_lbp) / rate;
+    if (remaining <= 0) return;
+
+    const covered = this.query<{ id: number; paid_usd: number }>(
+      `SELECT id, paid_usd FROM supplier_purchases
+       WHERE supplier_id = ? AND paid_usd > 0
+       ORDER BY created_at DESC, id DESC`,
+      ledger.supplier_id,
+    );
+    for (const row of covered) {
+      if (remaining <= 0) break;
+      const giveBack = Math.min(remaining, row.paid_usd);
+      this.execute(
+        `UPDATE supplier_purchases SET paid_usd = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        row.paid_usd - giveBack,
+        row.id,
+      );
+      remaining -= giveBack;
+    }
   }
 
   private _reversePayments(

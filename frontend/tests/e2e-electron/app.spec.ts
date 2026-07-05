@@ -334,12 +334,12 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
   await expect(settleBtn).toBeVisible({ timeout: 10_000 });
   await settleBtn.click();
 
-  const fullDebtBtn = appPage
-    .locator("button")
-    .filter({ hasText: /Full debt/i })
-    .first();
-  await expect(fullDebtBtn).toBeVisible({ timeout: 5000 });
-  await fullDebtBtn.click();
+  // The payment form opens pre-seeded with the full per-currency position
+  // (the separate "Full debt" quick-fill button was removed — it wrote page
+  // state the payment form never displayed).
+  await expect(
+    appPage.locator('[data-testid^="payment-amount-"]').first(),
+  ).not.toHaveValue("", { timeout: 5000 });
 
   // Confirm (triggers native alert — auto-dismissed)
   await appPage.getByRole("button", { name: /Confirm Payment/i }).click();

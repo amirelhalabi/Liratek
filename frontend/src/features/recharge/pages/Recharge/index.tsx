@@ -62,6 +62,11 @@ export default function MobileRecharge() {
     PROVIDER_CONFIGS[0].key,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Selected-item counts per provider, reported by the mounted cart form and
+  // rendered as a count pill on the provider tabs.
+  const [tabCartCounts, setTabCartCounts] = useState<Record<string, number>>(
+    {},
+  );
 
   const [finTransactions, setFinTransactions] = useState<
     FinancialTransaction[]
@@ -913,11 +918,17 @@ export default function MobileRecharge() {
       // payment fields (paidByMethod / payments / cashoutMethod). The Session
       // Checkout modal collects payment once for the whole basket and derives
       // the cashout method from the chosen basket payment method.
+      //
+      // The cart amount is the customer's CASH side in USD (SEND: what they
+      // pay; RECEIVE: −what they're paid) so it joins the pooled USD bucket —
+      // it NETS against purchases and, when the basket nets negative, the
+      // checkout emits the net cash-OUT leg (loto-prize pattern). The USDT is
+      // the service (label + formData); the wallet movement books at replay.
       addToSessionCart({
         module: isSend ? "binance_send" : "binance_receive",
         label,
         amount: isSend ? amount + fee : -(amount - fee),
-        currency: "USDT",
+        currency: "USD",
         ipcChannel: "financial:create",
         formData: {
           provider: "BINANCE",
@@ -1097,6 +1108,7 @@ export default function MobileRecharge() {
           onSelectProvider={(p) => {
             startTransition(() => setActiveProvider(p));
           }}
+          cartCounts={tabCartCounts}
         />
 
         {/* Right zone: today's metrics, then a divider, then actions */}
@@ -1278,6 +1290,7 @@ export default function MobileRecharge() {
                   setShowHistory={setShowHistory}
                   onRefreshItems={refreshItems}
                   isAdmin={isAdmin}
+                  onCartCountChange={setTabCartCounts}
                 />
               ) : (
                 <OmtWhishAppTransferForm
@@ -1308,6 +1321,7 @@ export default function MobileRecharge() {
               setShowHistory={setShowHistory}
               onRefreshItems={refreshItems}
               isAdmin={isAdmin}
+              onCartCountChange={setTabCartCounts}
             />
           ) : (
             <FinancialForm
@@ -1327,6 +1341,7 @@ export default function MobileRecharge() {
               setShowHistory={setShowHistory}
               onRefreshItems={refreshItems}
               isAdmin={isAdmin}
+              onCartCountChange={setTabCartCounts}
             />
           ))}
 

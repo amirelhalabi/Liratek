@@ -311,7 +311,10 @@ export default function CustomServices() {
           label,
           amount: priceUsdVal || costUsdVal,
           currency: priceUsdVal > 0 ? "USD" : priceLbpVal > 0 ? "LBP" : "USD",
-          ipcChannel: "customService:create",
+          // Must be the REAL handler channel — the session-checkout replayer
+          // invokes it verbatim ("customService:create" was a dead channel
+          // that failed every session checkout containing a service; lira-094).
+          ipcChannel: "custom-services:add",
           formData: payload,
         });
 

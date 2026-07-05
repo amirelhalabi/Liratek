@@ -103,6 +103,10 @@ function processCartItem(
   }
 
   switch (item.ipcChannel) {
+    // "sales:create" is a legacy alias the POS page wrote into stored carts
+    // before it was corrected to "sales:process" (lira-094) — accept both so
+    // existing carts and not-yet-rebuilt renderers still check out.
+    case "sales:create":
     case "sales:process": {
       const salesService = getSalesService();
       const result = salesService.processSale(data as any, userId);
@@ -182,6 +186,11 @@ function processCartItem(
       };
     }
 
+    // "customService:create" is a legacy alias the Custom Services page wrote
+    // into stored carts before it was corrected to "custom-services:add"
+    // (lira-094) — accept both so existing carts and not-yet-rebuilt renderers
+    // still check out (same pattern as recharge:create above).
+    case "customService:create":
     case "custom-services:add": {
       const customService = getCustomServiceService();
       const result = customService.addService(data as any);

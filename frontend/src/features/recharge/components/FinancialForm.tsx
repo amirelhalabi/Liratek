@@ -59,6 +59,8 @@ interface FinancialFormProps {
   setShowHistory: (show: boolean) => void;
   onRefreshItems?: () => Promise<void>;
   isAdmin?: boolean;
+  /** Reports selected-item counts per provider tab (count pill on the tab). */
+  onCartCountChange?: (counts: Record<string, number>) => void;
 }
 
 export function FinancialForm({
@@ -78,6 +80,7 @@ export function FinancialForm({
   setShowHistory,
   onRefreshItems,
   isAdmin,
+  onCartCountChange,
 }: FinancialFormProps) {
   const api = useApi();
   const {
@@ -86,6 +89,20 @@ export function FinancialForm({
     addToCart: addToSessionCart,
   } = useSession();
   const [cart, setCart] = useState<Map<string, CartLineItem>>(new Map());
+  // Report selection counts to the provider tabs (quantities, keyed by each
+  // cart item's own provider).
+  useEffect(() => {
+    if (!onCartCountChange) return;
+    const counts: Record<string, number> = {};
+    for (const line of cart.values()) {
+      counts[line.item.provider] =
+        (counts[line.item.provider] ?? 0) + line.quantity;
+    }
+    onCartCountChange(counts);
+  }, [cart, onCartCountChange]);
+  useEffect(() => {
+    return () => onCartCountChange?.({});
+  }, [onCartCountChange]);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set(),

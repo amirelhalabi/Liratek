@@ -4949,6 +4949,88 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v118 rolled back: ALFA card labels restored");
     },
   },
+  {
+    version: 119,
+    name: "flip_loto_supplier_ledger_sign",
+    description:
+      "B6b: Loto booked its supplier_ledger rows with an INVERTED sign convention — ticket sales (shop owes Loto) as NEGATIVE 'PAYMENT' rows and cash prizes (Loto owes shop) as POSITIVE 'CASH_PRIZE' rows — so the Suppliers page (which sums ledger rows, >0 = 'You owe') read Loto backwards vs every other supplier. Normalizes historical rows to the standard convention: ticket rows relabeled TOP_UP and negated; cash-prize rows negated. SETTLEMENT rows are already standard-oriented and deliberately untouched. Scoped by the exact note prefixes the Loto repos have always written, so legitimate manual Loto PAYMENT settlements (also stored negative, by addLedgerEntry) are NOT re-flipped.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Sign guards (amount_lbp < 0 / > 0) make both UPDATEs idempotent: only
+      // legacy inverted rows match. Post-fix rows (TOP_UP tickets, NEGATIVE
+      // cash prizes) share the same note prefixes, so without the guards a
+      // re-run would double-negate every new CASH_PRIZE row.
+      // Ticket-sale liability rows: relabel PAYMENT -> TOP_UP and flip sign.
+      const tickets = db
+        .prepare(
+          `UPDATE supplier_ledger
+            SET entry_type = 'TOP_UP', amount_lbp = -amount_lbp, amount_usd = -amount_usd
+            WHERE supplier_id IN (SELECT id FROM suppliers WHERE provider = 'LOTO')
+              AND entry_type = 'PAYMENT'
+              AND amount_lbp < 0
+              AND note LIKE 'Ticket sale: we owe LOTO%'`,
+        )
+        .run().changes;
+      // Cash-prize receivable rows: flip sign only.
+      const prizes = db
+        .prepare(
+          `UPDATE supplier_ledger
+            SET amount_lbp = -amount_lbp, amount_usd = -amount_usd
+            WHERE supplier_id IN (SELECT id FROM suppliers WHERE provider = 'LOTO')
+              AND entry_type = 'CASH_PRIZE'
+              AND amount_lbp > 0
+              AND note LIKE 'Cash prize payout: LOTO owes us%'`,
+        )
+        .run().changes;
+      console.log(
+        `Migration v119: flipped ${tickets} loto ticket rows (PAYMENT->TOP_UP) and ${prizes} cash-prize rows to the standard supplier-ledger sign convention`,
+      );
+    },
+    down(db: Database.Database) {
+      db.prepare(
+        `UPDATE supplier_ledger
+          SET entry_type = 'PAYMENT', amount_lbp = -amount_lbp, amount_usd = -amount_usd
+          WHERE supplier_id IN (SELECT id FROM suppliers WHERE provider = 'LOTO')
+            AND entry_type = 'TOP_UP'
+            AND amount_lbp > 0
+            AND note LIKE 'Ticket sale: we owe LOTO%'`,
+      ).run();
+      db.prepare(
+        `UPDATE supplier_ledger
+          SET amount_lbp = -amount_lbp, amount_usd = -amount_usd
+          WHERE supplier_id IN (SELECT id FROM suppliers WHERE provider = 'LOTO')
+            AND entry_type = 'CASH_PRIZE'
+            AND amount_lbp < 0
+            AND note LIKE 'Cash prize payout: LOTO owes us%'`,
+      ).run();
+      console.log(
+        "Migration v119 rolled back: loto supplier_ledger rows restored to the legacy inverted sign",
+      );
+    },
+  },
+  {
+    version: 120,
+    name: "add_supplier_ledger_refund_flag",
+    description:
+      "Voiding/refunding a SUPPLIER_PAYMENT transaction reversed the cash drawer but left its supplier_ledger row counting toward the supplier balance forever. Adds is_refunded/refunded_at so TransactionRepository can soft-void the ledger row (flag-the-original — a compensating row cannot net the sign-bucketed FIFO settle pools) and every balance/pool aggregate excludes flagged rows. NO backfill: rows stranded by pre-fix voids may have been manually corrected with ADJUSTMENT entries, so auto-flagging them could double-correct — review any suspect supplier balance by hand instead.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(
+        `ALTER TABLE supplier_ledger ADD COLUMN is_refunded INTEGER NOT NULL DEFAULT 0`,
+      );
+      db.exec(`ALTER TABLE supplier_ledger ADD COLUMN refunded_at DATETIME`);
+      console.log(
+        "Migration v120: supplier_ledger soft-void columns added (is_refunded, refunded_at)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`ALTER TABLE supplier_ledger DROP COLUMN refunded_at`);
+      db.exec(`ALTER TABLE supplier_ledger DROP COLUMN is_refunded`);
+      console.log(
+        "Migration v120 rolled back: supplier_ledger soft-void columns removed",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

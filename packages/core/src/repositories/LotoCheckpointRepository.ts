@@ -251,6 +251,10 @@ export class LotoCheckpointRepository {
       // Read cash prizes from the checkpoint itself (authoritative source)
       const checkpoint = this.getCheckpointById(id);
       if (!checkpoint) throw new Error(`Checkpoint ${id} not found`);
+      // Same guard as settleCheckpoints: a double-settle would write a second
+      // SETTLEMENT ledger row and flip the Loto balance past zero.
+      if (checkpoint.is_settled)
+        throw new Error(`Checkpoint ${id} is already settled`);
       const totalCashPrizes = checkpoint.total_cash_prizes;
 
       // Calculate settlement amounts
@@ -311,6 +315,9 @@ export class LotoCheckpointRepository {
       const settlementId = settlementResult.lastInsertRowid as number;
 
       // 3. Create SETTLEMENT entry in supplier_ledger
+      // Sign is intentionally standard-oriented (netSettlement as-is): after the
+      // ticket/prize sign flip (migration v119) the pre-settlement Loto balance
+      // is -netSettlement, so this row zeroes it. Do NOT negate.
       const insertLedger = this.db.prepare(`
         INSERT INTO supplier_ledger (
           supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
@@ -467,6 +474,8 @@ export class LotoCheckpointRepository {
       const settlementId = settlementResult.lastInsertRowid as number;
 
       // 3. Supplier ledger entry
+      // Sign intentionally standard-oriented (see settleCheckpoint): the
+      // flipped ticket/prize rows sum to -netSettlement, so this zeroes them.
       this.db
         .prepare(
           `

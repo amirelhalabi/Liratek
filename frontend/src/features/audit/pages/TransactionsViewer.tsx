@@ -789,7 +789,8 @@ export default function TransactionsViewer({
         <td className="p-2" style={{ width: 80 }}>
           {ACTIONABLE_TYPES.has(row.type) &&
           row.status !== "VOIDED" &&
-          row.type !== "REFUND" ? (
+          row.type !== "REFUND" &&
+          !row.reverses_id ? (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => handleVoid(row.id)}

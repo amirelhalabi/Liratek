@@ -155,7 +155,27 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       userId?: number;
       paidByMethod?: string;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      transaction_time?: string;
     }) => ipcRenderer.invoke("debt:add-repayment", data),
+    cashOut: (data: {
+      clientId: number;
+      amountUSD: number;
+      amountLBP: number;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      note?: string;
+      transaction_time?: string;
+    }) => ipcRenderer.invoke("debt:cash-out", data),
     updateMetadata: (data: { id: number; note?: string }) =>
       ipcRenderer.invoke("debts:update-metadata", data),
     addCredit: (data: {
@@ -258,6 +278,8 @@ contextBridge.exposeInMainWorld("api", {
         method: string;
         currencyCode: string;
         amount: number;
+        voucherCode?: string;
+        direction?: "IN" | "OUT";
       }>;
       clientId?: number;
       clientName?: string;
@@ -280,6 +302,12 @@ contextBridge.exposeInMainWorld("api", {
       includingFees?: boolean;
       paymentMethodFee?: number;
       paymentMethodFeeRate?: number;
+      returnedCreditsUsd?: number;
+      partnerId?: number;
+      partnerMode?: "THROUGH" | "FOR";
+      cashoutMethod?: string;
+      transaction_time?: string;
+      deferPayment?: boolean;
     }) => ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),

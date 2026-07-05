@@ -223,7 +223,9 @@ export default function Expenses() {
               onChange={setPaymentLines}
               paymentMethods={[
                 { code: "CASH", label: "💵 Cash" },
-                { code: "CUSTOMER_ACCOUNT", label: "💳 Customer Account" },
+                // CUSTOMER_ACCOUNT removed (lira-093 sweep): the page has no
+                // client field, so an on-account expense could never link to a
+                // client — the option was a dead end.
                 { code: "CREDIT_CARD", label: "💳 Credit Card" },
               ]}
               currencies={[

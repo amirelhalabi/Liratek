@@ -13,6 +13,8 @@ import {
   LotoCheckpointCreateSchema,
   LotoCheckpointSettleSchema,
   LotoCheckpointsSettleBatchSchema,
+  LotoTicketUpdateSchema,
+  PositiveIdSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -113,18 +115,39 @@ export function registerLotoHandlers(): void {
     }
   });
 
-  ipcMain.handle("loto:update", async (e, id: number, data: any) => {
+  ipcMain.handle("loto:update", async (e, id: unknown, data: unknown) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
+      const idV = validatePayload(PositiveIdSchema, id);
+      if (!idV.ok) return { success: false, error: idV.error };
+      const dataV = validatePayload(LotoTicketUpdateSchema, data);
+      if (!dataV.ok) return { success: false, error: dataV.error };
+
+      // Normalize is_winner (schema accepts boolean; the column is 0/1).
+      const { is_winner, ...rest } = dataV.data;
+      const update = {
+        ...rest,
+        ...(is_winner !== undefined
+          ? {
+              is_winner:
+                typeof is_winner === "boolean"
+                  ? is_winner
+                    ? 1
+                    : 0
+                  : is_winner,
+            }
+          : {}),
+      };
+
       const service = getLotoServiceInstance();
-      const ticket = service.updateTicket(id, data);
+      const ticket = service.updateTicket(idV.data, update);
       audit(e.sender.id, {
         action: "update",
         entity_type: "loto_ticket",
-        entity_id: String(id),
-        summary: `Updated loto ticket #${id}`,
+        entity_id: String(idV.data),
+        summary: `Updated loto ticket #${idV.data}`,
       });
       return { success: true, ticket };
     } catch (error) {

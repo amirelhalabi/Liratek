@@ -1278,29 +1278,65 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 
 ---
 
-## Summary (Sprint 3 — LIRA-065..075)
+## LIRA-076: Remove "Save as Client" Checkbox from Customer Session Modal (Keep Auto-Save)
+
+| Field                | Value             |
+| -------------------- | ----------------- |
+| **Epic**             | Customer Sessions |
+| **Type**             | Cleanup / UX       |
+| **Priority**         | Medium            |
+| **Status**           | DONE              |
+| **Affected Modules** | Sessions          |
+| **Depends On**       | —                 |
+
+### Summary
+
+Starting a customer session with a name + phone saved a `clients` row **even when the "Save as client" checkbox was left unchecked** — the checkbox and the code path that actually inserts into `clients` were completely disconnected (see Root Cause). **Owner decision:** keep the auto-save-on-session-create behavior; remove the now-misleading checkbox from the session modal instead of gating the backend behind it.
+
+### Root Cause (grounded)
+
+- **Checkbox path (frontend-only, now removed):** `StartSessionModal.tsx` rendered `SaveAsClientCheckbox` driven by the `useSaveAsClient` hook. When checked, `trySaveAsClient()` called `window.api.clients.create()` directly. The checkbox's boolean state was **never included** in the `session:start` IPC payload.
+- **Actual insert (backend, unconditional — unchanged/kept):** `electron-app/handlers/sessionHandlers.ts` ~L303-320 has an "Auto-register client" block that runs on every `session:start` whenever `customer_name` **and** `customer_phone` are both present, via `ClientRepository.createClient()` (dedup'd by `findByPhone`). This is the behavior being kept.
+
+### Resolution
+
+- [x] Removed `useSaveAsClient` hook usage and `<SaveAsClientCheckbox />` from `StartSessionModal.tsx` (import, hook call, `resetSaveAsClient()` calls, `trySaveAsClient()` call, and the JSX)
+- [x] Backend auto-register in `sessionHandlers.ts` left untouched — session start with name+phone still saves/finds the client automatically
+- [x] `SaveAsClientCheckbox` / `useSaveAsClient` themselves NOT deleted — still used by Custom Services, Recharge (OMT/Whish transfer), Maintenance, and Services forms
+- [x] Typecheck and lint pass (frontend: 0 errors, pre-existing warnings only)
+
+### Files Modified
+
+| Layer    | File                                                               | Change                                                                 |
+| -------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Frontend | `frontend/src/features/sessions/components/StartSessionModal.tsx`  | Removed the "Save as client" checkbox + its hook wiring; session client save is now purely automatic (backend) |
+
+---
+
+## Summary (Sprint 3 — LIRA-065..076)
 
 | Priority  | Total  | Done  | Remaining |
 | --------- | ------ | ----- | --------- |
-| Medium    | 3      | 1     | 1         |
+| Medium    | 4      | 2     | 1         |
 | Low       | 8      | 3     | 5         |
-| **Total** | **11** | **4** | **6**     |
+| **Total** | **12** | **5** | **6**     |
 
 ### Sprint 3 board
 
-| ID       | Title                                              | Priority | Status      |
-| -------- | -------------------------------------------------- | -------- | ----------- |
-| LIRA-065 | Setup — initial drawer amounts page                | Medium   | DONE        |
-| LIRA-066 | Settlement txns (client/supplier/partner) in table | Medium   | TODO        |
-| LIRA-067 | Txn payment detail — expandable row + report print | Medium   | DISREGARDED |
-| LIRA-068 | Mark txn "amount changed" on edit                  | Low      | TODO        |
-| LIRA-069 | Invoice/receipt print on payment                   | Low      | TODO        |
-| LIRA-070 | Profits page correctness audit                     | Low      | TODO        |
-| LIRA-071 | Hide profits page + data for non-admin             | Low      | DONE        |
-| LIRA-072 | Telecom vouchers named by card number              | Low      | TODO        |
-| LIRA-073 | DataTable export — customizable columns            | Low      | DONE        |
-| LIRA-074 | Remove Manual Entry tab in Suppliers               | Low      | DONE        |
-| LIRA-075 | Favorite/pin Whish App quick link in home grid     | Low      | TODO        |
+| ID       | Title                                               | Priority | Status      |
+| -------- | ----------------------------------------------------- | -------- | ----------- |
+| LIRA-065 | Setup — initial drawer amounts page                 | Medium   | DONE        |
+| LIRA-066 | Settlement txns (client/supplier/partner) in table  | Medium   | TODO        |
+| LIRA-067 | Txn payment detail — expandable row + report print  | Medium   | DISREGARDED |
+| LIRA-068 | Mark txn "amount changed" on edit                   | Low      | TODO        |
+| LIRA-069 | Invoice/receipt print on payment                    | Low      | TODO        |
+| LIRA-070 | Profits page correctness audit                      | Low      | TODO        |
+| LIRA-071 | Hide profits page + data for non-admin              | Low      | DONE        |
+| LIRA-072 | Telecom vouchers named by card number               | Low      | TODO        |
+| LIRA-073 | DataTable export — customizable columns             | Low      | DONE        |
+| LIRA-074 | Remove Manual Entry tab in Suppliers                | Low      | DONE        |
+| LIRA-075 | Favorite/pin Whish App quick link in home grid      | Low      | TODO        |
+| LIRA-076 | Remove "save as client" checkbox from session modal | Medium   | DONE        |
 
 ---
 

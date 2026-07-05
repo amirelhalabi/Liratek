@@ -992,13 +992,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
 
             // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash.
-            //    Always posted, including in session-basket (deferred) mode: the
-            //    customer pays nothing for a RECEIVE, so the basket recorder has
-            //    no leg for this — the payout must be self-posted or it is lost.
+            //    Deferred (session basket): the item's negative CASH amount
+            //    nets into the basket totals and the Session Checkout emits
+            //    the net cash-OUT leg, which recordBasketPayment posts — the
+            //    loto-prize pattern. Self-posting here too would double-debit
+            //    the till (and for app wallets it DID, since their cart items
+            //    always netted into the pooled totals).
             const payoutAmount = cryptoAmount - fee;
             const cashoutMethod = data.cashoutMethod || "CASH";
 
-            if (payoutAmount > 0) {
+            if (payoutAmount > 0 && !deferPayment) {
               if (cashoutMethod === "CUSTOMER_ACCOUNT") {
                 // Credit customer's account instead of paying cash
                 if (!resolvedPrimaryClientId) {

@@ -32,6 +32,24 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Pre-transform the heaviest module graphs as soon as the dev server
+    // starts. Without this, the FIRST route navigation (dev or e2e) pays a
+    // ~10s on-demand compile toll for the shared graph (@liratek/ui source
+    // alias, icon barrels, TanStack) — observed as one arbitrary e2e test
+    // taking 10s while identical siblings take <1s. Warmup runs concurrently
+    // with the Electron boot / setup wizard, so the cost disappears.
+    warmup: {
+      clientFiles: [
+        "./src/main.tsx",
+        "./src/app/App.tsx",
+        "./src/features/custom-services/pages/CustomServices/index.tsx",
+        "./src/features/recharge/pages/Recharge/index.tsx",
+        "./src/features/loto/pages/Loto/index.tsx",
+        "./src/features/debts/pages/Debts/index.tsx",
+        "./src/features/sales/pages/POS/index.tsx",
+        "../packages/ui/src/index.ts",
+      ],
+    },
   },
   build: {
     // Electron loads local files — chunk size warning not relevant for desktop apps

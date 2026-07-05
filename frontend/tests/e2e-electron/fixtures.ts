@@ -169,8 +169,13 @@ export const test = base.extend<
         { timeout: 15_000 },
       );
 
-      // Auto-dismiss native alert/confirm/prompt dialogs globally
-      sharedPage.on("dialog", (dialog) => dialog.accept());
+      // Auto-accept native alert/confirm/prompt dialogs globally. The .catch
+      // matters: if a spec's own handler already answered the dialog, this
+      // accept() rejects — an unhandled rejection here can destabilize the
+      // worker and strand the NEXT dialog on screen unanswered.
+      sharedPage.on("dialog", (dialog) => {
+        dialog.accept().catch(() => {});
+      });
     }
 
     if (!setupDone) {
@@ -278,7 +283,11 @@ export async function navigateTo(page: Page, route: string) {
     "/recharge": '#telecom-amount, button:has-text("MTC")',
     "/maintenance": "#maintenance-device-name",
     "/loto": "text=Loto",
-    "/custom-services": '#service-amount, button:has-text("Record Service")',
+    // NOTE: keep anchors in sync with the pages — a stale anchor silently
+    // costs EVERY navigation to that route the full 10s timeout
+    // (#service-amount / "Record Service" were renamed long ago and burned
+    // 10s per visit across lira-088/093/094).
+    "/custom-services": '#svc-cost, button:has-text("Submit Service")',
     "/customer-sessions": "text=Customer Session",
   };
   const anchor = routeAnchors[path];

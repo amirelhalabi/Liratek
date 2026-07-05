@@ -58,6 +58,7 @@ function createSchema(d: TestDb): void {
       profit_usd REAL NOT NULL DEFAULT 0,
       profit_lbp REAL NOT NULL DEFAULT 0,
       summary TEXT,
+      reverses_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -219,19 +220,27 @@ function insertTxn(opts: {
   profitUsd?: number;
   profitLbp?: number;
   amountUsd?: number;
-}): void {
-  db.prepare(
-    `INSERT INTO transactions (type, status, source_table, source_id, user_id, amount_usd, profit_usd, profit_lbp, created_at)
-     VALUES (?, 'ACTIVE', ?, ?, 1, ?, ?, ?, ?)`,
-  ).run(
-    opts.type,
-    opts.sourceTable,
-    opts.sourceId,
-    opts.amountUsd ?? 0,
-    opts.profitUsd ?? 0,
-    opts.profitLbp ?? 0,
-    TS,
-  );
+  userId?: number;
+  reversesId?: number;
+  createdAt?: string;
+}): number {
+  const info = db
+    .prepare(
+      `INSERT INTO transactions (type, status, source_table, source_id, user_id, amount_usd, profit_usd, profit_lbp, reverses_id, created_at)
+     VALUES (?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      opts.type,
+      opts.sourceTable,
+      opts.sourceId,
+      opts.userId ?? 1,
+      opts.amountUsd ?? 0,
+      opts.profitUsd ?? 0,
+      opts.profitLbp ?? 0,
+      opts.reversesId ?? null,
+      opts.createdAt ?? TS,
+    );
+  return Number(info.lastInsertRowid);
 }
 
 beforeEach(() => {
@@ -567,6 +576,34 @@ describe("getByDate transaction-based profit + refund netting", () => {
     expect(day).toBeDefined();
     expect(day?.profit_usd).toBe(40); // 80 - 40
   });
+
+  it("nets a cross-day refund at the SALE's original date, not the refund's date", () => {
+    // Sale (profit 80) on 2026-03-01; the refund transaction lands on 2026-03-05.
+    insertSale({ id: 1, final: 200, paid: 200, status: "refunded" });
+    insertTxn({
+      type: "SALE",
+      sourceTable: "sales",
+      sourceId: 1,
+      profitUsd: 80,
+      amountUsd: 200,
+    });
+    insertTxn({
+      type: "REFUND",
+      sourceTable: "sales",
+      sourceId: 1,
+      profitUsd: -80,
+      amountUsd: -200,
+      createdAt: "2026-03-05 10:00:00",
+    });
+
+    const rows = service.getByDate("2026-03-01", "2026-03-05");
+    const saleDay = rows.find((r) => r.date === "2026-03-01");
+    const refundDay = rows.find((r) => r.date === "2026-03-05");
+    // Refund nets at the SALE's date → 2026-03-01 = 80 − 80 = 0 (was 80 pre-fix).
+    expect(saleDay?.profit_usd).toBe(0);
+    // The refund does NOT land on its own date (was −80 pre-fix).
+    expect(refundDay?.profit_usd ?? 0).toBe(0);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -885,5 +922,37 @@ describe("(i) getByUser / getByClient corrections", () => {
 
     const row = service.getByUser(FROM, TO).find((r) => r.user_id === 1);
     expect(row?.profit_usd).toBe(0); // +3 (settled) + (−3) (settled refund)
+  });
+
+  it("attributes a refund's reversal to the ORIGINAL seller, not the refunder", () => {
+    db.prepare(`INSERT INTO users (id, username) VALUES (2, 'refunder')`).run();
+    insertSale({ id: 1, final: 100, paid: 100, status: "refunded" });
+    // Seller = user 1 books the sale (+40).
+    const saleTxnId = insertTxn({
+      type: "SALE",
+      sourceTable: "sales",
+      sourceId: 1,
+      profitUsd: 40,
+      amountUsd: 100,
+      userId: 1,
+    });
+    // Refunder = user 2 clicks refund (−40), reversing the sale.
+    insertTxn({
+      type: "REFUND",
+      sourceTable: "sales",
+      sourceId: 1,
+      profitUsd: -40,
+      amountUsd: -100,
+      userId: 2,
+      reversesId: saleTxnId,
+    });
+
+    const rows = service.getByUser(FROM, TO);
+    const seller = rows.find((r) => r.user_id === 1);
+    const refunder = rows.find((r) => r.user_id === 2);
+    // The reversal lands on the seller → their profit nets to 0 (was +40 pre-fix).
+    expect(seller?.profit_usd).toBe(0);
+    // The refunder is unaffected (was −40 pre-fix).
+    expect(refunder?.profit_usd ?? 0).toBe(0);
   });
 });

@@ -148,12 +148,13 @@ export class LotoCashPrizeRepository {
 
       const supplierId = supplier.id;
 
-      // Positive amount = asset (they owe us / receivable)
+      // Negative amount = LOTO owes us / reduces what we owe (standard
+      // supplier convention: the Suppliers page reads <0 as "They owe you").
       insertLedger.run(
         supplierId,
         "CASH_PRIZE",
         0,
-        data.prize_amount,
+        -data.prize_amount,
         data.ticket_number
           ? `Cash prize payout: LOTO owes us ${data.prize_amount} LBP (ticket: ${data.ticket_number})`
           : `Cash prize payout: LOTO owes us ${data.prize_amount} LBP`,

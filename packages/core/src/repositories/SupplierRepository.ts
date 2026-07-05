@@ -48,8 +48,21 @@ export interface SupplierLedgerEntryEntity {
   created_by: number | null;
   transaction_id: number | null;
   is_auto: number;
+  /** 1 = soft-voided (its transaction was voided/refunded) — excluded from every balance/pool aggregate. */
+  is_refunded: number;
+  refunded_at: string | null;
   created_at: string;
 }
+
+/**
+ * Rule-14 fragment: excludes soft-voided ledger rows (their transaction was
+ * voided/refunded via TransactionRepository._markSourceRefunded) from every
+ * balance/pool aggregate. Flagging the ORIGINAL row is the only mechanism
+ * that keeps the sign-bucketed FIFO pools correct — a compensating row of
+ * either sign lands in the wrong pool.
+ */
+const ledgerNotRefunded = (alias = ""): string =>
+  `COALESCE(${alias}is_refunded, 0) = 0`;
 
 export interface SettleTransactionsData {
   supplier_id: number;
@@ -355,7 +368,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   ): SupplierLedgerEntryEntity[] {
     try {
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
         supplierId,
         limit,
       );
@@ -378,7 +391,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             ABS(COALESCE(SUM(CASE WHEN amount_usd < 0 THEN amount_usd ELSE 0 END), 0)) as send_pool_usd,
             COALESCE(SUM(CASE WHEN amount_usd > 0 THEN amount_usd ELSE 0 END), 0) as receive_pool_usd
           FROM supplier_ledger
-          WHERE supplier_id = ? AND is_auto = 0`,
+          WHERE supplier_id = ? AND is_auto = 0 AND ${ledgerNotRefunded()}`,
         )
         .get(supplierId) as
         | { send_pool_usd: number; receive_pool_usd: number }
@@ -417,7 +430,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           WHERE ps2.supplier_id IS NOT NULL
           GROUP BY ps2.supplier_id
         ) inv ON inv.supplier_id = s.id
-        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id
+        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND ${ledgerNotRefunded("l.")}
         WHERE s.is_system = 0 AND s.is_active = 1
         GROUP BY s.id
         ORDER BY s.name ASC
@@ -445,7 +458,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           COALESCE(SUM(l.amount_usd), 0) as total_usd,
           COALESCE(SUM(l.amount_lbp), 0) as total_lbp
         FROM suppliers s
-        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id
+        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND ${ledgerNotRefunded("l.")}
         WHERE ${filter}
         GROUP BY s.id
         ORDER BY s.name ASC

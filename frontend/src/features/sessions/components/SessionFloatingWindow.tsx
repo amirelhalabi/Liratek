@@ -10,6 +10,7 @@ import {
 import logger from "@/utils/logger";
 import { useSession } from "../context/SessionContext";
 import { SessionCheckoutModal } from "./SessionCheckoutModal";
+import { binanceCashSide } from "../utils/binanceCart";
 
 /**
  * SessionPopupPanel — renders cart items + committed transactions for the active session.
@@ -186,20 +187,37 @@ export function SessionPopupPanel() {
                             </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span
-                              className={`text-sm font-mono font-semibold ${
-                                item.amount >= 0
-                                  ? "text-emerald-400"
-                                  : "text-red-400"
-                              }`}
-                            >
-                              {item.amount >= 0 ? "+" : ""}
-                              {item.currency === "LBP"
-                                ? `${item.amount.toLocaleString()} LBP`
-                                : item.currency === "USDT"
-                                  ? `${item.amount.toFixed(2)} USDT`
-                                  : `$${item.amount.toFixed(2)}`}
-                            </span>
+                            {(() => {
+                              // Binance: the customer's money is the CASH
+                              // side (USD) — the USDT is the service, named
+                              // in the label; the wallet movement is shop
+                              // bookkeeping (transactions view).
+                              const binance = binanceCashSide(item);
+                              const cash = binance ? binance.cashUsd : null;
+                              return (
+                                <span
+                                  className={`text-sm font-mono font-semibold ${
+                                    (cash ?? item.amount) >= 0
+                                      ? "text-emerald-400"
+                                      : "text-red-400"
+                                  }`}
+                                >
+                                  {cash !== null ? (
+                                    <>
+                                      {cash >= 0 ? "+" : "-"}$
+                                      {Math.abs(cash).toFixed(2)}
+                                    </>
+                                  ) : (
+                                    <>
+                                      {item.amount >= 0 ? "+" : "-"}
+                                      {item.currency === "LBP"
+                                        ? `${Math.abs(item.amount).toLocaleString()} LBP`
+                                        : `$${Math.abs(item.amount).toFixed(2)}`}
+                                    </>
+                                  )}
+                                </span>
+                              );
+                            })()}
                             <button
                               onClick={() => removeFromCart(item.id)}
                               className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 p-0.5"
@@ -265,42 +283,40 @@ export function SessionPopupPanel() {
             {cartItems.length > 0 &&
               (() => {
                 const totals = getCartTotals();
+                // Customer's NET position per currency (+ pays / − is paid).
+                // The "usdt" bucket is the Binance items' CASH side in USD, so
+                // it folds into the USD net — a $50 purchase and a $50 cash
+                // out net to $0 for the customer.
+                const netUsd = totals.usd + totals.usdt;
+                const netLbp = totals.lbp;
                 return (
                   <div className="flex justify-between items-center text-sm">
                     <span className="font-medium text-emerald-300">
                       Cart Total
                     </span>
                     <div className="font-bold">
-                      {totals.usd !== 0 && (
+                      {(netUsd !== 0 || netLbp === 0) && (
                         <span
                           className={
-                            totals.usd >= 0
-                              ? "text-emerald-400"
-                              : "text-red-400"
+                            netUsd >= 0 ? "text-emerald-400" : "text-red-400"
                           }
                         >
-                          ${Math.abs(totals.usd).toFixed(2)}
+                          {netUsd < 0 ? "-" : ""}$
+                          {Math.abs(netUsd).toFixed(2)}
                         </span>
                       )}
-                      {totals.usd !== 0 && totals.lbp !== 0 && (
+                      {netUsd !== 0 && netLbp !== 0 && (
                         <span className="mx-1 text-slate-500">+</span>
                       )}
-                      {totals.lbp !== 0 && (
+                      {netLbp !== 0 && (
                         <span
                           className={
-                            totals.lbp >= 0 ? "text-blue-400" : "text-red-400"
+                            netLbp >= 0 ? "text-blue-400" : "text-red-400"
                           }
                         >
-                          {Math.abs(totals.lbp).toLocaleString()} LBP
+                          {netLbp < 0 ? "-" : ""}
+                          {Math.abs(netLbp).toLocaleString()} LBP
                         </span>
-                      )}
-                      {totals.usdt !== 0 && (
-                        <>
-                          <span className="mx-1 text-slate-500">+</span>
-                          <span className="text-yellow-400">
-                            {totals.usdt.toFixed(2)} USDT
-                          </span>
-                        </>
                       )}
                     </div>
                   </div>

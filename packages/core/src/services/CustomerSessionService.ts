@@ -140,7 +140,12 @@ export class CustomerSessionService {
   }
 
   /**
-   * Link a transaction to a specific session by ID
+   * Link a transaction to a specific session by ID.
+   *
+   * Resolves the UNIFIED transactions row for the module record so the link
+   * carries unified_transaction_id — without it, page-initiated links (e.g.
+   * Exchange, direct financial submits) never surface session_id in the
+   * transactions view (the join is on unified_transaction_id; lira-094).
    */
   async linkTransactionToSession(
     sessionId: number,
@@ -161,6 +166,7 @@ export class CustomerSessionService {
         amountLbp,
         profitUsd,
         profitLbp,
+        repo.resolveUnifiedTransactionId(transactionType, transactionId),
       );
       return { success: true, linked: true };
     } catch (err: any) {
@@ -199,6 +205,7 @@ export class CustomerSessionService {
         amountLbp,
         profitUsd,
         profitLbp,
+        repo.resolveUnifiedTransactionId(transactionType, transactionId),
       );
       return { success: true, linked: true };
     } catch (err: any) {

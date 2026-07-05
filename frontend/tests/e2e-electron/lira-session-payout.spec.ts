@@ -72,9 +72,12 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
       );
 
       // Binance RECEIVE: $100 USDT in, $2 fee → shop pays customer $98 cash out.
-      // It is a NEGATIVE-amount cart item (money leaves the basket) and carries
-      // NO customer-paid leg, so payments is empty. The repo self-posts the
-      // General/USD −$98 payout even in deferred (session) mode.
+      // The cart item is the customer's CASH side (−$98, currency USD) so it
+      // nets into the basket totals; the Session Checkout emits the net
+      // cash-OUT leg for the negative total (loto-prize pattern) and the
+      // basket recorder posts it ONCE. (The repo no longer self-posts the
+      // payout in deferred mode — that would double-debit the till now that
+      // the basket owns it.)
       const checkout = await w.api.session.checkout({
         sessionId,
         cartItems: [
@@ -83,7 +86,7 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
             module: "binance_receive",
             label: "Binance RECEIVE $100",
             amount: -98,
-            currency: "USDT",
+            currency: "USD",
             ipcChannel: "financial:create",
             formData: {
               provider: "BINANCE",
@@ -96,7 +99,11 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
           },
         ],
         paidByMethod: "CASH",
-        payments: [],
+        // The net cash-OUT leg the Session Checkout emits for the negative
+        // basket total — this is what posts the payout.
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 98, direction: "OUT" },
+        ],
         exchangeRate: 90000,
         userId: 1,
       });
@@ -115,8 +122,9 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
     expect(result.checkoutError).toBeNull();
     expect(result.checkoutOk).toBe(true);
 
-    // Payout RECORDED: General/USD fell by exactly the cash paid out
-    // (payout = amount − commission = 100 − 2 = 98). Before the fix this was 0.
+    // Payout RECORDED exactly ONCE: General/USD fell by the cash paid out
+    // (payout = amount − commission = 100 − 2 = 98). A repo self-post on top
+    // of the basket OUT leg would read −196 here.
     expect(result.generalDelta).toBeCloseTo(-98, 2);
   });
 

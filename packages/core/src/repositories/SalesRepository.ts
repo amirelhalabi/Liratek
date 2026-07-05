@@ -218,18 +218,36 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         let finalClientId = sale.client_id;
         const status = sale.status || "completed";
 
-        // Auto-create client if name provided but no ID
+        // Auto-create client if name provided but no ID. FIND first (phone,
+        // then exact name) — a blind INSERT hit UNIQUE constraints for repeat
+        // customers and silently dropped the client association entirely
+        // (lira-094 session sweep).
         if (!finalClientId && sale.client_name) {
           try {
-            const createClient = db.prepare(`
-              INSERT INTO clients (full_name, phone_number, whatsapp_opt_in)
-              VALUES (?, ?, 0)
-            `);
-            const clientResult = createClient.run(
-              sale.client_name,
-              sale.client_phone || null,
-            );
-            finalClientId = clientResult.lastInsertRowid as number;
+            const existing =
+              ((sale.client_phone
+                ? db
+                    .prepare(
+                      `SELECT id FROM clients WHERE phone_number = ? LIMIT 1`,
+                    )
+                    .get(sale.client_phone)
+                : undefined) as { id: number } | undefined) ??
+              (db
+                .prepare(`SELECT id FROM clients WHERE full_name = ? LIMIT 1`)
+                .get(sale.client_name) as { id: number } | undefined);
+            if (existing) {
+              finalClientId = existing.id;
+            } else {
+              const createClient = db.prepare(`
+                INSERT INTO clients (full_name, phone_number, whatsapp_opt_in)
+                VALUES (?, ?, 0)
+              `);
+              const clientResult = createClient.run(
+                sale.client_name,
+                sale.client_phone || null,
+              );
+              finalClientId = clientResult.lastInsertRowid as number;
+            }
           } catch (e) {
             salesLogger.error(
               { error: e, clientName: sale.client_name },
@@ -341,6 +359,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           profit_usd: saleProfitUsd,
           exchange_rate: sale.exchange_rate,
           client_id: finalClientId ?? null,
+          // Rule 11: keep the walk-in name/phone on the unified row even when
+          // no clients row could be resolved (lira-094).
+          client_name: sale.client_name ?? null,
+          client_phone: sale.client_phone ?? null,
           summary: `Sale #${saleId}: $${sale.final_amount}`,
           metadata_json: {
             total_amount: sale.total_amount,

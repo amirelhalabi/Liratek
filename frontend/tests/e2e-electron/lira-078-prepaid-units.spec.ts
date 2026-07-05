@@ -169,15 +169,15 @@ test.describe("LIRA-078 (C5) — prepaid-units model", () => {
     expect(res.success).toBe(true);
 
     const after = await snapshot(appPage, "LOTO", "General");
-    // The shop owes LOTO more after the sale. NOTE: loto books its liability
-    // with the INVERSE sign convention — a negative PAYMENT entry of
-    // −(sale_amount − commission) — so "owed increases" means the balance
-    // moves DOWN by that amount (LotoTicketRepository.createTicket).
+    // The shop owes LOTO more after the sale. Since B6b (migration v119) loto
+    // books its liability with the STANDARD supplier convention — a positive
+    // TOP_UP entry of +(sale_amount − commission) — so "owed increases" means
+    // the balance moves UP by that amount (LotoTicketRepository.createTicket;
+    // covered in depth by lira-091).
     const delta = after.supplierLbp - before.supplierLbp;
-    expect(delta).toBeLessThan(0);
+    expect(delta).toBeGreaterThan(0);
     // Magnitude = sale − commission: more than 0, at most the sale amount.
-    expect(Math.abs(delta)).toBeGreaterThan(0);
-    expect(Math.abs(delta)).toBeLessThanOrEqual(100_000);
+    expect(delta).toBeLessThanOrEqual(100_000);
   });
 
   test("katsh bill via cash: General INCREASES by the bill amount; row shows no misleading out", async ({

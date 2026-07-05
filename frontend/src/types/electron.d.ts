@@ -568,6 +568,24 @@ export interface ElectronAPI {
       }>;
       transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    cashOut: (data: {
+      clientId: number;
+      amountUSD: number;
+      amountLBP: number;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      note?: string;
+      transaction_time?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getClientBalance: (clientId: number) => Promise<{
+      success: boolean;
+      data?: { balance_usd: number; balance_lbp: number };
+      error?: string;
+    }>;
     getClientTotal: (clientId: number) => Promise<number>;
     updateMetadata: (data: {
       id: number;
@@ -902,6 +920,8 @@ export interface ElectronAPI {
         created_by: number | null;
         transaction_id: number | null;
         transaction_type: string | null;
+        is_refunded?: number;
+        refunded_at?: string | null;
         created_at: string;
       }>
     >;

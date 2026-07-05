@@ -46,6 +46,7 @@ export interface DecimalInputProps {
   onFocus?: () => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   "aria-label"?: string;
+  "data-testid"?: string;
 }
 
 const DEFAULT_INPUT_CLASS =
@@ -71,6 +72,7 @@ export function DecimalInput({
   onFocus,
   onKeyDown,
   "aria-label": ariaLabel,
+  "data-testid": dataTestId,
 }: DecimalInputProps) {
   // Raw typed string, authoritative while the field is focused.
   const [raw, setRaw] = useState("");
@@ -141,6 +143,7 @@ export function DecimalInput({
       autoFocus={autoFocus}
       required={required}
       aria-label={ariaLabel}
+      data-testid={dataTestId}
       className={className ?? DEFAULT_INPUT_CLASS}
     />
   );

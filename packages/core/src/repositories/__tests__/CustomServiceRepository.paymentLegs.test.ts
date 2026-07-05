@@ -254,4 +254,31 @@ describe("CustomServiceRepository — structured payment legs", () => {
     expect(res.success).toBe(true);
     expect(balance(db, "LBP")).toBeCloseTo(lbpBefore + 300_000, 2);
   });
+
+  it("stamps client name/phone on the unified transaction (rule 11 — walk-in, no client row)", () => {
+    const res = repo.createService(
+      {
+        description: "walk-in client stamp",
+        cost_usd: 0,
+        cost_lbp: 0,
+        price_usd: 20,
+        price_lbp: 0,
+        paid_by: "CASH",
+        status: "completed",
+        client_name: "L094 Walk-in",
+        phone_number: "76111222",
+      },
+      1,
+    );
+    expect(res.success).toBe(true);
+
+    const txn = db
+      .prepare(
+        `SELECT client_name, client_phone FROM transactions WHERE source_table = 'custom_services' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { client_name: string | null; client_phone: string | null };
+    // Pre-fix: both were NULL — the transactions table showed "—".
+    expect(txn.client_name).toBe("L094 Walk-in");
+    expect(txn.client_phone).toBe("76111222");
+  });
 });

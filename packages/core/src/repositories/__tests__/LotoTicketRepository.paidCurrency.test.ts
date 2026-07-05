@@ -121,6 +121,20 @@ function createTestDb(): Database.Database {
       is_auto INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE debt_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      transaction_id INTEGER,
+      note TEXT,
+      created_by INTEGER,
+      due_date TEXT,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }
@@ -229,5 +243,79 @@ describe("LotoTicketRepository — paid-currency legs", () => {
     });
 
     expect(balance(db, "LBP")).toBeCloseTo(lbpBefore + 500_000, 2);
+  });
+
+  // ── lira-093 fix: CUSTOMER_ACCOUNT legs book 'Loto Debt' ──────────────────
+  // Pre-fix, non-drawer legs were silently dropped: the ticket sold and the
+  // supplier debt accrued, but the customer owed NOTHING anywhere.
+
+  const debtRows = (database: Database.Database) =>
+    database
+      .prepare(
+        `SELECT client_id, transaction_type, amount_usd, amount_lbp FROM debt_ledger`,
+      )
+      .all() as Array<{
+      client_id: number;
+      transaction_type: string;
+      amount_usd: number;
+      amount_lbp: number;
+    }>;
+
+  it("CUSTOMER_ACCOUNT leg books a 'Loto Debt' row and leaves the drawer untouched", () => {
+    const lbpBefore = balance(db, "LBP");
+
+    repo.createTicket({
+      sale_amount: 150_000,
+      commission_amount: 6_675,
+      sale_date: "2026-07-04",
+      payment_method: "CUSTOMER_ACCOUNT",
+      currency: "LBP",
+      userId: 1,
+      clientId: 7,
+      payments: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 150_000 },
+      ],
+    });
+
+    const rows = debtRows(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].transaction_type).toBe("Loto Debt");
+    expect(rows[0].client_id).toBe(7);
+    expect(rows[0].amount_lbp).toBe(150_000);
+    expect(rows[0].amount_usd).toBe(0);
+    // No cash changed hands.
+    expect(balance(db, "LBP")).toBeCloseTo(lbpBefore, 2);
+  });
+
+  it("legacy single-payment CUSTOMER_ACCOUNT (no legs) books the full ticket as debt", () => {
+    repo.createTicket({
+      sale_amount: 200_000,
+      commission_amount: 8_900,
+      sale_date: "2026-07-04",
+      payment_method: "CUSTOMER_ACCOUNT",
+      currency: "LBP",
+      userId: 1,
+      clientId: 7,
+    });
+
+    const rows = debtRows(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].amount_lbp).toBe(200_000);
+  });
+
+  it("CUSTOMER_ACCOUNT leg without a client is rejected", () => {
+    expect(() =>
+      repo.createTicket({
+        sale_amount: 100_000,
+        commission_amount: 4_450,
+        sale_date: "2026-07-04",
+        payment_method: "CUSTOMER_ACCOUNT",
+        currency: "LBP",
+        userId: 1,
+        payments: [
+          { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 100_000 },
+        ],
+      }),
+    ).toThrow(/without a client/);
   });
 });

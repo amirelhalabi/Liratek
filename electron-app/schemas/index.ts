@@ -313,6 +313,11 @@ export const FinancialServiceSchema = z.object({
   partnerMode: z.enum(["THROUGH", "FOR"]).optional(),
   cashoutMethod: z.string().optional(),
   transaction_time: z.string().optional(),
+  // Batch member whose customer payment is booked by another transaction in the
+  // same checkout (session basket, or the legs-carrying first bill of a
+  // multi-bill payment): skips the customer-inflow and change-leg blocks while
+  // still booking cost outflow + supplier commission.
+  deferPayment: z.boolean().optional(),
 });
 
 // =============================================================================
@@ -376,6 +381,28 @@ export const LotoCashPrizeSchema = z.object({
   customer_name: z.string().optional(),
   note: z.string().optional(),
 });
+
+/** loto:update payload — mirrors LotoTicketUpdate; sale/commission edits feed
+ *  checkpoint settlement math, so malformed values must be rejected here. */
+export const LotoTicketUpdateSchema = z.object({
+  ticket_number: z.string().min(1).optional(),
+  sale_amount: z.number().positive().optional(),
+  commission_rate: z.number().nonnegative().optional(),
+  commission_amount: z.number().nonnegative().optional(),
+  // Boolean accepted for caller convenience; the handler normalizes to 0/1
+  // (a .transform() here breaks validatePayload's generic inference).
+  is_winner: z
+    .union([z.boolean(), z.number().int().min(0).max(1)])
+    .optional(),
+  prize_amount: z.number().nonnegative().optional(),
+  prize_paid_date: z.string().optional(),
+  payment_method: z.string().optional(),
+  currency: z.string().optional(),
+  note: z.string().optional(),
+});
+
+/** Bare positive-integer id (transactions:void/refund, loto:update). */
+export const PositiveIdSchema = z.number().int().positive();
 
 export const LotoFeeSchema = z.object({
   fee_amount: z.number().positive(),
@@ -499,6 +526,18 @@ export const DebtRepaymentSchema = z.object({
   note: z.string().optional(),
   paidByMethod: z.string().optional(),
   payments: z.array(RepaymentPaymentLegSchema).optional(),
+  // Operator time-override — without this Zod stripped it and the repayment
+  // "Set custom time" silently did nothing.
+  transaction_time: z.string().optional(),
+});
+
+export const DebtCashOutSchema = z.object({
+  clientId: z.number().int().positive(),
+  amountUSD: z.number().nonnegative(),
+  amountLBP: z.number().nonnegative(),
+  payments: z.array(RepaymentPaymentLegSchema).optional(),
+  note: z.string().optional(),
+  transaction_time: z.string().optional(),
 });
 
 export const DebtAddCreditSchema = z

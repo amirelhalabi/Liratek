@@ -345,6 +345,8 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   created_by INTEGER,
   transaction_id INTEGER,
   is_auto INTEGER NOT NULL DEFAULT 0,
+  is_refunded INTEGER NOT NULL DEFAULT 0,
+  refunded_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
   FOREIGN KEY (transaction_id) REFERENCES transactions(id),
@@ -1290,4 +1292,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (115, 'prepaid_units_supplier_debt_booked'),
     (116, 'normalize_iso_created_at'),
     (117, 'rename_mtc_cards_to_face_value'),
-    (118, 'rename_alfa_cards_to_face_value');
+    (118, 'rename_alfa_cards_to_face_value'),
+    (119, 'flip_loto_supplier_ledger_sign'),
+    (120, 'add_supplier_ledger_refund_flag');

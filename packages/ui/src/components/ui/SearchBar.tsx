@@ -118,15 +118,16 @@ export function SearchBar<T>({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (
-      e.key === "Enter" &&
-      hasSearched &&
-      results.length === 0 &&
-      onFreeText
-    ) {
-      onFreeText(query);
-      setShowDropdown(false);
-    }
+    if (e.key !== "Enter" || !onFreeText || query.trim().length === 0) return;
+    // Commit the text as free input unless a live results list is on screen
+    // (the user may be about to pick one). Crucially this must NOT depend on
+    // hasSearched: pressing Enter before the debounce + async search resolve
+    // used to silently do nothing — the classic "typed a description, hit
+    // Enter, submit says 'Please enter a service description'" bug (A5).
+    if (showDropdown && results.length > 0) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    onFreeText(query);
+    setShowDropdown(false);
   };
 
   return (

@@ -144,4 +144,38 @@ test.describe("LIRA-088 — change legs in all forms", () => {
     expect(after.usd - before.usd).toBeCloseTo(20, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(-1_400_000, 2);
   });
+
+  // A5 canary (owner-reported, Windows-only so far, unreproducible on macOS):
+  // "customer name / phone / note take no keyboard input" on the Services
+  // page. This asserts the inputs DO accept keystrokes on the harness — a
+  // regression net; the Windows-specific repro stays open in LEFT_TO_DO.
+  test("A5 canary: Services page name/phone/note/description inputs accept keyboard input", async ({
+    appPage,
+  }) => {
+    const { navigateTo } = await import("./fixtures");
+    await navigateTo(appPage, "/custom-services");
+
+    // Description field is a SearchBar until text is committed.
+    const search = appPage.getByPlaceholder(/Search inventory/i);
+    await expect(search).toBeVisible({ timeout: 10_000 });
+    await search.click();
+    await search.pressSequentially("A5 canary service");
+    await expect(search).toHaveValue("A5 canary service");
+
+    // Customer name (ClientAutocompleteInput), phone, note.
+    const name = appPage.locator("#svc-client");
+    await name.click();
+    await name.pressSequentially("A5 Canary Customer");
+    await expect(name).toHaveValue("A5 Canary Customer");
+
+    const phone = appPage.locator("#svc-phone");
+    await phone.click();
+    await phone.pressSequentially("03123456");
+    await expect(phone).toHaveValue("03123456");
+
+    const note = appPage.locator("#svc-note");
+    await note.click();
+    await note.pressSequentially("canary note");
+    await expect(note).toHaveValue("canary note");
+  });
 });

@@ -529,6 +529,105 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   }
 
   /**
+   * Cash out a client's credit: the shop PAYS the customer their credit.
+   * Books a POSITIVE CREDIT_USED ledger row (brings the negative balance
+   * toward zero), a CREDIT_CASH_OUT unified transaction, and DEBITS each
+   * payout leg's drawer in its own currency — the mirror image of a
+   * repayment. amount_usd/amount_lbp are the credit reduction (LBP legs
+   * pre-converted by the caller); payments[] are the physical payout legs.
+   */
+  cashOutCredit(data: {
+    client_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    payments?: RepaymentPaymentLine[];
+    note?: string | null;
+    created_by: number;
+    transaction_time?: string;
+  }): { id: number } {
+    return this.transaction(() => {
+      const stmt = this.db.prepare(`
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
+        VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      `);
+      const result = stmt.run(
+        data.client_id,
+        Math.abs(data.amount_usd),
+        Math.abs(data.amount_lbp),
+        data.note || "Credit cash out",
+        data.created_by,
+        data.transaction_time ?? null,
+      );
+      const ledgerId = Number(result.lastInsertRowid);
+
+      // Payout legs: default to a single CASH USD leg of the reduction.
+      const legs: RepaymentPaymentLine[] =
+        data.payments && data.payments.length > 0
+          ? data.payments
+          : [
+              {
+                method: "CASH",
+                currencyCode: "USD",
+                amount: Math.abs(data.amount_usd),
+              },
+            ];
+
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.CREDIT_CASH_OUT,
+        source_table: "debt_ledger",
+        source_id: ledgerId,
+        user_id: data.created_by,
+        amount_usd: Math.abs(data.amount_usd),
+        amount_lbp: Math.abs(data.amount_lbp),
+        client_id: data.client_id,
+        summary: `Credit Cash Out: $${Math.abs(data.amount_usd)} + ${Math.abs(
+          data.amount_lbp,
+        )} LBP`,
+        metadata_json: {
+          legs: legs.length > 1 ? legs : undefined,
+          paid_by: legs.length === 1 ? legs[0].method : "SPLIT",
+        },
+        transaction_time: data.transaction_time,
+      });
+
+      this.db
+        .prepare(`UPDATE debt_ledger SET transaction_id = ? WHERE id = ?`)
+        .run(txnId, ledgerId);
+
+      const insertPayment = this.db.prepare(`
+        INSERT INTO payments (
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const upsertBalance = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+
+      for (const leg of legs) {
+        const amt = Math.abs(leg.amount);
+        if (amt <= 0 || !isDrawerAffectingMethod(leg.method)) continue;
+        const drawer = paymentMethodToDrawerName(leg.method);
+        insertPayment.run(
+          txnId,
+          leg.method,
+          drawer,
+          leg.currencyCode,
+          -amt,
+          data.note || "Credit cash out",
+          data.created_by,
+        );
+        upsertBalance.run(drawer, leg.currencyCode, -amt);
+      }
+
+      return { id: ledgerId };
+    });
+  }
+
+  /**
    * Get net balance for a client.
    * Positive = client owes shop (debt). Negative = shop owes client (credit).
    */

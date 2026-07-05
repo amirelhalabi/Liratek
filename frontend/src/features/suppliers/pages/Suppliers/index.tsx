@@ -53,6 +53,9 @@ type LedgerEntry = {
   note: string | null;
   created_by: number | null;
   transaction_id: number | null;
+  /** 1 = soft-voided (its transaction was voided/refunded); excluded from the balance. */
+  is_refunded?: number;
+  refunded_at?: string | null;
   created_at: string;
 };
 
@@ -915,20 +918,25 @@ export default function SuppliersPage() {
                     {ledger.map((row) => (
                       <div
                         key={row.id}
-                        className="grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center"
+                        className={`grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
                       >
                         <div className="col-span-2 flex items-center gap-1">
                           <EntryTypeBadge type={row.entry_type} />
+                          {!!row.is_refunded && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
+                              VOIDED
+                            </span>
+                          )}
                         </div>
                         <div
-                          className={`col-span-2 text-right font-mono ${row.amount_usd < 0 ? "text-green-400" : row.amount_usd > 0 ? "text-red-400" : "text-slate-500"}`}
+                          className={`col-span-2 text-right font-mono ${row.is_refunded ? "line-through text-slate-500" : row.amount_usd < 0 ? "text-green-400" : row.amount_usd > 0 ? "text-red-400" : "text-slate-500"}`}
                         >
                           {row.amount_usd !== 0
                             ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
                             : "—"}
                         </div>
                         <div
-                          className={`col-span-2 text-right font-mono ${row.amount_lbp < 0 ? "text-green-400" : row.amount_lbp > 0 ? "text-red-400" : "text-slate-500"}`}
+                          className={`col-span-2 text-right font-mono ${row.is_refunded ? "line-through text-slate-500" : row.amount_lbp < 0 ? "text-green-400" : row.amount_lbp > 0 ? "text-red-400" : "text-slate-500"}`}
                         >
                           {row.amount_lbp !== 0
                             ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`

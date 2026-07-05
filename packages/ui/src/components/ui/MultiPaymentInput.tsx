@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import { DecimalInput } from "./DecimalInput";
 
 export type PaymentLine = {
   id: string;
@@ -57,6 +58,15 @@ export interface MultiPaymentInputProps {
   /** Provider fee (e.g. OMT INTRA $1) charged on top of the send amount.
    *  Shown in the summary so the grand total = totalPaid + providerFee + totalPmFees. */
   providerFee?: number;
+  /** Pre-seed the payment lines (e.g. one line per currency for a
+   *  mixed-currency debt position). Read ONCE on mount; more than one line
+   *  opens the form in split mode. This is the supported way to prefill —
+   *  parent-held line state is never displayed by this component. */
+  initialLines?: Array<{
+    method?: string;
+    currencyCode: string;
+    amount: number;
+  }>;
   /** Payment methods to display in dropdown */
   paymentMethods: PaymentMethod[];
   /** Available currencies */
@@ -124,22 +134,48 @@ export default function MultiPaymentInput({
   onDiscountChange,
   label,
   initialMethod,
+  initialLines,
   clientId,
   fetchClientVouchers,
 }: MultiPaymentInputProps) {
-  const [isSplitMode, setIsSplitMode] = useState(false);
+  // Seeded lines are captured once — the prop is read at mount only.
+  const seededLinesRef = useRef<PaymentLine[] | null>(
+    initialLines && initialLines.length > 0
+      ? initialLines.map((l) => ({
+          id: crypto.randomUUID(),
+          method: l.method || initialMethod || "CASH",
+          currencyCode: l.currencyCode,
+          amount: l.amount,
+        }))
+      : null,
+  );
+  const [isSplitMode, setIsSplitMode] = useState(
+    (seededLinesRef.current?.length ?? 0) > 1,
+  );
   // Redeemable vouchers for the selected client (for GIFT_CARD lines)
   const [clientVouchers, setClientVouchers] = useState<VoucherOption[]>([]);
   const [discountRaw, setDiscountRaw] = useState<string>("");
   const [discountCurrency, setDiscountCurrency] = useState<string>(currency);
-  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
-    {
-      id: crypto.randomUUID(),
-      method: initialMethod || "CASH",
-      currencyCode: currency,
-      amount: totalAmount,
-    },
-  ]);
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>(
+    seededLinesRef.current ?? [
+      {
+        id: crypto.randomUUID(),
+        method: initialMethod || "CASH",
+        currencyCode: currency,
+        amount: totalAmount,
+      },
+    ],
+  );
+
+  // Multi-line seeds open in split mode, which the single-mode auto-sync
+  // effect (the usual mount emitter) skips — emit them to the parent here so
+  // its line state matches what is on screen from the first render.
+  useEffect(() => {
+    if (seededLinesRef.current && seededLinesRef.current.length > 1) {
+      onChange(seededLinesRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [pmFeeOverrides, setPmFeeOverrides] = useState<Record<string, string>>(
     {},
@@ -863,24 +899,21 @@ export default function MultiPaymentInput({
                     ))}
                   </select>
 
-                  {/* Amount */}
+                  {/* Amount — DecimalInput keeps the raw text while focused so
+                      decimal points survive typing (a controlled fmtNum/parseNum
+                      round-trip ate the "." on every keystroke). */}
                   <div className="relative w-32">
                     {["$", "€", "£"].includes(getSymbol(line.currencyCode)) && (
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
                         {getSymbol(line.currencyCode)}
                       </span>
                     )}
-                    <input
-                      type="text"
-                      inputMode="decimal"
+                    <DecimalInput
                       data-testid={`payment-amount-${line.id}`}
-                      value={fmtNum(line.amount)}
-                      onChange={(e) =>
-                        updatePaymentLine(
-                          line.id,
-                          "amount",
-                          parseNum(e.target.value),
-                        )
+                      value={line.amount}
+                      decimals={line.currencyCode === "LBP" ? 0 : 2}
+                      onChange={(n) =>
+                        updatePaymentLine(line.id, "amount", n)
                       }
                       className={`w-full bg-slate-900 border border-slate-600 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
                         ["$", "€", "£"].includes(getSymbol(line.currencyCode))
@@ -1005,17 +1038,16 @@ export default function MultiPaymentInput({
                     {getSymbol(paymentLines[0]?.currencyCode || currency)}
                   </span>
                 )}
-                <input
-                  type="text"
-                  inputMode="decimal"
+                <DecimalInput
                   data-testid={`payment-amount-${paymentLines[0]?.id}`}
-                  value={fmtNum(paymentLines[0]?.amount)}
-                  onChange={(e) =>
-                    updatePaymentLine(
-                      paymentLines[0]?.id,
-                      "amount",
-                      parseNum(e.target.value),
-                    )
+                  value={paymentLines[0]?.amount ?? 0}
+                  decimals={
+                    (paymentLines[0]?.currencyCode || currency) === "LBP"
+                      ? 0
+                      : 2
+                  }
+                  onChange={(n) =>
+                    updatePaymentLine(paymentLines[0]?.id, "amount", n)
                   }
                   className={`w-full bg-slate-800/80 border border-slate-600 rounded-lg pr-3 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
                     ["$", "€", "£"].includes(

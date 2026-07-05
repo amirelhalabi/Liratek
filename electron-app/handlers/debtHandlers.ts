@@ -11,6 +11,7 @@ import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
   DebtRepaymentSchema,
+  DebtCashOutSchema,
   DebtAddCreditSchema,
   DebtUseCreditSchema,
   validatePayload,
@@ -85,6 +86,52 @@ export function registerDebtHandlers(): void {
     });
     return result;
   });
+
+  // Cash out a client's credit (shop pays the customer their credit)
+  ipcMain.handle(
+    "debt:cash-out",
+    (
+      event,
+      data: {
+        clientId: number;
+        amountUSD: number;
+        amountLBP: number;
+        payments?: Array<{
+          method: string;
+          currencyCode: string;
+          amount: number;
+        }>;
+        note?: string;
+        transaction_time?: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(DebtCashOutSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = debtService.cashOut({
+        ...v.data,
+        userId: auth.userId,
+      });
+
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "credit_cash_out",
+          summary: `Credit cash out for client #${v.data.clientId}: $${v.data.amountUSD} + ${v.data.amountLBP} LBP`,
+          metadata: {
+            clientId: v.data.clientId,
+            amountUSD: v.data.amountUSD,
+            amountLBP: v.data.amountLBP,
+          },
+        });
+      }
+
+      return result;
+    },
+  );
 
   // Dashboard debt summary
   ipcMain.handle("dashboard:get-debt-summary", () => {
