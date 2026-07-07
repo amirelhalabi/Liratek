@@ -157,8 +157,9 @@ export default function MobileRecharge() {
   const [alfaCreditSellRate, setAlfaCreditSellRate] = useState(100000);
   const [alfaCreditCostRate, setAlfaCreditCostRate] = useState(85000);
   const [marginAlertThreshold, setMarginAlertThreshold] = useState(100000);
-  // Money-IN sell rate (shared source) for MultiPaymentInput / cart conversions.
-  const { sellRate: exchangeRate } = useSellRate();
+  // Payments use the BUY rate (owner decision 2026-07-06) for MultiPaymentInput
+  // / cart conversions — also forwarded to KatchForm (Katsh/iPick).
+  const { buyRate: exchangeRate } = useSellRate();
 
   // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
   const [whishAppMode, setWhishAppMode] = useState<"bills" | "transfer">(

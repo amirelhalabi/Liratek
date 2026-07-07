@@ -142,6 +142,11 @@ function processCartItem(
 
     case "omt:add-transaction":
     case "financial:create": {
+      // Thread the acting user (recharge/loto do the same below) — the
+      // financial rows carry a FK to users(id) and the repository otherwise
+      // fell back to a resolved user, but stamping the real operator is
+      // correct and matches every other session-checkout branch.
+      data.userId = userId;
       const financialService = getFinancialService();
       const result = financialService.addTransaction(data as any);
       if (!result.success || !result.id) {

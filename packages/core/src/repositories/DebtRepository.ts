@@ -50,6 +50,9 @@ export interface DebtLedgerEntity {
   created_by: number | null;
   edited_by: string | null;
   edited_at: string | null;
+  /** Set on 'Session Debt' rows — the basket this charge belongs to
+   *  (customer_session_transactions.session_id). Null for every other type. */
+  session_id: number | null;
 }
 
 export interface DebtorSummary {
@@ -100,7 +103,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_at, created_by, edited_by, edited_at";
+    return "id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_at, created_by, edited_by, edited_at, session_id";
   }
 
   // ---------------------------------------------------------------------------
@@ -302,38 +305,92 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           updated_at = CURRENT_TIMESTAMP
       `);
 
-      // Determine if this repayment is for a Service Debt — if so, funds must
-      // flow to the originating provider's system drawer, not just stay in General.
-      // Look up the oldest unrepaid Service Debt entry for this client to find the provider.
-      const originatingDebt = this.db
+      // Determine if this repayment settles a Service Debt — if so, funds must
+      // flow to the originating provider's system drawer, not just stay in
+      // General. Routing is PER CURRENCY and capped at the client's remaining
+      // OUTSTANDING service debt in that currency:
+      //   - Original 'Service Debt' rows keep their positive amounts forever
+      //     (repayments are separate negative rows), so the old "oldest
+      //     Service Debt row with amount_usd > 0 EVER" lookup routed EVERY
+      //     later repayment — even one settling an unrelated debt long after
+      //     the service was repaid — into the provider drawer, for the FULL
+      //     leg. Outstanding = SUM(Service Debt in ccy) − SUM(already routed
+      //     to that provider's system drawer in ccy), over ACTIVE rows only.
+      //   - Kept strictly per-currency (a USD service debt routes only USD
+      //     legs, LBP only LBP): converting through the sell rate reopened
+      //     already-settled debts whenever the rate moved and booked
+      //     fractional LBP no till can hold.
+      // Note: on a DB upgraded from the buggy version, prior over-routing can
+      // push outstanding below zero; it clamps to 0 (no routing), which is the
+      // safe direction — money simply stays in General.
+      const serviceDebtsByProvider = this.db
         .prepare(
-          `SELECT dl.transaction_type, dl.transaction_id,
-                  fs.provider
+          `SELECT fs.provider,
+                  COALESCE(SUM(dl.amount_usd), 0) AS debt_usd,
+                  COALESCE(SUM(dl.amount_lbp), 0) AS debt_lbp,
+                  MIN(dl.created_at) AS oldest_at
            FROM debt_ledger dl
-           LEFT JOIN transactions t ON t.id = dl.transaction_id
-           LEFT JOIN financial_services fs ON fs.id = t.source_id
+           JOIN transactions t ON t.id = dl.transaction_id
              AND t.source_table = 'financial_services'
+             AND t.status = 'ACTIVE'
+           JOIN financial_services fs ON fs.id = t.source_id
            WHERE dl.client_id = ?
-             AND dl.amount_usd > 0
              AND dl.transaction_type = 'Service Debt'
-           ORDER BY dl.created_at ASC
-           LIMIT 1`,
+             AND fs.provider IN ('OMT', 'WHISH')
+           GROUP BY fs.provider
+           ORDER BY oldest_at ASC`,
         )
-        .get(data.client_id) as
-        | {
-            transaction_type: string;
-            transaction_id: number | null;
-            provider: string | null;
-          }
-        | undefined;
+        .all(data.client_id) as Array<{
+        provider: "OMT" | "WHISH";
+        debt_usd: number;
+        debt_lbp: number;
+      }>;
 
-      // System drawer to credit when settling a Service Debt
-      const providerSystemDrawer =
-        originatingDebt?.provider === "OMT"
-          ? "OMT_System"
-          : originatingDebt?.provider === "WHISH"
-            ? "Whish_System"
-            : null;
+      const routedByDrawer = this.db
+        .prepare(
+          `SELECT p.drawer_name,
+                  COALESCE(SUM(CASE WHEN p.currency_code = 'USD' THEN p.amount ELSE 0 END), 0) AS routed_usd,
+                  COALESCE(SUM(CASE WHEN p.currency_code = 'LBP' THEN p.amount ELSE 0 END), 0) AS routed_lbp
+           FROM payments p
+           JOIN transactions t ON t.id = p.transaction_id
+           WHERE t.client_id = ?
+             AND t.type = ?
+             AND t.status = 'ACTIVE'
+             AND p.drawer_name IN ('OMT_System', 'Whish_System')
+             AND p.amount > 0
+           GROUP BY p.drawer_name`,
+        )
+        .all(data.client_id, TRANSACTION_TYPES.DEBT_REPAYMENT) as Array<{
+        drawer_name: string;
+        routed_usd: number;
+        routed_lbp: number;
+      }>;
+
+      // Pick the provider (oldest service debt first) that still has an
+      // outstanding amount to route in either currency.
+      let providerSystemDrawer: string | null = null;
+      let routingProvider: string | null = null;
+      let outstandingUsd = 0;
+      let outstandingLbp = 0;
+      for (const sd of serviceDebtsByProvider) {
+        const drawer = sd.provider === "OMT" ? "OMT_System" : "Whish_System";
+        const routed = routedByDrawer.find((r) => r.drawer_name === drawer);
+        const ou = sd.debt_usd - (routed?.routed_usd ?? 0);
+        const ol = sd.debt_lbp - (routed?.routed_lbp ?? 0);
+        if (ou > 0.01 || ol > 0.5) {
+          providerSystemDrawer = drawer;
+          routingProvider = sd.provider;
+          outstandingUsd = Math.max(0, ou);
+          outstandingLbp = Math.max(0, ol);
+          break;
+        }
+      }
+
+      // Cap total routing per currency at the NET amount the shop actually
+      // kept (gross IN − change OUT): an overpayment handed back as change
+      // must not route more than was retained. totalUSD/totalLBP are that net.
+      let routeRemainingUsd = Math.min(outstandingUsd, Math.max(0, totalUSD));
+      let routeRemainingLbp = Math.min(outstandingLbp, Math.max(0, totalLBP));
 
       // Process each customer-paid (IN) leg independently
       for (const leg of inLegs) {
@@ -355,31 +412,44 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         );
         upsertBalance.run(legDrawer, legCurrency, leg.amount);
 
-        // For Service Debt: transfer from payment drawer → provider system drawer.
+        // For Service Debt: transfer from payment drawer → provider system
+        // drawer, capped per currency at the remaining OUTSTANDING service
+        // debt — a leg that also covers non-service debt only routes its
+        // service share. Only drawer-affecting legs can fund a reserve (a
+        // CUSTOMER_ACCOUNT/GIFT_CARD leg moves no cash, so nothing to route).
         // For non-cash legs (WHISH, OMT wallet), the RESERVE comes out of the
-        // wallet drawer; for CASH legs it comes out of General — same as original.
-        if (providerSystemDrawer) {
-          insertPayment.run(
-            txnId,
-            "RESERVE",
-            legDrawer,
-            legCurrency,
-            -leg.amount,
-            `Reserve for ${originatingDebt?.provider} settlement`,
-            data.created_by,
-          );
-          upsertBalance.run(legDrawer, legCurrency, -leg.amount);
+        // wallet drawer; for CASH legs it comes out of General.
+        if (providerSystemDrawer && isDrawerAffectingMethod(leg.method)) {
+          const remaining =
+            legCurrency === "USD" ? routeRemainingUsd : routeRemainingLbp;
+          const threshold = legCurrency === "USD" ? 0.01 : 0.5;
+          if (remaining > threshold) {
+            const routeAmount = Math.min(leg.amount, remaining);
+            if (legCurrency === "USD") routeRemainingUsd -= routeAmount;
+            else routeRemainingLbp -= routeAmount;
 
-          insertPayment.run(
-            txnId,
-            originatingDebt!.provider!,
-            providerSystemDrawer,
-            legCurrency,
-            leg.amount,
-            `Debt repayment → ${providerSystemDrawer}`,
-            data.created_by,
-          );
-          upsertBalance.run(providerSystemDrawer, legCurrency, leg.amount);
+            insertPayment.run(
+              txnId,
+              "RESERVE",
+              legDrawer,
+              legCurrency,
+              -routeAmount,
+              `Reserve for ${routingProvider} settlement`,
+              data.created_by,
+            );
+            upsertBalance.run(legDrawer, legCurrency, -routeAmount);
+
+            insertPayment.run(
+              txnId,
+              routingProvider,
+              providerSystemDrawer,
+              legCurrency,
+              routeAmount,
+              `Debt repayment → ${providerSystemDrawer}`,
+              data.created_by,
+            );
+            upsertBalance.run(providerSystemDrawer, legCurrency, routeAmount);
+          }
         }
       }
 
@@ -416,7 +486,15 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       // 4. Mark originating sales as paid (FIFO — oldest unpaid sale first)
       //    so that profit is recognized once fully paid.
-      //    Use net totalUSD (IN − OUT) for accurate attribution.
+      //    Use net totalUSD (IN − OUT) for accurate attribution; when no USD
+      //    was physically tendered (LBP-only tender against USD debt) fall
+      //    back to amount_usd — the caller-converted USD reduction.
+      //    KNOWN GAP: mixed tender (USD + LBP legs against USD debt) uses
+      //    only the USD-leg total, under-attributing the LBP-converted share;
+      //    amount_usd can't be used outright because with change legs it
+      //    overstates the net kept (see lira-096). Sale debts are
+      //    USD-denominated (SalesRepository), so pure-LBP debts never feed
+      //    this path.
       this._markSalesPaidFIFO(data.client_id, totalUSD || data.amount_usd);
 
       return { id: repaymentId };
@@ -486,10 +564,15 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     note: string;
     createdBy: string;
     transactionTime?: string;
+    /** Set when the credit belongs to a customer-session basket (e.g. a
+     *  cash-out settled to the customer's account). Drives the Debts-page
+     *  eye button that opens the basket breakdown; null for every other
+     *  credit. */
+    sessionId?: number;
   }): { id: number } {
     const stmt = this.db.prepare(`
-      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
-      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, session_id, created_at)
+      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
       data.clientId,
@@ -497,6 +580,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       -Math.abs(data.amountLbp),
       data.note || null,
       data.createdBy,
+      data.sessionId ?? null,
       data.transactionTime ?? null,
     );
     return { id: Number(result.lastInsertRowid) };
@@ -560,16 +644,31 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       );
       const ledgerId = Number(result.lastInsertRowid);
 
-      // Payout legs: default to a single CASH USD leg of the reduction.
+      // Payout legs: default to CASH legs matching the reduction PER
+      // CURRENCY. A USD-only default silently skipped the drawer debit on an
+      // LBP cash-out with no explicit legs (credit reduced, till untouched).
       const legs: RepaymentPaymentLine[] =
         data.payments && data.payments.length > 0
           ? data.payments
           : [
-              {
-                method: "CASH",
-                currencyCode: "USD",
-                amount: Math.abs(data.amount_usd),
-              },
+              ...(Math.abs(data.amount_usd) > 0
+                ? [
+                    {
+                      method: "CASH",
+                      currencyCode: "USD",
+                      amount: Math.abs(data.amount_usd),
+                    },
+                  ]
+                : []),
+              ...(Math.abs(data.amount_lbp) > 0
+                ? [
+                    {
+                      method: "CASH",
+                      currencyCode: "LBP",
+                      amount: Math.abs(data.amount_lbp),
+                    },
+                  ]
+                : []),
             ];
 
       const txnId = getTransactionRepository().createTransaction({

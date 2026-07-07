@@ -261,13 +261,18 @@ export default function MultiPaymentInput({
       // Convert effectiveTotalAmount (in totalAmountCurrency) to the line's currency
       let converted = effectiveTotalAmount;
       if (line.currencyCode !== totalAmountCurrency) {
+        // Round to the line currency's precision (LBP whole, USD 2 dp) so a
+        // rate round-trip can't leak FP noise into the amount that is both
+        // displayed and submitted (mirrors the currency-change handler below).
         if (totalAmountCurrency === "USD" && line.currencyCode === "LBP") {
-          converted = effectiveTotalAmount * effectiveRate;
+          converted = Math.round(effectiveTotalAmount * effectiveRate);
         } else if (
           totalAmountCurrency === "LBP" &&
           line.currencyCode === "USD"
         ) {
-          converted = effectiveTotalAmount / effectiveRate;
+          converted = parseFloat(
+            (effectiveTotalAmount / effectiveRate).toFixed(2),
+          );
         }
       }
       const updated = [{ ...line, amount: converted }];

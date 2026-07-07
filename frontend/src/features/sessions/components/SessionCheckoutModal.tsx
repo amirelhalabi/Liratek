@@ -15,7 +15,7 @@ import {
   type PaymentLine,
 } from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
-import { binanceCashSide } from "../utils/binanceCart";
+import { binanceCashSide, splitBasketCashSides } from "../utils/binanceCart";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -159,18 +159,19 @@ export function SessionCheckoutModal({
   const { user } = useAuth();
   const { allMethods } = usePaymentMethods();
 
-  // Money IN (customer pays the shop) → shared SELL rate. Seeded from the hook
-  // but kept editable: the operator overrides it via the rate field inside
+  // Payments use the BUY rate (owner decision 2026-07-06): every
+  // MultiPaymentInput converts LBP↔USD at buyRate. Seeded from the hook but kept
+  // editable: the operator overrides it via the rate field inside
   // MultiPaymentInput (see onRateChange below), and the chosen rate is sent in
   // the checkout payload (and used for the USD↔LBP coverage math below).
-  const { sellRate } = useSellRate();
-  const [exchangeRate, setExchangeRate] = useState(sellRate);
+  const { buyRate } = useSellRate();
+  const [exchangeRate, setExchangeRate] = useState(buyRate);
   // Track whether the operator has manually edited the rate so the seeded value
   // doesn't clobber their override once the async rate resolves.
   const [rateEdited, setRateEdited] = useState(false);
   useEffect(() => {
-    if (!rateEdited) setExchangeRate(sellRate);
-  }, [sellRate, rateEdited]);
+    if (!rateEdited) setExchangeRate(buyRate);
+  }, [buyRate, rateEdited]);
 
   // Mirror the rate edited inside either MultiPaymentInput up to the parent so
   // both instances stay in sync and the coverage math + payload use it.
@@ -188,9 +189,16 @@ export function SessionCheckoutModal({
     {},
   );
 
-  // Reset per-item discounts whenever the modal (re)opens with a fresh cart.
+  // Reset per-item discounts AND the manual rate override whenever the modal
+  // (re)opens with a fresh cart. The component stays mounted between checkouts
+  // (it early-returns null when closed), so without clearing rateEdited a rate
+  // typed in one checkout would stick for the component's lifetime and block the
+  // re-seed effect above from picking up the current DB rate on the next one.
   useEffect(() => {
-    if (isOpen) setItemDiscounts({});
+    if (isOpen) {
+      setItemDiscounts({});
+      setRateEdited(false);
+    }
   }, [isOpen]);
 
   // Resolve the session's client id from its phone so the basket GIFT_CARD leg
@@ -268,8 +276,31 @@ export function SessionCheckoutModal({
   const netUsd = totals.usd + totals.usdt;
   const netLbp = totals.lbp;
 
-  // Cash the operator must physically hand the customer on confirm (net).
-  const cashPayoutUsd = Math.min(0, netUsd);
+  // GROSS split — charges (customer pays, +) and cash-out payouts (shop pays,
+  // −) are tracked SEPARATELY per currency, never cancelled against each other.
+  // The Debts page must list both in full: a $10 charge + a $20 cash-out books
+  // a $10 debt AND a $20 credit (net −$10), not one collapsed −$10 line. The
+  // charges seed the payment / debt; the payouts become the cash payout or the
+  // account credit. (binanceCashSide folds a Binance item's USDT tag into its
+  // USD cash side.)
+  const { chargeUsd, chargeLbp, payoutUsd, payoutLbp } = useMemo(
+    () => splitBasketCashSides(cartItems),
+    [cartItems],
+  );
+
+  // Does the operator settle this basket on the customer's account? Then the
+  // cash-out payouts (shop owes the customer, e.g. a Binance/OMT/Whish
+  // cash-out) are booked as store CREDIT on their account — reducing their
+  // balance and showing on the Debts Payments side — rather than handed over
+  // as cash. Requires a chargeable client (name + phone). A cash-paid or
+  // clientless basket keeps the cash payout (lira-098).
+  const payoutOnAccount =
+    hasClient && paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT");
+
+  // Cash the operator must physically hand the customer on confirm — the GROSS
+  // payout (not the net), zero when settled to the account instead.
+  const cashPayoutUsd = payoutOnAccount ? 0 : -payoutUsd;
+  const cashPayoutLbp = payoutOnAccount ? 0 : -payoutLbp;
 
   // Group items by module for display
   const groupedItems = useMemo(() => {
@@ -296,23 +327,21 @@ export function SessionCheckoutModal({
     label: m.label,
   }));
 
-  // Combined total the pooled MultiPaymentInput must cover, expressed in USD
-  // (only the positive side of each currency — a negative total is a payout,
-  // handled separately below). LBP is converted to USD via the operator rate.
+  // Combined total the pooled MultiPaymentInput must cover — the GROSS charges
+  // (never netted against the payouts, which are settled separately below).
+  // LBP is converted to USD via the operator rate.
   const combinedTotalUSD = useMemo(() => {
-    const posUsd = Math.max(0, netUsd);
-    const posLbp = Math.max(0, netLbp);
-    return posUsd + (exchangeRate > 0 ? posLbp / exchangeRate : 0);
-  }, [netUsd, netLbp, exchangeRate]);
+    return chargeUsd + (exchangeRate > 0 ? chargeLbp / exchangeRate : 0);
+  }, [chargeUsd, chargeLbp, exchangeRate]);
 
-  // Seed one line per currency that has a positive total — this is what opens
+  // Seed one line per currency that has a GROSS charge — this opens
   // MultiPaymentInput directly in split mode with both rows pre-filled instead
   // of showing two separate widget instances (initialLines is read once, on
   // mount/remount, per the component's own contract).
   const paymentInitialLines = useMemo(() => {
     const lines: Array<{ currencyCode: string; amount: number }> = [];
-    if (netUsd > 0) lines.push({ currencyCode: "USD", amount: netUsd });
-    if (netLbp > 0) lines.push({ currencyCode: "LBP", amount: netLbp });
+    if (chargeUsd > 0) lines.push({ currencyCode: "USD", amount: chargeUsd });
+    if (chargeLbp > 0) lines.push({ currencyCode: "LBP", amount: chargeLbp });
     return lines;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentInputKey]);
@@ -342,32 +371,33 @@ export function SessionCheckoutModal({
       ...paymentLines.map(toLeg("IN")),
       ...returnLines.map(toLeg("OUT")),
     ];
-    // NET-negative basket (e.g. a loto cash prize, an OMT/Whish RECEIVE, or a
-    // Binance cash out): the shop owes the customer the net amount. No
-    // MultiPaymentInput renders for a non-positive total, so emit the net
-    // cash-OUT leg here (default CASH → General). Those items defer their
-    // payout to the basket recorder, so without this leg the payout would
-    // never be posted to any drawer. Strictly the NET: when purchases cover
-    // the payout (e.g. a $50 bill + a $50 cash-out), nothing is collected
-    // and nothing is paid out.
-    if (netUsd < 0) {
+    // Cash-out payouts (loto cash prize, OMT/Whish RECEIVE, Binance cash out):
+    // the shop owes the customer. Emit the GROSS payout as ONE OUT leg per
+    // currency — NOT netted against the charges, so the Debts page lists the
+    // full payout ($20), not a net. Route to the customer's ACCOUNT (store
+    // credit) when the basket is settled on account, else to CASH (default,
+    // lira-098). Deferred cash-out items self-post nothing, so this leg is the
+    // only place the payout is booked — recordBasketPayment turns a
+    // CUSTOMER_ACCOUNT OUT leg into a session credit (Debts Payments side).
+    const payoutMethod = payoutOnAccount ? "CUSTOMER_ACCOUNT" : "CASH";
+    if (payoutUsd > 0) {
       legs.push({
-        method: "CASH",
+        method: payoutMethod,
         currency_code: "USD",
-        amount: -netUsd,
+        amount: payoutUsd,
         direction: "OUT",
       });
     }
-    if (netLbp < 0) {
+    if (payoutLbp > 0) {
       legs.push({
-        method: "CASH",
+        method: payoutMethod,
         currency_code: "LBP",
-        amount: -netLbp,
+        amount: payoutLbp,
         direction: "OUT",
       });
     }
     return legs;
-  }, [paymentLines, returnLines, netUsd, netLbp]);
+  }, [paymentLines, returnLines, payoutUsd, payoutLbp, payoutOnAccount]);
 
   // Primary method is the first non-zero leg's method, or CASH as fallback
   const primaryMethod =
@@ -637,7 +667,6 @@ export function SessionCheckoutModal({
               directly in split mode instead of two separate widgets. */}
           {(totals.usd > 0 || totals.lbp > 0) && (
             <div className="space-y-1">
-              <h3 className="text-sm font-medium text-slate-300">Payment</h3>
               <MultiPaymentInput
                 key={`payment-${paymentInputKey}`}
                 totalAmount={combinedTotalUSD}
@@ -666,7 +695,7 @@ export function SessionCheckoutModal({
               this out of the General drawer on confirm. Binance cash-outs live
               in the usdt bucket (their payout is self-posted at replay) but the
               operator still hands over CASH — include them here. */}
-          {(cashPayoutUsd < 0 || totals.lbp < 0) && (
+          {(cashPayoutUsd < 0 || cashPayoutLbp < 0) && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-1">
               <div className="text-xs font-medium text-amber-300">
                 Payout to customer (cash)
@@ -679,11 +708,37 @@ export function SessionCheckoutModal({
                   </span>
                 </div>
               )}
-              {totals.lbp < 0 && (
+              {cashPayoutLbp < 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-400">LBP</span>
                   <span className="font-mono text-amber-400">
-                    {formatAmount(totals.lbp, "LBP")}
+                    {formatAmount(cashPayoutLbp, "LBP")}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* On-account payout: the GROSS cash-out booked as store credit, not
+              cash handed over (never netted against the charges). */}
+          {payoutOnAccount && (payoutUsd > 0 || payoutLbp > 0) && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 space-y-1">
+              <div className="text-xs font-medium text-emerald-300">
+                Credited to customer account
+              </div>
+              {payoutUsd > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">USD</span>
+                  <span className="font-mono text-emerald-400">
+                    {formatAmount(-payoutUsd, "USD")}
+                  </span>
+                </div>
+              )}
+              {payoutLbp > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">LBP</span>
+                  <span className="font-mono text-emerald-400">
+                    {formatAmount(-payoutLbp, "LBP")}
                   </span>
                 </div>
               )}

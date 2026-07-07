@@ -197,6 +197,14 @@ export interface CreateFinancialServiceData {
    * created. Non-session callers leave this falsy → behavior is unchanged.
    */
   deferPayment?: boolean;
+  /**
+   * Authenticated user id stamped on the unified transaction, payment, and
+   * debt_ledger rows this transaction writes (all three carry a
+   * `FOREIGN KEY … REFERENCES users(id)` enforced at runtime). Callers MUST
+   * pass the acting user; when absent the repository resolves a real user id
+   * so the FK never fails on a DB whose admin isn't id 1.
+   */
+  userId?: number;
 }
 
 export interface ProviderStats {
@@ -249,6 +257,24 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   /**
    * Map provider to its system drawer name
    */
+  /**
+   * A guaranteed-existing user id to stamp on transaction/payment/debt rows
+   * when a caller does not supply one. Prefers an admin, then the lowest id.
+   * Returns 1 only as a last resort (empty users table). This keeps the
+   * FK on user_id valid on databases whose admin was recreated at id ≠ 1 —
+   * a bare `?? 1` would reintroduce the FK-violation bug.
+   */
+  private resolveFallbackUserId(): number {
+    const row = this.db
+      .prepare(
+        `SELECT id FROM users
+         ORDER BY (role = 'admin') DESC, id ASC
+         LIMIT 1`,
+      )
+      .get() as { id: number } | undefined;
+    return row?.id ?? 1;
+  }
+
   private mapDrawerName(
     provider: CreateFinancialServiceData["provider"],
   ): string {
@@ -537,7 +563,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           .run(data.partnerId, data.partnerMode || "THROUGH", id);
       }
 
-      const createdBy = 1;
+      // The unified transaction, every payment leg, and any debt_ledger row
+      // below are all stamped with `createdBy` and all carry a FK to
+      // users(id) that the app enforces (main.ts: PRAGMA foreign_keys=ON).
+      // Hardcoding 1 threw "FOREIGN KEY constraint failed" (surfaced as
+      // "Statement execution failed") on any DB whose admin isn't user 1.
+      // Prefer the acting user; fall back to a real user id, never a literal.
+      const createdBy = data.userId ?? this.resolveFallbackUserId();
       const note = data.note || null;
 
       // Resolve primary client ID: look up by phone number if not provided
@@ -1490,13 +1522,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           if (cashoutMethod === "CUSTOMER_ACCOUNT") {
             // CUSTOMER_ACCOUNT: don't debit any drawer, create credit in debt_ledger
             // The customer gets a credit on their account instead of cash payout.
-            if (!resolvedPrimaryClientId) {
-              throw new Error(
-                "Client is required for CUSTOMER_ACCOUNT cashout",
-              );
-            }
 
-            // Track system drawer for OMT/WHISH settlement purposes.
+            // Track system drawer for OMT/WHISH settlement purposes — always,
+            // including deferred sessions (provider still owes the shop).
             // Skip for THROUGH-partner transactions — the system is theirs, not ours.
             if (useSystemDrawerFlow && !skipSystemDrawer) {
               insertPayment.run(
@@ -1511,15 +1539,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               upsertBalanceDelta.run(systemDrawer, currency, -totalOwed);
             }
 
-            // Create credit entry via DebtService
-            const debtService = getDebtService();
-            debtService.addCredit({
-              clientId: resolvedPrimaryClientId,
-              amountUsd: currency === "USD" ? receiveAmount : 0,
-              amountLbp: currency === "LBP" ? receiveAmount : 0,
-              note: `${data.provider} RECEIVE cashout — credited to account`,
-              userId: createdBy,
-            });
+            // Customer payout → account credit. Deferred (session basket): the
+            // RECEIVE is a NEGATIVE cart item that nets into the basket, and the
+            // checkout emits a CUSTOMER_ACCOUNT OUT leg the basket recorder turns
+            // into ONE session credit. Self-posting here too would DOUBLE-credit
+            // — this branch previously lacked the `!deferPayment` guard the
+            // Binance/CASH payout paths already had. Non-session callers post it.
+            if (!deferPayment) {
+              if (!resolvedPrimaryClientId) {
+                throw new Error(
+                  "Client is required for CUSTOMER_ACCOUNT cashout",
+                );
+              }
+              const debtService = getDebtService();
+              debtService.addCredit({
+                clientId: resolvedPrimaryClientId,
+                amountUsd: currency === "USD" ? receiveAmount : 0,
+                amountLbp: currency === "LBP" ? receiveAmount : 0,
+                note: `${data.provider} RECEIVE cashout — credited to account`,
+                userId: createdBy,
+              });
+            }
           } else {
             // Non-CUSTOMER_ACCOUNT: debit the appropriate drawer based on cashout method
             // For CASH → General, OMT → OMT_App, WHISH → Whish_App, BINANCE → Binance

@@ -22,6 +22,16 @@ const DUP_WARNING = /already has an open session/i;
 
 /** Open the StartSessionModal via the FAB → New Session UI. */
 async function openStartSessionModal(page: Page) {
+  // A prior spec (e.g. the Session Debt detail modal) can leave a modal open in
+  // the shared app instance; its full-screen overlay would intercept the FAB
+  // click. Dismiss any lingering modal first by clicking outside the centered
+  // card (the detail modal closes on backdrop click).
+  const overlay = page.locator("div.fixed.inset-0.z-50").first();
+  if (await overlay.isVisible({ timeout: 750 }).catch(() => false)) {
+    await page.mouse.click(8, 8);
+    await overlay.waitFor({ state: "hidden", timeout: 3_000 }).catch(() => {});
+  }
+
   const fab = page
     .locator(
       'button[title="Start Customer Session"], button[title*="active session"]',

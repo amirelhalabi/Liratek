@@ -194,9 +194,18 @@ export class DebtService {
     note?: string;
     userId: number;
     transactionTime?: string;
+    /** Session basket this credit belongs to (session cash-out → account). */
+    sessionId?: number;
   }): { success: boolean; id?: number; error?: string } {
-    const { clientId, amountUsd, amountLbp, note, userId, transactionTime } =
-      data;
+    const {
+      clientId,
+      amountUsd,
+      amountLbp,
+      note,
+      userId,
+      transactionTime,
+      sessionId,
+    } = data;
 
     if (!clientId) {
       return { success: false, error: "Client ID is required" };
@@ -216,6 +225,7 @@ export class DebtService {
         note: note || "",
         createdBy: String(userId),
         transactionTime,
+        sessionId,
       });
 
       debtLogger.info(

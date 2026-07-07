@@ -46,7 +46,10 @@ interface Props {
   financialService: FinancialServiceData;
   payments: PaymentRowData[];
   debtAmount: number;
-  /** True when the client has credit (shop owes them) — changes debt language to account charge */
+  /** True when the client holds a credit in THIS entry's currency — changes
+   *  debt language to "Account Charge". Callers must derive it from the
+   *  balance of the entry's own currency, never the account's USD sign (a
+   *  USD credit used to paint an unrelated LBP debt entry as a charge). */
   isCreditor?: boolean;
   onClose: () => void;
 }

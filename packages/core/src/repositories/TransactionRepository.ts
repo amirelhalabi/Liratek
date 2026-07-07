@@ -195,6 +195,8 @@ export interface TransactionFilters {
   service_type?: string;
   has_item_key?: boolean;
   search?: string;
+  /** Types to exclude from the result, applied before LIMIT (see getRecent). */
+  excludeTypes?: TransactionType[];
 }
 
 export interface DailySummary {
@@ -417,6 +419,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         "(t.summary LIKE ? OR t.client_name LIKE ? OR u.username LIKE ?)",
       );
       params.push(term, term, term);
+    }
+    if (filters?.excludeTypes && filters.excludeTypes.length > 0) {
+      const placeholders = filters.excludeTypes.map(() => "?").join(", ");
+      conditions.push(`t.type NOT IN (${placeholders})`);
+      params.push(...filters.excludeTypes);
     }
 
     const where =

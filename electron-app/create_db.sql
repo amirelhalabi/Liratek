@@ -271,9 +271,11 @@ CREATE TABLE IF NOT EXISTS debt_ledger (
     edited_at TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
     refunded_at TEXT DEFAULT NULL,
+    session_id INTEGER,
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id),
-    FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+    FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE SET NULL
 );
 
 -- Customer Visit Sessions
@@ -921,6 +923,7 @@ INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES
 -- Debt ledger indexes
 CREATE INDEX IF NOT EXISTS idx_debt_ledger_client_type ON debt_ledger(client_id, transaction_type);
 CREATE INDEX IF NOT EXISTS idx_debt_ledger_due_date ON debt_ledger(due_date);
+CREATE INDEX IF NOT EXISTS idx_debt_ledger_session_id ON debt_ledger(session_id);
 
 -- =============================================================================
 -- 9. Payment Methods
@@ -1294,4 +1297,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (117, 'rename_mtc_cards_to_face_value'),
     (118, 'rename_alfa_cards_to_face_value'),
     (119, 'flip_loto_supplier_ledger_sign'),
-    (120, 'add_supplier_ledger_refund_flag');
+    (120, 'add_supplier_ledger_refund_flag'),
+    (121, 'add_session_id_to_debt_ledger');

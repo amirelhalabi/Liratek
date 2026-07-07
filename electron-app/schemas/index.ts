@@ -318,6 +318,9 @@ export const FinancialServiceSchema = z.object({
   // multi-bill payment): skips the customer-inflow and change-leg blocks while
   // still booking cost outflow + supplier commission.
   deferPayment: z.boolean().optional(),
+  // Acting user id; the handler overrides this with the authenticated user,
+  // but allowing it through keeps validatePayload from stripping a supplied one.
+  userId: z.number().int().optional(),
 });
 
 // =============================================================================

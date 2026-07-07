@@ -52,7 +52,9 @@ export function SettlementVerification({
 }: SettlementVerificationProps) {
   const api = useApi();
   const { methods } = usePaymentMethods();
-  const { sellRate: exchangeRate } = useSellRate();
+  // Payments use the BUY rate (owner decision 2026-07-06): every
+  // MultiPaymentInput converts LBP↔USD at buyRate.
+  const { buyRate: exchangeRate } = useSellRate();
   const [showDialog, setShowDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

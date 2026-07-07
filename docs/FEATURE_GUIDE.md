@@ -128,6 +128,20 @@ Source of truth: [packages/core/src/utils/payments.ts](../packages/core/src/util
   shortfall exceeds **$0.05** (SalesRepository).
 - Debt repayment uses the smart-rounding algorithm (see README → Business Logic).
 - Debts Excel import is idempotent — re-importing the same file books nothing (lira-080).
+- **Mixed per-currency balances** (lira-097): the client balance is the raw
+  per-currency `debt_ledger` sum (`debt:client-balance`) — a client can hold a
+  USD **credit** and an LBP **debt** at once (they may even net to ~0
+  converted). NEVER branch UI or validation on the converted net or the USD
+  sign alone: the Debts panel gates **Settle Debt** and **Cash Out** each on
+  its own side (both render for a mixed account, tables get combined
+  "Purchases & Charges" / "Payments & Deposits" labels), the post-repayment
+  keep-selected check is per-currency, and `DebtService.cashOut` caps the
+  payout per currency. Backend corollaries (DebtRepository, guarded by
+  `DebtRepository.serviceDebtRouting.test.ts`): Service-Debt provider routing
+  moves repayment money into `OMT_System`/`Whish_System` only up to the
+  client's **outstanding** service debt (per-provider total minus previously
+  routed), and a cash-out with no explicit legs emits default CASH legs **per
+  currency** — a USD-only default silently skipped the LBP drawer debit.
 
 ---
 

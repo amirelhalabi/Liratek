@@ -51,7 +51,7 @@ type Api = {
     rates: {
       list: () => Promise<{
         success?: boolean;
-        data?: Array<{ to_code: string; sell_rate?: number }>;
+        data?: Array<{ to_code: string; sell_rate?: number; buy_rate?: number }>;
       }>;
     };
     dashboard: {
@@ -98,10 +98,11 @@ test.describe("LIRA-096 — debt split repayment (USD + LBP)", () => {
     const DEBT = 30; // USD
     const USD_LEG = 10;
 
-    // Precondition (what makes the pre-fix code NaN): the harness DB carries
-    // the create_db.sql-seeded LBP rate row — sell_rate 90,000. The modal
-    // therefore converts LBP at 90,000, and full settlement of the remaining
-    // $20 is exactly 1,800,000 LBP.
+    // Precondition: the harness DB carries the create_db.sql-seeded LBP rate
+    // row — buy_rate 89,000. Debt repayment is a Money-IN flow that converts
+    // LBP↔USD at the BUY rate (owner decision 2026-07-06), so the modal values
+    // LBP at 89,000 and full settlement of the remaining $20 is exactly
+    // 1,780,000 LBP.
     const lbpRow = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
       const res = await w.api.rates.list();
@@ -109,9 +110,9 @@ test.describe("LIRA-096 — debt split repayment (USD + LBP)", () => {
       return rows.find((r: { to_code: string }) => r.to_code === "LBP") ?? null;
     });
     expect(lbpRow, "seeded LBP exchange_rates row missing").not.toBeNull();
-    const SELL_RATE = (lbpRow as { sell_rate?: number }).sell_rate ?? 0;
-    expect(SELL_RATE).toBeGreaterThan(0);
-    const LBP_LEG = (DEBT - USD_LEG) * SELL_RATE;
+    const BUY_RATE = (lbpRow as { buy_rate?: number }).buy_rate ?? 0;
+    expect(BUY_RATE).toBeGreaterThan(0);
+    const LBP_LEG = (DEBT - USD_LEG) * BUY_RATE;
 
     // Seed a $30 CUSTOMER_ACCOUNT debt (maintenance path, per lira-081).
     const seeded = await appPage.evaluate(
@@ -186,7 +187,7 @@ test.describe("LIRA-096 — debt split repayment (USD + LBP)", () => {
     expect(after.usd - before.usd).toBeCloseTo(USD_LEG, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(LBP_LEG, 0);
 
-    // Debt: fully settled at the modal's rate (10 + 1,800,000/90,000 = 30).
+    // Debt: fully settled at the modal's rate (10 + 1,780,000/89,000 = 30).
     const remaining = await debtorTotals(appPage, CLIENT);
     expect(Math.abs(remaining.usd)).toBeLessThan(0.05);
     expect(Math.abs(remaining.lbp)).toBeLessThan(1000);

@@ -26,3 +26,39 @@ export function binanceCashSide(
   }
   return { cashUsd: item.amount };
 }
+
+/**
+ * GROSS split of a basket into charges (customer pays, +) and cash-out payouts
+ * (shop pays, −), per currency, WITHOUT netting them against each other.
+ *
+ * A $10 charge and a $20 cash-out must surface on the Debts page as a $10 debt
+ * AND a $20 credit (net −$10) — never collapsed into one −$10 line. So charges
+ * and payouts are accumulated into SEPARATE buckets: the charges seed the
+ * pooled payment / basket debt, the payouts become the cash payout or the
+ * on-account store credit. Netting here (returning `usd = charge − payout`)
+ * is the bug this guards — the canceled amounts would vanish from the ledger.
+ *
+ * `binanceCashSide` folds a Binance item's USDT tag into its USD cash side;
+ * every other item contributes its own `amount`/`currency`.
+ */
+export function splitBasketCashSides(
+  items: Array<Pick<CartItem, "module" | "amount" | "currency">>,
+): { chargeUsd: number; chargeLbp: number; payoutUsd: number; payoutLbp: number } {
+  let chargeUsd = 0,
+    chargeLbp = 0,
+    payoutUsd = 0,
+    payoutLbp = 0;
+  for (const item of items) {
+    const binance = binanceCashSide(item);
+    const amt = binance ? binance.cashUsd : item.amount;
+    const ccy = binance ? "USD" : item.currency;
+    if (amt >= 0) {
+      if (ccy === "USD") chargeUsd += amt;
+      else if (ccy === "LBP") chargeLbp += amt;
+    } else {
+      if (ccy === "USD") payoutUsd += -amt;
+      else if (ccy === "LBP") payoutLbp += -amt;
+    }
+  }
+  return { chargeUsd, chargeLbp, payoutUsd, payoutLbp };
+}

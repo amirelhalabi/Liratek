@@ -551,6 +551,8 @@ export interface ElectronAPI {
         note: string | null;
         created_at: string;
         created_by: number | null;
+        /** Set on 'Session Debt' rows — the basket this charge belongs to. Null otherwise. */
+        session_id: number | null;
       }>
     >;
     addRepayment: (data: {

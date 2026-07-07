@@ -5031,6 +5031,31 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 121,
+    name: "add_session_id_to_debt_ledger",
+    description:
+      "A session-basket CUSTOMER_ACCOUNT charge writes ONE debt_ledger row for the whole basket (transaction_id is NULL — it isn't any single item). With no FK back to the basket, the Debts page could only show the free-text note, not the itemized purchases. Adds debt_ledger.session_id so the 'Session Debt' row can join to customer_session_transactions and list what was actually bought.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(
+        `ALTER TABLE debt_ledger ADD COLUMN session_id INTEGER REFERENCES customer_sessions(id) ON DELETE SET NULL`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_debt_ledger_session_id ON debt_ledger(session_id)`,
+      );
+      console.log(
+        "Migration v121: debt_ledger.session_id added (links 'Session Debt' rows back to their basket)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_debt_ledger_session_id`);
+      db.exec(`ALTER TABLE debt_ledger DROP COLUMN session_id`);
+      console.log(
+        "Migration v121 rolled back: debt_ledger.session_id removed",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

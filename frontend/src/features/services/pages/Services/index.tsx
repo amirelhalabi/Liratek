@@ -32,7 +32,7 @@ import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { StatsCards } from "../../components/StatsCards";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { useShopBase } from "@/hooks/useShopBase";
 
@@ -384,21 +384,13 @@ export default function Services() {
     }
   }
 
-  // Exchange rate for multi-currency payments (loaded from database)
-  const [exchangeRate, setExchangeRate] = useState(89500);
-
-  useEffect(() => {
-    const loadRate = async () => {
-      try {
-        const rates = await api.getRates();
-        const { sellRate } = getExchangeRates(rates);
-        setExchangeRate(sellRate);
-      } catch (error) {
-        logger.error("Failed to load exchange rate:", error);
-      }
-    };
-    loadRate();
-  }, [api]);
+  // Exchange rate for multi-currency payments (loaded from settings).
+  // NOTE: always uses the sell rate, matching this page's pre-existing
+  // behavior — it does not yet branch by serviceType (SEND vs RECEIVE) the
+  // way FinancialForm/OmtWhishAppTransferForm do.
+  // Payments use the BUY rate (owner decision 2026-07-06): every
+  // MultiPaymentInput converts LBP↔USD at buyRate.
+  const { buyRate: exchangeRate } = useSellRate();
 
   // Payment method fee (PM fee) — surcharge for non-cash wallet payments
   // Stored as a USD amount string; auto-filled from amount * 1% default rate

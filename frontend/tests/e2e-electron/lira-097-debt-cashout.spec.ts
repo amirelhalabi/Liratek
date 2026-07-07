@@ -20,6 +20,17 @@
  * Rule 15: delta/identity assertions. Rule 17: this spec was run against the
  * pre-fix code and failed on every core assertion (balance −40, drawer +20,
  * empty amount field).
+ *
+ * MIXED-POSITION UPDATE (2026-07-05, second pass): the action button used to
+ * be picked by the USD sign alone (`isCredit = netUsd < 0`), so a mixed
+ * client (USD credit + LBP debt) got ONLY "Cash Out" — the LBP debt was
+ * unsettleable until the USD credit was cashed out first (the sequential
+ * flow the third test pins). The page now renders BOTH buttons, each gated
+ * on its own side, tables get combined "Purchases & Charges" /
+ * "Payments & Deposits" headers, and settling one side keeps the client
+ * selected (the old post-repayment check compared the USD-CONVERTED net to
+ * 0.01 and deselected mixed clients). The fourth test guards this and was
+ * proven to FAIL pre-fix (no Settle Debt button in the DOM in mixed state).
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -322,7 +333,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
       .toBe(true);
 
     // Step 2 — the position is now a pure LBP debt: the form opens pre-seeded
-    // with the NATIVE-currency line (1,800,000 LBP, not a converted $20).
+    // with the NATIVE-currency line (3,155,000 LBP, not a converted $35.06).
     await appPage
       .locator("button")
       .filter({ hasText: /Settle Debt/i })
@@ -344,7 +355,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
     ).toEqual([]);
 
     // Books: both currencies settled to zero PER CURRENCY (no converted
-    // residue), $20 paid out of the till, 1,800,000 LBP collected into it.
+    // residue), $35.06 paid out of the till, 3,155,000 LBP collected into it.
     const finalRow = await appPage.evaluate(
       async ({ name }) => {
         const w = window as unknown as Api;
@@ -358,6 +369,240 @@ test.describe("LIRA-097 — creditor cash out", () => {
     );
     expect(Math.abs(finalRow?.total_debt_usd ?? 0)).toBeLessThan(0.01);
     expect(Math.abs(finalRow?.total_debt_lbp ?? 0)).toBeLessThan(1000);
+
+    const generalAfter = await appPage.evaluate(async () => {
+      const w = window as unknown as Api;
+      const b = await w.api.dashboard.getDrawerBalances();
+      return { usd: b.generalDrawer.usd, lbp: b.generalDrawer.lbp };
+    });
+    expect(generalAfter.usd - generalBefore.usd).toBeCloseTo(-USD_CREDIT, 2);
+    expect(generalAfter.lbp - generalBefore.lbp).toBeCloseTo(LBP_DEBT, 0);
+  });
+
+  test("mixed position offers BOTH actions: LBP settles FIRST, client stays selected, USD credit intact", async ({
+    appPage,
+  }) => {
+    // Non-netting mixed position: $25 USD credit + 1,000,000 LBP debt. The
+    // pre-fix page picked ONE button from the USD sign (Cash Out only here),
+    // making the LBP debt unreachable until the credit was cashed out.
+    const ts = Date.now();
+    const CLIENT = `L097 Both ${ts}`;
+    const PHONE = `71${String(ts + 17).slice(-6)}`;
+    const USD_CREDIT = 25;
+    const LBP_DEBT = 1_000_000;
+
+    const seeded = await appPage.evaluate(
+      async ({ name, phone, lbpDebt, usdCredit }) => {
+        const w = window as unknown as Api;
+        const job = await w.api.maintenance.save({
+          device_name: "L097 both phone",
+          issue_description: "both-buttons seed",
+          client_name: name,
+          client_phone: phone,
+          cost_usd: 0,
+          price_usd: 0,
+          cost_lbp: 0,
+          final_amount_lbp: lbpDebt,
+          currency: "LBP",
+          exchange_rate: 90000,
+          status: "Delivered_Paid",
+          paid_usd: 0,
+          paid_lbp: 0,
+          payments: [
+            {
+              method: "CUSTOMER_ACCOUNT",
+              currency_code: "LBP",
+              amount: lbpDebt,
+            },
+          ],
+        });
+        if (!job.success) {
+          return { id: 0, error: job.error ?? "job failed" };
+        }
+        const debtors = await w.api.debt.getDebtors();
+        const row = debtors.find(
+          (r) => (r.full_name ?? r.client_name) === name,
+        );
+        const clientId = row?.client_id ?? row?.id ?? 0;
+        if (!clientId) return { id: 0, error: "no debtor" };
+        const credited = await w.api.debt.addCredit({
+          clientId,
+          amountUsd: usdCredit,
+          amountLbp: 0,
+          note: "L097 both credit seed",
+        });
+        if (!credited.success) {
+          return { id: 0, error: credited.error ?? "credit" };
+        }
+        return { id: clientId, error: null as string | null };
+      },
+      { name: CLIENT, phone: PHONE, lbpDebt: LBP_DEBT, usdCredit: USD_CREDIT },
+    );
+    expect(seeded.error).toBeNull();
+
+    // Confirm the seeded position is genuinely mixed per currency before the
+    // UI assertions rest on it.
+    const seededLedger = await appPage.evaluate(
+      async (id) => {
+        const w = window as unknown as Api;
+        return (await w.api.debt.getClientBalance(id)).data ?? null;
+      },
+      seeded.id,
+    );
+    expect(seededLedger?.balance_usd).toBeCloseTo(-USD_CREDIT, 2);
+    expect(seededLedger?.balance_lbp).toBeCloseTo(LBP_DEBT, 0);
+
+    // Seed a DECOY high-debt client so the deselect regression is observable
+    // even when this spec runs in isolation (a lone debtor would be
+    // auto-re-selected after a deselect, masking it). The decoy's large
+    // positive USD debt sorts it to the TOP of the debtors list (ORDER BY
+    // converted net DESC), so a wrongful deselect auto-selects the DECOY, not
+    // CLIENT. A CUSTOMER_ACCOUNT leg books debt without moving any drawer, so
+    // the decoy does not disturb this test's General deltas.
+    const DECOY = `L097 Decoy ${ts}`;
+    const decoyErr = await appPage.evaluate(
+      async ({ name, phone }) => {
+        const w = window as unknown as Api;
+        const job = await w.api.maintenance.save({
+          device_name: "L097 decoy phone",
+          issue_description: "decoy high debt",
+          client_name: name,
+          client_phone: phone,
+          cost_usd: 0,
+          price_usd: 500,
+          cost_lbp: 0,
+          final_amount_usd: 500,
+          currency: "USD",
+          exchange_rate: 90000,
+          status: "Delivered_Paid",
+          paid_usd: 0,
+          paid_lbp: 0,
+          payments: [
+            { method: "CUSTOMER_ACCOUNT", currency_code: "USD", amount: 500 },
+          ],
+        });
+        return job.success ? null : (job.error ?? "decoy failed");
+      },
+      { name: DECOY, phone: `71${String(ts + 33).slice(-6)}` },
+    );
+    expect(decoyErr).toBeNull();
+
+    await navigateTo(appPage, "/");
+    await navigateTo(appPage, "/debts");
+    await appPage.getByPlaceholder(/Search client/i).fill(CLIENT);
+    await appPage
+      .locator("button")
+      .filter({ hasText: CLIENT })
+      .first()
+      .click();
+
+    // BOTH actions are offered simultaneously — pre-fix only Cash Out
+    // rendered (netUsd < 0 picked the single button).
+    const settleBtn = appPage
+      .locator("button")
+      .filter({ hasText: /Settle Debt/i })
+      .first();
+    const cashOutBtn = appPage
+      .locator("button")
+      .filter({ hasText: /Cash Out/i })
+      .first();
+    await expect(settleBtn).toBeVisible();
+    await expect(cashOutBtn).toBeVisible();
+
+    // Mixed table framing — pre-fix the USD sign forced pure-creditor
+    // labels ("Charges" / "Deposits") onto an account that also owes LBP.
+    await expect(appPage.getByText("Purchases & Charges")).toBeVisible();
+    await expect(appPage.getByText("Payments & Deposits")).toBeVisible();
+
+    // Clear the search so the debtor list is UNFILTERED before the settle.
+    // This is what makes the deselect regression observable: the client stays
+    // selected, but if the old converted-net deselect fires after the LBP
+    // settle (leaving a $25 credit → net ≈ −$14 converted → "closed"),
+    // auto-select jumps to the highest-debt client in the shared DB — a
+    // DIFFERENT name. With the search still narrowed to CLIENT, a deselect is
+    // masked by auto-reselecting the sole match, so the guard would be a
+    // no-op. selectedClient survives a search change (only a filter change
+    // clears it).
+    await appPage.getByPlaceholder(/Search client/i).fill("");
+    await expect(
+      appPage.getByRole("heading", { name: CLIENT }),
+    ).toBeVisible();
+
+    const generalBefore = await appPage.evaluate(async () => {
+      const w = window as unknown as Api;
+      const b = await w.api.dashboard.getDrawerBalances();
+      return { usd: b.generalDrawer.usd, lbp: b.generalDrawer.lbp };
+    });
+
+    // Settle the LBP debt FIRST — without cashing out the USD credit.
+    await settleBtn.click();
+    await expect(appPage.getByText("Process Repayment")).toBeVisible();
+    await expect(
+      appPage.locator('[data-testid^="payment-amount-"]').first(),
+    ).toHaveValue(LBP_DEBT.toLocaleString());
+    await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
+    await expect
+      .poll(() => dialogs.some((d) => /Repayment processed/i.test(d)), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+
+    // The client STAYS selected with the USD credit intact — the old
+    // converted-net check saw net ≈ −$14 (< 0.01), deselected them, and (with
+    // the search cleared above) auto-select jumped to a different, higher-debt
+    // client, so this heading assertion fails on the pre-fix code.
+    await expect(
+      appPage.getByRole("heading", { name: CLIENT }),
+    ).toBeVisible();
+    await expect(appPage.getByText(`+$${USD_CREDIT.toFixed(2)}`)).toBeVisible();
+
+    // Only the LBP side moved: till collected the debt, USD untouched.
+    const afterSettle = await appPage.evaluate(async () => {
+      const w = window as unknown as Api;
+      const b = await w.api.dashboard.getDrawerBalances();
+      return { usd: b.generalDrawer.usd, lbp: b.generalDrawer.lbp };
+    });
+    expect(afterSettle.lbp - generalBefore.lbp).toBeCloseTo(LBP_DEBT, 0);
+    expect(afterSettle.usd - generalBefore.usd).toBeCloseTo(0, 2);
+
+    // The debt side is gone, so only Cash Out remains; pay out the credit.
+    await expect(
+      appPage.locator("button").filter({ hasText: /Settle Debt/i }),
+    ).toHaveCount(0);
+    await cashOutBtn.click();
+    await expect(appPage.getByText("Process Repayment")).toBeVisible();
+    await expect(
+      appPage.locator('[data-testid^="payment-amount-"]').first(),
+    ).toHaveValue(String(USD_CREDIT));
+    await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
+    await expect
+      .poll(() => dialogs.some((d) => /Cash out processed/i.test(d)), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+    expect(
+      dialogs.filter((d) => /error|validation|nan/i.test(d)),
+      "mixed both-buttons flow raised an error dialog",
+    ).toEqual([]);
+
+    // Fully closed: no action button remains, both ledger sides at zero,
+    // and the till paid out exactly the USD credit.
+    await expect(
+      appPage.locator("button").filter({ hasText: /Cash Out/i }),
+    ).toHaveCount(0);
+    await expect(
+      appPage.locator("button").filter({ hasText: /Settle Debt/i }),
+    ).toHaveCount(0);
+
+    const ledger = await appPage.evaluate(
+      async (id) => {
+        const w = window as unknown as Api;
+        return (await w.api.debt.getClientBalance(id)).data ?? null;
+      },
+      seeded.id,
+    );
+    expect(Math.abs(ledger?.balance_usd ?? NaN)).toBeLessThan(0.01);
+    expect(Math.abs(ledger?.balance_lbp ?? NaN)).toBeLessThan(1000);
 
     const generalAfter = await appPage.evaluate(async () => {
       const w = window as unknown as Api;

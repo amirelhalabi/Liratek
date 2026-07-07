@@ -98,8 +98,8 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
     this.db
       .prepare(
         `INSERT INTO debt_ledger (
-          client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-        ) VALUES (?, 'Session Debt', ?, ?, NULL, ?, ?, datetime('now', '+30 days'))`,
+          client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date, session_id
+        ) VALUES (?, 'Session Debt', ?, ?, NULL, ?, ?, datetime('now', '+30 days'), ?)`,
       )
       .run(
         input.clientId,
@@ -107,6 +107,7 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
         input.amountLbp,
         `Session #${input.sessionId} basket`,
         input.userId,
+        input.sessionId,
       );
   }
 

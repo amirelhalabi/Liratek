@@ -53,9 +53,10 @@ function createTestDb(): Database.Database {
     CREATE TABLE users (
       id       INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL,
+      role TEXT DEFAULT 'staff',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
-    INSERT INTO users (id, username) VALUES (1, 'admin');
+    INSERT INTO users (id, username, role) VALUES (1, 'admin', 'admin');
 
     CREATE TABLE clients (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,

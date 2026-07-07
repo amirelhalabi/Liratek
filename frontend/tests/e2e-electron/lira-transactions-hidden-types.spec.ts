@@ -1,10 +1,11 @@
 /**
  * E2E: Hidden transaction types + System Transactions button (Issue 4)
  *
- * The transactions table now hides SUPPLIER_PAYMENT and CLIENT_CREATED rows and
- * removes the ⚙ "System Transactions" fold button. The is_credit variant of
- * SUPPLIER_PAYMENT (commission revenue, rendered "Supplier Credit") is real
- * revenue and stays visible (review finding).
+ * The transactions table hides SUPPLIER_PAYMENT and CLIENT_CREATED rows by
+ * default and removes the ⚙ "System Transactions" fold button. The is_credit
+ * variant of SUPPLIER_PAYMENT (commission revenue, rendered "Supplier Credit")
+ * is also hidden by default — it only reappears when the operator explicitly
+ * selects the "Supplier Credit" type filter.
  *
  * Non-credit SUPPLIER_PAYMENT renders as "SUPPLIER PAYMENT" and CLIENT_CREATED
  * as "CLIENT CREATED" (label fallback) — so their absence/presence in the table
@@ -17,7 +18,7 @@ import { test, expect, navigateTo, seedClient } from "./fixtures";
 test.describe.configure({ retries: 0 });
 
 test.describe("Transactions table — hidden types", () => {
-  test("supplier-payment & client-created hidden; supplier-credit visible; no ⚙ button", async ({
+  test("supplier-payment, client-created & supplier-credit hidden by default; supplier-credit filter reveals it; no ⚙ button", async ({
     appPage,
   }) => {
     const ts = Date.now();
@@ -105,13 +106,24 @@ test.describe("Transactions table — hidden types", () => {
       appPage.getByText("SUPPLIER PAYMENT", { exact: true }),
     ).toHaveCount(0);
 
-    // …but commission-revenue "Supplier Credit" rows remain visible…
+    // …and so is the commission-revenue "Supplier Credit" row, by default…
     await expect(
-      appPage.getByText("Supplier Credit", { exact: true }).first(),
-    ).toBeVisible({ timeout: 8_000 });
+      appPage.getByText("Supplier Credit", { exact: true }),
+    ).toHaveCount(0);
 
     // …and the ⚙ System Transactions fold button never renders.
     await expect(appPage.getByText("⚙")).toHaveCount(0);
+
+    // Selecting the "Supplier Credit" filter reveals just that row.
+    await appPage
+      .locator("button")
+      .filter({ hasText: /^All types$/ })
+      .first()
+      .click();
+    await appPage.getByText("Supplier Credit", { exact: true }).click();
+    await expect(
+      appPage.getByText("Supplier Credit", { exact: true }).first(),
+    ).toBeVisible({ timeout: 8_000 });
   });
 
   test("B6: 'Cash only (till)' filter keeps cash rows and drops wallet-only rows", async ({

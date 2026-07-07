@@ -15,8 +15,6 @@ import {
   Clock,
   X as CloseIcon,
   Upload,
-  Pencil,
-  Check,
   Plus,
 } from "lucide-react";
 import {
@@ -27,16 +25,18 @@ import {
   type DebtLedgerEntity,
 } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
+import { computeRepaymentReduction } from "../../utils/repaymentReduction";
 import {
   ServiceDebtDetailModal,
   type FinancialServiceData,
   type PaymentRowData,
 } from "../../components/ServiceDebtDetailModal";
+import { SessionDebtDetailModal } from "../../components/SessionDebtDetailModal";
 import {
   ImportCleanupModal,
   type ImportClient,
@@ -66,7 +66,10 @@ export default function Debts() {
   const api = useApi();
   const { user } = useAuth();
   const { allMethods: methods } = usePaymentMethods();
-  const { rate: EXCHANGE_RATE } = useExchangeRate("USD", "LBP");
+  // Debt repayment converts LBP↔USD at the BUY rate (owner decision
+  // 2026-07-06): payments/repayments use buyRate across every
+  // MultiPaymentInput, consistent with TelecomForm / SessionCheckout / Loto.
+  const { buyRate: EXCHANGE_RATE } = useSellRate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [parsedClients, setParsedClients] = useState<ImportClient[] | null>(
@@ -135,34 +138,15 @@ export default function Debts() {
     debtAmount: number;
   } | null>(null);
 
-  // Inline note editing for debt/payment rows
-  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
-  const [editNoteValue, setEditNoteValue] = useState("");
-  const [editNoteSaving, setEditNoteSaving] = useState(false);
-
-  function startNoteEdit(item: DebtHistoryItem) {
-    setEditingNoteId(item.id);
-    setEditNoteValue(item.note ?? "");
-  }
-
-  async function handleSaveNote() {
-    if (editingNoteId === null) return;
-    setEditNoteSaving(true);
-    try {
-      const result = await window.api.debt.updateMetadata({
-        id: editingNoteId,
-        ...(editNoteValue !== undefined && { note: editNoteValue }),
-      });
-      if (result.success) {
-        setEditingNoteId(null);
-        if (selectedClient) loadHistory(selectedClient.id);
-      } else {
-        alert(result.error ?? "Failed to save");
-      }
-    } finally {
-      setEditNoteSaving(false);
-    }
-  }
+  // Session Debt detail modal state. `mode` selects which side of the basket
+  // the modal shows: "charges" for the Purchases-side eye, "payouts" for the
+  // Payments-side eye (a session cash-out settled to the account).
+  const [sessionDetail, setSessionDetail] = useState<{
+    sessionId: number;
+    amountUsd: number;
+    amountLbp: number;
+    mode: "charges" | "payouts" | "all";
+  } | null>(null);
 
   // Repayment State
   const [repayPaymentLines, setRepayPaymentLines] = useState<PaymentLine[]>([]);
@@ -296,6 +280,25 @@ export default function Debts() {
       });
   }, [history, dateSortOrder]);
 
+  // Sessions that booked an on-account credit (a session-linked CREDIT_DEPOSIT
+  // on the Payments side). For those the cash-out payout lives on the Payments
+  // side, so the Purchases-side "Session Debt" eye shows CHARGES only. A session
+  // with no such credit settled its payout in cash — that payout has nowhere
+  // else to surface, so its basket eye shows the FULL basket (both signs).
+  const sessionsWithOnAccountCredit = useMemo(
+    () =>
+      new Set(
+        history
+          .filter(
+            (item) =>
+              item.transaction_type === "CREDIT_DEPOSIT" &&
+              item.session_id != null,
+          )
+          .map((item) => item.session_id),
+      ),
+    [history],
+  );
+
   const debtTotals = useMemo(() => {
     return debtEntries.reduce(
       (acc, item) => ({
@@ -341,8 +344,18 @@ export default function Debts() {
   const dueLbp = Math.max(0, netLbp);
   const creditUsd = Math.max(0, -netUsd);
   const creditLbp = Math.max(0, -netLbp);
-  // Derived: is the selected client a creditor (shop owes them)?
-  const isSelectedCreditor = netUsd < 0;
+  // Per-SIDE outstanding flags — never reduce the two currencies to one sign:
+  // a mixed client (USD credit + LBP debt, or the reverse) is a creditor AND
+  // a debtor at once, and each side needs its own action button. Keying the
+  // single button (and the table framing) off netUsd alone made one whole
+  // side of a mixed position unreachable. Epsilons match the list filter
+  // (USD cents; LBP has no sub-unit).
+  const hasDebt = dueUsd > 0.01 || dueLbp > 0.5;
+  const hasCredit = creditUsd > 0.01 || creditLbp > 0.5;
+  // Table framing: a mixed account gets combined labels because its tables
+  // genuinely contain both kinds of rows (charges AND purchases).
+  const accountFraming: "creditor" | "debtor" | "mixed" =
+    hasCredit && hasDebt ? "mixed" : hasCredit ? "creditor" : "debtor";
   // What the repayment modal is doing: collecting a debt or paying out credit.
   // Set by the panel button that opened it — never inferred from a converted
   // net total (a mixed position nets to ~0 and would misclassify).
@@ -439,6 +452,15 @@ export default function Debts() {
     } catch (error) {
       logger.error("Failed to load service debt details:", error);
     }
+  };
+
+  const loadSessionDebtDetails = (
+    sessionId: number,
+    amountUsd: number,
+    amountLbp: number,
+    mode: "charges" | "payouts" | "all" = "charges",
+  ) => {
+    setSessionDetail({ sessionId, amountUsd, amountLbp, mode });
   };
 
   const handleProcessRepayment = async () => {
@@ -555,33 +577,24 @@ export default function Debts() {
       return;
     }
 
-    let reduceUsd = Math.min(paidUSD, dueUsd);
-    let reduceLbp = Math.min(paidLBP, dueLbp);
-    const leftoverUsd = paidUSD - reduceUsd;
-    const leftoverLbp = paidLBP - reduceLbp;
-
-    if (leftoverLbp > 0) {
-      // LBP remainder against the remaining USD debt — smart rounding: paying
-      // the rounded fractional part clears the exact fraction (see README).
-      const remUsdDue = dueUsd - reduceUsd;
-      const fractionalDebt = remUsdDue - Math.floor(remUsdDue);
-      const roundedFractionalLBP =
-        Math.ceil((fractionalDebt * conversionRate) / 5000) * 5000;
-      if (Math.abs(leftoverLbp - roundedFractionalLBP) < 1000) {
-        reduceUsd += fractionalDebt;
-      } else {
-        reduceUsd += leftoverLbp / conversionRate;
-      }
-    }
-    if (leftoverUsd > 0) {
-      // USD remainder settles remaining LBP debt; anything beyond that stays
-      // as USD over-reduction (customer credit), matching overpay behaviour.
-      const remLbpDue = dueLbp - reduceLbp;
-      const asLbp = leftoverUsd * conversionRate;
-      const toLbp = Math.min(asLbp, remLbpDue);
-      reduceLbp += toLbp;
-      reduceUsd += (asLbp - toLbp) / conversionRate;
-    }
+    // Change handed back to the customer (OUT/return legs) per currency. Netted
+    // out of the debt reduction so an overpayment is not counted twice —
+    // returned as change AND cleared from the debt (see repaymentReduction.ts).
+    const returnedUsd = repayReturnLegs
+      .filter((l) => l.currencyCode === "USD")
+      .reduce((s, l) => s + l.amount, 0);
+    const returnedLbp = repayReturnLegs
+      .filter((l) => l.currencyCode === "LBP")
+      .reduce((s, l) => s + l.amount, 0);
+    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
+      paidUsd: paidUSD,
+      paidLbp: paidLBP,
+      returnedUsd,
+      returnedLbp,
+      dueUsd,
+      dueLbp,
+      rate: conversionRate,
+    });
 
     if (!Number.isFinite(reduceUsd) || !Number.isFinite(reduceLbp)) {
       alert(
@@ -626,17 +639,32 @@ export default function Debts() {
         // Reload debtors list
         await loadDebtors();
 
-        // Check if client still has debt after repayment
-        const updatedTotal = window.api
-          ? await window.api.debt.getClientTotal(selectedClient.id)
-          : await api.getClientDebtTotal(selectedClient.id);
+        // Keep the client selected while EITHER currency has an open balance
+        // (debt or credit). The old check compared the USD-CONVERTED net
+        // (getClientTotal) to 0.01, which deselected a mixed client whose
+        // remaining debt was masked by the other currency's credit — and any
+        // client left holding a credit — then auto-select jumped to a
+        // different client right after the operator acted on this one.
+        let stillOpen = true;
+        if (window.api) {
+          const balRes = await window.api.debt.getClientBalance(
+            selectedClient.id,
+          );
+          if (balRes.success && balRes.data) {
+            stillOpen =
+              Math.abs(balRes.data.balance_usd) > 0.01 ||
+              Math.abs(balRes.data.balance_lbp) > 0.5;
+          }
+        } else {
+          stillOpen = (await api.getClientDebtTotal(selectedClient.id)) > 0.01;
+        }
 
-        if (updatedTotal > 0.01) {
-          // Client still has debt, reload their history
+        if (stillOpen) {
+          // Client still has an open balance, reload their history
           loadHistory(selectedClient.id);
           loadLedgerBalance(selectedClient.id);
         } else {
-          // Client's debt is fully closed, deselect them
+          // Client's account is fully closed, deselect them
           setSelectedClient(null);
           setHistory([]);
         }
@@ -724,29 +752,6 @@ export default function Debts() {
   };
 
   /**
-   * Try to parse a date value from an Excel cell.
-   * SheetJS gives us a JS serial number or a string depending on format.
-   */
-  const parseExcelDate = (val: unknown): string | null => {
-    if (val == null || val === "") return null;
-    if (val instanceof Date) {
-      return val.toISOString();
-    }
-    if (typeof val === "number") {
-      const date = XLSX.SSF.parse_date_code(val);
-      if (date) {
-        const d = new Date(date.y, date.m - 1, date.d);
-        return d.toISOString();
-      }
-    }
-    if (typeof val === "string") {
-      const parsed = new Date(val);
-      if (!isNaN(parsed.getTime())) return parsed.toISOString();
-    }
-    return null;
-  };
-
-  /**
    * Footer rows in the ledger template carry summed amounts, not real
    * transactions: column A reads "TOTAL ON ACCOUNT", column F reads
    * "TOTAL PAID", and below them sit "Balance Remaining" rows. They must
@@ -773,6 +778,14 @@ export default function Debts() {
           cellDates: true,
           raw: true,
         });
+
+        // Imported entries don't carry a trustworthy per-row date (ledger
+        // sheets are handwritten and inconsistently formatted). Stamp every
+        // entry with yesterday's date so bulk-imported history never shows
+        // up under "today" on the dashboard.
+        const importDate = new Date(
+          Date.now() - 24 * 60 * 60 * 1000,
+        ).toISOString();
 
         type ImportEntryLocal = {
           date: string | null;
@@ -881,7 +894,7 @@ export default function Debts() {
               !isSummaryRowLabel(leftDate)
             ) {
               entries.push({
-                date: parseExcelDate(leftDate),
+                date: importDate,
                 amount_usd: leftUsdVal,
                 amount_lbp: leftLbpVal,
                 description: String(leftDesc ?? "").trim(),
@@ -908,7 +921,7 @@ export default function Debts() {
               !isSummaryRowLabel(rightDate)
             ) {
               entries.push({
-                date: parseExcelDate(rightDate),
+                date: importDate,
                 amount_usd: rightUsdVal,
                 amount_lbp: rightLbpVal,
                 description: String(rightDesc ?? "").trim(),
@@ -1079,7 +1092,14 @@ export default function Debts() {
 
           <div className="flex-1 overflow-y-auto p-2 space-y-2">
             {filteredDebtors.map((client) => {
-              const isCreditor = client.total_debt_usd < 0;
+              // Per-currency position — coloring BOTH amounts by the USD
+              // sign painted a mixed client's LBP debt emerald (as credit)
+              // and labeled a pure-LBP creditor "Debtor".
+              const rowHasCredit =
+                client.total_debt_usd < -0.01 || client.total_debt_lbp < -0.5;
+              const rowHasDebt =
+                client.total_debt_usd > 0.01 || client.total_debt_lbp > 0.5;
+              const isMixed = rowHasCredit && rowHasDebt;
               const isSelected = selectedClient?.id === client.id;
               return (
                 <button
@@ -1087,9 +1107,11 @@ export default function Debts() {
                   onClick={() => setSelectedClient(client)}
                   className={`w-full text-left p-3 rounded-lg border transition-all ${
                     isSelected
-                      ? isCreditor
-                        ? "bg-emerald-500/10 border-emerald-500/50 shadow-md"
-                        : "bg-red-500/10 border-red-500/50 shadow-md"
+                      ? isMixed
+                        ? "bg-slate-500/10 border-slate-400/50 shadow-md"
+                        : rowHasCredit
+                          ? "bg-emerald-500/10 border-emerald-500/50 shadow-md"
+                          : "bg-red-500/10 border-red-500/50 shadow-md"
                       : "bg-slate-700/30 border-transparent hover:bg-slate-700/50"
                   }`}
                 >
@@ -1099,7 +1121,11 @@ export default function Debts() {
                         <span className="font-bold text-slate-200 truncate">
                           {client.full_name}
                         </span>
-                        {isCreditor ? (
+                        {isMixed ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-slate-500/10 text-slate-300 shrink-0">
+                            Mixed
+                          </span>
+                        ) : rowHasCredit ? (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 shrink-0">
                             Creditor
                           </span>
@@ -1115,13 +1141,25 @@ export default function Debts() {
                     </div>
                     <div className="text-right shrink-0 ml-2">
                       <div
-                        className={`font-bold text-sm ${isCreditor ? "text-emerald-400" : "text-red-400"}`}
+                        className={`font-bold text-sm ${
+                          client.total_debt_usd < -0.01
+                            ? "text-emerald-400"
+                            : client.total_debt_usd > 0.01
+                              ? "text-red-400"
+                              : "text-slate-400"
+                        }`}
                       >
                         ${Math.abs(client.total_debt_usd).toFixed(2)}
                       </div>
                       {client.total_debt_lbp !== 0 && (
                         <div
-                          className={`text-xs font-medium ${isCreditor ? "text-emerald-400/70" : "text-red-400/70"}`}
+                          className={`text-xs font-medium ${
+                            client.total_debt_lbp < -0.5
+                              ? "text-emerald-400/70"
+                              : client.total_debt_lbp > 0.5
+                                ? "text-red-400/70"
+                                : "text-slate-400/70"
+                          }`}
                         >
                           {Math.abs(client.total_debt_lbp).toLocaleString()} LBP
                         </div>
@@ -1144,86 +1182,95 @@ export default function Debts() {
           {selectedClient ? (
             <>
               <div className="px-5 py-3 border-b border-slate-700 bg-slate-800/50">
-                {(() => {
-                  const isCredit = netUsd < 0;
-                  return (
-                    <div className="flex items-center justify-between gap-4">
-                      {/* Left: Client name */}
-                      <h2 className="text-xl font-bold text-white shrink-0">
-                        {selectedClient.full_name}
-                      </h2>
+                <div className="flex items-center justify-between gap-4">
+                  {/* Left: Client name */}
+                  <h2 className="text-xl font-bold text-white shrink-0">
+                    {selectedClient.full_name}
+                  </h2>
 
-                      {/* Center: Balance — each currency carries its OWN sign
-                          and color: a client can hold a USD credit AND an LBP
-                          debt at the same time (forcing one sign on both once
-                          displayed a mixed position as double credit). */}
-                      <div
-                        className={`flex items-center gap-3 px-5 py-2 rounded-xl border ${
-                          netUsd < 0 && netLbp <= 0
-                            ? "bg-emerald-500/5 border-emerald-500/20"
-                            : netUsd >= 0 && netLbp >= 0
-                              ? "bg-red-500/5 border-red-500/20"
-                              : "bg-slate-500/5 border-slate-500/20"
-                        }`}
-                      >
-                        <span className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                          Balance
-                        </span>
+                  {/* Center: Balance — each currency carries its OWN sign
+                      and color: a client can hold a USD credit AND an LBP
+                      debt at the same time (forcing one sign on both once
+                      displayed a mixed position as double credit). */}
+                  <div
+                    className={`flex items-center gap-3 px-5 py-2 rounded-xl border ${
+                      netUsd < 0 && netLbp <= 0
+                        ? "bg-emerald-500/5 border-emerald-500/20"
+                        : netUsd >= 0 && netLbp >= 0
+                          ? "bg-red-500/5 border-red-500/20"
+                          : "bg-slate-500/5 border-slate-500/20"
+                    }`}
+                  >
+                    <span className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                      Balance
+                    </span>
+                    <span
+                      className={`font-mono text-2xl font-bold ${netUsd < 0 ? "text-emerald-400" : "text-red-400"}`}
+                    >
+                      {netUsd < 0 ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
+                    </span>
+                    {netLbp !== 0 && (
+                      <>
+                        <span className="text-slate-600 text-lg">|</span>
                         <span
-                          className={`font-mono text-2xl font-bold ${netUsd < 0 ? "text-emerald-400" : "text-red-400"}`}
+                          className={`font-mono text-2xl font-bold ${netLbp < 0 ? "text-emerald-400" : "text-red-400"}`}
                         >
-                          {netUsd < 0 ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
+                          {netLbp < 0 ? "+" : "-"}
+                          {Math.abs(netLbp).toLocaleString()} LBP
                         </span>
-                        {netLbp !== 0 && (
-                          <>
-                            <span className="text-slate-600 text-lg">|</span>
-                            <span
-                              className={`font-mono text-2xl font-bold ${netLbp < 0 ? "text-emerald-400" : "text-red-400"}`}
-                            >
-                              {netLbp < 0 ? "+" : "-"}
-                              {Math.abs(netLbp).toLocaleString()} LBP
-                            </span>
-                          </>
-                        )}
-                      </div>
+                      </>
+                    )}
+                  </div>
 
-                      {/* Right: Action button */}
+                  {/* Right: per-side actions. Each button is gated on ITS
+                      side having an outstanding amount, so a mixed account
+                      renders BOTH — the old single netUsd-picked button left
+                      the other side unreachable (and offered "Settle Debt"
+                      with zero due to a pure-LBP creditor, where any typed
+                      amount booked a repayment that GREW the liability). */}
+                  <div className="shrink-0 flex items-center gap-2">
+                    {hasDebt && (
                       <button
                         onClick={() => {
-                          setRepayMode(isCredit ? "cashout" : "repay");
+                          setRepayMode("repay");
                           setRepayPaymentLines([]);
                           setRepayReturnLegs([]);
                           setShowRepaymentModal(true);
                         }}
-                        className={`shrink-0 px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 ${
-                          isCredit
-                            ? "bg-red-600 hover:bg-red-500 text-white shadow-red-900/20"
-                            : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
-                        }`}
+                        className="px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
                       >
-                        {isCredit ? (
-                          <>
-                            <ArrowUpRight size={20} />
-                            Cash Out
-                          </>
-                        ) : (
-                          <>
-                            <ArrowDownLeft size={20} />
-                            Settle Debt
-                          </>
-                        )}
+                        <ArrowDownLeft size={20} />
+                        Settle Debt
                       </button>
-                    </div>
-                  );
-                })()}
+                    )}
+                    {hasCredit && (
+                      <button
+                        onClick={() => {
+                          setRepayMode("cashout");
+                          setRepayPaymentLines([]);
+                          setRepayReturnLegs([]);
+                          setShowRepaymentModal(true);
+                        }}
+                        className="px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white shadow-red-900/20"
+                      >
+                        <ArrowUpRight size={20} />
+                        Cash Out
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Debt Aging Buckets */}
               {aging &&
                 (aging.current.usd > 0 ||
+                  aging.current.lbp > 0 ||
                   aging.days_31_60.usd > 0 ||
+                  aging.days_31_60.lbp > 0 ||
                   aging.days_61_90.usd > 0 ||
-                  aging.over_90.usd > 0) && (
+                  aging.days_61_90.lbp > 0 ||
+                  aging.over_90.usd > 0 ||
+                  aging.over_90.lbp > 0) && (
                   <div className="px-5 py-2 border-b border-slate-700 bg-slate-800/30">
                     <div className="flex items-center gap-1.5 mb-1.5">
                       <Clock size={12} className="text-slate-500" />
@@ -1294,7 +1341,11 @@ export default function Debts() {
                 <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
                   <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
                     <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
-                      {isSelectedCreditor ? "Charges" : "Purchases"}
+                      {accountFraming === "mixed"
+                        ? "Purchases & Charges"
+                        : accountFraming === "creditor"
+                          ? "Charges"
+                          : "Purchases"}
                     </h3>
                     <span className="text-xs text-slate-500">
                       {debtEntries.length}
@@ -1337,10 +1388,6 @@ export default function Debts() {
                           header: "LBP",
                           className: "px-3 py-2 text-xs font-medium text-right",
                         },
-                        {
-                          header: "",
-                          className: "px-2 py-2 text-xs font-medium w-8",
-                        },
                       ]}
                       data={debtEntries}
                       exportExcel
@@ -1352,7 +1399,6 @@ export default function Debts() {
                       emptyMessage="No purchases on debt"
                       renderRow={(item) => {
                         const isRefunded = Boolean(item.is_refunded);
-                        const isEditing = editingNoteId === item.id;
                         return (
                           <>
                             <tr
@@ -1388,12 +1434,15 @@ export default function Debts() {
                                                   "Custom Service Debt"
                                                 ? "bg-teal-400/10 text-teal-400"
                                                 : item.transaction_type ===
-                                                    "CREDIT_DEPOSIT"
-                                                  ? "bg-emerald-400/10 text-emerald-400"
+                                                    "Session Debt"
+                                                  ? "bg-indigo-400/10 text-indigo-400"
                                                   : item.transaction_type ===
-                                                      "CREDIT_USED"
-                                                    ? "bg-orange-400/10 text-orange-400"
-                                                    : "bg-slate-700 text-slate-400"
+                                                      "CREDIT_DEPOSIT"
+                                                    ? "bg-emerald-400/10 text-emerald-400"
+                                                    : item.transaction_type ===
+                                                        "CREDIT_USED"
+                                                      ? "bg-orange-400/10 text-orange-400"
+                                                      : "bg-slate-700 text-slate-400"
                                         }`}
                                       >
                                         {item.transaction_type ===
@@ -1423,7 +1472,7 @@ export default function Debts() {
                                         ))}
                                       </div>
                                     ) : (
-                                      <span className="truncate max-w-[120px]">
+                                      <span className="whitespace-normal break-words">
                                         {item.note || "-"}
                                       </span>
                                     )}
@@ -1457,6 +1506,36 @@ export default function Debts() {
                                           <Eye size={13} />
                                         </button>
                                       )}
+                                    {item.session_id &&
+                                      item.transaction_type ===
+                                        "Session Debt" && (
+                                        <button
+                                          onClick={() =>
+                                            loadSessionDebtDetails(
+                                              item.session_id!,
+                                              item.amount_usd,
+                                              item.amount_lbp,
+                                              // On-account cash-out → its payout
+                                              // shows on the Payments side, so
+                                              // the basket eye shows CHARGES
+                                              // only. A cash payout has no such
+                                              // credit row, so show the FULL
+                                              // basket (both signs). See
+                                              // lira-session-cashout-credit /
+                                              // lira-session-debt-payout-signs.
+                                              sessionsWithOnAccountCredit.has(
+                                                item.session_id,
+                                              )
+                                                ? "charges"
+                                                : "all",
+                                            )
+                                          }
+                                          className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
+                                          title="View Basket Items"
+                                        >
+                                          <Eye size={13} />
+                                        </button>
+                                      )}
                                   </div>
                                 </div>
                               </td>
@@ -1478,56 +1557,7 @@ export default function Debts() {
                                   <span className="text-slate-600">-</span>
                                 )}
                               </td>
-                              <td className="px-2 py-2.5 text-center">
-                                {isEditing ? (
-                                  <div className="flex items-center gap-0.5">
-                                    <button
-                                      onClick={handleSaveNote}
-                                      disabled={editNoteSaving}
-                                      className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded transition-colors disabled:opacity-50"
-                                      title="Save"
-                                    >
-                                      <Check size={12} />
-                                    </button>
-                                    <button
-                                      onClick={() => setEditingNoteId(null)}
-                                      className="p-1 text-slate-400 hover:bg-slate-700 rounded transition-colors"
-                                      title="Cancel"
-                                    >
-                                      <CloseIcon size={12} />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => startNoteEdit(item)}
-                                    className="p-1 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded transition-colors"
-                                    title="Edit note"
-                                  >
-                                    <Pencil size={11} />
-                                  </button>
-                                )}
-                              </td>
                             </tr>
-                            {isEditing && (
-                              <tr className="bg-slate-800/60">
-                                <td colSpan={5} className="px-3 py-2">
-                                  <input
-                                    autoFocus
-                                    value={editNoteValue}
-                                    onChange={(e) =>
-                                      setEditNoteValue(e.target.value)
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") handleSaveNote();
-                                      if (e.key === "Escape")
-                                        setEditingNoteId(null);
-                                    }}
-                                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
-                                    placeholder="Add a note..."
-                                  />
-                                </td>
-                              </tr>
-                            )}
                           </>
                         );
                       }}
@@ -1536,7 +1566,11 @@ export default function Debts() {
                   {/* Footer total */}
                   <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
                     <span className="text-xs font-bold text-slate-400 uppercase">
-                      {isSelectedCreditor ? "Total Charged" : "Total Owed"}
+                      {accountFraming === "mixed"
+                        ? "Total Debited"
+                        : accountFraming === "creditor"
+                          ? "Total Charged"
+                          : "Total Owed"}
                     </span>
                     <div className="flex gap-3">
                       <span className="font-mono text-sm font-bold text-red-400">
@@ -1555,7 +1589,11 @@ export default function Debts() {
                 <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
                   <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
                     <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                      {isSelectedCreditor ? "Deposits" : "Payments"}
+                      {accountFraming === "mixed"
+                        ? "Payments & Deposits"
+                        : accountFraming === "creditor"
+                          ? "Deposits"
+                          : "Payments"}
                     </h3>
                     <span className="text-xs text-slate-500">
                       {paymentEntries.length}
@@ -1598,10 +1636,6 @@ export default function Debts() {
                           header: "LBP",
                           className: "px-3 py-2 text-xs font-medium text-right",
                         },
-                        {
-                          header: "",
-                          className: "px-2 py-2 text-xs font-medium w-8",
-                        },
                       ]}
                       data={paymentEntries}
                       exportExcel
@@ -1613,7 +1647,6 @@ export default function Debts() {
                       emptyMessage="No payments recorded"
                       renderRow={(item) => {
                         const isRefunded = Boolean(item.is_refunded);
-                        const isEditing = editingNoteId === item.id;
                         return (
                           <>
                             <tr
@@ -1643,6 +1676,24 @@ export default function Debts() {
                                         Refunded
                                       </span>
                                     )}
+                                    {item.session_id &&
+                                      item.transaction_type ===
+                                        "CREDIT_DEPOSIT" && (
+                                        <button
+                                          onClick={() =>
+                                            loadSessionDebtDetails(
+                                              item.session_id!,
+                                              item.amount_usd,
+                                              item.amount_lbp,
+                                              "payouts",
+                                            )
+                                          }
+                                          className="shrink-0 p-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all"
+                                          title="View Basket Items"
+                                        >
+                                          <Eye size={13} />
+                                        </button>
+                                      )}
                                   </span>
                                 </span>
                               </td>
@@ -1660,56 +1711,7 @@ export default function Debts() {
                                   <span className="text-slate-600">-</span>
                                 )}
                               </td>
-                              <td className="px-2 py-2.5 text-center">
-                                {isEditing ? (
-                                  <div className="flex items-center gap-0.5">
-                                    <button
-                                      onClick={handleSaveNote}
-                                      disabled={editNoteSaving}
-                                      className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded transition-colors disabled:opacity-50"
-                                      title="Save"
-                                    >
-                                      <Check size={12} />
-                                    </button>
-                                    <button
-                                      onClick={() => setEditingNoteId(null)}
-                                      className="p-1 text-slate-400 hover:bg-slate-700 rounded transition-colors"
-                                      title="Cancel"
-                                    >
-                                      <CloseIcon size={12} />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => startNoteEdit(item)}
-                                    className="p-1 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded transition-colors"
-                                    title="Edit note"
-                                  >
-                                    <Pencil size={11} />
-                                  </button>
-                                )}
-                              </td>
                             </tr>
-                            {isEditing && (
-                              <tr className="bg-slate-800/60">
-                                <td colSpan={5} className="px-3 py-2">
-                                  <input
-                                    autoFocus
-                                    value={editNoteValue}
-                                    onChange={(e) =>
-                                      setEditNoteValue(e.target.value)
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") handleSaveNote();
-                                      if (e.key === "Escape")
-                                        setEditingNoteId(null);
-                                    }}
-                                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
-                                    placeholder="Add a note..."
-                                  />
-                                </td>
-                              </tr>
-                            )}
                           </>
                         );
                       }}
@@ -1718,7 +1720,11 @@ export default function Debts() {
                   {/* Footer total */}
                   <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
                     <span className="text-xs font-bold text-slate-400 uppercase">
-                      {isSelectedCreditor ? "Total Deposited" : "Total Paid"}
+                      {accountFraming === "mixed"
+                        ? "Total Credited"
+                        : accountFraming === "creditor"
+                          ? "Total Deposited"
+                          : "Total Paid"}
                     </span>
                     <div className="flex gap-3">
                       <span className="font-mono text-sm font-bold text-emerald-400">
@@ -1750,11 +1756,31 @@ export default function Debts() {
             financialService={serviceDetail.fs}
             payments={serviceDetail.payments}
             debtAmount={serviceDetail.debtAmount}
-            isCreditor={isSelectedCreditor}
+            // Frame by the client's balance in the ENTRY's own currency — the
+            // account's USD sign painted a genuine LBP debt entry as a sky
+            // "Account Charge" whenever the client held a USD credit.
+            isCreditor={
+              serviceDetail.fs.currency === "LBP" ? netLbp < 0 : netUsd < 0
+            }
             onClose={() => {
               setShowServiceDetail(false);
               setServiceDetail(null);
             }}
+          />
+        )}
+
+        {/* Session Debt Detail Modal */}
+        {sessionDetail && (
+          <SessionDebtDetailModal
+            sessionId={sessionDetail.sessionId}
+            debtAmountUsd={sessionDetail.amountUsd}
+            debtAmountLbp={sessionDetail.amountLbp}
+            mode={sessionDetail.mode}
+            // Same per-entry-currency framing as the service modal above.
+            isCreditor={
+              sessionDetail.amountLbp !== 0 ? netLbp < 0 : netUsd < 0
+            }
+            onClose={() => setSessionDetail(null)}
           />
         )}
 

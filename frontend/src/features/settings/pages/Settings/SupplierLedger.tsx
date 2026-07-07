@@ -96,7 +96,9 @@ export default function SupplierLedger() {
   const api = useApi();
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
-  const { sellRate: exchangeRate } = useSellRate();
+  // Payments use the BUY rate (owner decision 2026-07-06): every
+  // MultiPaymentInput converts LBP↔USD at buyRate.
+  const { buyRate: exchangeRate } = useSellRate();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [balances, setBalances] = useState<SupplierBalance[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(

@@ -35,6 +35,7 @@ describe("DebtService — Customer Credit System", () => {
         edited_at TEXT,
         is_refunded INTEGER DEFAULT 0,
         refunded_at TEXT,
+        session_id INTEGER,
         FOREIGN KEY (client_id) REFERENCES clients(id)
       );
 

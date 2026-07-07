@@ -164,7 +164,8 @@ function createTestDb(): Database.Database {
       due_date         TEXT,
       note             TEXT,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-      created_by       INTEGER
+      created_by       INTEGER,
+      session_id       INTEGER
     );
 
     -- Seed the General drawer (cash) at zero so deltas are easy to read.
@@ -274,17 +275,21 @@ function drawerBalance(
   return row?.balance ?? 0;
 }
 
-function debtRows(
-  db: Database.Database,
-): Array<{ client_id: number; amount_usd: number; amount_lbp: number }> {
+function debtRows(db: Database.Database): Array<{
+  client_id: number;
+  amount_usd: number;
+  amount_lbp: number;
+  session_id: number | null;
+}> {
   return db
     .prepare(
-      "SELECT client_id, amount_usd, amount_lbp FROM debt_ledger ORDER BY id ASC",
+      "SELECT client_id, amount_usd, amount_lbp, session_id FROM debt_ledger ORDER BY id ASC",
     )
     .all() as Array<{
     client_id: number;
     amount_usd: number;
     amount_lbp: number;
+    session_id: number | null;
   }>;
 }
 
@@ -375,6 +380,9 @@ describe("SessionPaymentService.recordBasketPayment — basket allocation/payout
     expect(debts[0].client_id).toBe(clientId);
     expect(debts[0].amount_usd).toBe(50);
     expect(debts[0].amount_lbp).toBe(0);
+    // The row must carry the basket's session_id — the Debts page joins on this
+    // to show the itemized purchases behind a "Session Debt" entry.
+    expect(debts[0].session_id).toBe(sessionId);
   });
 
   // ── #3 gift-card realization ────────────────────────────────────────────────
@@ -481,6 +489,47 @@ describe("SessionPaymentService.recordBasketPayment — basket allocation/payout
 
     // A pure payout creates no client debt.
     expect(debtRows(db)).toHaveLength(0);
+  });
+
+  // ── CUSTOMER_ACCOUNT OUT leg = payout settled to the customer's account ─────
+  // A session cash-out (Binance/OMT/Whish RECEIVE) the customer takes as
+  // account credit arrives here as a CUSTOMER_ACCOUNT OUT leg. It must book a
+  // real credit LINKED TO THE SESSION (session_id) — that's what surfaces it on
+  // the Debts Payments side with the basket eye button and reduces the balance.
+  it("books a session-linked credit for a CUSTOMER_ACCOUNT OUT (payout to account) leg", () => {
+    const { sessionId } = seedSessionWithClient(db, {
+      name: "Account Cashout",
+      phone: "666",
+    });
+
+    service.recordBasketPayment(sessionId, {
+      legs: [
+        {
+          method: "CUSTOMER_ACCOUNT",
+          currencyCode: "USD",
+          amount: 40,
+          direction: "OUT",
+        },
+      ],
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    // Credit booked via DebtService.addCredit, carrying session_id (pre-fix it
+    // was called with no sessionId and note "Basket change returned").
+    expect(mockAddCredit).toHaveBeenCalledTimes(1);
+    expect(mockAddCredit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountUsd: 40,
+        amountLbp: 0,
+        sessionId,
+        note: `Session #${sessionId} basket`,
+      }),
+    );
+
+    // A CUSTOMER_ACCOUNT leg is non-drawer — no General movement, no cash row.
+    expect(drawerBalance(db, "General", "USD")).toBe(0);
+    expect(paymentRows(db)).toHaveLength(0);
   });
 
   // ── posted-once sanity: two covered sales + one CASH leg ────────────────────

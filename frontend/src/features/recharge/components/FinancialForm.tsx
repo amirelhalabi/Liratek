@@ -21,7 +21,7 @@ import type {
   AnyProvider,
 } from "../types";
 import { HistoryModal } from "./HistoryModal";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import logger from "@/utils/logger";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
@@ -112,7 +112,7 @@ export function FinancialForm({
   const isSplitPayment = paymentLines.length > 1;
   const [localSubmitting, setLocalSubmitting] = useState(false);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
-  const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
+  const { buyRate, sellRate } = useSellRate();
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
@@ -139,25 +139,11 @@ export function FinancialForm({
     }
   }, [clientId, clientName, clientPhone, initialPaymentMethod]);
 
-  // Fetch exchange rates on mount
-  useEffect(() => {
-    const loadRates = async () => {
-      try {
-        const list = await api.getRates();
-        const { buyRate, sellRate } = getExchangeRates(list);
-        setRates({ buyRate, sellRate });
-      } catch (error) {
-        logger.error("Failed to load exchange rates:", error);
-      }
-    };
-    loadRates();
-  }, [api]);
-
   // Determine exchange rate based on transaction type
   //   - SEND = customer sends money (money IN) → sellRate (customer pays us more LBP)
   //   - RECEIVE = customer receives money (money OUT) → buyRate (we pay customer less LBP)
   const isMoneyIn = serviceType === "SEND";
-  const exchangeRate = isMoneyIn ? rates.sellRate : rates.buyRate;
+  const exchangeRate = isMoneyIn ? sellRate : buyRate;
 
   if (!activeConfig || !activeProvider) return null;
   const meta = activeConfig;

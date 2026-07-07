@@ -152,10 +152,20 @@ export default function TopBar({
     };
   }, [matchedClientId]);
 
-  const showBalance =
-    clientBalance &&
-    (clientBalance.balance_usd !== 0 || clientBalance.balance_lbp !== 0);
-  const isCredit = clientBalance ? clientBalance.balance_usd < 0 : false;
+  // Per-currency flags — labeling BOTH currencies by the USD sign displayed
+  // a mixed client (USD credit + LBP debt) as one emerald "Credit" badge,
+  // painting the LBP debt as credit. Same bug class the Debts panel fixed
+  // per-currency (lira-097); each amount now carries its own color, and a
+  // mixed position gets a neutral "Balance" badge with explicit signs.
+  const balUsd = clientBalance?.balance_usd ?? 0;
+  const balLbp = clientBalance?.balance_lbp ?? 0;
+  const balHasCredit = balUsd < -0.01 || balLbp < -0.5;
+  const balHasDebt = balUsd > 0.01 || balLbp > 0.5;
+  const balMixed = balHasCredit && balHasDebt;
+  // Gate on the SAME epsilons that classify the badge — a sub-epsilon residue
+  // (e.g. −$0.005) is neither credit nor debt, so showing it would render a
+  // "Debt" label next to an emerald amount.
+  const showBalance = balHasCredit || balHasDebt;
 
   // Track notification count changes
   useEffect(() => {
@@ -252,23 +262,39 @@ export default function TopBar({
         {/* Client Debt Balance */}
         {showBalance && (
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${isCredit ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${
+              balMixed
+                ? "bg-slate-500/5 border-slate-500/20"
+                : balHasCredit
+                  ? "bg-emerald-500/5 border-emerald-500/20"
+                  : "bg-red-500/5 border-red-500/20"
+            }`}
           >
             <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
-              {isCredit ? "Credit" : "Debt"}
+              {balMixed ? "Balance" : balHasCredit ? "Credit" : "Debt"}
             </span>
             <span
-              className={`font-mono text-sm font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
+              className={`font-mono text-sm font-bold ${
+                balUsd < 0
+                  ? "text-emerald-400"
+                  : balUsd > 0
+                    ? "text-red-400"
+                    : "text-slate-400"
+              }`}
             >
-              ${Math.abs(clientBalance!.balance_usd).toFixed(2)}
+              {balMixed ? (balUsd < 0 ? "+" : "-") : ""}$
+              {Math.abs(balUsd).toFixed(2)}
             </span>
-            {clientBalance!.balance_lbp !== 0 && (
+            {balLbp !== 0 && (
               <>
                 <span className="text-slate-600">|</span>
                 <span
-                  className={`font-mono text-sm font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
+                  className={`font-mono text-sm font-bold ${
+                    balLbp < 0 ? "text-emerald-400" : "text-red-400"
+                  }`}
                 >
-                  {Math.abs(clientBalance!.balance_lbp).toLocaleString()} LBP
+                  {balMixed ? (balLbp < 0 ? "+" : "-") : ""}
+                  {Math.abs(balLbp).toLocaleString()} LBP
                 </span>
               </>
             )}

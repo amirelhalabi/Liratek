@@ -39,9 +39,12 @@ export function registerOMTHandlers(): void {
         },
         "Processing financial service transaction",
       );
-      const result = financialService.addTransaction(
-        v.data as CreateFinancialServiceData,
-      );
+      const result = financialService.addTransaction({
+        ...(v.data as CreateFinancialServiceData),
+        // Stamp the acting user — every row this writes (transaction,
+        // payments, debt_ledger) has a FK to users(id) (foreign_keys=ON).
+        userId: auth.userId,
+      });
       audit(event.sender.id, {
         action: "create",
         entity_type: "financial_transaction",

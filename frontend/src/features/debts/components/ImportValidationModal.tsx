@@ -129,35 +129,35 @@ const SECTION_CONFIG: Record<
   }
 > = {
   1: {
-    label: "In List, No Matching Page",
+    label: "Client Listed But No Matching Page Found",
     color: "text-orange-400",
     badgeColor: "bg-orange-500/20 text-orange-400",
     icon: FileQuestion,
     actions: ["link", "keep", "discard"],
   },
   2: {
-    label: "Unmatched Client Page Name",
+    label: "Page Found But Client Not Listed",
     color: "text-purple-400",
     badgeColor: "bg-purple-500/20 text-purple-400",
     icon: FileX2,
     actions: ["keep", "link", "discard"],
   },
   3: {
-    label: "List Entry Missing Phone",
+    label: "Phone Missing In Client List",
     color: "text-amber-400",
     badgeColor: "bg-amber-500/20 text-amber-400",
     icon: PhoneOff,
     actions: ["manual_phone", "merge", "keep", "discard"],
   },
   4: {
-    label: "Page Missing Phone",
+    label: "Phone Missing On Client Page",
     color: "text-red-400",
     badgeColor: "bg-red-500/20 text-red-400",
     icon: PhoneOff,
     actions: ["manual_phone", "merge", "keep", "discard"],
   },
   5: {
-    label: "Phone Mismatch (List vs Page)",
+    label: "Phone Differs Between List And Page",
     color: "text-cyan-400",
     badgeColor: "bg-cyan-500/20 text-cyan-400",
     icon: ArrowLeftRight,

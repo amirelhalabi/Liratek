@@ -174,18 +174,25 @@ export class SessionPaymentService {
       // CUSTOMER_ACCOUNT and other non-drawer methods.
       if (!isDrawerAffectingMethod(leg.method)) {
         if (isOut) {
-          // OUT on account = store credit deposit (change kept on account).
+          // OUT on account = store-credit deposit. Two cases both land here:
+          //  - overpayment change the customer keeps on account, and
+          //  - a cash-out (Binance/OMT/Whish RECEIVE) the customer settles to
+          //    their account instead of taking cash — booked as a real credit
+          //    that reduces their balance and shows on the Debts Payments side.
+          // session_id links it to the basket so the Debts page can open the
+          // basket breakdown (the payments-side eye button).
           if (!sessionClientId) {
             throw new Error(
-              "Client is required to return change as store credit",
+              "Client is required to settle a payout to store credit",
             );
           }
           getDebtService().addCredit({
             clientId: sessionClientId,
             amountUsd: leg.currencyCode === "USD" ? amt : 0,
             amountLbp: leg.currencyCode === "LBP" ? amt : 0,
-            note: "Basket change returned",
+            note: `Session #${sessionId} basket`,
             userId,
+            sessionId,
           });
         } else {
           // IN on account = customer charges the basket to their account (debt).

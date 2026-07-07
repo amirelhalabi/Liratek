@@ -164,7 +164,9 @@ export default function SuppliersPage() {
   const [cashflowKey, setCashflowKey] = useState(0);
 
   // ── Exchange rate ─────────────────────────────────────────────────────────
-  const { sellRate: exchangeRate } = useSellRate();
+  // Payments use the BUY rate (owner decision 2026-07-06): every
+  // MultiPaymentInput converts LBP↔USD at buyRate.
+  const { buyRate: exchangeRate } = useSellRate();
 
   // ── Server queries ────────────────────────────────────────────────────────
   const suppliersQuery = useSuppliersQuery();

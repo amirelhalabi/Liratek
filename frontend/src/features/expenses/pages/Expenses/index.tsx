@@ -11,6 +11,7 @@ import {
 import { HistoryModal } from "./components/HistoryModal";
 import { StatsCards } from "../../components/StatsCards";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { useSellRate } from "@/hooks/useSellRate";
 
 interface Expense {
   id?: number;
@@ -32,6 +33,8 @@ const EXPENSE_CATEGORIES = [
 
 export default function Expenses() {
   const api = useApi();
+  // Expenses are a Money-OUT flow (shop pays out) — buy rate.
+  const { buyRate: exchangeRate } = useSellRate();
   const descriptionRef = useRef<HTMLInputElement>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
@@ -232,6 +235,7 @@ export default function Expenses() {
                 { code: "USD", symbol: "$" },
                 { code: "LBP", symbol: "LBP" },
               ]}
+              exchangeRate={exchangeRate}
               label="Payment"
               showDiscount={false}
               showPmFee={false}

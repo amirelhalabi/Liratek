@@ -148,8 +148,10 @@ export function TelecomForm({
     "USD",
   );
   const [daysPriceUsdInput, setDaysPriceUsdInput] = useState("");
-  // Alfa Gift is always money IN (customer pays us) → shared SELL rate.
-  const { sellRate: exchangeRate } = useSellRate();
+  // Payments use the BUY rate (owner decision 2026-07-06): the MultiPaymentInput
+  // converts LBP↔USD at buyRate. (The tier-price `sellRate` local below is a
+  // separate pricing rate and is unaffected.)
+  const { buyRate: exchangeRate } = useSellRate();
   const [costRate, setCostRate] = useState(85000);
   const [discount, setDiscount] = useState(0);
   void discount; // surfaced to parent via onDiscountChange; kept locally for future use

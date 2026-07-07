@@ -116,7 +116,7 @@ export default function AuditPage() {
                 type="number"
                 value={rowsLimit}
                 onChange={(e) => setRowsLimit(Number(e.target.value) || 50)}
-                className={`${inputClass} w-16`}
+                className={`${inputClass} w-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
               />
             </div>
           </div>
@@ -175,7 +175,7 @@ export default function AuditPage() {
                 type="number"
                 value={rowsLimit}
                 onChange={(e) => setRowsLimit(Number(e.target.value) || 50)}
-                className={`${inputClass} w-16`}
+                className={`${inputClass} w-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
               />
             </div>
           </div>

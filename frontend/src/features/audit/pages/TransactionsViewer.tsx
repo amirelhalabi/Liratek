@@ -55,13 +55,13 @@ type TransactionRow = {
 
 const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
 
-// Transaction types hidden from the table for now: auto-generated
-// supplier-ledger payment siblings (SUPPLIER_PAYMENT) and client-activity log
-// noise (CLIENT_CREATED), neither useful in the operator-facing list. They are
-// also removed from the filter dropdown (see auditConstants FILTER_GROUPS).
-// NOTE: SUPPLIER_PAYMENT + is_credit rows are real commission revenue
-// ("Supplier Credit") and are kept visible — see the isSupplierCredit guard in
-// the load filter below.
+// Transaction types hidden from the table by default: auto-generated
+// supplier-ledger payment siblings (SUPPLIER_PAYMENT, including the is_credit
+// "Supplier Credit" rows) and client-activity log noise (CLIENT_CREATED),
+// neither useful in the operator-facing list by default. SUPPLIER_PAYMENT is
+// still reachable via the dedicated "Supplier Credit" filter option (see
+// auditConstants FILTER_GROUPS) — the load filter below only un-hides it when
+// that option is explicitly selected.
 const HIDDEN_TRANSACTION_TYPES = new Set(["SUPPLIER_PAYMENT", "CLIENT_CREATED"]);
 
 // ---------------------------------------------------------------------------
@@ -597,22 +597,52 @@ export default function TransactionsViewer({
         filters.has_item_key = activeOption.has_item_key;
       if (search) filters.search = search;
 
-      // Over-fetch then slice: hiding rows client-side would otherwise shrink
-      // the list below the requested count (the SQL LIMIT runs before this
-      // filter). SUPPLIER_PAYMENT is special-cased — its is_credit variant is
-      // real commission revenue and stays visible.
+      // Exclude the always-hidden types at the SQL level so LIMIT is applied
+      // to already-filtered rows — a burst of hidden-type rows (e.g. hundreds
+      // of CLIENT_CREATED from a bulk import) can no longer crowd genuinely
+      // visible rows out of the result window. "Supplier Credit" is the one
+      // deliberate exception: it needs SUPPLIER_PAYMENT rows to stay in the
+      // raw result so it can narrow them down to just the is_credit ones.
+      filters.excludeTypes = activeOption?.supplier_credit_only
+        ? ["CLIENT_CREATED"]
+        : Array.from(HIDDEN_TRANSACTION_TYPES);
+
       const requested = Number(limit) || 50;
-      const res = await getRecentTransactions(requested * 3, filters);
-      let visible = ((res as TransactionRow[]) || []).filter(
-        (r) =>
-          !(
-            HIDDEN_TRANSACTION_TYPES.has(r.type) &&
-            !isSupplierCredit(r.type, r.metadata_json)
-          ),
-      );
-      // B6: "Cash only (till)" — keep transactions with a CASH payment leg.
-      if (activeOption?.cash_only) {
-        visible = visible.filter((r) => isCashTransaction(r.payments));
+      const filterVisible = (rows: TransactionRow[]) => {
+        let vis = rows.filter((r) => {
+          if (!HIDDEN_TRANSACTION_TYPES.has(r.type)) return true;
+          return (
+            !!activeOption?.supplier_credit_only &&
+            isSupplierCredit(r.type, r.metadata_json)
+          );
+        });
+        // B6: "Cash only (till)" — keep transactions with a CASH payment leg.
+        if (activeOption?.cash_only) {
+          vis = vis.filter((r) => isCashTransaction(r.payments));
+        }
+        return vis;
+      };
+
+      // The SQL exclusion covers the default case in one round-trip. The two
+      // remaining JS-only filters above (Supplier Credit's is_credit check,
+      // Cash Only's joined payment legs) can still under-fill a window, so
+      // keep widening the fetch until it's satisfied or the table is
+      // exhausted (raw came back shorter than what we asked for).
+      let fetchSize = requested * 3;
+      const FETCH_CAP = Math.max(fetchSize, 5000);
+      let visible: TransactionRow[] = [];
+      for (;;) {
+        const raw = ((await getRecentTransactions(fetchSize, filters)) ||
+          []) as TransactionRow[];
+        visible = filterVisible(raw);
+        if (
+          visible.length >= requested ||
+          raw.length < fetchSize ||
+          fetchSize >= FETCH_CAP
+        ) {
+          break;
+        }
+        fetchSize *= 3;
       }
       setRows(visible.slice(0, requested));
     } finally {

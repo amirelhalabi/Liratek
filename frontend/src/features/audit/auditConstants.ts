@@ -57,6 +57,8 @@ export type FilterOption = {
   has_item_key?: boolean;
   /** B6: keep only transactions with a physical-cash (CASH) payment leg. */
   cash_only?: boolean;
+  /** Keep only the is_credit SUPPLIER_PAYMENT rows (see TransactionsViewer). */
+  supplier_credit_only?: boolean;
 };
 
 export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
@@ -178,8 +180,16 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "Expense", type: "EXPENSE" },
       { label: "Debt Repayment", type: "DEBT_REPAYMENT" },
       // SUPPLIER_PAYMENT and CLIENT_CREATED are intentionally hidden from the
-      // transactions table (see HIDDEN_TRANSACTION_TYPES in TransactionsViewer).
+      // transactions table by default (see HIDDEN_TRANSACTION_TYPES in
+      // TransactionsViewer). "Supplier Credit" below is the one deliberate
+      // exception: selecting it narrows the query to SUPPLIER_PAYMENT and
+      // reveals just the is_credit rows.
       { label: "Supplier Settlement", type: "SUPPLIER_SETTLEMENT" },
+      {
+        label: "Supplier Credit",
+        type: "SUPPLIER_PAYMENT",
+        supplier_credit_only: true,
+      },
       { label: "Checkpoint", type: "CHECKPOINT" },
       { label: "Refund", type: "REFUND" },
       { label: "Client Updated", type: "CLIENT_UPDATED" },

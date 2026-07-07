@@ -1012,6 +1012,7 @@ export interface TransactionFiltersParam {
   service_type?: string;
   has_item_key?: boolean;
   search?: string;
+  excludeTypes?: string[];
 }
 
 export async function getRecentTransactions(

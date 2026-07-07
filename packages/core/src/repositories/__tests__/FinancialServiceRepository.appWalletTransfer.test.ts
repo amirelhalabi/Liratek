@@ -42,8 +42,8 @@ function createTestDb(): Database.Database {
   const db = new Database(":memory:");
 
   db.exec(`
-    CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL);
-    INSERT INTO users (id, username) VALUES (1, 'admin');
+    CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, role TEXT DEFAULT 'staff');
+    INSERT INTO users (id, username, role) VALUES (1, 'admin', 'admin');
 
     CREATE TABLE clients (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

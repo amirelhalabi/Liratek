@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useApi, PageHeader, DecimalInput } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import {
   Ticket,
@@ -66,7 +66,9 @@ export function LotoPage() {
     totalCommission: 0,
     totalPrizes: 0,
   });
-  const [exchangeRate, setExchangeRate] = useState(100000); // Default fallback
+  // Payments use the BUY rate (owner decision 2026-07-06): every
+  // MultiPaymentInput converts LBP↔USD at buyRate.
+  const { buyRate: exchangeRate } = useSellRate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const { methods } = usePaymentMethods();
@@ -85,24 +87,7 @@ export function LotoPage() {
   useEffect(() => {
     loadSettings();
     loadTodayStats();
-    loadExchangeRate();
   }, []);
-
-  async function loadExchangeRate() {
-    try {
-      // Check if getRates API is available
-      const getRatesApi = (api as any)?.getRates;
-      if (!getRatesApi) {
-        return;
-      }
-
-      const ratesList = await getRatesApi();
-      const { sellRate } = getExchangeRates(ratesList);
-      setExchangeRate(sellRate);
-    } catch {
-      // silent
-    }
-  }
 
   async function loadSettings() {
     try {

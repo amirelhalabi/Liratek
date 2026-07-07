@@ -40,7 +40,7 @@ import { HistoryModal } from "./components/HistoryModal";
 import { PresetManagerModal } from "./components/PresetManagerModal";
 import { StatsCards } from "../../components/StatsCards";
 import { HoldMoneySection } from "../../components/HoldMoneySection";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
@@ -171,21 +171,9 @@ export default function CustomServices() {
     resetSaveAsClient,
   } = useSaveAsClient(clientName, phoneNumber);
 
-  // Exchange rate for multi-currency payments (loaded from database)
-  const [exchangeRate, setExchangeRate] = useState(89500);
-
-  useEffect(() => {
-    const loadRate = async () => {
-      try {
-        const rates = await api.getRates();
-        const { sellRate } = getExchangeRates(rates);
-        setExchangeRate(sellRate);
-      } catch (error) {
-        logger.error("Failed to load exchange rate:", error);
-      }
-    };
-    loadRate();
-  }, [api]);
+  // Payments use the BUY rate (owner decision 2026-07-06): every
+  // MultiPaymentInput converts LBP↔USD at buyRate.
+  const { buyRate: exchangeRate } = useSellRate();
 
   // ─── Product Search ───
   const clearProduct = () => {
