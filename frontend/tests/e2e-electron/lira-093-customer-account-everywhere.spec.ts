@@ -1,15 +1,21 @@
 /**
  * E2E: LIRA-093 — CUSTOMER_ACCOUNT works from EVERY payment form (owner req
- * 2026-07-04): one shared "E2E Client"; on each form type the first letters,
- * pick the autocomplete suggestion, pay on account, and assert the client's
- * balance moved in the Debts data — finishing with the Debts page UI.
+ * 2026-07-04, revised 2026-07-09): one shared "E2E Client"; on each form type
+ * the first letters, pick the autocomplete suggestion, pay on account, and
+ * assert the client's balance moved in the Debts data — finishing with the
+ * Debts page UI.
  *
- * Two intended models are asserted:
- *  - OPEN DEBT (custom services, loto, telecom recharge): the sale books a
- *    debt row — client's debt INCREASES by the amount.
- *  - PREPAID CREDIT (financial services: katsh/ipick catalog, omt/whish app
- *    transfers): CUSTOMER_ACCOUNT spends the client's prepaid credit —
- *    validated against available balance, consumption moves the balance up.
+ * ONE model everywhere: OPEN DEBT. Every form — custom services, loto,
+ * telecom recharge, and financial services (katsh/ipick catalog, omt/whish
+ * app transfers) — books a `debt_ledger` row on CUSTOMER_ACCOUNT; the
+ * client's debt INCREASES by the amount. No prior balance is required — a
+ * client with zero (or even positive/owing) balance can still charge to
+ * account, same as POS/telecom. Financial services previously validated
+ * CUSTOMER_ACCOUNT against existing prepaid credit and rejected a
+ * never-credited client outright ("Not enough balance…"); that gate
+ * (`DebtService.validateCustomerAccountAvailability`) is retired — the
+ * katsh and omt-app tests below prove a client with NO seeded credit can
+ * still charge to account.
  *
  * This sweep's mapping found (and this session fixed): loto silently DROPPED
  * CUSTOMER_ACCOUNT legs — ticket sold, supplier debt accrued, customer owed
@@ -45,12 +51,6 @@ type Api = {
     };
     debt: {
       getDebtors: () => Promise<DebtorRow[]>;
-      addCredit: (d: {
-        clientId: number;
-        amountUsd: number;
-        amountLbp: number;
-        note?: string;
-      }) => Promise<{ success: boolean; error?: string }>;
     };
     mobileServiceItems: {
       getAll: () => Promise<{
@@ -65,8 +65,6 @@ type Api = {
     };
   };
 };
-
-let clientId = 0;
 
 /** Snapshot the E2E Client's debt balance (0/0 when no ledger rows yet). */
 async function balance(page: Page): Promise<{ usd: number; lbp: number }> {
@@ -114,11 +112,10 @@ test.describe("LIRA-093 — customer account everywhere", () => {
         phone_number: `71${String(Date.now()).slice(-6)}`,
         whatsapp_opt_in: 0,
       });
-      return { ok: created.success === true, id: created.id ?? 0, error: created.error ?? null };
+      return { ok: created.success === true, error: created.error ?? null };
     });
     expect(res.error).toBeNull();
     expect(res.ok).toBe(true);
-    clientId = res.id;
   });
 
   test("custom services: pick E2E Client → auto CUSTOMER_ACCOUNT → debt +$25", async ({
@@ -220,25 +217,14 @@ test.describe("LIRA-093 — customer account everywhere", () => {
       .toBeGreaterThanOrEqual(500_000);
   });
 
-  test("seed prepaid credit, then katsh catalog sale consumes it (financial-services model)", async ({
+  test("katsh catalog sale on account (no prior credit needed): debt +item price", async ({
     appPage,
   }) => {
-    // Financial services validate CUSTOMER_ACCOUNT against prepaid credit —
-    // a fresh client is rejected by design. Deposit credit first.
-    const credited = await appPage.evaluate(async (id) => {
-      const w = window as unknown as Api;
-      const r = await w.api.debt.addCredit({
-        clientId: id,
-        amountUsd: 100,
-        // Must exceed the earlier telecom debt (~1.15M LBP) plus the katsh
-        // item price — the credit gate validates NET available balance.
-        amountLbp: 5_000_000,
-        note: "L093 prepaid credit",
-      });
-      return r.success === true ? null : (r.error ?? "failed");
-    }, clientId);
-    expect(credited).toBeNull();
-
+    // Financial services book CUSTOMER_ACCOUNT as open debt, same as every
+    // other module — no prior balance/credit is required. The client already
+    // carries debt from the earlier custom-services/loto/telecom tests in
+    // this serial suite; this proves that existing (non-negative) balance
+    // does not block a further on-account charge.
     // Pick a real active katsh item + its price from the catalog.
     const item = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
@@ -286,9 +272,9 @@ test.describe("LIRA-093 — customer account everywhere", () => {
       .last()
       .click();
 
-    // Consumption: the LBP balance moves UP by the item price (toward zero
-    // from the credited −2,000,000). On failure, surface any captured app
-    // alert — submit rejections are otherwise invisible (auto-accepted).
+    // Open debt: the LBP balance moves UP by the item price (no seeded
+    // credit involved). On failure, surface any captured app alert — submit
+    // rejections are otherwise invisible (auto-accepted).
     try {
       await expect
         .poll(async () => (await balance(appPage)).lbp - before.lbp, {
@@ -301,7 +287,7 @@ test.describe("LIRA-093 — customer account everywhere", () => {
     }
   });
 
-  test("omt app transfer SEND $20 on account consumes USD credit", async ({
+  test("omt app transfer SEND $20 on account: debt +$20 (no prior credit needed)", async ({
     appPage,
   }) => {
     const before = await balance(appPage);

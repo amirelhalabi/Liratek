@@ -853,7 +853,7 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
 -- Toggleable modules (can be enabled/disabled from Settings > Modules)
 INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
   ('pos',         'Point of Sale','ShoppingCart',  '/pos',           1,  1, 0, 0),
-  ('debts',       'Debts',        'BookOpen',      '/debts',         2,  1, 0, 0),
+  ('debts',       'Accounts',     'BookOpen',      '/debts',         2,  1, 0, 0),
   ('inventory',   'Inventory',    'Package',       '/products',      3,  1, 0, 0),
   ('clients',     'Clients',      'Users',         '/clients',       4,  1, 0, 0),
   ('exchange',    'Exchange',     'RefreshCw',     '/exchange',      5,  1, 0, 0),
@@ -1298,4 +1298,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (118, 'rename_alfa_cards_to_face_value'),
     (119, 'flip_loto_supplier_ledger_sign'),
     (120, 'add_supplier_ledger_refund_flag'),
-    (121, 'add_session_id_to_debt_ledger');
+    (121, 'add_session_id_to_debt_ledger'),
+    (122, 'rename_debts_module_to_accounts');

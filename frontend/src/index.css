@@ -115,8 +115,13 @@ html:not(.dark) .border-slate-600\/50 {
 html:not(.dark) .border-slate-500 {
   border-color: #cbd5e1 !important;
 }
+/* Tailwind v4 renders divide-y as border-bottom on `:not(:last-child)`
+   (v3 used border-top on `:not(:first-child)`). Match BOTH so no divider —
+   including the first row's — is left with the raw dark slate border. */
 html:not(.dark) .divide-slate-700 > :not(:first-child),
-html:not(.dark) .divide-slate-600 > :not(:first-child) {
+html:not(.dark) .divide-slate-700 > :not(:last-child),
+html:not(.dark) .divide-slate-600 > :not(:first-child),
+html:not(.dark) .divide-slate-600 > :not(:last-child) {
   border-color: #e2e8f0 !important;
 }
 html:not(.dark) .ring-slate-700,

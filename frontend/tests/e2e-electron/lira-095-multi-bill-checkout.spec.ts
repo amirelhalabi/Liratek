@@ -554,7 +554,12 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     }
     const rowsWithLegs = rows.filter((r) => (r.payments ?? []).length > 0);
     expect(rowsWithLegs).toHaveLength(1);
-    expect(rowsWithLegs[0].summary ?? "").toContain("SEND");
+    // The carrier is the aggregated items SEND. Since the 2026-07 summary
+    // rewrite, Katsh/iPick item rows read "Katsh: <item note> — <amount> LBP"
+    // (bills read "Katsh Bill: …"), so identify it by the item label rather
+    // than the literal "SEND".
+    expect(rowsWithLegs[0].summary ?? "").toContain(item!.label);
+    expect(rowsWithLegs[0].summary ?? "").not.toContain("Bill:");
     const inLbp = rowsWithLegs[0]
       .payments!.filter(
         (p) => (p.signed_amount ?? p.amount) > 0 && p.currency_code === "LBP",

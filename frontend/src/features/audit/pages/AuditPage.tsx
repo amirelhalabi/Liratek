@@ -21,8 +21,9 @@ const inputClass =
 export default function AuditPage() {
   const [active, setActive] = useState<TabKey>("transactions");
 
-  // Shared row limit across both tabs
-  const [rowsLimit, setRowsLimit] = useState(50);
+  // Shared row limit across both tabs. Allowed to be "" so the field can be
+  // cleared while editing; every consumer coerces "" → 50 (see below).
+  const [rowsLimit, setRowsLimit] = useState<number | "">(50);
 
   // Transaction filters
   const [txSelectedFilter, setTxSelectedFilter] = useState("");
@@ -115,7 +116,10 @@ export default function AuditPage() {
               <input
                 type="number"
                 value={rowsLimit}
-                onChange={(e) => setRowsLimit(Number(e.target.value) || 50)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setRowsLimit(v === "" ? "" : Math.max(1, Number(v)));
+                }}
                 className={`${inputClass} w-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
               />
             </div>
@@ -174,7 +178,10 @@ export default function AuditPage() {
               <input
                 type="number"
                 value={rowsLimit}
-                onChange={(e) => setRowsLimit(Number(e.target.value) || 50)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setRowsLimit(v === "" ? "" : Math.max(1, Number(v)));
+                }}
                 className={`${inputClass} w-16 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
               />
             </div>
@@ -186,7 +193,7 @@ export default function AuditPage() {
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto">
         {active === "transactions" && (
           <TransactionsViewer
-            limit={String(rowsLimit)}
+            limit={String(rowsLimit || 50)}
             selectedFilter={txSelectedFilter}
             search={txSearch}
             from={txFrom}
@@ -200,7 +207,7 @@ export default function AuditPage() {
             search={auditSearch}
             from={auditFrom}
             to={auditTo}
-            limit={rowsLimit}
+            limit={rowsLimit || 50}
           />
         )}
       </div>

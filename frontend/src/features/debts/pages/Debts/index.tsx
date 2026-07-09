@@ -1027,7 +1027,7 @@ export default function Debts() {
 
       <PageHeader
         icon={BookOpen}
-        title="Debts"
+        title="Accounts"
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -1068,12 +1068,6 @@ export default function Debts() {
             </div>
             {/* New filter dropdown */}
             <div className="mt-4">
-              <label
-                htmlFor="debts-filter"
-                className="block text-sm font-medium text-slate-400 mb-2"
-              >
-                Show Debts:
-              </label>
               <Select
                 value={debtFilter}
                 onChange={(value) => {
@@ -1105,65 +1099,55 @@ export default function Debts() {
                 <button
                   key={client.id}
                   onClick={() => setSelectedClient(client)}
-                  className={`w-full text-left p-3 rounded-lg border transition-all ${
-                    isSelected
-                      ? isMixed
+                  className={`w-full text-left px-3 py-4 rounded-lg border transition-all ${
+                    isMixed
+                      ? isSelected
                         ? "bg-slate-500/10 border-slate-400/50 shadow-md"
-                        : rowHasCredit
+                        : "bg-slate-500/5 border-slate-500/20 hover:bg-slate-500/10"
+                      : rowHasCredit
+                        ? isSelected
                           ? "bg-emerald-500/10 border-emerald-500/50 shadow-md"
-                          : "bg-red-500/10 border-red-500/50 shadow-md"
-                      : "bg-slate-700/30 border-transparent hover:bg-slate-700/50"
+                          : "bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10"
+                        : isSelected
+                          ? "bg-red-500/10 border-red-500/50 shadow-md"
+                          : "bg-red-500/5 border-red-500/20 hover:bg-red-500/10"
                   }`}
                 >
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-slate-200 truncate">
-                          {client.full_name}
-                        </span>
-                        {isMixed ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-slate-500/10 text-slate-300 shrink-0">
-                            Mixed
-                          </span>
-                        ) : rowHasCredit ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 shrink-0">
-                            Creditor
-                          </span>
-                        ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-500/10 text-red-400 shrink-0">
-                            Debtor
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {client.phone_number || "No Phone"}
-                      </div>
+                  <div>
+                    <div className="font-bold text-slate-200 truncate">
+                      {client.full_name}
                     </div>
-                    <div className="text-right shrink-0 ml-2">
-                      <div
-                        className={`font-bold text-sm ${
-                          client.total_debt_usd < -0.01
-                            ? "text-emerald-400"
-                            : client.total_debt_usd > 0.01
-                              ? "text-red-400"
-                              : "text-slate-400"
-                        }`}
-                      >
-                        ${Math.abs(client.total_debt_usd).toFixed(2)}
-                      </div>
-                      {client.total_debt_lbp !== 0 && (
-                        <div
-                          className={`text-xs font-medium ${
-                            client.total_debt_lbp < -0.5
-                              ? "text-emerald-400/70"
-                              : client.total_debt_lbp > 0.5
-                                ? "text-red-400/70"
-                                : "text-slate-400/70"
+                    <div className="flex justify-between items-baseline gap-2 mt-1.5">
+                      <span className="text-sm text-slate-400 truncate min-w-0">
+                        {client.phone_number || "No Phone"}
+                      </span>
+                      <span className="flex items-baseline gap-2 shrink-0">
+                        <span
+                          className={`font-bold text-sm ${
+                            client.total_debt_usd < -0.01
+                              ? "text-emerald-400"
+                              : client.total_debt_usd > 0.01
+                                ? "text-red-400"
+                                : "text-slate-400"
                           }`}
                         >
-                          {Math.abs(client.total_debt_lbp).toLocaleString()} LBP
-                        </div>
-                      )}
+                          ${Math.abs(client.total_debt_usd).toFixed(2)}
+                        </span>
+                        {client.total_debt_lbp !== 0 && (
+                          <span
+                            className={`font-bold text-sm ${
+                              client.total_debt_lbp < -0.5
+                                ? "text-emerald-400"
+                                : client.total_debt_lbp > 0.5
+                                  ? "text-red-400"
+                                  : "text-slate-400"
+                            }`}
+                          >
+                            {Math.abs(client.total_debt_lbp).toLocaleString()}{" "}
+                            LBP
+                          </span>
+                        )}
+                      </span>
                     </div>
                   </div>
                 </button>
@@ -1183,10 +1167,15 @@ export default function Debts() {
             <>
               <div className="px-5 py-3 border-b border-slate-700 bg-slate-800/50">
                 <div className="flex items-center justify-between gap-4">
-                  {/* Left: Client name */}
-                  <h2 className="text-xl font-bold text-white shrink-0">
-                    {selectedClient.full_name}
-                  </h2>
+                  {/* Left: Client name & phone number */}
+                  <div className="flex items-baseline gap-2 shrink-0">
+                    <h2 className="text-xl font-bold text-white">
+                      {selectedClient.full_name}
+                    </h2>
+                    <span className="text-sm text-slate-400">
+                      {selectedClient.phone_number || "No Phone"}
+                    </span>
+                  </div>
 
                   {/* Center: Balance — each currency carries its OWN sign
                       and color: a client can hold a USD credit AND an LBP

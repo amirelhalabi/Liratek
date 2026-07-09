@@ -230,6 +230,16 @@ export interface TransactionWithUser extends TransactionEntity {
    * are attached instead (same legs on every row in that session).
    */
   payments: TransactionPaymentLeg[];
+  /**
+   * CUSTOMER_ACCOUNT (on-account) legs of a session basket, sourced from
+   * `debt_ledger` rather than `payments` — a CUSTOMER_ACCOUNT settlement never
+   * touches a drawer, so `SessionPaymentService.recordBasketPayment` deliberately
+   * skips writing a `payments` row for it (see that file's non-drawer branch).
+   * Kept SEPARATE from `payments` (rather than merged in) so the cash-only
+   * `in:/out:` summary keeps its existing meaning; only method-display code
+   * should read this field. Same session-wide attachment as basket legs.
+   */
+  account_payments?: TransactionPaymentLeg[];
 }
 
 export interface DebtAgingBuckets {
@@ -524,6 +534,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       ),
     );
     const basketLegsBySession = new Map<number, TransactionPaymentLeg[]>();
+    const accountLegsBySession = new Map<number, TransactionPaymentLeg[]>();
     if (sessionIds.length > 0) {
       const sPlaceholders = sessionIds.map(() => "?").join(", ");
       const basketRows = this.query<{
@@ -547,6 +558,42 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         legs.push(leg);
         basketLegsBySession.set(p.session_id, legs);
       }
+
+      // CUSTOMER_ACCOUNT settlement of the same basket, if any — see the
+      // `account_payments` doc comment on TransactionWithUser for why this is
+      // a separate table/field rather than another `payments` row.
+      const debtRows = this.query<{
+        session_id: number;
+        amount_usd: number;
+        amount_lbp: number;
+      }>(
+        `SELECT session_id, amount_usd, amount_lbp
+         FROM debt_ledger
+         WHERE session_id IN (${sPlaceholders})`,
+        ...sessionIds,
+      );
+      for (const d of debtRows) {
+        const legs = accountLegsBySession.get(d.session_id) ?? [];
+        if (d.amount_usd !== 0) {
+          legs.push({
+            direction: d.amount_usd < 0 ? "out" : "in",
+            amount: Math.abs(d.amount_usd),
+            signed_amount: d.amount_usd,
+            currency_code: "USD",
+            method: "CUSTOMER_ACCOUNT",
+          });
+        }
+        if (d.amount_lbp !== 0) {
+          legs.push({
+            direction: d.amount_lbp < 0 ? "out" : "in",
+            amount: Math.abs(d.amount_lbp),
+            signed_amount: d.amount_lbp,
+            currency_code: "LBP",
+            method: "CUSTOMER_ACCOUNT",
+          });
+        }
+        accountLegsBySession.set(d.session_id, legs);
+      }
     }
 
     for (const row of rows) {
@@ -557,6 +604,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         row.payments = basketLegsBySession.get(row.session_id) ?? [];
       } else {
         row.payments = [];
+      }
+      if (row.session_id != null) {
+        const accountLegs = accountLegsBySession.get(row.session_id);
+        if (accountLegs && accountLegs.length > 0) {
+          row.account_payments = accountLegs;
+        }
       }
     }
 

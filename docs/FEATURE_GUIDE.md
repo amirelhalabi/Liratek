@@ -113,13 +113,27 @@ Source of truth: [packages/core/src/utils/payments.ts](../packages/core/src/util
 
 - The account gate requires **client name + phone** — use `canChargeToCustomerAccount`
   from `@liratek/ui` (`packages/ui/src/utils/customerAccount.ts`) in every payment form.
-- **Two account models** (lira-093):
-  - **OPEN DEBT** — POS, custom services, loto, telecom recharge, maintenance, sessions:
-    the sale books a `debt_ledger` row; the client's debt **increases**.
-  - **PREPAID CREDIT** — financial services (Katsh/iPick catalog, OMT/Whish app
-    transfers): CUSTOMER_ACCOUNT **spends** prepaid credit, validated against the net
-    available balance; a fresh client is rejected by design (deposit credit first).
-- Only **IN** CUSTOMER_ACCOUNT legs consume credit; an OUT CUSTOMER_ACCOUNT leg is a
+- **One account model: OPEN DEBT, everywhere** (lira-093, revised 2026-07-09) — every
+  module that takes a payment (POS, custom services, loto, telecom recharge,
+  maintenance, sessions, **and financial services**: OMT/WHISH system, iPick/Katsh
+  catalog+bills, OMT_APP/WHISH_APP, Binance) treats CUSTOMER_ACCOUNT as **on-account
+  debt**: the transaction is processed in full — provider/system drawers move exactly
+  as they would for any other payment method — and the unpaid portion books a
+  `debt_ledger` row (client's debt **increases**); collection happens later. A fresh
+  client with **no prior balance** may charge to account — there is no balance
+  precondition to satisfy first.
+  - Previously (until 2026-07-09) financial services used a separate PREPAID CREDIT
+    model that validated CUSTOMER_ACCOUNT against the client's existing negative
+    balance and rejected a fresh client outright ("Not enough balance…"). That model
+    is retired — `DebtService.validateCustomerAccountAvailability` was removed; the
+    repository-level debt booking (`FinancialServiceRepository.createTransaction`,
+    `debt_ledger.transaction_type = 'Service Debt'`) already did the right thing and
+    is now unconditional.
+  - `DebtService.useCredit` / `DebtService.cashOut` are unrelated, separate manual
+    Debts-page actions that genuinely spend/withdraw a client's existing prepaid
+    credit (`debt_ledger.transaction_type = 'CREDIT_USED'`) — not touched by this
+    change and not reachable from any payment form.
+- Only **IN** CUSTOMER_ACCOUNT legs book debt; an OUT CUSTOMER_ACCOUNT leg is a
   store-credit deposit (payments.ts).
 - GIFT_CARD is prepaid/collected value: debt-like for drawer purposes but **excluded
   from account debt** in session allocation, so a gift-card-paid sale realizes
@@ -292,8 +306,9 @@ Copy this into your task when building any flow that moves money:
    is involved.
 6. **Client propagation** (§6): UI → IPC → handler → repo → `createTransaction({client_id})`;
    plus the session branch putting the client into `formData`.
-7. **CUSTOMER_ACCOUNT** (§5): pick the model (open debt vs prepaid credit); gate on
-   name+phone via `canChargeToCustomerAccount`; one debt row, correct threshold.
+7. **CUSTOMER_ACCOUNT** (§5): open debt — books a `debt_ledger` row, no prior-balance
+   precondition; gate on name+phone via `canChargeToCustomerAccount`; one debt row,
+   correct threshold.
 8. **Supplier/partner ledger** (§8): amount = transfer only; correct sign; prepaid-units
    model (debt at top-up, not per sale); secondary system → partner ledger.
 9. **Void path** (§9): reversible or gated? If reversible, prove drawer + ledger +

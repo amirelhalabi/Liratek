@@ -5056,6 +5056,21 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 122,
+    name: "rename_debts_module_to_accounts",
+    description:
+      "The Debts page lists both debtors and creditors, so 'Debts' undersold half of what it shows. Renames the module's sidebar/home-grid label to 'Accounts' to match the in-page title.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`UPDATE modules SET label = 'Accounts' WHERE key = 'debts'`);
+      console.log("Migration v122: 'debts' module label renamed to 'Accounts'");
+    },
+    down(db: Database.Database) {
+      db.exec(`UPDATE modules SET label = 'Debts' WHERE key = 'debts'`);
+      console.log("Migration v122 rolled back: 'debts' module label restored to 'Debts'");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

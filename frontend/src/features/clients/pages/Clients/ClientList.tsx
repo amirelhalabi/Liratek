@@ -159,10 +159,7 @@ export default function ClientList() {
           theadClassName="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold"
           tbodyClassName="divide-y divide-slate-700 text-sm"
           renderRow={(client) => (
-            <tr
-              key={client.id}
-              className="hover:bg-slate-700/50 transition-colors"
-            >
+            <tr key={client.id}>
               <td className="p-4">
                 <div className="font-medium text-white">{client.full_name}</div>
                 <div className="text-slate-500 text-xs">ID: #{client.id}</div>

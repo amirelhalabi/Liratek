@@ -1812,35 +1812,6 @@ export default function Services() {
                 />
               </div>
 
-              {/* Client details in the confirm/summary step (A3) */}
-              {(() => {
-                const activeName =
-                  serviceType === "SEND" ? senderName : receiverName;
-                const activePhone =
-                  serviceType === "SEND" ? senderPhone : receiverPhone;
-                if (!activeName.trim() && !activePhone.trim()) return null;
-                return (
-                  <div
-                    data-testid="client-summary"
-                    className="flex items-center gap-2 rounded-lg bg-slate-800/60 border border-slate-700/50 px-3 py-2 text-xs text-slate-300"
-                  >
-                    <User size={12} className="text-slate-400" />
-                    <span className="font-medium text-white">
-                      {activeName.trim() || "—"}
-                    </span>
-                    {activePhone.trim() && (
-                      <>
-                        <span className="text-slate-500">·</span>
-                        <span className="font-mono">{activePhone.trim()}</span>
-                      </>
-                    )}
-                    <span className="ml-auto uppercase tracking-wider text-slate-500">
-                      {serviceType === "SEND" ? "Sender" : "Receiver"}
-                    </span>
-                  </div>
-                );
-              })()}
-
               {/* Payment Method */}
               <div>
                 <MultiPaymentInput

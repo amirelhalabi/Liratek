@@ -745,7 +745,7 @@ function KatchFormInner({
           returnedCreditsUsd: line.onlyDays
             ? line.returnedCreditsUsd
             : undefined,
-          note: `${line.item.label} (${line.item.subcategory})${line.onlyDays ? " [Only Days]" : ""}`,
+          note: `${line.item.category}: ${line.item.label} (${line.item.subcategory})${line.onlyDays ? " [Only Days]" : ""}`,
         }));
       });
 
@@ -818,13 +818,11 @@ function KatchFormInner({
         discountedTotal - aggregatedCost,
       );
 
-      const noteLines = cartItems.flatMap((line) =>
-        line.quantity > 1
-          ? [
-              `${line.item.label} x${line.quantity}${line.onlyDays ? " [Only Days]" : ""}`,
-            ]
-          : [`${line.item.label}${line.onlyDays ? " [Only Days]" : ""}`],
-      );
+      const noteLines = cartItems.map((line) => {
+        const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
+        const onlyDays = line.onlyDays ? " [Only Days]" : "";
+        return `${line.item.category}: ${line.item.label}${qty}${onlyDays}`;
+      });
       const note = noteLines.join(", ");
 
       try {

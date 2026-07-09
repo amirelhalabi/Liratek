@@ -101,31 +101,3 @@ export function partitionLegs<T extends DirectionedLeg>(
   }
   return { inLegs, outLegs };
 }
-
-/**
- * Sum CUSTOMER_ACCOUNT payment lines by currency.
- * Used to validate that a client has enough credit before persisting a transaction.
- * Only IN legs consume credit — an OUT CUSTOMER_ACCOUNT leg is a store-credit deposit.
- */
-export function sumCustomerAccountByCurrency(
-  payments:
-    | Array<{
-        method: string;
-        currencyCode: string;
-        amount: number;
-        direction?: PaymentDirection;
-      }>
-    | undefined
-    | null,
-): { usd: number; lbp: number } {
-  if (!payments || payments.length === 0) return { usd: 0, lbp: 0 };
-  let usd = 0;
-  let lbp = 0;
-  for (const line of payments) {
-    if (line.method !== "CUSTOMER_ACCOUNT") continue;
-    if (isReturnLeg(line)) continue;
-    if (line.currencyCode === "USD") usd += line.amount;
-    else if (line.currencyCode === "LBP") lbp += line.amount;
-  }
-  return { usd, lbp };
-}

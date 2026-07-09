@@ -84,6 +84,12 @@ export interface RecentTransaction {
   /** Set when this transaction belongs to a customer-session basket (WS8). */
   session_id: number | null;
   payments: TransactionPaymentLeg[];
+  /**
+   * CUSTOMER_ACCOUNT settlement of a session basket, sourced from debt_ledger
+   * (never written to `payments` — a non-drawer method has no drawer leg to
+   * record). Only present on session rows with an on-account portion.
+   */
+  account_payments?: TransactionPaymentLeg[];
 }
 
 /** A mobile service catalog item stored in the database */

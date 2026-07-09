@@ -236,6 +236,16 @@ export interface FinancialServiceAnalytics {
   byProvider: ProviderStats[];
 }
 
+/**
+ * Debt-ledger note for a Service Debt (cost/price flow) entry. Prefers the
+ * operator-facing `note` (e.g. selected iPick/Katsh items) over the raw
+ * `item_key`, which is only ever set on the session per-item booking path.
+ */
+function serviceDebtNote(data: CreateFinancialServiceData): string {
+  if (data.note) return `${data.provider} service: ${data.note}`;
+  return `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`;
+}
+
 // =============================================================================
 // Financial Service Repository Class
 // =============================================================================
@@ -640,7 +650,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         profit_lbp: currency === "LBP" ? commission : 0,
         client_id: resolvedPrimaryClientId ?? null,
         summary: (() => {
-          const head = `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`;
+          // iPick/Katsh: a catalog item purchase or bill payment, not a
+          // sender/receiver transfer — surface the selected item(s)
+          // (category + label, via `data.note`) or call out a bill payment
+          // explicitly, instead of the generic provider+amount line below.
+          const isKatchLike = data.provider === "iPick" || data.provider === "Katsh";
+          const head =
+            isKatchLike && data.serviceType === "BILL"
+              ? `${data.provider} Bill: ${data.amount} ${currency}`
+              : isKatchLike && note
+                ? `${data.provider}: ${note} — ${data.amount} ${currency}`
+                : `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`;
           // When the customer paid in a currency different from the service-denominated
           // currency, surface that on the audit row so it's visible at a glance.
           if (paidCurrency && paidAmount != null && paidCurrency !== currency) {
@@ -778,11 +798,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               )
               .run(
                 data.clientId,
-                "CREDIT_USED",
+                "Service Debt",
                 debtUsd,
                 debtLbp,
                 txnId,
-                `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+                serviceDebtNote(data),
                 createdBy,
               );
           }
@@ -815,11 +835,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               )
               .run(
                 data.clientId,
-                "CREDIT_USED",
+                "Service Debt",
                 currency === "USD" ? price : 0,
                 currency === "LBP" ? price : 0,
                 txnId,
-                `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+                serviceDebtNote(data),
                 createdBy,
               );
           }

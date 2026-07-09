@@ -16,6 +16,7 @@ import { DataTable } from "@liratek/ui";
 import { FILTER_GROUPS } from "../auditConstants";
 import { getCashFlowDirection, isCashTransaction } from "../cashFlow";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 
 // LIRA-064: structured in/out payment leg joined from the payments table.
 // Mirrors TransactionPaymentLeg in the backend / electron.d.ts. The data is
@@ -51,6 +52,11 @@ type TransactionRow = {
   session_id: number | null;
   // LIRA-064: structured payment breakdown (may be absent on legacy rows).
   payments?: TransactionPaymentLeg[];
+  // CUSTOMER_ACCOUNT settlement of a session basket, sourced from debt_ledger
+  // (never written to `payments` — see TransactionWithUser in the backend for
+  // why). Kept separate so the cash-only Summary in:/out: line is unaffected;
+  // only the Method column should read this.
+  account_payments?: TransactionPaymentLeg[];
 };
 
 const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
@@ -121,6 +127,7 @@ function getTypeLabel(row: TransactionRow): string {
         if (st === "RECEIVE") return `${base} Recv`;
       }
       if (p === "WHISH_APP" && ik) return "Whish App Bills";
+      if ((p === "iPick" || p === "Katsh") && st === "BILL") return `${base} Bill`;
       return base;
     }
 
@@ -326,6 +333,50 @@ function formatPaymentLegs(
   if (outParts.length) segments.push(`out: ${outParts.join(" + ")}`);
 
   return segments.length ? segments.join(" · ") : null;
+}
+
+/** Title-cases an unmapped method code as a fallback, e.g. "PM_FEE" → "Pm Fee". */
+function fallbackMethodLabel(method: string): string {
+  return method
+    .toLowerCase()
+    .split("_")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+/**
+ * How the transaction was paid, for the Method column. Prefers "in" legs
+ * (what the customer paid with) over "out" legs (change/return) when both
+ * exist on the same row. But sole-payout flows — EXPENSE, SUPPLIER_PAYMENT,
+ * CREDIT_CASH_OUT, LOTO_CASH_PRIZE, etc. — only ever write an "out" leg (no
+ * customer paid-in side), so falling back to "out" when there's no "in" leg
+ * is required or those rows would render blank despite clearly having a
+ * method. Split payments join distinct methods, e.g. "Cash + OMT Wallet".
+ */
+function formatPaymentMethods(
+  legs: TransactionPaymentLeg[] | undefined,
+  labelByCode: Map<string, string>,
+): string {
+  if (!legs || legs.length === 0) return "—";
+  const hasInLeg = legs.some((leg) => leg.direction === "in");
+  const relevant = hasInLeg
+    ? legs.filter((leg) => leg.direction === "in")
+    : legs;
+  const labels = new Set<string>();
+  for (const leg of relevant) {
+    labels.add(labelByCode.get(leg.method) ?? fallbackMethodLabel(leg.method));
+  }
+  return labels.size ? [...labels].join(" + ") : "—";
+}
+
+/**
+ * Legs for the Method column only: cash/wallet `payments` legs plus any
+ * CUSTOMER_ACCOUNT settlement from `account_payments` (debt_ledger). Kept out
+ * of `row.payments` itself so the Summary column's cash-only in:/out: line is
+ * unaffected — see the `account_payments` field doc on TransactionRow.
+ */
+function methodLegsFor(row: TransactionRow): TransactionPaymentLeg[] {
+  return [...(row.payments ?? []), ...(row.account_payments ?? [])];
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +593,13 @@ export default function TransactionsViewer({
 }: TransactionsViewerProps) {
   const [rows, setRows] = useState<TransactionRow[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const { methods: paymentMethods } = usePaymentMethods();
+  const methodLabelByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of paymentMethods) map.set(m.code, m.label);
+    return map;
+  }, [paymentMethods]);
 
   const filteredData = useMemo(() => {
     if (!from && !to) return rows;
@@ -799,6 +857,11 @@ export default function TransactionsViewer({
                 )}
           </span>
         </td>
+        <td className="p-2 truncate" style={{ width: 120 }}>
+          {row.type === "CHECKPOINT"
+            ? "—"
+            : formatPaymentMethods(methodLegsFor(row), methodLabelByCode)}
+        </td>
         <td className="p-2 truncate" style={{ width: 90 }}>
           {row.username || `#${row.user_id}`}
         </td>
@@ -876,6 +939,12 @@ export default function TransactionsViewer({
           className: "p-2 text-xs font-semibold uppercase text-slate-400",
         },
         {
+          header: "Method",
+          sortKey: "payment_method",
+          width: "120px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
           header: "User",
           sortKey: "username",
           width: "90px",
@@ -917,6 +986,8 @@ export default function TransactionsViewer({
           return row.created_at ? parseDbDate(row.created_at).getTime() : 0;
         if (key === "amount_usd") return row.amount_usd ?? 0;
         if (key === "reverses_id") return row.reverses_id ?? 0;
+        if (key === "payment_method")
+          return formatPaymentMethods(methodLegsFor(row), methodLabelByCode);
         return String((row as Record<string, unknown>)[key] ?? "");
       }}
       exportRow={(row) => {
@@ -943,7 +1014,7 @@ export default function TransactionsViewer({
                   style={sessionVars(sandwichedSession)}
                 >
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     style={{
                       padding: 0,
                       height: "1px",
@@ -1002,7 +1073,7 @@ export default function TransactionsViewer({
                   style={sessionVars(sandwichedSession)}
                 >
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     style={{
                       padding: 0,
                       height: "1px",

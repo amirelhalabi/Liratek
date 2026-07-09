@@ -90,6 +90,37 @@ export interface RechargeEntity {
 }
 
 // =============================================================================
+// Summary/note formatting
+// =============================================================================
+
+const RECHARGE_TYPE_LABELS: Record<RechargeData["type"], string> = {
+  CREDIT_TRANSFER: "Credits",
+  VOUCHER: "Voucher",
+  DAYS: "Days",
+  TOP_UP: "Top-up",
+  ALFA_GIFT: "Gift",
+};
+
+/**
+ * Human-readable "what was actually recharged" detail, distinct from `price`
+ * (what the customer was charged): DAYS is denominated in days, every other
+ * type in the recharge's own dollar face value. Shown alongside price on the
+ * unified transaction summary and the recharge/debt notes so an operator can
+ * see both the quantity sold and the amount collected at a glance.
+ */
+function describeRechargeAmount(type: RechargeData["type"], amount: number): string {
+  if (type === "DAYS") return `${amount} days`;
+  if (type === "TOP_UP") return "";
+  return `$${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
+function rechargeDetailLabel(type: RechargeData["type"], amount: number): string {
+  const label = RECHARGE_TYPE_LABELS[type] ?? type;
+  const amountDetail = describeRechargeAmount(type, amount);
+  return amountDetail ? `${label} ${amountDetail}` : label;
+}
+
+// =============================================================================
 // Recharge Repository Class
 // =============================================================================
 
@@ -599,7 +630,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
   } {
     try {
       const result = this.db.transaction(() => {
-        const note = `${data.provider} ${data.type} - ${data.phoneNumber || "No Number"}`;
+        const detail = rechargeDetailLabel(data.type, data.amount);
+        const note = `${data.provider} ${detail}${data.phoneNumber ? ` - ${data.phoneNumber}` : ""}`;
         const paidBy = data.paid_by_method || "CASH";
         const currency = data.currency ?? "USD";
         const createdBy = data.userId ?? 1;
@@ -667,7 +699,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           profit_lbp: currency === "LBP" ? netRechargeCommission : 0,
           client_id: data.clientId ?? null,
           client_name: clientName ?? null,
-          summary: `Recharge: ${data.provider} ${data.type} ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}`,
+          summary: `Recharge: ${data.provider} ${detail} — ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}`,
           metadata_json: {
             provider: data.provider,
             type: data.type,

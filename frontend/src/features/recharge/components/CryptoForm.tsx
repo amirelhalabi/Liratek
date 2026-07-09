@@ -5,7 +5,6 @@ import {
   DecimalInput,
   hasNewClientInfo,
   type PaymentLine,
-  Select,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -363,19 +362,6 @@ export function CryptoForm({
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* Compact payment method dropdown */}
-            <Select
-              value={initialPaymentMethod}
-              onChange={(v) => {
-                setInitialPaymentMethod(v);
-                setPaymentInputKey((k) => k + 1);
-              }}
-              options={paymentMethods.map((m) => ({
-                value: m.code,
-                label: m.label,
-              }))}
-              buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-xs font-medium focus:outline-none focus:border-amber-500 transition-all cursor-pointer"
-            />
             <button
               type="button"
               onClick={() => {

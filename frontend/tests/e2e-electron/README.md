@@ -63,7 +63,7 @@ Business rules these specs guard are documented in [docs/FEATURE_GUIDE.md](../..
 | lira-091-checkpoint-timeline-variance | checkpoint timeline | any variance flagged, no tolerance, amber only |
 | lira-091-loto-ledger-sign | loto, suppliers | v119 standard signs: sale +(sale−commission), prize −prize |
 | lira-092 | suppliers, audit | v120 void restores balance+drawer, soft-flags row; non-reversible gating; void UI in table only |
-| lira-093 | clients, all payment forms | CUSTOMER_ACCOUNT everywhere; open-debt vs prepaid-credit models; loto leg-drop regression |
+| lira-093 | clients, all payment forms | CUSTOMER_ACCOUNT everywhere; one open-debt model (financial services' prepaid-credit gate retired 2026-07-09 — no prior balance needed); loto leg-drop regression |
 | lira-094 | sessions, all modules | client_name on every session txn (23 flows + linked exchange) |
 | lira-095-multi-bill-checkout | recharge (Katsh/iPick bills+items), sessions, audit | N bills + M items in ONE payment: legs book once on the carrier (items SEND when items exist, else first bill; rest deferPayment); mixed USD+LBP bills (per-bill cost in own currency, LBP-converted sheet total); per-bill supplier commission, no per-sale item entry (C5); session pooled payment + client on every row |
 | lira-096-debt-split-repayment | debts, drawers | split USD+LBP repayment through the modal: LBP legs convert at the MODAL's rate (useExchangeRate sell/buy schema — the dead `delta` math made it NaN); repayment reduction not double-counted from legs (DebtService over-credit) |

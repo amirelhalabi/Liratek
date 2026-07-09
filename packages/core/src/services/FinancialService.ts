@@ -15,8 +15,6 @@ import {
   getSupplierRepository,
 } from "../repositories/index.js";
 import { getItemCostService } from "./ItemCostService.js";
-import { DebtService, getDebtService } from "./DebtService.js";
-import { sumCustomerAccountByCurrency } from "../utils/payments.js";
 import { financialLogger } from "../utils/logger.js";
 
 // =============================================================================
@@ -42,43 +40,9 @@ export interface FinancialServiceResult {
 
 export class FinancialService {
   private fsRepo: FinancialServiceRepository;
-  private debtService: DebtService;
 
-  constructor(fsRepo?: FinancialServiceRepository, debtService?: DebtService) {
+  constructor(fsRepo?: FinancialServiceRepository) {
     this.fsRepo = fsRepo ?? getFinancialServiceRepository();
-    this.debtService = debtService ?? getDebtService();
-  }
-
-  /**
-   * Validate that the client has enough credit balance to cover any
-   * CUSTOMER_ACCOUNT portion of this transaction's payments.
-   * Returns {success:true} when there's nothing to validate or the credit is sufficient.
-   */
-  private validateCustomerAccountPayment(data: CreateFinancialServiceData): {
-    success: boolean;
-    error?: string;
-  } {
-    // Multi-payment array (preferred — comes from MultiPaymentInput in the UI)
-    if (data.payments && data.payments.length > 0) {
-      const { usd, lbp } = sumCustomerAccountByCurrency(data.payments);
-      if (usd === 0 && lbp === 0) return { success: true };
-      return this.debtService.validateCustomerAccountAvailability(
-        data.clientId ?? null,
-        usd,
-        lbp,
-      );
-    }
-    // Legacy single-method path
-    if (data.paidByMethod === "CUSTOMER_ACCOUNT") {
-      const amount = data.price ?? data.amount;
-      const currency = data.currency ?? "USD";
-      return this.debtService.validateCustomerAccountAvailability(
-        data.clientId ?? null,
-        currency === "USD" ? amount : 0,
-        currency === "LBP" ? amount : 0,
-      );
-    }
-    return { success: true };
   }
 
   // ---------------------------------------------------------------------------
@@ -100,16 +64,10 @@ export class FinancialService {
         }
       }
 
-      // In session-basket deferred mode the basket owns the customer-cash side
-      // (including any CUSTOMER_ACCOUNT debt), so per-transaction credit
-      // validation does not apply here — the basket recorder validates instead.
-      if (!data.deferPayment) {
-        const creditCheck = this.validateCustomerAccountPayment(data);
-        if (!creditCheck.success) {
-          return { success: false, error: creditCheck.error };
-        }
-      }
-
+      // CUSTOMER_ACCOUNT is an open-debt payment method here (same model as
+      // POS/telecom/etc.): the repository below books the unpaid portion as a
+      // debt_ledger row regardless of the client's prior balance — no
+      // pre-check against existing credit.
       const result = this.fsRepo.createTransaction(data);
 
       // Auto-save item cost for future reference

@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
-import { appEvents, PageHeader, useApi, Select } from "@liratek/ui";
+import {
+  appEvents,
+  PageHeader,
+  useApi,
+  Select,
+  ServiceTypeTabs,
+  DataTable,
+} from "@liratek/ui";
+import type { ServiceTypeOption } from "@liratek/ui";
 import {
   Clock,
   BarChart2,
@@ -22,6 +30,76 @@ import { parseDbDate } from "@/shared/utils/parseDbDate";
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
 
 type ChartType = "Sales" | "Profit";
+
+/** The three tabbed dashboard insight panels */
+type DashboardTab = "trend" | "sales" | "debtors";
+
+/** Per-tab accent styling so the card + active tab share the section's color */
+const TAB_ACCENT: Record<
+  DashboardTab,
+  { borderL: string; glow: string; hex: string }
+> = {
+  trend: { borderL: "border-l-violet-500", glow: "bg-violet-500", hex: "#8b5cf6" },
+  sales: { borderL: "border-l-blue-500", glow: "bg-blue-500", hex: "#3b82f6" },
+  debtors: { borderL: "border-l-rose-500", glow: "bg-rose-500", hex: "#f43f5e" },
+};
+
+/** Shared <th> className for the insight tables — mirrors the Transactions page */
+const INSIGHT_TH_CLS = "p-2 text-xs font-semibold uppercase text-slate-400";
+
+/** A Name / USD / LBP row for the Today's Sales and Top Debtors tables */
+type NameAmountRow = {
+  key: string | number;
+  name: string;
+  usd: number;
+  lbp: number;
+};
+
+/**
+ * A Name / USD / LBP table built on the same DataTable used by the
+ * Transactions page (sortable headers, matching row styling). Both the
+ * Today's Sales and Top Debtors tabs feed it a `NameAmountRow[]`.
+ */
+function NameAmountTable({
+  rows,
+  emptyMessage,
+  formatAmount,
+}: {
+  rows: NameAmountRow[];
+  emptyMessage: string;
+  formatAmount: (amount: number | null | undefined, currencyCode: string) => string;
+}) {
+  return (
+    <DataTable<NameAmountRow>
+      columns={[
+        { header: "Name", sortKey: "name", className: INSIGHT_TH_CLS },
+        { header: "USD", sortKey: "usd", width: "150px", className: INSIGHT_TH_CLS },
+        { header: "LBP", sortKey: "lbp", width: "170px", className: INSIGHT_TH_CLS },
+      ]}
+      data={rows}
+      emptyMessage={emptyMessage}
+      className="w-full text-left"
+      theadClassName="bg-slate-900 text-slate-400 text-xs uppercase sticky top-0 z-10"
+      getSortValue={(row, key) =>
+        key === "name" ? row.name : key === "usd" ? row.usd : row.lbp
+      }
+      renderRow={(row) => (
+        <tr
+          key={row.key}
+          className="border-t border-slate-800 text-xs hover:bg-slate-700/30"
+        >
+          <td className="p-2 truncate text-slate-200">{row.name}</td>
+          <td className="p-2 truncate text-slate-100 font-medium">
+            {row.usd ? formatAmount(row.usd, "USD") : "—"}
+          </td>
+          <td className="p-2 truncate text-slate-400">
+            {row.lbp ? formatAmount(row.lbp, "LBP") : "—"}
+          </td>
+        </tr>
+      )}
+    />
+  );
+}
 
 /** Format drawer_name from DB into a display label */
 function formatDrawerLabel(name: string): string {
@@ -141,7 +219,53 @@ export default function Dashboard() {
     totalDebtLbp: 0,
     topDebtors: [],
   });
+  type Debtor = {
+    id: number;
+    full_name: string;
+    total_debt: number;
+    total_debt_usd: number;
+    total_debt_lbp: number;
+  };
+  /** Full debtor list (uncapped, debt DESC) powering the Top Debtors table */
+  const [debtors, setDebtors] = useState<Debtor[]>([]);
   const [chartType, setChartType] = useState<ChartType>("Sales");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("trend");
+  /**
+   * Row cap for the Today's Sales / Top Debtors tables — editable, default 50.
+   * Allowed to be "" so the field can be cleared while editing; the tables
+   * coerce "" → 50 when slicing.
+   */
+  const [insightRowsLimit, setInsightRowsLimit] = useState<number | "">(50);
+  /** Tab bar options; Top Debtors only shows when the debts module is on */
+  const insightTabs: ServiceTypeOption[] = [
+    { id: "trend", label: "Sales Trend", iconKey: "ArrowUpCircle" },
+    { id: "sales", label: "Today's Sales", iconKey: "Clock" },
+    ...(debtEnabled
+      ? [
+          {
+            id: "debtors",
+            label: "Top Debtors",
+            iconKey: "CreditCard",
+          } as ServiceTypeOption,
+        ]
+      : []),
+  ];
+  /** Editable "Rows:" cap shared by the Today's Sales / Top Debtors tables */
+  const rowsControl = (
+    <div className="flex items-center gap-1.5">
+      <label className="text-xs text-slate-400">Rows:</label>
+      <input
+        type="number"
+        min={1}
+        value={insightRowsLimit}
+        onChange={(e) => {
+          const v = e.target.value;
+          setInsightRowsLimit(v === "" ? "" : Math.max(1, Number(v)));
+        }}
+        className="w-16 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-violet-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+      />
+    </div>
+  );
 
   type UnsettledSummary = {
     provider: string;
@@ -184,6 +308,7 @@ export default function Dashboard() {
         stockStats,
         monthlyPL,
         drawerCurrConfig,
+        debtorsData,
       ] = window.api
         ? await Promise.all([
             window.api.dashboard.getStats(),
@@ -196,6 +321,7 @@ export default function Dashboard() {
               new Date().toISOString().slice(0, 7),
             ),
             window.api.currencies.allDrawerCurrencies(),
+            window.api.debt.getDebtors(),
           ])
         : await Promise.all([
             api.getDashboardStats(),
@@ -206,6 +332,7 @@ export default function Dashboard() {
             api.getInventoryStockStats(),
             api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
             api.getAllDrawerCurrencies(),
+            api.getDebtors(),
           ]);
 
       setStats({
@@ -232,6 +359,9 @@ export default function Dashboard() {
       }
       if (debtData) {
         setDebtSummary(debtData);
+      }
+      if (Array.isArray(debtorsData)) {
+        setDebtors(debtorsData);
       }
 
       // Load last-checkpoint-per-drawer for staleness badges (admin + session mgmt only)
@@ -949,13 +1079,13 @@ export default function Dashboard() {
                 0,
               );
               return (
-                <div className="bg-amber-950/40 border border-amber-700/60 rounded-xl p-4 flex items-start gap-3">
+                <div className="bg-amber-100 border border-amber-300 dark:bg-amber-950/40 dark:border-amber-700/60 rounded-xl p-4 flex items-start gap-3">
                   <AlertTriangle
-                    className="text-amber-400 shrink-0 mt-0.5"
+                    className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5"
                     size={18}
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-amber-300 font-semibold text-sm">
+                    <p className="text-amber-800 dark:text-amber-300 font-semibold text-sm">
                       Pending Settlement — {totalTxns} transaction
                       {totalTxns !== 1 ? "s" : ""}
                     </p>
@@ -963,10 +1093,10 @@ export default function Dashboard() {
                       {unsettledSummary.map((r) => (
                         <span
                           key={r.provider}
-                          className="text-xs text-amber-400/80 font-mono"
+                          className="text-xs text-amber-700 dark:text-amber-400/80 font-mono"
                         >
                           {r.provider}:{" "}
-                          <span className="text-amber-300 font-semibold">
+                          <span className="text-amber-900 dark:text-amber-300 font-semibold">
                             ${r.pending_commission_usd.toFixed(4)}
                           </span>{" "}
                           commission on ${r.total_owed_usd.toFixed(2)} owed (
@@ -974,9 +1104,9 @@ export default function Dashboard() {
                         </span>
                       ))}
                     </div>
-                    <p className="text-xs text-amber-500 mt-1">
+                    <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
                       Total pending:{" "}
-                      <span className="text-amber-300 font-mono font-bold">
+                      <span className="text-amber-900 dark:text-amber-300 font-mono font-bold">
                         ${totalPendingUsd.toFixed(4)}
                       </span>{" "}
                       — settle via Settings → Supplier Ledger
@@ -986,125 +1116,113 @@ export default function Dashboard() {
               );
             })()}
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:h-[520px]">
-            <div className="lg:col-span-2 relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 border-l-violet-500 shadow-lg hover:shadow-violet-500/20 hover:shadow-xl hover:border-violet-500/50 transition-all duration-200 flex flex-col min-h-0 overflow-hidden">
-              <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-10 pointer-events-none bg-violet-500" />
-              <div className="relative flex justify-between items-center mb-3">
-                <h3 className="text-lg font-bold text-white">
-                  {chartType} Trend (Last 30 Days)
-                </h3>
-                <Select
-                  value={chartType}
-                  onChange={(v) => setChartType(v as ChartType)}
-                  options={[
-                    { value: "Sales", label: "Sales" },
-                    { value: "Profit", label: "Profit" },
-                  ]}
-                  buttonClassName="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
-                />
-              </div>
-              <div className="flex-1 w-full min-h-0">
-                <Suspense
-                  fallback={
-                    <div className="h-full animate-pulse bg-slate-700/30 rounded-xl" />
-                  }
-                >
-                  <DashboardChart
-                    chartData={chartData}
-                    chartType={chartType}
-                    maxUsdSales={maxUsdSales}
-                    maxLbpSales={maxLbpSales}
-                    getSymbol={getSymbol}
-                    formatAmount={formatAmount}
-                  />
-                </Suspense>
-              </div>
-            </div>
+          {/* ── Insights, tabbed: Sales Trend / Today's Sales / Top Debtors ── */}
+          <div className="flex flex-col gap-4">
+            <ServiceTypeTabs
+              options={insightTabs}
+              value={activeTab}
+              onChange={(v) => setActiveTab(v as DashboardTab)}
+              customColor={TAB_ACCENT[activeTab].hex}
+              size="sm"
+            />
 
-            <div className="flex flex-col h-full gap-4 min-h-0">
-              {debtEnabled && (
-                <div className="relative bg-slate-800 p-5 rounded-xl border border-slate-700/40 border-l-2 border-l-rose-500 shadow-lg hover:shadow-rose-500/20 hover:shadow-xl hover:border-rose-500/50 transition-all duration-200 flex-1 flex flex-col min-h-0 overflow-hidden">
-                  <div className="absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none bg-rose-500" />
-                  <h3 className="relative text-md font-bold text-white mb-4 flex items-center gap-2">
-                    <BarChart2 size={16} className="text-rose-400" />
-                    Top Debtors
-                  </h3>
-                  <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
-                    {debtSummary.topDebtors.length > 0 ? (
-                      debtSummary.topDebtors.map((debtor) => (
-                        <div
-                          key={debtor.full_name}
-                          className="flex items-center justify-between p-2.5 bg-slate-700/20 rounded-lg"
-                        >
-                          <span className="text-sm text-slate-300 truncate mr-3">
-                            {debtor.full_name}
-                          </span>
-                          <div className="text-right shrink-0">
-                            <span className="text-sm font-bold text-rose-400">
-                              {formatAmount(debtor.total_debt_usd, "USD")}
-                            </span>
-                            {debtor.total_debt_lbp !== 0 && (
-                              <span className="text-xs text-rose-400/70 ml-2">
-                                {formatAmount(debtor.total_debt_lbp, "LBP")}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-                        No debtors
-                      </div>
-                    )}
+            <div
+              className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${TAB_ACCENT[activeTab].borderL} shadow-lg transition-all duration-200 flex flex-col lg:h-[520px] min-h-0 overflow-hidden`}
+            >
+              <div
+                className={`absolute -top-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-10 pointer-events-none ${TAB_ACCENT[activeTab].glow}`}
+              />
+
+              {/* Sales Trend */}
+              {activeTab === "trend" && (
+                <>
+                  <div className="relative flex justify-between items-center mb-3">
+                    <h3 className="text-lg font-bold text-white">
+                      {chartType} Trend (Last 30 Days)
+                    </h3>
+                    <Select
+                      value={chartType}
+                      onChange={(v) => setChartType(v as ChartType)}
+                      options={[
+                        { value: "Sales", label: "Sales" },
+                        { value: "Profit", label: "Profit" },
+                      ]}
+                      buttonClassName="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
+                    />
                   </div>
-                </div>
+                  <div className="flex-1 w-full min-h-0">
+                    <Suspense
+                      fallback={
+                        <div className="h-full animate-pulse bg-slate-700/30 rounded-xl" />
+                      }
+                    >
+                      <DashboardChart
+                        chartData={chartData}
+                        chartType={chartType}
+                        maxUsdSales={maxUsdSales}
+                        maxLbpSales={maxLbpSales}
+                        getSymbol={getSymbol}
+                        formatAmount={formatAmount}
+                      />
+                    </Suspense>
+                  </div>
+                </>
               )}
 
-              <div className="relative bg-slate-800 p-5 rounded-xl border border-slate-700/40 border-l-2 border-l-blue-500 shadow-lg hover:shadow-blue-500/20 hover:shadow-xl hover:border-blue-500/50 transition-all duration-200 flex-1 flex flex-col min-h-0 overflow-hidden">
-                <div className="absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none bg-blue-500" />
-                <h3 className="relative text-md font-bold text-white mb-4 flex items-center gap-2">
-                  <Clock size={16} className="text-blue-400" />
-                  Today's Sales
-                </h3>
-                <div className="space-y-3 overflow-y-auto flex-1 min-h-0">
-                  {todaysSales.length > 0 ? (
-                    todaysSales.map((sale) => (
-                      <div
-                        key={sale.id}
-                        className="flex items-center justify-between p-3 bg-slate-700/20 rounded-lg hover:bg-slate-700/40 transition-colors"
-                      >
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium text-slate-200">
-                            {sale.client_name || "Walk-in Client"}
-                          </span>
-                          <span className="text-xs text-slate-500">
-                            {new Date(sale.created_at).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          {sale.paid_usd > 0 && (
-                            <p className="text-emerald-400 font-bold text-sm">
-                              +{formatAmount(sale.paid_usd, "USD")}
-                            </p>
-                          )}
-                          {sale.paid_lbp > 0 && (
-                            <p className="text-sky-400 font-semibold text-xs">
-                              +{formatAmount(sale.paid_lbp, "LBP")}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-500 text-center py-4">
-                      No sales yet today.
-                    </p>
-                  )}
-                </div>
-              </div>
+              {/* Today's Sales */}
+              {activeTab === "sales" && (
+                <>
+                  <div className="relative flex justify-between items-center mb-3">
+                    <h3 className="text-md font-bold text-white flex items-center gap-2">
+                      <Clock size={16} className="text-blue-400" />
+                      Today's Sales
+                    </h3>
+                    {rowsControl}
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    <NameAmountTable
+                      rows={todaysSales
+                        .slice(0, insightRowsLimit || 50)
+                        .map((sale) => ({
+                          key: sale.id,
+                          name: sale.client_name || "Walk-in Client",
+                          usd: sale.paid_usd,
+                          lbp: sale.paid_lbp,
+                        }))}
+                      emptyMessage="No sales yet today."
+                      formatAmount={formatAmount}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Top Debtors */}
+              {activeTab === "debtors" && debtEnabled && (
+                <>
+                  <div className="relative flex justify-between items-center mb-3">
+                    <h3 className="text-md font-bold text-white flex items-center gap-2">
+                      <BarChart2 size={16} className="text-rose-400" />
+                      Top Debtors
+                    </h3>
+                    {rowsControl}
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    <NameAmountTable
+                      rows={debtors
+                        .filter((d) => d.total_debt > 0.01)
+                        .slice(0, insightRowsLimit || 50)
+                        .map((d) => ({
+                          key: d.id,
+                          name: d.full_name,
+                          usd: d.total_debt_usd,
+                          lbp: d.total_debt_lbp,
+                        }))}
+                      emptyMessage="No debtors"
+                      formatAmount={formatAmount}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -212,6 +212,9 @@ test.describe("LIRA-081 (B3) — maintenance on customer account", () => {
       .first();
     await expect(card).toBeVisible({ timeout: 10_000 });
     await expect(card).toContainText("33");
-    await expect(card).toContainText("Debtor");
+    // The 2026-07 card redesign dropped the "Debtor" text chip — debtor vs
+    // creditor is now conveyed by the card color (red = debtor, emerald =
+    // creditor, slate = mixed). Assert the red debtor styling instead.
+    await expect(card).toHaveClass(/bg-red-500\//);
   });
 });
