@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import type { Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import { useApi } from "@liratek/ui";
 
 interface StartSessionModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ interface StartSessionModalProps {
 
 export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   useModalFocusFix(isOpen);
+  const api = useApi();
   const { startSession } = useSession();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [customerName, setCustomerName] = useState("");
@@ -32,7 +34,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
       setLoadingNames(true);
       const fetchActiveNames = async () => {
         try {
-          const result = await window.api.session.getActiveSessions();
+          const result = await api.session.getActiveSessions();
           if (result.success && result.sessions) {
             setActiveSessionNames(
               result.sessions

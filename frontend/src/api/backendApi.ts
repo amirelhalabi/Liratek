@@ -1961,6 +1961,143 @@ export async function linkTransactionToSession(data: {
   );
 }
 
+// ── Session read + cart (WP2) — dual-mode, matching window.api.session ──────
+
+export async function getActiveSessions() {
+  return ipcOrHttp(
+    async () => getElectronApi().session.getActiveSessions(),
+    async () =>
+      requestJson<{ success: boolean; sessions?: any[]; error?: string }>(
+        "/api/sessions/active-list",
+      ),
+  );
+}
+
+export async function getSessionsByDateRange(from: string, to: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().session.getByDateRange(from, to),
+    async () =>
+      requestJson<{ success: boolean; sessions?: any[]; error?: string }>(
+        `/api/sessions/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      ),
+  );
+}
+
+export async function getTodaySessions() {
+  return ipcOrHttp(
+    async () => getElectronApi().session.getTodaySessions(),
+    async () =>
+      requestJson<{ success: boolean; sessions?: any[]; error?: string }>(
+        "/api/sessions/today",
+      ),
+  );
+}
+
+export async function getTodayAllSessions() {
+  return ipcOrHttp(
+    async () => getElectronApi().session.getTodayAllSessions(),
+    async () =>
+      requestJson<{ success: boolean; sessions?: any[]; error?: string }>(
+        "/api/sessions/today-all",
+      ),
+  );
+}
+
+export async function getSessionsByCustomer(data: {
+  customerName: string;
+  customerPhone?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().session.getByCustomer(data),
+    async () => {
+      const qs = new URLSearchParams({ name: data.customerName });
+      if (data.customerPhone) qs.set("phone", data.customerPhone);
+      return requestJson<{ success: boolean; sessions?: any[]; error?: string }>(
+        `/api/sessions/by-customer?${qs.toString()}`,
+      );
+    },
+  );
+}
+
+export async function deleteSession(sessionId: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().session.delete(sessionId),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/sessions/${sessionId}`,
+        { method: "DELETE" },
+      ),
+  );
+}
+
+export async function sessionCartGet(sessionId: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().session.cartGet(sessionId),
+    async () =>
+      requestJson<{ success: boolean; items?: any[]; error?: string }>(
+        `/api/sessions/${sessionId}/cart`,
+      ),
+  );
+}
+
+export async function sessionCartAdd(
+  sessionId: number,
+  item: {
+    item_id: string;
+    module: string;
+    label: string;
+    amount: number;
+    currency: string;
+    form_data: string;
+    ipc_channel: string;
+    user_id?: number;
+  },
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().session.cartAdd(sessionId, item),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/sessions/${sessionId}/cart`,
+        { method: "POST", body: item },
+      ),
+  );
+}
+
+export async function sessionCartRemove(sessionId: number, itemId: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().session.cartRemove(sessionId, itemId),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/sessions/${sessionId}/cart/${encodeURIComponent(itemId)}`,
+        { method: "DELETE" },
+      ),
+  );
+}
+
+export async function sessionCartClear(sessionId: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().session.cartClear(sessionId),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/sessions/${sessionId}/cart`,
+        { method: "DELETE" },
+      ),
+  );
+}
+
+// Basket checkout. HTTP transport lands in WP4 (needs the checkout
+// orchestration extracted into a core service first).
+export async function processSessionCheckout(data: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().session.checkout(data),
+    async () => {
+      throw new Error(
+        "Session checkout over the web is not available yet (pending WP4).",
+      );
+    },
+  );
+}
+
 // WhatsApp
 export async function sendWhatsAppTestMessage(
   recipientPhone: string,

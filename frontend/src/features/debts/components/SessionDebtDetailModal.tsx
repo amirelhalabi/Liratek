@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { X, ShoppingCart } from "lucide-react";
+import { useApi } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 // ─── Types (mirror electron.d.ts session.cartGet / session.getTransactions) ──
@@ -62,6 +63,7 @@ export function SessionDebtDetailModal({
   mode = "all",
   onClose,
 }: Props) {
+  const api = useApi();
   useModalFocusFix(true);
   const [cartItems, setCartItems] = useState<SessionCartItem[]>([]);
   const [transactions, setTransactions] = useState<SessionTransactionRow[]>(
@@ -72,12 +74,11 @@ export function SessionDebtDetailModal({
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!window.api) return;
       setLoading(true);
       try {
         const [cartResult, txResult] = await Promise.all([
-          window.api.session.cartGet(sessionId),
-          window.api.session.getTransactions(sessionId),
+          api.session.cartGet(sessionId),
+          api.session.getTransactions(sessionId),
         ]);
         if (cancelled) return;
         if (cartResult.success && cartResult.items) {
