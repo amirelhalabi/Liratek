@@ -34,6 +34,22 @@ export class ErrorBoundary extends React.Component<
     );
   }
 
+  // Reset on hash navigation: without this, one crashing page leaves the
+  // boundary stuck on "Something went wrong" for every route visited after it.
+  override componentDidMount() {
+    window.addEventListener("hashchange", this.handleHashChange);
+  }
+
+  override componentWillUnmount() {
+    window.removeEventListener("hashchange", this.handleHashChange);
+  }
+
+  handleHashChange = () => {
+    if (this.state.hasError) {
+      this.setState({ hasError: false, error: null });
+    }
+  };
+
   handleReload = () => {
     // Reset boundary state so React re-attempts rendering
     this.setState({ hasError: false, error: null });

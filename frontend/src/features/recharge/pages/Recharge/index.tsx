@@ -289,6 +289,8 @@ export default function MobileRecharge() {
   }, [api]);
 
   const loadDrawerBalances = useCallback(async () => {
+    // Drawer balances are IPC-only (no REST route yet) — skip in web mode
+    if (!window.api?.recharge) return;
     try {
       const drawers = await window.api.recharge.getDrawerBalances();
       setDrawerBalances(drawers ?? []);

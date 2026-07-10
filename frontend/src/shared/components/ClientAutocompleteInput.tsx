@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Client } from "@liratek/ui";
 import logger from "@/utils/logger";
+import { getClients, getDebtors } from "@/api/backendApi";
 
 export interface ClientAutocompleteInputProps {
   /** Current input value (controlled) */
@@ -56,7 +57,9 @@ export function ClientAutocompleteInput({
   useEffect(() => {
     const fetch = async () => {
       try {
-        const data = await window.api.clients.getAll("");
+        // Dual-mode (IPC on desktop, REST in web) — this component renders on
+        // many pages and window.api is undefined in a browser.
+        const data = await getClients("");
         setClients(data);
       } catch (err) {
         logger.error("ClientAutocompleteInput: failed to fetch clients", err);
@@ -70,7 +73,7 @@ export function ClientAutocompleteInput({
     if (!showDebtBadge) return;
     const fetchDebts = async () => {
       try {
-        const debtors = await window.api.debt.getDebtors();
+        const debtors = await getDebtors();
         const map = new Map<number, number>();
         for (const d of debtors) {
           if (d.total_debt_usd > 0.01) map.set(d.id, d.total_debt_usd);

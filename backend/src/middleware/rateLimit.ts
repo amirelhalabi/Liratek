@@ -6,14 +6,21 @@
 import rateLimit from "express-rate-limit";
 import { logger } from "../server.js";
 
+// Limits are env-tunable (a single authenticated POS session fires far more
+// than 100 requests per 15 min in dev); defaults preserve prior behavior.
+function envLimit(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
 /**
  * General API rate limiter
- * - 100 requests per 15 minutes per IP
+ * - API_RATE_LIMIT_MAX requests per 15 minutes per IP (default 100)
  * - Protects all /api/* routes
  */
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per window
+  max: envLimit("API_RATE_LIMIT_MAX", 100),
   message: {
     success: false,
     error: "Too many requests from this IP, please try again later.",
@@ -46,7 +53,7 @@ export const apiLimiter = rateLimit({
  */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 failed attempts per window
+  max: envLimit("AUTH_RATE_LIMIT_MAX", 5), // failed attempts per window
   message: {
     success: false,
     error:

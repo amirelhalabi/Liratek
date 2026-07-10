@@ -79,6 +79,12 @@ export default function CustomerSessions() {
   const [dateTo, setDateTo] = useState(today);
 
   const loadSessions = useCallback(async () => {
+    // Customer sessions are IPC-only for now — render empty in web mode
+    if (!window.api?.session) {
+      setSessions([]);
+      setIsLoading(false);
+      return;
+    }
     try {
       setIsLoading(true);
       const result = await window.api.session.getByDateRange(dateFrom, dateTo);
@@ -273,6 +279,7 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
       return;
     }
     setExpanded(true);
+    if (!window.api?.session) return; // IPC-only details — skip in web mode
     setLoadingDetails(true);
     try {
       const [cartResult, txResult] = await Promise.all([

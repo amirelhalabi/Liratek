@@ -131,6 +131,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [activeSession?.id]);
 
   const loadCartItems = async (sessionId: number) => {
+    if (!window.api?.session) return;
     try {
       const result = await window.api.session.cartGet(sessionId);
       if (result.success && result.items) {
@@ -225,6 +226,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [cartItems]);
 
   const refreshActiveSessions = useCallback(async () => {
+    // Customer sessions are IPC-only for now — skip in web mode instead of
+    // throwing "cannot read properties of undefined" on every poll tick.
+    if (!window.api?.session) return;
     try {
       const data = await window.api.session.getActiveSessions();
 

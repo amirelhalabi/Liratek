@@ -11,6 +11,7 @@
 import {
   test as base,
   _electron,
+  type Browser,
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
@@ -62,8 +63,20 @@ const TEST_USER_DATA_DIR = path.join(
   `liratek-e2e-userdata-${WORKER_INDEX}-${RUN_ID}`,
 );
 
+// ---------------------------------------------------------------------------
+// Web mode (E2E_MODE=web): the SAME specs run against a browser + the Express
+// REST backend instead of Electron + IPC. playwright.web.config.ts sets the
+// env vars; nothing changes for the Electron config. In web mode `appPage` is
+// a shared logged-in browser page, and helpers/seed.ts seeds over REST.
+// ---------------------------------------------------------------------------
+export const isWebMode = process.env.E2E_MODE === "web";
+const WEB_BASE_URL = process.env.E2E_WEB_BASE_URL ?? "http://localhost:5174";
+const WEB_BACKEND_URL =
+  process.env.E2E_WEB_BACKEND_URL ?? "http://127.0.0.1:3101";
+
 // Shared state across all tests in a worker
 let sharedApp: ElectronApplication | null = null;
+let sharedBrowser: Browser | null = null; // web mode only
 let sharedPage: Page | null = null;
 let setupDone = false;
 
@@ -88,11 +101,48 @@ export const test = base.extend<
         sharedPage = null;
         setupDone = false;
       }
+      if (sharedBrowser) {
+        await sharedBrowser.close().catch(() => {});
+        sharedBrowser = null;
+        sharedPage = null;
+      }
     },
     { scope: "worker", auto: true },
   ],
-  // eslint-disable-next-line no-empty-pattern
-  appPage: async ({}, use) => {
+  appPage: async ({ playwright }, use) => {
+    if (isWebMode) {
+      if (!sharedPage) {
+        sharedBrowser = await playwright.chromium.launch();
+        const context = await sharedBrowser.newContext();
+        // Point the app's httpClient at this suite's backend before any app
+        // code runs (default would be 127.0.0.1:3000).
+        await context.addInitScript((url: string) => {
+          (
+            globalThis as { __LIRATEK_BACKEND_URL?: string }
+          ).__LIRATEK_BACKEND_URL = url;
+        }, WEB_BACKEND_URL);
+        sharedPage = await context.newPage();
+        sharedPage.on("dialog", (dialog) => {
+          dialog.accept().catch(() => {});
+        });
+        // Web mode has no setup wizard (it is IPC-gated) — log in directly.
+        // The admin password is seeded by tests/e2e-web/global-setup.ts.
+        await sharedPage.goto(`${WEB_BASE_URL}/#/login`);
+        await sharedPage.fill(
+          'input[placeholder="Enter username"]',
+          "admin",
+        );
+        await sharedPage.fill('input[type="password"]', "admin123");
+        await sharedPage.click('button[type="submit"]');
+        await sharedPage.waitForURL((u) => !u.hash.includes("/login"), {
+          timeout: 15_000,
+        });
+      }
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      await use(sharedPage);
+      return;
+    }
+
     if (!sharedApp) {
       // First test — launch Electron with fresh DB
       fs.mkdirSync(TEST_DB_DIR, { recursive: true });

@@ -39,15 +39,26 @@ export async function login(
     success: boolean;
     user?: ApiUser;
     token?: string;
+    sessionToken?: string;
     error?: string;
+    data?: { user?: ApiUser; token?: string; sessionToken?: string };
   }>("/api/auth/login", {
     method: "POST",
     body: { username, password, rememberMe },
     auth: false,
   });
 
-  if (res.success && res.token) setToken(res.token);
-  return res;
+  // The backend wraps the login payload in `data` (createSuccessResponse),
+  // unlike /api/auth/me which responds flat — accept both shapes.
+  const payload = res.data ?? res;
+  if (res.success && payload.token) setToken(payload.token);
+  return {
+    success: res.success,
+    user: payload.user,
+    token: payload.token,
+    sessionToken: payload.sessionToken,
+    error: res.error,
+  };
 }
 
 export async function logout(): Promise<void> {
@@ -81,16 +92,71 @@ export async function me() {
 }
 
 // Clients
+export type ClientWriteResult = { success: boolean; id?: number; error?: string };
+
+export async function createClient(payload: any): Promise<ClientWriteResult> {
+  if (isElectron()) {
+    return (window as any).api.clients.create(payload);
+  }
+  try {
+    // REST createClientSchema wants a boolean whatsapp_opt_in (IPC accepts 0/1)
+    const body = {
+      ...payload,
+      ...(payload.whatsapp_opt_in != null
+        ? { whatsapp_opt_in: Boolean(payload.whatsapp_opt_in) }
+        : {}),
+    };
+    // Route wraps in createSuccessResponse ({success, data:{id}})
+    const res = await requestJson<ClientWriteResult & { data?: { id?: number } }>(
+      `/api/clients`,
+      { method: "POST", body },
+    );
+    const id = res.id ?? res.data?.id;
+    return id != null ? { ...res, id } : res;
+  } catch (err) {
+    const e = err as { message?: string };
+    return { success: false, error: e.message ?? "Failed to create client" };
+  }
+}
+
+export async function updateClient(payload: {
+  id: number;
+  [key: string]: unknown;
+}): Promise<ClientWriteResult> {
+  if (isElectron()) {
+    return (window as any).api.clients.update(payload);
+  }
+  try {
+    const { id, ...rest } = payload;
+    const body = {
+      ...rest,
+      ...(rest.whatsapp_opt_in != null
+        ? { whatsapp_opt_in: Boolean(rest.whatsapp_opt_in) }
+        : {}),
+    };
+    return await requestJson<ClientWriteResult>(`/api/clients/${id}`, {
+      method: "PUT",
+      body,
+    });
+  } catch (err) {
+    const e = err as { message?: string };
+    return { success: false, error: e.message ?? "Failed to update client" };
+  }
+}
+
 export async function getClients(search: string) {
   return ipcOrHttp(
     async () => getElectronApi().clients.getAll(search),
     async () => {
       const qs = new URLSearchParams();
       if (search) qs.set("search", search);
-      const res = await requestJson<{ success: boolean; clients: any[] }>(
-        `/api/clients?${qs.toString()}`,
-      );
-      return res.clients;
+      // Route wraps in createSuccessResponse ({success, data:{clients}})
+      const res = await requestJson<{
+        success: boolean;
+        clients?: any[];
+        data?: { clients?: any[] };
+      }>(`/api/clients?${qs.toString()}`);
+      return (res.data ?? res).clients ?? [];
     },
   );
 }
@@ -112,10 +178,13 @@ export async function getProducts(search: string = "") {
     async () => {
       const qs = new URLSearchParams();
       if (search) qs.set("search", search);
-      const res = await requestJson<{ success: boolean; products: any[] }>(
-        `/api/inventory/products?${qs.toString()}`,
-      );
-      return res.products;
+      // Route wraps in createSuccessResponse ({success, data:{products}})
+      const res = await requestJson<{
+        success: boolean;
+        products?: any[];
+        data?: { products?: any[] };
+      }>(`/api/inventory/products?${qs.toString()}`);
+      return (res.data ?? res).products ?? [];
     },
   );
 }
@@ -132,10 +201,31 @@ export async function createProduct(payload: any): Promise<ProductWriteResult> {
   if (isElectron()) {
     return (window as any).api.inventory.createProduct(payload);
   }
-  return requestJson<ProductWriteResult>(`/api/inventory/products`, {
-    method: "POST",
-    body: payload,
-  });
+  try {
+    // REST createProductSchema uses different field names than the IPC form
+    // payload (cost_price_usd vs cost_price, stock vs stock_quantity, ...)
+    const body = {
+      name: payload.name,
+      category: payload.category,
+      ...(payload.barcode ? { barcode: payload.barcode } : {}),
+      cost_price_usd: payload.cost_price_usd ?? payload.cost_price ?? 0,
+      retail_price_usd: payload.retail_price_usd ?? payload.retail_price ?? 0,
+      stock: payload.stock ?? payload.stock_quantity ?? 0,
+      min_stock_threshold:
+        payload.min_stock_threshold ?? payload.min_stock_level ?? 0,
+      supplier: payload.supplier ?? null,
+    };
+    // Route wraps in createSuccessResponse ({success, data:{id}})
+    const res = await requestJson<ProductWriteResult & { data?: { id?: number } }>(
+      `/api/inventory/products`,
+      { method: "POST", body },
+    );
+    const id = res.id ?? res.data?.id;
+    return id != null ? { ...res, id } : res;
+  } catch (err) {
+    const e = err as { message?: string };
+    return { success: false, error: e.message ?? "Failed to create product" };
+  }
 }
 
 export async function updateProduct(
@@ -323,9 +413,23 @@ export async function addExchangeTransaction(payload: any) {
   if (isElectron()) {
     return (window as any).api.exchange.addTransaction(payload);
   }
+  // REST createExchangeSchema requires `rate` and a full ISO transaction_time;
+  // the form sends leg-based rates and a datetime-local string (IPC accepts
+  // both). NOTE: the REST validator also strips the leg1*/leg2* profit fields
+  // — leg-profit stamping parity is tracked in the plan doc (Appendix A).
+  const body = {
+    ...payload,
+    rate:
+      payload.rate ??
+      payload.leg1Rate ??
+      (payload.amountIn ? payload.amountOut / payload.amountIn : undefined),
+    ...(payload.transaction_time
+      ? { transaction_time: new Date(payload.transaction_time).toISOString() }
+      : {}),
+  };
   return requestJson<{ success: boolean; id?: number; error?: string }>(
     `/api/exchange/transactions`,
-    { method: "POST", body: payload },
+    { method: "POST", body },
   );
 }
 

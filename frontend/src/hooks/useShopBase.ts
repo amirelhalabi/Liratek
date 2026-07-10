@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { getAllSettings } from "@/api/backendApi";
 
 type BaseSystem = "OMT" | "WHISH";
 
@@ -35,8 +36,9 @@ export function useShopBase(): ShopBase {
     listeners.add(handler);
 
     if (cachedBase === null) {
-      window.api.settings
-        .getAll()
+      // Dual-mode (IPC on desktop, REST in web) — window.api.settings is
+      // undefined in a browser and crashed /services + /suppliers.
+      getAllSettings()
         .then((settings: Array<{ key_name: string; value: string }>) => {
           const setting = settings.find(
             (s) => s.key_name === "shop_base_system",

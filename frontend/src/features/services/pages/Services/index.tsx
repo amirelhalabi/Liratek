@@ -456,7 +456,10 @@ export default function Services() {
           api.getOMTAnalytics(["OMT", "WHISH"]),
           api.getSuppliers(),
           api.getSupplierBalances(),
-          window.api.partners.getAll(false),
+          // Partners are IPC-only (no REST route yet) — empty in web mode
+          window.api?.partners
+            ? window.api.partners.getAll(false)
+            : Promise.resolve([]),
         ]);
       setTransactions(
         history.map((h: Transaction) => ({

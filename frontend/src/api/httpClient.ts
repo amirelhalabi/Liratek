@@ -11,7 +11,9 @@ function getBaseUrl(): string {
   const fromGlobal = (globalThis as any).__LIRATEK_BACKEND_URL as
     | string
     | undefined;
-  return (fromGlobal || "http://localhost:3000").replace(/\/$/, "");
+  // 127.0.0.1 (not localhost): browsers may resolve localhost to IPv6 ::1,
+  // where another process (e.g. Docker) can be listening on the same port.
+  return (fromGlobal || "http://127.0.0.1:3000").replace(/\/$/, "");
 }
 
 function getToken(): string | null {

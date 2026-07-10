@@ -70,6 +70,8 @@ export function PresetManagerModal({
   const [saving, setSaving] = useState(false);
 
   const loadPresets = useCallback(async () => {
+    // Service presets are IPC-only (no REST route yet) — skip in web mode
+    if (!window.api?.servicePresets) return;
     try {
       setLoading(true);
       const result = await window.api.servicePresets.list({

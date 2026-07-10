@@ -66,6 +66,13 @@ export function VouchersPage() {
   const loadVouchers = useCallback(async () => {
     setLoading(true);
     setListError(null);
+    // Vouchers are IPC-only (no REST route yet)
+    if (!window.api?.vouchers) {
+      setVouchers([]);
+      setListError("Vouchers are not available in the web version yet");
+      setLoading(false);
+      return;
+    }
     const result = await window.api.vouchers.getAll();
     if (result.success) {
       setVouchers(result.vouchers ?? []);
@@ -174,6 +181,10 @@ export function VouchersPage() {
         return;
       }
 
+      if (!window.api?.vouchers) {
+        setFormError("Vouchers are not available in the web version yet");
+        return;
+      }
       const result = await window.api.vouchers.create({
         clientId: resolved.clientId,
         amount: amountVal,
@@ -204,6 +215,10 @@ export function VouchersPage() {
         `Cancel voucher ${voucher.code} (${amtLabel})? This cannot be undone.`,
       )
     ) {
+      return;
+    }
+    if (!window.api?.vouchers) {
+      alert("Vouchers are not available in the web version yet");
       return;
     }
     const result = await window.api.vouchers.cancel(voucher.id);

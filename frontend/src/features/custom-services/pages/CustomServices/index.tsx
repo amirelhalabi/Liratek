@@ -141,6 +141,8 @@ export default function CustomServices() {
   const [presets, setPresets] = useState<ServicePreset[]>([]);
 
   const loadPresets = useCallback(async () => {
+    // Service presets are IPC-only (no REST route yet) — skip in web mode
+    if (!window.api?.servicePresets) return;
     try {
       const result = await window.api.servicePresets.list();
       if (result.success && result.data) {

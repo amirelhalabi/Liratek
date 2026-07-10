@@ -61,6 +61,11 @@ export default function CheckpointTimeline() {
   // Fetch the setup checkpoint date once so we can surface it when it falls
   // outside the current filter window.
   useEffect(() => {
+    // Checkpoints are IPC-only (no REST route yet) — render empty in web mode
+    if (!window.api?.closing) {
+      setInitialCheckpointDate(null);
+      return;
+    }
     window.api.closing
       .getInitialCheckpointDate()
       .then(setInitialCheckpointDate)
@@ -80,6 +85,11 @@ export default function CheckpointTimeline() {
   }, [filters]);
 
   const loadCheckpoints = async () => {
+    if (!window.api?.closing) {
+      setCheckpoints([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const result = await window.api.closing.getCheckpointTimeline(filters);

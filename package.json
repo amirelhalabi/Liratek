@@ -19,6 +19,7 @@
     "build": "yarn workspaces foreach -ptA --exclude liratek run build && node scripts/build-stage.cjs",
     "test": "npm run rebuild:node && yarn workspaces foreach -A --exclude liratek run test",
     "test:e2e": "cd frontend && npx playwright test --config playwright.electron.config.ts",
+    "test:e2e:web": "npm run rebuild:node && cd frontend && npx playwright test --config playwright.web.config.ts",
     "lint": "yarn workspaces foreach -ptA --exclude liratek run lint",
     "typecheck": "yarn workspaces foreach -ptA --exclude liratek run typecheck",
     "test:coverage": "yarn workspaces foreach -pA --exclude liratek run test:coverage",

@@ -450,6 +450,8 @@ export default function Dashboard() {
 
   // Check once on mount whether initial drawer amounts have been set
   useEffect(() => {
+    // IPC-only check — in web mode keep the default (no setup banner)
+    if (!window.api?.closing) return;
     window.api.closing.hasInitialBalancesSet().then((isSet) => {
       setInitialBalancesSet(isSet);
     });
@@ -459,7 +461,7 @@ export default function Dashboard() {
   // checkpoints (session management) are enabled; otherwise treat as satisfied
   // so the banner never shows for shops that don't use the timeline.
   const refreshStartingCheckpoint = useCallback(() => {
-    if (!checkpointsEnabled) {
+    if (!checkpointsEnabled || !window.api?.closing) {
       setStartingCheckpointSet(true);
       return;
     }

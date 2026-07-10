@@ -48,7 +48,20 @@ router.post(
   validateRequest(createProductSchema),
   (req, res): void => {
     const service = getInventoryService();
-    const result = service.createProduct(req.body);
+    // createProductSchema uses the REST field names (cost_price_usd, stock…);
+    // core CreateProductData uses the IPC names (cost_price, stock_quantity…).
+    // Passing req.body through unmapped inserted NULL prices.
+    const b = req.body;
+    const result = service.createProduct({
+      barcode: b.barcode ?? null,
+      name: b.name,
+      category: b.category,
+      cost_price: b.cost_price_usd,
+      retail_price: b.retail_price_usd,
+      stock_quantity: b.stock,
+      min_stock_level: b.min_stock_threshold,
+      supplier: b.supplier ?? null,
+    });
 
     if (!result.success) {
       const errorMsg = result.error || "Failed to create product";

@@ -3,6 +3,7 @@ import logger from "@/utils/logger";
 import { X, Save, MessageCircle, Send } from "lucide-react";
 import type { Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { createClient, updateClient } from "@/api/backendApi";
 
 interface ClientFormProps {
   onClose: () => void;
@@ -70,7 +71,7 @@ export default function ClientForm({
           ...(formData.notes ? { notes: formData.notes } : {}),
           whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
         };
-        result = await window.api.clients.update(updatePayload);
+        result = await updateClient(updatePayload);
       } else {
         const createPayload = {
           full_name: formData.full_name,
@@ -78,7 +79,7 @@ export default function ClientForm({
           notes: formData.notes || "",
           whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
         };
-        result = await window.api.clients.create(createPayload);
+        result = await createClient(createPayload);
       }
 
       if (result.success) {
@@ -102,6 +103,10 @@ export default function ClientForm({
 
     setIsSending(true);
     try {
+      if (!window.api?.whatsapp) {
+        setError("WhatsApp is not available in the web version yet");
+        return;
+      }
       const message = `Hello ${formData.full_name}! This is a test message from LiraTek.`;
       const result = await window.api.whatsapp.sendMessage(
         formData.phone_number,
