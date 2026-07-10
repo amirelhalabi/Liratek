@@ -20,6 +20,7 @@ import {
   getSessionRepository,
   getServicePresetService,
   runMigrations,
+  initFixedTenantContext,
   logger,
 } from "@liratek/core";
 import { purgeExpiredSessions } from "./session.js";
@@ -415,6 +416,12 @@ function initializeBackend() {
       `A database migration failed. Some features (e.g. inventory) may not work correctly.\n\nError: ${errMsg}\n\nPlease contact support.`,
     );
   }
+
+  // Desktop is permanently single-tenant: tenant 1 ("Default", seeded by
+  // migration v123) is fixed for the lifetime of the process, so every
+  // repository call below resolves its tenant_id scoping without any
+  // per-request wiring (see packages/core/src/db/tenantContext.ts).
+  initFixedTenantContext(1);
 
   // Services are initialized on-demand by handlers
   // Each service gets the db instance when needed

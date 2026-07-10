@@ -48,6 +48,7 @@ function createTestDb(): Database.Database {
       notes TEXT,
       is_deleted INTEGER DEFAULT 0,
       whatsapp_opt_in INTEGER DEFAULT 0,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

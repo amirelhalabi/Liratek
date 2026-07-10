@@ -3,6 +3,7 @@ export * from "./db/dbPath.js";
 export * from "./db/dbKey.js";
 export * from "./db/sqlcipher.js";
 export * from "./db/connection.js";
+export * from "./db/tenantContext.js";
 // Migration system (runner infrastructure; migrations added post-production)
 export * from "./db/migrations/index.js";
 

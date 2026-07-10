@@ -14,6 +14,7 @@
 
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId, isTenantBypass } from "../db/tenantContext.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { dbLogger } from "../utils/logger.js";
 
@@ -67,10 +68,36 @@ export interface PaginatedResult<T> {
 export abstract class BaseRepository<T extends BaseEntity> {
   protected readonly tableName: string;
   protected readonly softDelete: boolean;
+  /**
+   * Whether the generic CRUD methods on this repository (findById, findAll,
+   * create, update, delete, count, exists, softDeleteById, restore) should
+   * carry a `tenant_id` predicate. Defaults to true — every tenant-owned
+   * table gets it for free. Set to `false` in the constructor for repos
+   * whose table is NOT tenant-owned (e.g. `schema_migrations`, `sync_queue`,
+   * `sync_errors` — control-plane/global tables). See
+   * docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §6.
+   */
+  protected readonly tenantScoped: boolean;
 
-  constructor(tableName: string, options?: { softDelete?: boolean }) {
+  constructor(
+    tableName: string,
+    options?: { softDelete?: boolean; tenantScoped?: boolean },
+  ) {
     this.tableName = tableName;
     this.softDelete = options?.softDelete ?? false;
+    this.tenantScoped = options?.tenantScoped ?? true;
+  }
+
+  /**
+   * True when this repository's generic CRUD methods should inject a
+   * `tenant_id` predicate for the current call. False when either the repo
+   * opted out (`tenantScoped: false`) or the current async scope is an
+   * explicit `runWithoutTenant()` bypass (control-plane reads). Callers
+   * always guard on this BEFORE calling `getCurrentTenantId()`, so a
+   * bypassed control-plane repo never trips the fail-closed throw.
+   */
+  private get tenantScopeActive(): boolean {
+    return this.tenantScoped && !isTenantBypass();
   }
 
   /**
@@ -115,9 +142,14 @@ export abstract class BaseRepository<T extends BaseEntity> {
   findById(id: number): T | null {
     try {
       const where = this.getBaseWhere("AND");
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE id = ? ${where}`;
+      const tenantActive = this.tenantScopeActive;
+      const tenantClause = tenantActive ? " AND tenant_id = ?" : "";
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE id = ? ${where}${tenantClause}`;
+      const params: unknown[] = tenantActive
+        ? [id, getCurrentTenantId()]
+        : [id];
 
-      return (this.db.prepare(query).get(id) as T | undefined) ?? null;
+      return (this.db.prepare(query).get(...params) as T | undefined) ?? null;
     } catch (error) {
       throw new DatabaseError(`Failed to find ${this.tableName} by id`, {
         cause: error,
@@ -150,16 +182,25 @@ export abstract class BaseRepository<T extends BaseEntity> {
       } = options;
 
       const where = this.getBaseWhere("WHERE");
+      const tenantActive = this.tenantScopeActive;
+      const tenantParams: unknown[] = [];
       let query = `SELECT ${this.getColumns()} FROM ${this.tableName} ${where}`;
+
+      if (tenantActive) {
+        query += where ? " AND tenant_id = ?" : " WHERE tenant_id = ?";
+        tenantParams.push(getCurrentTenantId());
+      }
 
       query += ` ORDER BY ${orderBy} ${orderDirection}`;
 
       if (limit !== undefined) {
         query += ` LIMIT ? OFFSET ?`;
-        return this.db.prepare(query).all(limit, offset) as T[];
+        return this.db
+          .prepare(query)
+          .all(...tenantParams, limit, offset) as T[];
       }
 
-      return this.db.prepare(query).all() as T[];
+      return this.db.prepare(query).all(...tenantParams) as T[];
     } catch (error) {
       throw new DatabaseError(`Failed to find all ${this.tableName}`, {
         cause: error,
@@ -191,9 +232,18 @@ export abstract class BaseRepository<T extends BaseEntity> {
   count(): number {
     try {
       const where = this.getBaseWhere("WHERE");
-      const query = `SELECT COUNT(*) as count FROM ${this.tableName} ${where}`;
+      const tenantActive = this.tenantScopeActive;
+      const tenantParams: unknown[] = [];
+      let query = `SELECT COUNT(*) as count FROM ${this.tableName} ${where}`;
 
-      const result = this.db.prepare(query).get() as { count: number };
+      if (tenantActive) {
+        query += where ? " AND tenant_id = ?" : " WHERE tenant_id = ?";
+        tenantParams.push(getCurrentTenantId());
+      }
+
+      const result = this.db.prepare(query).get(...tenantParams) as {
+        count: number;
+      };
       return result.count;
     } catch (error) {
       throw new DatabaseError(`Failed to count ${this.tableName}`, {
@@ -208,9 +258,14 @@ export abstract class BaseRepository<T extends BaseEntity> {
   exists(id: number): boolean {
     try {
       const where = this.getBaseWhere("AND");
-      const query = `SELECT 1 FROM ${this.tableName} WHERE id = ? ${where}`;
+      const tenantActive = this.tenantScopeActive;
+      const tenantClause = tenantActive ? " AND tenant_id = ?" : "";
+      const query = `SELECT 1 FROM ${this.tableName} WHERE id = ? ${where}${tenantClause}`;
+      const params: unknown[] = tenantActive
+        ? [id, getCurrentTenantId()]
+        : [id];
 
-      return this.db.prepare(query).get(id) !== undefined;
+      return this.db.prepare(query).get(...params) !== undefined;
     } catch (error) {
       throw new DatabaseError(
         `Failed to check existence in ${this.tableName}`,
@@ -225,12 +280,18 @@ export abstract class BaseRepository<T extends BaseEntity> {
   create(data: Omit<T, "id" | "created_at" | "updated_at">): T {
     try {
       const columns = Object.keys(data);
-      const placeholders = columns.map(() => "?").join(", ");
       const values = Object.values(data);
+      const tenantActive = this.tenantScopeActive && !columns.includes("tenant_id");
 
-      const query = `INSERT INTO ${this.tableName} (${columns.join(", ")}, created_at) VALUES (${placeholders}, datetime('now'))`;
+      const allColumns = tenantActive ? [...columns, "tenant_id"] : columns;
+      const allValues = tenantActive
+        ? [...values, getCurrentTenantId()]
+        : values;
+      const placeholders = allColumns.map(() => "?").join(", ");
 
-      const result = this.db.prepare(query).run(...values);
+      const query = `INSERT INTO ${this.tableName} (${allColumns.join(", ")}, created_at) VALUES (${placeholders}, datetime('now'))`;
+
+      const result = this.db.prepare(query).run(...allValues);
       const insertedId = result.lastInsertRowid as number;
 
       return this.findByIdOrFail(insertedId);
@@ -257,10 +318,15 @@ export abstract class BaseRepository<T extends BaseEntity> {
 
       const setClause = columns.map((col) => `${col} = ?`).join(", ");
       const values = Object.values(data);
+      const tenantActive = this.tenantScopeActive;
+      const tenantClause = tenantActive ? " AND tenant_id = ?" : "";
 
-      const query = `UPDATE ${this.tableName} SET ${setClause}, updated_at = datetime('now') WHERE id = ?`;
+      const query = `UPDATE ${this.tableName} SET ${setClause}, updated_at = datetime('now') WHERE id = ?${tenantClause}`;
+      const params = tenantActive
+        ? [...values, id, getCurrentTenantId()]
+        : [...values, id];
 
-      const result = this.db.prepare(query).run(...values, id);
+      const result = this.db.prepare(query).run(...params);
 
       if (result.changes === 0 && options.throwOnNotFound) {
         throw new NotFoundError(this.tableName, id);
@@ -281,8 +347,11 @@ export abstract class BaseRepository<T extends BaseEntity> {
    */
   delete(id: number, options: UpdateOptions = {}): boolean {
     try {
-      const query = `DELETE FROM ${this.tableName} WHERE id = ?`;
-      const result = this.db.prepare(query).run(id);
+      const tenantActive = this.tenantScopeActive;
+      const tenantClause = tenantActive ? " AND tenant_id = ?" : "";
+      const query = `DELETE FROM ${this.tableName} WHERE id = ?${tenantClause}`;
+      const params = tenantActive ? [id, getCurrentTenantId()] : [id];
+      const result = this.db.prepare(query).run(...params);
 
       if (result.changes === 0 && options.throwOnNotFound) {
         throw new NotFoundError(this.tableName, id);
@@ -305,12 +374,15 @@ export abstract class BaseRepository<T extends BaseEntity> {
     try {
       // Check if updated_at exists in this table
       const hasUpdatedAt = this.hasColumn("updated_at");
+      const tenantActive = this.tenantScopeActive;
+      const tenantClause = tenantActive ? " AND tenant_id = ?" : "";
 
       const query = hasUpdatedAt
-        ? `UPDATE ${this.tableName} SET is_deleted = 1, updated_at = datetime('now') WHERE id = ?`
-        : `UPDATE ${this.tableName} SET is_deleted = 1 WHERE id = ?`;
+        ? `UPDATE ${this.tableName} SET is_deleted = 1, updated_at = datetime('now') WHERE id = ?${tenantClause}`
+        : `UPDATE ${this.tableName} SET is_deleted = 1 WHERE id = ?${tenantClause}`;
+      const params = tenantActive ? [id, getCurrentTenantId()] : [id];
 
-      const result = this.db.prepare(query).run(id);
+      const result = this.db.prepare(query).run(...params);
 
       if (result.changes === 0 && options.throwOnNotFound) {
         throw new NotFoundError(this.tableName, id);
@@ -338,12 +410,15 @@ export abstract class BaseRepository<T extends BaseEntity> {
     try {
       // Check if updated_at exists in this table
       const hasUpdatedAt = this.hasColumn("updated_at");
+      const tenantActive = this.tenantScopeActive;
+      const tenantClause = tenantActive ? " AND tenant_id = ?" : "";
 
       const query = hasUpdatedAt
-        ? `UPDATE ${this.tableName} SET is_deleted = 0, updated_at = datetime('now') WHERE id = ?`
-        : `UPDATE ${this.tableName} SET is_deleted = 0 WHERE id = ?`;
+        ? `UPDATE ${this.tableName} SET is_deleted = 0, updated_at = datetime('now') WHERE id = ?${tenantClause}`
+        : `UPDATE ${this.tableName} SET is_deleted = 0 WHERE id = ?${tenantClause}`;
+      const params = tenantActive ? [id, getCurrentTenantId()] : [id];
 
-      const result = this.db.prepare(query).run(id);
+      const result = this.db.prepare(query).run(...params);
 
       if (result.changes === 0 && options.throwOnNotFound) {
         throw new NotFoundError(this.tableName, id);

@@ -99,6 +99,7 @@ function createTestDb(): Database.Database {
       summary TEXT,
       metadata_json TEXT,
       device_id TEXT,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
