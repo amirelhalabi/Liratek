@@ -379,6 +379,17 @@ export type ApiAdapter = {
     payments?: Array<{ method: string; currencyCode: string; amount: number }>;
     transaction_time?: string;
   }) => Promise<ApiResult>;
+  getClientBalance: (clientId: number) => Promise<{
+    success: boolean;
+    data?: { balance_usd: number; balance_lbp: number };
+    error?: string;
+  }>;
+  cashOut: (
+    payload: unknown,
+  ) => Promise<{ success: boolean; id?: number; error?: string }>;
+  addAccountEntry: (
+    payload: unknown,
+  ) => Promise<{ success: boolean; id?: number; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Exchange

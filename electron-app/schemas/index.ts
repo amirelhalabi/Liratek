@@ -17,6 +17,10 @@ import {
   lotoCheckpointsSettleBatchSchema,
   sessionCheckoutSchema,
   holdMoneyCreateSchema,
+  debtCashOutSchema,
+  debtAccountEntrySchema,
+  type DebtCashOutInput,
+  type DebtAccountEntryInput,
   type HoldMoneyCreateInput,
   type SaleProcessInput,
   type LotoSellInput,
@@ -430,31 +434,13 @@ export const DebtRepaymentSchema = z.object({
   transaction_time: z.string().optional(),
 });
 
-export const DebtCashOutSchema = z.object({
-  clientId: z.number().int().positive(),
-  amountUSD: z.number().nonnegative(),
-  amountLBP: z.number().nonnegative(),
-  payments: z.array(RepaymentPaymentLegSchema).optional(),
-  note: z.string().optional(),
-  transaction_time: z.string().optional(),
-});
-
-// Manual, till-moving account entry from the Accounts (Debts) page.
-// direction "credit" → drawer IN (shop owes customer); "debt" → drawer OUT
-// (customer owes shop, a cash advance).
-export const DebtAccountEntrySchema = z
-  .object({
-    direction: z.enum(["credit", "debt"]),
-    clientId: z.number().int().positive(),
-    amountUSD: z.number().nonnegative(),
-    amountLBP: z.number().nonnegative(),
-    payments: z.array(RepaymentPaymentLegSchema).optional(),
-    note: z.string().max(500).optional(),
-    transaction_time: z.string().optional(),
-  })
-  .refine((data) => data.amountUSD > 0 || data.amountLBP > 0, {
-    message: "At least one amount (USD or LBP) must be greater than 0",
-  });
+// Lifted to packages/core/src/validators/debt.ts so the IPC handler and the
+// REST route validate against ONE schema (rule 14). Casts bridge the zod-major
+// mismatch (core=zod4, this workspace=zod3); runtime API identical.
+export const DebtCashOutSchema =
+  debtCashOutSchema as unknown as z.ZodSchema<DebtCashOutInput>;
+export const DebtAccountEntrySchema =
+  debtAccountEntrySchema as unknown as z.ZodSchema<DebtAccountEntryInput>;
 
 export const DebtAddCreditSchema = z
   .object({

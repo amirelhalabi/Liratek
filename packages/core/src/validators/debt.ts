@@ -58,6 +58,43 @@ export const getDebtorSummarySchema = z.object({
   hasDebtOnly: z.coerce.boolean().default(false),
 });
 
+// Payment leg for cash-out / account-entry (carries IN/OUT direction).
+const debtPaymentLegSchema = z.object({
+  method: z.string().min(1),
+  currencyCode: z.string().min(1),
+  amount: z.number(),
+  direction: z.enum(["IN", "OUT"]).optional(),
+});
+
+// Cash out a client's prepaid credit (CREDIT_CASH_OUT — drawer OUT). Shared by
+// the IPC handler (debt:cash-out) and the REST route (rule 14).
+export const debtCashOutSchema = z.object({
+  clientId: z.number().int().positive(),
+  amountUSD: z.number().nonnegative(),
+  amountLBP: z.number().nonnegative(),
+  payments: z.array(debtPaymentLegSchema).optional(),
+  note: z.string().optional(),
+  transaction_time: z.string().optional(),
+});
+
+// Manual, till-moving account entry from the Accounts (Debts) page.
+// direction "credit" → drawer IN (shop owes customer); "debt" → drawer OUT.
+export const debtAccountEntrySchema = z
+  .object({
+    direction: z.enum(["credit", "debt"]),
+    clientId: z.number().int().positive(),
+    amountUSD: z.number().nonnegative(),
+    amountLBP: z.number().nonnegative(),
+    payments: z.array(debtPaymentLegSchema).optional(),
+    note: z.string().max(500).optional(),
+    transaction_time: z.string().optional(),
+  })
+  .refine((data) => data.amountUSD > 0 || data.amountLBP > 0, {
+    message: "At least one amount (USD or LBP) must be greater than 0",
+  });
+
 export type AddRepaymentInput = z.infer<typeof addRepaymentSchema>;
 export type AddCreditInput = z.infer<typeof addCreditSchema>;
 export type GetDebtorSummaryInput = z.infer<typeof getDebtorSummarySchema>;
+export type DebtCashOutInput = z.infer<typeof debtCashOutSchema>;
+export type DebtAccountEntryInput = z.infer<typeof debtAccountEntrySchema>;

@@ -368,9 +368,8 @@ export default function Debts() {
   const [repayMode, setRepayMode] = useState<"repay" | "cashout">("repay");
 
   const loadLedgerBalance = async (clientId: number) => {
-    if (!window.api) return; // web mode falls back to the history-derived sums
     try {
-      const res = await window.api.debt.getClientBalance(clientId);
+      const res = await api.getClientBalance(clientId);
       if (res.success && res.data) {
         setLedgerBalance({
           usd: res.data.balance_usd,
@@ -535,7 +534,7 @@ export default function Debts() {
         outUsd = Math.min(creditUsd, outUsd + leftLbp / cashOutRate);
       }
       try {
-        const result = await window.api.debt.cashOut({
+        const result = await api.cashOut({
           clientId: selectedClient.id,
           amountUSD: outUsd,
           amountLBP: outLbp,
@@ -2080,7 +2079,7 @@ export default function Debts() {
                     }
                     onClick={async () => {
                       if (!creditSelectedClient) return;
-                      const result = await window.api.debt.addAccountEntry({
+                      const result = await api.addAccountEntry({
                         direction: creditDirection,
                         clientId: creditSelectedClient.id,
                         amountUSD:

@@ -432,6 +432,43 @@ export async function addRepayment(payload: any) {
   );
 }
 
+// Per-currency raw client balance ({success, data:{balance_usd, balance_lbp}}).
+export async function getClientBalance(clientId: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().debt.getClientBalance(clientId),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: { balance_usd: number; balance_lbp: number };
+        error?: string;
+      }>(`/api/debts/clients/${clientId}/balance`),
+  );
+}
+
+// Cash out a client's prepaid credit (drawer OUT).
+export async function debtCashOut(payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().debt.cashOut(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/debts/cash-out`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+// Manual till-moving account credit/debt entry.
+export async function debtAccountEntry(payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().debt.addAccountEntry(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/debts/account-entry`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
 // Exchange
 export async function getExchangeRates() {
   return ipcOrHttp(
