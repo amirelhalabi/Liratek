@@ -99,27 +99,25 @@ async function checkDatabase() {
     const db = getDatabase();
     const start = Date.now();
 
-    // Test query
+    // Connectivity check ONLY. This route is mounted UNAUTHENTICATED
+    // (server.ts: `app.use("/health", healthRoutes)`, no /api prefix, no
+    // authenticateJWT) for load balancers / uptime monitors — by design,
+    // anyone can hit it without a token. In multi-tenant mode that means any
+    // anonymous caller could previously read platform-wide business
+    // aggregates (`clients`/`products`/`sales_today` counts summed across
+    // EVERY tenant) via a raw, unscoped query with no `tenant_id` filter —
+    // a cross-tenant data leak, not just an infra detail. A health check
+    // only needs to prove the DB is reachable; it has no business reporting
+    // any tenant's row counts, so the aggregate query is removed rather than
+    // reworked to scope it (there is no tenant context here to scope by,
+    // and this endpoint must stay anonymous for monitoring tools to use it).
     db.prepare("SELECT 1 AS test").get();
-
-    // Get some basic stats
-    const stats = db
-      .prepare(
-        `
-      SELECT 
-        (SELECT COUNT(*) FROM clients) as clients,
-        (SELECT COUNT(*) FROM products) as products,
-        (SELECT COUNT(*) FROM sales WHERE date(created_at) = date('now')) as sales_today
-    `,
-      )
-      .get() as { clients: number; products: number; sales_today: number };
 
     const latency = Date.now() - start;
 
     return {
       healthy: true,
       latency,
-      stats,
     };
   } catch (error) {
     logger.error({ error }, "Database health check failed");

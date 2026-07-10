@@ -106,7 +106,14 @@ function parseJwtPayload(decoded: unknown): LiratekJwtPayload | null {
 export function verifyJwt(token: string): LiratekJwtPayload | null {
   if (!JWT_SECRET) return null;
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    // Pin the accepted signing algorithm: every LiraTek JWT is signed HS256
+    // (jwt.sign() call sites in api/auth.ts and api/admin.ts never pass an
+    // `algorithm` option, so they default to HS256). Without this pin,
+    // jsonwebtoken accepts any HMAC algorithm it considers compatible with a
+    // string secret (HS256/384/512) — harmless today since the secret is
+    // shared across all of them, but hardening against alg-confusion in any
+    // future refactor that changes the key material or signing call.
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
     return parseJwtPayload(decoded);
   } catch {
     return null;
@@ -148,6 +155,27 @@ export function authenticateJWT(
       .then((user: SafeUser | null) => {
         if (!user) {
           logger.warn({ userId: payload.userId }, "Session expired or invalid");
+          res.status(401).json({ error: "Session expired" });
+          return;
+        }
+
+        // Belt-and-suspenders (plan §4): `sessions`/`users` carry `tenant_id`,
+        // denormalized together at session-mint time, so the JWT's tenantId
+        // claim and the validated session's own tenant should never disagree.
+        // `user` here is `SafeUser` (UserEntity minus password_hash) resolved
+        // via `findByIdGlobal(session.user_id)` — it exposes `tenant_id`
+        // (WP2 added it to `sessions`/`users`; verified present on SafeUser).
+        // A mismatch means some mint path decoupled the two — reject rather
+        // than trust whichever side is wrong.
+        if (payload.tenantId !== user.tenant_id) {
+          logger.warn(
+            {
+              userId: payload.userId,
+              jwtTenantId: payload.tenantId,
+              sessionTenantId: user.tenant_id,
+            },
+            "JWT tenantId does not match session tenant_id — rejecting",
+          );
           res.status(401).json({ error: "Session expired" });
           return;
         }

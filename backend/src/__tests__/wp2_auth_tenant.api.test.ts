@@ -332,6 +332,74 @@ describe("legacy JWT rejection (closed auth.ts:81-85 hole)", () => {
 });
 
 // =============================================================================
+// 2b. Security review FIX 4 — JWT algorithm pinned to HS256 (verifyJwt)
+// =============================================================================
+
+describe("JWT algorithm pinning (verifyJwt)", () => {
+  it("rejects a validly-signed token using a different HMAC algorithm (HS384)", async () => {
+    // Real session so only the algorithm can be the reason for rejection.
+    const loginRes = await login("alpha_admin");
+    const sessionToken = (loginRes.body as LoginBody).data!.sessionToken!;
+
+    const hs384Token = jwt.sign(
+      { userId: 1, role: "admin", sessionToken, tenantId: 1 },
+      JWT_TEST_SECRET,
+      { algorithm: "HS384", expiresIn: "1h" },
+    );
+
+    const res = await request(app)
+      .get("/api/test/partners")
+      .set("Authorization", `Bearer ${hs384Token}`);
+    // Without `{ algorithms: ["HS256"] }` pinned in verifyJwt, jsonwebtoken's
+    // default-inferred algorithm set for a string secret (HS256/384/512)
+    // would accept this token; pinning rejects it as an invalid token.
+    expect(res.status).toBe(401);
+  });
+
+  it("still accepts a normally-signed (HS256, the app's default) token", async () => {
+    const token = await loginToken("alpha_admin");
+    const res = await request(app)
+      .get("/api/test/partners")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+  });
+});
+
+// =============================================================================
+// 2c. Security review FIX 5 — JWT tenantId must match the session's tenant_id
+// =============================================================================
+
+describe("JWT tenantId vs. validated session tenant_id (belt-and-suspenders)", () => {
+  it("rejects a token whose tenantId claim disagrees with the session's own tenant", async () => {
+    // Mint a REAL session for tenant 1's admin, then re-sign a token that
+    // reuses that same sessionToken but claims a DIFFERENT tenantId — this
+    // simulates a hypothetical future mint bug decoupling the JWT's tenantId
+    // from the session it's linked to (the case this fix guards against).
+    const loginRes = await login("alpha_admin"); // tenant 1
+    const sessionToken = (loginRes.body as LoginBody).data!.sessionToken!;
+
+    const mismatchedToken = jwt.sign(
+      { userId: 1, role: "admin", sessionToken, tenantId: 2 },
+      JWT_TEST_SECRET,
+      { expiresIn: "1h" },
+    );
+
+    const res = await request(app)
+      .get("/api/test/partners")
+      .set("Authorization", `Bearer ${mismatchedToken}`);
+    expect(res.status).toBe(401);
+  });
+
+  it("allows the same session when the tenantId claim matches (control)", async () => {
+    const token = await loginToken("alpha_admin");
+    const res = await request(app)
+      .get("/api/test/partners")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+  });
+});
+
+// =============================================================================
 // 3. Tenant isolation through the middleware (ALS across await points)
 // =============================================================================
 

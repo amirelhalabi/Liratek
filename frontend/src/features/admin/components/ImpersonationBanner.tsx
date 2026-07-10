@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import logger from "@/utils/logger";
 
 /**
  * Sticky orange bar rendered app-wide whenever this tab is impersonating a
@@ -20,10 +21,25 @@ export function ImpersonationBanner() {
   const tenant = impersonationInfo.tenantName ?? "this tenant";
 
   const handleDisconnect = async () => {
-    // logout() is impersonation-aware: it revokes this session server-side
-    // and clears only the impersonation sessionStorage keys — the super
-    // admin's own tab (localStorage) is never touched.
-    await logout();
+    // logout() is impersonation-aware: it POSTs /api/auth/logout with the
+    // impersonation token BEFORE clearing sessionStorage (getToken()'s
+    // impersonation-first precedence drives the request — see httpClient.ts
+    // / backendApi.ts), revoking the real DB session server-side so it can't
+    // be replayed for the rest of its 2h exp. It then clears only the
+    // impersonation sessionStorage keys — the super admin's own tab
+    // (localStorage) is never touched.
+    //
+    // Best-effort: the server call can fail (network blip, session already
+    // expired) — that must never trap the super admin on the impersonated
+    // tenant's UI. Swallow the error and redirect regardless; the local
+    // session state is cleared either way (logout()'s own finally-clear).
+    try {
+      await logout();
+    } catch (error) {
+      logger.warn("Impersonation disconnect: server-side revoke failed", {
+        error,
+      });
+    }
     navigate("/login", { replace: true });
   };
 

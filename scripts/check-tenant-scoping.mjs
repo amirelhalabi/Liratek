@@ -5,9 +5,29 @@
  * WP1a static safety net for the multi-tenant retrofit
  * (see docs/plans/WEBAPP_MULTI_TENANT_PLAN.md).
  *
- * Scans packages/core/src/repositories/**\/*.ts for SQL statement sites and
- * flags every statement that touches a tenant-scoped table without
- * referencing `tenant_id`. A "statement site" is any of:
+ * Scans, by default, three roots for SQL statement sites and flags every
+ * statement that touches a tenant-scoped table without referencing
+ * `tenant_id`:
+ *   - packages/core/src/repositories/**\/*.ts — the primary DB access layer.
+ *   - packages/core/src/services/**\/*.ts — services are supposed to be
+ *     repository-only (see CLAUDE.md rule 13), but a handful of legacy
+ *     violations (ProfitService, SessionPaymentService, ActivityService) do
+ *     run raw SQL directly, so this must be covered too.
+ *   - backend/src/**\/*.ts — the web-reachable Express layer. This is the
+ *     layer a security review found blind: `backend/src/api/health.ts` ran
+ *     a raw, unscoped cross-tenant aggregate (`COUNT(*) FROM clients` etc.)
+ *     behind an UNAUTHENTICATED route, and the checker — scoped to
+ *     repositories/ only — never saw it. Covering backend/src closes that
+ *     gap for every other route file, middleware, and the DB bootstrap code.
+ *
+ * Deliberately NOT scanned: electron-app/handlers/. Those IPC handlers run
+ * only inside the Electron main process under `initFixedTenantContext(1)` —
+ * a fixed, single-tenant context, process-isolated from the web backend and
+ * never reachable in multi-tenant (web) mode. Scanning them would flood the
+ * gate with statements that are real SQL but not a multi-tenant risk,
+ * drowning out genuine web-reachable violations.
+ *
+ * A "statement site" is any of:
  *   - a raw `.prepare(` call (the dominant pattern), or
  *   - BaseRepository's protected raw-SQL helpers: `this.query(...)`,
  *     `this.queryOne(...)`, `this.execute(...)` — including their generic
@@ -39,6 +59,14 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
+
+// Default scan roots (no --dir override) — see the file-level doc comment
+// for why each is included and why electron-app/handlers/ is excluded.
+const DEFAULT_SCAN_ROOTS = [
+  path.join(REPO_ROOT, "packages", "core", "src", "repositories"),
+  path.join(REPO_ROOT, "packages", "core", "src", "services"),
+  path.join(REPO_ROOT, "backend", "src"),
+];
 
 // ---------------------------------------------------------------------------
 // Tenant-scoped table list.
@@ -675,6 +703,51 @@ function scanRepositories(root) {
   };
 }
 
+/**
+ * Scan several roots and merge into one report, as if they were a single
+ * tree (`main()`'s default: repositories/ + services/ + backend/src — see
+ * the file-level doc comment for why each is included and why
+ * electron-app/handlers/ is deliberately excluded). Dedupes by absolute file
+ * path in case two configured roots ever nest inside one another.
+ */
+function scanMultipleRoots(roots) {
+  const perFile = [];
+  const skipped = [];
+  const seenFiles = new Set();
+  let totalFiles = 0;
+  let totalStatements = 0;
+  let totalViolations = 0;
+  let totalExempt = 0;
+
+  for (const root of roots) {
+    const result = scanRepositories(root);
+    for (const f of result.perFile) {
+      const abs = path.resolve(REPO_ROOT, f.file);
+      if (seenFiles.has(abs)) continue;
+      seenFiles.add(abs);
+      perFile.push(f);
+      totalFiles += 1;
+      totalStatements += f.statementCount;
+      totalViolations += f.violationCount;
+      totalExempt += f.exemptCount;
+    }
+    skipped.push(...result.skipped);
+  }
+
+  perFile.sort((a, b) => b.violationCount - a.violationCount || b.statementCount - a.statementCount);
+
+  return {
+    perFile,
+    skipped,
+    totals: {
+      files: totalFiles,
+      statements: totalStatements,
+      violations: totalViolations,
+      exempt: totalExempt,
+    },
+  };
+}
+
 // =============================================================================
 // `runWithoutTenant(` informational scan
 // =============================================================================
@@ -791,11 +864,11 @@ function main() {
     process.exit(0);
   }
 
-  const scanRoot = opts.dir
-    ? path.resolve(process.cwd(), opts.dir)
-    : path.join(REPO_ROOT, "packages", "core", "src", "repositories");
-
-  const result = scanRepositories(scanRoot);
+  // `--dir` overrides with a single root (test/debug convenience); the
+  // default scans all three of DEFAULT_SCAN_ROOTS merged into one report.
+  const result = opts.dir
+    ? scanRepositories(path.resolve(process.cwd(), opts.dir))
+    : scanMultipleRoots(DEFAULT_SCAN_ROOTS);
   const runWithoutTenantHits = scanRunWithoutTenant();
 
   if (opts.json) {
