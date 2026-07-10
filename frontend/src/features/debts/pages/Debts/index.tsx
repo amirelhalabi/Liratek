@@ -20,6 +20,7 @@ import {
 import {
   PageHeader,
   Select,
+  ServiceTypeTabs,
   useApi,
   type DebtorSummary,
   type DebtLedgerEntity,
@@ -123,6 +124,11 @@ export default function Debts() {
   const [creditAmountUsd, setCreditAmountUsd] = useState("");
   const [creditAmountLbp, setCreditAmountLbp] = useState("");
   const [creditNote, setCreditNote] = useState("");
+  // Credit = customer hands the shop cash (drawer IN, shop owes them);
+  // Debt = shop gives the customer cash (drawer OUT, they owe the shop).
+  const [creditDirection, setCreditDirection] = useState<"credit" | "debt">(
+    "credit",
+  );
 
   const [debtFilter, setDebtFilter] = useState<DebtFilter>("ongoing");
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
@@ -1035,7 +1041,7 @@ export default function Debts() {
               className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium transition-all"
             >
               <Plus size={18} />
-              Add Credit
+              Add Credit / Debt
             </button>
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -1431,7 +1437,10 @@ export default function Debts() {
                                                     : item.transaction_type ===
                                                         "CREDIT_USED"
                                                       ? "bg-orange-400/10 text-orange-400"
-                                                      : "bg-slate-700 text-slate-400"
+                                                      : item.transaction_type ===
+                                                          "Manual Debt"
+                                                        ? "bg-rose-400/10 text-rose-400"
+                                                        : "bg-slate-700 text-slate-400"
                                         }`}
                                       >
                                         {item.transaction_type ===
@@ -1937,8 +1946,27 @@ export default function Debts() {
               role="presentation"
               onMouseDown={(e) => e.stopPropagation()}
             >
-              <h3 className="text-xl font-bold text-white mb-4">Add Credit</h3>
+              <h3 className="text-xl font-bold text-white mb-4">
+                {creditDirection === "credit" ? "Add Credit" : "Add Debt"}
+              </h3>
               <div className="space-y-4">
+                {/* Credit / Debt toggle */}
+                <ServiceTypeTabs
+                  size="sm"
+                  value={creditDirection}
+                  onChange={(v) => setCreditDirection(v as "credit" | "debt")}
+                  customColor={
+                    creditDirection === "credit" ? "#059669" : "#dc2626"
+                  }
+                  options={[
+                    {
+                      id: "credit",
+                      label: "Credit",
+                      iconKey: "ArrowUpCircle",
+                    },
+                    { id: "debt", label: "Debt", iconKey: "DollarSign" },
+                  ]}
+                />
                 {/* Client Search */}
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
@@ -2052,22 +2080,28 @@ export default function Debts() {
                     }
                     onClick={async () => {
                       if (!creditSelectedClient) return;
-                      const result = await window.api.debt.addCredit({
+                      const result = await window.api.debt.addAccountEntry({
+                        direction: creditDirection,
                         clientId: creditSelectedClient.id,
-                        amountUsd:
+                        amountUSD:
                           parseFloat(creditAmountUsd.replace(/,/g, "")) || 0,
-                        amountLbp:
+                        amountLBP:
                           parseFloat(creditAmountLbp.replace(/,/g, "")) || 0,
                         ...(creditNote ? { note: creditNote } : {}),
                       });
                       if (result.success) {
-                        alert("Credit added successfully!");
+                        alert(
+                          creditDirection === "credit"
+                            ? "Credit added successfully!"
+                            : "Debt added successfully!",
+                        );
                         setShowCreditModal(false);
                         setCreditClientSearch("");
                         setCreditSelectedClient(null);
                         setCreditAmountUsd("");
                         setCreditAmountLbp("");
                         setCreditNote("");
+                        setCreditDirection("credit");
                         loadDebtors();
                         if (selectedClient) {
                           loadHistory(selectedClient.id);
@@ -2077,9 +2111,13 @@ export default function Debts() {
                         alert("Error: " + result.error);
                       }
                     }}
-                    className="flex-1 py-3 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg shadow-emerald-900/20 active:scale-95 transition-all"
+                    className={`flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all ${
+                      creditDirection === "credit"
+                        ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20"
+                        : "bg-red-600 hover:bg-red-500 shadow-red-900/20"
+                    }`}
                   >
-                    Add Credit
+                    {creditDirection === "credit" ? "Add Credit" : "Add Debt"}
                   </button>
                 </div>
               </div>

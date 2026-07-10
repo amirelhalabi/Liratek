@@ -763,6 +763,150 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   }
 
   /**
+   * Manual account cash entry from the Accounts (Debts) page — the till-moving
+   * counterpart of the old, till-less addCredit.
+   *
+   *  - direction "credit": the customer HANDS the shop cash → drawer(s) IN, a
+   *    NEGATIVE 'CREDIT_DEPOSIT' debt_ledger row (shop owes customer), and a
+   *    CREDIT_CASH_IN unified transaction.
+   *  - direction "debt": the shop GIVES the customer cash (a cash advance) →
+   *    drawer(s) OUT, a POSITIVE 'Manual Debt' debt_ledger row (customer owes
+   *    shop), and a DEBT_CASH_OUT unified transaction.
+   *
+   * The unified transaction amount is always positive/abs for both directions —
+   * direction lives in the IN/OUT badge, never the amount sign (matches
+   * DEBT_REPAYMENT / CREDIT_CASH_OUT). No profit is stamped (pure liability
+   * movement). This is NOT a repayment, so _markSalesPaidFIFO is deliberately
+   * NOT called.
+   *
+   * Do NOT fold this into addCredit: that method is a pure ledger write reused
+   * by internal change-returned-as-credit callers whose parent transaction
+   * already booked the cash — moving the drawer there would double-count.
+   */
+  addAccountCashEntry(data: {
+    direction: "credit" | "debt";
+    client_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    payments?: RepaymentPaymentLine[];
+    note?: string | null;
+    created_by: number;
+    transaction_time?: string;
+  }): { id: number } {
+    const tenantId = getCurrentTenantId();
+    const isCredit = data.direction === "credit";
+    const ledgerSign = isCredit ? -1 : 1;
+    const drawerSign = isCredit ? 1 : -1;
+    const ledgerType = isCredit ? "CREDIT_DEPOSIT" : "Manual Debt";
+    const defaultNote = isCredit ? "Account credit" : "Cash advance (debt)";
+    return this.transaction(() => {
+      const stmt = this.db.prepare(`
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      `);
+      const result = stmt.run(
+        data.client_id,
+        ledgerType,
+        ledgerSign * Math.abs(data.amount_usd),
+        ledgerSign * Math.abs(data.amount_lbp),
+        data.note || defaultNote,
+        data.created_by,
+        tenantId,
+        data.transaction_time ?? null,
+      );
+      const ledgerId = Number(result.lastInsertRowid);
+
+      // Default to CASH legs matching the entry PER CURRENCY when none given.
+      // A USD-only default would silently skip the LBP drawer movement.
+      const legs: RepaymentPaymentLine[] =
+        data.payments && data.payments.length > 0
+          ? data.payments
+          : [
+              ...(Math.abs(data.amount_usd) > 0
+                ? [
+                    {
+                      method: "CASH",
+                      currencyCode: "USD",
+                      amount: Math.abs(data.amount_usd),
+                    },
+                  ]
+                : []),
+              ...(Math.abs(data.amount_lbp) > 0
+                ? [
+                    {
+                      method: "CASH",
+                      currencyCode: "LBP",
+                      amount: Math.abs(data.amount_lbp),
+                    },
+                  ]
+                : []),
+            ];
+
+      const txnId = getTransactionRepository().createTransaction({
+        type: isCredit
+          ? TRANSACTION_TYPES.CREDIT_CASH_IN
+          : TRANSACTION_TYPES.DEBT_CASH_OUT,
+        source_table: "debt_ledger",
+        source_id: ledgerId,
+        user_id: data.created_by,
+        amount_usd: Math.abs(data.amount_usd),
+        amount_lbp: Math.abs(data.amount_lbp),
+        client_id: data.client_id,
+        summary: isCredit
+          ? `Account Credit: $${Math.abs(data.amount_usd)} + ${Math.abs(
+              data.amount_lbp,
+            )} LBP`
+          : `Cash Advance (Debt): $${Math.abs(data.amount_usd)} + ${Math.abs(
+              data.amount_lbp,
+            )} LBP`,
+        metadata_json: {
+          legs: legs.length > 1 ? legs : undefined,
+          paid_by: legs.length === 1 ? legs[0].method : "SPLIT",
+        },
+        transaction_time: data.transaction_time,
+      });
+
+      this.db
+        .prepare(
+          `UPDATE debt_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(txnId, ledgerId, tenantId);
+
+      const insertPayment = this.db.prepare(`
+        INSERT INTO payments (
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const upsertBalance = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+
+      for (const leg of legs) {
+        const amt = Math.abs(leg.amount);
+        if (amt <= 0 || !isDrawerAffectingMethod(leg.method)) continue;
+        const drawer = paymentMethodToDrawerName(leg.method);
+        insertPayment.run(
+          txnId,
+          leg.method,
+          drawer,
+          leg.currencyCode,
+          drawerSign * amt,
+          data.note || defaultNote,
+          data.created_by,
+          tenantId,
+        );
+        upsertBalance.run(drawer, leg.currencyCode, drawerSign * amt, tenantId);
+      }
+
+      return { id: ledgerId };
+    });
+  }
+
+  /**
    * Get net balance for a client.
    * Positive = client owes shop (debt). Negative = shop owes client (credit).
    */

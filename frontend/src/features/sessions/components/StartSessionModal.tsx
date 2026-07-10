@@ -220,6 +220,26 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
               placeholder="+1234567890"
               disabled={loading}
             />
+            {/* Client registration follows the app-wide name+phone identity
+                rule (canChargeToCustomerAccount): with a phone the customer is
+                auto-registered as a client at session start — the PHONE is the
+                identity key, so a phone that already belongs to a client
+                reuses that client (no new row, typed name ignored). Without a
+                phone, no client is saved and Customer Account stays
+                unavailable — that warning also applies when an existing
+                phone-less client is picked from the autocomplete. */}
+            {!selectedClient && customerName.trim() && customerPhone.trim() && (
+              <p className="text-xs text-emerald-300/80 mt-1 px-1">
+                Customer will be registered as a client — if this phone already
+                belongs to a client, that client is used.
+              </p>
+            )}
+            {customerName.trim() && !customerPhone.trim() && (
+              <p className="text-xs text-amber-300/80 mt-1 px-1">
+                No phone number — the customer won&apos;t be saved as a client
+                and Customer Account payment will be unavailable.
+              </p>
+            )}
           </div>
 
           {/* Customer Notes */}

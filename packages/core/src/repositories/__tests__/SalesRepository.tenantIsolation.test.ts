@@ -142,7 +142,14 @@ function createTestDb(): Database.Database {
   return db;
 }
 
-/** Mirrored "today, completed" sale for a tenant — distinct amount per tenant. */
+/**
+ * Mirrored "today, completed" sale for a tenant — distinct amount per tenant.
+ * created_at must be seeded UTC (datetime('now')) exactly like production's
+ * CURRENT_TIMESTAMP writes: getDashboardStats applies the 'localtime' shift
+ * when READING, so a fixture that pre-shifts to localtime gets shifted twice
+ * and falls off "today" whenever local time is within UTC-offset hours of
+ * midnight (this test failed every evening after 21:00 in UTC+3).
+ */
 function seedCompletedSaleToday(
   db: Database.Database,
   tenantId: number,
@@ -152,7 +159,7 @@ function seedCompletedSaleToday(
     db
       .prepare(
         `INSERT INTO sales (final_amount_usd, paid_usd, paid_lbp, status, tenant_id, created_at)
-         VALUES (?, ?, 0, 'completed', ?, datetime('now', 'localtime'))`,
+         VALUES (?, ?, 0, 'completed', ?, datetime('now'))`,
       )
       .run(finalAmountUsd, finalAmountUsd, tenantId).lastInsertRowid,
   );

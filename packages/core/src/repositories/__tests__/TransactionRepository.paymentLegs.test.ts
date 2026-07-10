@@ -77,6 +77,20 @@ function createTestDb(): Database.Database {
       tenant_id              INTEGER NOT NULL DEFAULT 1,
       created_at             TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE debt_ledger (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id        INTEGER,
+      transaction_type TEXT,
+      amount_usd       REAL NOT NULL DEFAULT 0,
+      amount_lbp       REAL NOT NULL DEFAULT 0,
+      transaction_id   INTEGER,
+      session_id       INTEGER,
+      note             TEXT,
+      created_by       INTEGER,
+      tenant_id        INTEGER NOT NULL DEFAULT 1,
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   db.prepare(`INSERT INTO users (id, username) VALUES (1, 'cashier')`).run();
@@ -92,6 +106,7 @@ function insertTxn(
     summary?: string;
     createdAt?: string;
     status?: string;
+    sessionId?: number;
   },
 ): void {
   db.prepare(
@@ -103,6 +118,37 @@ function insertTxn(
     opts.status ?? "ACTIVE",
     opts.summary ?? null,
     opts.createdAt ?? `2026-06-17 10:0${opts.id}:00`,
+  );
+  // getRecent derives session_id from the customer_session_transactions join
+  // (cst.unified_transaction_id = t.id), not from the transactions table.
+  if (opts.sessionId != null) {
+    db.prepare(
+      `INSERT INTO customer_session_transactions (session_id, unified_transaction_id)
+       VALUES (?, ?)`,
+    ).run(opts.sessionId, opts.id);
+  }
+}
+
+/** Insert an on-account (CUSTOMER_ACCOUNT) debt_ledger charge row. */
+function insertDebt(
+  db: Database.Database,
+  opts: {
+    txnId?: number | null;
+    sessionId?: number | null;
+    type?: string;
+    usd?: number;
+    lbp?: number;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id)
+     VALUES (1, ?, ?, ?, ?, ?)`,
+  ).run(
+    opts.type ?? "Sale Debt",
+    opts.usd ?? 0,
+    opts.lbp ?? 0,
+    opts.txnId ?? null,
+    opts.sessionId ?? null,
   );
 }
 
@@ -463,6 +509,101 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
       amount: 25,
       method: "WHISH",
     });
+  });
+});
+
+describe("TransactionRepository.getRecent — CUSTOMER_ACCOUNT method leg", () => {
+  let db: Database.Database;
+  let repo: TransactionRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
+    resetTransactionRepository();
+    repo = new TransactionRepository();
+  });
+
+  afterEach(() => {
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
+    db.close();
+    resetTransactionRepository();
+    resetTenantContext();
+  });
+
+  const accountMethods = (
+    row: ReturnType<TransactionRepository["getRecent"]>[number],
+  ) => (row.account_payments ?? []).map((l) => l.method);
+
+  it("surfaces a CUSTOMER_ACCOUNT leg for a NON-session on-account charge (the bug)", () => {
+    // A plain on-account sale: debt row keyed by transaction_id, session_id NULL,
+    // and NO payments row (no drawer movement). Pre-fix this rendered blank.
+    insertTxn(db, { id: 1, summary: "On-account sale" });
+    insertDebt(db, { txnId: 1, usd: 40 });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.account_payments).toHaveLength(1);
+    expect(row.account_payments![0]).toMatchObject({
+      direction: "in",
+      amount: 40,
+      signed_amount: 40,
+      currency_code: "USD",
+      method: "CUSTOMER_ACCOUNT",
+    });
+  });
+
+  it("still surfaces the CUSTOMER_ACCOUNT leg for a session-basket charge", () => {
+    // Session row: debt carries BOTH session_id and transaction_id; the row is
+    // matched via session_id. Basket payment row carries session_id only.
+    insertTxn(db, { id: 1, summary: "Session basket", sessionId: 7 });
+    insertDebt(db, { txnId: 1, sessionId: 7, type: "Session Debt", lbp: 900_000 });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(accountMethods(row)).toEqual(["CUSTOMER_ACCOUNT"]);
+    expect(row.account_payments![0]).toMatchObject({
+      amount: 900_000,
+      currency_code: "LBP",
+      method: "CUSTOMER_ACCOUNT",
+    });
+  });
+
+  it("does NOT double-attach when a session debt also carries a transaction_id", () => {
+    // The session-keyed and transaction_id-keyed queries must stay disjoint.
+    insertTxn(db, { id: 1, summary: "Session basket", sessionId: 7 });
+    insertDebt(db, { txnId: 1, sessionId: 7, type: "Session Debt", usd: 25 });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.account_payments).toHaveLength(1);
+  });
+
+  it("does NOT surface a CUSTOMER_ACCOUNT leg for a Refund Reversal row", () => {
+    // A refund/void writes a negative 'Refund Reversal' debt row keyed by the
+    // refund transaction_id. That transaction shows its own real method — it must
+    // NOT render a spurious Customer Account leg.
+    insertTxn(db, { id: 1, type: "SALE_REFUND", summary: "Refund" });
+    insertPayment(db, 1, "CASH", "USD", -40); // cash returned to customer
+    insertDebt(db, { txnId: 1, type: "Refund Reversal", usd: -40 });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.account_payments ?? []).toHaveLength(0);
+    // The real cash method is still present.
+    expect(row.payments.map((l) => l.method)).toEqual(["CASH"]);
+  });
+
+  it("splits a mixed-currency on-account charge into USD + LBP legs", () => {
+    insertTxn(db, { id: 1, summary: "Mixed on-account" });
+    insertDebt(db, { txnId: 1, usd: 12, lbp: 500_000 });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+    expect(row.account_payments).toHaveLength(2);
+    expect(row.account_payments!.map((l) => l.currency_code).sort()).toEqual([
+      "LBP",
+      "USD",
+    ]);
   });
 });
 

@@ -28,6 +28,7 @@ import { getSessionPaymentService } from "./SessionPaymentService.js";
 import { getCustomerSessionRepository } from "../repositories/CustomerSessionRepository.js";
 import { getTransactionRepository } from "../repositories/TransactionRepository.js";
 import { getClientRepository } from "../repositories/ClientRepository.js";
+import { clientLogger } from "../utils/logger.js";
 
 export interface CheckoutCartItem {
   id: string;
@@ -257,6 +258,47 @@ function resolveUnifiedTransactionId(
   return txn ? txn.id : null;
 }
 
+/**
+ * Resolve the session customer to a client id for debt booking and
+ * transaction stamping. Exported for tests.
+ *
+ * - name+phone → the phone owner, REGISTERING the client if unknown
+ *   (FEATURE_GUIDE §6: unknown name+phone auto-creates). This also covers
+ *   sessions whose phone was added after start (session edit) and sessions
+ *   started before auto-registration existed — without it, an on-account
+ *   basket died with "Cannot create basket debt without a client".
+ * - name only → EXACT full-name match or nothing. Never fuzzy: the old
+ *   `search(name, {limit: 1})` fallback ran `LIKE '%name%'` and stamped the
+ *   alphabetically-first hit — a session typed as "amir" put the purchase on
+ *   "AMIR SHNEIF"'s history.
+ */
+export function resolveSessionClientForCheckout(
+  customerName: string | undefined,
+  customerPhone: string | undefined,
+  userId: number,
+): number | undefined {
+  const name = customerName?.trim();
+  const phone = customerPhone?.trim();
+  if (!name) return undefined;
+
+  try {
+    const clientRepo = getClientRepository();
+    if (phone) {
+      return clientRepo.findOrCreateByPhone(name, phone, userId).id;
+    }
+    const byName = clientRepo.findByName(name);
+    return byName ? byName.id : undefined;
+  } catch (error) {
+    // Best-effort: a clientless basket still checks out (cash paths);
+    // CUSTOMER_ACCOUNT baskets fail later with an explicit error.
+    clientLogger.error(
+      { error, name, phone },
+      "Session checkout client resolution failed",
+    );
+    return undefined;
+  }
+}
+
 export class SessionCheckoutService {
   private sessionService = new CustomerSessionService();
 
@@ -301,23 +343,13 @@ export class SessionCheckoutService {
       const sessionCustomerPhone =
         sessionResult.session.customer_phone || undefined;
 
-      // Resolve client ID from session customer name/phone for DEBT payments
-      let sessionClientId: number | undefined;
-      if (sessionCustomerName) {
-        try {
-          const clientRepo = getClientRepository();
-          if (sessionCustomerPhone) {
-            const byPhone = clientRepo.findByPhone(sessionCustomerPhone);
-            if (byPhone) sessionClientId = byPhone.id;
-          }
-          if (!sessionClientId) {
-            const found = clientRepo.search(sessionCustomerName, { limit: 1 });
-            if (found.length > 0) sessionClientId = found[0].id;
-          }
-        } catch {
-          // Client resolution failed — handled per-item
-        }
-      }
+      // Resolve (or register) the session customer's client id for DEBT
+      // payments and transaction stamping — see resolveSessionClientForCheckout.
+      const sessionClientId = resolveSessionClientForCheckout(
+        sessionCustomerName,
+        sessionCustomerPhone,
+        userId,
+      );
 
       // Inject session customer into cart items lacking a client name
       if (sessionCustomerName) {

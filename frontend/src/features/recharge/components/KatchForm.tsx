@@ -16,6 +16,7 @@ import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import type { ProviderConfig, FinancialTransaction } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
+import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import { HistoryModal } from "./HistoryModal";
 import { PaymentSheet } from "./PaymentSheet";
@@ -709,7 +710,7 @@ function KatchFormInner({
       const cartItems = Array.from(cart.values());
       const providerLabel = activeProvider === "Katsh" ? "Katsh" : "iPick";
       const itemLabels = cartItems
-        .map((line) => `${line.item.label} x${line.quantity}`)
+        .map((line) => `${formatCatalogItemName(line.item)} x${line.quantity}`)
         .join(", ");
       const label =
         itemLabels.length > 60
@@ -745,7 +746,7 @@ function KatchFormInner({
           returnedCreditsUsd: line.onlyDays
             ? line.returnedCreditsUsd
             : undefined,
-          note: `${line.item.category}: ${line.item.label} (${line.item.subcategory})${line.onlyDays ? " [Only Days]" : ""}`,
+          note: `${formatCatalogItemName(line.item)}${line.onlyDays ? " [Only Days]" : ""}`,
         }));
       });
 
@@ -821,7 +822,7 @@ function KatchFormInner({
       const noteLines = cartItems.map((line) => {
         const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
         const onlyDays = line.onlyDays ? " [Only Days]" : "";
-        return `${line.item.category}: ${line.item.label}${qty}${onlyDays}`;
+        return `${formatCatalogItemName(line.item)}${qty}${onlyDays}`;
       });
       const note = noteLines.join(", ");
 

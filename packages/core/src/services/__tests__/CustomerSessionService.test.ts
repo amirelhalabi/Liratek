@@ -4,6 +4,8 @@ import {
   CustomerSessionRepository,
   resetCustomerSessionRepository,
 } from "../../repositories/CustomerSessionRepository.js";
+import { resetClientRepository } from "../../repositories/ClientRepository.js";
+import { resetTransactionRepository } from "../../repositories/TransactionRepository.js";
 
 describe("CustomerSessionService", () => {
   let db: Database.Database;
@@ -12,6 +14,8 @@ describe("CustomerSessionService", () => {
   beforeEach(() => {
     db = new Database(":memory:");
     resetCustomerSessionRepository();
+    resetClientRepository();
+    resetTransactionRepository();
 
     db.exec(`
       CREATE TABLE customer_sessions (
@@ -43,6 +47,43 @@ describe("CustomerSessionService", () => {
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE
       );
+
+      -- Client auto-registration (name+phone identity rule) writes here
+      CREATE TABLE clients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        full_name TEXT NOT NULL,
+        phone_number TEXT,
+        notes TEXT,
+        whatsapp_opt_in INTEGER DEFAULT 0,
+        tenant_id INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX idx_clients_tenant_phone
+        ON clients(tenant_id, phone_number);
+
+      CREATE TABLE transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ACTIVE',
+        source_table TEXT NOT NULL,
+        source_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL DEFAULT 1,
+        amount_usd REAL NOT NULL DEFAULT 0,
+        amount_lbp REAL NOT NULL DEFAULT 0,
+        exchange_rate REAL,
+        client_id INTEGER,
+        client_name TEXT,
+        client_phone TEXT,
+        reverses_id INTEGER,
+        profit_usd REAL NOT NULL DEFAULT 0,
+        profit_lbp REAL NOT NULL DEFAULT 0,
+        summary TEXT,
+        metadata_json TEXT,
+        device_id TEXT,
+        tenant_id INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Inject test DB via the global hook so getDatabase() returns it
@@ -54,7 +95,15 @@ describe("CustomerSessionService", () => {
   afterEach(() => {
     (globalThis as any).__LIRATEK_TEST_DB__ = undefined;
     db.close();
+    resetClientRepository();
+    resetTransactionRepository();
   });
+
+  function getClients(): Array<{ full_name: string; phone_number: string }> {
+    return db
+      .prepare(`SELECT full_name, phone_number FROM clients ORDER BY id`)
+      .all() as Array<{ full_name: string; phone_number: string }>;
+  }
 
   it("starts a new session", async () => {
     const result = await service.startSession({
@@ -192,5 +241,74 @@ describe("CustomerSessionService", () => {
     expect(result.sessions).toHaveLength(2);
     const names = result.sessions!.map((s: any) => s.customer_name).sort();
     expect(names).toEqual(["Alice", "Bob"]);
+  });
+
+  // ── Client auto-registration (name+phone identity rule, FEATURE_GUIDE §11) ──
+  // Lives in the SERVICE so the Electron IPC handler AND the web backend route
+  // both get it — the web route previously never registered the client at all.
+
+  it("startSession with name+phone registers the customer as a client", async () => {
+    const result = await service.startSession({
+      customer_name: "amir halabi",
+      customer_phone: "81077357",
+      started_by: "admin",
+      user_id: 7,
+    });
+
+    expect(result.success).toBe(true);
+    expect(getClients()).toEqual([
+      { full_name: "amir halabi", phone_number: "81077357" },
+    ]);
+  });
+
+  it("startSession with a name only does not create a client", async () => {
+    // No phone → no identity to register (Customer Account needs name+phone).
+    const result = await service.startSession({
+      customer_name: "amir",
+      started_by: "admin",
+      user_id: 7,
+    });
+
+    expect(result.success).toBe(true);
+    expect(getClients()).toEqual([]);
+  });
+
+  it("startSession with a phone that already belongs to a client creates no duplicate", async () => {
+    db.prepare(
+      `INSERT INTO clients (full_name, phone_number, tenant_id) VALUES ('amir halabi', '81077357', 1)`,
+    ).run();
+
+    const result = await service.startSession({
+      customer_name: "Amir El Halabi",
+      customer_phone: "81077357",
+      started_by: "admin",
+      user_id: 7,
+    });
+
+    expect(result.success).toBe(true);
+    expect(getClients()).toEqual([
+      { full_name: "amir halabi", phone_number: "81077357" },
+    ]);
+  });
+
+  it("updateSession that completes a name+phone pair registers the client", async () => {
+    // Walk-in typed name-only at start (no client), phone added via edit.
+    const startResult = await service.startSession({
+      customer_name: "amir halabi",
+      started_by: "admin",
+      user_id: 7,
+    });
+    expect(getClients()).toEqual([]);
+
+    const updateResult = await service.updateSession(
+      startResult.sessionId!,
+      { customer_phone: "81077357" },
+      7,
+    );
+
+    expect(updateResult.success).toBe(true);
+    expect(getClients()).toEqual([
+      { full_name: "amir halabi", phone_number: "81077357" },
+    ]);
   });
 });

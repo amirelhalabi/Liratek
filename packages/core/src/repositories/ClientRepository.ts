@@ -12,7 +12,11 @@ import {
   type FindOptions,
   type PaginatedResult,
 } from "./BaseRepository.js";
-import { DatabaseError, BusinessRuleError } from "../utils/errors.js";
+import {
+  DatabaseError,
+  BusinessRuleError,
+  getRepoConstraintCode,
+} from "../utils/errors.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
@@ -125,11 +129,14 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   }
 
   /**
-   * Find client by exact full name (first match).
+   * Find client by exact full name (first match), ignoring letter case —
+   * a name-only session typed as "amir shneif" must still resolve to
+   * "AMIR SHNEIF". Exact-modulo-case only: never substring/fuzzy (rule that
+   * fixed the session→client misattribution).
    */
   findByName(fullName: string): ClientEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE full_name = ? AND tenant_id = ? LIMIT 1`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE full_name = ? COLLATE NOCASE AND tenant_id = ? LIMIT 1`;
       return this.queryOne<ClientEntity>(
         query,
         fullName,
@@ -213,6 +220,41 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         });
       }
       throw new DatabaseError("Failed to create client", { cause: error });
+    }
+  }
+
+  /**
+   * Find the client owning `phone`, or register a new client with this
+   * name+phone (FEATURE_GUIDE §6: an unknown name+phone auto-creates the
+   * client). The PHONE is the identity key: when it already belongs to a
+   * client under a different name, that client wins and no duplicate is
+   * created — never match by partial/fuzzy name here (a `LIKE '%name%'
+   * LIMIT 1` lookup once charged a session typed as "amir" to "AMIR SHNEIF").
+   *
+   * Race-safe: a concurrent registration of the same phone (second window /
+   * web client) loses the INSERT to the UNIQUE(tenant_id, phone_number)
+   * constraint and resolves to the winner's row instead of throwing.
+   */
+  findOrCreateByPhone(
+    fullName: string,
+    phone: string,
+    userId: number,
+  ): { id: number; created: boolean } {
+    const existing = this.findByPhone(phone);
+    if (existing) return { id: existing.id, created: false };
+
+    try {
+      const created = this.createClient(
+        { full_name: fullName, phone_number: phone },
+        userId,
+      );
+      return { id: created.id, created: true };
+    } catch (error) {
+      if (getRepoConstraintCode(error) === "DUPLICATE_PHONE") {
+        const winner = this.findByPhone(phone);
+        if (winner) return { id: winner.id, created: false };
+      }
+      throw error;
     }
   }
 

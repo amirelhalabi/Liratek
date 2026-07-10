@@ -12,6 +12,7 @@ import { audit } from "./auditHelper.js";
 import {
   DebtRepaymentSchema,
   DebtCashOutSchema,
+  DebtAccountEntrySchema,
   DebtAddCreditSchema,
   DebtUseCreditSchema,
   validatePayload,
@@ -122,6 +123,55 @@ export function registerDebtHandlers(): void {
           entity_type: "credit_cash_out",
           summary: `Credit cash out for client #${v.data.clientId}: $${v.data.amountUSD} + ${v.data.amountLBP} LBP`,
           metadata: {
+            clientId: v.data.clientId,
+            amountUSD: v.data.amountUSD,
+            amountLBP: v.data.amountLBP,
+          },
+        });
+      }
+
+      return result;
+    },
+  );
+
+  // Manual, till-moving account entry (credit = cash in / debt = cash out)
+  ipcMain.handle(
+    "debt:add-account-entry",
+    (
+      event,
+      data: {
+        direction: "credit" | "debt";
+        clientId: number;
+        amountUSD: number;
+        amountLBP: number;
+        payments?: Array<{
+          method: string;
+          currencyCode: string;
+          amount: number;
+          direction?: "IN" | "OUT";
+        }>;
+        note?: string;
+        transaction_time?: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(DebtAccountEntrySchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = debtService.addAccountCashEntry({
+        ...v.data,
+        userId: auth.userId,
+      });
+
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "account_cash_entry",
+          summary: `Account ${v.data.direction} for client #${v.data.clientId}: $${v.data.amountUSD} + ${v.data.amountLBP} LBP`,
+          metadata: {
+            direction: v.data.direction,
             clientId: v.data.clientId,
             amountUSD: v.data.amountUSD,
             amountLBP: v.data.amountLBP,

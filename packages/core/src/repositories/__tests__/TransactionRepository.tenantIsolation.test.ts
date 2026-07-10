@@ -95,6 +95,20 @@ function createTestDb(): Database.Database {
       session_id             INTEGER NOT NULL,
       unified_transaction_id INTEGER
     );
+
+    CREATE TABLE debt_ledger (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id        INTEGER,
+      transaction_type TEXT,
+      amount_usd       REAL NOT NULL DEFAULT 0,
+      amount_lbp       REAL NOT NULL DEFAULT 0,
+      transaction_id   INTEGER,
+      session_id       INTEGER,
+      note             TEXT,
+      created_by       INTEGER,
+      tenant_id        INTEGER,
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }

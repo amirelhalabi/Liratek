@@ -25,6 +25,13 @@ import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 
+// A `debt_ledger` row represents an on-account CHARGE (customer paid via their
+// account) that should surface a "Customer Account" method leg — EXCEPT
+// 'Refund Reversal' rows, which cancel debt and belong to a refund/void
+// transaction that already shows its own real method. Defined once and reused
+// by every account-leg reconstruction query (rule 14).
+const ACCOUNT_CHARGE_PREDICATE = "transaction_type <> 'Refund Reversal'";
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -525,6 +532,36 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       };
     };
 
+    // A CUSTOMER_ACCOUNT settlement never writes a `payments` row (no drawer
+    // movement), so its method leg is reconstructed from the matching
+    // `debt_ledger` charge. One builder, shared by both the session and the
+    // non-session paths below (rule 14).
+    const debtToAccountLegs = (
+      amount_usd: number,
+      amount_lbp: number,
+    ): TransactionPaymentLeg[] => {
+      const legs: TransactionPaymentLeg[] = [];
+      if (amount_usd !== 0) {
+        legs.push({
+          direction: amount_usd < 0 ? "out" : "in",
+          amount: Math.abs(amount_usd),
+          signed_amount: amount_usd,
+          currency_code: "USD",
+          method: "CUSTOMER_ACCOUNT",
+        });
+      }
+      if (amount_lbp !== 0) {
+        legs.push({
+          direction: amount_lbp < 0 ? "out" : "in",
+          amount: Math.abs(amount_lbp),
+          signed_amount: amount_lbp,
+          currency_code: "LBP",
+          method: "CUSTOMER_ACCOUNT",
+        });
+      }
+      return legs;
+    };
+
     const byTxn = new Map<number, TransactionPaymentLeg[]>();
     for (const p of legRows) {
       const leg = toLeg(p);
@@ -575,6 +612,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // CUSTOMER_ACCOUNT settlement of the same basket, if any — see the
       // `account_payments` doc comment on TransactionWithUser for why this is
       // a separate table/field rather than another `payments` row.
+      // ACCOUNT_CHARGE_PREDICATE excludes 'Refund Reversal': reversal rows also
+      // carry a transaction_id/session_id but belong to the refund transaction,
+      // which shows its own real method — a refund must never render a spurious
+      // "Customer Account" leg. Shared verbatim by the non-session lookup below.
       const debtRows = this.query<{
         session_id: number;
         amount_usd: number;
@@ -582,32 +623,44 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }>(
         `SELECT session_id, amount_usd, amount_lbp
          FROM debt_ledger
-         WHERE session_id IN (${sPlaceholders}) AND tenant_id = ?`,
+         WHERE session_id IN (${sPlaceholders}) AND tenant_id = ?
+           AND ${ACCOUNT_CHARGE_PREDICATE}`,
         ...sessionIds,
         tenantId,
       );
       for (const d of debtRows) {
         const legs = accountLegsBySession.get(d.session_id) ?? [];
-        if (d.amount_usd !== 0) {
-          legs.push({
-            direction: d.amount_usd < 0 ? "out" : "in",
-            amount: Math.abs(d.amount_usd),
-            signed_amount: d.amount_usd,
-            currency_code: "USD",
-            method: "CUSTOMER_ACCOUNT",
-          });
-        }
-        if (d.amount_lbp !== 0) {
-          legs.push({
-            direction: d.amount_lbp < 0 ? "out" : "in",
-            amount: Math.abs(d.amount_lbp),
-            signed_amount: d.amount_lbp,
-            currency_code: "LBP",
-            method: "CUSTOMER_ACCOUNT",
-          });
-        }
+        legs.push(...debtToAccountLegs(d.amount_usd, d.amount_lbp));
         accountLegsBySession.set(d.session_id, legs);
       }
+    }
+
+    // Non-session on-account charges. Unlike the session-basket settlement, a
+    // plain on-account sale/recharge/service/… writes its `debt_ledger` row with
+    // `transaction_id` set and `session_id` NULL, so the session-keyed lookup
+    // above misses it and the Method column renders blank. Reconstruct the same
+    // CUSTOMER_ACCOUNT leg by `transaction_id`. `session_id IS NULL` keeps this
+    // query-disjoint from the session path (session debt carries both keys), so
+    // no row is ever attached twice.
+    const accountLegsByTxn = new Map<number, TransactionPaymentLeg[]>();
+    const txnDebtRows = this.query<{
+      transaction_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+    }>(
+      `SELECT transaction_id, amount_usd, amount_lbp
+       FROM debt_ledger
+       WHERE transaction_id IN (${placeholders})
+         AND session_id IS NULL
+         AND tenant_id = ?
+         AND ${ACCOUNT_CHARGE_PREDICATE}`,
+      ...ids,
+      tenantId,
+    );
+    for (const d of txnDebtRows) {
+      const legs = accountLegsByTxn.get(d.transaction_id) ?? [];
+      legs.push(...debtToAccountLegs(d.amount_usd, d.amount_lbp));
+      accountLegsByTxn.set(d.transaction_id, legs);
     }
 
     for (const row of rows) {
@@ -619,11 +672,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       } else {
         row.payments = [];
       }
-      if (row.session_id != null) {
-        const accountLegs = accountLegsBySession.get(row.session_id);
-        if (accountLegs && accountLegs.length > 0) {
-          row.account_payments = accountLegs;
-        }
+      const accountLegs =
+        row.session_id != null
+          ? accountLegsBySession.get(row.session_id)
+          : accountLegsByTxn.get(row.id);
+      if (accountLegs && accountLegs.length > 0) {
+        row.account_payments = accountLegs;
       }
     }
 

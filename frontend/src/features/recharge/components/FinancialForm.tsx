@@ -13,6 +13,7 @@ import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { ensureRechargeClient } from "../utils/ensureClient";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
+import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import type {
   FinancialTransaction,
@@ -294,7 +295,7 @@ export function FinancialForm({
     if (activeSession) {
       const cartItems = Array.from(cart.values());
       const itemLabels = cartItems
-        .map((line) => `${line.item.label} x${line.quantity}`)
+        .map((line) => `${formatCatalogItemName(line.item)} x${line.quantity}`)
         .join(", ");
       const providerLabel =
         activeConfig?.label || activeProvider || "Financial";
@@ -319,7 +320,7 @@ export function FinancialForm({
           clientName: clientName || undefined,
           itemKey: line.item.key,
           itemCategory: line.item.category,
-          note: `${line.item.label} (${line.item.subcategory})`,
+          note: `${formatCatalogItemName(line.item)}`,
         }));
       });
 
@@ -397,7 +398,7 @@ export function FinancialForm({
             clientName: clientName || undefined,
             itemKey: line.item.key,
             itemCategory: line.item.category,
-            note: `${line.item.label} (${line.item.subcategory})`,
+            note: `${formatCatalogItemName(line.item)}`,
             partnerId: partnerId || undefined,
             transaction_time: transactionTime,
           });

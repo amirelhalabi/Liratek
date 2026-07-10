@@ -38,6 +38,11 @@ export const TRANSACTION_TYPES = {
   // Debt & supplier
   DEBT_REPAYMENT: "DEBT_REPAYMENT",
   CREDIT_CASH_OUT: "CREDIT_CASH_OUT",
+  // Manual, till-moving account entries from the Accounts (Debts) page:
+  // CREDIT_CASH_IN — customer hands the shop cash to hold as credit (drawer IN);
+  // DEBT_CASH_OUT — shop gives the customer cash as an advance/loan (drawer OUT).
+  CREDIT_CASH_IN: "CREDIT_CASH_IN",
+  DEBT_CASH_OUT: "DEBT_CASH_OUT",
   SUPPLIER_PAYMENT: "SUPPLIER_PAYMENT",
   SUPPLIER_SETTLEMENT: "SUPPLIER_SETTLEMENT",
 
@@ -71,6 +76,11 @@ export type TransactionType =
  * - CREDIT_CASH_OUT: the generic reversal does not restore the CREDIT_USED
  *   debt_ledger row, so voiding would return the cash without restoring the
  *   client's credit.
+ * - CREDIT_CASH_IN / DEBT_CASH_OUT: the generic reversal moves the drawer back
+ *   but does NOT undo the debt_ledger row, so voiding would correct the till
+ *   while leaving the client balance wrong. Reverse via the opposite manual
+ *   entry (Add Debt cancels an Add Credit and vice versa) — which also corrects
+ *   the till.
  */
 export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
   new Set<TransactionType>([
@@ -81,6 +91,8 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     TRANSACTION_TYPES.RECHARGE_TOPUP,
     TRANSACTION_TYPES.REFUND,
     TRANSACTION_TYPES.CREDIT_CASH_OUT,
+    TRANSACTION_TYPES.CREDIT_CASH_IN,
+    TRANSACTION_TYPES.DEBT_CASH_OUT,
   ]);
 
 export const TRANSACTION_STATUS = {

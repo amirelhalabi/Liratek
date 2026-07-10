@@ -589,6 +589,20 @@ export interface ElectronAPI {
       note?: string;
       transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    addAccountEntry: (data: {
+      direction: "credit" | "debt";
+      clientId: number;
+      amountUSD: number;
+      amountLBP: number;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      note?: string;
+      transaction_time?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getClientBalance: (clientId: number) => Promise<{
       success: boolean;
       data?: { balance_usd: number; balance_lbp: number };

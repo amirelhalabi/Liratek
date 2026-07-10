@@ -37,6 +37,7 @@ export function getCashFlowDirection(
     case "SUPPLIER_PAYMENT":
     case "MTC_TOPUP":
     case "ALFA_TOPUP":
+    case "CREDIT_CASH_IN": // customer hands the shop cash for account credit
     case "LOTO": // ticket sale: customer cash in (B7 — was unmapped, blank badge)
       return "in";
     case "RECHARGE_TOPUP": {
@@ -63,6 +64,7 @@ export function getCashFlowDirection(
     case "LOTO_CASH_PRIZE": // prize payout: shop cash out (B7 — was unmapped)
     case "SUPPLIER_SETTLEMENT":
     case "CREDIT_CASH_OUT": // shop pays the client their credit
+    case "DEBT_CASH_OUT": // shop hands the client a cash advance (new debt)
       return "out";
     case "EXCHANGE":
       return "both";

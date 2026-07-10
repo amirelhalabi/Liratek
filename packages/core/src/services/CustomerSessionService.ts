@@ -4,8 +4,50 @@ import {
   type CreateCustomerSessionData,
   type SessionTransaction,
 } from "../repositories/CustomerSessionRepository.js";
+import { getClientRepository } from "../repositories/ClientRepository.js";
+import { clientLogger } from "../utils/logger.js";
 
 export class CustomerSessionService {
+  /**
+   * Register the session's customer as a client when both name AND phone are
+   * present (FEATURE_GUIDE §6/§11: an unknown name+phone auto-creates the
+   * client — the same identity rule the CUSTOMER_ACCOUNT gate uses). Lives in
+   * the service so BOTH callers get it: the Electron IPC handler and the web
+   * backend route (which previously never registered the client at all).
+   *
+   * Best-effort by design — a failure here must not block the session — but
+   * always logged; a silent `catch {}` once hid every failure of this step.
+   */
+  private autoRegisterClient(
+    customerName: string | undefined,
+    customerPhone: string | undefined,
+    userId: number | undefined,
+    context: Record<string, unknown>,
+  ): void {
+    const name = customerName?.trim();
+    const phone = customerPhone?.trim();
+    if (!name || !phone) return;
+
+    try {
+      const resolved = getClientRepository().findOrCreateByPhone(
+        name,
+        phone,
+        userId ?? 0,
+      );
+      if (resolved.created) {
+        clientLogger.info(
+          { ...context, clientId: resolved.id, name, phone },
+          "Session customer registered as new client",
+        );
+      }
+    } catch (error) {
+      clientLogger.error(
+        { ...context, error, name, phone },
+        "Failed to auto-register session customer as client",
+      );
+    }
+  }
+
   /**
    * Start a new customer visit session
    * Note: Multiple active sessions are allowed, but not for the same customer.
@@ -21,6 +63,13 @@ export class CustomerSessionService {
       if ("error" in result) {
         return { success: false, error: result.error };
       }
+
+      this.autoRegisterClient(
+        data.customer_name,
+        data.customer_phone,
+        data.user_id,
+        { sessionId: result.sessionId, via: "session:start" },
+      );
 
       return { success: true, sessionId: result.sessionId };
     } catch (err: any) {
@@ -69,7 +118,14 @@ export class CustomerSessionService {
   }
 
   /**
-   * Update customer information for a session
+   * Update customer information for a session.
+   *
+   * `userId` (the acting operator) is only used to stamp the CLIENT_CREATED
+   * audit row when this edit completes a name+phone pair — e.g. a phone added
+   * to a name-only session — which auto-registers the customer as a client
+   * exactly like session start does. Without this, a phone added later
+   * enabled CUSTOMER_ACCOUNT in the checkout UI while no client row existed,
+   * and checkout died with "Cannot create basket debt without a client".
    */
   async updateSession(
     sessionId: number,
@@ -79,6 +135,7 @@ export class CustomerSessionService {
         "customer_name" | "customer_phone" | "customer_notes"
       >
     >,
+    userId?: number,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const repo = getCustomerSessionRepository();
@@ -88,6 +145,20 @@ export class CustomerSessionService {
       }
 
       repo.updateSession(sessionId, data);
+
+      // Merge the update over the stored row to get the session's FINAL
+      // name+phone — either half may come from this edit or from the original.
+      this.autoRegisterClient(
+        data.customer_name !== undefined
+          ? data.customer_name
+          : session.customer_name,
+        data.customer_phone !== undefined
+          ? data.customer_phone
+          : session.customer_phone,
+        userId,
+        { sessionId, via: "session:update" },
+      );
+
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err?.message ?? "Unknown error" };

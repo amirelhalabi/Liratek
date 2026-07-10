@@ -2,7 +2,6 @@ import { ipcMain } from "electron";
 import {
   CustomerSessionService,
   getCustomerSessionRepository,
-  getClientRepository,
   getUserRepository,
   getSessionCheckoutService,
   type CheckoutRequest,
@@ -34,30 +33,14 @@ export function registerSessionHandlers() {
       const user = getUserRepository().findByIdSafe(auth.userId);
       const started_by = user?.username || data.started_by || "unknown";
 
+      // Client auto-registration (name+phone) happens inside
+      // CustomerSessionService.startSession so the web backend route gets the
+      // same behavior — do not re-add it here.
       const result = await sessionService.startSession({
         ...data,
         started_by,
         user_id: auth.userId,
       });
-
-      // Auto-register client when both name and phone are supplied
-      if (result.success && data.customer_name && data.customer_phone) {
-        try {
-          const clientRepo = getClientRepository();
-          const existing = clientRepo.findByPhone(data.customer_phone);
-          if (!existing) {
-            clientRepo.createClient(
-              {
-                full_name: data.customer_name,
-                phone_number: data.customer_phone,
-              },
-              auth.userId,
-            );
-          }
-        } catch {
-          // Client creation is best-effort; do not fail the session
-        }
-      }
 
       audit(event.sender.id, {
         action: "create",
@@ -106,7 +89,7 @@ export function registerSessionHandlers() {
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
-      return sessionService.updateSession(sessionId, data);
+      return sessionService.updateSession(sessionId, data, auth.userId);
     },
   );
 
@@ -246,10 +229,15 @@ export function registerSessionHandlers() {
 
     const username =
       getUserRepository().findByIdSafe(auth.userId)?.username ||
-      String(validation.data.userId);
+      String(auth.userId);
 
+    // Stamp the AUTHENTICATED operator on every record checkout creates
+    // (items, payments, client registration) — never the wire-supplied userId.
     const result = await getSessionCheckoutService().checkout(
-      validation.data as unknown as CheckoutRequest,
+      {
+        ...(validation.data as unknown as CheckoutRequest),
+        userId: auth.userId,
+      },
       { username },
     );
 

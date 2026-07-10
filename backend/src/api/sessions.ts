@@ -144,13 +144,14 @@ router.get("/", async (req: Request, res: Response) => {
 router.post("/start", writeGate, async (req: Request, res: Response) => {
   try {
     const { customer_name, customer_phone, customer_notes } = req.body;
-    const username = (req as AuthRequest).user?.username || "unknown";
+    const authUser = (req as AuthRequest).user;
     res.json(
       await sessionService.startSession({
         customer_name,
         customer_phone,
         customer_notes,
-        started_by: username,
+        started_by: authUser?.username || "unknown",
+        user_id: authUser?.userId,
       }),
     );
   } catch (err) {
@@ -171,10 +172,15 @@ router.post("/checkout", writeGate, async (req: Request, res: Response) => {
       res.json({ success: false, error: `Validation failed: ${msg}` });
       return;
     }
-    const username = (req as AuthRequest).user?.username || "unknown";
+    const authUser = (req as AuthRequest).user;
+    // Stamp the AUTHENTICATED operator on every record checkout creates
+    // (items, payments, client registration) — never the wire-supplied userId.
     const result = await getSessionCheckoutService().checkout(
-      parsed.data as unknown as CheckoutRequest,
-      { username },
+      {
+        ...(parsed.data as unknown as CheckoutRequest),
+        ...(authUser ? { userId: authUser.userId } : {}),
+      },
+      { username: authUser?.username || "unknown" },
     );
     res.json(result);
   } catch (err) {
@@ -319,11 +325,11 @@ router.put("/:id", writeGate, async (req: Request, res: Response) => {
     }
     const { customer_name, customer_phone, customer_notes } = req.body;
     res.json(
-      await sessionService.updateSession(id, {
-        customer_name,
-        customer_phone,
-        customer_notes,
-      }),
+      await sessionService.updateSession(
+        id,
+        { customer_name, customer_phone, customer_notes },
+        (req as AuthRequest).user?.userId,
+      ),
     );
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });

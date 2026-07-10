@@ -108,6 +108,8 @@ const STATIC_TYPE_LABELS: Record<string, string> = {
   SUPPLIER_SETTLEMENT: "Supplier Settlement",
   HOLD_MONEY: "Money Held",
   HOLD_MONEY_COLLECT: "Hold Returned",
+  CREDIT_CASH_IN: "Account Credit",
+  DEBT_CASH_OUT: "Cash Advance",
 };
 
 function getTypeLabel(row: TransactionRow): string {
@@ -182,6 +184,8 @@ const TYPE_COLORS: Record<string, string> = {
   MAINTENANCE: "text-amber-400",
   EXPENSE: "text-red-400",
   DEBT_REPAYMENT: "text-emerald-400",
+  CREDIT_CASH_IN: "text-emerald-400",
+  DEBT_CASH_OUT: "text-rose-400",
   SUPPLIER_PAYMENT: "text-indigo-400",
   SUPPLIER_SETTLEMENT: "text-indigo-300",
   CHECKPOINT: "text-slate-400",

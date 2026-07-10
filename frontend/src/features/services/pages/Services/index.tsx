@@ -200,7 +200,7 @@ const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
 };
 
 const INPUT_CLASS =
-  "w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors";
+  "w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all";
 
 function formatAmount(amount: number, currency: string): string {
   if (currency === "USD")

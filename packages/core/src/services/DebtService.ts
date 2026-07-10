@@ -319,6 +319,77 @@ export class DebtService {
   }
 
   /**
+   * Manual, till-moving account entry from the Accounts (Debts) page.
+   *  - direction "credit": customer hands the shop cash → drawer IN, shop owes
+   *    customer (negative ledger row).
+   *  - direction "debt": shop gives the customer cash (a cash advance) → drawer
+   *    OUT, customer owes shop (positive ledger row).
+   * Unlike cashOut, the debt side has NO sufficiency guard — it deliberately
+   * creates fresh debt (that is the whole point). The drawer may go negative,
+   * consistent with cashOutCredit.
+   */
+  addAccountCashEntry(data: {
+    direction: "credit" | "debt";
+    clientId: number;
+    amountUSD: number;
+    amountLBP: number;
+    payments?: RepaymentPaymentLine[];
+    note?: string;
+    userId: number;
+    transaction_time?: string;
+  }): RepaymentResult {
+    const { direction, clientId, amountUSD, amountLBP, transaction_time } = data;
+
+    if (!clientId) {
+      return { success: false, error: "Client ID is required" };
+    }
+    if ((amountUSD ?? 0) <= 0 && (amountLBP ?? 0) <= 0) {
+      return {
+        success: false,
+        error: "At least one amount must be greater than 0",
+      };
+    }
+    if (transaction_time) {
+      const txTime = new Date(transaction_time);
+      if (isNaN(txTime.getTime())) {
+        return { success: false, error: "Invalid transaction_time format" };
+      }
+      if (txTime > new Date()) {
+        return {
+          success: false,
+          error: "transaction_time cannot be in the future",
+        };
+      }
+    }
+
+    try {
+      const result = this.debtRepo.addAccountCashEntry({
+        direction,
+        client_id: clientId,
+        amount_usd: amountUSD ?? 0,
+        amount_lbp: amountLBP ?? 0,
+        payments: data.payments,
+        note: data.note || null,
+        created_by: data.userId,
+        transaction_time,
+      });
+
+      debtLogger.info(
+        { direction, clientId, amountUSD, amountLBP, entryId: result.id },
+        `Account ${direction} of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`,
+      );
+
+      return { success: true, id: result.id };
+    } catch (error) {
+      debtLogger.error(
+        { error, direction, clientId, amountUSD, amountLBP },
+        "Failed to add account cash entry",
+      );
+      return { success: false, error: (error as Error).message };
+    }
+  }
+
+  /**
    * Use credit from a client's account (reduce credit balance)
    */
   useCredit(data: {

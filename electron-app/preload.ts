@@ -176,6 +176,20 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       transaction_time?: string;
     }) => ipcRenderer.invoke("debt:cash-out", data),
+    addAccountEntry: (data: {
+      direction: "credit" | "debt";
+      clientId: number;
+      amountUSD: number;
+      amountLBP: number;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      note?: string;
+      transaction_time?: string;
+    }) => ipcRenderer.invoke("debt:add-account-entry", data),
     updateMetadata: (data: { id: number; note?: string }) =>
       ipcRenderer.invoke("debts:update-metadata", data),
     addCredit: (data: {
