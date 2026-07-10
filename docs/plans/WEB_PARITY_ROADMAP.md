@@ -43,6 +43,7 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | Sessions (browse+cart+checkout) | `1dcef64` + `a13d768` | checkout orchestration extracted to core `SessionCheckoutService`; see `SESSIONS_WEB_PARITY_PLAN.md` |
 | Hold money | `0eb9a52` | `holdMoneyCreateSchema` → core; `backend/src/api/holdMoney.ts` (list/active/create/collect); proof `lira-web-003` |
 | Service presets | `6472d91` | config CRUD (no money); schemas already in core; `backend/src/api/servicePresets.ts`; proof `lira-web-004` |
+| Audit log (read) | `40e4c5d` | read-only; `backend/src/api/audit.ts` (search/recent/by-entity); core AuditService already present; proof `lira-web-005`. NOTE: distinct from `/api/activity`; the viewer uses the `audit` trail |
 
 **Pending** (verified 2026-07-11: no REST route yet; page still calls `window.api.*` directly):
 
@@ -51,7 +52,6 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | partners | ❌ | `partners/pages/Partners`, `partners/components/PartnerSelector` | S–M |
 | drawer top-ups | ❌ | `dashboard/components/DrawerTopUpModal`, `Dashboard` | S |
 | voucher codes | ❌ (only voucher-*images* exists) | `vouchers/pages/Vouchers` | M |
-| audit log | ⚠️ `activity` route exists but `AuditLogViewer.tsx` uses `window.api` directly | `audit/pages/AuditLogViewer` | S (mostly frontend wiring) |
 | debts `addCredit` | ❌ (debts route exists; no add-credit endpoint) | Debts page | S |
 | closing / checkpoint | ❌ | `closing/pages/Checkpoint` | M |
 
@@ -117,3 +117,4 @@ Followed for sales/loto/sessions; reuse verbatim. **This is money-path work — 
 - Loto quirks: session-cart cash-prize channel `loto:cashPrize:create` ≠ registered `loto:cash-prize:create`; `CheckpointHistory.tsx` raw `window.api.loto.updateMetadata` (web-broken); `GET /checkpoints/scheduled` creates over GET.
 - `lira-073` export spec: `#transfer-amount` seeding form doesn't open in web mode (excluded from the web suite).
 - Align zod major versions across workspaces (removes the cast pattern).
+- **REST action routes don't WRITE audit entries.** Only the Electron IPC handlers call `audit(...)`; the REST routes (loto/sessions/holdMoney/servicePresets/sales/…) don't. The audit VIEWER reads over REST (commit `40e4c5d`), but web-mode actions currently leave no audit trail. Decide: a shared audit hook in core, or per-route audit calls, when audit coverage of the web transport is needed.
