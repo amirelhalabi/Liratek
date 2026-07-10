@@ -6,7 +6,11 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
-import { DatabaseError, NotFoundError } from "../utils/errors.js";
+import {
+  DatabaseError,
+  NotFoundError,
+  BusinessRuleError,
+} from "../utils/errors.js";
 import { salesLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -565,7 +569,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const stockStmt = db.prepare(`
           UPDATE products
           SET stock_quantity = stock_quantity - ?
-          WHERE id = ? AND tenant_id = ?
+          WHERE id = ? AND tenant_id = ? AND stock_quantity >= ?
         `);
 
         for (const item of sale.items) {
@@ -580,9 +584,31 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             tenantId,
           );
 
-          // Update Stock: ONLY IF COMPLETED
+          // Update Stock: ONLY IF COMPLETED.
+          // Guarded conditional write: the `stock_quantity >= ?` clause plus the
+          // rows-affected check stop two concurrent sales from overselling the
+          // last unit(s) into negative stock. If nothing updated, stock is
+          // insufficient (or the product/tenant row is gone) → abort the sale
+          // (the surrounding db.transaction auto-rolls-back the whole sale).
           if (status === "completed") {
-            stockStmt.run(item.quantity, item.product_id, tenantId);
+            const stockRes = stockStmt.run(
+              item.quantity,
+              item.product_id,
+              tenantId,
+              item.quantity,
+            );
+            if (stockRes.changes === 0) {
+              const p = db
+                .prepare(
+                  `SELECT name, stock_quantity FROM products WHERE id = ? AND tenant_id = ?`,
+                )
+                .get(item.product_id, tenantId) as
+                | { name?: string; stock_quantity?: number }
+                | undefined;
+              throw new BusinessRuleError(
+                `Not enough stock for "${p?.name ?? `product #${item.product_id}`}" (${p?.stock_quantity ?? 0} available)`,
+              );
+            }
           }
         }
 
@@ -619,7 +645,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         return { success: true, id: saleId };
       });
 
-      return processTransaction();
+      // IMMEDIATE: take the write lock at BEGIN so the read-check-write is
+      // atomic and a concurrent writer waits (busy_timeout) instead of racing.
+      return processTransaction.immediate();
     } catch (error) {
       salesLogger.error({ error, sale }, "Sale transaction failed");
       return {

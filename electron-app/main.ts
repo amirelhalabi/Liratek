@@ -274,8 +274,12 @@ function initializeDatabase() {
     db.pragma("journal_mode = WAL");
     db.pragma("synchronous = NORMAL");
     db.pragma("foreign_keys = ON");
+    // busy_timeout applies unconditionally: when a second app instance contends
+    // for the write lock it WAITS (up to 5s) instead of failing instantly. This
+    // is what lets a concurrent sale's button stay loading and then hit the
+    // clean out-of-stock guard, rather than a raw "database is locked".
+    db.pragma("busy_timeout = 5000");
     if (isNetworkPath) {
-      db.pragma("busy_timeout = 5000");
       db.pragma("cache_size = -2000");
       logger.info("Database configured for network share");
     }

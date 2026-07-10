@@ -31,13 +31,17 @@ export function registerSalesHandlers(): void {
       "Processing sale",
     );
     const result = salesService.processSale(v.data as SaleRequest, auth.userId);
-    audit(event.sender.id, {
-      action: "create",
-      entity_type: "sale",
-      entity_id: String((result as any)?.id ?? ""),
-      summary: `Processed sale (status: ${v.data.status})`,
-      metadata: { status: v.data.status, itemCount: v.data.items?.length },
-    });
+    // Only audit a sale that actually committed — a guarded/failed sale
+    // (e.g. out of stock) returns { success:false } and is rolled back.
+    if (result.success) {
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "sale",
+        entity_id: String((result as any)?.id ?? ""),
+        summary: `Processed sale (status: ${v.data.status})`,
+        metadata: { status: v.data.status, itemCount: v.data.items?.length },
+      });
+    }
     return result;
   });
 

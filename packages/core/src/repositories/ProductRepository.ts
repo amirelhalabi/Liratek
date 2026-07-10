@@ -505,7 +505,14 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   }
 
   /**
-   * Deduct stock for multiple products (used when finalizing a sale)
+   * Deduct stock for multiple products.
+   *
+   * ⚠️ UNGUARDED / currently unused. This does a blind `stock_quantity - qty`
+   * with no `>= qty` guard or rows-affected check, so it can oversell into
+   * negative stock. Do NOT wire this into a sale-finalization path — the live
+   * sale uses the guarded decrement in `SalesRepository.processSale`. If this
+   * ever becomes live, port that guard here first (iterate items with a
+   * conditional UPDATE + rows-affected check).
    */
   deductStockForSale(saleId: number): void {
     try {

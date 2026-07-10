@@ -66,6 +66,9 @@ export function getDatabase(): Database.Database {
 
     dbInstance.pragma("journal_mode = WAL");
     dbInstance.pragma("foreign_keys = ON");
+    // Wait for the write lock instead of failing instantly under concurrent
+    // requests (matches the desktop app; harmless with a single connection).
+    dbInstance.pragma("busy_timeout = 5000");
     ensureSchema(dbInstance);
 
     // Initialize the @liratek/core database singleton
