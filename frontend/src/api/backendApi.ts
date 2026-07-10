@@ -2288,6 +2288,55 @@ export async function servicePresetsDelete(id: number) {
   );
 }
 
+// ── Audit log (dual-mode, read-only) — user-action audit trail ──
+
+export async function auditSearch(filters: {
+    userId?: number;
+    action?: string;
+    entityType?: string;
+    entityId?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+  return ipcOrHttp(
+    async () => getElectronApi().audit.search(filters),
+    async () =>
+      requestJson<{
+        success: boolean;
+        rows?: any[];
+        total?: number;
+        error?: string;
+      }>("/api/audit/search", { method: "POST", body: filters ?? {} }),
+  );
+}
+
+export async function auditGetRecent(limit?: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().audit.getRecent(limit),
+    async () => {
+      const qs = limit ? `?limit=${limit}` : "";
+      return requestJson<{ success: boolean; rows?: any[]; error?: string }>(
+        `/api/audit/recent${qs}`,
+      );
+    },
+  );
+}
+
+export async function auditGetByEntity(entityType: string, entityId: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().audit.getByEntity(entityType, entityId),
+    async () => {
+      const qs = new URLSearchParams({ entityType, entityId });
+      return requestJson<{ success: boolean; rows?: any[]; error?: string }>(
+        `/api/audit/by-entity?${qs.toString()}`,
+      );
+    },
+  );
+}
+
 // WhatsApp
 export async function sendWhatsAppTestMessage(
   recipientPhone: string,

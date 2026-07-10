@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { AuditLogEntry, AuditSearchFilters } from "@/types/electron";
-import { DataTable } from "@liratek/ui";
+import { DataTable, useApi } from "@liratek/ui";
 
 const ACTION_COLORS: Record<string, string> = {
   CREATE: "text-green-400",
@@ -49,6 +49,7 @@ export default function AuditLogViewer({
   to,
   limit,
 }: AuditLogViewerProps) {
+  const api = useApi();
   const [rows, setRows] = useState<AuditLogEntry[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,7 +69,7 @@ export default function AuditLogViewer({
         if (from) filters.from = from;
         if (to) filters.to = to;
 
-        const res = await window.api.audit.search(filters);
+        const res = await api.audit.search(filters);
         if (res.success && res.rows) {
           if (append) {
             setRows((prev) => [...prev, ...res.rows!]);
@@ -97,7 +98,7 @@ export default function AuditLogViewer({
         if (search) filters.search = search;
         if (from) filters.from = from;
         if (to) filters.to = to;
-        const res = await window.api.audit.search(filters);
+        const res = await api.audit.search(filters);
         if (res.success && res.rows) {
           setRows((prev) => [...prev, ...res.rows!]);
         }

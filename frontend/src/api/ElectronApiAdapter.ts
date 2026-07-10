@@ -401,6 +401,24 @@ export class ElectronApiAdapter implements ApiAdapter {
     delete: (id: number) => api.servicePresetsDelete(id),
   };
 
+  // Nested namespace mirroring window.api.audit (dual-mode, read-only).
+  audit = {
+    getRecent: (limit?: number) => api.auditGetRecent(limit),
+    search: (filters: {
+    userId?: number;
+    action?: string;
+    entityType?: string;
+    entityId?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) => api.auditSearch(filters),
+    getByEntity: (entityType: string, entityId: string) =>
+      api.auditGetByEntity(entityType, entityId),
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

@@ -731,6 +731,33 @@ export type ApiAdapter = {
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
 
+  /** Audit log — read-only user-action audit trail. */
+  audit: {
+    getRecent: (
+      limit?: number,
+    ) => Promise<{ success: boolean; rows?: any[]; error?: string }>;
+    search: (filters: {
+    userId?: number;
+    action?: string;
+    entityType?: string;
+    entityId?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) => Promise<{
+      success: boolean;
+      rows?: any[];
+      total?: number;
+      error?: string;
+    }>;
+    getByEntity: (
+      entityType: string,
+      entityId: string,
+    ) => Promise<{ success: boolean; rows?: any[]; error?: string }>;
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------
