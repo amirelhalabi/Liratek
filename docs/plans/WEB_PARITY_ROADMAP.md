@@ -44,13 +44,13 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | Hold money | `0eb9a52` | `holdMoneyCreateSchema` → core; `backend/src/api/holdMoney.ts` (list/active/create/collect); proof `lira-web-003` |
 | Service presets | `6472d91` | config CRUD (no money); schemas already in core; `backend/src/api/servicePresets.ts`; proof `lira-web-004` |
 | Audit log (read) | `40e4c5d` | read-only; `backend/src/api/audit.ts` (search/recent/by-entity); core AuditService already present; proof `lira-web-005`. NOTE: distinct from `/api/activity`; the viewer uses the `audit` trail |
+| Drawer top-ups | `104e9e1` | `backend/src/api/drawerTopUp.ts` (source-drawers/history/create/from-drawer); no schema/core change; proof `lira-web-006` |
 
 **Pending** (verified 2026-07-11: no REST route yet; page still calls `window.api.*` directly):
 
 | Module | REST route | Web-broken page(s) | Size |
 |---|---|---|---|
 | partners | ❌ | `partners/pages/Partners`, `partners/components/PartnerSelector` | S–M |
-| drawer top-ups | ❌ | `dashboard/components/DrawerTopUpModal`, `Dashboard` | S |
 | voucher codes | ❌ (only voucher-*images* exists) | `vouchers/pages/Vouchers` | M |
 | debts `addCredit` | ❌ (debts route exists; no add-credit endpoint) | Debts page | S |
 | closing / checkpoint | ❌ | `closing/pages/Checkpoint` | M |
