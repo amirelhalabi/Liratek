@@ -1693,6 +1693,7 @@ __metadata:
     pino: "npm:^8.19.0"
     pino-http: "npm:^9.0.0"
     socket.io: "npm:^4.6.1"
+    socket.io-client: "npm:^4.8.3"
     tsx: "npm:^4.7.1"
     typescript: "npm:^5.3.3"
     zod: "npm:^3.22.4"

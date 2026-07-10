@@ -5,6 +5,7 @@ import {
   getSalesService,
   createSaleSchema,
   getSaleSchema,
+  getCurrentTenantId,
 } from "@liratek/core";
 import { emitEvent } from "../websocket/io.js";
 
@@ -76,7 +77,10 @@ router.post(
     const result = service.processSale(req.body, req.user!.userId);
 
     if (result.success) {
-      emitEvent("sales:processed", {
+      // Inside authenticateJWT's runWithTenant() scope (router.use above,
+      // this handler is fully synchronous) — getCurrentTenantId() resolves
+      // to the requesting tenant, never a guess.
+      emitEvent(getCurrentTenantId(), "sales:processed", {
         id: result.id,
         at: new Date().toISOString(),
       });

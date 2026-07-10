@@ -26,15 +26,24 @@ export { logger };
 
 const app = express();
 const httpServer = createServer(app);
-const io = new SocketIOServer(httpServer, {
+import type { DefaultEventsMap } from "socket.io";
+import { setIO, type SocketData } from "./websocket/io.js";
+const io = new SocketIOServer<
+  DefaultEventsMap,
+  DefaultEventsMap,
+  DefaultEventsMap,
+  SocketData
+>(httpServer, {
   cors: {
     origin: CORS_ORIGIN,
     credentials: true,
   },
 });
 
-// Register Socket.IO instance for use elsewhere without importing server.ts
-import { setIO } from "./websocket/io.js";
+// Register Socket.IO instance for use elsewhere without importing server.ts.
+// setIO() also registers the tenant-scoping handshake middleware
+// (`io.use(socketAuthMiddleware)`, plan §WP8) — every connection is
+// verified and room-joined before it reaches `io.on("connection")` below.
 setIO(io);
 
 // Middleware
@@ -62,7 +71,6 @@ import clientsRoutes from "./api/clients.js";
 import salesRoutes from "./api/sales.js";
 import inventoryRoutes from "./api/inventory.js";
 import dashboardRoutes from "./api/dashboard.js";
-import wsDebugRoutes from "./api/ws-debug.js";
 import debtsRoutes from "./api/debts.js";
 import exchangeRoutes from "./api/exchange.js";
 import expensesRoutes from "./api/expenses.js";
@@ -98,7 +106,6 @@ app.use("/api/clients", clientsRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/ws", wsDebugRoutes);
 app.use("/api/debts", debtsRoutes);
 app.use("/api/exchange", exchangeRoutes);
 app.use("/api/expenses", expensesRoutes);

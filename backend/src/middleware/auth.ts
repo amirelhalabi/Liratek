@@ -84,6 +84,35 @@ function parseJwtPayload(decoded: unknown): LiratekJwtPayload | null {
   };
 }
 
+/**
+ * Verify a raw JWT string against `JWT_SECRET` and parse it into the strict
+ * v2 payload shape (see `parseJwtPayload`). Returns `null` for ANY failure —
+ * bad/expired signature, or a payload that doesn't match the v2 shape
+ * (missing `sessionToken`, missing/mismatched `tenantId`, legacy v1 token).
+ *
+ * Shared by `authenticateJWT` (HTTP, below) and the Socket.IO handshake
+ * middleware (`backend/src/websocket/io.ts`) so both paths decode the same
+ * way with the same secret — one place to fix if the payload shape changes.
+ *
+ * Callers that need the revocable-session guarantee (any HTTP route) MUST
+ * additionally call `authService.validateSession(payload.sessionToken)` —
+ * this function only proves the token is signed and well-shaped, not that
+ * the session behind it is still active.
+ *
+ * Does not check `JWT_SECRET` presence — callers should handle that config
+ * error themselves (see `authenticateJWT`'s explicit check, which returns a
+ * distinct 500 rather than folding into this function's generic `null`).
+ */
+export function verifyJwt(token: string): LiratekJwtPayload | null {
+  if (!JWT_SECRET) return null;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return parseJwtPayload(decoded);
+  } catch {
+    return null;
+  }
+}
+
 export function authenticateJWT(
   req: AuthRequest,
   res: Response,
@@ -105,8 +134,7 @@ export function authenticateJWT(
       return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const payload = parseJwtPayload(decoded);
+    const payload = verifyJwt(token);
     if (!payload) {
       logger.warn("Rejected JWT with invalid or legacy payload shape");
       res.status(401).json({ error: "Invalid token" });
