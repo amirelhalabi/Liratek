@@ -42,6 +42,7 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | Loto | `4cfa514` | 7 schemas → core; `backend/src/api/loto.ts` (~28 routes) |
 | Sessions (browse+cart+checkout) | `1dcef64` + `a13d768` | checkout orchestration extracted to core `SessionCheckoutService`; see `SESSIONS_WEB_PARITY_PLAN.md` |
 | Hold money | `0eb9a52` | `holdMoneyCreateSchema` → core; `backend/src/api/holdMoney.ts` (list/active/create/collect); proof `lira-web-003` |
+| Service presets | `6472d91` | config CRUD (no money); schemas already in core; `backend/src/api/servicePresets.ts`; proof `lira-web-004` |
 
 **Pending** (verified 2026-07-11: no REST route yet; page still calls `window.api.*` directly):
 
@@ -50,7 +51,6 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | partners | ❌ | `partners/pages/Partners`, `partners/components/PartnerSelector` | S–M |
 | drawer top-ups | ❌ | `dashboard/components/DrawerTopUpModal`, `Dashboard` | S |
 | voucher codes | ❌ (only voucher-*images* exists) | `vouchers/pages/Vouchers` | M |
-| service presets | ❌ | `custom-services/.../PresetManagerModal`, `CustomServices` | S |
 | audit log | ⚠️ `activity` route exists but `AuditLogViewer.tsx` uses `window.api` directly | `audit/pages/AuditLogViewer` | S (mostly frontend wiring) |
 | debts `addCredit` | ❌ (debts route exists; no add-credit endpoint) | Debts page | S |
 | closing / checkpoint | ❌ | `closing/pages/Checkpoint` | M |
