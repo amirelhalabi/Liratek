@@ -390,7 +390,7 @@ export default function Dashboard() {
       // Load active money holds (non-critical — surfaced as notification cards)
       try {
         if (window.api?.holdMoney) {
-          const holdsRes = await window.api.holdMoney.active();
+          const holdsRes = await api.holdMoney.active();
           if (holdsRes.success && holdsRes.data) {
             setActiveHolds(holdsRes.data);
           }
@@ -424,7 +424,7 @@ export default function Dashboard() {
       if (!window.api?.holdMoney) return;
       setCollectingHoldId(hold.id);
       try {
-        const res = await window.api.holdMoney.collect(hold.id);
+        const res = await api.holdMoney.collect(hold.id);
         if (res.success) {
           appEvents.emit(
             "notification:show",

@@ -355,6 +355,22 @@ export class ElectronApiAdapter implements ApiAdapter {
     checkout: (data: unknown) => api.processSessionCheckout(data),
   };
 
+  // Nested namespace mirroring window.api.holdMoney (dual-mode IPC/REST).
+  holdMoney = {
+    list: (filter?: { status?: "held" | "collected" }) =>
+      api.holdMoneyList(filter),
+    active: () => api.holdMoneyActive(),
+    create: (data: {
+      client_name: string;
+      phone_number?: string;
+      usd_amount?: number;
+      lbp_amount?: number;
+      notes?: string;
+      transaction_time?: string;
+    }) => api.holdMoneyCreate(data),
+    collect: (id: number) => api.holdMoneyCollect(id),
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

@@ -2159,6 +2159,61 @@ export async function processSessionCheckout(data: any) {
   );
 }
 
+// ── Hold money (dual-mode) — cash held in / collected out of the General drawer ──
+
+export async function holdMoneyList(filter?: {
+  status?: "held" | "collected";
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().holdMoney.list(filter),
+    async () => {
+      const qs = filter?.status ? `?status=${filter.status}` : "";
+      return requestJson<{ success: boolean; data?: any[]; error?: string }>(
+        `/api/hold-money${qs}`,
+      );
+    },
+  );
+}
+
+export async function holdMoneyActive() {
+  return ipcOrHttp(
+    async () => getElectronApi().holdMoney.active(),
+    async () =>
+      requestJson<{ success: boolean; data?: any[]; error?: string }>(
+        "/api/hold-money/active",
+      ),
+  );
+}
+
+export async function holdMoneyCreate(data: {
+  client_name: string;
+  phone_number?: string;
+  usd_amount?: number;
+  lbp_amount?: number;
+  notes?: string;
+  transaction_time?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().holdMoney.create(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        "/api/hold-money",
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+export async function holdMoneyCollect(id: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().holdMoney.collect(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/hold-money/${id}/collect`,
+        { method: "POST" },
+      ),
+  );
+}
+
 // WhatsApp
 export async function sendWhatsAppTestMessage(
   recipientPhone: string,

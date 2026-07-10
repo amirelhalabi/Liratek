@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Wallet, User, Phone, Tag, RefreshCw, HandCoins } from "lucide-react";
-import { appEvents, DecimalInput } from "@liratek/ui";
+import { appEvents, DecimalInput, useApi } from "@liratek/ui";
 import type { Client } from "@liratek/ui";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import logger from "@/utils/logger";
@@ -38,9 +38,10 @@ function formatLbp(n: number): string {
  * standard custom-service form (Customer Name + Phone row, teal amount panel,
  * "Note (optional)", teal submit) so the two categories feel identical.
  *
- * Self-contained: loads its own active holds and writes via window.api.holdMoney.
+ * Self-contained: loads its own active holds and writes via api.holdMoney.
  */
 export function HoldMoneySection() {
+  const api = useApi();
   const [holds, setHolds] = useState<HoldMoneyRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -55,7 +56,7 @@ export function HoldMoneySection() {
   const loadHolds = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await window.api.holdMoney.active();
+      const res = await api.holdMoney.active();
       if (res.success && res.data) {
         setHolds(res.data);
       } else if (!res.success) {
@@ -107,7 +108,7 @@ export function HoldMoneySection() {
     try {
       const trimmedPhone = phoneNumber.trim();
       const trimmedNote = note.trim();
-      const res = await window.api.holdMoney.create({
+      const res = await api.holdMoney.create({
         client_name: clientName.trim(),
         usd_amount: usdAmount,
         lbp_amount: lbpAmount,
@@ -146,7 +147,7 @@ export function HoldMoneySection() {
     async (hold: HoldMoneyRecord) => {
       setCollectingId(hold.id);
       try {
-        const res = await window.api.holdMoney.collect(hold.id);
+        const res = await api.holdMoney.collect(hold.id);
         if (res.success) {
           appEvents.emit(
             "notification:show",

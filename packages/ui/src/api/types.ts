@@ -678,6 +678,27 @@ export type ApiAdapter = {
     checkout: (data: unknown) => Promise<any>;
   };
 
+  /** Hold money — cash held in / collected out of the General drawer. */
+  holdMoney: {
+    list: (filter?: {
+      status?: "held" | "collected";
+    }) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+    active: () => Promise<{
+      success: boolean;
+      data?: any[];
+      error?: string;
+    }>;
+    create: (data: {
+      client_name: string;
+      phone_number?: string;
+      usd_amount?: number;
+      lbp_amount?: number;
+      notes?: string;
+      transaction_time?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    collect: (id: number) => Promise<{ success: boolean; error?: string }>;
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

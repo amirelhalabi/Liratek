@@ -95,6 +95,7 @@ import voucherImagesRoutes from "./api/voucher-images.js";
 import customServicesRoutes from "./api/customServices.js";
 import profitsRoutes from "./api/profits.js";
 import lotoRoutes from "./api/loto.js";
+import holdMoneyRoutes from "./api/holdMoney.js";
 import voiceRoutes, { initVoiceWebSocketServer } from "./api/voice.js";
 import adminRoutes from "./api/admin.js";
 
@@ -130,6 +131,7 @@ app.use("/api/voucher-images", voucherImagesRoutes);
 app.use("/api/custom-services", customServicesRoutes);
 app.use("/api/profits", profitsRoutes);
 app.use("/api/loto", lotoRoutes);
+app.use("/api/hold-money", holdMoneyRoutes);
 app.use("/api/voice", voiceRoutes);
 app.use("/api/admin", adminRoutes);
 
