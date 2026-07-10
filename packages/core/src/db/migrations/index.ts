@@ -5071,6 +5071,1081 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v122 rolled back: 'debts' module label restored to 'Debts'");
     },
   },
+  {
+    version: 123,
+    name: "add_multi_tenancy",
+    description:
+      "Multi-tenant foundation (WP0). Adds the `tenants` table and a `tenant_id` column to all 49 tenant-owned tables, backfilling everything to tenant 1 ('Default'). Desktop stays single-tenant (fixed tenant 1 at boot); web multi-tenancy (query-layer scoping, JWT tenant context, provisioning, impersonation) lands in later work packages — this migration only lays the schema foundation. 19 tables whose UNIQUE/PK constraints would otherwise collide across tenants (clients.phone_number, suppliers.name, products.barcode, product_categories.name, product_suppliers.name, partners.name, payment_methods.code, vouchers.code, system_settings.key_name, currencies.code, exchange_rates.to_code, modules.key, loto_settings.key_name, drawer_balances, currency_modules, currency_drawers, item_costs, voucher_images, mobile_service_items) are rebuilt with tenant-scoped constraints via the standard SQLite 12-step table rebuild (new table -> copy -> drop -> rename -> recreate indexes). modules.key's primary key change cascades into composite foreign keys on currency_modules and suppliers.module_key. users.username stays GLOBALLY unique (no tenant hint at login yet); sessions.token (random-unique) and daily_closing_amounts' UNIQUE (which already includes the globally-unique closing_id) don't need rebuilding, just the added column. audit_log also gains impersonator_id for future impersonation auditing (WP6).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // -----------------------------------------------------------------
+      // 1. Tenants table + Default tenant seed
+      // -----------------------------------------------------------------
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS tenants (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL UNIQUE,
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'archived')),
+          contact_name TEXT,
+          contact_phone TEXT,
+          notes TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `INSERT OR IGNORE INTO tenants (id, name, slug, status) VALUES (1, 'Default', 'default', 'active')`,
+      );
+
+      // -----------------------------------------------------------------
+      // 2. Plain ALTER + backfill (constraints don't collide across tenants)
+      // -----------------------------------------------------------------
+      const alterOnlyTables = [
+        "transactions",
+        "sales",
+        "sale_items",
+        "debt_ledger",
+        "customer_sessions",
+        "customer_session_transactions",
+        "session_cart_items",
+        "supplier_ledger",
+        "supplier_purchases",
+        "maintenance",
+        "expenses",
+        "recharges",
+        "exchange_transactions",
+        "financial_services",
+        "partner_ledger",
+        "custom_services",
+        "payments",
+        "drawer_topups",
+        "daily_closings",
+        "daily_closing_amounts",
+        "loto_tickets",
+        "loto_monthly_fees",
+        "loto_checkpoints",
+        "loto_cash_prizes",
+        "loto_settlements",
+        "hold_money",
+        "audit_log",
+        "users",
+        "sessions",
+        "service_presets",
+      ];
+      for (const table of alterOnlyTables) {
+        db.exec(
+          `ALTER TABLE ${table} ADD COLUMN tenant_id INTEGER REFERENCES tenants(id)`,
+        );
+        db.exec(`UPDATE ${table} SET tenant_id = 1`);
+      }
+
+      // audit_log also gains impersonator_id (WP6 impersonation auditing)
+      db.exec(
+        `ALTER TABLE audit_log ADD COLUMN impersonator_id INTEGER REFERENCES users(id)`,
+      );
+
+      // High-volume tenant_id indexes on the ALTER-only tables (14 of the 15
+      // total — `clients` is rebuilt below and gets its index there)
+      const alterOnlyIndexedTables = [
+        "transactions",
+        "sales",
+        "sale_items",
+        "payments",
+        "debt_ledger",
+        "financial_services",
+        "recharges",
+        "exchange_transactions",
+        "expenses",
+        "audit_log",
+        "loto_tickets",
+        "customer_sessions",
+        "custom_services",
+        "maintenance",
+      ];
+      for (const table of alterOnlyIndexedTables) {
+        db.exec(`CREATE INDEX idx_${table}_tenant_id ON ${table}(tenant_id)`);
+      }
+
+      // -----------------------------------------------------------------
+      // 3. Table rebuilds — composite UNIQUE/PK constraints need tenant_id.
+      //    Order: currencies + modules first (FK targets), then the
+      //    junction/child tables that reference them, then the remaining
+      //    independent rebuilds.
+      // -----------------------------------------------------------------
+
+      // currencies: code UNIQUE -> UNIQUE(tenant_id, code)
+      db.exec(`
+        CREATE TABLE currencies_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          code TEXT NOT NULL,
+          name TEXT NOT NULL,
+          symbol TEXT NOT NULL DEFAULT '',
+          decimal_places INTEGER NOT NULL DEFAULT 2,
+          is_active BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, code)
+        )
+      `);
+      db.exec(`
+        INSERT INTO currencies_new (id, tenant_id, code, name, symbol, decimal_places, is_active, created_at)
+        SELECT id, 1, code, name, symbol, decimal_places, is_active, created_at FROM currencies
+      `);
+      db.exec(`DROP TABLE currencies`);
+      db.exec(`ALTER TABLE currencies_new RENAME TO currencies`);
+
+      // modules: key TEXT PRIMARY KEY -> PRIMARY KEY (tenant_id, key)
+      db.exec(`
+        CREATE TABLE modules_new (
+          tenant_id   INTEGER REFERENCES tenants(id),
+          key         TEXT NOT NULL,
+          label       TEXT NOT NULL,
+          icon        TEXT NOT NULL DEFAULT '',
+          route       TEXT NOT NULL,
+          sort_order  INTEGER NOT NULL DEFAULT 0,
+          is_enabled  INTEGER NOT NULL DEFAULT 1,
+          admin_only  INTEGER NOT NULL DEFAULT 0,
+          is_system   INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (tenant_id, key)
+        )
+      `);
+      db.exec(`
+        INSERT INTO modules_new (tenant_id, key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+        SELECT 1, key, label, icon, route, sort_order, is_enabled, admin_only, is_system FROM modules
+      `);
+      db.exec(`DROP TABLE modules`);
+      db.exec(`ALTER TABLE modules_new RENAME TO modules`);
+
+      // currency_modules: composite FKs now need tenant_id too
+      db.exec(`
+        CREATE TABLE currency_modules_new (
+          tenant_id     INTEGER REFERENCES tenants(id),
+          currency_code TEXT NOT NULL,
+          module_key    TEXT NOT NULL,
+          PRIMARY KEY (tenant_id, currency_code, module_key),
+          FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code) ON DELETE CASCADE,
+          FOREIGN KEY (tenant_id, module_key)    REFERENCES modules(tenant_id, key)     ON DELETE CASCADE
+        )
+      `);
+      db.exec(`
+        INSERT INTO currency_modules_new (tenant_id, currency_code, module_key)
+        SELECT 1, currency_code, module_key FROM currency_modules
+      `);
+      db.exec(`DROP TABLE currency_modules`);
+      db.exec(`ALTER TABLE currency_modules_new RENAME TO currency_modules`);
+
+      // currency_drawers: same treatment (FK to currencies only)
+      db.exec(`
+        CREATE TABLE currency_drawers_new (
+          tenant_id     INTEGER REFERENCES tenants(id),
+          currency_code TEXT NOT NULL,
+          drawer_name   TEXT NOT NULL,
+          PRIMARY KEY (tenant_id, currency_code, drawer_name),
+          FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code) ON DELETE CASCADE
+        )
+      `);
+      db.exec(`
+        INSERT INTO currency_drawers_new (tenant_id, currency_code, drawer_name)
+        SELECT 1, currency_code, drawer_name FROM currency_drawers
+      `);
+      db.exec(`DROP TABLE currency_drawers`);
+      db.exec(`ALTER TABLE currency_drawers_new RENAME TO currency_drawers`);
+
+      // suppliers: name UNIQUE -> UNIQUE(tenant_id, name); module_key's FK
+      // becomes composite because modules' PK is now (tenant_id, key)
+      db.exec(`
+        CREATE TABLE suppliers_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          name TEXT NOT NULL,
+          contact_name TEXT,
+          phone TEXT,
+          note TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          module_key TEXT DEFAULT NULL,
+          provider TEXT DEFAULT NULL,
+          is_system INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, name),
+          FOREIGN KEY (tenant_id, module_key) REFERENCES modules(tenant_id, key) ON DELETE SET NULL
+        )
+      `);
+      db.exec(`
+        INSERT INTO suppliers_new (id, tenant_id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at)
+        SELECT id, 1, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at FROM suppliers
+      `);
+      db.exec(`DROP TABLE suppliers`);
+      db.exec(`ALTER TABLE suppliers_new RENAME TO suppliers`);
+
+      // clients: phone_number UNIQUE -> UNIQUE(tenant_id, phone_number)
+      db.exec(`
+        CREATE TABLE clients_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          full_name TEXT NOT NULL,
+          phone_number TEXT,
+          notes TEXT,
+          whatsapp_opt_in BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, phone_number)
+        )
+      `);
+      db.exec(`
+        INSERT INTO clients_new (id, tenant_id, full_name, phone_number, notes, whatsapp_opt_in, created_at)
+        SELECT id, 1, full_name, phone_number, notes, whatsapp_opt_in, created_at FROM clients
+      `);
+      db.exec(`DROP TABLE clients`);
+      db.exec(`ALTER TABLE clients_new RENAME TO clients`);
+      db.exec(
+        `CREATE INDEX idx_clients_full_name ON clients(full_name COLLATE NOCASE)`,
+      );
+      db.exec(`CREATE INDEX idx_clients_tenant_id ON clients(tenant_id)`);
+
+      // products: barcode UNIQUE -> UNIQUE(tenant_id, barcode)
+      db.exec(`
+        CREATE TABLE products_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          barcode TEXT,
+          name TEXT NOT NULL,
+          item_type TEXT NOT NULL,
+          category TEXT DEFAULT 'General',
+          category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE SET NULL,
+          description TEXT,
+          supplier TEXT DEFAULT NULL,
+          supplier_id INTEGER DEFAULT NULL,
+          unit TEXT DEFAULT NULL,
+          cost_price_usd DECIMAL(10, 2) DEFAULT 0,
+          selling_price_usd DECIMAL(10, 2) DEFAULT 0,
+          min_stock_level INTEGER DEFAULT 5,
+          stock_quantity INTEGER DEFAULT 0,
+          imei TEXT,
+          color TEXT,
+          image_url TEXT,
+          warranty_expiry DATE,
+          status TEXT DEFAULT 'Active',
+          is_active BOOLEAN DEFAULT 1,
+          is_deleted BOOLEAN DEFAULT 0,
+          updated_at DATETIME DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, barcode)
+        )
+      `);
+      db.exec(`
+        INSERT INTO products_new (id, tenant_id, barcode, name, item_type, category, category_id, description, supplier, supplier_id, unit, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, is_deleted, updated_at, created_at)
+        SELECT id, 1, barcode, name, item_type, category, category_id, description, supplier, supplier_id, unit, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, is_deleted, updated_at, created_at FROM products
+      `);
+      db.exec(`DROP TABLE products`);
+      db.exec(`ALTER TABLE products_new RENAME TO products`);
+      db.exec(`CREATE INDEX idx_products_barcode ON products(barcode)`);
+      db.exec(`CREATE INDEX idx_products_is_active ON products(is_active)`);
+      db.exec(`CREATE INDEX idx_products_category ON products(category)`);
+      db.exec(`CREATE INDEX idx_products_status ON products(status)`);
+      db.exec(
+        `CREATE INDEX idx_products_active_category ON products(is_active, category)`,
+      );
+      db.exec(
+        `CREATE INDEX idx_products_active_status ON products(is_active, status)`,
+      );
+
+      // product_categories: name UNIQUE COLLATE NOCASE -> UNIQUE(tenant_id, name)
+      db.exec(`
+        CREATE TABLE product_categories_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          name TEXT NOT NULL COLLATE NOCASE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, name)
+        )
+      `);
+      db.exec(`
+        INSERT INTO product_categories_new (id, tenant_id, name, sort_order, is_active, created_at)
+        SELECT id, 1, name, sort_order, is_active, created_at FROM product_categories
+      `);
+      db.exec(`DROP TABLE product_categories`);
+      db.exec(`ALTER TABLE product_categories_new RENAME TO product_categories`);
+
+      // product_suppliers: name UNIQUE COLLATE NOCASE -> UNIQUE(tenant_id, name)
+      db.exec(`
+        CREATE TABLE product_suppliers_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          name TEXT NOT NULL COLLATE NOCASE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          supplier_id INTEGER REFERENCES suppliers(id),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, name)
+        )
+      `);
+      db.exec(`
+        INSERT INTO product_suppliers_new (id, tenant_id, name, sort_order, is_active, supplier_id, created_at)
+        SELECT id, 1, name, sort_order, is_active, supplier_id, created_at FROM product_suppliers
+      `);
+      db.exec(`DROP TABLE product_suppliers`);
+      db.exec(`ALTER TABLE product_suppliers_new RENAME TO product_suppliers`);
+
+      // partners: name UNIQUE -> UNIQUE(tenant_id, name)
+      db.exec(`
+        CREATE TABLE partners_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          name TEXT NOT NULL,
+          phone TEXT,
+          notes TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          system_association TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, name)
+        )
+      `);
+      db.exec(`
+        INSERT INTO partners_new (id, tenant_id, name, phone, notes, is_active, system_association, created_at, updated_at)
+        SELECT id, 1, name, phone, notes, is_active, system_association, created_at, updated_at FROM partners
+      `);
+      db.exec(`DROP TABLE partners`);
+      db.exec(`ALTER TABLE partners_new RENAME TO partners`);
+
+      // payment_methods: code UNIQUE -> UNIQUE(tenant_id, code)
+      db.exec(`
+        CREATE TABLE payment_methods_new (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id      INTEGER REFERENCES tenants(id),
+          code           TEXT NOT NULL,
+          label          TEXT NOT NULL,
+          drawer_name    TEXT NOT NULL,
+          affects_drawer INTEGER NOT NULL DEFAULT 1,
+          sort_order     INTEGER NOT NULL DEFAULT 0,
+          is_active      INTEGER NOT NULL DEFAULT 1,
+          is_system      INTEGER NOT NULL DEFAULT 0,
+          created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, code)
+        )
+      `);
+      db.exec(`
+        INSERT INTO payment_methods_new (id, tenant_id, code, label, drawer_name, affects_drawer, sort_order, is_active, is_system, created_at)
+        SELECT id, 1, code, label, drawer_name, affects_drawer, sort_order, is_active, is_system, created_at FROM payment_methods
+      `);
+      db.exec(`DROP TABLE payment_methods`);
+      db.exec(`ALTER TABLE payment_methods_new RENAME TO payment_methods`);
+
+      // vouchers: code UNIQUE -> UNIQUE(tenant_id, code)
+      db.exec(`
+        CREATE TABLE vouchers_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          code TEXT NOT NULL,
+          client_id INTEGER NOT NULL,
+          client_name TEXT NOT NULL,
+          client_phone TEXT,
+          amount DECIMAL(10, 2) NOT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          expiry_date TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'redeemed', 'expired', 'cancelled')),
+          redeemed_at TEXT,
+          redeemed_by INTEGER,
+          redeemed_in_transaction TEXT,
+          redeemed_transaction_id INTEGER,
+          cancelled_at TEXT,
+          cancelled_by INTEGER,
+          note TEXT,
+          created_by INTEGER NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
+          FOREIGN KEY (redeemed_by) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+          UNIQUE (tenant_id, code)
+        )
+      `);
+      db.exec(`
+        INSERT INTO vouchers_new (id, tenant_id, code, client_id, client_name, client_phone, amount, currency_code, expiry_date, status, redeemed_at, redeemed_by, redeemed_in_transaction, redeemed_transaction_id, cancelled_at, cancelled_by, note, created_by, created_at, updated_at)
+        SELECT id, 1, code, client_id, client_name, client_phone, amount, currency_code, expiry_date, status, redeemed_at, redeemed_by, redeemed_in_transaction, redeemed_transaction_id, cancelled_at, cancelled_by, note, created_by, created_at, updated_at FROM vouchers
+      `);
+      db.exec(`DROP TABLE vouchers`);
+      db.exec(`ALTER TABLE vouchers_new RENAME TO vouchers`);
+      db.exec(`CREATE INDEX idx_vouchers_code ON vouchers(code)`);
+      db.exec(`CREATE INDEX idx_vouchers_client_id ON vouchers(client_id)`);
+      db.exec(`CREATE INDEX idx_vouchers_status ON vouchers(status)`);
+      db.exec(`CREATE INDEX idx_vouchers_created_at ON vouchers(created_at)`);
+
+      // system_settings: key_name UNIQUE -> UNIQUE(tenant_id, key_name)
+      db.exec(`
+        CREATE TABLE system_settings_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          key_name TEXT NOT NULL,
+          value TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, key_name)
+        )
+      `);
+      db.exec(`
+        INSERT INTO system_settings_new (id, tenant_id, key_name, value, created_at, updated_at)
+        SELECT id, 1, key_name, value, created_at, updated_at FROM system_settings
+      `);
+      db.exec(`DROP TABLE system_settings`);
+      db.exec(`ALTER TABLE system_settings_new RENAME TO system_settings`);
+
+      // exchange_rates: to_code UNIQUE -> UNIQUE(tenant_id, to_code)
+      db.exec(`
+        CREATE TABLE exchange_rates_new (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id   INTEGER REFERENCES tenants(id),
+          to_code     TEXT    NOT NULL,
+          market_rate REAL    NOT NULL,
+          buy_rate    REAL    NOT NULL,
+          sell_rate   REAL    NOT NULL,
+          is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
+          updated_at  TEXT    DEFAULT (datetime('now')),
+          UNIQUE (tenant_id, to_code)
+        )
+      `);
+      db.exec(`
+        INSERT INTO exchange_rates_new (id, tenant_id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at)
+        SELECT id, 1, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at FROM exchange_rates
+      `);
+      db.exec(`DROP TABLE exchange_rates`);
+      db.exec(`ALTER TABLE exchange_rates_new RENAME TO exchange_rates`);
+
+      // item_costs: UNIQUE(provider, category, item_key, currency) -> + tenant_id
+      db.exec(`
+        CREATE TABLE item_costs_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          provider TEXT NOT NULL,
+          category TEXT NOT NULL,
+          item_key TEXT NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL,
+          currency TEXT DEFAULT 'USD' NOT NULL,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(tenant_id, provider, category, item_key, currency)
+        )
+      `);
+      db.exec(`
+        INSERT INTO item_costs_new (id, tenant_id, provider, category, item_key, cost, currency, updated_at)
+        SELECT id, 1, provider, category, item_key, cost, currency, updated_at FROM item_costs
+      `);
+      db.exec(`DROP TABLE item_costs`);
+      db.exec(`ALTER TABLE item_costs_new RENAME TO item_costs`);
+
+      // voucher_images: UNIQUE(provider, category, item_key) -> + tenant_id
+      // (each tenant maintains its own image catalog)
+      db.exec(`
+        CREATE TABLE voucher_images_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          provider TEXT NOT NULL,
+          category TEXT NOT NULL,
+          item_key TEXT NOT NULL,
+          image_path TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(tenant_id, provider, category, item_key)
+        )
+      `);
+      db.exec(`
+        INSERT INTO voucher_images_new (id, tenant_id, provider, category, item_key, image_path, created_at)
+        SELECT id, 1, provider, category, item_key, image_path, created_at FROM voucher_images
+      `);
+      db.exec(`DROP TABLE voucher_images`);
+      db.exec(`ALTER TABLE voucher_images_new RENAME TO voucher_images`);
+
+      // mobile_service_items: UNIQUE(provider, category, subcategory, label) -> + tenant_id
+      // (each tenant maintains its own catalog)
+      db.exec(`
+        CREATE TABLE mobile_service_items_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          provider TEXT NOT NULL,
+          category TEXT NOT NULL,
+          subcategory TEXT NOT NULL,
+          label TEXT NOT NULL,
+          cost_lbp REAL NOT NULL DEFAULT 0,
+          sell_lbp REAL NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(tenant_id, provider, category, subcategory, label)
+        )
+      `);
+      db.exec(`
+        INSERT INTO mobile_service_items_new (id, tenant_id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, created_at, updated_at)
+        SELECT id, 1, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, created_at, updated_at FROM mobile_service_items
+      `);
+      db.exec(`DROP TABLE mobile_service_items`);
+      db.exec(
+        `ALTER TABLE mobile_service_items_new RENAME TO mobile_service_items`,
+      );
+      db.exec(
+        `CREATE INDEX idx_msi_provider ON mobile_service_items(provider)`,
+      );
+      db.exec(
+        `CREATE INDEX idx_msi_provider_category ON mobile_service_items(provider, category)`,
+      );
+      db.exec(
+        `CREATE INDEX idx_msi_active ON mobile_service_items(is_active)`,
+      );
+
+      // loto_settings: key_name TEXT PRIMARY KEY -> PRIMARY KEY (tenant_id, key_name)
+      db.exec(`
+        CREATE TABLE loto_settings_new (
+          tenant_id INTEGER REFERENCES tenants(id),
+          key_name TEXT NOT NULL,
+          value TEXT NOT NULL,
+          description TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (tenant_id, key_name)
+        )
+      `);
+      db.exec(`
+        INSERT INTO loto_settings_new (tenant_id, key_name, value, description, updated_at)
+        SELECT 1, key_name, value, description, updated_at FROM loto_settings
+      `);
+      db.exec(`DROP TABLE loto_settings`);
+      db.exec(`ALTER TABLE loto_settings_new RENAME TO loto_settings`);
+
+      // drawer_balances: PRIMARY KEY (drawer_name, currency_code) -> + tenant_id
+      db.exec(`
+        CREATE TABLE drawer_balances_new (
+          tenant_id INTEGER REFERENCES tenants(id),
+          drawer_name TEXT NOT NULL,
+          currency_code TEXT NOT NULL,
+          balance REAL NOT NULL DEFAULT 0,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (tenant_id, drawer_name, currency_code)
+        )
+      `);
+      db.exec(`
+        INSERT INTO drawer_balances_new (tenant_id, drawer_name, currency_code, balance, updated_at)
+        SELECT 1, drawer_name, currency_code, balance, updated_at FROM drawer_balances
+      `);
+      db.exec(`DROP TABLE drawer_balances`);
+      db.exec(`ALTER TABLE drawer_balances_new RENAME TO drawer_balances`);
+      db.exec(
+        `CREATE INDEX idx_drawer_balances_drawer ON drawer_balances(drawer_name)`,
+      );
+
+      // -----------------------------------------------------------------
+      // 4. Self-guard: fail loudly if the rebuild left any FK dangling.
+      //    (foreign_keys enforcement is OFF during the migration batch, so
+      //    this is the only thing that would catch a broken composite FK.)
+      // -----------------------------------------------------------------
+      const fkViolations = db.pragma("foreign_key_check") as unknown[];
+      if (fkViolations.length > 0) {
+        throw new Error(
+          `Migration v123: foreign_key_check found ${fkViolations.length} violation(s) after rebuild: ${JSON.stringify(fkViolations)}`,
+        );
+      }
+
+      console.log(
+        "Migration v123: multi-tenancy foundation added (tenants table; tenant_id backfilled to 1 on 49 tables; 19 tables rebuilt with tenant-scoped constraints)",
+      );
+    },
+    down(db: Database.Database) {
+      // -----------------------------------------------------------------
+      // 1. Revert rebuilt tables — children referencing modules/currencies
+      //    first, then modules/currencies themselves, then the rest.
+      // -----------------------------------------------------------------
+
+      // suppliers -> drop tenant_id, restore name UNIQUE + simple FK
+      db.exec(`
+        CREATE TABLE suppliers_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          contact_name TEXT,
+          phone TEXT,
+          note TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          module_key TEXT DEFAULT NULL REFERENCES modules(key) ON DELETE SET NULL,
+          provider TEXT DEFAULT NULL,
+          is_system INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO suppliers_old (id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at)
+        SELECT id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at FROM suppliers
+      `);
+      db.exec(`DROP TABLE suppliers`);
+      db.exec(`ALTER TABLE suppliers_old RENAME TO suppliers`);
+
+      // currency_drawers -> restore simple composite PK + FK
+      db.exec(`
+        CREATE TABLE currency_drawers_old (
+          currency_code TEXT NOT NULL,
+          drawer_name   TEXT NOT NULL,
+          PRIMARY KEY (currency_code, drawer_name),
+          FOREIGN KEY (currency_code) REFERENCES currencies(code) ON DELETE CASCADE
+        )
+      `);
+      db.exec(`
+        INSERT INTO currency_drawers_old (currency_code, drawer_name)
+        SELECT currency_code, drawer_name FROM currency_drawers
+      `);
+      db.exec(`DROP TABLE currency_drawers`);
+      db.exec(`ALTER TABLE currency_drawers_old RENAME TO currency_drawers`);
+
+      // currency_modules -> restore simple composite PK + FKs
+      db.exec(`
+        CREATE TABLE currency_modules_old (
+          currency_code TEXT NOT NULL,
+          module_key    TEXT NOT NULL,
+          PRIMARY KEY (currency_code, module_key),
+          FOREIGN KEY (currency_code) REFERENCES currencies(code) ON DELETE CASCADE,
+          FOREIGN KEY (module_key)    REFERENCES modules(key)     ON DELETE CASCADE
+        )
+      `);
+      db.exec(`
+        INSERT INTO currency_modules_old (currency_code, module_key)
+        SELECT currency_code, module_key FROM currency_modules
+      `);
+      db.exec(`DROP TABLE currency_modules`);
+      db.exec(`ALTER TABLE currency_modules_old RENAME TO currency_modules`);
+
+      // modules -> restore key TEXT PRIMARY KEY
+      db.exec(`
+        CREATE TABLE modules_old (
+          key         TEXT PRIMARY KEY,
+          label       TEXT NOT NULL,
+          icon        TEXT NOT NULL DEFAULT '',
+          route       TEXT NOT NULL,
+          sort_order  INTEGER NOT NULL DEFAULT 0,
+          is_enabled  INTEGER NOT NULL DEFAULT 1,
+          admin_only  INTEGER NOT NULL DEFAULT 0,
+          is_system   INTEGER NOT NULL DEFAULT 0
+        )
+      `);
+      db.exec(`
+        INSERT INTO modules_old (key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+        SELECT key, label, icon, route, sort_order, is_enabled, admin_only, is_system FROM modules
+      `);
+      db.exec(`DROP TABLE modules`);
+      db.exec(`ALTER TABLE modules_old RENAME TO modules`);
+
+      // currencies -> restore code UNIQUE
+      db.exec(`
+        CREATE TABLE currencies_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          code TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          symbol TEXT NOT NULL DEFAULT '',
+          decimal_places INTEGER NOT NULL DEFAULT 2,
+          is_active BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO currencies_old (id, code, name, symbol, decimal_places, is_active, created_at)
+        SELECT id, code, name, symbol, decimal_places, is_active, created_at FROM currencies
+      `);
+      db.exec(`DROP TABLE currencies`);
+      db.exec(`ALTER TABLE currencies_old RENAME TO currencies`);
+
+      // clients -> restore phone_number UNIQUE
+      db.exec(`
+        CREATE TABLE clients_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          full_name TEXT NOT NULL,
+          phone_number TEXT UNIQUE,
+          notes TEXT,
+          whatsapp_opt_in BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO clients_old (id, full_name, phone_number, notes, whatsapp_opt_in, created_at)
+        SELECT id, full_name, phone_number, notes, whatsapp_opt_in, created_at FROM clients
+      `);
+      db.exec(`DROP TABLE clients`);
+      db.exec(`ALTER TABLE clients_old RENAME TO clients`);
+      db.exec(
+        `CREATE INDEX idx_clients_full_name ON clients(full_name COLLATE NOCASE)`,
+      );
+
+      // products -> restore barcode UNIQUE
+      db.exec(`
+        CREATE TABLE products_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          barcode TEXT UNIQUE,
+          name TEXT NOT NULL,
+          item_type TEXT NOT NULL,
+          category TEXT DEFAULT 'General',
+          category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE SET NULL,
+          description TEXT,
+          supplier TEXT DEFAULT NULL,
+          supplier_id INTEGER DEFAULT NULL,
+          unit TEXT DEFAULT NULL,
+          cost_price_usd DECIMAL(10, 2) DEFAULT 0,
+          selling_price_usd DECIMAL(10, 2) DEFAULT 0,
+          min_stock_level INTEGER DEFAULT 5,
+          stock_quantity INTEGER DEFAULT 0,
+          imei TEXT,
+          color TEXT,
+          image_url TEXT,
+          warranty_expiry DATE,
+          status TEXT DEFAULT 'Active',
+          is_active BOOLEAN DEFAULT 1,
+          is_deleted BOOLEAN DEFAULT 0,
+          updated_at DATETIME DEFAULT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO products_old (id, barcode, name, item_type, category, category_id, description, supplier, supplier_id, unit, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, is_deleted, updated_at, created_at)
+        SELECT id, barcode, name, item_type, category, category_id, description, supplier, supplier_id, unit, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, is_deleted, updated_at, created_at FROM products
+      `);
+      db.exec(`DROP TABLE products`);
+      db.exec(`ALTER TABLE products_old RENAME TO products`);
+      db.exec(`CREATE INDEX idx_products_barcode ON products(barcode)`);
+      db.exec(`CREATE INDEX idx_products_is_active ON products(is_active)`);
+      db.exec(`CREATE INDEX idx_products_category ON products(category)`);
+      db.exec(`CREATE INDEX idx_products_status ON products(status)`);
+      db.exec(
+        `CREATE INDEX idx_products_active_category ON products(is_active, category)`,
+      );
+      db.exec(
+        `CREATE INDEX idx_products_active_status ON products(is_active, status)`,
+      );
+
+      // product_categories -> restore name UNIQUE COLLATE NOCASE
+      db.exec(`
+        CREATE TABLE product_categories_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO product_categories_old (id, name, sort_order, is_active, created_at)
+        SELECT id, name, sort_order, is_active, created_at FROM product_categories
+      `);
+      db.exec(`DROP TABLE product_categories`);
+      db.exec(`ALTER TABLE product_categories_old RENAME TO product_categories`);
+
+      // product_suppliers -> restore name UNIQUE COLLATE NOCASE
+      db.exec(`
+        CREATE TABLE product_suppliers_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          supplier_id INTEGER REFERENCES suppliers(id),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO product_suppliers_old (id, name, sort_order, is_active, supplier_id, created_at)
+        SELECT id, name, sort_order, is_active, supplier_id, created_at FROM product_suppliers
+      `);
+      db.exec(`DROP TABLE product_suppliers`);
+      db.exec(`ALTER TABLE product_suppliers_old RENAME TO product_suppliers`);
+
+      // partners -> restore name UNIQUE
+      db.exec(`
+        CREATE TABLE partners_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          phone TEXT,
+          notes TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          system_association TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO partners_old (id, name, phone, notes, is_active, system_association, created_at, updated_at)
+        SELECT id, name, phone, notes, is_active, system_association, created_at, updated_at FROM partners
+      `);
+      db.exec(`DROP TABLE partners`);
+      db.exec(`ALTER TABLE partners_old RENAME TO partners`);
+
+      // payment_methods -> restore code UNIQUE
+      db.exec(`
+        CREATE TABLE payment_methods_old (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          code           TEXT NOT NULL UNIQUE,
+          label          TEXT NOT NULL,
+          drawer_name    TEXT NOT NULL,
+          affects_drawer INTEGER NOT NULL DEFAULT 1,
+          sort_order     INTEGER NOT NULL DEFAULT 0,
+          is_active      INTEGER NOT NULL DEFAULT 1,
+          is_system      INTEGER NOT NULL DEFAULT 0,
+          created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO payment_methods_old (id, code, label, drawer_name, affects_drawer, sort_order, is_active, is_system, created_at)
+        SELECT id, code, label, drawer_name, affects_drawer, sort_order, is_active, is_system, created_at FROM payment_methods
+      `);
+      db.exec(`DROP TABLE payment_methods`);
+      db.exec(`ALTER TABLE payment_methods_old RENAME TO payment_methods`);
+
+      // vouchers -> restore code UNIQUE
+      db.exec(`
+        CREATE TABLE vouchers_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          code TEXT NOT NULL UNIQUE,
+          client_id INTEGER NOT NULL,
+          client_name TEXT NOT NULL,
+          client_phone TEXT,
+          amount DECIMAL(10, 2) NOT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          expiry_date TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'redeemed', 'expired', 'cancelled')),
+          redeemed_at TEXT,
+          redeemed_by INTEGER,
+          redeemed_in_transaction TEXT,
+          redeemed_transaction_id INTEGER,
+          cancelled_at TEXT,
+          cancelled_by INTEGER,
+          note TEXT,
+          created_by INTEGER NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
+          FOREIGN KEY (redeemed_by) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+      `);
+      db.exec(`
+        INSERT INTO vouchers_old (id, code, client_id, client_name, client_phone, amount, currency_code, expiry_date, status, redeemed_at, redeemed_by, redeemed_in_transaction, redeemed_transaction_id, cancelled_at, cancelled_by, note, created_by, created_at, updated_at)
+        SELECT id, code, client_id, client_name, client_phone, amount, currency_code, expiry_date, status, redeemed_at, redeemed_by, redeemed_in_transaction, redeemed_transaction_id, cancelled_at, cancelled_by, note, created_by, created_at, updated_at FROM vouchers
+      `);
+      db.exec(`DROP TABLE vouchers`);
+      db.exec(`ALTER TABLE vouchers_old RENAME TO vouchers`);
+      db.exec(`CREATE INDEX idx_vouchers_code ON vouchers(code)`);
+      db.exec(`CREATE INDEX idx_vouchers_client_id ON vouchers(client_id)`);
+      db.exec(`CREATE INDEX idx_vouchers_status ON vouchers(status)`);
+      db.exec(`CREATE INDEX idx_vouchers_created_at ON vouchers(created_at)`);
+
+      // system_settings -> restore key_name UNIQUE
+      db.exec(`
+        CREATE TABLE system_settings_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key_name TEXT UNIQUE NOT NULL,
+          value TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO system_settings_old (id, key_name, value, created_at, updated_at)
+        SELECT id, key_name, value, created_at, updated_at FROM system_settings
+      `);
+      db.exec(`DROP TABLE system_settings`);
+      db.exec(`ALTER TABLE system_settings_old RENAME TO system_settings`);
+
+      // exchange_rates -> restore to_code UNIQUE
+      db.exec(`
+        CREATE TABLE exchange_rates_old (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          to_code     TEXT    NOT NULL UNIQUE,
+          market_rate REAL    NOT NULL,
+          buy_rate    REAL    NOT NULL,
+          sell_rate   REAL    NOT NULL,
+          is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
+          updated_at  TEXT    DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`
+        INSERT INTO exchange_rates_old (id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at)
+        SELECT id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at FROM exchange_rates
+      `);
+      db.exec(`DROP TABLE exchange_rates`);
+      db.exec(`ALTER TABLE exchange_rates_old RENAME TO exchange_rates`);
+
+      // item_costs -> restore original UNIQUE (no tenant_id)
+      db.exec(`
+        CREATE TABLE item_costs_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT NOT NULL,
+          category TEXT NOT NULL,
+          item_key TEXT NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL,
+          currency TEXT DEFAULT 'USD' NOT NULL,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(provider, category, item_key, currency)
+        )
+      `);
+      db.exec(`
+        INSERT INTO item_costs_old (id, provider, category, item_key, cost, currency, updated_at)
+        SELECT id, provider, category, item_key, cost, currency, updated_at FROM item_costs
+      `);
+      db.exec(`DROP TABLE item_costs`);
+      db.exec(`ALTER TABLE item_costs_old RENAME TO item_costs`);
+
+      // voucher_images -> restore original UNIQUE (no tenant_id)
+      db.exec(`
+        CREATE TABLE voucher_images_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT NOT NULL,
+          category TEXT NOT NULL,
+          item_key TEXT NOT NULL,
+          image_path TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(provider, category, item_key)
+        )
+      `);
+      db.exec(`
+        INSERT INTO voucher_images_old (id, provider, category, item_key, image_path, created_at)
+        SELECT id, provider, category, item_key, image_path, created_at FROM voucher_images
+      `);
+      db.exec(`DROP TABLE voucher_images`);
+      db.exec(`ALTER TABLE voucher_images_old RENAME TO voucher_images`);
+
+      // mobile_service_items -> restore original UNIQUE (no tenant_id)
+      db.exec(`
+        CREATE TABLE mobile_service_items_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT NOT NULL,
+          category TEXT NOT NULL,
+          subcategory TEXT NOT NULL,
+          label TEXT NOT NULL,
+          cost_lbp REAL NOT NULL DEFAULT 0,
+          sell_lbp REAL NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(provider, category, subcategory, label)
+        )
+      `);
+      db.exec(`
+        INSERT INTO mobile_service_items_old (id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, created_at, updated_at)
+        SELECT id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, created_at, updated_at FROM mobile_service_items
+      `);
+      db.exec(`DROP TABLE mobile_service_items`);
+      db.exec(
+        `ALTER TABLE mobile_service_items_old RENAME TO mobile_service_items`,
+      );
+      db.exec(
+        `CREATE INDEX idx_msi_provider ON mobile_service_items(provider)`,
+      );
+      db.exec(
+        `CREATE INDEX idx_msi_provider_category ON mobile_service_items(provider, category)`,
+      );
+      db.exec(
+        `CREATE INDEX idx_msi_active ON mobile_service_items(is_active)`,
+      );
+
+      // loto_settings -> restore key_name TEXT PRIMARY KEY
+      db.exec(`
+        CREATE TABLE loto_settings_old (
+          key_name TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          description TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`
+        INSERT INTO loto_settings_old (key_name, value, description, updated_at)
+        SELECT key_name, value, description, updated_at FROM loto_settings
+      `);
+      db.exec(`DROP TABLE loto_settings`);
+      db.exec(`ALTER TABLE loto_settings_old RENAME TO loto_settings`);
+
+      // drawer_balances -> restore PRIMARY KEY (drawer_name, currency_code)
+      db.exec(`
+        CREATE TABLE drawer_balances_old (
+          drawer_name TEXT NOT NULL,
+          currency_code TEXT NOT NULL,
+          balance REAL NOT NULL DEFAULT 0,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (drawer_name, currency_code)
+        )
+      `);
+      db.exec(`
+        INSERT INTO drawer_balances_old (drawer_name, currency_code, balance, updated_at)
+        SELECT drawer_name, currency_code, balance, updated_at FROM drawer_balances
+      `);
+      db.exec(`DROP TABLE drawer_balances`);
+      db.exec(`ALTER TABLE drawer_balances_old RENAME TO drawer_balances`);
+      db.exec(
+        `CREATE INDEX idx_drawer_balances_drawer ON drawer_balances(drawer_name)`,
+      );
+
+      // -----------------------------------------------------------------
+      // 2. Drop tenant_id indexes, then tenant_id columns, on the
+      //    ALTER-only tables (SQLite refuses to drop an indexed column).
+      // -----------------------------------------------------------------
+      const alterOnlyIndexedTables = [
+        "transactions",
+        "sales",
+        "sale_items",
+        "payments",
+        "debt_ledger",
+        "financial_services",
+        "recharges",
+        "exchange_transactions",
+        "expenses",
+        "audit_log",
+        "loto_tickets",
+        "customer_sessions",
+        "custom_services",
+        "maintenance",
+      ];
+      for (const table of alterOnlyIndexedTables) {
+        db.exec(`DROP INDEX idx_${table}_tenant_id`);
+      }
+
+      // audit_log also loses impersonator_id
+      db.exec(`ALTER TABLE audit_log DROP COLUMN impersonator_id`);
+
+      const alterOnlyTables = [
+        "transactions",
+        "sales",
+        "sale_items",
+        "debt_ledger",
+        "customer_sessions",
+        "customer_session_transactions",
+        "session_cart_items",
+        "supplier_ledger",
+        "supplier_purchases",
+        "maintenance",
+        "expenses",
+        "recharges",
+        "exchange_transactions",
+        "financial_services",
+        "partner_ledger",
+        "custom_services",
+        "payments",
+        "drawer_topups",
+        "daily_closings",
+        "daily_closing_amounts",
+        "loto_tickets",
+        "loto_monthly_fees",
+        "loto_checkpoints",
+        "loto_cash_prizes",
+        "loto_settlements",
+        "hold_money",
+        "audit_log",
+        "users",
+        "sessions",
+        "service_presets",
+      ];
+      for (const table of alterOnlyTables) {
+        db.exec(`ALTER TABLE ${table} DROP COLUMN tenant_id`);
+      }
+
+      // -----------------------------------------------------------------
+      // 3. Drop the tenants table itself.
+      // -----------------------------------------------------------------
+      db.exec(`DROP TABLE IF EXISTS tenants`);
+
+      console.log(
+        "Migration v123 rolled back: multi-tenancy foundation removed (tenants table dropped, tenant_id removed from all 49 tables, rebuilt tables restored to their original constraints)",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

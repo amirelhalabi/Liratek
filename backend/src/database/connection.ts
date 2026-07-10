@@ -6,6 +6,7 @@ import {
   resolveDatabaseKey,
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
+  runMigrations,
 } from "@liratek/core";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
@@ -63,6 +64,19 @@ export function getDatabase(): Database.Database {
 
     // Initialize the @liratek/core database singleton
     initCoreDatabase(dbInstance);
+
+    // Run pending migrations (idempotent — skips already-applied versions).
+    // The Electron main process has always done this (main.ts); the backend
+    // previously only ever bootstrapped from create_db.sql on first run and
+    // then never migrated again, silently missing every later migration on
+    // an existing DB. This closes that gap.
+    try {
+      runMigrations(dbInstance);
+      dbLogger.info("Database migrations applied");
+    } catch (error) {
+      dbLogger.error({ error }, "Database migrations failed");
+      throw error;
+    }
 
     dbLogger.info(
       { path: DB_PATH, source: resolved.source },

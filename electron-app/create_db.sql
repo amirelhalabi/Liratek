@@ -2,27 +2,54 @@
 -- Includes Baseline, Recharges, Multi-Drawer, Suppliers, and Performance Indexes
 
 -- =============================================================================
+-- 0. Tenants (multi-tenancy foundation)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS tenants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'archived')),
+    contact_name TEXT,
+    contact_phone TEXT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed the Default tenant. Desktop (Electron) is single-tenant and always
+-- runs as tenant 1. Web tenants are provisioned explicitly later (id >= 2)
+-- via TenantProvisioningService — this seed only exists for the desktop
+-- fresh-install path.
+INSERT OR IGNORE INTO tenants (id, name, slug, status) VALUES (1, 'Default', 'default', 'active');
+
+-- =============================================================================
 -- 1. Core System Tables
 -- =============================================================================
 
 -- System Settings
 CREATE TABLE IF NOT EXISTS system_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key_name TEXT UNIQUE NOT NULL,
+    tenant_id INTEGER REFERENCES tenants(id),
+    key_name TEXT NOT NULL,
     value TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, key_name)
 );
 
 -- Seed default settings
-INSERT OR IGNORE INTO system_settings (key_name, value) VALUES
-  ('shop_name', 'Corner Tech'),
-  ('default_debt_term_days', '30'),
-  ('shop_base_system', 'OMT');
+INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
+  (1, 'shop_name', 'Corner Tech'),
+  (1, 'default_debt_term_days', '30'),
+  (1, 'shop_base_system', 'OMT');
 
 -- Users
+-- NOTE: username stays GLOBALLY unique (committed decision — login has no
+-- tenant hint yet). tenant_id is NULL for the platform/super_admin realm.
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     username TEXT UNIQUE,
     password_hash TEXT,
     role TEXT DEFAULT 'staff',
@@ -30,11 +57,14 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Seed admin user if not exists
-INSERT OR IGNORE INTO users (id, username, password_hash, role, is_active) VALUES (1, 'admin', '', 'admin', 1);
+INSERT OR IGNORE INTO users (id, tenant_id, username, password_hash, role, is_active) VALUES (1, 1, 'admin', '', 'admin', 1);
 
 -- Sessions (for unified session management across Electron and Web)
+-- NOTE: token is random-unique already; tenant_id is just added (denormalized
+-- from user) — not part of any constraint.
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     user_id INTEGER NOT NULL,
     token TEXT UNIQUE NOT NULL,
     device_type TEXT DEFAULT 'unknown',
@@ -55,6 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_
 -- Unified Transaction Table (accounting journal)
 CREATE TABLE IF NOT EXISTS transactions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id       INTEGER REFERENCES tenants(id),
     type            TEXT NOT NULL,
     status          TEXT NOT NULL DEFAULT 'ACTIVE',
     source_table    TEXT NOT NULL,
@@ -90,22 +121,26 @@ CREATE INDEX IF NOT EXISTS idx_transactions_source
   ON transactions(source_table, source_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_reverses
   ON transactions(reverses_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_tenant_id
+  ON transactions(tenant_id);
 
 -- Currencies
 CREATE TABLE IF NOT EXISTS currencies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT UNIQUE NOT NULL, -- e.g., USD, LBP, EUR
+    tenant_id INTEGER REFERENCES tenants(id),
+    code TEXT NOT NULL, -- e.g., USD, LBP, EUR
     name TEXT NOT NULL,
     symbol TEXT NOT NULL DEFAULT '',        -- e.g., $, €, LBP
     decimal_places INTEGER NOT NULL DEFAULT 2,  -- 2 for USD/EUR, 0 for LBP
     is_active BOOLEAN DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, code)
 );
 
-INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('USD', 'US Dollar', '$', 2, 1);
-INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('LBP', 'Lebanese Pound', 'LBP', 0, 1);
-INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('EUR', 'Euro', '€', 2, 1);
-INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('USDT', 'Tether USD', 'USDT', 2, 1);
+INSERT OR IGNORE INTO currencies (tenant_id, code, name, symbol, decimal_places, is_active) VALUES (1, 'USD', 'US Dollar', '$', 2, 1);
+INSERT OR IGNORE INTO currencies (tenant_id, code, name, symbol, decimal_places, is_active) VALUES (1, 'LBP', 'Lebanese Pound', 'LBP', 0, 1);
+INSERT OR IGNORE INTO currencies (tenant_id, code, name, symbol, decimal_places, is_active) VALUES (1, 'EUR', 'Euro', '€', 2, 1);
+INSERT OR IGNORE INTO currencies (tenant_id, code, name, symbol, decimal_places, is_active) VALUES (1, 'USDT', 'Tether USD', 'USDT', 2, 1);
 
 -- Exchange Rates (v30 schema: one row per non-USD currency)
 -- Universal formula: rate = market_rate + is_stronger × (action × delta)
@@ -116,22 +151,24 @@ INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active)
 -- is_stronger = -1: currency is stronger (rate = USD per 1 unit, e.g. EUR)
 CREATE TABLE IF NOT EXISTS exchange_rates (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    to_code     TEXT    NOT NULL UNIQUE,
+    tenant_id   INTEGER REFERENCES tenants(id),
+    to_code     TEXT    NOT NULL,
     market_rate REAL    NOT NULL,
     buy_rate    REAL    NOT NULL,
     sell_rate   REAL    NOT NULL,
     is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
-    updated_at  TEXT    DEFAULT (datetime('now'))
+    updated_at  TEXT    DEFAULT (datetime('now')),
+    UNIQUE (tenant_id, to_code)
 );
 
 -- Seed default exchange rates
 -- LBP: 1 USD = 89,500 LBP market, buy 89,000, sell 90,000
-INSERT OR IGNORE INTO exchange_rates (to_code, market_rate, buy_rate, sell_rate, is_stronger)
-VALUES ('LBP', 89500, 89000, 90000, 1);
+INSERT OR IGNORE INTO exchange_rates (tenant_id, to_code, market_rate, buy_rate, sell_rate, is_stronger)
+VALUES (1, 'LBP', 89500, 89000, 90000, 1);
 
 -- EUR: 1 EUR = 1.18 USD market, buy 1.16, sell 1.20
-INSERT OR IGNORE INTO exchange_rates (to_code, market_rate, buy_rate, sell_rate, is_stronger)
-VALUES ('EUR', 1.18, 1.16, 1.20, -1);
+INSERT OR IGNORE INTO exchange_rates (tenant_id, to_code, market_rate, buy_rate, sell_rate, is_stronger)
+VALUES (1, 'EUR', 1.18, 1.16, 1.20, -1);
 
 -- =============================================================================
 -- 2. Business Entity Tables
@@ -140,31 +177,42 @@ VALUES ('EUR', 1.18, 1.16, 1.20, -1);
 -- Clients
 CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     full_name TEXT NOT NULL,
-    phone_number TEXT UNIQUE,
+    phone_number TEXT,
     notes TEXT,
     whatsapp_opt_in BOOLEAN DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, phone_number)
 );
 
+CREATE INDEX IF NOT EXISTS idx_clients_tenant_id ON clients(tenant_id);
+
 -- Suppliers
+-- NOTE: module_key's FK is composite (tenant_id, module_key) because
+-- modules' primary key became (tenant_id, key) — a plain module_key
+-- reference would no longer resolve to a unique parent key.
 CREATE TABLE IF NOT EXISTS suppliers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
+  tenant_id INTEGER REFERENCES tenants(id),
+  name TEXT NOT NULL,
   contact_name TEXT,
   phone TEXT,
   note TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
-  module_key TEXT DEFAULT NULL REFERENCES modules(key) ON DELETE SET NULL,
+  module_key TEXT DEFAULT NULL,
   provider TEXT DEFAULT NULL,
   is_system INTEGER NOT NULL DEFAULT 0,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (tenant_id, name),
+  FOREIGN KEY (tenant_id, module_key) REFERENCES modules(tenant_id, key) ON DELETE SET NULL
 );
 
 -- Products
 CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    barcode TEXT UNIQUE,
+    tenant_id INTEGER REFERENCES tenants(id),
+    barcode TEXT,
     name TEXT NOT NULL,
     item_type TEXT NOT NULL,
     category TEXT DEFAULT 'General',
@@ -185,33 +233,38 @@ CREATE TABLE IF NOT EXISTS products (
     is_active BOOLEAN DEFAULT 1,
     is_deleted BOOLEAN DEFAULT 0,
     updated_at DATETIME DEFAULT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, barcode)
 );
 
 CREATE TABLE IF NOT EXISTS product_categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    tenant_id INTEGER REFERENCES tenants(id),
+    name TEXT NOT NULL COLLATE NOCASE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, name)
 );
 
-INSERT OR IGNORE INTO product_categories (name, sort_order) VALUES
-    ('Accessories', 0),
-    ('Phones', 1),
-    ('Chargers', 2),
-    ('Audio', 3),
-    ('Parts', 4),
-    ('Services', 5);
+INSERT OR IGNORE INTO product_categories (tenant_id, name, sort_order) VALUES
+    (1, 'Accessories', 0),
+    (1, 'Phones', 1),
+    (1, 'Chargers', 2),
+    (1, 'Audio', 3),
+    (1, 'Parts', 4),
+    (1, 'Services', 5);
 
 -- Product Suppliers (normalised inventory supplier names)
 CREATE TABLE IF NOT EXISTS product_suppliers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    tenant_id INTEGER REFERENCES tenants(id),
+    name TEXT NOT NULL COLLATE NOCASE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
     supplier_id INTEGER REFERENCES suppliers(id),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, name)
 );
 
 -- =============================================================================
@@ -221,6 +274,7 @@ CREATE TABLE IF NOT EXISTS product_suppliers (
 -- Sales
 CREATE TABLE IF NOT EXISTS sales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     client_id INTEGER,
     total_amount_usd DECIMAL(10, 2),
     discount_usd DECIMAL(10, 2) DEFAULT 0,
@@ -243,6 +297,7 @@ CREATE TABLE IF NOT EXISTS sales (
 -- Sale Items
 CREATE TABLE IF NOT EXISTS sale_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     sale_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL,
     quantity INTEGER DEFAULT 1,
@@ -255,9 +310,12 @@ CREATE TABLE IF NOT EXISTS sale_items (
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_sale_items_tenant_id ON sale_items(tenant_id);
+
 -- Debt Ledger (Clients)
 CREATE TABLE IF NOT EXISTS debt_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     client_id INTEGER NOT NULL,
     transaction_type TEXT NOT NULL,
     amount_usd DECIMAL(10, 2),
@@ -278,9 +336,12 @@ CREATE TABLE IF NOT EXISTS debt_ledger (
     FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE SET NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_debt_ledger_tenant_id ON debt_ledger(tenant_id);
+
 -- Customer Visit Sessions
 CREATE TABLE IF NOT EXISTS customer_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
   customer_name TEXT,
   customer_phone TEXT,
   customer_notes TEXT,
@@ -302,6 +363,7 @@ CREATE TABLE IF NOT EXISTS customer_sessions (
 
 CREATE TABLE IF NOT EXISTS customer_session_transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
   session_id INTEGER NOT NULL,
   transaction_type TEXT NOT NULL, -- 'sale', 'recharge', 'expense', 'omt', 'whish', 'exchange', 'maintenance'
   transaction_id INTEGER NOT NULL,
@@ -317,10 +379,12 @@ CREATE TABLE IF NOT EXISTS customer_session_transactions (
 
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_active ON customer_sessions(is_active, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_user ON customer_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_customer_sessions_tenant_id ON customer_sessions(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_customer_session_transactions_session ON customer_session_transactions(session_id);
 
 CREATE TABLE IF NOT EXISTS session_cart_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
   session_id INTEGER NOT NULL,
   item_id TEXT NOT NULL,
   module TEXT NOT NULL,
@@ -339,6 +403,7 @@ CREATE INDEX IF NOT EXISTS idx_session_cart_items_user ON session_cart_items(use
 -- Supplier Ledger
 CREATE TABLE IF NOT EXISTS supplier_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
   supplier_id INTEGER NOT NULL,
   entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US')),
   amount_usd REAL NOT NULL DEFAULT 0,
@@ -358,6 +423,7 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
 -- Supplier Purchases (delivery batches for FIFO payment coverage)
 CREATE TABLE IF NOT EXISTS supplier_purchases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
   supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
   total_usd REAL NOT NULL CHECK(total_usd > 0),
   paid_usd  REAL NOT NULL DEFAULT 0,
@@ -372,6 +438,7 @@ CREATE INDEX IF NOT EXISTS idx_supplier_purchases_created_at  ON supplier_purcha
 -- Maintenance / Repairs
 CREATE TABLE IF NOT EXISTS maintenance (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     client_id INTEGER,
     client_name TEXT,
     device_name TEXT NOT NULL,
@@ -402,6 +469,7 @@ CREATE TABLE IF NOT EXISTS maintenance (
 -- Expenses
 CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     description TEXT,
     category TEXT,
     expense_type TEXT,
@@ -422,6 +490,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 -- Mobile Recharges
 CREATE TABLE IF NOT EXISTS recharges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     carrier TEXT NOT NULL,
     recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
     amount DECIMAL(10, 2) NOT NULL,
@@ -447,6 +516,7 @@ CREATE TABLE IF NOT EXISTS recharges (
 -- Exchange Transactions (v30: includes per-leg rate and profit tracking)
 CREATE TABLE IF NOT EXISTS exchange_transactions (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id        INTEGER REFERENCES tenants(id),
     type             TEXT CHECK(type IN ('BUY', 'SELL')) NOT NULL,
     from_currency    TEXT NOT NULL,
     to_currency      TEXT NOT NULL,
@@ -473,9 +543,12 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
     refunded_at TEXT DEFAULT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_exchange_transactions_tenant_id ON exchange_transactions(tenant_id);
+
 -- Financial Services (OMT, Whish, iPick, Katsh, Wish App, Binance, etc.)
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
     service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL')) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
@@ -525,22 +598,27 @@ CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
   ON financial_services(is_settled);
 CREATE INDEX IF NOT EXISTS idx_financial_services_provider_settled
   ON financial_services(provider, is_settled);
+CREATE INDEX IF NOT EXISTS idx_financial_services_tenant_id
+  ON financial_services(tenant_id);
 
 -- Partners (agents/counterparties for financial service transactions)
 CREATE TABLE IF NOT EXISTS partners (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
+    tenant_id INTEGER REFERENCES tenants(id),
+    name TEXT NOT NULL,
     phone TEXT,
     notes TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
     system_association TEXT DEFAULT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, name)
 );
 
 -- Partner Ledger (tracks debits/credits per partner)
 CREATE TABLE IF NOT EXISTS partner_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     partner_id INTEGER NOT NULL REFERENCES partners(id),
     transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'THROUGH_OMT_SEND', 'THROUGH_OMT_RECEIVE', 'THROUGH_WHISH_SEND', 'THROUGH_WHISH_RECEIVE', 'FOR_OMT_SEND', 'FOR_OMT_RECEIVE', 'FOR_WHISH_SEND', 'FOR_WHISH_RECEIVE', 'WHISH_TOPUP', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
     reference_table TEXT,
@@ -560,6 +638,7 @@ CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(creat
 -- Custom Services (standalone ad-hoc services with cost/price/profit tracking)
 CREATE TABLE IF NOT EXISTS custom_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     description TEXT NOT NULL,
     cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
     cost_lbp DECIMAL(15,2) NOT NULL DEFAULT 0,
@@ -584,9 +663,12 @@ CREATE TABLE IF NOT EXISTS custom_services (
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_custom_services_tenant_id ON custom_services(tenant_id);
+
 -- Service Presets (reusable templates for digital accounts, repairs, etc.)
 CREATE TABLE IF NOT EXISTS service_presets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     name TEXT NOT NULL,
     category TEXT NOT NULL DEFAULT 'digital_account',
     cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
@@ -603,38 +685,45 @@ CREATE INDEX IF NOT EXISTS idx_service_presets_category ON service_presets(categ
 CREATE INDEX IF NOT EXISTS idx_service_presets_active ON service_presets(is_active, sort_order);
 
 -- Default service presets
-INSERT OR IGNORE INTO service_presets (name, category, cost_usd, price_usd, sort_order) VALUES
-    ('Netflix Premium 1 Month', 'digital_account', 7, 9, 0),
-    ('Netflix Standard 1 Month', 'digital_account', 5, 7, 1),
-    ('Spotify Premium 1 Month', 'digital_account', 3, 5, 2),
-    ('Shahid VIP 1 Month', 'digital_account', 4, 6, 3);
+INSERT OR IGNORE INTO service_presets (tenant_id, name, category, cost_usd, price_usd, sort_order) VALUES
+    (1, 'Netflix Premium 1 Month', 'digital_account', 7, 9, 0),
+    (1, 'Netflix Standard 1 Month', 'digital_account', 5, 7, 1),
+    (1, 'Spotify Premium 1 Month', 'digital_account', 3, 5, 2),
+    (1, 'Shahid VIP 1 Month', 'digital_account', 4, 6, 3);
 
 -- Item Costs (saved default costs for frequently-sold items)
 CREATE TABLE IF NOT EXISTS item_costs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     provider TEXT NOT NULL,
     category TEXT NOT NULL,
     item_key TEXT NOT NULL,
     cost DECIMAL(10, 2) NOT NULL,
     currency TEXT DEFAULT 'USD' NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(provider, category, item_key, currency)
+    UNIQUE(tenant_id, provider, category, item_key, currency)
 );
 
 -- Voucher Images (per-item image associations for mobileServices.json items)
+-- tenant_id added: each tenant maintains its own image catalog, so
+-- (provider, category, item_key) alone could collide across tenants.
 CREATE TABLE IF NOT EXISTS voucher_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     provider TEXT NOT NULL,
     category TEXT NOT NULL,
     item_key TEXT NOT NULL,
     image_path TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(provider, category, item_key)
+    UNIQUE(tenant_id, provider, category, item_key)
 );
 
 -- Mobile Service Items (dynamic catalog — replaces hardcoded mobileServices.ts)
+-- tenant_id added: each tenant maintains its own catalog, so
+-- (provider, category, subcategory, label) alone could collide across tenants.
 CREATE TABLE IF NOT EXISTS mobile_service_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     provider TEXT NOT NULL,
     category TEXT NOT NULL,
     subcategory TEXT NOT NULL,
@@ -645,7 +734,7 @@ CREATE TABLE IF NOT EXISTS mobile_service_items (
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(provider, category, subcategory, label)
+    UNIQUE(tenant_id, provider, category, subcategory, label)
 );
 CREATE INDEX IF NOT EXISTS idx_msi_provider ON mobile_service_items(provider);
 CREATE INDEX IF NOT EXISTS idx_msi_provider_category ON mobile_service_items(provider, category);
@@ -658,6 +747,7 @@ CREATE INDEX IF NOT EXISTS idx_msi_active ON mobile_service_items(is_active);
 -- Payments (Multi-method tracking)
 CREATE TABLE IF NOT EXISTS payments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
   transaction_id INTEGER,
   session_id INTEGER,
   method TEXT NOT NULL,
@@ -672,38 +762,42 @@ CREATE TABLE IF NOT EXISTS payments (
   FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE SET NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_payments_tenant_id ON payments(tenant_id);
+
 -- Drawer Balances (Running totals)
 CREATE TABLE IF NOT EXISTS drawer_balances (
+  tenant_id INTEGER REFERENCES tenants(id),
   drawer_name TEXT NOT NULL,
   currency_code TEXT NOT NULL,
   balance REAL NOT NULL DEFAULT 0,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (drawer_name, currency_code)
+  PRIMARY KEY (tenant_id, drawer_name, currency_code)
 );
 
 -- Seed Initial Drawer Balances
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_System', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_System', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_App', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_App', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'OMT_System', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'OMT_System', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'OMT_App', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'OMT_App', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Whish_App', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Whish_App', 'LBP', 0);
 -- Binance holds crypto (USDT), so its drawer is denominated in USDT, not USD.
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'USDT', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('MTC', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Alfa', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Binance', 'USDT', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'MTC', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Alfa', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'iPick', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'iPick', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Katsh', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Katsh', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Whish_System', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'Whish_System', 'LBP', 0);
 
 -- Drawer Top-ups
 CREATE TABLE IF NOT EXISTS drawer_topups (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
   amount_usd REAL DEFAULT 0,
   amount_lbp REAL DEFAULT 0,
   notes TEXT,
@@ -716,6 +810,7 @@ CREATE TABLE IF NOT EXISTS drawer_topups (
 -- Daily Closings
 CREATE TABLE IF NOT EXISTS daily_closings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     closing_date DATE,
     drawer_name TEXT,
     opening_balance_usd DECIMAL(15, 2),
@@ -737,8 +832,12 @@ CREATE TABLE IF NOT EXISTS daily_closings (
 );
 
 -- Daily Closing Amounts (Detailed Breakdown)
+-- NOTE: no rebuild needed — UNIQUE already includes closing_id, which is
+-- globally unique (daily_closings.id), so no cross-tenant collision is
+-- possible. tenant_id is just an added column here.
 CREATE TABLE IF NOT EXISTS daily_closing_amounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     closing_id INTEGER NOT NULL,
     drawer_name TEXT NOT NULL,
     currency_code TEXT NOT NULL,
@@ -801,6 +900,12 @@ CREATE INDEX IF NOT EXISTS idx_payments_session_id ON payments(session_id);
 CREATE INDEX IF NOT EXISTS idx_drawer_balances_drawer ON drawer_balances(drawer_name);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
 
+-- Multi-tenancy indexes (high-volume tables)
+CREATE INDEX IF NOT EXISTS idx_sales_tenant_id ON sales(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_maintenance_tenant_id ON maintenance(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_tenant_id ON expenses(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_recharges_tenant_id ON recharges(tenant_id);
+
 -- ============================================================================
 -- ADDITIONAL INDEXES (Added 2026-02-14)
 -- ============================================================================
@@ -832,93 +937,102 @@ CREATE INDEX IF NOT EXISTS idx_sales_status_drawer ON sales(status, drawer_name)
 -- =============================================================================
 
 -- Modules (sidebar navigation items, toggleable features)
+-- NOTE: key's primary key became (tenant_id, key) — every tenant seeds the
+-- same module keys, so the key alone is no longer globally unique.
 CREATE TABLE IF NOT EXISTS modules (
-    key         TEXT PRIMARY KEY,                -- e.g. 'pos', 'omt_whish'
+    tenant_id   INTEGER REFERENCES tenants(id),
+    key         TEXT NOT NULL,                   -- e.g. 'pos', 'omt_whish'
     label       TEXT NOT NULL,                   -- Display name: 'Point of Sale'
     icon        TEXT NOT NULL DEFAULT '',         -- Lucide icon name: 'ShoppingCart'
     route       TEXT NOT NULL,                   -- React Router path: '/pos'
     sort_order  INTEGER NOT NULL DEFAULT 0,      -- Sidebar display order
     is_enabled  INTEGER NOT NULL DEFAULT 1,      -- 1 = visible in sidebar, 0 = hidden
     admin_only  INTEGER NOT NULL DEFAULT 0,      -- 1 = only admins see this module
-    is_system   INTEGER NOT NULL DEFAULT 0       -- 1 = cannot be disabled
+    is_system   INTEGER NOT NULL DEFAULT 0,      -- 1 = cannot be disabled
+    PRIMARY KEY (tenant_id, key)
 );
 
 -- System modules (always visible, not toggleable)
-INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
-  ('dashboard',  'Dashboard',  'LayoutDashboard', '/',          0,  1, 0, 1),
-  ('closing',    'Closing',    'SquareActivity',  '',          99,  1, 1, 1),
-  ('audit',      'Audit & Transactions', 'Shield', '/audit',   97,  1, 1, 1),
-  ('settings',   'Settings',   'Settings',        '/settings', 100, 1, 1, 1);
+INSERT OR IGNORE INTO modules (tenant_id, key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
+  (1, 'dashboard',  'Dashboard',  'LayoutDashboard', '/',          0,  1, 0, 1),
+  (1, 'closing',    'Closing',    'SquareActivity',  '',          99,  1, 1, 1),
+  (1, 'audit',      'Audit & Transactions', 'Shield', '/audit',   97,  1, 1, 1),
+  (1, 'settings',   'Settings',   'Settings',        '/settings', 100, 1, 1, 1);
 
 -- Toggleable modules (can be enabled/disabled from Settings > Modules)
-INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
-  ('pos',         'Point of Sale','ShoppingCart',  '/pos',           1,  1, 0, 0),
-  ('debts',       'Accounts',     'BookOpen',      '/debts',         2,  1, 0, 0),
-  ('inventory',   'Inventory',    'Package',       '/products',      3,  1, 0, 0),
-  ('clients',     'Clients',      'Users',         '/clients',       4,  1, 0, 0),
-  ('exchange',    'Exchange',     'RefreshCw',     '/exchange',      5,  1, 0, 0),
-  ('omt_whish',   'OMT/Whish',   'Send',          '/services',      6,  1, 0, 0),
-  ('recharge',    'MTC/Alfa',     'Smartphone',    '/recharge',      7,  0, 0, 0),
-  ('expenses',    'Expenses',     'Banknote',      '/expenses',      8,  1, 0, 0),
-  ('maintenance', 'Maintenance',  'Wrench',        '/maintenance',   9,  1, 0, 0),
-  ('binance',     'Binance',      'Bitcoin',       '/recharge',     10,  0, 0, 0),
-  ('ipec_katch',  'iPick/Katsh',  'Zap',           '/recharge',     11,  0, 0, 0),
-  ('custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
-  ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
-  ('customer_sessions','Sessions','UserCheck',    '/customer-sessions',14, 1, 0, 0),
-  ('partners',       'Partners', 'Handshake',     '/partners',       15, 1, 0, 0),
-  ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0),
-  ('suppliers',      'Suppliers','Truck',         '/suppliers',      17, 1, 0, 0),
-  ('vouchers',       'Vouchers', 'Gift',          '/vouchers',       18, 1, 0, 0);
+INSERT OR IGNORE INTO modules (tenant_id, key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
+  (1, 'pos',         'Point of Sale','ShoppingCart',  '/pos',           1,  1, 0, 0),
+  (1, 'debts',       'Accounts',     'BookOpen',      '/debts',         2,  1, 0, 0),
+  (1, 'inventory',   'Inventory',    'Package',       '/products',      3,  1, 0, 0),
+  (1, 'clients',     'Clients',      'Users',         '/clients',       4,  1, 0, 0),
+  (1, 'exchange',    'Exchange',     'RefreshCw',     '/exchange',      5,  1, 0, 0),
+  (1, 'omt_whish',   'OMT/Whish',   'Send',          '/services',      6,  1, 0, 0),
+  (1, 'recharge',    'MTC/Alfa',     'Smartphone',    '/recharge',      7,  0, 0, 0),
+  (1, 'expenses',    'Expenses',     'Banknote',      '/expenses',      8,  1, 0, 0),
+  (1, 'maintenance', 'Maintenance',  'Wrench',        '/maintenance',   9,  1, 0, 0),
+  (1, 'binance',     'Binance',      'Bitcoin',       '/recharge',     10,  0, 0, 0),
+  (1, 'ipec_katch',  'iPick/Katsh',  'Zap',           '/recharge',     11,  0, 0, 0),
+  (1, 'custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
+  (1, 'profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
+  (1, 'customer_sessions','Sessions','UserCheck',    '/customer-sessions',14, 1, 0, 0),
+  (1, 'partners',       'Partners', 'Handshake',     '/partners',       15, 1, 0, 0),
+  (1, 'loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0),
+  (1, 'suppliers',      'Suppliers','Truck',         '/suppliers',      17, 1, 0, 0),
+  (1, 'vouchers',       'Vouchers', 'Gift',          '/vouchers',       18, 1, 0, 0);
 
 -- Currency–Module junction (which currencies are allowed in which modules)
+-- NOTE: composite FKs — both currencies.code and modules.key lost their
+-- standalone uniqueness (both became tenant-scoped), so the parent key for
+-- each FK must include tenant_id too.
 CREATE TABLE IF NOT EXISTS currency_modules (
+    tenant_id     INTEGER REFERENCES tenants(id),
     currency_code TEXT NOT NULL,
     module_key    TEXT NOT NULL,
-    PRIMARY KEY (currency_code, module_key),
-    FOREIGN KEY (currency_code) REFERENCES currencies(code) ON DELETE CASCADE,
-    FOREIGN KEY (module_key)    REFERENCES modules(key)     ON DELETE CASCADE
+    PRIMARY KEY (tenant_id, currency_code, module_key),
+    FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id, module_key)    REFERENCES modules(tenant_id, key)     ON DELETE CASCADE
 );
 
 -- USD: enabled for all financial modules
-INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
-  ('USD', 'pos'), ('USD', 'debts'), ('USD', 'exchange'),
-  ('USD', 'omt_whish'), ('USD', 'recharge'), ('USD', 'expenses'),
-  ('USD', 'maintenance'), ('USD', 'binance'), ('USD', 'ipec_katch'),
-  ('USD', 'custom_services'), ('USD', 'closing'), ('USD', 'loto'),
-  ('USD', 'vouchers');
+INSERT OR IGNORE INTO currency_modules (tenant_id, currency_code, module_key) VALUES
+  (1, 'USD', 'pos'), (1, 'USD', 'debts'), (1, 'USD', 'exchange'),
+  (1, 'USD', 'omt_whish'), (1, 'USD', 'recharge'), (1, 'USD', 'expenses'),
+  (1, 'USD', 'maintenance'), (1, 'USD', 'binance'), (1, 'USD', 'ipec_katch'),
+  (1, 'USD', 'custom_services'), (1, 'USD', 'closing'), (1, 'USD', 'loto'),
+  (1, 'USD', 'vouchers');
 
 -- LBP: enabled for most modules except OMT/Whish, Binance
-INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
-  ('LBP', 'pos'), ('LBP', 'debts'), ('LBP', 'exchange'),
-  ('LBP', 'expenses'), ('LBP', 'maintenance'), ('LBP', 'ipec_katch'),
-  ('LBP', 'custom_services'), ('LBP', 'recharge'), ('LBP', 'closing'),
-  ('LBP', 'loto');
+INSERT OR IGNORE INTO currency_modules (tenant_id, currency_code, module_key) VALUES
+  (1, 'LBP', 'pos'), (1, 'LBP', 'debts'), (1, 'LBP', 'exchange'),
+  (1, 'LBP', 'expenses'), (1, 'LBP', 'maintenance'), (1, 'LBP', 'ipec_katch'),
+  (1, 'LBP', 'custom_services'), (1, 'LBP', 'recharge'), (1, 'LBP', 'closing'),
+  (1, 'LBP', 'loto');
 
 -- EUR: exchange only (by default)
-INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
-  ('EUR', 'exchange');
+INSERT OR IGNORE INTO currency_modules (tenant_id, currency_code, module_key) VALUES
+  (1, 'EUR', 'exchange');
 
 -- Currency–Drawer junction (which currencies are shown per drawer)
 CREATE TABLE IF NOT EXISTS currency_drawers (
+    tenant_id     INTEGER REFERENCES tenants(id),
     currency_code TEXT NOT NULL,
     drawer_name   TEXT NOT NULL,
-    PRIMARY KEY (currency_code, drawer_name),
-    FOREIGN KEY (currency_code) REFERENCES currencies(code) ON DELETE CASCADE
+    PRIMARY KEY (tenant_id, currency_code, drawer_name),
+    FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code) ON DELETE CASCADE
 );
 
 -- Seed drawer-currency mappings (matches drawer_balances seed data)
-INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES
-  ('USD', 'General'),    ('LBP', 'General'),
-  ('USD', 'OMT_System'), ('LBP', 'OMT_System'),
-  ('USD', 'OMT_App'),    ('LBP', 'OMT_App'),
-  ('USD', 'Whish_App'),  ('LBP', 'Whish_App'),
-  ('USDT', 'Binance'),
-  ('USD', 'MTC'),
-  ('USD', 'Alfa'),
-  ('USD', 'iPick'),       ('LBP', 'iPick'),
-  ('USD', 'Katsh'),       ('LBP', 'Katsh'),
-  ('USD', 'Whish_System'), ('LBP', 'Whish_System');
+INSERT OR IGNORE INTO currency_drawers (tenant_id, currency_code, drawer_name) VALUES
+  (1, 'USD', 'General'),    (1, 'LBP', 'General'),
+  (1, 'USD', 'OMT_System'), (1, 'LBP', 'OMT_System'),
+  (1, 'USD', 'OMT_App'),    (1, 'LBP', 'OMT_App'),
+  (1, 'USD', 'Whish_App'),  (1, 'LBP', 'Whish_App'),
+  (1, 'USDT', 'Binance'),
+  (1, 'USD', 'MTC'),
+  (1, 'USD', 'Alfa'),
+  (1, 'USD', 'iPick'),       (1, 'LBP', 'iPick'),
+  (1, 'USD', 'Katsh'),       (1, 'LBP', 'Katsh'),
+  (1, 'USD', 'Whish_System'), (1, 'LBP', 'Whish_System');
 
 -- Debt ledger indexes
 CREATE INDEX IF NOT EXISTS idx_debt_ledger_client_type ON debt_ledger(client_id, transaction_type);
@@ -931,33 +1045,35 @@ CREATE INDEX IF NOT EXISTS idx_debt_ledger_session_id ON debt_ledger(session_id)
 
 CREATE TABLE IF NOT EXISTS payment_methods (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    code           TEXT NOT NULL UNIQUE,           -- e.g. 'CASH', 'OMT', 'WHISH'
+    tenant_id      INTEGER REFERENCES tenants(id),
+    code           TEXT NOT NULL,                   -- e.g. 'CASH', 'OMT', 'WHISH'
     label          TEXT NOT NULL,                   -- Display name: 'Cash', 'OMT Wallet'
     drawer_name    TEXT NOT NULL,                   -- Which drawer this method affects
     affects_drawer INTEGER NOT NULL DEFAULT 1,      -- 0 = no drawer impact (e.g. CUSTOMER_ACCOUNT)
     sort_order     INTEGER NOT NULL DEFAULT 0,
     is_active      INTEGER NOT NULL DEFAULT 1,
     is_system      INTEGER NOT NULL DEFAULT 0,      -- 1 = cannot be deleted (CASH, CUSTOMER_ACCOUNT)
-    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, code)
 );
 
 -- Seed default payment methods
-INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, is_system, is_active) VALUES
-  ('CASH',             'Cash',                'General',   1, 0, 1, 1),
-  ('OMT',              'OMT Wallet',          'OMT_App',   1, 1, 0, 1),
-  ('WHISH',            'Whish Wallet',        'Whish_App', 1, 2, 0, 1),
-  ('BINANCE',          'Binance',             'Binance',   1, 3, 0, 1),
-  ('CUSTOMER_ACCOUNT', 'Customer Account',    'General',   0, 4, 1, 1),
-  ('GIFT_CARD',        'Gift Card / Voucher', 'General',   0, 5, 1, 1);
+INSERT OR IGNORE INTO payment_methods (tenant_id, code, label, drawer_name, affects_drawer, sort_order, is_system, is_active) VALUES
+  (1, 'CASH',             'Cash',                'General',   1, 0, 1, 1),
+  (1, 'OMT',              'OMT Wallet',          'OMT_App',   1, 1, 0, 1),
+  (1, 'WHISH',            'Whish Wallet',        'Whish_App', 1, 2, 0, 1),
+  (1, 'BINANCE',          'Binance',             'Binance',   1, 3, 0, 1),
+  (1, 'CUSTOMER_ACCOUNT', 'Customer Account',    'General',   0, 4, 1, 1),
+  (1, 'GIFT_CARD',        'Gift Card / Voucher', 'General',   0, 5, 1, 1);
 
 -- Seed system suppliers (linked to modules)
-INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
-  ('iPick',         'ipec_katch', 'iPick',         1),
-  ('Katsh',        'ipec_katch', 'Katsh',        1),
-  ('OMT',          'omt_whish',  'OMT',          1),
-  ('Whish',        'omt_whish',  'WHISH',        0),
-  ('OMT App',      'ipec_katch', 'OMT_APP',      1),
-  ('Whish App',    'ipec_katch', 'WHISH_APP',    1);
+INSERT OR IGNORE INTO suppliers (tenant_id, name, module_key, provider, is_system) VALUES
+  (1, 'iPick',         'ipec_katch', 'iPick',         1),
+  (1, 'Katsh',        'ipec_katch', 'Katsh',        1),
+  (1, 'OMT',          'omt_whish',  'OMT',          1),
+  (1, 'Whish',        'omt_whish',  'WHISH',        0),
+  (1, 'OMT App',      'ipec_katch', 'OMT_APP',      1),
+  (1, 'Whish App',    'ipec_katch', 'WHISH_APP',    1);
 
 -- =============================================================================
 -- 9a. Vouchers (Gift Cards)
@@ -965,7 +1081,8 @@ INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
 
 CREATE TABLE IF NOT EXISTS vouchers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT NOT NULL UNIQUE,                -- GIFT-A3F9-K2M1
+    tenant_id INTEGER REFERENCES tenants(id),
+    code TEXT NOT NULL,                       -- GIFT-A3F9-K2M1
     client_id INTEGER NOT NULL,              -- owner (required for partial-redemption credit)
     client_name TEXT NOT NULL,               -- snapshot at creation
     client_phone TEXT,                       -- snapshot
@@ -985,7 +1102,8 @@ CREATE TABLE IF NOT EXISTS vouchers (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
     FOREIGN KEY (redeemed_by) REFERENCES users(id) ON DELETE SET NULL,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE (tenant_id, code)
 );
 
 CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
@@ -1000,6 +1118,7 @@ CREATE INDEX IF NOT EXISTS idx_vouchers_created_at ON vouchers(created_at);
 -- Loto tickets (sold tickets tracking)
 CREATE TABLE IF NOT EXISTS loto_tickets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     ticket_number TEXT,
     sale_amount REAL NOT NULL,
     commission_rate REAL DEFAULT 0.0445,
@@ -1026,24 +1145,28 @@ CREATE INDEX IF NOT EXISTS idx_loto_tickets_sale_date ON loto_tickets(sale_date)
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_is_winner ON loto_tickets(is_winner);
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_checkpoint ON loto_tickets(checkpoint_id);
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_client_id ON loto_tickets(client_id);
+CREATE INDEX IF NOT EXISTS idx_loto_tickets_tenant_id ON loto_tickets(tenant_id);
 
 -- Loto settings (commission rate, monthly fee, etc.)
 CREATE TABLE IF NOT EXISTS loto_settings (
-    key_name TEXT PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id),
+    key_name TEXT NOT NULL,
     value TEXT NOT NULL,
     description TEXT,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (tenant_id, key_name)
 );
 
 -- Seed default loto settings
-INSERT OR IGNORE INTO loto_settings (key_name, value, description) VALUES
-  ('commission_rate', '0.0445', 'Commission rate (4.45%)'),
-  ('monthly_fee_amount', '1400000', 'Monthly machine fee in LBP'),
-  ('auto_record_monthly_fee', '1', 'Enable/disable auto-recording of monthly fee');
+INSERT OR IGNORE INTO loto_settings (tenant_id, key_name, value, description) VALUES
+  (1, 'commission_rate', '0.0445', 'Commission rate (4.45%)'),
+  (1, 'monthly_fee_amount', '1400000', 'Monthly machine fee in LBP'),
+  (1, 'auto_record_monthly_fee', '1', 'Enable/disable auto-recording of monthly fee');
 
 -- Loto monthly fees (machine rental fees)
 CREATE TABLE IF NOT EXISTS loto_monthly_fees (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     fee_amount REAL NOT NULL,
     fee_month TEXT NOT NULL,
     fee_year INTEGER NOT NULL,
@@ -1055,23 +1178,24 @@ CREATE TABLE IF NOT EXISTS loto_monthly_fees (
 );
 
 -- Seed Loto supplier
-INSERT OR IGNORE INTO suppliers (name, provider, is_active, is_system) VALUES ('Loto Liban', 'LOTO', 1, 1);
+INSERT OR IGNORE INTO suppliers (tenant_id, name, provider, is_active, is_system) VALUES (1, 'Loto Liban', 'LOTO', 1, 1);
 
 -- Seed Loto module
-INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, admin_only)
-VALUES ('loto', 'Loto', 'Ticket', '/loto', 16, 0);
+INSERT OR IGNORE INTO modules (tenant_id, key, label, icon, route, sort_order, admin_only)
+VALUES (1, 'loto', 'Loto', 'Ticket', '/loto', 16, 0);
 
 -- Add currency-modules for Loto
-INSERT OR IGNORE INTO currency_modules (currency_code, module_key)
-VALUES ('USD', 'loto'), ('LBP', 'loto');
+INSERT OR IGNORE INTO currency_modules (tenant_id, currency_code, module_key)
+VALUES (1, 'USD', 'loto'), (1, 'LBP', 'loto');
 
 -- Add currency-drawers for Loto
-INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name)
-VALUES ('USD', 'Loto'), ('LBP', 'Loto');
+INSERT OR IGNORE INTO currency_drawers (tenant_id, currency_code, drawer_name)
+VALUES (1, 'USD', 'Loto'), (1, 'LBP', 'Loto');
 
 -- Loto checkpoints (scheduled checkpoint tracking)
 CREATE TABLE IF NOT EXISTS loto_checkpoints (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     checkpoint_date TEXT NOT NULL,
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
@@ -1096,6 +1220,7 @@ CREATE INDEX IF NOT EXISTS idx_loto_checkpoints_period ON loto_checkpoints(perio
 -- Cash prizes table for Loto module
 CREATE TABLE IF NOT EXISTS loto_cash_prizes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     ticket_number TEXT,
     prize_amount REAL NOT NULL,
     customer_name TEXT,
@@ -1116,6 +1241,7 @@ CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_checkpoint ON loto_cash_prizes(c
 -- Loto settlements table
 CREATE TABLE IF NOT EXISTS loto_settlements (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     settlement_date TEXT NOT NULL,
     checkpoint_ids TEXT NOT NULL,
     total_sales REAL NOT NULL DEFAULT 0,
@@ -1133,6 +1259,7 @@ CREATE TABLE IF NOT EXISTS loto_settlements (
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     user_id INTEGER NOT NULL,
     username TEXT NOT NULL,
     role TEXT NOT NULL,
@@ -1143,6 +1270,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
     old_values TEXT,
     new_values TEXT,
     metadata TEXT,
+    -- Set only on rows written during an impersonated session: the real
+    -- super_admin acting behind the tenant-admin identity in user_id.
+    impersonator_id INTEGER REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
@@ -1151,6 +1281,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_id ON audit_log(tenant_id);
 
 -- =============================================================================
 -- 11. Hold Money
@@ -1158,6 +1289,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 
 CREATE TABLE IF NOT EXISTS hold_money (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
     client_name TEXT NOT NULL,
     phone_number TEXT,
     usd_amount REAL NOT NULL DEFAULT 0,
@@ -1299,4 +1431,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (119, 'flip_loto_supplier_ledger_sign'),
     (120, 'add_supplier_ledger_refund_flag'),
     (121, 'add_session_id_to_debt_ledger'),
-    (122, 'rename_debts_module_to_accounts');
+    (122, 'rename_debts_module_to_accounts'),
+    (123, 'add_multi_tenancy');

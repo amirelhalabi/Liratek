@@ -36,7 +36,8 @@
     "graphify": "node scripts/graphify.cjs",
     "graphify:detect": "node scripts/graphify.cjs detect",
     "graphify:graph": "node scripts/graphify.cjs graph",
-    "graphify:search": "node scripts/graphify.cjs search"
+    "graphify:search": "node scripts/graphify.cjs search",
+    "check:tenant-scoping": "node scripts/check-tenant-scoping.mjs"
   },
   "dependencies": {
     "@liratek/core": "workspace:*",
