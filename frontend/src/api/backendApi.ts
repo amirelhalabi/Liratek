@@ -2337,6 +2337,61 @@ export async function auditGetByEntity(entityType: string, entityId: string) {
   );
 }
 
+// ── Drawer top-ups (dual-mode) — cash into a drawer / transfer between drawers ──
+
+export async function drawerTopUpSourceDrawers() {
+  return ipcOrHttp(
+    async () => getElectronApi().drawerTopUp.getSourceDrawers(),
+    async () =>
+      requestJson<{ success: boolean; data?: any[]; error?: string }>(
+        "/api/drawer-topup/source-drawers",
+      ),
+  );
+}
+
+export async function drawerTopUpHistory(limit?: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().drawerTopUp.getHistory(limit),
+    async () => {
+      const qs = limit ? `?limit=${limit}` : "";
+      return requestJson<{ success: boolean; data?: any[]; error?: string }>(
+        `/api/drawer-topup/history${qs}`,
+      );
+    },
+  );
+}
+
+export async function drawerTopUpCreate(data: {
+  amount_usd: number;
+  amount_lbp: number;
+  notes?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().drawerTopUp.create(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        "/api/drawer-topup",
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+export async function drawerTopUpCreateFromDrawer(data: {
+  amount_usd: number;
+  amount_lbp: number;
+  source_drawer: string;
+  notes?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().drawerTopUp.createFromDrawer(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        "/api/drawer-topup/from-drawer",
+        { method: "POST", body: data },
+      ),
+  );
+}
+
 // WhatsApp
 export async function sendWhatsAppTestMessage(
   recipientPhone: string,

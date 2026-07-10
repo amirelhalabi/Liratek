@@ -758,6 +758,29 @@ export type ApiAdapter = {
     ) => Promise<{ success: boolean; rows?: any[]; error?: string }>;
   };
 
+  /** Drawer top-ups — cash into a drawer / transfer between drawers. */
+  drawerTopUp: {
+    create: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      notes?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    createFromDrawer: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      source_drawer: string;
+      notes?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getSourceDrawers: () => Promise<{
+      success: boolean;
+      data?: any[];
+      error?: string;
+    }>;
+    getHistory: (
+      limit?: number,
+    ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

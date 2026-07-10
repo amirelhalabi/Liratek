@@ -419,6 +419,23 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.auditGetByEntity(entityType, entityId),
   };
 
+  // Nested namespace mirroring window.api.drawerTopUp (dual-mode).
+  drawerTopUp = {
+    create: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      notes?: string;
+    }) => api.drawerTopUpCreate(data),
+    createFromDrawer: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      source_drawer: string;
+      notes?: string;
+    }) => api.drawerTopUpCreateFromDrawer(data),
+    getSourceDrawers: () => api.drawerTopUpSourceDrawers(),
+    getHistory: (limit?: number) => api.drawerTopUpHistory(limit),
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { DecimalInput, Select } from "@liratek/ui";
+import { DecimalInput, Select, useApi } from "@liratek/ui";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -22,6 +22,7 @@ export function DrawerTopUpModal({
   onClose,
   onSuccess,
 }: DrawerTopUpModalProps) {
+  const api = useApi();
   useModalFocusFix(isOpen);
   const [mode, setMode] = useState<TopUpMode>("external");
   const [amountUsd, setAmountUsd] = useState("");
@@ -38,7 +39,7 @@ export function DrawerTopUpModal({
   }, [isOpen, mode]);
 
   async function loadSourceDrawers() {
-    const result = await window.api.drawerTopUp.getSourceDrawers();
+    const result = await api.drawerTopUp.getSourceDrawers();
     if (result.success && result.data) {
       setSourceDrawers(result.data);
       if (result.data.length > 0 && !selectedDrawer) {
@@ -78,14 +79,14 @@ export function DrawerTopUpModal({
 
       let result;
       if (mode === "from_drawer") {
-        result = await window.api.drawerTopUp.createFromDrawer({
+        result = await api.drawerTopUp.createFromDrawer({
           amount_usd: usd,
           amount_lbp: lbp,
           source_drawer: selectedDrawer,
           ...(trimmedNotes ? { notes: trimmedNotes } : {}),
         });
       } else {
-        result = await window.api.drawerTopUp.create({
+        result = await api.drawerTopUp.create({
           amount_usd: usd,
           amount_lbp: lbp,
           ...(trimmedNotes ? { notes: trimmedNotes } : {}),
