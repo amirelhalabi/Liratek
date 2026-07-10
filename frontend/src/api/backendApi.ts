@@ -2214,6 +2214,80 @@ export async function holdMoneyCollect(id: number) {
   );
 }
 
+// ── Service presets (dual-mode) — config CRUD for custom-service templates ──
+
+export async function servicePresetsList(filter?: {
+  category?: string;
+  includeInactive?: boolean;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().servicePresets.list(filter),
+    async () => {
+      const qs = new URLSearchParams();
+      if (filter?.category) qs.set("category", filter.category);
+      if (filter?.includeInactive) qs.set("includeInactive", "true");
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return requestJson<{ success: boolean; data?: any[]; error?: string }>(
+        `/api/service-presets${suffix}`,
+      );
+    },
+  );
+}
+
+export async function servicePresetsCreate(data: {
+  name: string;
+  category: string;
+  cost_usd?: number;
+  cost_lbp?: number;
+  price_usd?: number;
+  price_lbp?: number;
+  is_active?: number;
+  sort_order?: number;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().servicePresets.create(data),
+    async () =>
+      requestJson<{ success: boolean; data?: any; error?: string }>(
+        "/api/service-presets",
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+export async function servicePresetsUpdate(
+  id: number,
+  data: {
+    name?: string;
+    category?: string;
+    cost_usd?: number;
+    cost_lbp?: number;
+    price_usd?: number;
+    price_lbp?: number;
+    is_active?: number;
+    sort_order?: number;
+  },
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().servicePresets.update(id, data),
+    async () =>
+      requestJson<{ success: boolean; data?: any; error?: string }>(
+        `/api/service-presets/${id}`,
+        { method: "PUT", body: data },
+      ),
+  );
+}
+
+export async function servicePresetsDelete(id: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().servicePresets.delete(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/service-presets/${id}`,
+        { method: "DELETE" },
+      ),
+  );
+}
+
 // WhatsApp
 export async function sendWhatsAppTestMessage(
   recipientPhone: string,

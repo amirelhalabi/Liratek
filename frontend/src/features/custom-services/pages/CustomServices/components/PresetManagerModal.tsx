@@ -16,7 +16,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { DecimalInput, Select } from "@liratek/ui";
+import { DecimalInput, Select, useApi } from "@liratek/ui";
 import logger from "@/utils/logger";
 
 interface ServicePreset {
@@ -61,6 +61,7 @@ export function PresetManagerModal({
   onPresetsChanged,
 }: PresetManagerModalProps) {
   useModalFocusFix(true);
+  const api = useApi();
 
   const [presets, setPresets] = useState<ServicePreset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,7 +75,7 @@ export function PresetManagerModal({
     if (!window.api?.servicePresets) return;
     try {
       setLoading(true);
-      const result = await window.api.servicePresets.list({
+      const result = await api.servicePresets.list({
         includeInactive: true,
       });
       if (result.success && result.data) {
@@ -98,7 +99,7 @@ export function PresetManagerModal({
     }
     setSaving(true);
     try {
-      const result = await window.api.servicePresets.create({
+      const result = await api.servicePresets.create({
         name: form.name.trim(),
         category: form.category,
         cost_usd: parseFloat(form.cost_usd) || 0,
@@ -138,7 +139,7 @@ export function PresetManagerModal({
     if (editingId === null || !form.name.trim()) return;
     setSaving(true);
     try {
-      const result = await window.api.servicePresets.update(editingId, {
+      const result = await api.servicePresets.update(editingId, {
         name: form.name.trim(),
         category: form.category,
         cost_usd: parseFloat(form.cost_usd) || 0,
@@ -165,7 +166,7 @@ export function PresetManagerModal({
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`Delete preset "${name}"? This cannot be undone.`)) return;
     try {
-      const result = await window.api.servicePresets.delete(id);
+      const result = await api.servicePresets.delete(id);
       if (result.success) {
         await loadPresets();
         onPresetsChanged();
@@ -180,7 +181,7 @@ export function PresetManagerModal({
 
   const handleToggleActive = async (preset: ServicePreset) => {
     try {
-      const result = await window.api.servicePresets.update(preset.id, {
+      const result = await api.servicePresets.update(preset.id, {
         is_active: preset.is_active ? 0 : 1,
       });
       if (result.success) {

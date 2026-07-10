@@ -699,6 +699,38 @@ export type ApiAdapter = {
     collect: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
 
+  /** Service presets — config CRUD for custom-service templates. */
+  servicePresets: {
+    list: (filter?: {
+      category?: string;
+      includeInactive?: boolean;
+    }) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+    create: (data: {
+      name: string;
+      category: string;
+      cost_usd?: number;
+      cost_lbp?: number;
+      price_usd?: number;
+      price_lbp?: number;
+      is_active?: number;
+      sort_order?: number;
+    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    update: (
+      id: number,
+      data: {
+        name?: string;
+        category?: string;
+        cost_usd?: number;
+        cost_lbp?: number;
+        price_usd?: number;
+        price_lbp?: number;
+        is_active?: number;
+        sort_order?: number;
+      },
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
+    delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

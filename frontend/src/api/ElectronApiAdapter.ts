@@ -371,6 +371,36 @@ export class ElectronApiAdapter implements ApiAdapter {
     collect: (id: number) => api.holdMoneyCollect(id),
   };
 
+  // Nested namespace mirroring window.api.servicePresets (dual-mode IPC/REST).
+  servicePresets = {
+    list: (filter?: { category?: string; includeInactive?: boolean }) =>
+      api.servicePresetsList(filter),
+    create: (data: {
+      name: string;
+      category: string;
+      cost_usd?: number;
+      cost_lbp?: number;
+      price_usd?: number;
+      price_lbp?: number;
+      is_active?: number;
+      sort_order?: number;
+    }) => api.servicePresetsCreate(data),
+    update: (
+      id: number,
+      data: {
+        name?: string;
+        category?: string;
+        cost_usd?: number;
+        cost_lbp?: number;
+        price_usd?: number;
+        price_lbp?: number;
+        is_active?: number;
+        sort_order?: number;
+      },
+    ) => api.servicePresetsUpdate(id, data),
+    delete: (id: number) => api.servicePresetsDelete(id),
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

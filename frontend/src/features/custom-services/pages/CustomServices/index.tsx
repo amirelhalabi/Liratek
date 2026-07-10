@@ -144,7 +144,7 @@ export default function CustomServices() {
     // Service presets are IPC-only (no REST route yet) — skip in web mode
     if (!window.api?.servicePresets) return;
     try {
-      const result = await window.api.servicePresets.list();
+      const result = await api.servicePresets.list();
       if (result.success && result.data) {
         setPresets(result.data);
       }
