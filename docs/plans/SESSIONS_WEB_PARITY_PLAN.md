@@ -1,6 +1,6 @@
 # Sessions — Web Parity + Checkout Core Extraction Plan
 
-**Created:** 2026-07-10
+**Created:** 2026-07-10 · **Status:** ✅ COMPLETE (2026-07-10) — WP1-3 in commit `1dcef64`, WP4 in `a13d768`. Proof: desktop session specs 33/33 (rule 17, identical pre/post extraction), web suite 20/20 incl. a basket-checkout money-delta over REST. See WEBAPP_MULTI_TENANT_PLAN.md Appendix A.1.
 **Scope decision:** "Everything incl. checkout" (chosen 2026-07-10)
 **Roadmap context:** Step 2 of `WEBAPP_MULTI_TENANT_PLAN.md` — the sessions module, following the same lift-schema→shared-service→both-transports recipe proven on sales (`fd3d29c`) and loto (`4cfa514`).
 **Guarding rules:** CLAUDE.md 11/13/14/16/17/18; `docs/FEATURE_GUIDE.md` §11 (sessions), §4 (legs), §5 (CUSTOMER_ACCOUNT).
