@@ -3,7 +3,7 @@ import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { validateRequest, validateParams } from "../middleware/validation.js";
 import {
   getSalesService,
-  createSaleSchema,
+  saleProcessSchema,
   getSaleSchema,
 } from "@liratek/core";
 import { emitEvent } from "../websocket/io.js";
@@ -67,10 +67,13 @@ router.get("/:id/items", (req, res) => {
 });
 
 // POST /api/sales/process
+// Validates against saleProcessSchema — the SAME contract the Electron IPC
+// handler (sales:process) enforces, passed verbatim to the same
+// SalesService.processSale. Staff can process sales, matching the IPC role.
 router.post(
   "/process",
-  requireRole(["admin"]),
-  validateRequest(createSaleSchema),
+  requireRole(["admin", "staff"]),
+  validateRequest(saleProcessSchema),
   (req, res) => {
     const service = getSalesService();
     const result = service.processSale(req.body, req.user!.userId);

@@ -6,49 +6,18 @@
  */
 
 import { z } from "zod";
+import { saleProcessSchema, type SaleProcessInput } from "@liratek/core";
 
 // =============================================================================
 // Sales
 // =============================================================================
 
-const PaymentLineSchema = z.object({
-  method: z.string().min(1),
-  currency_code: z.string().min(1),
-  amount: z.number(),
-  // Present only for GIFT_CARD legs — the voucher code being redeemed.
-  voucher_code: z.string().optional(),
-  // IN (customer pays, default) or OUT (shop returns change to customer).
-  direction: z.enum(["IN", "OUT"]).optional(),
-});
-
-export const SaleProcessSchema = z.object({
-  client_id: z.number().int().nullable(),
-  client_name: z.string().optional(),
-  client_phone: z.string().optional(),
-  items: z
-    .array(
-      z.object({
-        product_id: z.number().int().positive(),
-        quantity: z.number().positive(),
-        price: z.number().nonnegative(),
-        imei: z.string().optional(),
-      }),
-    )
-    .min(1, "Sale must have at least one item"),
-  total_amount: z.number().nonnegative(),
-  discount: z.number().nonnegative(),
-  final_amount: z.number().nonnegative(),
-  payment_usd: z.number().nonnegative(),
-  payment_lbp: z.number().nonnegative(),
-  payments: z.array(PaymentLineSchema).optional(),
-  change_given_usd: z.number().optional(),
-  change_given_lbp: z.number().optional(),
-  exchange_rate: z.number().positive(),
-  drawer_name: z.string().optional(),
-  id: z.number().int().positive().optional(),
-  status: z.enum(["completed", "draft", "cancelled"]).optional(),
-  note: z.string().optional(),
-});
+// The sale-processing contract lives in packages/core/src/validators/sale.ts
+// so the Electron IPC handler and the REST route validate against ONE schema
+// (CLAUDE.md rule 14). Re-exported under the historical local name.
+// Cast bridges the zod major mismatch (core types against zod 4, this
+// workspace types against zod 3); the runtime API used is identical.
+export const SaleProcessSchema = saleProcessSchema as unknown as z.ZodSchema<SaleProcessInput>;
 
 export const SaleRefundSchema = z.number().int().positive();
 

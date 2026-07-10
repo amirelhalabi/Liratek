@@ -46,34 +46,13 @@ const SHARED_DESKTOP_SPECS: string[] = SPECS_OVERRIDE
   ? SPECS_OVERRIDE.split(",").map((s) => s.trim())
   : ["app.spec.ts"];
 
-// Within the default files, only sub-tests that touch web-working pages.
-// Broken pages (products, clients, debts, services, recharge...) stay
-// desktop-only until fixed — see Appendix A of the plan doc.
-// Known web-mode failures kept OUT of the list (tracked in Appendix A):
-//  - "POS: search product, add to cart, complete sale" and "Debts: add sale
-//    debt and settle" — POST /api/sales/process 400s: the checkout payload
-//    (items, payment legs, CUSTOMER_ACCOUNT) does not fit the thin REST
-//    createSaleSchema. Blocked on the sales REST contract (roadmap step 2).
+// Optional per-file sub-test filter for partially-passing spec files.
+// app.spec.ts passes IN FULL in web mode (2026-07-10, incl. POS sale + debt
+// settle after the shared saleProcessSchema landed) — no filter needed.
+// Known exclusions (tracked in the plan doc's Appendix A):
 //  - lira-073 (export column picker) — its createOmtAppSend seeding helper's
 //    #transfer-amount form does not open in web mode; needs its own look.
-const SHARED_DESKTOP_GREP = SPECS_OVERRIDE
-  ? undefined // explicit override runs everything in the requested files
-  : new RegExp(
-      [
-        "POS: page loads",
-        "Inventory: page loads",
-        "Services: page loads and OMT buttons active",
-        "Exchange: page loads",
-        "Debts: page loads",
-        "Expenses: page loads",
-        "Inventory: create a product",
-        "Clients: create a client",
-        "Exchange: complete USD to LBP exchange",
-        "Services: complete OMT send transaction",
-        "Expenses: record an expense",
-        "Services: WHISH disabled without partner",
-      ].join("|"),
-    );
+const SHARED_DESKTOP_GREP: RegExp | undefined = undefined;
 
 const DB_PATH = path.join(
   __dirname,

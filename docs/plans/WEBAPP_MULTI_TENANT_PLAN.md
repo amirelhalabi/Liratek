@@ -314,8 +314,9 @@ All pages below were fixed; `yarn test:e2e:web` is green at **16 tests** (4 web-
 - `ErrorBoundary` now resets on hashchange (one crashed page no longer poisons all later routes — desktop benefits too).
 
 **Still blocked (with exact causes):**
-- POS complete-sale + Debts settle: `POST /api/sales/process` **400s** — the checkout payload (items, payment legs, CUSTOMER_ACCOUNT) doesn't fit the thin REST `createSaleSchema`. This is the money-write parity wall (FEATURE_GUIDE §13) — roadmap step 2.
-- `/loto`: `/api/loto/*` routes don't exist (step 2).
+- ~~POS complete-sale + Debts settle~~ **FIXED (2026-07-10, step 2 opener):** the real sale contract (`SaleProcessSchema` + payment-leg schema) moved from `electron-app/schemas/` into `packages/core/src/validators/sale.ts` (`saleProcessSchema`); the REST route now validates against it and allows staff (role parity with IPC). Both transports feed the identical `SalesService.processSale`. **app.spec.ts passes 14/14 in web mode — `yarn test:e2e:web` = 18 green**; backend jest 384/384. The old thin `createSaleSchema` is `@deprecated`.
+  - ⚠️ Found while doing it: `packages/core` declares **zod ^4.3.6** while root/backend/electron declare **^3.2x** and the hoisted runtime is 3.25 — core's emitted d.ts uses zod-4 generics that zod-3 consumers reject (bridged with one typed cast in `electron-app/schemas/index.ts`). Align the zod versions across workspaces — hygiene item.
+- `/loto`: `/api/loto/*` routes don't exist (step 2 continues — same recipe: lift the loto IPC schemas to core validators, add routes calling the same core services).
 - lira-073: its `createOmtAppSend` seeding form (`#transfer-amount`) doesn't open in web mode — uninvestigated.
 
 **Original broken-page table (historical, all fixed except /loto):**
