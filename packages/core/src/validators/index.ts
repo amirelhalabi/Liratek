@@ -18,3 +18,4 @@ export * from "./rate.js";
 export * from "./maintenance.js";
 export * from "./customService.js";
 export * from "./servicePreset.js";
+export * from "./loto.js";

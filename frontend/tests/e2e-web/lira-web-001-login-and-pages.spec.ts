@@ -9,8 +9,8 @@
  */
 import { test, expect, loginAsAdmin } from "./fixtures";
 
-// Routes verified clean in web mode (2026-07-10 smoke run + broken-page fixes).
-// Still excluded: /loto (its /api/loto/* routes don't exist yet — 404 noise).
+// Routes verified clean in web mode (2026-07-10 smoke run + broken-page
+// fixes + loto REST routes). All 20 routes covered.
 const CLEAN_ROUTES = [
   "/",
   "/pos",
@@ -20,6 +20,7 @@ const CLEAN_ROUTES = [
   "/exchange",
   "/services",
   "/recharge",
+  "/loto",
   "/expenses",
   "/maintenance",
   "/custom-services",
