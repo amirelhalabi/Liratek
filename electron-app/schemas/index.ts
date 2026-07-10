@@ -6,49 +6,37 @@
  */
 
 import { z } from "zod";
+import {
+  saleProcessSchema,
+  lotoSellSchema,
+  lotoCashPrizeSchema,
+  lotoTicketUpdateSchema,
+  lotoFeeSchema,
+  lotoCheckpointCreateSchema,
+  lotoCheckpointSettleSchema,
+  lotoCheckpointsSettleBatchSchema,
+  sessionCheckoutSchema,
+  type SaleProcessInput,
+  type LotoSellInput,
+  type LotoCashPrizeInput,
+  type LotoTicketUpdateInput,
+  type LotoFeeInput,
+  type LotoCheckpointCreateInput,
+  type LotoCheckpointSettleInput,
+  type LotoCheckpointsSettleBatchInput,
+  type SessionCheckoutInput,
+} from "@liratek/core";
 
 // =============================================================================
 // Sales
 // =============================================================================
 
-const PaymentLineSchema = z.object({
-  method: z.string().min(1),
-  currency_code: z.string().min(1),
-  amount: z.number(),
-  // Present only for GIFT_CARD legs — the voucher code being redeemed.
-  voucher_code: z.string().optional(),
-  // IN (customer pays, default) or OUT (shop returns change to customer).
-  direction: z.enum(["IN", "OUT"]).optional(),
-});
-
-export const SaleProcessSchema = z.object({
-  client_id: z.number().int().nullable(),
-  client_name: z.string().optional(),
-  client_phone: z.string().optional(),
-  items: z
-    .array(
-      z.object({
-        product_id: z.number().int().positive(),
-        quantity: z.number().positive(),
-        price: z.number().nonnegative(),
-        imei: z.string().optional(),
-      }),
-    )
-    .min(1, "Sale must have at least one item"),
-  total_amount: z.number().nonnegative(),
-  discount: z.number().nonnegative(),
-  final_amount: z.number().nonnegative(),
-  payment_usd: z.number().nonnegative(),
-  payment_lbp: z.number().nonnegative(),
-  payments: z.array(PaymentLineSchema).optional(),
-  change_given_usd: z.number().optional(),
-  change_given_lbp: z.number().optional(),
-  exchange_rate: z.number().positive(),
-  drawer_name: z.string().optional(),
-  id: z.number().int().positive().optional(),
-  status: z.enum(["completed", "draft", "cancelled"]).optional(),
-  note: z.string().optional(),
-});
+// The sale-processing contract lives in packages/core/src/validators/sale.ts
+// so the Electron IPC handler and the REST route validate against ONE schema
+// (CLAUDE.md rule 14). Re-exported under the historical local name.
+// Cast bridges the zod major mismatch (core types against zod 4, this
+// workspace types against zod 3); the runtime API used is identical.
+export const SaleProcessSchema = saleProcessSchema as unknown as z.ZodSchema<SaleProcessInput>;
 
 export const SaleRefundSchema = z.number().int().positive();
 
@@ -350,111 +338,27 @@ export const ExchangeTransactionSchema = z.object({
 // Loto
 // =============================================================================
 
-export const LotoSellSchema = z.object({
-  ticket_number: z.string().optional(),
-  sale_amount: z.number().positive(),
-  // Structured legs in the currency the customer ACTUALLY paid (a 500,000 LBP
-  // ticket paid with $5 books General +5 USD, not +500,000 LBP).
-  payments: z
-    .array(
-      z.object({
-        method: z.string().min(1),
-        currencyCode: z.string().min(1),
-        amount: z.number(),
-        direction: z.enum(["IN", "OUT"]).optional(),
-      }),
-    )
-    .optional(),
-  commission_rate: z.number().optional(),
-  is_winner: z.boolean().optional(),
-  prize_amount: z.number().optional(),
-  sale_date: z.string().optional(),
-  payment_method: z.string().optional(),
-  currency: z.string().optional(),
-  note: z.string().optional(),
-  transaction_time: z.string().optional(),
-  clientId: z.number().int().positive().nullable().optional(),
-  clientName: z.string().optional(),
-});
-
-export const LotoCashPrizeSchema = z.object({
-  ticket_number: z.string(),
-  prize_amount: z.number().positive(),
-  prize_date: z.string().optional(),
-  customer_name: z.string().optional(),
-  note: z.string().optional(),
-});
-
-/** loto:update payload — mirrors LotoTicketUpdate; sale/commission edits feed
- *  checkpoint settlement math, so malformed values must be rejected here. */
-export const LotoTicketUpdateSchema = z.object({
-  ticket_number: z.string().min(1).optional(),
-  sale_amount: z.number().positive().optional(),
-  commission_rate: z.number().nonnegative().optional(),
-  commission_amount: z.number().nonnegative().optional(),
-  // Boolean accepted for caller convenience; the handler normalizes to 0/1
-  // (a .transform() here breaks validatePayload's generic inference).
-  is_winner: z
-    .union([z.boolean(), z.number().int().min(0).max(1)])
-    .optional(),
-  prize_amount: z.number().nonnegative().optional(),
-  prize_paid_date: z.string().optional(),
-  payment_method: z.string().optional(),
-  currency: z.string().optional(),
-  note: z.string().optional(),
-});
+// Loto contracts live in packages/core/src/validators/loto.ts so the IPC
+// handlers and the REST routes (backend/src/api/loto.ts) validate against ONE
+// schema each (CLAUDE.md rule 14). Casts bridge the zod major mismatch (core
+// types against zod 4, this workspace against zod 3); runtime API identical.
+export const LotoSellSchema =
+  lotoSellSchema as unknown as z.ZodSchema<LotoSellInput>;
+export const LotoCashPrizeSchema =
+  lotoCashPrizeSchema as unknown as z.ZodSchema<LotoCashPrizeInput>;
+export const LotoTicketUpdateSchema =
+  lotoTicketUpdateSchema as unknown as z.ZodSchema<LotoTicketUpdateInput>;
+export const LotoFeeSchema =
+  lotoFeeSchema as unknown as z.ZodSchema<LotoFeeInput>;
+export const LotoCheckpointCreateSchema =
+  lotoCheckpointCreateSchema as unknown as z.ZodSchema<LotoCheckpointCreateInput>;
+export const LotoCheckpointSettleSchema =
+  lotoCheckpointSettleSchema as unknown as z.ZodSchema<LotoCheckpointSettleInput>;
+export const LotoCheckpointsSettleBatchSchema =
+  lotoCheckpointsSettleBatchSchema as unknown as z.ZodSchema<LotoCheckpointsSettleBatchInput>;
 
 /** Bare positive-integer id (transactions:void/refund, loto:update). */
 export const PositiveIdSchema = z.number().int().positive();
-
-export const LotoFeeSchema = z.object({
-  fee_amount: z.number().positive(),
-  fee_month: z.string().min(1),
-  fee_year: z.number().int().positive(),
-  recorded_date: z.string().optional(),
-  note: z.string().optional(),
-});
-
-export const LotoCheckpointCreateSchema = z.object({
-  checkpoint_date: z.string().min(1),
-  period_start: z.string().min(1),
-  period_end: z.string().min(1),
-  note: z.string().optional(),
-});
-
-const CheckpointPaymentSchema = z.object({
-  method: z.string().min(1),
-  currency_code: z.string().min(1),
-  amount: z.number(),
-  direction: z.enum(["IN", "OUT"]).optional(),
-});
-
-export const LotoCheckpointSettleSchema = z.object({
-  id: z.number().int().positive(),
-  totalSales: z.number().nonnegative(),
-  totalCommission: z.number().nonnegative(),
-  totalPrizes: z.number().nonnegative(),
-  totalCashPrizes: z.number().optional(),
-  settledAt: z.string().optional(),
-  payments: z.array(CheckpointPaymentSchema).optional(),
-});
-
-export const LotoCheckpointsSettleBatchSchema = z.object({
-  checkpointIds: z
-    .array(z.number().int().positive())
-    .min(1, "At least one checkpoint required"),
-  totalSales: z.number().nonnegative(),
-  totalCommission: z.number().nonnegative(),
-  settledAt: z.string().optional(),
-  payment: z
-    .object({
-      method: z.string().min(1),
-      drawer_name: z.string().min(1),
-      currency_code: z.string().min(1),
-      amount: z.number(), // can be negative (we pay out)
-    })
-    .optional(),
-});
 
 // =============================================================================
 // Custom Services
@@ -651,34 +555,12 @@ export const VoucherCreateSchema = z.object({
 // Customer Sessions — basket checkout
 // =============================================================================
 
-/** One customer-facing basket payment leg (the ONE payment for the whole cart). */
-const SessionCheckoutPaymentSchema = z.object({
-  method: z.string().min(1),
-  currency_code: z.string().min(1),
-  amount: z.number(),
-  direction: z.enum(["IN", "OUT"]).optional(),
-  // Present only for GIFT_CARD legs.
-  voucher_code: z.string().optional(),
-});
-
-/**
- * Session checkout envelope. Only the basket-payment fields are validated here;
- * each cart item's opaque `formData` is validated by the module's own service
- * when it is processed. `passthrough()` keeps unknown fields (e.g. cartItems)
- * intact since the handler reads them directly off the original request.
- */
-export const SessionCheckoutSchema = z
-  .object({
-    sessionId: z.number().int().positive(),
-    cartItems: z.array(z.unknown()).min(1, "Cart is empty"),
-    paidByMethod: z.string().optional(),
-    payments: z.array(SessionCheckoutPaymentSchema).optional(),
-    exchangeRate: z.number().positive().optional(),
-    clientId: z.number().int().positive().optional(),
-    clientName: z.string().optional(),
-    userId: z.number().int(),
-  })
-  .passthrough();
+// The session checkout contract lives in packages/core/src/validators/session.ts
+// so the IPC handler and the REST route validate against ONE schema (rule 14).
+// Cast bridges the zod major mismatch (core types against zod 4, this workspace
+// against zod 3); the runtime API is identical.
+export const SessionCheckoutSchema =
+  sessionCheckoutSchema as unknown as z.ZodSchema<SessionCheckoutInput>;
 
 // =============================================================================
 // Helpers

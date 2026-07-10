@@ -323,6 +323,38 @@ export class ElectronApiAdapter implements ApiAdapter {
     profitLbp?: number;
   }) => api.linkTransactionToSession(data);
 
+  // Nested namespace mirroring window.api.session — so the session page /
+  // context call the SAME method names on desktop (IPC) and web (REST).
+  session = {
+    getActiveSessions: () => api.getActiveSessions(),
+    getTodaySessions: () => api.getTodaySessions(),
+    getTodayAllSessions: () => api.getTodayAllSessions(),
+    getByDateRange: (from: string, to: string) =>
+      api.getSessionsByDateRange(from, to),
+    getByCustomer: (data: { customerName: string; customerPhone?: string }) =>
+      api.getSessionsByCustomer(data),
+    delete: (sessionId: number) => api.deleteSession(sessionId),
+    getTransactions: (sessionId: number) => api.getSessionDetails(sessionId),
+    cartGet: (sessionId: number) => api.sessionCartGet(sessionId),
+    cartAdd: (
+      sessionId: number,
+      item: {
+        item_id: string;
+        module: string;
+        label: string;
+        amount: number;
+        currency: string;
+        form_data: string;
+        ipc_channel: string;
+        user_id?: number;
+      },
+    ) => api.sessionCartAdd(sessionId, item),
+    cartRemove: (sessionId: number, itemId: string) =>
+      api.sessionCartRemove(sessionId, itemId),
+    cartClear: (sessionId: number) => api.sessionCartClear(sessionId),
+    checkout: (data: unknown) => api.processSessionCheckout(data),
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

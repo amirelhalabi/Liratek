@@ -9,6 +9,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useApi } from "@liratek/ui";
 
 interface SessionTransaction {
   id: number;
@@ -66,6 +67,7 @@ export default function CustomerSessionsView({
   customerPhone,
   onClose,
 }: CustomerSessionsViewProps) {
+  const api = useApi();
   useModalFocusFix(true);
   const [sessions, setSessions] = useState<SessionWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,10 +80,9 @@ export default function CustomerSessionsView({
   const loadSessions = async () => {
     setLoading(true);
     try {
-      const result = await window.api.session.getByCustomer({
-        customerName,
-        customerPhone,
-      });
+      const result = await api.session.getByCustomer(
+        customerPhone ? { customerName, customerPhone } : { customerName },
+      );
 
       if (result.success && result.sessions) {
         setSessions(result.sessions);

@@ -131,9 +131,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [activeSession?.id]);
 
   const loadCartItems = async (sessionId: number) => {
-    if (!window.api?.session) return;
     try {
-      const result = await window.api.session.cartGet(sessionId);
+      const result = await api.session.cartGet(sessionId);
       if (result.success && result.items) {
         // Convert DB rows to CartItem shape
         const items: CartItem[] = result.items.map((row) => ({
@@ -163,7 +162,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       // Persist to DB
       try {
-        await window.api.session.cartAdd(sessionId, {
+        await api.session.cartAdd(sessionId, {
           item_id: newItem.id,
           module: newItem.module,
           label: newItem.label,
@@ -190,7 +189,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       // Remove from DB
       try {
-        await window.api.session.cartRemove(activeSession.id, itemId);
+        await api.session.cartRemove(activeSession.id, itemId);
       } catch (err) {
         logger.error("Failed to remove cart item from DB:", err);
       }
@@ -205,7 +204,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     // Clear in DB
     try {
-      await window.api.session.cartClear(activeSession.id);
+      await api.session.cartClear(activeSession.id);
     } catch (err) {
       logger.error("Failed to clear cart in DB:", err);
     }
@@ -226,11 +225,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, [cartItems]);
 
   const refreshActiveSessions = useCallback(async () => {
-    // Customer sessions are IPC-only for now — skip in web mode instead of
-    // throwing "cannot read properties of undefined" on every poll tick.
-    if (!window.api?.session) return;
     try {
-      const data = await window.api.session.getActiveSessions();
+      const data = await api.session.getActiveSessions();
 
       if (data.success && data.sessions) {
         const active = data.sessions as CustomerSession[];
@@ -250,7 +246,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Also fetch today's sessions (active + closed) for the session list UI
-      const todayData = await window.api.session.getTodayAllSessions();
+      const todayData = await api.session.getTodayAllSessions();
       if (todayData.success && todayData.sessions) {
         setAllTodaySessions(todayData.sessions as CustomerSession[]);
       }
@@ -308,7 +304,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         const result = await api.startSession(data);
         if (result.success && result.sessionId) {
           // Refresh the list to get the new session
-          const updatedData = await window.api.session.getActiveSessions();
+          const updatedData = await api.session.getActiveSessions();
           if (updatedData.success && updatedData.sessions) {
             const active = updatedData.sessions as CustomerSession[];
             setAllActiveSessions(active);
@@ -351,7 +347,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const result = await api.closeSession(activeSession.id);
       if (result.success) {
         // Clear cart for this session
-        await window.api.session.cartClear(activeSession.id);
+        await api.session.cartClear(activeSession.id);
         setActiveSession(null);
         setSessionTransactions([]);
         setCartItems([]);
@@ -371,7 +367,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         const result = await api.closeSession(sessionId);
         if (result.success) {
           // Clear cart for closed session
-          await window.api.session.cartClear(sessionId);
+          await api.session.cartClear(sessionId);
           await refreshActiveSessions();
           // If we closed the active session, clear it
           if (activeSession?.id === sessionId) {
@@ -393,7 +389,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const deleteSession = useCallback(
     async (sessionId: number) => {
       try {
-        const result = await window.api.session.delete(sessionId);
+        const result = await api.session.delete(sessionId);
         if (result.success) {
           await refreshActiveSessions();
           // If we deleted the active session, clear it
@@ -476,7 +472,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     pollingRef.current = setInterval(async () => {
       // Poll active sessions list
       try {
-        const result = await window.api.session.getActiveSessions();
+        const result = await api.session.getActiveSessions();
         if (result.success && result.sessions) {
           setAllActiveSessions(result.sessions as CustomerSession[]);
         }
@@ -486,7 +482,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
       // Poll today's all sessions for the list UI
       try {
-        const todayResult = await window.api.session.getTodayAllSessions();
+        const todayResult = await api.session.getTodayAllSessions();
         if (todayResult.success && todayResult.sessions) {
           setAllTodaySessions(todayResult.sessions as CustomerSession[]);
         }
@@ -497,7 +493,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // Poll cart items for active session
       if (activeSession) {
         try {
-          const cartResult = await window.api.session.cartGet(activeSession.id);
+          const cartResult = await api.session.cartGet(activeSession.id);
           if (cartResult.success && cartResult.items) {
             const items: CartItem[] = cartResult.items.map((row) => ({
               id: row.item_id,
@@ -522,7 +518,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
         // Poll transactions for active session
         try {
-          const txResult = await window.api.session.getTransactions(
+          const txResult = await api.session.getTransactions(
             activeSession.id,
           );
           if (txResult.success && txResult.transactions) {

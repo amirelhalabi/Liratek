@@ -638,6 +638,46 @@ export type ApiAdapter = {
     amountLbp: number;
   }) => Promise<ApiResult & { linked: boolean }>;
 
+  /** Nested namespace mirroring window.api.session (read + cart + checkout),
+   *  so the session page/context call identical names on IPC and REST. */
+  session: {
+    getActiveSessions: () => Promise<{
+      success: boolean;
+      sessions?: any[];
+      error?: string;
+    }>;
+    getTodaySessions: () => Promise<any>;
+    getTodayAllSessions: () => Promise<any>;
+    getByDateRange: (from: string, to: string) => Promise<any>;
+    getByCustomer: (data: {
+      customerName: string;
+      customerPhone?: string;
+    }) => Promise<any>;
+    delete: (sessionId: number) => Promise<ApiResult>;
+    getTransactions: (sessionId: number) => Promise<any>;
+    cartGet: (sessionId: number) => Promise<{
+      success: boolean;
+      items?: any[];
+      error?: string;
+    }>;
+    cartAdd: (
+      sessionId: number,
+      item: {
+        item_id: string;
+        module: string;
+        label: string;
+        amount: number;
+        currency: string;
+        form_data: string;
+        ipc_channel: string;
+        user_id?: number;
+      },
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    cartRemove: (sessionId: number, itemId: string) => Promise<ApiResult>;
+    cartClear: (sessionId: number) => Promise<ApiResult>;
+    checkout: (data: unknown) => Promise<any>;
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

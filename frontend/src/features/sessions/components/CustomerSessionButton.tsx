@@ -222,11 +222,11 @@ export function CustomerSessionButton({
     setShowDropdown(false);
     try {
       // Generate "Client1", "Client2", ... based on today's existing walk-in sessions
-      const todayResult = await window.api.session.getTodaySessions();
+      const todayResult = await api.session.getTodaySessions();
       const todayNames: string[] =
         todayResult.success && todayResult.sessions
           ? todayResult.sessions
-              .map((s) => s.customer_name ?? "")
+              .map((s: { customer_name?: string }) => s.customer_name ?? "")
               .filter(Boolean)
           : [];
 

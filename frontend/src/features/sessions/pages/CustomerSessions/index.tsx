@@ -9,7 +9,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { PageHeader } from "@liratek/ui";
+import { PageHeader, useApi } from "@liratek/ui";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 
 interface SessionSummary {
@@ -72,6 +72,7 @@ function localToday(): string {
 }
 
 export default function CustomerSessions() {
+  const api = useApi();
   const today = localToday();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -79,15 +80,9 @@ export default function CustomerSessions() {
   const [dateTo, setDateTo] = useState(today);
 
   const loadSessions = useCallback(async () => {
-    // Customer sessions are IPC-only for now — render empty in web mode
-    if (!window.api?.session) {
-      setSessions([]);
-      setIsLoading(false);
-      return;
-    }
     try {
       setIsLoading(true);
-      const result = await window.api.session.getByDateRange(dateFrom, dateTo);
+      const result = await api.session.getByDateRange(dateFrom, dateTo);
       if (result.success && result.sessions) {
         setSessions(result.sessions);
       }
@@ -259,6 +254,7 @@ interface SessionTransaction {
 }
 
 function SessionCard({ session: s }: { session: SessionSummary }) {
+  const api = useApi();
   const isActive = s.is_active === 1;
   // Use checkout totals if available, otherwise fall back to linked transaction totals
   const revenueUsd = s.checkout_total_usd || s.total_usd;
@@ -279,12 +275,11 @@ function SessionCard({ session: s }: { session: SessionSummary }) {
       return;
     }
     setExpanded(true);
-    if (!window.api?.session) return; // IPC-only details — skip in web mode
     setLoadingDetails(true);
     try {
       const [cartResult, txResult] = await Promise.all([
-        window.api.session.cartGet(s.id),
-        window.api.session.getTransactions(s.id),
+        api.session.cartGet(s.id),
+        api.session.getTransactions(s.id),
       ]);
       if (cartResult.success && cartResult.items) {
         setCartItems(cartResult.items as SessionDetailItem[]);

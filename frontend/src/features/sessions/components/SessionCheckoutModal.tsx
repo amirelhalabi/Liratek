@@ -12,6 +12,7 @@ import {
   appEvents,
   canChargeToCustomerAccount,
   MultiPaymentInput,
+  useApi,
   type PaymentLine,
 } from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
@@ -149,6 +150,7 @@ export function SessionCheckoutModal({
   onClose,
 }: SessionCheckoutModalProps) {
   useModalFocusFix(isOpen);
+  const api = useApi();
   const {
     activeSession,
     cartItems,
@@ -492,7 +494,7 @@ export function SessionCheckoutModal({
         };
       });
 
-      const result = await window.api.session.checkout({
+      const result = await api.session.checkout({
         sessionId: activeSession.id,
         cartItems: updatedCartItems,
         paidByMethod: primaryMethod,

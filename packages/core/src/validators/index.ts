@@ -19,3 +19,5 @@ export * from "./maintenance.js";
 export * from "./customService.js";
 export * from "./servicePreset.js";
 export * from "./tenant.js";
+export * from "./loto.js";
+export * from "./session.js";
