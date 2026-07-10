@@ -74,6 +74,12 @@ jobs:
       - name: TypeScript check
         run: yarn typecheck
 
+      - name: Tenant-scoping check (every tenant-table SQL carries tenant_id)
+        run: yarn check:tenant-scoping
+
+      - name: Bind-arity check (prepared statements' ? count == bound args)
+        run: yarn check:bind-arity
+
   backend-tests:
     name: Backend Tests
     runs-on: ubuntu-latest

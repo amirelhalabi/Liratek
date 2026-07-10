@@ -852,6 +852,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 txnId,
                 serviceDebtNote(data),
                 createdBy,
+                getCurrentTenantId(),
               );
           }
         } else {
@@ -889,6 +890,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 txnId,
                 serviceDebtNote(data),
                 createdBy,
+                getCurrentTenantId(),
               );
           }
         }
