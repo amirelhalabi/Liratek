@@ -197,6 +197,20 @@ export type {
   RecordBasketPaymentResult,
 } from "./SessionPaymentService.js";
 
+// Session Checkout Service (basket checkout orchestration — WP4)
+export {
+  SessionCheckoutService,
+  getSessionCheckoutService,
+  resetSessionCheckoutService,
+} from "./SessionCheckoutService.js";
+export type {
+  CheckoutRequest,
+  CheckoutCartItem,
+  CheckoutPayment,
+  CheckoutItemResult,
+  CheckoutResult,
+} from "./SessionCheckoutService.js";
+
 // WhatsApp Service
 export {
   WhatsAppService,

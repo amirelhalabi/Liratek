@@ -2085,16 +2085,16 @@ export async function sessionCartClear(sessionId: number) {
   );
 }
 
-// Basket checkout. HTTP transport lands in WP4 (needs the checkout
-// orchestration extracted into a core service first).
+// Basket checkout — dual-mode. Both transports feed the same core
+// SessionCheckoutService (WP4). REST route: POST /api/sessions/checkout.
 export async function processSessionCheckout(data: any) {
   return ipcOrHttp(
     async () => getElectronApi().session.checkout(data),
-    async () => {
-      throw new Error(
-        "Session checkout over the web is not available yet (pending WP4).",
-      );
-    },
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        "/api/sessions/checkout",
+        { method: "POST", body: data },
+      ),
   );
 }
 

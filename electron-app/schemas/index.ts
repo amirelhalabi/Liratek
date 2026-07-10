@@ -15,6 +15,7 @@ import {
   lotoCheckpointCreateSchema,
   lotoCheckpointSettleSchema,
   lotoCheckpointsSettleBatchSchema,
+  sessionCheckoutSchema,
   type SaleProcessInput,
   type LotoSellInput,
   type LotoCashPrizeInput,
@@ -23,6 +24,7 @@ import {
   type LotoCheckpointCreateInput,
   type LotoCheckpointSettleInput,
   type LotoCheckpointsSettleBatchInput,
+  type SessionCheckoutInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -553,34 +555,12 @@ export const VoucherCreateSchema = z.object({
 // Customer Sessions — basket checkout
 // =============================================================================
 
-/** One customer-facing basket payment leg (the ONE payment for the whole cart). */
-const SessionCheckoutPaymentSchema = z.object({
-  method: z.string().min(1),
-  currency_code: z.string().min(1),
-  amount: z.number(),
-  direction: z.enum(["IN", "OUT"]).optional(),
-  // Present only for GIFT_CARD legs.
-  voucher_code: z.string().optional(),
-});
-
-/**
- * Session checkout envelope. Only the basket-payment fields are validated here;
- * each cart item's opaque `formData` is validated by the module's own service
- * when it is processed. `passthrough()` keeps unknown fields (e.g. cartItems)
- * intact since the handler reads them directly off the original request.
- */
-export const SessionCheckoutSchema = z
-  .object({
-    sessionId: z.number().int().positive(),
-    cartItems: z.array(z.unknown()).min(1, "Cart is empty"),
-    paidByMethod: z.string().optional(),
-    payments: z.array(SessionCheckoutPaymentSchema).optional(),
-    exchangeRate: z.number().positive().optional(),
-    clientId: z.number().int().positive().optional(),
-    clientName: z.string().optional(),
-    userId: z.number().int(),
-  })
-  .passthrough();
+// The session checkout contract lives in packages/core/src/validators/session.ts
+// so the IPC handler and the REST route validate against ONE schema (rule 14).
+// Cast bridges the zod major mismatch (core types against zod 4, this workspace
+// against zod 3); the runtime API is identical.
+export const SessionCheckoutSchema =
+  sessionCheckoutSchema as unknown as z.ZodSchema<SessionCheckoutInput>;
 
 // =============================================================================
 // Helpers

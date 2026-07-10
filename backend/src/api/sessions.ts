@@ -16,6 +16,10 @@ import { Router, Request, Response } from "express";
 import {
   CustomerSessionService,
   getCustomerSessionRepository,
+  getSessionCheckoutService,
+  sessionCheckoutSchema,
+  type SessionCheckoutInput,
+  type CheckoutRequest,
 } from "@liratek/core";
 import {
   authenticateJWT,
@@ -29,6 +33,19 @@ const sessionService = new CustomerSessionService();
 router.use(authenticateJWT);
 
 const writeGate = requireRole(["admin", "staff"]);
+
+// safeParse against the core schema, bridging the zod-major type gap (same
+// pattern as loto.ts). Runtime API is identical.
+type SafeParseable<T> = {
+  safeParse: (data: unknown) =>
+    | { success: true; data: T }
+    | {
+        success: false;
+        error: { issues: Array<{ path: (string | number)[]; message: string }> };
+      };
+};
+const checkoutSchema =
+  sessionCheckoutSchema as unknown as SafeParseable<SessionCheckoutInput>;
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error";
@@ -132,6 +149,30 @@ router.post("/start", writeGate, async (req: Request, res: Response) => {
         started_by: username,
       }),
     );
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
+// POST /api/sessions/checkout — basket checkout (shared core orchestration).
+// Validates the basket envelope against the SAME core schema the IPC handler
+// uses, then delegates to SessionCheckoutService (money invariants live there).
+router.post("/checkout", writeGate, async (req: Request, res: Response) => {
+  try {
+    const parsed = checkoutSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const msg = parsed.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("; ");
+      res.json({ success: false, error: `Validation failed: ${msg}` });
+      return;
+    }
+    const username = (req as AuthRequest).user?.username || "unknown";
+    const result = await getSessionCheckoutService().checkout(
+      parsed.data as unknown as CheckoutRequest,
+      { username },
+    );
+    res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }

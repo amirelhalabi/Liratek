@@ -573,6 +573,62 @@ export class CustomerSessionRepository {
       .prepare(`DELETE FROM ${this.cartTableName} WHERE session_id = ?`)
       .run(sessionId);
   }
+
+  /**
+   * Run a checkout as ONE atomic SQLite transaction. Keeps the transaction
+   * boundary in the repository layer (rule 13) so SessionCheckoutService never
+   * touches getDatabase()/db directly. The closure composes the per-item
+   * module-service calls + basket payment + recordCheckoutClose; all run on
+   * this same synchronous connection.
+   */
+  runCheckoutTransaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
+  /**
+   * Close a session at checkout, stamping the per-currency totals + profit.
+   * (Relocated verbatim from the electron checkout handler's inline UPDATE.)
+   */
+  recordCheckoutClose(
+    sessionId: number,
+    data: {
+      totalUsd: number;
+      totalLbp: number;
+      profitUsd: number;
+      profitLbp: number;
+      legacyTotal: number;
+      legacyCurrency: string;
+      closedBy: string;
+    },
+  ): void {
+    this.db
+      .prepare(
+        `
+        UPDATE ${this.tableName}
+        SET checkout_at = datetime('now'),
+            checkout_total = ?,
+            checkout_currency = ?,
+            checkout_total_usd = ?,
+            checkout_total_lbp = ?,
+            checkout_profit_usd = ?,
+            checkout_profit_lbp = ?,
+            is_active = 0,
+            closed_at = datetime('now'),
+            closed_by = ?
+        WHERE id = ?
+      `,
+      )
+      .run(
+        data.legacyTotal,
+        data.legacyCurrency,
+        data.totalUsd,
+        data.totalLbp,
+        data.profitUsd,
+        data.profitLbp,
+        data.closedBy,
+        sessionId,
+      );
+  }
 }
 
 export function getCustomerSessionRepository(

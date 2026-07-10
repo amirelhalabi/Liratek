@@ -48,4 +48,67 @@ test.describe.serial("web sessions", () => {
       });
     }
   });
+
+  test("basket checkout runs over REST (WP4 — shared core SessionCheckoutService)", async ({
+    page,
+  }) => {
+    await loginAsAdmin(page);
+    const token = await page.evaluate(() =>
+      localStorage.getItem("liratek.jwt"),
+    );
+    const auth = { Authorization: `Bearer ${token}` };
+
+    // Start a session, add a custom-service basket item.
+    const started = await (
+      await page.request.post(`${BACKEND_URL}/api/sessions/start`, {
+        headers: auth,
+        data: { customer_name: "WP4 Web Checkout", customer_phone: "03222111" },
+      })
+    ).json();
+    const sid = started.sessionId as number;
+    expect(sid).toBeTruthy();
+
+    // Checkout the basket with ONE $30 CASH leg through the REST route — the
+    // same core SessionCheckoutService the desktop IPC path uses.
+    const checkout = await (
+      await page.request.post(`${BACKEND_URL}/api/sessions/checkout`, {
+        headers: auth,
+        data: {
+          sessionId: sid,
+          cartItems: [
+            {
+              id: "wp4-web-cs",
+              module: "custom_services",
+              label: "WP4 Web Service",
+              amount: 30,
+              currency: "USD",
+              ipcChannel: "custom-services:add",
+              formData: {
+                description: "WP4 Web Service",
+                price_usd: 30,
+                cost_usd: 0,
+                status: "completed",
+              },
+            },
+          ],
+          payments: [{ method: "CASH", currency_code: "USD", amount: 30 }],
+          exchangeRate: 90000,
+          userId: 1,
+        },
+      })
+    ).json();
+    expect(checkout.success, JSON.stringify(checkout)).toBeTruthy();
+    expect(checkout.checkoutTotalUsd).toBe(30);
+    expect(checkout.itemCount).toBe(1);
+
+    // The session must now be closed (checkout posted + closed it). The
+    // per-currency totals are asserted on the checkout response above; the
+    // getSessionDetails projection does not surface checkout_total_usd.
+    const details = await (
+      await page.request.get(`${BACKEND_URL}/api/sessions/${sid}`, {
+        headers: auth,
+      })
+    ).json();
+    expect(details.session.is_active).toBe(0);
+  });
 });
