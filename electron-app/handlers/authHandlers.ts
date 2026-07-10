@@ -49,7 +49,7 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   try {
     db.prepare(
-      "INSERT OR IGNORE INTO users (id, username, password_hash, role, is_active) VALUES (1, 'admin', '', 'admin', 1)",
+      "INSERT OR IGNORE INTO users (id, username, password_hash, role, is_active, tenant_id) VALUES (1, 'admin', '', 'admin', 1, 1)",
     ).run();
     const row = db
       .prepare("SELECT password_hash FROM users WHERE id = 1")

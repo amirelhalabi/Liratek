@@ -29,7 +29,8 @@ export default defineConfig({
   // support concurrent Electron instances.
   workers: process.env.PWTEST_WORKERS ? Number(process.env.PWTEST_WORKERS) : 1,
   use: {
-    trace: "off",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
   webServer: {
     command: "npm run dev",

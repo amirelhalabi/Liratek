@@ -12,7 +12,12 @@ import path from "path";
 import os from "os";
 import { createRequire } from "module";
 import { getDb } from "../main.js";
-import { getSettingsService, logger, getAuditService } from "@liratek/core";
+import {
+  getSettingsService,
+  logger,
+  getAuditService,
+  getCurrentTenantId,
+} from "@liratek/core";
 
 export interface SetupPayload {
   shop_name: string;
@@ -84,6 +89,13 @@ export function registerSetupHandlers() {
       // (id=1) and insert a fresh row (id>=2), so a hardcoded user_id=1 would
       // violate the daily_closings.created_by FK and silently roll back.
       const adminUserId = db.transaction(() => {
+        // Desktop is single-tenant (fixed context = tenant 1). Every row this
+        // wizard writes into a tenant-owned table (users, system_settings) MUST
+        // carry tenant_id, or the tenant-scoped reads (isSetupComplete, user
+        // lists, settings) never see it — the setup flag in particular would
+        // then read "incomplete" on every reload and bounce back to /setup.
+        const tenantId = getCurrentTenantId();
+
         // 1. Create admin user (replace default seed if present)
         const existingAdmin = db
           .prepare("SELECT id FROM users WHERE username = ? LIMIT 1")
@@ -104,22 +116,22 @@ export function registerSetupHandlers() {
           ).run();
           const insertResult = db
             .prepare(
-              "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, 'admin', 1)",
+              "INSERT INTO users (username, password_hash, role, is_active, tenant_id) VALUES (?, ?, 'admin', 1, ?)",
             )
-            .run(payload.admin_username, passwordHash);
+            .run(payload.admin_username, passwordHash, tenantId);
           resolvedAdminId = Number(insertResult.lastInsertRowid);
         }
 
         // 2. Save shop name
         db.prepare(
-          "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('shop_name', ?)",
-        ).run(payload.shop_name.trim());
+          "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'shop_name', ?)",
+        ).run(tenantId, payload.shop_name.trim());
 
         // 2b. Save base system (OMT or WHISH) and deactivate partner supplier
         const baseSystem = payload.base_system === "WHISH" ? "WHISH" : "OMT";
         db.prepare(
-          "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('shop_base_system', ?)",
-        ).run(baseSystem);
+          "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'shop_base_system', ?)",
+        ).run(tenantId, baseSystem);
 
         // Deactivate the partner system's supplier
         const partnerSystem = baseSystem === "OMT" ? "WHISH" : "OMT";
@@ -163,12 +175,12 @@ export function registerSetupHandlers() {
 
         // 5. Feature flags
         db.prepare(
-          "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('feature_session_management', ?)",
-        ).run(payload.session_management_enabled ? "enabled" : "disabled");
+          "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'feature_session_management', ?)",
+        ).run(tenantId, payload.session_management_enabled ? "enabled" : "disabled");
 
         db.prepare(
-          "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('feature_customer_sessions', ?)",
-        ).run(payload.customer_sessions_enabled ? "enabled" : "disabled");
+          "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'feature_customer_sessions', ?)",
+        ).run(tenantId, payload.customer_sessions_enabled ? "enabled" : "disabled");
 
         // 6. Active currencies (optional — skip if not provided)
         if (payload.active_currencies && payload.active_currencies.length > 0) {
@@ -193,11 +205,12 @@ export function registerSetupHandlers() {
               .get(u.username) as { id: number } | undefined;
             if (!existingUser) {
               db.prepare(
-                "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, 1)",
+                "INSERT INTO users (username, password_hash, role, is_active, tenant_id) VALUES (?, ?, ?, 1, ?)",
               ).run(
                 u.username.trim(),
                 hashPassword(u.password),
                 u.role || "staff",
+                tenantId,
               );
             }
           }
@@ -206,19 +219,19 @@ export function registerSetupHandlers() {
         // 8. WhatsApp config (optional)
         if (payload.whatsapp_phone) {
           db.prepare(
-            "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('whatsapp_phone', ?)",
-          ).run(payload.whatsapp_phone);
+            "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'whatsapp_phone', ?)",
+          ).run(tenantId, payload.whatsapp_phone);
         }
         if (payload.whatsapp_api_key) {
           db.prepare(
-            "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('whatsapp_api_key', ?)",
-          ).run(payload.whatsapp_api_key);
+            "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'whatsapp_api_key', ?)",
+          ).run(tenantId, payload.whatsapp_api_key);
         }
 
         // 9. Mark setup complete — LAST step
         db.prepare(
-          "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('setup_complete', '1')",
-        ).run();
+          "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'setup_complete', '1')",
+        ).run(tenantId);
 
         return resolvedAdminId;
       })();
@@ -394,11 +407,12 @@ export function registerSetupHandlers() {
 
                 if (!existing) {
                   db.prepare(
-                    "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, 1)",
+                    "INSERT INTO users (username, password_hash, role, is_active, tenant_id) VALUES (?, ?, ?, 1, ?)",
                   ).run(
                     u.username.trim(),
                     hashPassword(u.password),
                     u.role || "staff",
+                    getCurrentTenantId(),
                   );
                 }
               }
