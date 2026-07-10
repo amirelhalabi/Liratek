@@ -24,6 +24,8 @@ export interface SessionEntity {
   created_at: string; // ISO datetime string
   last_activity_at: string; // ISO datetime string
   expires_at: string; // ISO datetime string
+  /** Denormalized from the user at login. NULL only for platform-realm (super_admin) sessions. */
+  tenant_id: number | null;
 }
 
 export interface CreateSessionData {
@@ -32,6 +34,8 @@ export interface CreateSessionData {
   device_info?: string;
   ip_address?: string;
   remember_me?: boolean;
+  /** The user's tenant realm; NULL only for platform-realm (super_admin) sessions. */
+  tenant_id?: number | null;
 }
 
 export interface UpdateSessionData {
@@ -56,7 +60,7 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, user_id, token, device_type, device_info, ip_address, remember_me, created_at, last_activity_at, expires_at";
+    return "id, user_id, token, device_type, device_info, ip_address, remember_me, created_at, last_activity_at, expires_at, tenant_id";
   }
 
   // ---------------------------------------------------------------------------
@@ -87,6 +91,10 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
 
   /**
    * Create a new session for a user
+   *
+   * Runs during login, i.e. BEFORE any tenant context exists — `tenant_id`
+   * is therefore written from the explicit param (denormalized from the
+   * just-authenticated user), never from `getCurrentTenantId()`.
    */
   createSession(data: CreateSessionData): SessionEntity {
     try {
@@ -96,9 +104,9 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       const now = new Date().toISOString();
 
       const query = `
-        INSERT INTO ${this.tableName} 
-        (user_id, token, device_type, device_info, ip_address, remember_me, created_at, last_activity_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO ${this.tableName}
+        (user_id, token, device_type, device_info, ip_address, remember_me, tenant_id, created_at, last_activity_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const result = this.execute(
@@ -109,13 +117,27 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
         data.device_info || null,
         data.ip_address || null,
         rememberMe,
+        data.tenant_id ?? null,
         now,
         now,
         expiresAt,
       );
 
       const insertedId = result.lastInsertRowid as number;
-      return this.findByIdOrFail(insertedId);
+
+      // Global fetch by the fresh rowid — the tenant-scoped findByIdOrFail
+      // would throw here (no tenant context during login) and could never
+      // see platform-realm sessions (tenant_id NULL) anyway.
+      const created = this.queryOne<SessionEntity>(
+        `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: fetch of the just-created session row during login — runs before tenant context exists */ WHERE id = ?`,
+        insertedId,
+      );
+      if (!created) {
+        throw new DatabaseError("Created session row could not be reloaded", {
+          entityId: insertedId,
+        });
+      }
+      return created;
     } catch (error) {
       throw new DatabaseError("Failed to create session", { cause: error });
     }
@@ -136,13 +158,42 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   }
 
   /**
-   * Validate session by token (checks expiration)
-   * Returns session if valid, null if expired or not found
+   * Validate session by token (checks expiration AND tenant status)
+   * Returns session (including its tenant_id) if valid; null if expired,
+   * not found, or belonging to a suspended/archived tenant.
+   *
+   * Runs BEFORE tenant context exists (the middleware establishes context
+   * from this very validation), so the lookup is global by the random
+   * 64-char token. The tenant gate is folded into the same query via a
+   * LEFT JOIN on the control-plane `tenants` table: a suspended tenant's
+   * existing sessions stop working immediately, not just at next login.
+   * Platform-realm sessions (tenant_id NULL) skip the tenant gate.
    */
   validateSession(token: string): SessionEntity | null {
     try {
-      const session = this.findByToken(token);
-      if (!session) {
+      const query = `
+        SELECT s.id, s.user_id, s.token, s.device_type, s.device_info, s.ip_address,
+               s.remember_me, s.created_at, s.last_activity_at, s.expires_at, s.tenant_id,
+               t.status AS tenant_status
+        /* tenant-exempt: session token is globally unique; tenant enforcement happens at JWT/middleware layer */
+        FROM ${this.tableName} s
+        LEFT JOIN tenants t ON t.id = s.tenant_id
+        WHERE s.token = ?
+      `;
+      const row = this.queryOne<
+        SessionEntity & {
+          tenant_status: "active" | "suspended" | "archived" | null;
+        }
+      >(query, token);
+      if (!row) {
+        return null;
+      }
+
+      const { tenant_status, ...session } = row;
+
+      // Suspended/archived tenant: reject WITHOUT deleting — the session may
+      // become valid again if the tenant is re-activated before it expires.
+      if (session.tenant_id !== null && tenant_status !== "active") {
         return null;
       }
 
@@ -151,8 +202,8 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
 
       // Check if session is expired
       if (now > expiresAt) {
-        // Delete expired session
-        this.delete(session.id);
+        // Delete expired session (token-keyed: global, like the lookup)
+        this.deleteByToken(token);
         return null;
       }
 
@@ -163,7 +214,7 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
 
         if (timeSinceActivity > SESSION_DURATION.SHORT) {
           // Session expired due to inactivity
-          this.delete(session.id);
+          this.deleteByToken(token);
           return null;
         }
       }
@@ -171,6 +222,41 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       return session;
     } catch (error) {
       throw new DatabaseError("Failed to validate session", { cause: error });
+    }
+  }
+
+  /**
+   * Refresh last-activity (and, for short sessions, the sliding expiry) on an
+   * ALREADY-VALIDATED session row. Takes the full entity — not an id — so the
+   * auth path (which runs before tenant context exists) never needs a
+   * tenant-scoped re-fetch.
+   */
+  touchActivity(session: SessionEntity): boolean {
+    try {
+      const now = new Date();
+      const nowISO = now.toISOString();
+
+      let newExpiresAt = session.expires_at;
+      if (session.remember_me === 0) {
+        newExpiresAt = new Date(
+          now.getTime() + SESSION_DURATION.SHORT,
+        ).toISOString();
+      }
+
+      const query = `
+        UPDATE ${this.tableName}
+        /* tenant-exempt: activity refresh keyed by the validated session's globally-unique id — runs during auth before tenant context exists */
+        SET last_activity_at = ?, expires_at = ?
+        WHERE id = ?
+      `;
+
+      const result = this.execute(query, nowISO, newExpiresAt, session.id);
+      return result.changes > 0;
+    } catch (error) {
+      throw new DatabaseError("Failed to touch session activity", {
+        cause: error,
+        entityId: session.id,
+      });
     }
   }
 
@@ -286,7 +372,7 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
    */
   deleteByToken(token: string): boolean {
     try {
-      const query = `DELETE FROM ${this.tableName} WHERE token = ?`;
+      const query = `DELETE FROM ${this.tableName} /* tenant-exempt: session token is globally unique; tenant enforcement happens at JWT/middleware layer */ WHERE token = ?`;
       const result = this.execute(query, token);
       return result.changes > 0;
     } catch (error) {

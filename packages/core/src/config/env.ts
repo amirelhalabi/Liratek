@@ -44,6 +44,12 @@ const envSchema = z
     JWT_SECRET: z.string().min(32).optional(),
     JWT_EXPIRES_IN: z.string().default("7d"),
 
+    // Super admin bootstrap (web/backend only — desktop never sets these).
+    // When BOTH are set and no active super_admin exists, backend startup
+    // creates one (role 'super_admin', tenant_id NULL). Absent = no-op.
+    SUPER_ADMIN_USERNAME: z.string().optional(),
+    SUPER_ADMIN_PASSWORD: z.string().optional(),
+
     // Electron-specific (only needed when running electron app)
     ELECTRON_RENDERER_URL: z.string().url().optional(),
 
@@ -98,6 +104,8 @@ function parseEnv(): EnvConfig {
     CORS_ORIGIN: process.env.CORS_ORIGIN,
     JWT_SECRET: process.env.JWT_SECRET,
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
+    SUPER_ADMIN_USERNAME: process.env.SUPER_ADMIN_USERNAME?.trim(),
+    SUPER_ADMIN_PASSWORD: process.env.SUPER_ADMIN_PASSWORD,
     ELECTRON_RENDERER_URL: process.env.ELECTRON_RENDERER_URL,
     DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY,
     QWEN_ASR_MODEL: process.env.QWEN_ASR_MODEL,
@@ -143,6 +151,8 @@ export const {
   CORS_ORIGIN,
   JWT_SECRET,
   JWT_EXPIRES_IN,
+  SUPER_ADMIN_USERNAME,
+  SUPER_ADMIN_PASSWORD,
   ELECTRON_RENDERER_URL,
   DASHSCOPE_API_KEY,
   QWEN_ASR_MODEL,

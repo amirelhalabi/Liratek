@@ -1,6 +1,5 @@
 import express from "express";
 import {
-  getUserRepository,
   getAuthService,
   loginSchema,
   createErrorResponse,
@@ -10,6 +9,10 @@ import {
   JWT_EXPIRES_IN,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
+import {
+  authenticateJWT,
+  type LiratekJwtPayload,
+} from "../middleware/auth.js";
 import { logger } from "../server.js";
 import jwt from "jsonwebtoken";
 
@@ -54,16 +57,17 @@ router.post(
         return;
       }
 
-      // Create JWT that includes the session token
-      const jwtToken = jwt.sign(
-        {
-          userId: result.user.id,
-          role: result.user.role,
-          sessionToken: result.token, // Link JWT to database session
-        },
-        jwtSecret,
-        { expiresIn: jwtExpiresIn as jwt.SignOptions["expiresIn"] },
-      );
+      // Create JWT v2: session-linked AND tenant-carrying (plan §3).
+      // tenantId comes from the user row (null only for super_admin).
+      const payload: LiratekJwtPayload = {
+        userId: result.user.id,
+        role: result.user.role,
+        sessionToken: result.token, // Link JWT to database session
+        tenantId: result.user.tenant_id ?? null,
+      };
+      const jwtToken = jwt.sign(payload, jwtSecret, {
+        expiresIn: jwtExpiresIn as jwt.SignOptions["expiresIn"],
+      });
 
       logger.info(
         { userId: result.user.id, username: result.user.username, rememberMe },
@@ -96,35 +100,26 @@ router.post(
 );
 
 // GET /api/auth/me
-router.get("/me", async (req, res): Promise<void> => {
+// Behind authenticateJWT: (a) closes the same signature-only legacy hole the
+// middleware closed (this route used to accept any signed JWT without a DB
+// session), and (b) answers from the middleware-validated identity instead of
+// a user-table read — which, post multi-tenancy, would require tenant context
+// this pre-navigation probe doesn't need.
+router.get("/me", authenticateJWT, async (req, res): Promise<void> => {
   try {
-    // Get token from Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({ error: "No token provided" });
-      return;
-    }
-
-    const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, jwtSecret) as {
-      userId: number;
-      role: string;
-    };
-
-    const userRepo = getUserRepository();
-    const user = userRepo.findById(decoded.userId);
-
-    if (!user) {
-      res.status(404).json({ error: "User not found" });
+    if (!req.user) {
+      // authenticateJWT always sets req.user before calling next()
+      res.status(401).json({ error: "Not authenticated" });
       return;
     }
 
     res.json({
       success: true,
       user: {
-        id: user.id,
-        username: user.username,
-        role: user.role,
+        id: req.user.userId,
+        username: req.user.username,
+        role: req.user.role,
+        tenantId: req.user.tenantId,
       },
     });
   } catch (error) {

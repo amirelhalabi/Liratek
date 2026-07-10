@@ -101,13 +101,29 @@ export class AuthService {
         return { success: false, error: "Invalid username or password" };
       }
 
-      // Create session in database
+      // Tenant realm gate: users of a suspended/archived tenant cannot log
+      // in. Platform users (super_admin, tenant_id NULL) skip the check.
+      // Desktop is unaffected: its users all belong to tenant 1 ('Default'),
+      // seeded 'active' by migration v123 / create_db.sql.
+      if (user.tenant_id != null) {
+        const tenantStatus = this.userRepo.getTenantStatus(user.tenant_id);
+        if (tenantStatus !== "active") {
+          return {
+            success: false,
+            error: "Account suspended — contact support",
+          };
+        }
+      }
+
+      // Create session in database (tenant_id denormalized from the user —
+      // login runs before any tenant context exists)
       const sessionData: CreateSessionData = {
         user_id: user.id,
         device_type: options.deviceType || "unknown",
         device_info: options.deviceInfo,
         ip_address: options.ipAddress,
         remember_me: options.rememberMe || false,
+        tenant_id: user.tenant_id ?? null,
       };
 
       const session = this.sessionRepo.createSession(sessionData);
@@ -128,6 +144,12 @@ export class AuthService {
   /**
    * Validate a session token
    * Returns the user if session is valid, null otherwise
+   *
+   * This whole path runs BEFORE tenant context exists (the backend middleware
+   * derives the request's tenant context FROM this validation), so every
+   * lookup here is deliberately global: session by token, activity refresh on
+   * the already-validated row, user by id. Suspended-tenant sessions are
+   * rejected inside sessionRepo.validateSession (tenant-status join).
    */
   async validateSession(token: string): Promise<SafeUser | null> {
     try {
@@ -137,15 +159,17 @@ export class AuthService {
         return null;
       }
 
-      // Update activity timestamp
-      this.sessionRepo.updateActivity(session.id);
+      // Update activity timestamp (on the validated row — no tenant-scoped
+      // re-fetch)
+      this.sessionRepo.touchActivity(session);
 
-      // Get user
-      const user = this.userRepo.findById(session.user_id);
+      // Get user (global: super admins have tenant_id NULL and would be
+      // invisible to the tenant-scoped findById)
+      const user = this.userRepo.findByIdGlobal(session.user_id);
 
       if (!user || user.is_active !== 1) {
         // User no longer exists or is inactive
-        this.sessionRepo.delete(session.id);
+        this.sessionRepo.deleteByToken(token);
         return null;
       }
 
@@ -195,9 +219,19 @@ export class AuthService {
 
   /**
    * Create a new user (admin only operation)
+   *
+   * `tenant_id` is optional: when omitted the repository defaults it to the
+   * current tenant context (desktop fixed tenant / web request scope). This
+   * method only mints tenant-realm roles — platform users (super_admin) are
+   * created exclusively by the backend startup bootstrap, never through here.
    */
   async createUser(
-    data: { username: string; password: string; role: "admin" | "staff" },
+    data: {
+      username: string;
+      password: string;
+      role: "admin" | "staff";
+      tenant_id?: number | null;
+    },
     actorRole: string,
   ): Promise<CreateUserResult> {
     // Authorization check
@@ -231,6 +265,7 @@ export class AuthService {
       password_hash: passwordHash,
       role: data.role,
       is_active: 1,
+      ...(data.tenant_id !== undefined ? { tenant_id: data.tenant_id } : {}),
     };
 
     const user = this.userRepo.createUser(createData);

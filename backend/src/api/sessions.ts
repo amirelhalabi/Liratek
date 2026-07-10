@@ -1,9 +1,14 @@
 import { Router, Request, Response } from "express";
 import { CustomerSessionService } from "@liratek/core";
-import type { AuthRequest } from "../middleware/auth.js";
+import { authenticateJWT, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 const sessionService = new CustomerSessionService();
+
+// All customer-session routes require auth (WP2 — this router previously
+// mounted with NO auth at all; nothing in frontend/src calls /api/sessions/*
+// before login, so the whole router is protected).
+router.use(authenticateJWT);
 
 /**
  * POST /api/sessions/start

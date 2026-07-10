@@ -5,9 +5,16 @@
  * WP1a static safety net for the multi-tenant retrofit
  * (see docs/plans/WEBAPP_MULTI_TENANT_PLAN.md).
  *
- * Scans packages/core/src/repositories/**\/*.ts for raw `.prepare(` SQL
- * statements and flags every statement that touches a tenant-scoped table
- * without referencing `tenant_id`.
+ * Scans packages/core/src/repositories/**\/*.ts for SQL statement sites and
+ * flags every statement that touches a tenant-scoped table without
+ * referencing `tenant_id`. A "statement site" is any of:
+ *   - a raw `.prepare(` call (the dominant pattern), or
+ *   - BaseRepository's protected raw-SQL helpers: `this.query(...)`,
+ *     `this.queryOne(...)`, `this.execute(...)` — including their generic
+ *     call forms `this.queryOne<UserEntity>(query, username)`. Some
+ *     repositories (UserRepository, SessionRepository) never call
+ *     `.prepare(` directly and route ALL their SQL through these helpers,
+ *     so scanning `.prepare(` alone leaves them a total blind spot.
  *
  * This is a FAIL-CLOSED, best-effort static linter — plain Node.js stdlib
  * only (no parser, no deps, so it can run before `yarn install` finishes).
@@ -108,6 +115,12 @@ const SKIP_FILENAMES = new Set(["BaseRepository.ts"]);
 
 const EXEMPT_RE = /\/\*\s*tenant-exempt\s*:[^*]*\*\//i;
 const TENANT_ID_RE = /tenant_id/i;
+
+// Substituted for every template interpolation that cannot be statically
+// resolved. Word-characters only, so SQL-identifier regexes still match it:
+// when it lands in table position the statement is flagged fail-closed.
+const UNRESOLVED_TOKEN = "__UNRESOLVED__";
+const UNRESOLVED_TOKEN_LC = UNRESOLVED_TOKEN.toLowerCase();
 
 // Matches FROM / JOIN / INTO ("INSERT INTO", "REPLACE INTO") / UPDATE,
 // tolerating "UPDATE OR IGNORE"-style SQLite conflict clauses, then captures
@@ -288,7 +301,8 @@ function extractLiteralText(exprText, fieldMap) {
       let raw = exprText.slice(t.start + 1, t.end - 1);
       raw = raw.replace(
         /\$\{\s*this\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\}/g,
-        (_whole, fname) => (fieldMap && fieldMap[fname] ? fieldMap[fname] : " "),
+        (_whole, fname) =>
+          fieldMap && fieldMap[fname] ? fieldMap[fname] : UNRESOLVED_TOKEN,
       );
       // Bare-identifier interpolation, e.g. `` `UPDATE ${tableName} SET ...` ``
       // where `const tableName = this.tableName;` aliases the class field
@@ -297,13 +311,25 @@ function extractLiteralText(exprText, fieldMap) {
       // identifier happens to collide with a known field name.
       raw = raw.replace(
         /\$\{\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\}/g,
-        (_whole, name) => (fieldMap && fieldMap[name] ? fieldMap[name] : " "),
+        (_whole, name) =>
+          fieldMap && fieldMap[name] ? fieldMap[name] : UNRESOLVED_TOKEN,
       );
-      // Best-effort fallback for any remaining interpolation, e.g.
-      // `${this.getColumns()}` in SELECT column-list position — doesn't
-      // handle nested braces, which is fine since those don't occur in the
-      // simple column/table interpolations this codebase uses.
-      raw = raw.replace(/\$\{[^}]*\}/g, " ");
+      // Fallback for any remaining interpolation, e.g. `${this.getColumns()}`
+      // in SELECT column-list position — doesn't handle nested braces, which
+      // is fine since those don't occur in the simple column/table
+      // interpolations this codebase uses.
+      //
+      // Every unresolvable interpolation is replaced with UNRESOLVED_TOKEN
+      // rather than blanked: if the token then lands in TABLE POSITION
+      // (right after FROM/JOIN/INTO/UPDATE), the table is unknown at lint
+      // time and the statement is flagged fail-closed (see scanFile). A
+      // blank there silently dropped real violations — caught live on
+      // TransactionRepository._markSourceRefunded, which does
+      // `UPDATE ${sourceTable} SET is_refunded = ...` with a runtime
+      // parameter whose every possible value is a tenant-scoped table.
+      // In non-table positions (column lists, WHERE fragments) the token is
+      // harmless noise, exactly like the blank was.
+      raw = raw.replace(/\$\{[^}]*\}/g, UNRESOLVED_TOKEN);
       parts.push(raw);
     }
   }
@@ -328,7 +354,9 @@ function extractLiteralText(exprText, fieldMap) {
  */
 function resolveIdentifier(src, ident, beforeIdx, fieldMap) {
   const escaped = ident.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`${escaped}\\s*(\\+=|=)(?!=)`, "g");
+  // (?<![.\w$])  — don't let `query` match inside `subquery =` or `obj.query =`
+  // (?![=>])     — reject `==` comparisons and `=>` arrow functions
+  const re = new RegExp(`(?<![.\\w$])${escaped}\\s*(\\+=|=)(?![=>])`, "g");
   const matches = [];
   let m;
   while ((m = re.exec(src))) {
@@ -358,14 +386,22 @@ function isBareIdentifier(text) {
   return /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(text.trim());
 }
 
-/** Resolve the reconstructed SQL text for one `.prepare(...)` argument. */
+/**
+ * Resolve the reconstructed SQL text for one statement-site argument.
+ * Returns `{ sql, unresolvedArg }`: `unresolvedArg` is true when the
+ * argument is a bare identifier whose SQL could not be traced to any
+ * assignment (e.g. a function parameter). Such statements are flagged
+ * fail-closed by scanFile — "can't see the SQL" must never mean "passes".
+ */
 function resolveStatementSql(src, argText, callSiteIdx, fieldMap) {
   const trimmed = argText.trim();
   if (trimmed.length > 0 && isBareIdentifier(trimmed)) {
     const resolved = resolveIdentifier(src, trimmed, callSiteIdx, fieldMap);
-    return resolved === null ? "" : resolved;
+    return resolved === null
+      ? { sql: "", unresolvedArg: true }
+      : { sql: resolved, unresolvedArg: false };
   }
-  return extractLiteralText(argText, fieldMap);
+  return { sql: extractLiteralText(argText, fieldMap), unresolvedArg: false };
 }
 
 /**
@@ -495,6 +531,60 @@ function collectRepositoryFiles(root) {
 // Core scan
 // =============================================================================
 
+/**
+ * Find every SQL statement site in the masked source. Two kinds:
+ *
+ *   1. `.prepare(` — direct better-sqlite3 usage (dominant pattern).
+ *   2. `this.query(` / `this.queryOne(` / `this.execute(` — BaseRepository's
+ *      protected raw-SQL helpers. UserRepository and SessionRepository route
+ *      ALL their SQL through these and never call `.prepare(` directly, so
+ *      missing them is a total blind spot (fail-open), not an approximation.
+ *      Handles generic call forms too: `this.queryOne<UserEntity>(q, ...)`,
+ *      including nested generics/braces (`<{ count: number }>`), by
+ *      angle-bracket depth counting between the helper name and the `(`.
+ *
+ * Matching runs on the MASKED source (strings/comments blanked), so a
+ * `.prepare(` inside a comment or log message never counts. Returns
+ * `{ idx, openParenIdx }` pairs deduped by `openParenIdx` — dedup guards
+ * against any two patterns ever claiming the same call's argument (each
+ * distinct call site is still one statement even when its SQL variable is
+ * shared with another call site elsewhere; those are separate executions
+ * and are counted separately on purpose).
+ */
+function findCallSites(masked) {
+  const sites = [];
+  const re = /\.prepare\s*\(|this\.(queryOne|query|execute)\b/g;
+  let m;
+  while ((m = re.exec(masked))) {
+    let openParenIdx;
+    if (m[1] === undefined) {
+      // `.prepare(` alternative — the regex already consumed the paren.
+      openParenIdx = m.index + m[0].length - 1;
+    } else {
+      // Helper alternative — skip optional generics, then require `(`.
+      let j = m.index + m[0].length;
+      while (j < masked.length && /\s/.test(masked[j])) j++;
+      if (masked[j] === "<") {
+        let depth = 1;
+        j++;
+        while (j < masked.length && depth > 0) {
+          if (masked[j] === "<") depth++;
+          else if (masked[j] === ">") depth--;
+          j++;
+        }
+        while (j < masked.length && /\s/.test(masked[j])) j++;
+      }
+      if (masked[j] !== "(") continue; // property reference, not a call
+      openParenIdx = j;
+    }
+    sites.push({ idx: m.index, openParenIdx });
+  }
+  const seen = new Set();
+  return sites.filter(
+    (s) => !seen.has(s.openParenIdx) && (seen.add(s.openParenIdx), true),
+  );
+}
+
 function scanFile(file) {
   const src = fs.readFileSync(file, "utf8");
   const tokens = tokenize(src);
@@ -503,21 +593,23 @@ function scanFile(file) {
   const lines = src.split("\n");
 
   const statements = [];
-  let searchFrom = 0;
-  const NEEDLE = ".prepare(";
-  while (true) {
-    const idx = masked.indexOf(NEEDLE, searchFrom);
-    if (idx === -1) break;
-    searchFrom = idx + 1;
-
-    const openParenIdx = idx + NEEDLE.length - 1;
+  for (const site of findCallSites(masked)) {
+    const { idx, openParenIdx } = site;
     const argStart = openParenIdx + 1;
     const argText = extractArgument(src, argStart);
-    const sql = resolveStatementSql(src, argText, idx, fieldMap);
+    const { sql, unresolvedArg } = resolveStatementSql(src, argText, idx, fieldMap);
     const lineNum = lineOf(src, idx);
 
     const tables = extractTables(sql);
+    // Fail-closed: an UNRESOLVED_TOKEN in table position means the table is
+    // decided at runtime (e.g. `UPDATE ${sourceTable} ...`) — it MIGHT be a
+    // tenant-scoped table, so the statement must justify itself with
+    // tenant_id or an exemption comment like any other.
+    const unresolvedTable = [...tables].some((t) =>
+      t.includes(UNRESOLVED_TOKEN_LC),
+    );
     const tenantHits = [...tables].filter((t) => TENANT_TABLE_SET.has(t)).sort();
+    if (unresolvedTable || unresolvedArg) tenantHits.push("<unresolved>");
     // (NON_TENANT_TABLES is informational only — anything not in
     // TENANT_TABLE_SET, including these, is simply never flagged.)
 
@@ -536,7 +628,9 @@ function scanFile(file) {
 
     statements.push({
       line: lineNum,
-      sql: collapse(sql || argText),
+      sql: unresolvedArg
+        ? `(unresolved SQL variable '${collapse(argText)}')`
+        : collapse(sql || argText),
       tables: tenantHits,
       reason,
     });
@@ -596,13 +690,20 @@ function scanRunWithoutTenant() {
     const files = walkFiles(dir, [".ts", ".tsx", ".js", ".mjs"]);
     for (const file of files) {
       const src = fs.readFileSync(file, "utf8");
-      const lines = src.split("\n");
-      lines.forEach((l, i) => {
+      // Mask comments/strings first: `runWithoutTenant(` is discussed at
+      // length in tenantContext.ts doc comments, and a mention is not a call
+      // site. Report the ORIGINAL line text for context, but match against
+      // the masked code only. (maskNonCode preserves newlines, so line
+      // splits stay aligned between the two.)
+      const masked = maskNonCode(src, tokenize(src));
+      const srcLines = src.split("\n");
+      masked.split("\n").forEach((l, i) => {
+        if (/function\s+runWithoutTenant\s*\(/.test(l)) return; // its own definition
         if (l.includes("runWithoutTenant(")) {
           hits.push({
             file: path.relative(REPO_ROOT, file),
             line: i + 1,
-            snippet: collapse(l).slice(0, 100),
+            snippet: collapse(srcLines[i]).slice(0, 100),
           });
         }
       });

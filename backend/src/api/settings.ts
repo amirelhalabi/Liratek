@@ -1,10 +1,18 @@
 import express from "express";
 import { getSettingsService } from "@liratek/core";
+import { authenticateJWT } from "../middleware/auth.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
 
 // GET /api/settings - Get all settings
+//
+// DELIBERATELY UNAUTHENTICATED (the only open settings endpoint): the web
+// frontend reads it BEFORE login — Login.tsx renders the shop name via
+// useShopName() → useShopInfo() → api.getAllSettings(), and
+// FeatureFlagProvider (mounted above AuthProvider in App.tsx) fires the same
+// call at boot. Securing it would blank the login-screen shop name and pin
+// feature flags to their defaults. Everything below this route requires auth.
 router.get("/", async (_req, res): Promise<void> => {
   try {
     const settingsService = getSettingsService();
@@ -15,6 +23,10 @@ router.get("/", async (_req, res): Promise<void> => {
     res.status(500).json({ success: false, error: "Failed to fetch settings" });
   }
 });
+
+// All remaining settings routes require auth (WP2 — this router previously
+// mounted with NO auth at all).
+router.use(authenticateJWT);
 
 // GET /api/settings/:key - Get a specific setting
 router.get("/:key", async (req, res): Promise<void> => {

@@ -6,6 +6,7 @@
  */
 
 import { BaseRepository, type FindOptions } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
 
 // =============================================================================
@@ -16,8 +17,11 @@ export interface UserEntity {
   id: number;
   username: string;
   password_hash: string;
-  role: "admin" | "staff";
+  /** `super_admin` = platform realm (web control plane); always has `tenant_id` NULL. */
+  role: "super_admin" | "admin" | "staff";
   is_active: number; // SQLite boolean (0 or 1)
+  /** NULL only for the platform realm (`super_admin`); every tenant user carries its tenant. */
+  tenant_id: number | null;
 }
 
 /** User without sensitive password hash */
@@ -26,8 +30,15 @@ export type SafeUser = Omit<UserEntity, "password_hash">;
 export interface CreateUserData {
   username: string;
   password_hash: string;
-  role: "admin" | "staff";
+  role: "super_admin" | "admin" | "staff";
   is_active?: number;
+  /**
+   * Tenant realm for the new user. When omitted, defaults to the current
+   * tenant context (desktop/Electron callers run under the fixed tenant, web
+   * callers under the request's `runWithTenant()` scope). Pass an explicit
+   * `null` ONLY for platform-realm users (`super_admin` bootstrap).
+   */
+  tenant_id?: number | null;
 }
 
 export interface UpdateUserData {
@@ -50,7 +61,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, username, password_hash, role, is_active";
+    return "id, username, password_hash, role, is_active, tenant_id";
   }
 
   // ---------------------------------------------------------------------------
@@ -58,14 +69,76 @@ export class UserRepository extends BaseRepository<UserEntity> {
   // ---------------------------------------------------------------------------
 
   /**
-   * Find a user by username (for login)
+   * Find a user by username (for login).
+   *
+   * Deliberately GLOBAL (not tenant-scoped): usernames are globally unique —
+   * committed decision, see docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §1.
+   * Login has no tenant hint (no subdomain routing yet), so
+   * `username → user → tenant_id` is how the tenant is resolved in the first
+   * place.
    */
   findByUsername(username: string): UserEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE username = ? AND is_active = 1`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: global username lookup — login happens before tenant context exists */ WHERE username = ? AND is_active = 1`;
       return this.queryOne<UserEntity>(query, username);
     } catch (error) {
       throw new DatabaseError("Failed to find user by username", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Find a user by id across ALL tenants (global).
+   *
+   * Auth-path only: session validation resolves the session's user BEFORE
+   * any tenant context exists (the backend middleware establishes tenant
+   * context only AFTER the session is validated), and platform users
+   * (`super_admin`, `tenant_id` NULL) live outside every tenant, so the
+   * tenant-scoped `findById` could never see them.
+   */
+  findByIdGlobal(id: number): UserEntity | null {
+    try {
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: global user-by-id lookup for session validation — runs before tenant context exists; platform users have tenant_id NULL */ WHERE id = ?`;
+      return this.queryOne<UserEntity>(query, id);
+    } catch (error) {
+      throw new DatabaseError("Failed to find user by id (global)", {
+        cause: error,
+        entityId: id,
+      });
+    }
+  }
+
+  /**
+   * Status of the tenant a user belongs to (login gate — suspended tenants
+   * cannot log in). `tenants` is a control-plane table (never tenant-scoped).
+   */
+  getTenantStatus(
+    tenantId: number,
+  ): "active" | "suspended" | "archived" | null {
+    try {
+      const query = `SELECT status FROM tenants WHERE id = ?`;
+      const row = this.queryOne<{
+        status: "active" | "suspended" | "archived";
+      }>(query, tenantId);
+      return row?.status ?? null;
+    } catch (error) {
+      throw new DatabaseError("Failed to load tenant status", {
+        cause: error,
+        entityId: tenantId,
+      });
+    }
+  }
+
+  /**
+   * Whether an active platform super admin exists (startup bootstrap check).
+   */
+  hasActiveSuperAdmin(): boolean {
+    try {
+      const query = `SELECT 1 FROM ${this.tableName} /* tenant-exempt: super_admin realm lookup — platform users have tenant_id NULL, outside every tenant */ WHERE role = 'super_admin' AND is_active = 1 LIMIT 1`;
+      return this.queryOne<{ 1: number }>(query) !== null;
+    } catch (error) {
+      throw new DatabaseError("Failed to check for super admin", {
         cause: error,
       });
     }
@@ -215,11 +288,18 @@ export class UserRepository extends BaseRepository<UserEntity> {
 
   /**
    * Create a new user
+   *
+   * `tenant_id` comes from the explicit param when provided (control-plane
+   * callers: super-admin bootstrap passes `null`), otherwise from the current
+   * tenant context (desktop/Electron and normal web callers).
    */
   createUser(data: CreateUserData): UserEntity {
     try {
-      const query = `INSERT INTO ${this.tableName} (username, password_hash, role, is_active) 
-                     VALUES (?, ?, ?, ?)`;
+      const tenantId =
+        data.tenant_id !== undefined ? data.tenant_id : getCurrentTenantId();
+
+      const query = `INSERT INTO ${this.tableName} (username, password_hash, role, is_active, tenant_id)
+                     VALUES (?, ?, ?, ?, ?)`;
 
       const result = this.execute(
         query,
@@ -227,10 +307,19 @@ export class UserRepository extends BaseRepository<UserEntity> {
         data.password_hash,
         data.role,
         data.is_active ?? 1,
+        tenantId,
       );
       const insertedId = result.lastInsertRowid as number;
 
-      return this.findByIdOrFail(insertedId);
+      // Global fetch by the fresh rowid: a platform-realm user (tenant_id
+      // NULL) is invisible to the tenant-scoped findById by design.
+      const created = this.findByIdGlobal(insertedId);
+      if (!created) {
+        throw new DatabaseError("Created user row could not be reloaded", {
+          entityId: insertedId,
+        });
+      }
+      return created;
     } catch (error) {
       throw new DatabaseError("Failed to create user", { cause: error });
     }

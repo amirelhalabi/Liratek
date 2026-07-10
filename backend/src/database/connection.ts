@@ -7,6 +7,12 @@ import {
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
   runMigrations,
+  runWithoutTenant,
+  getUserRepository,
+  hashPassword,
+  validatePasswordComplexity,
+  SUPER_ADMIN_USERNAME,
+  SUPER_ADMIN_PASSWORD,
 } from "@liratek/core";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
@@ -78,6 +84,11 @@ export function getDatabase(): Database.Database {
       throw error;
     }
 
+    // Super admin bootstrap (WP2): env-driven, web-only. Throws (killing
+    // startup loudly) on a misconfigured credential rather than silently
+    // leaving the platform without its control-plane account.
+    ensureSuperAdmin();
+
     dbLogger.info(
       { path: DB_PATH, source: resolved.source },
       "Database connected",
@@ -101,6 +112,55 @@ export function getDatabase(): Database.Database {
     }
   }
   return dbInstance;
+}
+
+/**
+ * Super admin bootstrap (plan §5 / WP2).
+ *
+ * If BOTH `SUPER_ADMIN_USERNAME` and `SUPER_ADMIN_PASSWORD` are set and no
+ * active super_admin user exists yet, create one: role 'super_admin',
+ * `tenant_id` NULL (platform realm), password hashed with the same scrypt
+ * scheme AuthService uses. With the env vars absent this is a no-op — the
+ * desktop product never sets them, so it never gets a platform account.
+ *
+ * Runs inside `runWithoutTenant()`: the users table is tenant-scoped for
+ * BaseRepository's generic CRUD, and at startup there is no tenant context
+ * (nor should there be — this is a control-plane write).
+ */
+export function ensureSuperAdmin(): void {
+  const username = SUPER_ADMIN_USERNAME;
+  const password = SUPER_ADMIN_PASSWORD;
+  if (!username || !password) return;
+
+  const userRepo = getUserRepository();
+  runWithoutTenant(() => {
+    if (userRepo.hasActiveSuperAdmin()) {
+      dbLogger.debug("Super admin already present — bootstrap skipped");
+      return;
+    }
+
+    if (userRepo.usernameExists(username)) {
+      throw new Error(
+        `SUPER_ADMIN_USERNAME '${username}' is already taken by a non-super-admin user — pick a different username`,
+      );
+    }
+
+    const complexity = validatePasswordComplexity(password);
+    if (!complexity.valid) {
+      throw new Error(
+        `SUPER_ADMIN_PASSWORD rejected: ${complexity.errors.join(", ")}`,
+      );
+    }
+
+    userRepo.createUser({
+      username,
+      password_hash: hashPassword(password),
+      role: "super_admin",
+      is_active: 1,
+      tenant_id: null, // platform realm — explicitly outside every tenant
+    });
+    dbLogger.info({ username }, "Super admin bootstrapped from environment");
+  });
 }
 
 export function closeDatabase(): void {
