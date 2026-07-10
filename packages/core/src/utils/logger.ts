@@ -171,6 +171,8 @@ export const expenseLogger = logger.child({ module: "expense" });
 export const closingLogger = logger.child({ module: "closing" });
 export const syncLogger = logger.child({ module: "sync" });
 export const voucherLogger = logger.child({ module: "voucher" });
+// Control-plane: tenant provisioning + impersonation (plan §5, WP5/WP6).
+export const tenantLogger = logger.child({ module: "tenant" });
 
 // =============================================================================
 // Performance Timing Utility

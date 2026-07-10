@@ -131,6 +131,29 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
+   * Find the first active tenant admin for an explicit tenant (impersonation
+   * target lookup — plan §5/WP6: "connect as" always lands on the tenant's
+   * own admin, never a staff account).
+   *
+   * Deliberately GLOBAL by construction (bound to the `tenantId` PARAMETER,
+   * not `getCurrentTenantId()`): the only caller is the super-admin-only
+   * impersonation route, which has no tenant context of its own — the whole
+   * point is to reach INTO an arbitrary target tenant. Call from inside
+   * `runWithoutTenant()` (control-plane cross-tenant lookup).
+   */
+  findFirstActiveAdminByTenant(tenantId: number): UserEntity | null {
+    try {
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: control-plane cross-tenant lookup — target tenant is an explicit param */ WHERE tenant_id = ? AND role = 'admin' AND is_active = 1 ORDER BY id LIMIT 1`;
+      return this.queryOne<UserEntity>(query, tenantId);
+    } catch (error) {
+      throw new DatabaseError("Failed to find first active tenant admin", {
+        cause: error,
+        entityId: tenantId,
+      });
+    }
+  }
+
+  /**
    * Whether an active platform super admin exists (startup bootstrap check).
    */
   hasActiveSuperAdmin(): boolean {

@@ -27,9 +27,11 @@ export default function Login() {
 
     try {
       const result = await login(username, password, rememberMe);
-      // If login is successful, redirect to dashboard
       if (result.success) {
-        navigate("/");
+        // Super admins (web-only, plan §5) land in the control plane, never
+        // the POS home — ProtectedRoute would redirect them there anyway,
+        // but navigating directly avoids the extra bounce.
+        navigate(result.role === "super_admin" ? "/admin/tenants" : "/");
       } else {
         setError(result.error || "Login failed");
       }

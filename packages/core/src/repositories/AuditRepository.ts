@@ -17,6 +17,9 @@ export interface AuditLogEntity {
   old_values: string | null;
   new_values: string | null;
   metadata: string | null;
+  /** Set only on rows written during an impersonated session (plan §5/WP6):
+   * the real super_admin acting behind the tenant-admin identity in user_id. */
+  impersonator_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +35,9 @@ export interface CreateAuditLogData {
   old_values?: Record<string, unknown> | null;
   new_values?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
+  /** Real super_admin id — set ONLY when this row is written during an
+   * impersonated session. Defaults to null for every normal write. */
+  impersonator_id?: number | null;
 }
 
 export interface AuditFilters {
@@ -56,7 +62,7 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
   }
 
   protected getColumns(): string {
-    return "id, user_id, username, role, action, entity_type, entity_id, summary, old_values, new_values, metadata, created_at, updated_at";
+    return "id, user_id, username, role, action, entity_type, entity_id, summary, old_values, new_values, metadata, impersonator_id, created_at, updated_at";
   }
 
   /**
@@ -67,8 +73,8 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
       INSERT INTO audit_log
         (user_id, username, role, action, entity_type, entity_id,
          summary, old_values, new_values, metadata,
-         tenant_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+         impersonator_id, tenant_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               datetime('now', 'localtime'), datetime('now', 'localtime'))
     `);
     const result = stmt.run(
@@ -82,6 +88,7 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
       data.old_values ? JSON.stringify(data.old_values) : null,
       data.new_values ? JSON.stringify(data.new_values) : null,
       data.metadata ? JSON.stringify(data.metadata) : null,
+      data.impersonator_id ?? null,
       getCurrentTenantId(),
     );
     return Number(result.lastInsertRowid);

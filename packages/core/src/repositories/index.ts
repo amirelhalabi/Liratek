@@ -519,3 +519,17 @@ export type {
   UpdatePartnerData,
   CreateLedgerEntryData,
 } from "./PartnerRepository.js";
+
+// Tenant Repository (control plane — plan §5, WP5/WP6)
+export {
+  TenantRepository,
+  getTenantRepository,
+  resetTenantRepository,
+} from "./TenantRepository.js";
+export type {
+  TenantEntity,
+  TenantWithStats,
+  TenantStatus,
+  CreateTenantData,
+  UpdateTenantData,
+} from "./TenantRepository.js";

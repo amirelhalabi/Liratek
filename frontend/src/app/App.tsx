@@ -43,7 +43,10 @@ const CustomerSessions = lazy(
 const Partners = lazy(() => import("@/features/partners/pages/Partners"));
 const Suppliers = lazy(() => import("@/features/suppliers/pages/Suppliers"));
 const Vouchers = lazy(() => import("@/features/vouchers/pages/Vouchers"));
+// Super-admin control plane (web-only — plan §5). No Electron equivalent.
+const Tenants = lazy(() => import("@/features/admin/pages/Tenants"));
 import MainLayout from "@/shared/components/layouts/MainLayout";
+import { SuperAdminLayout } from "@/features/admin/components/SuperAdminLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
 import "@/index.css";
 import { ApiProvider } from "@liratek/ui";
@@ -66,7 +69,7 @@ const queryClient = new QueryClient({
 
 // Wrapper for protected routes
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, isSetupRequired } = useAuth();
+  const { isAuthenticated, isLoading, isSetupRequired, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -84,7 +87,43 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" />;
   }
 
+  // Super admins (web-only, plan §5) have no tenant context: every POS route
+  // under MainLayout would 500 fail-closed (repositories throw with no
+  // tenant in scope). Defensively redirect into their own realm instead of
+  // ever mounting MainLayout for them. An impersonation session carries
+  // role "admin" (not "super_admin"), so this never catches it.
+  if (user?.role === "super_admin") {
+    return <Navigate to="/admin/tenants" replace />;
+  }
+
   return <MainLayout>{children}</MainLayout>;
+}
+
+// Wrapper for the super-admin control plane (plan §5) — a separate realm
+// from the POS app entirely. Renders a minimal standalone shell, never
+// MainLayout. An active impersonation session (even one that somehow carries
+// role super_admin) is excluded — /api/admin/* rejects impersonation tokens
+// server-side (no re-escalation), so there is nothing useful to show here.
+function SuperAdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading, user, isImpersonating } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+        Loading...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (user?.role !== "super_admin" || isImpersonating) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <SuperAdminLayout>{children}</SuperAdminLayout>;
 }
 
 // Wrapper for admin-only routes (defense-in-depth on top of ProtectedRoute).
@@ -299,6 +338,16 @@ function AppRoutes() {
             <ProtectedRoute>
               <Vouchers />
             </ProtectedRoute>
+          }
+        />
+        {/* Super-admin control plane (web-only, plan §5) — its own realm,
+            SuperAdminRoute + a minimal shell, never MainLayout/ProtectedRoute. */}
+        <Route
+          path="/admin/tenants"
+          element={
+            <SuperAdminRoute>
+              <Tenants />
+            </SuperAdminRoute>
           }
         />
         {/* Redirect all other paths to home */}

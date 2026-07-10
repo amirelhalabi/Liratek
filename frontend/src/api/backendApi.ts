@@ -1,4 +1,11 @@
-import { requestJson, setToken } from "./httpClient";
+import {
+  requestJson,
+  setToken,
+  getToken,
+  isImpersonationActive,
+  clearImpersonationSession,
+} from "./httpClient";
+import { decodeJwtPayload } from "@/shared/utils/jwt";
 
 function isElectron(): boolean {
   return typeof window !== "undefined" && !!(window as any).api;
@@ -24,7 +31,38 @@ async function ipcOrHttp<T>(
   return http();
 }
 
-export type ApiUser = { id: number; username: string; role: string };
+export type ApiUser = {
+  id: number;
+  username: string;
+  role: string;
+  /**
+   * Web-mode only — decoded client-side from the JWT `tenantId` claim
+   * (plan §3: null only for `super_admin`). Undefined when decoding wasn't
+   * possible, e.g. Electron sessions, which use opaque session tokens, not
+   * JWTs, and never carry a tenant concept.
+   */
+  tenantId?: number | null;
+};
+
+/** Merges a decoded JWT's `tenantId` claim onto a login/me response user
+ * object — the response body's `ApiUser` shape doesn't carry `tenantId` on
+ * the wire, only the JWT does. `role` is trusted as-is from the response
+ * (the `ApiUser` type guarantees it's present — it's the DB `users.role`
+ * value). No-ops (returns `user` unchanged) if there's no token to decode or
+ * the payload doesn't carry a usable `tenantId` claim. */
+function withDecodedTenant(
+  user: ApiUser | undefined,
+  token: string | null | undefined,
+): ApiUser | undefined {
+  if (!user || !token) return user;
+  const decoded = decodeJwtPayload(token);
+  if (!decoded) return user;
+  const tenantId =
+    typeof decoded.tenantId === "number" || decoded.tenantId === null
+      ? decoded.tenantId
+      : undefined;
+  return tenantId !== undefined ? { ...user, tenantId } : user;
+}
 
 export async function login(
   username: string,
@@ -54,7 +92,7 @@ export async function login(
   if (res.success && payload.token) setToken(payload.token);
   return {
     success: res.success,
-    user: payload.user,
+    user: withDecodedTenant(payload.user, payload.token),
     token: payload.token,
     sessionToken: payload.sessionToken,
     error: res.error,
@@ -68,10 +106,23 @@ export async function logout(): Promise<void> {
     return getElectronApi().auth.logout(sessionToken);
   }
 
+  // Impersonation-aware: getToken() (used by requestJson) already prefers
+  // the impersonation session, so this correctly revokes the IMPERSONATION
+  // token's DB session server-side. The bug this guards against: unconditionally
+  // clearing localStorage here would wipe the super admin's OWN session —
+  // localStorage is shared across every tab of this origin, so a naive
+  // `setToken(null)` from inside the impersonation tab would log the super
+  // admin out of their own, untouched tab. Only clear whichever session was
+  // actually active in THIS tab.
+  const impersonating = isImpersonationActive();
   try {
     await requestJson("/api/auth/logout", { method: "POST" });
   } finally {
-    setToken(null);
+    if (impersonating) {
+      clearImpersonationSession();
+    } else {
+      setToken(null);
+    }
   }
 }
 
@@ -87,7 +138,17 @@ export async function me() {
       if (res?.error) out.error = res.error;
       return out;
     },
-    async () => requestJson<MeResult>("/api/auth/me"),
+    async () => {
+      const res = await requestJson<MeResult>("/api/auth/me");
+      // /api/auth/me doesn't carry tenantId in its body — decode it from
+      // whichever token is currently active (impersonation-aware via
+      // getToken()'s precedence), so a page reload doesn't lose it.
+      if (res.success && res.user) {
+        const user = withDecodedTenant(res.user, getToken());
+        if (user) return { ...res, user };
+      }
+      return res;
+    },
   );
 }
 
@@ -2742,4 +2803,128 @@ export async function lotoCheckpointDelete(
         { method: "DELETE" },
       ),
   );
+}
+
+// =============================================================================
+// Admin — super admin control plane (web-only, plan §5)
+//
+// There is no Electron equivalent: super admins don't exist in desktop mode
+// (single-tenant, fixed tenant context at boot). Every function here throws
+// if called from Electron rather than silently no-op'ing or falling back to
+// IPC — a misplaced call into this realm is a programming error, not a
+// runtime branch, and should fail loudly in development.
+// =============================================================================
+
+export type AdminTenantStatus = "active" | "suspended" | "archived";
+
+export type AdminTenant = {
+  id: number;
+  name: string;
+  slug: string;
+  status: AdminTenantStatus;
+  contact_name: string | null;
+  contact_phone: string | null;
+  notes: string | null;
+  created_at: string;
+  user_count: number;
+  last_activity: string | null;
+};
+
+export type AdminCreateTenantPayload = {
+  name: string;
+  slug: string;
+  contactName?: string;
+  contactPhone?: string;
+  notes?: string;
+  adminUsername: string;
+  adminPassword: string;
+};
+
+export type AdminUpdateTenantPayload = {
+  name?: string;
+  status?: AdminTenantStatus;
+  contactName?: string;
+  contactPhone?: string;
+  notes?: string;
+};
+
+export type AdminImpersonateResult = {
+  tenantName: string;
+  token: string;
+  /**
+   * NOT guaranteed by the documented API contract (plan §5 lists only
+   * `{ tenantName, token }`) — the JWT itself has no username claim either.
+   * If/when the backend (WP6) adds it to this response, "Connect as admin"
+   * forwards it to the new tab the same way it already forwards
+   * `tenantName`, and the impersonation banner shows the real username.
+   * Until then the banner falls back to a generic label. See
+   * ImpersonationBanner / getImpersonationInfo for the fallback chain —
+   * flagging this loudly because it's a contract gap, not an oversight.
+   */
+  username?: string;
+};
+
+function assertWebOnly(action: string): void {
+  if (isElectron()) {
+    throw new Error(
+      `${action} is only available in web mode (super admin control plane)`,
+    );
+  }
+}
+
+export async function adminListTenants(): Promise<AdminTenant[]> {
+  assertWebOnly("Listing tenants");
+  const res = await requestJson<{
+    success: boolean;
+    data?: { tenants: AdminTenant[] };
+    error?: string;
+  }>("/api/admin/tenants");
+  if (!res.success) throw new Error(res.error || "Failed to load tenants");
+  return res.data?.tenants ?? [];
+}
+
+export async function adminCreateTenant(
+  payload: AdminCreateTenantPayload,
+): Promise<AdminTenant> {
+  assertWebOnly("Creating a tenant");
+  const res = await requestJson<{
+    success: boolean;
+    data?: { tenant: AdminTenant };
+    error?: string;
+  }>("/api/admin/tenants", { method: "POST", body: payload });
+  if (!res.success || !res.data?.tenant) {
+    throw new Error(res.error || "Failed to create tenant");
+  }
+  return res.data.tenant;
+}
+
+export async function adminUpdateTenant(
+  id: number,
+  patch: AdminUpdateTenantPayload,
+): Promise<AdminTenant> {
+  assertWebOnly("Updating a tenant");
+  const res = await requestJson<{
+    success: boolean;
+    data?: { tenant: AdminTenant };
+    error?: string;
+  }>(`/api/admin/tenants/${id}`, { method: "PATCH", body: patch });
+  if (!res.success || !res.data?.tenant) {
+    throw new Error(res.error || "Failed to update tenant");
+  }
+  return res.data.tenant;
+}
+
+export async function adminImpersonate(
+  id: number,
+): Promise<AdminImpersonateResult> {
+  assertWebOnly("Impersonating a tenant");
+  const res = await requestJson<{
+    success: boolean;
+    data?: AdminImpersonateResult;
+    error?: string;
+  }>(`/api/admin/tenants/${id}/impersonate`, { method: "POST" });
+  if (!res.success || !res.data) {
+    throw new Error(res.error || "Failed to start impersonation");
+  }
+  return res.data;
 }

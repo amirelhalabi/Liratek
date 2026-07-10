@@ -18,6 +18,7 @@ export * from "./utils/barcode.js";
 export * from "./utils/payments.js";
 export * from "./utils/currency.js";
 export * from "./utils/currencyConverter.js";
+export * from "./utils/tenantSlug.js";
 
 // Repositories
 export * from "./repositories/index.js";

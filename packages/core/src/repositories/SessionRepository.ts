@@ -18,7 +18,9 @@ export interface SessionEntity {
   id: number;
   user_id: number;
   token: string;
-  device_type: "electron" | "web" | "mobile" | "unknown";
+  /** `impersonation` = super-admin "connect as" session (plan §5/WP6) —
+   * a REAL, revocable DB session, same as any other device type. */
+  device_type: "electron" | "web" | "mobile" | "unknown" | "impersonation";
   device_info: string | null;
   ip_address: string | null;
   remember_me: number; // SQLite boolean (0 or 1)
@@ -31,7 +33,7 @@ export interface SessionEntity {
 
 export interface CreateSessionData {
   user_id: number;
-  device_type?: "electron" | "web" | "mobile" | "unknown";
+  device_type?: "electron" | "web" | "mobile" | "unknown" | "impersonation";
   device_info?: string;
   ip_address?: string;
   remember_me?: boolean;

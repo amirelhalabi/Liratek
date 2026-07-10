@@ -8,6 +8,7 @@ import CheckpointModal from "@/features/closing/pages/Checkpoint";
 
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import { ImpersonationBanner } from "@/features/admin/components/ImpersonationBanner";
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -93,6 +94,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
   return (
     <>
+      <ImpersonationBanner />
       {layoutContent}
       <NotificationCenter />
       {/* Per-drawer Checkpoint Modal */}

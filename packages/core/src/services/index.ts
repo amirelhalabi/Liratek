@@ -328,3 +328,11 @@ export {
   getPartnerService,
   resetPartnerService,
 } from "./PartnerService.js";
+
+// Tenant Provisioning Service (control plane — plan §5, WP5)
+export {
+  TenantProvisioningService,
+  getTenantProvisioningService,
+  resetTenantProvisioningService,
+} from "./TenantProvisioningService.js";
+export type { ProvisionTenantData } from "./TenantProvisioningService.js";
