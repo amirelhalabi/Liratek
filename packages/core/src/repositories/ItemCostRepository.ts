@@ -6,6 +6,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Entity Types
@@ -46,9 +47,9 @@ export class ItemCostRepository extends BaseRepository<ItemCostEntity> {
     const row = this.db
       .prepare(
         `SELECT cost FROM item_costs
-         WHERE provider = ? AND category = ? AND item_key = ? AND currency = ?`,
+         WHERE provider = ? AND category = ? AND item_key = ? AND currency = ? AND tenant_id = ?`,
       )
-      .get(provider, category, itemKey, currency) as
+      .get(provider, category, itemKey, currency, getCurrentTenantId()) as
       | { cost: number }
       | undefined;
     return row?.cost ?? null;
@@ -60,9 +61,9 @@ export class ItemCostRepository extends BaseRepository<ItemCostEntity> {
   getAllCosts(): ItemCostEntity[] {
     return this.db
       .prepare(
-        `SELECT ${this.getColumns()} FROM item_costs ORDER BY provider, category, item_key`,
+        `SELECT ${this.getColumns()} FROM item_costs WHERE tenant_id = ? ORDER BY provider, category, item_key`,
       )
-      .all() as ItemCostEntity[];
+      .all(getCurrentTenantId()) as ItemCostEntity[];
   }
 
   /**
@@ -77,13 +78,13 @@ export class ItemCostRepository extends BaseRepository<ItemCostEntity> {
   ): void {
     this.db
       .prepare(
-        `INSERT INTO item_costs (provider, category, item_key, cost, currency)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(provider, category, item_key, currency) DO UPDATE SET
+        `INSERT INTO item_costs (provider, category, item_key, cost, currency, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(tenant_id, provider, category, item_key, currency) DO UPDATE SET
            cost = excluded.cost,
            updated_at = CURRENT_TIMESTAMP`,
       )
-      .run(provider, category, itemKey, cost, currency);
+      .run(provider, category, itemKey, cost, currency, getCurrentTenantId());
   }
 }
 

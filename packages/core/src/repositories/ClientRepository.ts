@@ -15,6 +15,7 @@ import {
 import { DatabaseError, BusinessRuleError } from "../utils/errors.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Types
@@ -67,8 +68,8 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
    */
   findAllClients(search?: string): ClientEntity[] {
     try {
-      let query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE 1=1`;
-      const params: string[] = [];
+      let query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE tenant_id = ?`;
+      const params: (string | number)[] = [getCurrentTenantId()];
 
       if (search) {
         query += ` AND (full_name LIKE ? OR phone_number LIKE ?)`;
@@ -110,8 +111,12 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
    */
   findByPhone(phoneNumber: string): ClientEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE phone_number = ?`;
-      return this.queryOne<ClientEntity>(query, phoneNumber);
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE phone_number = ? AND tenant_id = ?`;
+      return this.queryOne<ClientEntity>(
+        query,
+        phoneNumber,
+        getCurrentTenantId(),
+      );
     } catch (error) {
       throw new DatabaseError("Failed to find client by phone", {
         cause: error,
@@ -124,8 +129,12 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
    */
   findByName(fullName: string): ClientEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE full_name = ? LIMIT 1`;
-      return this.queryOne<ClientEntity>(query, fullName);
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE full_name = ? AND tenant_id = ? LIMIT 1`;
+      return this.queryOne<ClientEntity>(
+        query,
+        fullName,
+        getCurrentTenantId(),
+      );
     } catch (error) {
       throw new DatabaseError("Failed to find client by name", {
         cause: error,
@@ -134,15 +143,22 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   }
 
   /**
-   * Check if phone number already exists
+   * Check if phone number already exists.
+   *
+   * Tenant-scoped: `clients.phone_number` is now UNIQUE per (tenant_id,
+   * phone_number) (see migration v123), so an unscoped check would falsely
+   * reject a phone number already used by a DIFFERENT tenant.
    */
   phoneExists(phoneNumber: string, excludeId?: number): boolean {
     try {
+      const tenantId = getCurrentTenantId();
       const query = excludeId
-        ? `SELECT 1 FROM ${this.tableName} WHERE phone_number = ? AND id != ?`
-        : `SELECT 1 FROM ${this.tableName} WHERE phone_number = ?`;
+        ? `SELECT 1 FROM ${this.tableName} WHERE phone_number = ? AND tenant_id = ? AND id != ?`
+        : `SELECT 1 FROM ${this.tableName} WHERE phone_number = ? AND tenant_id = ?`;
 
-      const params = excludeId ? [phoneNumber, excludeId] : [phoneNumber];
+      const params = excludeId
+        ? [phoneNumber, tenantId, excludeId]
+        : [phoneNumber, tenantId];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;
     } catch (error) {
       throw new DatabaseError("Failed to check phone existence", {
@@ -157,8 +173,8 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   createClient(data: CreateClientData, userId: number): { id: number } {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO ${this.tableName} (full_name, phone_number, notes, whatsapp_opt_in)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO ${this.tableName} (full_name, phone_number, notes, whatsapp_opt_in, tenant_id)
+        VALUES (?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -166,6 +182,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         data.phone_number,
         data.notes ?? null,
         data.whatsapp_opt_in ? 1 : 0,
+        getCurrentTenantId(),
       );
 
       const clientId = result.lastInsertRowid as number;
@@ -212,12 +229,12 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       }
 
       const stmt = this.db.prepare(`
-        UPDATE ${this.tableName} 
-        SET full_name = COALESCE(?, full_name), 
-            phone_number = COALESCE(?, phone_number), 
-            notes = COALESCE(?, notes), 
+        UPDATE ${this.tableName}
+        SET full_name = COALESCE(?, full_name),
+            phone_number = COALESCE(?, phone_number),
+            notes = COALESCE(?, notes),
             whatsapp_opt_in = COALESCE(?, whatsapp_opt_in)
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
 
       const result = stmt.run(
@@ -230,6 +247,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
             : 0
           : null,
         id,
+        getCurrentTenantId(),
       );
 
       return result.changes > 0;
@@ -264,9 +282,9 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   ): boolean {
     try {
       const stmt = this.db.prepare(`
-        UPDATE ${this.tableName} 
+        UPDATE ${this.tableName}
         SET full_name = ?, phone_number = ?, notes = ?, whatsapp_opt_in = ?
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
 
       const result = stmt.run(
@@ -275,6 +293,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         data.notes ?? null,
         data.whatsapp_opt_in ? 1 : 0,
         id,
+        getCurrentTenantId(),
       );
 
       if (result.changes > 0) {
@@ -317,8 +336,9 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   hasSalesHistory(id: number): boolean {
     try {
       const result = this.queryOne<{ count: number }>(
-        `SELECT count(*) as count FROM sales WHERE client_id = ?`,
+        `SELECT count(*) as count FROM sales WHERE client_id = ? AND tenant_id = ?`,
         id,
+        getCurrentTenantId(),
       );
       return (result?.count ?? 0) > 0;
     } catch (error) {
@@ -374,13 +394,19 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       const searchTerm = `%${term}%`;
 
       const query = `
-        SELECT ${this.getColumns()} FROM ${this.tableName} 
-        WHERE full_name LIKE ? OR phone_number LIKE ?
-        ORDER BY full_name ASC 
+        SELECT ${this.getColumns()} FROM ${this.tableName}
+        WHERE (full_name LIKE ? OR phone_number LIKE ?) AND tenant_id = ?
+        ORDER BY full_name ASC
         LIMIT ?
       `;
 
-      return this.query<ClientEntity>(query, searchTerm, searchTerm, limit);
+      return this.query<ClientEntity>(
+        query,
+        searchTerm,
+        searchTerm,
+        getCurrentTenantId(),
+        limit,
+      );
     } catch (error) {
       throw new DatabaseError("Failed to search clients", { cause: error });
     }
@@ -392,8 +418,9 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   getDebtBalance(clientId: number): number {
     try {
       const result = this.queryOne<{ total: number }>(
-        `SELECT COALESCE(SUM(amount_usd), 0) as total FROM debt_ledger WHERE client_id = ?`,
+        `SELECT COALESCE(SUM(amount_usd), 0) as total FROM debt_ledger WHERE client_id = ? AND tenant_id = ?`,
         clientId,
+        getCurrentTenantId(),
       );
       return result?.total ?? 0;
     } catch (error) {
@@ -406,17 +433,23 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
    */
   findClientsWithDebt(): (ClientEntity & { debt_total: number })[] {
     try {
-      return this.query<ClientEntity & { debt_total: number }>(`
+      const tenantId = getCurrentTenantId();
+      return this.query<ClientEntity & { debt_total: number }>(
+        `
         SELECT c.*, COALESCE(d.total, 0) as debt_total
         FROM ${this.tableName} c
         LEFT JOIN (
-          SELECT client_id, SUM(amount_usd) as total 
-          FROM debt_ledger 
-          GROUP BY client_id
-        ) d ON c.id = d.client_id
-        WHERE d.total > 0
+          SELECT client_id, tenant_id, SUM(amount_usd) as total
+          FROM debt_ledger
+          WHERE tenant_id = ?
+          GROUP BY client_id, tenant_id
+        ) d ON c.id = d.client_id AND c.tenant_id = d.tenant_id
+        WHERE d.total > 0 AND c.tenant_id = ?
         ORDER BY d.total DESC
-      `);
+      `,
+        tenantId,
+        tenantId,
+      );
     } catch (error) {
       throw new DatabaseError("Failed to find clients with debt", {
         cause: error,
@@ -430,7 +463,8 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   findWhatsAppOptedIn(): ClientEntity[] {
     try {
       return this.query<ClientEntity>(
-        `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE whatsapp_opt_in = 1 ORDER BY full_name ASC`,
+        `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE whatsapp_opt_in = 1 AND tenant_id = ? ORDER BY full_name ASC`,
+        getCurrentTenantId(),
       );
     } catch (error) {
       throw new DatabaseError("Failed to find WhatsApp opted-in clients", {

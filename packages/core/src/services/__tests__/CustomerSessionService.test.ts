@@ -15,6 +15,7 @@ describe("CustomerSessionService", () => {
 
     db.exec(`
       CREATE TABLE customer_sessions (
+        tenant_id INTEGER DEFAULT 1,
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         customer_name TEXT,
         customer_phone TEXT,
@@ -29,6 +30,7 @@ describe("CustomerSessionService", () => {
       );
 
       CREATE TABLE customer_session_transactions (
+        tenant_id INTEGER DEFAULT 1,
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER NOT NULL,
         transaction_type TEXT NOT NULL,

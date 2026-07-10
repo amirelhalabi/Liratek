@@ -8,6 +8,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Entity Types
@@ -120,28 +121,32 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     const profitUsd = data.totalProfitUsd;
 
     return this.db.transaction(() => {
+      const tenantId = getCurrentTenantId();
+
       // Auto-register currencies that don't exist (e.g. API currencies like GBP, AED)
       const ensureCurrency = this.db.prepare(
-        `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active)
-         VALUES (?, ?, ?, 2, 1)`,
+        `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id)
+         VALUES (?, ?, ?, 2, 1, ?)`,
       );
       const ensureDrawer = this.db.prepare(
-        `INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name)
-         VALUES (?, 'General')`,
+        `INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name, tenant_id)
+         VALUES (?, 'General', ?)`,
       );
 
       ensureCurrency.run(
         data.fromCurrency,
         data.fromCurrencyName ?? data.fromCurrency,
         data.fromCurrency,
+        tenantId,
       );
-      ensureDrawer.run(data.fromCurrency);
+      ensureDrawer.run(data.fromCurrency, tenantId);
       ensureCurrency.run(
         data.toCurrency,
         data.toCurrencyName ?? data.toCurrency,
         data.toCurrency,
+        tenantId,
       );
-      ensureDrawer.run(data.toCurrency);
+      ensureDrawer.run(data.toCurrency, tenantId);
 
       const result = this.db
         .prepare(
@@ -150,13 +155,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             amount_in, amount_out, rate, base_rate, profit_usd,
             leg1_rate, leg1_market_rate, leg1_profit_usd,
             leg2_rate, leg2_market_rate, leg2_profit_usd,
-            via_currency, client_name, note, created_at
+            via_currency, client_name, note, tenant_id, created_at
           ) VALUES (
             ?, ?, ?,
             ?, ?, ?, ?, ?,
             ?, ?, ?,
             ?, ?, ?,
-            ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)
+            ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)
           )`,
         )
         .run(
@@ -177,6 +182,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           data.viaCurrency ?? null,
           data.clientName ?? null,
           note,
+          tenantId,
           data.transaction_time ?? null,
         );
 
@@ -236,14 +242,14 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       });
 
       const insertPayment = this.db.prepare(
-        `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-         VALUES (?, 'CASH', ?, ?, ?, ?, ?)`,
+        `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
+         VALUES (?, 'CASH', ?, ?, ?, ?, ?, ?)`,
       );
 
       const upsertBalance = this.db.prepare(
-        `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-         VALUES (?, ?, ?)
-         ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
            balance    = drawer_balances.balance + excluded.balance,
            updated_at = CURRENT_TIMESTAMP`,
       );
@@ -257,8 +263,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         fromDelta,
         note,
         createdBy,
+        tenantId,
       );
-      upsertBalance.run(drawerName, data.fromCurrency, fromDelta);
+      upsertBalance.run(drawerName, data.fromCurrency, fromDelta, tenantId);
 
       // Outflow: shop gives toCurrency to customer → shop drawer decreases
       const toDelta = -Math.abs(data.amountOut);
@@ -269,8 +276,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         toDelta,
         note,
         createdBy,
+        tenantId,
       );
-      upsertBalance.run(drawerName, data.toCurrency, toDelta);
+      upsertBalance.run(drawerName, data.toCurrency, toDelta, tenantId);
 
       return { id };
     })();
@@ -287,9 +295,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM exchange_transactions
+         WHERE tenant_id = ?
          ORDER BY created_at DESC LIMIT ?`,
       )
-      .all(limit) as ExchangeTransactionEntity[];
+      .all(getCurrentTenantId(), limit) as ExchangeTransactionEntity[];
   }
 
   /**
@@ -300,9 +309,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       .prepare(
         `SELECT ${this.getColumns()} FROM exchange_transactions
          WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
+           AND tenant_id = ?
          ORDER BY created_at DESC`,
       )
-      .all() as ExchangeTransactionEntity[];
+      .all(getCurrentTenantId()) as ExchangeTransactionEntity[];
   }
 
   /**
@@ -316,9 +326,14 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
            COALESCE(SUM(amount_out), 0) AS total_out,
            COUNT(*)                      AS count
          FROM exchange_transactions
-         WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')`,
+         WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
+           AND tenant_id = ?`,
       )
-      .get() as { total_in: number; total_out: number; count: number };
+      .get(getCurrentTenantId()) as {
+      total_in: number;
+      total_out: number;
+      count: number;
+    };
     return {
       totalIn: result.total_in,
       totalOut: result.total_out,
@@ -358,9 +373,9 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
     this.db
       .prepare(
-        `UPDATE exchange_transactions SET ${fields.join(", ")} WHERE id = ?`,
+        `UPDATE exchange_transactions SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
       )
-      .run(...values);
+      .run(...values, getCurrentTenantId());
 
     return this.findById(id);
   }

@@ -16,6 +16,7 @@ describe("CustomerSessionRepository", () => {
     db.exec(`
       CREATE TABLE customer_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER,
         customer_name TEXT,
         customer_phone TEXT,
         customer_notes TEXT,
@@ -30,6 +31,7 @@ describe("CustomerSessionRepository", () => {
 
       CREATE TABLE customer_session_transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER,
         session_id INTEGER NOT NULL,
         transaction_type TEXT NOT NULL,
         transaction_id INTEGER NOT NULL,

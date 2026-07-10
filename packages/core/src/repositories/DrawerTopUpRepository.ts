@@ -1,4 +1,5 @@
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
@@ -56,13 +57,15 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
     transactionTime?: string,
   ): number {
     const txTime = transactionTime ?? data.transaction_time;
+    const tenantId = getCurrentTenantId();
     return this.db.transaction(() => {
       // 1. Insert into drawer_topups
       const insertTopUp = this.db.prepare(`
-        INSERT INTO drawer_topups (amount_usd, amount_lbp, notes, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+        INSERT INTO drawer_topups (tenant_id, amount_usd, amount_lbp, notes, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
       `);
       const result = insertTopUp.run(
+        tenantId,
         data.amount_usd,
         data.amount_lbp,
         data.notes ?? null,
@@ -89,16 +92,16 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
 
       // 3. Prepare UPSERT and payment statements
       const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
 
       const insertPayment = this.db.prepare(`
-        INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const note = `Drawer Top-Up${data.notes ? `: ${data.notes}` : ""}`;
@@ -106,6 +109,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       // 4. USD inflow
       if (data.amount_usd && data.amount_usd > 0) {
         insertPayment.run(
+          tenantId,
           txnId,
           TOPUP_METHOD,
           GENERAL_DRAWER,
@@ -114,12 +118,13 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
           note,
           userId,
         );
-        upsertBalance.run(GENERAL_DRAWER, "USD", data.amount_usd);
+        upsertBalance.run(tenantId, GENERAL_DRAWER, "USD", data.amount_usd);
       }
 
       // 5. LBP inflow
       if (data.amount_lbp && data.amount_lbp > 0) {
         insertPayment.run(
+          tenantId,
           txnId,
           TOPUP_METHOD,
           GENERAL_DRAWER,
@@ -128,7 +133,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
           note,
           userId,
         );
-        upsertBalance.run(GENERAL_DRAWER, "LBP", data.amount_lbp);
+        upsertBalance.run(tenantId, GENERAL_DRAWER, "LBP", data.amount_lbp);
       }
 
       return topUpId;
@@ -145,13 +150,15 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
     transactionTime?: string,
   ): number {
     const txTime = transactionTime ?? data.transaction_time;
+    const tenantId = getCurrentTenantId();
     return this.db.transaction(() => {
       // 1. Insert into drawer_topups with source_drawer
       const insertTopUp = this.db.prepare(`
-        INSERT INTO drawer_topups (amount_usd, amount_lbp, notes, source_drawer, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+        INSERT INTO drawer_topups (tenant_id, amount_usd, amount_lbp, notes, source_drawer, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
       `);
       const result = insertTopUp.run(
+        tenantId,
         data.amount_usd,
         data.amount_lbp,
         data.notes ?? null,
@@ -180,9 +187,9 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
 
       // 3. Prepare statements
       const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
@@ -190,21 +197,22 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       const deductBalance = this.db.prepare(`
         UPDATE drawer_balances
         SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-        WHERE drawer_name = ? AND currency_code = ?
+        WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?
       `);
 
       const insertPayment = this.db.prepare(`
-        INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const note = `Drawer Transfer: ${data.source_drawer} → General${data.notes ? `: ${data.notes}` : ""}`;
 
       // 4. USD transfer
       if (data.amount_usd && data.amount_usd > 0) {
-        deductBalance.run(data.amount_usd, data.source_drawer, "USD");
-        upsertBalance.run(GENERAL_DRAWER, "USD", data.amount_usd);
+        deductBalance.run(data.amount_usd, data.source_drawer, "USD", tenantId);
+        upsertBalance.run(tenantId, GENERAL_DRAWER, "USD", data.amount_usd);
         insertPayment.run(
+          tenantId,
           txnId,
           TOPUP_METHOD,
           GENERAL_DRAWER,
@@ -217,9 +225,10 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
 
       // 5. LBP transfer
       if (data.amount_lbp && data.amount_lbp > 0) {
-        deductBalance.run(data.amount_lbp, data.source_drawer, "LBP");
-        upsertBalance.run(GENERAL_DRAWER, "LBP", data.amount_lbp);
+        deductBalance.run(data.amount_lbp, data.source_drawer, "LBP", tenantId);
+        upsertBalance.run(tenantId, GENERAL_DRAWER, "LBP", data.amount_lbp);
         insertPayment.run(
+          tenantId,
           txnId,
           TOPUP_METHOD,
           GENERAL_DRAWER,
@@ -245,11 +254,11 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         COALESCE(SUM(CASE WHEN currency_code = 'USD' THEN balance ELSE 0 END), 0) as balance_usd,
         COALESCE(SUM(CASE WHEN currency_code = 'LBP' THEN balance ELSE 0 END), 0) as balance_lbp
       FROM drawer_balances
-      WHERE drawer_name = 'OMT_System'
+      WHERE drawer_name = 'OMT_System' AND tenant_id = ?
       GROUP BY drawer_name
     `,
       )
-      .all() as SourceDrawerBalance[];
+      .all(getCurrentTenantId()) as SourceDrawerBalance[];
     return rows;
   }
 
@@ -261,10 +270,11 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       .prepare(
         `SELECT id, amount_usd, amount_lbp, notes, created_by, created_at, updated_at
          FROM drawer_topups
+         WHERE tenant_id = ?
          ORDER BY created_at DESC
          LIMIT ?`,
       )
-      .all(limit) as DrawerTopUpEntity[];
+      .all(getCurrentTenantId(), limit) as DrawerTopUpEntity[];
   }
 }
 

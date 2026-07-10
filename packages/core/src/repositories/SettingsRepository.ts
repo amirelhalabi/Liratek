@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 export interface SettingEntity {
   id?: number;
@@ -28,8 +29,8 @@ export class SettingsRepository {
    */
   getAllSettings(): SettingEntity[] {
     return this.db
-      .prepare(`SELECT ${this.columns} FROM system_settings`)
-      .all() as SettingEntity[];
+      .prepare(`SELECT ${this.columns} FROM system_settings WHERE tenant_id = ?`)
+      .all(getCurrentTenantId()) as SettingEntity[];
   }
 
   /**
@@ -37,8 +38,10 @@ export class SettingsRepository {
    */
   getSetting(key: string): SettingEntity | undefined {
     return this.db
-      .prepare(`SELECT ${this.columns} FROM system_settings WHERE key_name = ?`)
-      .get(key) as SettingEntity | undefined;
+      .prepare(
+        `SELECT ${this.columns} FROM system_settings WHERE key_name = ? AND tenant_id = ?`,
+      )
+      .get(key, getCurrentTenantId()) as SettingEntity | undefined;
   }
 
   /**
@@ -46,8 +49,10 @@ export class SettingsRepository {
    */
   getSettingValue(key: string): string | undefined {
     const setting = this.db
-      .prepare("SELECT value FROM system_settings WHERE key_name = ?")
-      .get(key) as { value: string } | undefined;
+      .prepare(
+        "SELECT value FROM system_settings WHERE key_name = ? AND tenant_id = ?",
+      )
+      .get(key, getCurrentTenantId()) as { value: string } | undefined;
     return setting?.value;
   }
 
@@ -55,13 +60,14 @@ export class SettingsRepository {
    * Upsert a setting (insert or update)
    */
   upsertSetting(key: string, value: string): void {
+    const tenantId = getCurrentTenantId();
     const stmt = this.db.prepare(`
-      INSERT INTO system_settings (key_name, value)
-      VALUES (?, ?)
-      ON CONFLICT(key_name)
+      INSERT INTO system_settings (tenant_id, key_name, value)
+      VALUES (?, ?, ?)
+      ON CONFLICT(tenant_id, key_name)
       DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP
     `);
-    stmt.run(key, value, value);
+    stmt.run(tenantId, key, value, value);
   }
 }
 

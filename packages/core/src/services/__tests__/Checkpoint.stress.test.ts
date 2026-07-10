@@ -32,6 +32,7 @@ function createSchema(db: Database.Database): void {
   db.exec(`
     -- Users (minimal)
     CREATE TABLE IF NOT EXISTS users (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE,
       password_hash TEXT,
@@ -42,6 +43,7 @@ function createSchema(db: Database.Database): void {
 
     -- Transactions (unified accounting journal)
     CREATE TABLE IF NOT EXISTS transactions (
+      tenant_id INTEGER DEFAULT 1,
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       type            TEXT NOT NULL,
       status          TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -65,6 +67,7 @@ function createSchema(db: Database.Database): void {
 
     -- Payments
     CREATE TABLE IF NOT EXISTS payments (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       method TEXT NOT NULL,
@@ -78,15 +81,17 @@ function createSchema(db: Database.Database): void {
 
     -- Drawer Balances
     CREATE TABLE IF NOT EXISTS drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     -- Daily Closings
     CREATE TABLE IF NOT EXISTS daily_closings (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       closing_date DATE,
       drawer_name TEXT,
@@ -108,6 +113,7 @@ function createSchema(db: Database.Database): void {
 
     -- Daily Closing Amounts (per drawer/currency breakdown)
     CREATE TABLE IF NOT EXISTS daily_closing_amounts (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       closing_id INTEGER NOT NULL,
       drawer_name TEXT NOT NULL,
@@ -127,6 +133,7 @@ function createSchema(db: Database.Database): void {
 
     -- Tables referenced by getDailyStatsSnapshot (minimal stubs so queries don't error)
     CREATE TABLE IF NOT EXISTS sales (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER,
       total_amount_usd REAL DEFAULT 0,
@@ -144,6 +151,7 @@ function createSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS sale_items (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       sale_id INTEGER NOT NULL,
       product_id INTEGER NOT NULL,
@@ -156,6 +164,7 @@ function createSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS debt_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER NOT NULL,
       transaction_type TEXT NOT NULL,
@@ -167,6 +176,7 @@ function createSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS expenses (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       description TEXT,
       category TEXT,
@@ -177,6 +187,7 @@ function createSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS financial_services (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
       service_type TEXT NOT NULL,
@@ -187,6 +198,7 @@ function createSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS recharges (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       carrier TEXT NOT NULL,
       recharge_type TEXT DEFAULT 'CREDIT_TRANSFER',
@@ -198,6 +210,7 @@ function createSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS custom_services (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       description TEXT NOT NULL,
       profit_usd REAL DEFAULT 0,
@@ -206,6 +219,7 @@ function createSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS maintenance (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       final_amount_usd REAL DEFAULT 0,
       cost_usd REAL DEFAULT 0,
@@ -215,6 +229,7 @@ function createSchema(db: Database.Database): void {
 
     -- Products (needed for sale_items FK references in stress helpers)
     CREATE TABLE IF NOT EXISTS products (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       barcode TEXT,
       name TEXT NOT NULL,
@@ -228,6 +243,7 @@ function createSchema(db: Database.Database): void {
 
     -- Exchange transactions stub
     CREATE TABLE IF NOT EXISTS exchange_transactions (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       from_currency TEXT NOT NULL,
@@ -260,7 +276,7 @@ function insertPayment(
   db.prepare(
     `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
      VALUES (?, ?, ?)
-     ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+     ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
        balance = balance + excluded.balance,
        updated_at = CURRENT_TIMESTAMP`,
   ).run(drawerName, currencyCode, amount);

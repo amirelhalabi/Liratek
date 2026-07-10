@@ -18,6 +18,7 @@ function createSchema(d: Database.Database): void {
   d.exec(`
     CREATE TABLE daily_closings (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id    INTEGER,
       closing_date TEXT NOT NULL,
       drawer_name  TEXT NOT NULL,
       notes        TEXT,
@@ -46,8 +47,8 @@ describe("ClosingRepository.hasStartingCheckpoint", () => {
 
   it("returns true once any checkpoint exists (the earliest IS the starting one)", () => {
     db.prepare(
-      `INSERT INTO daily_closings (closing_date, drawer_name, notes, created_by)
-       VALUES ('2026-01-01', 'AGGREGATED', 'Initial drawer amounts from setup', 1)`,
+      `INSERT INTO daily_closings (tenant_id, closing_date, drawer_name, notes, created_by)
+       VALUES (1, '2026-01-01', 'AGGREGATED', 'Initial drawer amounts from setup', 1)`,
     ).run();
     expect(repo.hasStartingCheckpoint()).toBe(true);
   });
@@ -56,8 +57,8 @@ describe("ClosingRepository.hasStartingCheckpoint", () => {
     // Distinct from hasOpeningBalanceToday: a starting checkpoint from any past
     // day still counts as a recorded baseline.
     db.prepare(
-      `INSERT INTO daily_closings (closing_date, drawer_name, created_by)
-       VALUES ('2020-06-15', 'General', 1)`,
+      `INSERT INTO daily_closings (tenant_id, closing_date, drawer_name, created_by)
+       VALUES (1, '2020-06-15', 'General', 1)`,
     ).run();
     expect(repo.hasStartingCheckpoint()).toBe(true);
   });
@@ -72,12 +73,12 @@ describe("ClosingRepository.getInitialCheckpointDate", () => {
     // Insert out of date order; the SETUP checkpoint is the first ROW (id ASC),
     // not the earliest closing_date, so id-ordering is what identifies it.
     db.prepare(
-      `INSERT INTO daily_closings (closing_date, drawer_name, notes, created_by)
-       VALUES ('2026-02-01', 'AGGREGATED', 'Initial drawer amounts from setup', 1)`,
+      `INSERT INTO daily_closings (tenant_id, closing_date, drawer_name, notes, created_by)
+       VALUES (1, '2026-02-01', 'AGGREGATED', 'Initial drawer amounts from setup', 1)`,
     ).run();
     db.prepare(
-      `INSERT INTO daily_closings (closing_date, drawer_name, created_by)
-       VALUES ('2026-03-01', 'General', 1)`,
+      `INSERT INTO daily_closings (tenant_id, closing_date, drawer_name, created_by)
+       VALUES (1, '2026-03-01', 'General', 1)`,
     ).run();
     expect(repo.getInitialCheckpointDate()).toBe("2026-02-01");
   });

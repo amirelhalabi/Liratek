@@ -10,6 +10,7 @@ import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { salesLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Types
@@ -212,6 +213,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   } {
     const db = this.db;
     const tableName = this.tableName;
+    const tenantId = getCurrentTenantId();
 
     try {
       const processTransaction = db.transaction(() => {
@@ -228,23 +230,28 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               ((sale.client_phone
                 ? db
                     .prepare(
-                      `SELECT id FROM clients WHERE phone_number = ? LIMIT 1`,
+                      `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
                     )
-                    .get(sale.client_phone)
+                    .get(sale.client_phone, tenantId)
                 : undefined) as { id: number } | undefined) ??
               (db
-                .prepare(`SELECT id FROM clients WHERE full_name = ? LIMIT 1`)
-                .get(sale.client_name) as { id: number } | undefined);
+                .prepare(
+                  `SELECT id FROM clients WHERE full_name = ? AND tenant_id = ? LIMIT 1`,
+                )
+                .get(sale.client_name, tenantId) as
+                | { id: number }
+                | undefined);
             if (existing) {
               finalClientId = existing.id;
             } else {
               const createClient = db.prepare(`
-                INSERT INTO clients (full_name, phone_number, whatsapp_opt_in)
-                VALUES (?, ?, 0)
+                INSERT INTO clients (full_name, phone_number, whatsapp_opt_in, tenant_id)
+                VALUES (?, ?, 0, ?)
               `);
               const clientResult = createClient.run(
                 sale.client_name,
                 sale.client_phone || null,
+                tenantId,
               );
               finalClientId = clientResult.lastInsertRowid as number;
             }
@@ -282,11 +289,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         if (saleId) {
           // UPDATE Existing Sale
           const updateStmt = db.prepare(`
-            UPDATE ${tableName} SET 
-              client_id = ?, total_amount_usd = ?, discount_usd = ?, final_amount_usd = ?, 
-              paid_usd = ?, paid_lbp = ?, change_given_usd = ?, change_given_lbp = ?, 
+            UPDATE ${tableName} SET
+              client_id = ?, total_amount_usd = ?, discount_usd = ?, final_amount_usd = ?,
+              paid_usd = ?, paid_lbp = ?, change_given_usd = ?, change_given_lbp = ?,
               exchange_rate_snapshot = ?, drawer_name = ?, status = ?, note = ?
-            WHERE id = ?
+            WHERE id = ? AND tenant_id = ?
           `);
           updateStmt.run(
             finalClientId,
@@ -302,18 +309,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             status,
             sale.note || null,
             saleId,
+            tenantId,
           );
 
           // Clear old items to re-insert new ones
-          db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(saleId);
+          db.prepare(
+            "DELETE FROM sale_items WHERE sale_id = ? AND tenant_id = ?",
+          ).run(saleId, tenantId);
         } else {
           // INSERT New Sale
           const saleStmt = db.prepare(`
             INSERT INTO ${tableName} (
-              client_id, total_amount_usd, discount_usd, final_amount_usd, 
+              client_id, total_amount_usd, discount_usd, final_amount_usd,
               paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
-              drawer_name, status, note, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+              drawer_name, status, note, created_at, tenant_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)
           `);
 
           const saleResult = saleStmt.run(
@@ -330,6 +340,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             status,
             sale.note || null,
             sale.transaction_time ?? null,
+            tenantId,
           );
           saleId = saleResult.lastInsertRowid as number;
         }
@@ -342,8 +353,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         let saleProfitUsd = 0;
         for (const item of sale.items) {
           const costRow = db
-            .prepare("SELECT cost_price_usd FROM products WHERE id = ?")
-            .get(item.product_id) as { cost_price_usd: number } | undefined;
+            .prepare(
+              "SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?",
+            )
+            .get(item.product_id, tenantId) as
+            | { cost_price_usd: number }
+            | undefined;
           const costPrice = costRow?.cost_price_usd ?? 0;
           saleProfitUsd += (item.price - costPrice) * item.quantity;
         }
@@ -401,21 +416,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             ];
 
         db.prepare(
-          `DELETE FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ?)`,
-        ).run(saleId);
+          `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (SELECT id FROM transactions WHERE tenant_id = ? AND source_table = 'sales' AND source_id = ?)`,
+        ).run(tenantId, tenantId, saleId);
 
         const insertPayment = db.prepare(`
           INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
           ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?
           )
         `);
 
         const upsertBalanceDelta = db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
@@ -443,8 +458,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             p.amount,
             note,
             createdBy,
+            tenantId,
           );
-          upsertBalanceDelta.run(drawerName, p.currency_code, p.amount);
+          upsertBalanceDelta.run(
+            tenantId,
+            drawerName,
+            p.currency_code,
+            p.amount,
+          );
         }
 
         // Redeem any gift-card / voucher legs atomically with the sale. The
@@ -490,8 +511,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               -amt,
               "Change returned",
               createdBy,
+              tenantId,
             );
-            upsertBalanceDelta.run(drawerName, r.currency_code, -amt);
+            upsertBalanceDelta.run(
+              tenantId,
+              drawerName,
+              r.currency_code,
+              -amt,
+            );
           }
         }
 
@@ -510,8 +537,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             -changeUsd,
             "Change given",
             createdBy,
+            tenantId,
           );
-          upsertBalanceDelta.run("General", "USD", -changeUsd);
+          upsertBalanceDelta.run(tenantId, "General", "USD", -changeUsd);
         }
         if (changeLbp) {
           insertPayment.run(
@@ -522,21 +550,22 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             -changeLbp,
             "Change given",
             createdBy,
+            tenantId,
           );
-          upsertBalanceDelta.run("General", "LBP", -changeLbp);
+          upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
         }
 
         // Process Items & Update Stock
         const itemStmt = db.prepare(`
           INSERT INTO sale_items (
-            sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei
-          ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ?), ?)
+            sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei, tenant_id
+          ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?), ?, ?)
         `);
 
         const stockStmt = db.prepare(`
-          UPDATE products 
-          SET stock_quantity = stock_quantity - ? 
-          WHERE id = ?
+          UPDATE products
+          SET stock_quantity = stock_quantity - ?
+          WHERE id = ? AND tenant_id = ?
         `);
 
         for (const item of sale.items) {
@@ -546,12 +575,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             item.quantity,
             item.price,
             item.product_id,
+            tenantId,
             item.imei || null,
+            tenantId,
           );
 
           // Update Stock: ONLY IF COMPLETED
           if (status === "completed") {
-            stockStmt.run(item.quantity, item.product_id);
+            stockStmt.run(item.quantity, item.product_id, tenantId);
           }
         }
 
@@ -570,8 +601,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
             const debtStmt = db.prepare(`
               INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, transaction_id, note, due_date
-              ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'))
+                client_id, transaction_type, amount_usd, transaction_id, note, due_date, tenant_id
+              ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'), ?)
             `);
             // Use txnId (transactions table FK) per unified transaction architecture
             debtStmt.run(
@@ -580,6 +611,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               debtAmount,
               txnId,
               "Balance from Sale",
+              tenantId,
             );
           }
         }
@@ -620,9 +652,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       .prepare(
         `UPDATE ${this.tableName}
          SET paid_usd = ?, paid_lbp = ?, exchange_rate_snapshot = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ? AND tenant_id = ?`,
       )
-      .run(paidUsd, paidLbp, exchangeRate, saleId);
+      .run(paidUsd, paidLbp, exchangeRate, saleId, getCurrentTenantId());
   }
 
   // ---------------------------------------------------------------------------
@@ -634,23 +666,30 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   findDrafts(): DraftSaleWithItems[] {
     try {
-      const drafts = this.query<SaleWithClientRow>(`
-        SELECT s.*, c.full_name as client_name, c.phone_number as client_phone 
-        FROM ${this.tableName} s 
-        LEFT JOIN clients c ON s.client_id = c.id
-        WHERE s.status = 'draft'
+      const tenantId = getCurrentTenantId();
+      const drafts = this.query<SaleWithClientRow>(
+        `
+        SELECT s.*, c.full_name as client_name, c.phone_number as client_phone
+        FROM ${this.tableName} s
+        LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = ?
+        WHERE s.status = 'draft' AND s.tenant_id = ?
         ORDER BY s.created_at DESC
-      `);
+      `,
+        tenantId,
+        tenantId,
+      );
 
       return drafts.map((draft) => {
         const items = this.query<SaleItemWithProductRow>(
           `
-          SELECT si.*, p.name, p.barcode 
+          SELECT si.*, p.name, p.barcode
           FROM sale_items si
-          JOIN products p ON si.product_id = p.id
-          WHERE si.sale_id = ?
+          JOIN products p ON si.product_id = p.id AND p.tenant_id = ?
+          WHERE si.sale_id = ? AND si.tenant_id = ?
         `,
+          tenantId,
           draft.id,
+          tenantId,
         );
 
         return { ...draft, items };
@@ -680,10 +719,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     try {
       const stmt = this.db.prepare(`
         INSERT INTO ${this.tableName} (
-          client_id, total_amount_usd, discount_usd, final_amount_usd, 
+          client_id, total_amount_usd, discount_usd, final_amount_usd,
           paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
-          drawer_name, status, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          drawer_name, status, note, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -699,6 +738,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         data.drawer_name,
         data.status,
         data.note,
+        getCurrentTenantId(),
       );
 
       return result.lastInsertRowid as number;
@@ -729,11 +769,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   ): boolean {
     try {
       const stmt = this.db.prepare(`
-        UPDATE ${this.tableName} SET 
-          client_id = ?, total_amount_usd = ?, discount_usd = ?, final_amount_usd = ?, 
-          paid_usd = ?, paid_lbp = ?, change_given_usd = ?, change_given_lbp = ?, 
+        UPDATE ${this.tableName} SET
+          client_id = ?, total_amount_usd = ?, discount_usd = ?, final_amount_usd = ?,
+          paid_usd = ?, paid_lbp = ?, change_given_usd = ?, change_given_lbp = ?,
           exchange_rate_snapshot = ?, drawer_name = ?, status = ?, note = ?
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
 
       const result = stmt.run(
@@ -750,6 +790,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         data.status,
         data.note,
         id,
+        getCurrentTenantId(),
       );
 
       return result.changes > 0;
@@ -766,7 +807,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   deleteSaleItems(saleId: number): void {
     try {
-      this.execute("DELETE FROM sale_items WHERE sale_id = ?", saleId);
+      this.execute(
+        "DELETE FROM sale_items WHERE sale_id = ? AND tenant_id = ?",
+        saleId,
+        getCurrentTenantId(),
+      );
     } catch (error) {
       throw new DatabaseError("Failed to delete sale items", { cause: error });
     }
@@ -785,8 +830,17 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       if (sale.status !== "draft") {
         return { success: false, error: "Only draft sales can be deleted" };
       }
-      this.execute("DELETE FROM sale_items WHERE sale_id = ?", saleId);
-      this.execute("DELETE FROM sales WHERE id = ?", saleId);
+      const tenantId = getCurrentTenantId();
+      this.execute(
+        "DELETE FROM sale_items WHERE sale_id = ? AND tenant_id = ?",
+        saleId,
+        tenantId,
+      );
+      this.execute(
+        "DELETE FROM sales WHERE id = ? AND tenant_id = ?",
+        saleId,
+        tenantId,
+      );
       return { success: true };
     } catch (error) {
       throw new DatabaseError("Failed to delete draft", { cause: error });
@@ -806,18 +860,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     },
   ): void {
     try {
+      const tenantId = getCurrentTenantId();
       this.execute(
         `
         INSERT INTO sale_items (
-          sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei
-        ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ?), ?)
+          sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei, tenant_id
+        ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?), ?, ?)
       `,
         saleId,
         item.product_id,
         item.quantity,
         item.price,
         item.product_id,
+        tenantId,
         item.imei || null,
+        tenantId,
       );
     } catch (error) {
       throw new DatabaseError("Failed to add sale item", { cause: error });
@@ -829,14 +886,17 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getSaleItems(saleId: number): SaleItemWithProduct[] {
     try {
+      const tenantId = getCurrentTenantId();
       return this.query<SaleItemWithProduct>(
         `
-        SELECT si.*, p.name, p.barcode 
+        SELECT si.*, p.name, p.barcode
         FROM sale_items si
-        JOIN products p ON si.product_id = p.id
-        WHERE si.sale_id = ?
+        JOIN products p ON si.product_id = p.id AND p.tenant_id = ?
+        WHERE si.sale_id = ? AND si.tenant_id = ?
       `,
+        tenantId,
         saleId,
+        tenantId,
       );
     } catch (error) {
       throw new DatabaseError("Failed to get sale items", { cause: error });
@@ -854,12 +914,17 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     userId: number;
   }): number {
     const db = this.db;
+    const tenantId = getCurrentTenantId();
 
     return this.transaction(() => {
       // 1. Get the sale item
       const item = db
-        .prepare(`SELECT * FROM sale_items WHERE id = ? AND sale_id = ?`)
-        .get(params.saleItemId, params.saleId) as SaleItemEntity | undefined;
+        .prepare(
+          `SELECT * FROM sale_items WHERE id = ? AND sale_id = ? AND tenant_id = ?`,
+        )
+        .get(params.saleItemId, params.saleId, tenantId) as
+        | SaleItemEntity
+        | undefined;
 
       if (!item) {
         throw new NotFoundError("sale_item", params.saleItemId);
@@ -880,8 +945,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
       // 3. Get the parent sale
       const sale = db
-        .prepare(`SELECT * FROM sales WHERE id = ?`)
-        .get(params.saleId) as SaleEntity | undefined;
+        .prepare(`SELECT * FROM sales WHERE id = ? AND tenant_id = ?`)
+        .get(params.saleId, tenantId) as SaleEntity | undefined;
 
       if (!sale) {
         throw new NotFoundError("sale", params.saleId);
@@ -920,11 +985,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       // 5. Get the original SALE transaction
       const originalTxn = db
         .prepare(
-          `SELECT id, source_table, source_id, amount_usd, amount_lbp, exchange_rate, client_id, device_id 
-           FROM transactions 
-           WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+          `SELECT id, source_table, source_id, amount_usd, amount_lbp, exchange_rate, client_id, device_id
+           FROM transactions
+           WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
         )
-        .get(params.saleId) as
+        .get(params.saleId, tenantId) as
         | {
             id: number;
             source_table: string;
@@ -967,9 +1032,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       // 7. Reverse payments proportionally
       const originalPayments = db
         .prepare(
-          `SELECT method, drawer_name, currency_code, amount FROM payments WHERE transaction_id = ?`,
+          `SELECT method, drawer_name, currency_code, amount FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
         )
-        .all(originalTxn.id) as {
+        .all(originalTxn.id, tenantId) as {
         method: string;
         drawer_name: string;
         currency_code: string;
@@ -979,14 +1044,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       const refundRatio = refundAmount / originalTxn.amount_usd;
 
       const insertPayment = db.prepare(`
-        INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const upsertBalance = db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
@@ -1001,8 +1066,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           negatedAmount,
           `Item refund - ${params.refundQuantity}x product ${item.product_id}`,
           params.userId,
+          tenantId,
         );
         upsertBalance.run(
+          tenantId,
           payment.drawer_name,
           payment.currency_code,
           negatedAmount,
@@ -1011,29 +1078,29 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
       // 8. Update sale_items.refunded_quantity
       db.prepare(
-        `UPDATE sale_items SET refunded_quantity = refunded_quantity + ? WHERE id = ?`,
-      ).run(params.refundQuantity, params.saleItemId);
+        `UPDATE sale_items SET refunded_quantity = refunded_quantity + ? WHERE id = ? AND tenant_id = ?`,
+      ).run(params.refundQuantity, params.saleItemId, tenantId);
 
       // 9. Restore stock for refunded quantity
       db.prepare(
-        `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
-      ).run(params.refundQuantity, item.product_id);
+        `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
+      ).run(params.refundQuantity, item.product_id, tenantId);
 
       // 10. If sale was on debt, cancel proportional debt
       if (originalTxn.client_id) {
         const debts = db
           .prepare(
-            `SELECT id, client_id, amount_usd FROM debt_ledger WHERE transaction_id = ? AND transaction_type = 'Sale Debt'`,
+            `SELECT id, client_id, amount_usd FROM debt_ledger WHERE transaction_id = ? AND transaction_type = 'Sale Debt' AND tenant_id = ?`,
           )
-          .all(originalTxn.id) as {
+          .all(originalTxn.id, tenantId) as {
           id: number;
           client_id: number;
           amount_usd: number;
         }[];
 
         const insertReversal = db.prepare(`
-          INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by)
-          VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by item refund', ?)
+          INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id)
+          VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by item refund', ?, ?)
         `);
 
         for (const debt of debts) {
@@ -1042,6 +1109,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             -(debt.amount_usd * refundRatio),
             refundTxnId,
             params.userId,
+            tenantId,
           );
         }
       }
@@ -1049,15 +1117,15 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       // 11. Check if ALL items are fully refunded - mark sale as refunded
       const remainingItems = db
         .prepare(
-          `SELECT COUNT(*) as count FROM sale_items 
-           WHERE sale_id = ? AND (quantity - refunded_quantity) > 0`,
+          `SELECT COUNT(*) as count FROM sale_items
+           WHERE sale_id = ? AND (quantity - refunded_quantity) > 0 AND tenant_id = ?`,
         )
-        .get(params.saleId) as { count: number } | undefined;
+        .get(params.saleId, tenantId) as { count: number } | undefined;
 
       if (remainingItems?.count === 0) {
-        db.prepare(`UPDATE sales SET status = 'refunded' WHERE id = ?`).run(
-          params.saleId,
-        );
+        db.prepare(
+          `UPDATE sales SET status = 'refunded' WHERE id = ? AND tenant_id = ?`,
+        ).run(params.saleId, tenantId);
       }
 
       return refundTxnId;
@@ -1073,51 +1141,68 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getDashboardStats(): DashboardStats {
     try {
+      const tenantId = getCurrentTenantId();
       // Sales Revenue Today (actual sale value, NOT amount tendered)
-      const salesResult = this.queryOne<SumRow>(`
-        SELECT 
+      const salesResult = this.queryOne<SumRow>(
+        `
+        SELECT
           SUM(final_amount_usd) as total_usd,
           SUM(paid_lbp - COALESCE(change_given_lbp, 0)) as total_lbp
-        FROM ${this.tableName} 
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed'
-      `);
+        FROM ${this.tableName}
+        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed' AND tenant_id = ?
+      `,
+        tenantId,
+      );
 
       // Cash Collected from Sales Today (net cash retained = tendered - change)
-      const cashFromSalesResult = this.queryOne<SumRow>(`
-        SELECT 
+      const cashFromSalesResult = this.queryOne<SumRow>(
+        `
+        SELECT
           SUM(paid_usd - COALESCE(change_given_usd, 0)) as total_usd,
           SUM(paid_lbp - COALESCE(change_given_lbp, 0)) as total_lbp
-        FROM ${this.tableName} 
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed'
-      `);
+        FROM ${this.tableName}
+        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed' AND tenant_id = ?
+      `,
+        tenantId,
+      );
 
       // Total Repayments Today
-      const repaymentResult = this.queryOne<SumRow>(`
-        SELECT 
+      const repaymentResult = this.queryOne<SumRow>(
+        `
+        SELECT
           SUM(ABS(amount_usd)) as total_usd,
           SUM(ABS(amount_lbp)) as total_lbp
         FROM debt_ledger
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND transaction_type = 'Repayment'
-      `);
+        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND transaction_type = 'Repayment' AND tenant_id = ?
+      `,
+        tenantId,
+      );
 
       // Orders Count Today
-      const ordersResult = this.queryOne<CountRow>(`
-        SELECT COUNT(*) as count 
-        FROM ${this.tableName} 
-        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed'
-      `);
+      const ordersResult = this.queryOne<CountRow>(
+        `
+        SELECT COUNT(*) as count
+        FROM ${this.tableName}
+        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed' AND tenant_id = ?
+      `,
+        tenantId,
+      );
 
       // Active Clients Count
       const clientsResult = this.queryOne<CountRow>(
-        "SELECT COUNT(*) as count FROM clients",
+        "SELECT COUNT(*) as count FROM clients WHERE tenant_id = ?",
+        tenantId,
       );
 
       // Low Stock Items Count
-      const stockResult = this.queryOne<CountRow>(`
-        SELECT COUNT(*) as count 
-        FROM products 
-        WHERE stock_quantity <= min_stock_level AND is_active = 1
-      `);
+      const stockResult = this.queryOne<CountRow>(
+        `
+        SELECT COUNT(*) as count
+        FROM products
+        WHERE stock_quantity <= min_stock_level AND is_active = 1 AND tenant_id = ?
+      `,
+        tenantId,
+      );
 
       return {
         // Sales Revenue: actual sale value today (revenue recognition)
@@ -1152,12 +1237,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         drawer_name: string;
         currency_code: string;
         balance: number;
-      }>(`
-        SELECT drawer_name, currency_code, balance 
-        FROM drawer_balances 
+      }>(
+        `
+        SELECT drawer_name, currency_code, balance
+        FROM drawer_balances
         WHERE drawer_name IN ('General', 'OMT_System', 'OMT_App', 'Whish_App', 'Whish_System', 'Binance', 'Alfa', 'MTC', 'iPick', 'Katsh')
+          AND tenant_id = ?
         ORDER BY drawer_name, currency_code
-      `);
+      `,
+        getCurrentTenantId(),
+      );
 
       // Transform to DrawerBalances format
       const result: DrawerBalances = {
@@ -1198,12 +1287,17 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getTodaysSales(limit: number = 50, date?: string): RecentSale[] {
     try {
+      const tenantId = getCurrentTenantId();
       const targetDate = date ? date : "now";
       const dateFunc = date ? "?" : "DATE('now', 'localtime')";
 
+      const queryParams: unknown[] = [tenantId, tenantId];
+      if (date) queryParams.push(targetDate);
+      queryParams.push(tenantId, limit);
+
       const result = this.query<RecentSale>(
         `
-        SELECT 
+        SELECT
           s.id,
           c.full_name as client_name,
           s.paid_usd,
@@ -1211,15 +1305,15 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           s.final_amount_usd,
           s.discount_usd,
           s.status,
-          (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) as item_count,
+          (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id AND si.tenant_id = ?) as item_count,
           s.created_at
         FROM ${this.tableName} s
-        LEFT JOIN clients c ON s.client_id = c.id
-        WHERE s.status IN ('completed', 'refunded') AND DATE(s.created_at, 'localtime') = ${dateFunc}
+        LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = ?
+        WHERE s.status IN ('completed', 'refunded') AND DATE(s.created_at, 'localtime') = ${dateFunc} AND s.tenant_id = ?
         ORDER BY s.created_at DESC
         LIMIT ?
       `,
-        ...(date ? [targetDate, limit] : [limit]),
+        ...queryParams,
       );
 
       return result;
@@ -1233,20 +1327,24 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getTopProducts(limit: number = 5): TopProduct[] {
     try {
+      const tenantId = getCurrentTenantId();
       return this.query<TopProduct>(
         `
-        SELECT 
+        SELECT
           p.name,
           COALESCE(SUM(si.quantity), 0) as total_quantity,
           COALESCE(SUM(si.sold_price_usd * si.quantity), 0) as total_revenue
         FROM sale_items si
-        JOIN products p ON si.product_id = p.id
-        JOIN ${this.tableName} s ON si.sale_id = s.id
-        WHERE s.status = 'completed'
+        JOIN products p ON si.product_id = p.id AND p.tenant_id = ?
+        JOIN ${this.tableName} s ON si.sale_id = s.id AND s.tenant_id = ?
+        WHERE s.status = 'completed' AND si.tenant_id = ?
         GROUP BY p.id
         ORDER BY total_quantity DESC
         LIMIT ?
       `,
+        tenantId,
+        tenantId,
+        tenantId,
         limit,
       );
     } catch (error) {
@@ -1271,6 +1369,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         SELECT date FROM dates
       `);
       const dates = datesResult.map((r) => r.date);
+      const tenantId = getCurrentTenantId();
 
       if (type === "Sales") {
         // Chart shows USD and LBP transactions from three sources:
@@ -1290,10 +1389,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             'USD' as currency,
             SUM(final_amount_usd) as daily_amount
           FROM ${this.tableName}
-          WHERE status = 'completed' AND DATE(created_at, 'localtime') >= ?
+          WHERE status = 'completed' AND DATE(created_at, 'localtime') >= ? AND tenant_id = ?
           GROUP BY date
         `,
           dates[0],
+          tenantId,
         );
 
         // Recharges (MTC/Alfa in USD or LBP)
@@ -1308,10 +1408,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             currency_code as currency,
             SUM(price) as daily_amount
           FROM recharges
-          WHERE DATE(created_at, 'localtime') >= ?
+          WHERE DATE(created_at, 'localtime') >= ? AND tenant_id = ?
           GROUP BY date, currency_code
         `,
           dates[0],
+          tenantId,
         );
 
         // Financial services (OMT/WHISH/iPick/Katsh in USD or LBP)
@@ -1326,10 +1427,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             currency as currency,
             SUM(price) as daily_amount
           FROM financial_services
-          WHERE DATE(created_at, 'localtime') >= ?
+          WHERE DATE(created_at, 'localtime') >= ? AND tenant_id = ?
           GROUP BY date, currency
         `,
           dates[0],
+          tenantId,
         );
 
         // Combine all sources by date and currency
@@ -1360,13 +1462,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           DATE(s.created_at, 'localtime') as profit_date,
           SUM(si.sold_price_usd - si.cost_price_snapshot_usd) as profit
         FROM ${this.tableName} s
-        JOIN sale_items si ON s.id = si.sale_id
-        WHERE s.status = 'completed' 
+        JOIN sale_items si ON s.id = si.sale_id AND si.tenant_id = ?
+        WHERE s.status = 'completed'
           AND si.is_refunded = 0
           AND DATE(s.created_at, 'localtime') >= ?
+          AND s.tenant_id = ?
         GROUP BY profit_date
       `,
+        tenantId,
         dates[0],
+        tenantId,
       );
 
       const profitMap = new Map<string, number>();
@@ -1389,18 +1494,23 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     endDate: string,
   ): (SaleWithClient & { item_count: number })[] {
     try {
+      const tenantId = getCurrentTenantId();
       return this.query<SaleWithClient & { item_count: number }>(
         `
         SELECT s.*, c.full_name as client_name, c.phone_number as client_phone,
-               (SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si WHERE si.sale_id = s.id) as item_count
+               (SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si WHERE si.sale_id = s.id AND si.tenant_id = ?) as item_count
         FROM ${this.tableName} s
-        LEFT JOIN clients c ON s.client_id = c.id
+        LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = ?
         WHERE DATE(s.created_at) BETWEEN ? AND ?
           AND s.status IN ('completed', 'refunded')
+          AND s.tenant_id = ?
         ORDER BY s.created_at DESC
       `,
+        tenantId,
+        tenantId,
         startDate,
         endDate,
+        tenantId,
       );
     } catch (error) {
       throw new DatabaseError("Failed to find sales by date range", {
@@ -1434,9 +1544,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
     values.push(id);
+    values.push(getCurrentTenantId());
 
     this.db
-      .prepare(`UPDATE sales SET ${fields.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE sales SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+      )
       .run(...values);
 
     return this.findById(id);

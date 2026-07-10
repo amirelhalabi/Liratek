@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 export interface CustomerSession {
   id: number;
@@ -71,11 +72,12 @@ export class CustomerSessionRepository {
    */
   createSession(data: CreateCustomerSessionData): number {
     const insert = this.db.prepare(`
-      INSERT INTO ${this.tableName} (customer_name, customer_phone, customer_notes, user_id, started_by, started_at, is_active)
-      VALUES (?, ?, ?, ?, ?, datetime('now'), 1)
+      INSERT INTO ${this.tableName} (tenant_id, customer_name, customer_phone, customer_notes, user_id, started_by, started_at, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 1)
     `);
 
     const result = insert.run(
+      getCurrentTenantId(),
       data.customer_name ?? null,
       data.customer_phone ?? null,
       data.customer_notes ?? null,
@@ -114,9 +116,13 @@ export class CustomerSessionRepository {
    */
   getSessionById(sessionId: number): CustomerSession | null {
     const query = this.db.prepare(`
-      SELECT ${this.columns} FROM ${this.tableName} WHERE id = ?
+      SELECT ${this.columns} FROM ${this.tableName} WHERE id = ? AND tenant_id = ?
     `);
-    return (query.get(sessionId) as CustomerSession | undefined) ?? null;
+    return (
+      (query.get(sessionId, getCurrentTenantId()) as
+        | CustomerSession
+        | undefined) ?? null
+    );
   }
 
   /**
@@ -125,11 +131,13 @@ export class CustomerSessionRepository {
   getActiveSession(): CustomerSession | null {
     const query = this.db.prepare(`
       SELECT ${this.columns} FROM ${this.tableName}
-      WHERE is_active = 1
+      WHERE is_active = 1 AND tenant_id = ?
       ORDER BY started_at DESC
       LIMIT 1
     `);
-    return (query.get() as CustomerSession | undefined) ?? null;
+    return (
+      (query.get(getCurrentTenantId()) as CustomerSession | undefined) ?? null
+    );
   }
 
   /**
@@ -138,10 +146,10 @@ export class CustomerSessionRepository {
   getActiveSessions(): CustomerSession[] {
     const query = this.db.prepare(`
       SELECT ${this.columns} FROM ${this.tableName}
-      WHERE is_active = 1
+      WHERE is_active = 1 AND tenant_id = ?
       ORDER BY started_at DESC
     `);
-    return query.all() as CustomerSession[];
+    return query.all(getCurrentTenantId()) as CustomerSession[];
   }
 
   /**
@@ -150,12 +158,17 @@ export class CustomerSessionRepository {
   getActiveSessionByCustomerName(customerName: string): CustomerSession | null {
     const query = this.db.prepare(`
       SELECT ${this.columns} FROM ${this.tableName}
-      WHERE is_active = 1 
+      WHERE is_active = 1
         AND customer_name = ?
+        AND tenant_id = ?
       ORDER BY started_at DESC
       LIMIT 1
     `);
-    return (query.get(customerName) as CustomerSession | undefined) ?? null;
+    return (
+      (query.get(customerName, getCurrentTenantId()) as
+        | CustomerSession
+        | undefined) ?? null
+    );
   }
 
   /**
@@ -165,35 +178,40 @@ export class CustomerSessionRepository {
     const update = this.db.prepare(`
       UPDATE ${this.tableName}
       SET is_active = 0, closed_at = datetime('now'), closed_by = ?
-      WHERE id = ?
+      WHERE id = ? AND tenant_id = ?
     `);
-    update.run(closedBy, sessionId);
+    update.run(closedBy, sessionId, getCurrentTenantId());
   }
 
   /**
    * Permanently delete a session and all related data (cart items, transactions)
    */
   deleteSession(sessionId: number): void {
+    const tenantId = getCurrentTenantId();
     this.db.transaction(() => {
       this.db
-        .prepare(`DELETE FROM ${this.cartTableName} WHERE session_id = ?`)
-        .run(sessionId);
+        .prepare(
+          `DELETE FROM ${this.cartTableName} WHERE session_id = ? AND tenant_id = ?`,
+        )
+        .run(sessionId, tenantId);
       this.db
         .prepare(
-          `DELETE FROM ${this.transactionsTableName} WHERE session_id = ?`,
+          `DELETE FROM ${this.transactionsTableName} WHERE session_id = ? AND tenant_id = ?`,
         )
-        .run(sessionId);
+        .run(sessionId, tenantId);
       // Detach any basket payments from this session. payments.session_id has an
       // ON DELETE SET NULL FK on fresh installs, but migration v100 added the
       // column via ALTER TABLE ADD COLUMN, which SQLite does NOT enforce as a FK
       // on upgraded DBs. Null it explicitly so both paths behave identically and
       // no payment row is left pointing at a deleted session.
       this.db
-        .prepare(`UPDATE payments SET session_id = NULL WHERE session_id = ?`)
-        .run(sessionId);
+        .prepare(
+          `UPDATE payments SET session_id = NULL WHERE session_id = ? AND tenant_id = ?`,
+        )
+        .run(sessionId, tenantId);
       this.db
-        .prepare(`DELETE FROM ${this.tableName} WHERE id = ?`)
-        .run(sessionId);
+        .prepare(`DELETE FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`)
+        .run(sessionId, tenantId);
     })();
   }
 
@@ -204,9 +222,10 @@ export class CustomerSessionRepository {
     const query = this.db.prepare(`
       SELECT ${this.columns} FROM ${this.tableName}
       WHERE date(started_at, 'localtime') = date('now', 'localtime')
+        AND tenant_id = ?
       ORDER BY is_active DESC, started_at DESC
     `);
-    return query.all() as CustomerSession[];
+    return query.all(getCurrentTenantId()) as CustomerSession[];
   }
 
   /**
@@ -238,9 +257,11 @@ export class CustomerSessionRepository {
     if (!sourceTable) return null;
     const row = this.db
       .prepare(
-        `SELECT id FROM transactions WHERE source_table = ? AND source_id = ? ORDER BY id DESC LIMIT 1`,
+        `SELECT id FROM transactions WHERE source_table = ? AND source_id = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1`,
       )
-      .get(sourceTable, moduleRowId) as { id: number } | undefined;
+      .get(sourceTable, moduleRowId, getCurrentTenantId()) as
+      | { id: number }
+      | undefined;
     return row?.id ?? null;
   }
 
@@ -255,10 +276,11 @@ export class CustomerSessionRepository {
     unifiedTransactionId: number | null = null,
   ): void {
     const insert = this.db.prepare(`
-      INSERT INTO ${this.transactionsTableName} (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO ${this.transactionsTableName} (tenant_id, session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `);
     insert.run(
+      getCurrentTenantId(),
       sessionId,
       transactionType,
       transactionId,
@@ -276,10 +298,10 @@ export class CustomerSessionRepository {
   getSessionTransactions(sessionId: number): SessionTransaction[] {
     const query = this.db.prepare(`
       SELECT ${this.transactionColumns} FROM ${this.transactionsTableName}
-      WHERE session_id = ?
+      WHERE session_id = ? AND tenant_id = ?
       ORDER BY created_at ASC
     `);
-    return query.all(sessionId) as SessionTransaction[];
+    return query.all(sessionId, getCurrentTenantId()) as SessionTransaction[];
   }
 
   /**
@@ -313,7 +335,8 @@ export class CustomerSessionRepository {
     if (fields.length === 0) return;
 
     values.push(sessionId);
-    const sql = `UPDATE ${this.tableName} SET ${fields.join(", ")} WHERE id = ?`;
+    values.push(getCurrentTenantId());
+    const sql = `UPDATE ${this.tableName} SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`;
     this.db.prepare(sql).run(...values);
   }
 
@@ -323,10 +346,11 @@ export class CustomerSessionRepository {
   listSessions(limit = 50, offset = 0): CustomerSession[] {
     const query = this.db.prepare(`
       SELECT ${this.columns} FROM ${this.tableName}
+      WHERE tenant_id = ?
       ORDER BY started_at DESC
       LIMIT ? OFFSET ?
     `);
-    return query.all(limit, offset) as CustomerSession[];
+    return query.all(getCurrentTenantId(), limit, offset) as CustomerSession[];
   }
 
   /**
@@ -363,6 +387,7 @@ export class CustomerSessionRepository {
       LEFT JOIN (
         SELECT session_id, COUNT(*) as item_count
         FROM ${this.cartTableName}
+        WHERE tenant_id = ?
         GROUP BY session_id
       ) cart ON cart.session_id = cs.id
       LEFT JOIN (
@@ -372,13 +397,16 @@ export class CustomerSessionRepository {
                SUM(profit_usd) as total_profit_usd,
                SUM(profit_lbp) as total_profit_lbp
         FROM ${this.transactionsTableName}
+        WHERE tenant_id = ?
         GROUP BY session_id
       ) t ON t.session_id = cs.id
       WHERE date(cs.started_at, 'localtime') >= ?
         AND date(cs.started_at, 'localtime') <= ?
+        AND cs.tenant_id = ?
       ORDER BY cs.started_at DESC
     `);
-    return query.all(from, to) as Array<
+    const tenantId = getCurrentTenantId();
+    return query.all(tenantId, tenantId, from, to, tenantId) as Array<
       CustomerSession & {
         checkout_total_usd: number;
         checkout_total_lbp: number;
@@ -424,6 +452,7 @@ export class CustomerSessionRepository {
       LEFT JOIN (
         SELECT session_id, COUNT(*) as item_count
         FROM ${this.cartTableName}
+        WHERE tenant_id = ?
         GROUP BY session_id
       ) cart ON cart.session_id = cs.id
       LEFT JOIN (
@@ -433,12 +462,15 @@ export class CustomerSessionRepository {
                SUM(profit_usd) as total_profit_usd,
                SUM(profit_lbp) as total_profit_lbp
         FROM ${this.transactionsTableName}
+        WHERE tenant_id = ?
         GROUP BY session_id
       ) t ON t.session_id = cs.id
       WHERE date(cs.started_at, 'localtime') = date('now', 'localtime')
+        AND cs.tenant_id = ?
       ORDER BY cs.started_at DESC
     `);
-    return query.all() as Array<
+    const tenantId = getCurrentTenantId();
+    return query.all(tenantId, tenantId, tenantId) as Array<
       CustomerSession & {
         checkout_total_usd: number;
         checkout_total_lbp: number;
@@ -462,7 +494,7 @@ export class CustomerSessionRepository {
   ): CustomerSession[] {
     let sql = `
       SELECT ${this.columns} FROM ${this.tableName}
-      WHERE customer_name = ?
+      WHERE (customer_name = ?
     `;
     const params: any[] = [customerName];
 
@@ -470,6 +502,9 @@ export class CustomerSessionRepository {
       sql += ` OR customer_phone = ?`;
       params.push(customerPhone);
     }
+
+    sql += `) AND tenant_id = ?`;
+    params.push(getCurrentTenantId());
 
     sql += ` ORDER BY started_at DESC`;
 
@@ -525,10 +560,11 @@ export class CustomerSessionRepository {
     },
   ): number {
     const stmt = this.db.prepare(`
-      INSERT INTO ${this.cartTableName} (session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ${this.cartTableName} (tenant_id, session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
+      getCurrentTenantId(),
       sessionId,
       item.item_id,
       item.module,
@@ -548,10 +584,10 @@ export class CustomerSessionRepository {
   getCartItems(sessionId: number): SessionCartItem[] {
     const stmt = this.db.prepare(`
       SELECT ${this.cartColumns} FROM ${this.cartTableName}
-      WHERE session_id = ?
+      WHERE session_id = ? AND tenant_id = ?
       ORDER BY created_at ASC
     `);
-    return stmt.all(sessionId) as SessionCartItem[];
+    return stmt.all(sessionId, getCurrentTenantId()) as SessionCartItem[];
   }
 
   /**
@@ -560,9 +596,9 @@ export class CustomerSessionRepository {
   removeCartItem(sessionId: number, itemId: string): void {
     this.db
       .prepare(
-        `DELETE FROM ${this.cartTableName} WHERE session_id = ? AND item_id = ?`,
+        `DELETE FROM ${this.cartTableName} WHERE session_id = ? AND item_id = ? AND tenant_id = ?`,
       )
-      .run(sessionId, itemId);
+      .run(sessionId, itemId, getCurrentTenantId());
   }
 
   /**
@@ -570,8 +606,10 @@ export class CustomerSessionRepository {
    */
   clearCart(sessionId: number): void {
     this.db
-      .prepare(`DELETE FROM ${this.cartTableName} WHERE session_id = ?`)
-      .run(sessionId);
+      .prepare(
+        `DELETE FROM ${this.cartTableName} WHERE session_id = ? AND tenant_id = ?`,
+      )
+      .run(sessionId, getCurrentTenantId());
   }
 }
 

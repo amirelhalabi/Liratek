@@ -7,6 +7,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { customServiceLogger } from "../utils/logger.js";
 import {
   paymentMethodToDrawerName,
@@ -76,15 +77,17 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     createdBy: number = 1,
   ): { success: boolean; id?: number; error?: string } {
     try {
+      const tenantId = getCurrentTenantId();
       const result = this.db.transaction(() => {
         // 1. Insert the custom service record
         const insertService = this.db.prepare(`
           INSERT INTO custom_services (
-            description, cost_usd, cost_lbp, price_usd, price_lbp,
+            tenant_id, description, cost_usd, cost_lbp, price_usd, price_lbp,
             paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
         `);
         const serviceResult = insertService.run(
+          tenantId,
           data.description,
           data.cost_usd ?? 0,
           data.cost_lbp ?? 0,
@@ -137,14 +140,16 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
 
         const insertPayment = this.db.prepare(`
           INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
+        // drawer_balances' PRIMARY KEY is now (tenant_id, drawer_name,
+        // currency_code) — the ON CONFLICT target must match it exactly.
         const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
@@ -155,6 +160,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // out-of-pocket from the General drawer, so book ONLY the cost outflow.
           if ((data.cost_usd ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -163,10 +169,16 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "USD", -Math.abs(data.cost_usd!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+            );
           }
           if ((data.cost_lbp ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -175,7 +187,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "LBP", -Math.abs(data.cost_lbp!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+            );
           }
         } else if (data.payments && data.payments.length > 0) {
           // Structured payment legs (rule 16): book what the customer ACTUALLY
@@ -230,6 +247,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             const drawer = paymentMethodToDrawerName(leg.method);
             const signed = isOut ? -amt : amt;
             insertPayment.run(
+              tenantId,
               txnId,
               leg.method,
               drawer,
@@ -238,7 +256,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               isOut ? "Change returned" : noteText,
               createdBy,
             );
-            upsertBalance.run(drawer, leg.currency_code, signed);
+            upsertBalance.run(tenantId, drawer, leg.currency_code, signed);
           }
 
           if (debtUsd > 0 || debtLbp > 0) {
@@ -248,10 +266,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             this.db
               .prepare(
                 `INSERT INTO debt_ledger (
-                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-                ) VALUES (?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                  tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+                ) VALUES (?, ?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
               )
               .run(
+                tenantId,
                 data.client_id,
                 debtUsd,
                 debtLbp,
@@ -264,6 +283,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // Cost outflow — shop pays the cost out-of-pocket, same as all paths.
           if ((data.cost_usd ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -272,10 +292,16 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "USD", -Math.abs(data.cost_usd!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+            );
           }
           if ((data.cost_lbp ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -284,7 +310,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "LBP", -Math.abs(data.cost_lbp!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+            );
           }
         } else if (paidBy === "CUSTOMER_ACCOUNT") {
           // CUSTOMER_ACCOUNT: customer pays from their credit balance
@@ -296,6 +327,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // Cost outflow from General drawer (USD)
           if ((data.cost_usd ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -304,12 +336,18 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "USD", -Math.abs(data.cost_usd!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+            );
           }
 
           // Cost outflow from General drawer (LBP)
           if ((data.cost_lbp ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -318,17 +356,23 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "LBP", -Math.abs(data.cost_lbp!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+            );
           }
 
           // Debt ledger entry: customer owes the price
           this.db
             .prepare(
               `INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-              ) VALUES (?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+              ) VALUES (?, ?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
             )
             .run(
+              tenantId,
               data.client_id,
               data.price_usd ?? 0,
               data.price_lbp ?? 0,
@@ -350,6 +394,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
 
           if ((data.cost_usd ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -358,10 +403,16 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "USD", -Math.abs(data.cost_usd!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+            );
           }
           if ((data.cost_lbp ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -370,17 +421,23 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "LBP", -Math.abs(data.cost_lbp!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+            );
           }
 
           // Charge the price to the voucher owner's account
           this.db
             .prepare(
               `INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-              ) VALUES (?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+              ) VALUES (?, ?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
             )
             .run(
+              tenantId,
               voucher.client_id,
               data.price_usd ?? 0,
               data.price_lbp ?? 0,
@@ -393,6 +450,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // Price inflow (USD)
           if ((data.price_usd ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               paidBy,
               methodDrawerName,
@@ -402,6 +460,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               createdBy,
             );
             upsertBalance.run(
+              tenantId,
               methodDrawerName,
               "USD",
               Math.abs(data.price_usd!),
@@ -411,6 +470,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // Price inflow (LBP)
           if ((data.price_lbp ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               paidBy,
               methodDrawerName,
@@ -420,6 +480,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               createdBy,
             );
             upsertBalance.run(
+              tenantId,
               methodDrawerName,
               "LBP",
               Math.abs(data.price_lbp!),
@@ -429,6 +490,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // Cost outflow (USD) — always from General
           if ((data.cost_usd ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -437,12 +499,18 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "USD", -Math.abs(data.cost_usd!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+            );
           }
 
           // Cost outflow (LBP) — always from General
           if ((data.cost_lbp ?? 0) > 0) {
             insertPayment.run(
+              tenantId,
               txnId,
               "CASH",
               "General",
@@ -451,7 +519,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               `${noteText} (cost outflow)`,
               createdBy,
             );
-            upsertBalance.run("General", "LBP", -Math.abs(data.cost_lbp!));
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+            );
           }
         }
 
@@ -484,8 +557,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
    * Get all custom services, optionally filtered by date.
    */
   getAll(filter?: { date?: string }): CustomServiceEntity[] {
-    let query = `SELECT ${this.getColumns()} FROM custom_services WHERE status != 'voided'`;
-    const params: any[] = [];
+    let query = `SELECT ${this.getColumns()} FROM custom_services WHERE status != 'voided' AND tenant_id = ?`;
+    const params: any[] = [getCurrentTenantId()];
 
     if (filter?.date) {
       query += ` AND DATE(created_at) = ?`;
@@ -504,9 +577,9 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     return (
       (this.db
         .prepare(
-          `SELECT ${this.getColumns()} FROM custom_services WHERE id = ?`,
+          `SELECT ${this.getColumns()} FROM custom_services WHERE id = ? AND tenant_id = ?`,
         )
-        .get(id) as CustomServiceEntity) ?? null
+        .get(id, getCurrentTenantId()) as CustomServiceEntity) ?? null
     );
   }
 
@@ -515,6 +588,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
    */
   deleteService(id: number): { success: boolean; error?: string } {
     try {
+      const tenantId = getCurrentTenantId();
       this.db.transaction(() => {
         const service = this.getById(id);
         if (!service) throw new Error("Service not found");
@@ -526,13 +600,20 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           txnRepo.voidTransaction(originalTxn.id, service.created_by ?? 1);
         }
 
-        // Reverse payments — get all related payments and reverse drawer balances
+        // Reverse payments — get all related payments and reverse drawer
+        // balances. Both the outer `payments` scan and the inner
+        // `transactions` subquery must carry tenant_id — source_id alone
+        // can't cross tenants (it's from one table's own AUTOINCREMENT
+        // sequence), but every tenant-scoped table gets scoped per the
+        // recipe regardless.
         const payments = this.db
           .prepare(
             `SELECT drawer_name, currency_code, amount FROM payments
-             WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ?)`,
+             WHERE tenant_id = ? AND transaction_id IN (
+               SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ? AND tenant_id = ?
+             )`,
           )
-          .all(id) as Array<{
+          .all(tenantId, id, tenantId) as Array<{
           drawer_name: string;
           currency_code: string;
           amount: number;
@@ -543,32 +624,38 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           this.db
             .prepare(
               `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-               WHERE drawer_name = ? AND currency_code = ?`,
+               WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?`,
             )
-            .run(pmt.amount, pmt.drawer_name, pmt.currency_code);
+            .run(pmt.amount, pmt.drawer_name, pmt.currency_code, tenantId);
         }
 
         // Delete payments
         this.db
           .prepare(
-            `DELETE FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ?)`,
+            `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (
+              SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ? AND tenant_id = ?
+            )`,
           )
-          .run(id);
+          .run(tenantId, id, tenantId);
 
         // Reverse debt_ledger if DEBT
         if (service.paid_by === "CUSTOMER_ACCOUNT" && service.client_id) {
           this.db
             .prepare(
               `DELETE FROM debt_ledger
-               WHERE transaction_type = 'Custom Service Debt' AND transaction_id IN (SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ?)`,
+               WHERE tenant_id = ? AND transaction_type = 'Custom Service Debt' AND transaction_id IN (
+                 SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ? AND tenant_id = ?
+               )`,
             )
-            .run(id);
+            .run(tenantId, id, tenantId);
         }
 
         // Soft-delete: mark as voided instead of removing the record
         this.db
-          .prepare(`UPDATE custom_services SET status = 'voided' WHERE id = ?`)
-          .run(id);
+          .prepare(
+            `UPDATE custom_services SET status = 'voided' WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(id, tenantId);
       })();
 
       customServiceLogger.info({ id }, `Custom service voided: #${id}`);
@@ -600,9 +687,9 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
            COALESCE(SUM(profit_usd), 0) as totalProfitUsd,
            COALESCE(SUM(profit_lbp), 0) as totalProfitLbp
          FROM custom_services
-         WHERE DATE(created_at) = DATE('now', 'localtime')`,
+         WHERE DATE(created_at) = DATE('now', 'localtime') AND tenant_id = ?`,
       )
-      .get() as CustomServiceSummary;
+      .get(getCurrentTenantId()) as CustomServiceSummary;
 
     return row;
   }
@@ -653,10 +740,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
 
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
-    values.push(id);
+    values.push(id, getCurrentTenantId());
 
     this.db
-      .prepare(`UPDATE custom_services SET ${fields.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE custom_services SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+      )
       .run(...values);
 
     return this.findById(id);

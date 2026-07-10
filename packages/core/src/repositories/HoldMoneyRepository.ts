@@ -13,6 +13,7 @@ import { BaseRepository } from "./BaseRepository.js";
 import { customServiceLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Entity Types
@@ -103,8 +104,8 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         // 1. Insert the hold record
         const insertHold = this.db.prepare(`
           INSERT INTO hold_money (
-            client_name, phone_number, usd_amount, lbp_amount, status, notes, created_by, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, 'held', ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+            client_name, phone_number, usd_amount, lbp_amount, status, notes, created_by, tenant_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 'held', ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
         `);
         const holdResult = insertHold.run(
           clientName,
@@ -113,6 +114,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           lbp,
           data.notes ?? null,
           createdBy,
+          getCurrentTenantId(),
           data.transaction_time ?? null,
         );
         const holdId = Number(holdResult.lastInsertRowid);
@@ -217,13 +219,14 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         );
 
         // 3. Mark collected
+        const tenantId = getCurrentTenantId();
         this.db
           .prepare(
             `UPDATE hold_money
              SET status = 'collected', collected_by = ?, collected_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
+             WHERE id = ? AND tenant_id = ?`,
           )
-          .run(collectedBy, id);
+          .run(collectedBy, id, tenantId);
 
         // 4. Record the completed hold→collect as a Service History row so it
         // shows in the Services "History" table. Values are pulled from THIS
@@ -239,8 +242,8 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
           .prepare(
             `INSERT INTO custom_services (
                description, cost_usd, cost_lbp, price_usd, price_lbp,
-               paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at
-             ) VALUES (?, 0, 0, 0, 0, 'CASH', 'completed', NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+               paid_by, status, client_id, client_name, phone_number, note, category, created_by, tenant_id, created_at
+             ) VALUES (?, 0, 0, 0, 0, 'CASH', 'completed', NULL, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
           )
           .run(
             historyDesc,
@@ -249,6 +252,7 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
             `Hold #${id}`,
             HOLD_MONEY_CATEGORY,
             collectedBy,
+            tenantId,
           );
       })();
 
@@ -269,19 +273,19 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
   getActiveHolds(): HoldMoneyEntity[] {
     return this.db
       .prepare(
-        `SELECT ${this.getColumns()} FROM hold_money WHERE status = 'held' ORDER BY created_at DESC`,
+        `SELECT ${this.getColumns()} FROM hold_money WHERE status = 'held' AND tenant_id = ? ORDER BY created_at DESC`,
       )
-      .all() as HoldMoneyEntity[];
+      .all(getCurrentTenantId()) as HoldMoneyEntity[];
   }
 
   /**
    * All holds, optionally filtered by status, newest first.
    */
   getAll(filter?: { status?: HoldMoneyStatus }): HoldMoneyEntity[] {
-    let query = `SELECT ${this.getColumns()} FROM hold_money`;
-    const params: unknown[] = [];
+    let query = `SELECT ${this.getColumns()} FROM hold_money WHERE tenant_id = ?`;
+    const params: unknown[] = [getCurrentTenantId()];
     if (filter?.status) {
-      query += ` WHERE status = ?`;
+      query += ` AND status = ?`;
       params.push(filter.status);
     }
     query += ` ORDER BY created_at DESC`;
@@ -294,8 +298,10 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
   getById(id: number): HoldMoneyEntity | null {
     return (
       (this.db
-        .prepare(`SELECT ${this.getColumns()} FROM hold_money WHERE id = ?`)
-        .get(id) as HoldMoneyEntity) ?? null
+        .prepare(
+          `SELECT ${this.getColumns()} FROM hold_money WHERE id = ? AND tenant_id = ?`,
+        )
+        .get(id, getCurrentTenantId()) as HoldMoneyEntity) ?? null
     );
   }
 
@@ -315,26 +321,43 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
     note: string,
     userId: number,
   ): void {
+    const tenantId = getCurrentTenantId();
     const insertPayment = this.db.prepare(`
       INSERT INTO payments (
-        transaction_id, method, drawer_name, currency_code, amount, note, created_by
-      ) VALUES (?, 'CASH', ?, ?, ?, ?, ?)
+        transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
+      ) VALUES (?, 'CASH', ?, ?, ?, ?, ?, ?)
     `);
     const upsertBalance = this.db.prepare(`
-      INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-      VALUES (?, ?, ?)
-      ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+      INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
         balance = drawer_balances.balance + excluded.balance,
         updated_at = CURRENT_TIMESTAMP
     `);
 
     if (usd > 0) {
-      insertPayment.run(txnId, GENERAL_DRAWER, "USD", sign * usd, note, userId);
-      upsertBalance.run(GENERAL_DRAWER, "USD", sign * usd);
+      insertPayment.run(
+        txnId,
+        GENERAL_DRAWER,
+        "USD",
+        sign * usd,
+        note,
+        userId,
+        tenantId,
+      );
+      upsertBalance.run(GENERAL_DRAWER, "USD", sign * usd, tenantId);
     }
     if (lbp > 0) {
-      insertPayment.run(txnId, GENERAL_DRAWER, "LBP", sign * lbp, note, userId);
-      upsertBalance.run(GENERAL_DRAWER, "LBP", sign * lbp);
+      insertPayment.run(
+        txnId,
+        GENERAL_DRAWER,
+        "LBP",
+        sign * lbp,
+        note,
+        userId,
+        tenantId,
+      );
+      upsertBalance.run(GENERAL_DRAWER, "LBP", sign * lbp, tenantId);
     }
   }
 }

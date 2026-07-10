@@ -1,4 +1,5 @@
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
@@ -48,13 +49,15 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   createExpense(data: CreateExpenseData, userId: number): number {
     const paidBy = data.paid_by_method || "CASH";
     const drawerName = paymentMethodToDrawerName(paidBy);
+    const tenantId = getCurrentTenantId();
 
     return this.db.transaction(() => {
       const stmt = this.db.prepare(`
-        INSERT INTO expenses (description, category, paid_by_method, amount_usd, amount_lbp, expense_date, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        INSERT INTO expenses (tenant_id, description, category, paid_by_method, amount_usd, amount_lbp, expense_date, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
       const result = stmt.run(
+        tenantId,
         data.description,
         data.category,
         paidBy,
@@ -85,18 +88,18 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       // All expenses affect drawer balances (unless paid by non-drawer-affecting method)
       if (isDrawerAffectingMethod(paidBy)) {
         const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
 
         const insertPayment = this.db.prepare(`
           INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by
+            tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
           ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?
           )
         `);
 
@@ -107,6 +110,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         if (data.amount_usd && data.amount_usd !== 0) {
           const delta = -Math.abs(data.amount_usd);
           insertPayment.run(
+            tenantId,
             txnId,
             paidBy,
             drawerName,
@@ -115,13 +119,14 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
             note,
             createdBy,
           );
-          upsertBalance.run(drawerName, "USD", delta);
+          upsertBalance.run(tenantId, drawerName, "USD", delta);
         }
 
         // LBP outflow
         if (data.amount_lbp && data.amount_lbp !== 0) {
           const delta = -Math.abs(data.amount_lbp);
           insertPayment.run(
+            tenantId,
             txnId,
             paidBy,
             drawerName,
@@ -130,7 +135,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
             note,
             createdBy,
           );
-          upsertBalance.run(drawerName, "LBP", delta);
+          upsertBalance.run(tenantId, drawerName, "LBP", delta);
         }
       }
 
@@ -144,11 +149,11 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   getTodayExpenses(): ExpenseEntity[] {
     return this.db
       .prepare(
-        `SELECT ${this.getColumns()} FROM expenses 
-         WHERE DATE(expense_date) = DATE('now') AND status != 'voided'
+        `SELECT ${this.getColumns()} FROM expenses
+         WHERE DATE(expense_date) = DATE('now') AND status != 'voided' AND tenant_id = ?
          ORDER BY expense_date DESC`,
       )
-      .all() as ExpenseEntity[];
+      .all(getCurrentTenantId()) as ExpenseEntity[];
   }
 
   /**
@@ -156,8 +161,10 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
    */
   getExpenseById(id: number): ExpenseEntity | undefined {
     return this.db
-      .prepare(`SELECT ${this.getColumns()} FROM expenses WHERE id = ?`)
-      .get(id) as ExpenseEntity | undefined;
+      .prepare(
+        `SELECT ${this.getColumns()} FROM expenses WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(id, getCurrentTenantId()) as ExpenseEntity | undefined;
   }
 
   /**
@@ -173,8 +180,10 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       }
       // Soft-delete: mark as voided instead of removing the record
       this.db
-        .prepare("UPDATE expenses SET status = 'voided' WHERE id = ?")
-        .run(id);
+        .prepare(
+          "UPDATE expenses SET status = 'voided' WHERE id = ? AND tenant_id = ?",
+        )
+        .run(id, getCurrentTenantId());
     })();
   }
 
@@ -211,9 +220,12 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
     values.push(id);
+    values.push(getCurrentTenantId());
 
     this.db
-      .prepare(`UPDATE expenses SET ${fields.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE expenses SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+      )
       .run(...values);
 
     return this.findById(id);

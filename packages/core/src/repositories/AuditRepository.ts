@@ -1,4 +1,5 @@
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Types
@@ -66,8 +67,8 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
       INSERT INTO audit_log
         (user_id, username, role, action, entity_type, entity_id,
          summary, old_values, new_values, metadata,
-         created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+         tenant_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               datetime('now', 'localtime'), datetime('now', 'localtime'))
     `);
     const result = stmt.run(
@@ -81,6 +82,7 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
       data.old_values ? JSON.stringify(data.old_values) : null,
       data.new_values ? JSON.stringify(data.new_values) : null,
       data.metadata ? JSON.stringify(data.metadata) : null,
+      getCurrentTenantId(),
     );
     return Number(result.lastInsertRowid);
   }
@@ -91,8 +93,10 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
   getRecent(limit: number = 200): AuditLogEntity[] {
     const n = Math.min(Math.max(Number(limit), 1), 1000);
     return this.db
-      .prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT ?`)
-      .all(n) as AuditLogEntity[];
+      .prepare(
+        `SELECT * FROM audit_log WHERE tenant_id = ? ORDER BY id DESC LIMIT ?`,
+      )
+      .all(getCurrentTenantId(), n) as AuditLogEntity[];
   }
 
   /**
@@ -101,62 +105,72 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
   getByEntity(entityType: string, entityId: string): AuditLogEntity[] {
     return this.db
       .prepare(
-        `SELECT * FROM audit_log WHERE entity_type = ? AND entity_id = ? ORDER BY id DESC`,
+        `SELECT * FROM audit_log WHERE entity_type = ? AND entity_id = ? AND tenant_id = ? ORDER BY id DESC`,
       )
-      .all(entityType, entityId) as AuditLogEntity[];
+      .all(entityType, entityId, getCurrentTenantId()) as AuditLogEntity[];
   }
 
   /**
    * Search audit log with filters.
    */
   search(filters: AuditFilters): { rows: AuditLogEntity[]; total: number } {
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const params: unknown[] = [getCurrentTenantId()];
+    // Each query string is built via its own `let x = "..."; x += "...";`
+    // chain (never `${where}` template interpolation of a shared fragment
+    // variable, and never conditions.push()+join()) so the literal
+    // `tenant_id = ?` text stays statically visible to
+    // scripts/check-tenant-scoping.mjs — it can trace a reassignment chain
+    // on the bare identifier passed to `.prepare()`, but not a value that
+    // only exists inside another local variable or an Array#join().
+    let countQuery = "SELECT COUNT(*) as count FROM audit_log WHERE tenant_id = ?";
+    let rowsQuery = "SELECT * FROM audit_log WHERE tenant_id = ?";
 
     if (filters.userId != null) {
-      conditions.push("user_id = ?");
+      countQuery += " AND user_id = ?";
+      rowsQuery += " AND user_id = ?";
       params.push(filters.userId);
     }
     if (filters.action) {
-      conditions.push("action = ?");
+      countQuery += " AND action = ?";
+      rowsQuery += " AND action = ?";
       params.push(filters.action);
     }
     if (filters.entityType) {
-      conditions.push("entity_type = ?");
+      countQuery += " AND entity_type = ?";
+      rowsQuery += " AND entity_type = ?";
       params.push(filters.entityType);
     }
     if (filters.entityId) {
-      conditions.push("entity_id = ?");
+      countQuery += " AND entity_id = ?";
+      rowsQuery += " AND entity_id = ?";
       params.push(filters.entityId);
     }
     if (filters.from) {
-      conditions.push("created_at >= ?");
+      countQuery += " AND created_at >= ?";
+      rowsQuery += " AND created_at >= ?";
       params.push(filters.from);
     }
     if (filters.to) {
-      conditions.push("created_at <= ?");
+      countQuery += " AND created_at <= ?";
+      rowsQuery += " AND created_at <= ?";
       params.push(filters.to);
     }
     if (filters.search) {
-      conditions.push("summary LIKE ?");
+      countQuery += " AND summary LIKE ?";
+      rowsQuery += " AND summary LIKE ?";
       params.push(`%${filters.search}%`);
     }
+    rowsQuery += " ORDER BY id DESC LIMIT ? OFFSET ?";
 
-    const where =
-      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limit = Math.min(Math.max(Number(filters.limit ?? 200), 1), 1000);
     const offset = Math.max(Number(filters.offset ?? 0), 0);
 
     const total = (
-      this.db
-        .prepare(`SELECT COUNT(*) as count FROM audit_log ${where}`)
-        .get(...params) as { count: number }
+      this.db.prepare(countQuery).get(...params) as { count: number }
     ).count;
 
     const rows = this.db
-      .prepare(
-        `SELECT * FROM audit_log ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
-      )
+      .prepare(rowsQuery)
       .all(...params, limit, offset) as AuditLogEntity[];
 
     return { rows, total };

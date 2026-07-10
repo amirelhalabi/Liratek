@@ -11,18 +11,24 @@ import {
   TransactionRepository,
   resetTransactionRepository,
 } from "../TransactionRepository.js";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext.js";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
     CREATE TABLE users (
-      id       INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      username  TEXT NOT NULL,
+      tenant_id INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE clients (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
-      full_name TEXT
+      full_name TEXT,
+      tenant_id INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE transactions (
@@ -44,6 +50,7 @@ function createTestDb(): Database.Database {
       summary       TEXT,
       metadata_json TEXT,
       device_id     TEXT,
+      tenant_id     INTEGER NOT NULL DEFAULT 1,
       created_at    TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -57,6 +64,7 @@ function createTestDb(): Database.Database {
       amount         REAL NOT NULL,
       note           TEXT,
       created_by     INTEGER,
+      tenant_id      INTEGER NOT NULL DEFAULT 1,
       created_at     TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -66,6 +74,7 @@ function createTestDb(): Database.Database {
       transaction_type       TEXT,
       transaction_id         INTEGER,
       unified_transaction_id INTEGER,
+      tenant_id              INTEGER NOT NULL DEFAULT 1,
       created_at             TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
@@ -144,6 +153,7 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     (
       globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
     ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
     resetTransactionRepository();
     repo = new TransactionRepository();
   });
@@ -154,6 +164,7 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     ).__LIRATEK_TEST_DB__;
     db.close();
     resetTransactionRepository();
+    resetTenantContext();
   });
 
   it("attaches in/out legs with currency + method per row", () => {
@@ -464,6 +475,7 @@ describe("TransactionRepository.getCashFlowByDate — D1 currency in/out report"
     (
       globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
     ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
     resetTransactionRepository();
     repo = new TransactionRepository();
   });
@@ -474,6 +486,7 @@ describe("TransactionRepository.getCashFlowByDate — D1 currency in/out report"
     ).__LIRATEK_TEST_DB__;
     db.close();
     resetTransactionRepository();
+    resetTenantContext();
   });
 
   const rowFor = (

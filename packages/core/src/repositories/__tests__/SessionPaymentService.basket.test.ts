@@ -53,6 +53,10 @@ import { resetCustomerSessionRepository } from "../CustomerSessionRepository";
 import { resetClientRepository } from "../ClientRepository";
 import { resetSalesRepository } from "../SalesRepository";
 import { resetSessionPaymentRepository } from "../SessionPaymentRepository";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 
 // ─── In-memory schema (only the tables recordBasketPayment touches) ───────────
 
@@ -73,6 +77,7 @@ function createTestDb(): Database.Database {
       phone_number    TEXT,
       notes           TEXT,
       whatsapp_opt_in INTEGER DEFAULT 0,
+      tenant_id       INTEGER NOT NULL DEFAULT 1,
       created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -87,7 +92,8 @@ function createTestDb(): Database.Database {
       closed_at      TEXT,
       started_by     TEXT NOT NULL,
       closed_by      TEXT,
-      is_active      INTEGER NOT NULL DEFAULT 1
+      is_active      INTEGER NOT NULL DEFAULT 1,
+      tenant_id      INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE customer_session_transactions (
@@ -100,6 +106,7 @@ function createTestDb(): Database.Database {
       amount_lbp             REAL NOT NULL DEFAULT 0,
       profit_usd             REAL NOT NULL DEFAULT 0,
       profit_lbp             REAL NOT NULL DEFAULT 0,
+      tenant_id              INTEGER NOT NULL DEFAULT 1,
       created_at             TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -112,6 +119,7 @@ function createTestDb(): Database.Database {
       user_id      INTEGER NOT NULL DEFAULT 1,
       amount_usd   REAL NOT NULL DEFAULT 0,
       amount_lbp   REAL NOT NULL DEFAULT 0,
+      tenant_id    INTEGER NOT NULL DEFAULT 1,
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -129,6 +137,7 @@ function createTestDb(): Database.Database {
       drawer_name            TEXT DEFAULT 'General',
       status                 TEXT DEFAULT 'completed',
       note                   TEXT,
+      tenant_id              INTEGER NOT NULL DEFAULT 1,
       created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at             DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -143,15 +152,17 @@ function createTestDb(): Database.Database {
       amount         REAL NOT NULL,
       note           TEXT,
       created_by     INTEGER,
+      tenant_id      INTEGER NOT NULL DEFAULT 1,
       created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE drawer_balances (
+      tenant_id     INTEGER NOT NULL DEFAULT 1,
       drawer_name   TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance       REAL NOT NULL DEFAULT 0,
       updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     CREATE TABLE debt_ledger (
@@ -163,14 +174,15 @@ function createTestDb(): Database.Database {
       transaction_id   INTEGER,
       due_date         TEXT,
       note             TEXT,
+      tenant_id        INTEGER NOT NULL DEFAULT 1,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_by       INTEGER,
       session_id       INTEGER
     );
 
     -- Seed the General drawer (cash) at zero so deltas are easy to read.
-    INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'USD', 0);
-    INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'LBP', 0);
+    INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'USD', 0);
+    INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'LBP', 0);
   `);
 
   return db;
@@ -324,6 +336,7 @@ describe("SessionPaymentService.recordBasketPayment — basket allocation/payout
     // Inject the in-memory DB via the connection test hook so every repository
     // singleton (re-created below) resolves to it.
     (globalThis as Record<string, unknown>).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
 
     // Reset singletons so they re-bind to the fresh DB.
     resetCustomerSessionRepository();
@@ -341,6 +354,7 @@ describe("SessionPaymentService.recordBasketPayment — basket allocation/payout
   afterEach(() => {
     delete (globalThis as Record<string, unknown>).__LIRATEK_TEST_DB__;
     db.close();
+    resetTenantContext();
   });
 
   // ── #2 cross-item cash bleed ────────────────────────────────────────────────

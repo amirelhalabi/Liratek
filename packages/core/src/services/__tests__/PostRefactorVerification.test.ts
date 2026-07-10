@@ -42,6 +42,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS users (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       username    TEXT NOT NULL,
       role        TEXT DEFAULT 'user',
@@ -50,6 +51,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS clients (
+      tenant_id INTEGER DEFAULT 1,
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name       TEXT NOT NULL,
       phone_number    TEXT,
@@ -59,6 +61,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS currencies (
+      tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       code           TEXT NOT NULL UNIQUE,
       name           TEXT NOT NULL,
@@ -69,6 +72,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS currency_drawers (
+      tenant_id INTEGER DEFAULT 1,
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       currency_code TEXT NOT NULL,
       drawer_name   TEXT NOT NULL,
@@ -76,6 +80,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS exchange_rates (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       to_code     TEXT NOT NULL UNIQUE,
       market_rate REAL NOT NULL,
@@ -86,6 +91,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS transactions (
+      tenant_id INTEGER DEFAULT 1,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       type         TEXT NOT NULL,
       status       TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -108,6 +114,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS payments (
+      tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       method         TEXT NOT NULL,
@@ -120,11 +127,12 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name   TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance       REAL NOT NULL DEFAULT 0,
       updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     -- ══════════════════════════════════════════
@@ -132,6 +140,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS products (
+      tenant_id INTEGER DEFAULT 1,
       id                   INTEGER PRIMARY KEY AUTOINCREMENT,
       name                 TEXT NOT NULL,
       barcode              TEXT,
@@ -144,6 +153,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS sales (
+      tenant_id INTEGER DEFAULT 1,
       id                     INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id              INTEGER,
       total_amount_usd       REAL DEFAULT 0,
@@ -164,6 +174,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS sale_items (
+      tenant_id INTEGER DEFAULT 1,
       id                        INTEGER PRIMARY KEY AUTOINCREMENT,
       sale_id                   INTEGER NOT NULL,
       product_id                INTEGER NOT NULL,
@@ -180,6 +191,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS exchange_transactions (
+      tenant_id INTEGER DEFAULT 1,
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       type             TEXT,
       from_currency    TEXT NOT NULL,
@@ -209,6 +221,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS financial_services (
+      tenant_id INTEGER DEFAULT 1,
       id                    INTEGER PRIMARY KEY AUTOINCREMENT,
       provider              TEXT NOT NULL,
       service_type          TEXT NOT NULL,
@@ -249,6 +262,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS suppliers (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT NOT NULL,
       module_key  TEXT,
@@ -259,6 +273,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS supplier_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       supplier_id INTEGER NOT NULL,
       entry_type  TEXT NOT NULL,
@@ -271,6 +286,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS item_costs (
+      tenant_id INTEGER DEFAULT 1,
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       provider   TEXT NOT NULL,
       category   TEXT NOT NULL,
@@ -286,6 +302,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS recharges (
+      tenant_id INTEGER DEFAULT 1,
       id                      INTEGER PRIMARY KEY AUTOINCREMENT,
       carrier                 TEXT NOT NULL,
       recharge_type           TEXT NOT NULL DEFAULT 'CREDIT_TRANSFER',
@@ -310,6 +327,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS expenses (
+      tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       description    TEXT NOT NULL,
       category       TEXT NOT NULL,
@@ -330,6 +348,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS maintenance (
+      tenant_id INTEGER DEFAULT 1,
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id        INTEGER,
       client_name      TEXT,
@@ -369,6 +388,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS custom_services (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       description TEXT NOT NULL,
       cost_usd    REAL NOT NULL DEFAULT 0,
@@ -396,6 +416,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS debt_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id        INTEGER NOT NULL,
       transaction_type TEXT NOT NULL,
@@ -415,6 +436,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS daily_closings (
+      tenant_id INTEGER DEFAULT 1,
       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
       closing_date        TEXT NOT NULL,
       drawer_name         TEXT,
@@ -435,6 +457,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS daily_closing_amounts (
+      tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       closing_id     INTEGER NOT NULL,
       drawer_name    TEXT NOT NULL,
@@ -449,6 +472,7 @@ function buildSchema(db: Database.Database): void {
     -- ══════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS loto_tickets (
+      tenant_id INTEGER DEFAULT 1,
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       ticket_number    TEXT,
       sale_amount      REAL DEFAULT 0,
@@ -471,6 +495,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS loto_monthly_fees (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       fee_amount  REAL DEFAULT 0,
       fee_month   TEXT,
@@ -483,6 +508,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS loto_checkpoints (
+      tenant_id INTEGER DEFAULT 1,
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       checkpoint_date  TEXT NOT NULL,
       period_start     TEXT NOT NULL,
@@ -500,6 +526,7 @@ function buildSchema(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS loto_cash_prizes (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       amount      REAL NOT NULL,
       note        TEXT,

@@ -6,6 +6,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 export interface MonthlyPL {
   month: string;
@@ -37,9 +38,9 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
     try {
       const rows = this.db
         .prepare(
-          `SELECT DISTINCT drawer_name FROM drawer_balances ORDER BY drawer_name`,
+          `SELECT DISTINCT drawer_name FROM drawer_balances WHERE tenant_id = ? ORDER BY drawer_name`,
         )
-        .all() as { drawer_name: string }[];
+        .all(getCurrentTenantId()) as { drawer_name: string }[];
       return rows.map((r) => r.drawer_name);
     } catch (error) {
       throw new DatabaseError("Failed to get drawer names", { cause: error });
@@ -52,33 +53,38 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
    */
   getMonthlyPL(month: string): MonthlyPL {
     try {
+      const tenantId = getCurrentTenantId();
+
       // 1. Sales Profit (Gross Profit from Products)
       const salesResult = this.db
         .prepare(
           `
-        SELECT 
+        SELECT
           COALESCE(SUM(si.sold_price_usd - si.cost_price_snapshot_usd), 0) as profit
         FROM sale_items si
         JOIN sales s ON si.sale_id = s.id
-        WHERE s.status = 'completed' 
+        WHERE s.status = 'completed'
           AND strftime('%Y-%m', s.created_at) = ?
+          AND si.tenant_id = ?
+          AND s.tenant_id = ?
       `,
         )
-        .get(month) as { profit: number };
+        .get(month, tenantId, tenantId) as { profit: number };
 
       // 2. Service Commissions (OMT, Whish, etc.) — grouped by currency
       const commissionRows = this.db
         .prepare(
           `
-        SELECT 
+        SELECT
           currency,
           COALESCE(SUM(commission), 0) as commission
         FROM financial_services
         WHERE strftime('%Y-%m', created_at) = ?
+          AND tenant_id = ?
         GROUP BY currency
       `,
         )
-        .all(month) as { currency: string; commission: number }[];
+        .all(month, tenantId) as { currency: string; commission: number }[];
 
       const serviceCommissionsByCurrency: Record<string, number> = {};
       for (const row of commissionRows) {
@@ -92,14 +98,15 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
       const expensesResult = this.db
         .prepare(
           `
-        SELECT 
+        SELECT
           COALESCE(SUM(amount_usd), 0) as expenses_usd,
           COALESCE(SUM(amount_lbp), 0) as expenses_lbp
         FROM expenses
         WHERE strftime('%Y-%m', expense_date) = ?
+          AND tenant_id = ?
       `,
         )
-        .get(month) as { expenses_usd: number; expenses_lbp: number };
+        .get(month, tenantId) as { expenses_usd: number; expenses_lbp: number };
 
       // Per-currency net profit: income - expenses, independently
       const netProfitUSD =

@@ -6,6 +6,7 @@
 
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
@@ -39,13 +40,15 @@ export class LotoMonthlyFeeRepository {
   }
 
   createMonthlyFee(data: LotoMonthlyFeeCreate): LotoMonthlyFee {
+    const tenantId = getCurrentTenantId();
     const stmt = this.db.prepare(`
       INSERT INTO loto_monthly_fees (
-        fee_amount, fee_month, fee_year, recorded_date, is_paid, paid_date, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        tenant_id, fee_amount, fee_month, fee_year, recorded_date, is_paid, paid_date, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
+      tenantId,
       data.fee_amount,
       data.fee_month,
       data.fee_year,
@@ -60,18 +63,18 @@ export class LotoMonthlyFeeRepository {
 
   getMonthlyFeeById(id: number): LotoMonthlyFee | null {
     const stmt = this.db.prepare(
-      `SELECT * FROM loto_monthly_fees WHERE id = ?`,
+      `SELECT * FROM loto_monthly_fees WHERE id = ? AND tenant_id = ?`,
     );
-    return stmt.get(id) as LotoMonthlyFee | null;
+    return stmt.get(id, getCurrentTenantId()) as LotoMonthlyFee | null;
   }
 
   getMonthlyFeesByYear(year: number): LotoMonthlyFee[] {
     const stmt = this.db.prepare(`
       SELECT * FROM loto_monthly_fees
-      WHERE fee_year = ?
+      WHERE fee_year = ? AND tenant_id = ?
       ORDER BY fee_month ASC
     `);
-    return stmt.all(year) as LotoMonthlyFee[];
+    return stmt.all(year, getCurrentTenantId()) as LotoMonthlyFee[];
   }
 
   markFeePaid(
@@ -79,17 +82,18 @@ export class LotoMonthlyFeeRepository {
     paidDate: string,
     userId: number,
   ): LotoMonthlyFee | null {
+    const tenantId = getCurrentTenantId();
     const markPaidInTxn = this.db.transaction(() => {
       const fee = this.getMonthlyFeeById(id);
       if (!fee) return null;
 
       // 1. Mark as paid
       const stmt = this.db.prepare(`
-        UPDATE loto_monthly_fees 
+        UPDATE loto_monthly_fees
         SET is_paid = 1, paid_date = ?
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
-      stmt.run(paidDate, id);
+      stmt.run(paidDate, id, tenantId);
 
       // 2. Create unified transaction record (money OUT = negative)
       const txnRepo = getTransactionRepository();
@@ -112,10 +116,11 @@ export class LotoMonthlyFeeRepository {
       // 3. Debit drawer balance (money OUT from General/LBP)
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       insertPayment.run(
+        tenantId,
         txnId,
         "CASH",
         "General",
@@ -125,14 +130,18 @@ export class LotoMonthlyFeeRepository {
         userId,
       );
 
+      // drawer_balances' PRIMARY KEY is now (tenant_id, drawer_name,
+      // currency_code) — the ON CONFLICT target must match it exactly, or
+      // SQLite rejects the upsert (no unique index on drawer_name+currency
+      // alone anymore).
       const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
-      upsertBalance.run("General", "LBP", -fee.fee_amount);
+      upsertBalance.run(tenantId, "General", "LBP", -fee.fee_amount);
 
       return this.getMonthlyFeeById(id);
     });
@@ -143,9 +152,11 @@ export class LotoMonthlyFeeRepository {
   getTotalFees(from: string, to: string): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(fee_amount), 0) as total FROM loto_monthly_fees
-      WHERE date(recorded_date) BETWEEN date(?) AND date(?)
+      WHERE date(recorded_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
     `);
-    const result = stmt.get(from, to) as { total: number };
+    const result = stmt.get(from, to, getCurrentTenantId()) as {
+      total: number;
+    };
     return result.total;
   }
 }

@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 export interface SupplierPurchase {
   id: number;
@@ -39,22 +40,25 @@ export class SupplierPurchaseRepository {
   create(data: CreateSupplierPurchaseData): SupplierPurchase {
     const res = this.db
       .prepare(
-        `INSERT INTO supplier_purchases (supplier_id, total_usd, note, created_by)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO supplier_purchases (supplier_id, total_usd, note, created_by, tenant_id)
+         VALUES (?, ?, ?, ?, ?)`,
       )
       .run(
         data.supplier_id,
         data.total_usd,
         data.note ?? null,
         data.created_by ?? null,
+        getCurrentTenantId(),
       );
     return this.getById(Number(res.lastInsertRowid))!;
   }
 
   getById(id: number): SupplierPurchase | null {
     return this.db
-      .prepare(`SELECT *, ${STATUS_CASE} FROM supplier_purchases WHERE id = ?`)
-      .get(id) as SupplierPurchase | null;
+      .prepare(
+        `SELECT *, ${STATUS_CASE} FROM supplier_purchases WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(id, getCurrentTenantId()) as SupplierPurchase | null;
   }
 
   getBySupplier(supplierId: number): SupplierPurchase[] {
@@ -62,10 +66,10 @@ export class SupplierPurchaseRepository {
       .prepare(
         `SELECT *, ${STATUS_CASE}
          FROM supplier_purchases
-         WHERE supplier_id = ?
+         WHERE supplier_id = ? AND tenant_id = ?
          ORDER BY created_at ASC`,
       )
-      .all(supplierId) as SupplierPurchase[];
+      .all(supplierId, getCurrentTenantId()) as SupplierPurchase[];
   }
 
   /**
@@ -75,20 +79,25 @@ export class SupplierPurchaseRepository {
    */
   applyFifoPayment(supplierId: number, amountUsd: number): void {
     if (amountUsd <= 0) return;
+    const tenantId = getCurrentTenantId();
 
     const unpaid = this.db
       .prepare(
         `SELECT id, total_usd, paid_usd
          FROM supplier_purchases
-         WHERE supplier_id = ? AND paid_usd < total_usd - 0.005
+         WHERE supplier_id = ? AND paid_usd < total_usd - 0.005 AND tenant_id = ?
          ORDER BY created_at ASC`,
       )
-      .all(supplierId) as { id: number; total_usd: number; paid_usd: number }[];
+      .all(supplierId, tenantId) as {
+      id: number;
+      total_usd: number;
+      paid_usd: number;
+    }[];
 
     const updateRow = this.db.prepare(
       `UPDATE supplier_purchases
        SET paid_usd = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
+       WHERE id = ? AND tenant_id = ?`,
     );
 
     let remaining = amountUsd;
@@ -96,7 +105,11 @@ export class SupplierPurchaseRepository {
       if (remaining <= 0) break;
       const canAbsorb = row.total_usd - row.paid_usd;
       const applied = Math.min(remaining, canAbsorb);
-      updateRow.run(Math.min(row.paid_usd + applied, row.total_usd), row.id);
+      updateRow.run(
+        Math.min(row.paid_usd + applied, row.total_usd),
+        row.id,
+        tenantId,
+      );
       remaining -= applied;
     }
   }

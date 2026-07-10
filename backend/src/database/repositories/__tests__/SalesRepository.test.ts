@@ -27,7 +27,7 @@ describe("SalesRepository", () => {
     repo.deleteSaleItems(10);
 
     expect(testDb.prepare).toHaveBeenCalledWith(
-      "DELETE FROM sale_items WHERE sale_id = ?",
+      "DELETE FROM sale_items WHERE sale_id = ? AND tenant_id = ?",
     );
   });
 

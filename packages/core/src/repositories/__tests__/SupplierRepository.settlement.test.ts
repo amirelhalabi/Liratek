@@ -32,6 +32,7 @@ function createTestDb(): Database.Database {
       module_key TEXT,
       provider TEXT,
       is_system INTEGER NOT NULL DEFAULT 0,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -47,6 +48,7 @@ function createTestDb(): Database.Database {
       is_auto INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at DATETIME,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -60,6 +62,7 @@ function createTestDb(): Database.Database {
       is_settled INTEGER NOT NULL DEFAULT 0,
       settled_at TEXT,
       settlement_id INTEGER,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -67,8 +70,9 @@ function createTestDb(): Database.Database {
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
+      tenant_id INTEGER DEFAULT 1,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     CREATE TABLE transactions (
@@ -90,6 +94,7 @@ function createTestDb(): Database.Database {
       device_id TEXT,
       summary TEXT,
       metadata_json TEXT,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -102,10 +107,12 @@ function createTestDb(): Database.Database {
       amount REAL NOT NULL,
       note TEXT,
       created_by INTEGER,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE users (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -520,6 +527,7 @@ describe("SupplierRepository.settleTransactions()", () => {
     // Restore table and verify nothing was committed
     db.exec(`
       CREATE TABLE drawer_balances (
+        tenant_id INTEGER DEFAULT 1,
         drawer_name TEXT NOT NULL,
         currency_code TEXT NOT NULL,
         balance REAL NOT NULL DEFAULT 0,
@@ -651,6 +659,7 @@ function createExtendedTestDb(): Database.Database {
       module_key TEXT,
       provider TEXT,
       is_system INTEGER NOT NULL DEFAULT 0,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -666,10 +675,12 @@ function createExtendedTestDb(): Database.Database {
       is_auto INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at DATETIME,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE recharges (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       carrier TEXT NOT NULL,
       recharge_type TEXT NOT NULL,
@@ -694,8 +705,9 @@ function createExtendedTestDb(): Database.Database {
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
+      tenant_id INTEGER DEFAULT 1,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     CREATE TABLE transactions (
@@ -717,6 +729,7 @@ function createExtendedTestDb(): Database.Database {
       metadata_json TEXT,
       device_id TEXT,
       transaction_time DATETIME,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -729,6 +742,7 @@ function createExtendedTestDb(): Database.Database {
       amount REAL NOT NULL,
       note TEXT,
       created_by INTEGER,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

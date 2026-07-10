@@ -11,6 +11,7 @@ import {
   type PaginatedResult,
 } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Types
@@ -118,21 +119,23 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   findAllProducts(search?: string): ProductDTO[] {
     try {
+      const tenantId = getCurrentTenantId();
       let query = `
-        SELECT 
-          p.id, p.barcode, p.name, p.stock_quantity, p.min_stock_level, 
+        SELECT
+          p.id, p.barcode, p.name, p.stock_quantity, p.min_stock_level,
           p.image_url, p.is_active, p.is_deleted, p.created_at,
-          p.cost_price_usd as cost_price, 
+          p.cost_price_usd as cost_price,
           p.selling_price_usd as retail_price,
           p.supplier,
           p.category_id,
           COALESCE(pc.name, p.category) as category
         FROM ${this.tableName} p
-        LEFT JOIN product_categories pc ON pc.id = p.category_id
+        LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
         WHERE p.is_active = 1 AND p.is_deleted = 0
           AND p.item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
+          AND p.tenant_id = ?
       `;
-      const params: (string | number)[] = [];
+      const params: (string | number)[] = [tenantId, tenantId];
 
       if (search) {
         query += ` AND (p.name LIKE ? OR p.barcode LIKE ? OR COALESCE(pc.name, p.category) LIKE ?)`;
@@ -175,8 +178,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   findByBarcode(barcode: string): ProductEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE barcode = ? AND is_active = 1 AND is_deleted = 0`;
-      return this.queryOne<ProductEntity>(query, barcode);
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE barcode = ? AND is_active = 1 AND is_deleted = 0 AND tenant_id = ?`;
+      return this.queryOne<ProductEntity>(query, barcode, getCurrentTenantId());
     } catch (error) {
       throw new DatabaseError("Failed to find product by barcode", {
         cause: error,
@@ -191,11 +194,14 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   barcodeExists(barcode: string, excludeId?: number): boolean {
     try {
+      const tenantId = getCurrentTenantId();
       const query = excludeId
-        ? `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND id != ? AND is_active = 1 AND is_deleted = 0`
-        : `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND is_active = 1 AND is_deleted = 0`;
+        ? `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND id != ? AND is_active = 1 AND is_deleted = 0 AND tenant_id = ?`
+        : `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND is_active = 1 AND is_deleted = 0 AND tenant_id = ?`;
 
-      const params = excludeId ? [barcode, excludeId] : [barcode];
+      const params = excludeId
+        ? [barcode, excludeId, tenantId]
+        : [barcode, tenantId];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;
     } catch (error) {
       throw new DatabaseError("Failed to check barcode existence", {
@@ -208,12 +214,13 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    * Create a new product
    */
   createProduct(data: CreateProductData): { id: number } {
+    const tenantId = getCurrentTenantId();
     try {
       const stmt = this.db.prepare(`
         INSERT INTO ${this.tableName} (
-          barcode, name, category, category_id, cost_price_usd, selling_price_usd, 
-          stock_quantity, min_stock_level, image_url, item_type, supplier, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          barcode, name, category, category_id, cost_price_usd, selling_price_usd,
+          stock_quantity, min_stock_level, image_url, item_type, supplier, created_at, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
       `);
 
       const result = stmt.run(
@@ -228,6 +235,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.image_url ?? null,
         data.item_type ?? "Product",
         data.supplier ?? null,
+        tenantId,
       );
 
       return { id: result.lastInsertRowid as number };
@@ -237,8 +245,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         // Check if the collision is with a soft-deleted product — reactivate it
         // Check both is_active=0 OR is_deleted=1
         const deleted = this.queryOne<ProductEntity>(
-          `SELECT id FROM ${this.tableName} WHERE barcode = ? AND (is_active = 0 OR is_deleted = 1)`,
+          `SELECT id FROM ${this.tableName} WHERE barcode = ? AND (is_active = 0 OR is_deleted = 1) AND tenant_id = ?`,
           data.barcode,
+          tenantId,
         );
         if (deleted) {
           this.db
@@ -251,7 +260,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
                 supplier = COALESCE(?, supplier), is_active = 1, is_deleted = 0,
                 created_at = COALESCE(created_at, datetime('now')),
                 updated_at = datetime('now')
-              WHERE id = ?`,
+              WHERE id = ? AND tenant_id = ?`,
             )
             .run(
               data.name,
@@ -265,6 +274,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
               data.item_type ?? "Product",
               data.supplier ?? null,
               deleted.id,
+              tenantId,
             );
           return { id: deleted.id };
         }
@@ -292,7 +302,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           min_stock_level = COALESCE(?, min_stock_level),
           image_url = COALESCE(?, image_url),
           updated_at = datetime('now')
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
 
       const result = stmt.run(
@@ -304,6 +314,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.min_stock_level ?? null,
         data.image_url ?? null,
         id,
+        getCurrentTenantId(),
       );
 
       return result.changes > 0;
@@ -368,10 +379,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
 
     const placeholders = ids.map(() => "?").join(", ");
     params.push(...ids);
+    params.push(getCurrentTenantId());
 
     const result = this.db
       .prepare(
-        `UPDATE ${this.tableName} SET ${setClauses.join(", ")} WHERE id IN (${placeholders})`,
+        `UPDATE ${this.tableName} SET ${setClauses.join(", ")} WHERE id IN (${placeholders}) AND tenant_id = ?`,
       )
       .run(...(params as Parameters<typeof this.db.prepare>[0][]));
 
@@ -386,11 +398,12 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     if (ids.length === 0) return 0;
 
     const placeholders = ids.map(() => "?").join(", ");
+    const tenantId = getCurrentTenantId();
     const result = this.db
       .prepare(
-        `UPDATE ${this.tableName} SET is_deleted = 1, updated_at = datetime('now') WHERE id IN (${placeholders})`,
+        `UPDATE ${this.tableName} SET is_deleted = 1, updated_at = datetime('now') WHERE id IN (${placeholders}) AND tenant_id = ?`,
       )
-      .run(...(ids as any[]));
+      .run(...([...ids, tenantId] as any[]));
 
     return result.changes;
   }
@@ -413,11 +426,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     try {
       const stmt = this.db.prepare(`
         UPDATE ${this.tableName} SET
-          barcode = ?, name = ?, category = ?, category_id = ?, cost_price_usd = ?, 
+          barcode = ?, name = ?, category = ?, category_id = ?, cost_price_usd = ?,
           selling_price_usd = ?, min_stock_level = ?, image_url = ?,
           supplier = ?, stock_quantity = COALESCE(?, stock_quantity),
           updated_at = datetime('now')
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
 
       const result = stmt.run(
@@ -432,6 +445,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.supplier ?? null,
         data.stock_quantity ?? null,
         id,
+        getCurrentTenantId(),
       );
 
       return result.changes > 0;
@@ -456,9 +470,10 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   adjustStock(id: number, newQuantity: number): boolean {
     try {
       const result = this.execute(
-        `UPDATE ${this.tableName} SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?`,
+        `UPDATE ${this.tableName} SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
         newQuantity,
         id,
+        getCurrentTenantId(),
       );
       return result.changes > 0;
     } catch (error) {
@@ -475,9 +490,10 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   adjustStockDelta(id: number, delta: number): boolean {
     try {
       const result = this.execute(
-        `UPDATE ${this.tableName} SET stock_quantity = stock_quantity + ?, updated_at = datetime('now') WHERE id = ? AND is_active = 1 AND is_deleted = 0`,
+        `UPDATE ${this.tableName} SET stock_quantity = stock_quantity + ?, updated_at = datetime('now') WHERE id = ? AND is_active = 1 AND is_deleted = 0 AND tenant_id = ?`,
         delta,
         id,
+        getCurrentTenantId(),
       );
       return result.changes > 0;
     } catch (error) {
@@ -493,18 +509,22 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   deductStockForSale(saleId: number): void {
     try {
+      const tenantId = getCurrentTenantId();
       this.execute(
         `
         UPDATE ${this.tableName}
         SET stock_quantity = stock_quantity - (
-          SELECT quantity 
-          FROM sale_items 
-          WHERE sale_items.product_id = products.id AND sale_items.sale_id = ?
+          SELECT quantity
+          FROM sale_items
+          WHERE sale_items.product_id = products.id AND sale_items.sale_id = ? AND sale_items.tenant_id = ?
         ), updated_at = datetime('now')
-        WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)
+        WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ? AND tenant_id = ?) AND tenant_id = ?
       `,
         saleId,
+        tenantId,
         saleId,
+        tenantId,
+        tenantId,
       );
     } catch (error) {
       throw new DatabaseError("Failed to deduct stock for sale", {
@@ -518,14 +538,18 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   getStockStats(): StockStats {
     try {
-      const result = this.queryOne<StockStats>(`
-        SELECT 
+      const result = this.queryOne<StockStats>(
+        `
+        SELECT
           COALESCE(SUM(cost_price_usd * stock_quantity), 0) AS stock_budget_usd,
           COALESCE(SUM(stock_quantity), 0) AS stock_count
         FROM ${this.tableName}
         WHERE is_active = 1 AND is_deleted = 0
           AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
-      `);
+          AND tenant_id = ?
+      `,
+        getCurrentTenantId(),
+      );
       return result ?? { stock_budget_usd: 0, stock_count: 0 };
     } catch (error) {
       throw new DatabaseError("Failed to get stock stats", { cause: error });
@@ -538,13 +562,17 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   findLowStock(): LowStockProduct[] {
     try {
-      return this.query<LowStockProduct>(`
+      return this.query<LowStockProduct>(
+        `
         SELECT id, name, stock_quantity, min_stock_level
         FROM ${this.tableName}
         WHERE stock_quantity <= min_stock_level AND is_active = 1 AND is_deleted = 0
           AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
+          AND tenant_id = ?
         ORDER BY name ASC
-      `);
+      `,
+        getCurrentTenantId(),
+      );
     } catch (error) {
       throw new DatabaseError("Failed to get low stock products", {
         cause: error,
@@ -562,17 +590,18 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     try {
       const { limit = 20, category } = options;
       const searchTerm = `%${term}%`;
+      const tenantId = getCurrentTenantId();
 
       let query = `
-        SELECT 
-          id, barcode, name, category, stock_quantity, min_stock_level, 
+        SELECT
+          id, barcode, name, category, stock_quantity, min_stock_level,
           image_url, is_active, is_deleted, created_at,
-          cost_price_usd as cost_price, 
+          cost_price_usd as cost_price,
           selling_price_usd as retail_price
-        FROM ${this.tableName} 
-        WHERE is_active = 1 AND is_deleted = 0 AND (name LIKE ? OR barcode LIKE ?)
+        FROM ${this.tableName}
+        WHERE is_active = 1 AND is_deleted = 0 AND (name LIKE ? OR barcode LIKE ?) AND tenant_id = ?
       `;
-      const params: (string | number)[] = [searchTerm, searchTerm];
+      const params: (string | number)[] = [searchTerm, searchTerm, tenantId];
 
       if (category) {
         query += ` AND category = ?`;
@@ -593,11 +622,15 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   getCategories(): string[] {
     try {
-      const results = this.query<{ category: string }>(`
-        SELECT DISTINCT category FROM ${this.tableName} 
+      const results = this.query<{ category: string }>(
+        `
+        SELECT DISTINCT category FROM ${this.tableName}
         WHERE is_active = 1 AND is_deleted = 0 AND category IS NOT NULL AND category != ''
+          AND tenant_id = ?
         ORDER BY category ASC
-      `);
+      `,
+        getCurrentTenantId(),
+      );
       return results.map((r) => r.category);
     } catch (error) {
       throw new DatabaseError("Failed to get categories", { cause: error });

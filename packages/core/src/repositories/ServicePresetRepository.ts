@@ -5,6 +5,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { customServiceLogger } from "../utils/logger.js";
 import type {
   CreateServicePresetInput,
@@ -83,10 +84,11 @@ export class ServicePresetRepository extends BaseRepository<ServicePresetEntity>
    */
   createPreset(data: CreateServicePresetInput): ServicePresetEntity {
     const stmt = this.db.prepare(`
-      INSERT INTO service_presets (name, category, cost_usd, cost_lbp, price_usd, price_lbp, is_active, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO service_presets (tenant_id, name, category, cost_usd, cost_lbp, price_usd, price_lbp, is_active, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
+      getCurrentTenantId(),
       data.name,
       data.category,
       data.cost_usd ?? 0,
@@ -108,8 +110,8 @@ export class ServicePresetRepository extends BaseRepository<ServicePresetEntity>
     category?: string;
     includeInactive?: boolean;
   }): ServicePresetEntity[] {
-    let query = `SELECT ${this.getColumns()} FROM service_presets WHERE 1=1`;
-    const params: unknown[] = [];
+    let query = `SELECT ${this.getColumns()} FROM service_presets WHERE tenant_id = ?`;
+    const params: unknown[] = [getCurrentTenantId()];
 
     if (!filter?.includeInactive) {
       query += ` AND is_active = 1`;
@@ -172,10 +174,12 @@ export class ServicePresetRepository extends BaseRepository<ServicePresetEntity>
     if (fields.length === 0) return existing;
 
     fields.push("updated_at = CURRENT_TIMESTAMP");
-    values.push(id);
+    values.push(id, getCurrentTenantId());
 
     this.db
-      .prepare(`UPDATE service_presets SET ${fields.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE service_presets SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+      )
       .run(...values);
 
     customServiceLogger.info({ id }, "Service preset updated");
@@ -187,8 +191,8 @@ export class ServicePresetRepository extends BaseRepository<ServicePresetEntity>
    */
   deletePreset(id: number): boolean {
     const result = this.db
-      .prepare("DELETE FROM service_presets WHERE id = ?")
-      .run(id);
+      .prepare("DELETE FROM service_presets WHERE id = ? AND tenant_id = ?")
+      .run(id, getCurrentTenantId());
     if (result.changes > 0) {
       customServiceLogger.info({ id }, "Service preset deleted");
       return true;
@@ -198,15 +202,18 @@ export class ServicePresetRepository extends BaseRepository<ServicePresetEntity>
 
   /**
    * Seed default presets if they don't already exist.
-   * Uses INSERT OR IGNORE keyed on (name, category) to avoid duplicates.
-   * Safe to call on every app startup.
+   * Uses INSERT OR IGNORE keyed on (tenant_id, name, category) to avoid
+   * duplicates. Safe to call on every app startup. The dedup subquery MUST
+   * also filter by tenant_id — otherwise tenant 2's seed run is silently
+   * suppressed by tenant 1's already-existing preset of the same name.
    */
   seedDefaults(): number {
+    const tenantId = getCurrentTenantId();
     const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO service_presets (name, category, cost_usd, cost_lbp, price_usd, price_lbp, sort_order)
-      SELECT ?, ?, ?, 0, ?, 0, ?
+      INSERT OR IGNORE INTO service_presets (tenant_id, name, category, cost_usd, cost_lbp, price_usd, price_lbp, sort_order)
+      SELECT ?, ?, ?, ?, 0, ?, 0, ?
       WHERE NOT EXISTS (
-        SELECT 1 FROM service_presets WHERE name = ? AND category = ?
+        SELECT 1 FROM service_presets WHERE tenant_id = ? AND name = ? AND category = ?
       )
     `);
 
@@ -214,11 +221,13 @@ export class ServicePresetRepository extends BaseRepository<ServicePresetEntity>
     for (let i = 0; i < DEFAULT_PRESETS.length; i++) {
       const p = DEFAULT_PRESETS[i];
       const result = stmt.run(
+        tenantId,
         p.name,
         p.category,
         p.cost_usd,
         p.price_usd,
         i,
+        tenantId,
         p.name,
         p.category,
       );

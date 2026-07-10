@@ -18,6 +18,7 @@ import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
   calculateCommission,
   lookupOmtFee,
@@ -278,10 +279,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     const row = this.db
       .prepare(
         `SELECT id FROM users
+         WHERE tenant_id = ?
          ORDER BY (role = 'admin') DESC, id ASC
          LIMIT 1`,
       )
-      .get() as { id: number } | undefined;
+      .get(getCurrentTenantId()) as { id: number } | undefined;
     return row?.id ?? 1;
   }
 
@@ -321,6 +323,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     txnId: number,
   ): number {
     let resolvedClientId = data.clientId;
+    const tenantId = getCurrentTenantId();
 
     if (!resolvedClientId) {
       if (!data.clientName?.trim()) {
@@ -330,28 +333,31 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         throw new Error("Phone number is required when paying by debt");
       }
       const existing = this.db
-        .prepare(`SELECT id FROM clients WHERE phone_number = ? LIMIT 1`)
-        .get(data.phoneNumber) as { id: number } | undefined;
+        .prepare(
+          `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
+        )
+        .get(data.phoneNumber, tenantId) as { id: number } | undefined;
       if (existing) {
         resolvedClientId = existing.id;
       } else {
         const insertResult = this.db
           .prepare(
-            `INSERT INTO clients (full_name, phone_number, notes)
-             VALUES (?, ?, ?)`,
+            `INSERT INTO clients (full_name, phone_number, notes, tenant_id)
+             VALUES (?, ?, ?, ?)`,
           )
           .run(
             data.clientName,
             data.phoneNumber,
             "Auto-created from Binance debt",
+            tenantId,
           );
         resolvedClientId = Number(insertResult.lastInsertRowid);
       }
     }
 
     this.db
-      .prepare(`UPDATE transactions SET client_id = ? WHERE id = ?`)
-      .run(resolvedClientId, txnId);
+      .prepare(`UPDATE transactions SET client_id = ? WHERE id = ? AND tenant_id = ?`)
+      .run(resolvedClientId, txnId, tenantId);
 
     return resolvedClientId;
   }
@@ -371,6 +377,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     const legacyDrawerLabel = this.mapDrawerName(data.provider);
 
     const useCostPriceFlow = data.cost !== undefined && data.cost > 0;
+    const tenantId = getCurrentTenantId();
 
     return this.db.transaction(() => {
       const currency = data.currency ?? "USD";
@@ -523,8 +530,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           sender_client_id, receiver_client_id,
           omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee,
           item_key, note, is_settled, settled_at,
-          payment_method_fee, payment_method_fee_rate, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          payment_method_fee, payment_method_fee_rate, tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
@@ -559,6 +566,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         settledAt,
         pmFee,
         pmFeeRate,
+        tenantId,
         data.transaction_time ?? null,
       );
 
@@ -568,9 +576,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       if (data.partnerId) {
         this.db
           .prepare(
-            `UPDATE financial_services SET partner_id = ?, partner_mode = ? WHERE id = ?`,
+            `UPDATE financial_services SET partner_id = ?, partner_mode = ? WHERE id = ? AND tenant_id = ?`,
           )
-          .run(data.partnerId, data.partnerMode || "THROUGH", id);
+          .run(data.partnerId, data.partnerMode || "THROUGH", id, tenantId);
       }
 
       // The unified transaction, every payment leg, and any debt_ledger row
@@ -597,29 +605,34 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         if (primaryPhone) {
           // Try to find existing client by phone number
           const existing = this.db
-            .prepare(`SELECT id FROM clients WHERE phone_number = ? LIMIT 1`)
-            .get(primaryPhone) as { id: number } | undefined;
+            .prepare(
+              `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
+            )
+            .get(primaryPhone, tenantId) as { id: number } | undefined;
           if (existing) {
             resolvedPrimaryClientId = existing.id;
           } else {
             // Auto-create client with phone
             const insertResult = this.db
               .prepare(
-                `INSERT INTO clients (full_name, phone_number, notes)
-                        VALUES (?, ?, ?)`,
+                `INSERT INTO clients (full_name, phone_number, notes, tenant_id)
+                        VALUES (?, ?, ?, ?)`,
               )
               .run(
                 primaryName,
                 primaryPhone,
                 "Auto-created from OMT/WHISH service",
+                tenantId,
               );
             resolvedPrimaryClientId = Number(insertResult.lastInsertRowid);
           }
         } else {
           // No phone — try to find existing client by name
           const existing = this.db
-            .prepare(`SELECT id FROM clients WHERE full_name = ? LIMIT 1`)
-            .get(primaryName) as { id: number } | undefined;
+            .prepare(
+              `SELECT id FROM clients WHERE full_name = ? AND tenant_id = ? LIMIT 1`,
+            )
+            .get(primaryName, tenantId) as { id: number } | undefined;
           if (existing) {
             resolvedPrimaryClientId = existing.id;
           }
@@ -689,21 +702,56 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         transaction_time: data.transaction_time,
       });
 
-      const insertPayment = this.db.prepare(`
+      // insertPayment / upsertBalanceDelta are shared prepared statements used
+      // by ~50 call sites throughout this transaction. Rather than touch every
+      // call site to thread `tenant_id` through, each is wrapped so the
+      // existing `.run(...)` call sites (all money-flow control logic —
+      // untouched) transparently carry the current tenant. See WP3b notes:
+      // predicates/columns only, zero change to leg iteration or drawer math.
+      const insertPaymentStmt = this.db.prepare(`
         INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
         ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?
         )
       `);
+      const insertPayment = {
+        run: (
+          transactionId: number,
+          method: string,
+          drawerName: string,
+          currencyCode: string,
+          amount: number,
+          note: string | null,
+          createdBy: number,
+        ) =>
+          insertPaymentStmt.run(
+            transactionId,
+            method,
+            drawerName,
+            currencyCode,
+            amount,
+            note,
+            createdBy,
+            tenantId,
+          ),
+      };
 
-      const upsertBalanceDelta = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+      // drawer_balances' PK is now (tenant_id, drawer_name, currency_code) —
+      // the ON CONFLICT target must match it exactly or SQLite throws at
+      // prepare time ("ON CONFLICT clause does not match any PRIMARY KEY or
+      // UNIQUE constraint").
+      const upsertBalanceDeltaStmt = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
+      const upsertBalanceDelta = {
+        run: (drawerName: string, currencyCode: string, balance: number) =>
+          upsertBalanceDeltaStmt.run(drawerName, currencyCode, balance, tenantId),
+      };
 
       // Separate shop→customer change (OUT) legs up front so every inflow branch
       // below operates on customer-paid (IN) legs only. OUT legs are processed
@@ -793,8 +841,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             this.db
               .prepare(
                 `INSERT INTO debt_ledger (
-                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, due_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
               )
               .run(
                 data.clientId,
@@ -830,8 +878,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             this.db
               .prepare(
                 `INSERT INTO debt_ledger (
-                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, due_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
               )
               .run(
                 data.clientId,
@@ -976,8 +1024,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                     .prepare(
                       `INSERT INTO debt_ledger (
                         client_id, transaction_type, amount_usd, amount_lbp,
-                        transaction_id, note, created_by, due_date
-                      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                        transaction_id, note, created_by, tenant_id, due_date
+                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
                     )
                     .run(
                       debtClientId,
@@ -991,6 +1039,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                       txnId,
                       `Binance SEND — $${data.amount} USDT`,
                       createdBy,
+                      tenantId,
                     );
                 }
               }
@@ -1003,8 +1052,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   .prepare(
                     `INSERT INTO debt_ledger (
                       client_id, transaction_type, amount_usd, amount_lbp,
-                      transaction_id, note, created_by, due_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                      transaction_id, note, created_by, tenant_id, due_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
                   )
                   .run(
                     debtClientId,
@@ -1014,6 +1063,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                     txnId,
                     `Binance SEND — $${data.amount} USDT`,
                     createdBy,
+                    tenantId,
                   );
               } else if (isDrawerAffectingMethod(paidBy)) {
                 const cashDrawer = paymentMethodToDrawerName(paidBy);
@@ -1223,22 +1273,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 // Try to find existing client by phone number
                 const existing = this.db
                   .prepare(
-                    `SELECT id FROM clients WHERE phone_number = ? LIMIT 1`,
+                    `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
                   )
-                  .get(data.phoneNumber) as { id: number } | undefined;
+                  .get(data.phoneNumber, tenantId) as
+                  | { id: number }
+                  | undefined;
                 if (existing) {
                   resolvedClientId = existing.id;
                 } else {
                   // Auto-create client — use the DB directly to get lastInsertRowid
                   const insertResult = this.db
                     .prepare(
-                      `INSERT INTO clients (full_name, phone_number, notes)
-                       VALUES (?, ?, ?)`,
+                      `INSERT INTO clients (full_name, phone_number, notes, tenant_id)
+                       VALUES (?, ?, ?, ?)`,
                     )
                     .run(
                       data.clientName,
                       data.phoneNumber,
                       "Auto-created from service debt payment",
+                      tenantId,
                     );
                   resolvedClientId = Number(insertResult.lastInsertRowid);
                 }
@@ -1253,8 +1306,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // Update the unified transaction's client_id so it appears correctly
               // in profits by-client, activity logs, and debt detail eye button
               this.db
-                .prepare(`UPDATE transactions SET client_id = ? WHERE id = ?`)
-                .run(resolvedClientId, txnId);
+                .prepare(
+                  `UPDATE transactions SET client_id = ? WHERE id = ? AND tenant_id = ?`,
+                )
+                .run(resolvedClientId, txnId, tenantId);
 
               for (const debtLeg of debtLegs) {
                 const debtAmtUsd =
@@ -1267,8 +1322,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   .prepare(
                     `INSERT INTO debt_ledger (
                       client_id, transaction_type, amount_usd, amount_lbp,
-                      transaction_id, note, created_by, due_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                      transaction_id, note, created_by, tenant_id, due_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
                   )
                   .run(
                     resolvedClientId,
@@ -1278,6 +1333,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                     txnId,
                     debtNote,
                     createdBy,
+                    tenantId,
                   );
               }
             }
@@ -1294,36 +1350,41 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // Find or auto-create client
               const existingClient = this.db
                 .prepare(
-                  `SELECT id FROM clients WHERE phone_number = ? LIMIT 1`,
+                  `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
                 )
-                .get(data.phoneNumber) as { id: number } | undefined;
+                .get(data.phoneNumber, tenantId) as
+                | { id: number }
+                | undefined;
               const debtClientId = existingClient
                 ? existingClient.id
                 : Number(
                     this.db
                       .prepare(
-                        `INSERT INTO clients (full_name, phone_number, notes)
-                         VALUES (?, ?, ?)`,
+                        `INSERT INTO clients (full_name, phone_number, notes, tenant_id)
+                         VALUES (?, ?, ?, ?)`,
                       )
                       .run(
                         data.clientName,
                         data.phoneNumber,
                         "Auto-created from service debt payment",
+                        tenantId,
                       ).lastInsertRowid,
                   );
 
               // Update the unified transaction's client_id so it appears
               // correctly in profits by-client, activity logs, and debt detail
               this.db
-                .prepare(`UPDATE transactions SET client_id = ? WHERE id = ?`)
-                .run(debtClientId, txnId);
+                .prepare(
+                  `UPDATE transactions SET client_id = ? WHERE id = ? AND tenant_id = ?`,
+                )
+                .run(debtClientId, txnId, tenantId);
 
               this.db
                 .prepare(
                   `INSERT INTO debt_ledger (
                     client_id, transaction_type, amount_usd, amount_lbp,
-                    transaction_id, note, created_by, due_date
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                    transaction_id, note, created_by, tenant_id, due_date
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
                 )
                 .run(
                   debtClientId,
@@ -1333,6 +1394,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   txnId,
                   `${data.provider} ${data.serviceType}${data.omtServiceType ? ` (${data.omtServiceType})` : ""} — $${data.amount}`,
                   createdBy,
+                  tenantId,
                 );
             } else {
               // Non-debt single payment: credit to drawer
@@ -1743,9 +1805,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       try {
         const baseSystemRow = this.db
           .prepare(
-            "SELECT value FROM system_settings WHERE key_name = 'shop_base_system'",
+            "SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = ?",
           )
-          .get() as { value?: string } | undefined;
+          .get(tenantId) as { value?: string } | undefined;
         if (baseSystemRow?.value === "WHISH") baseSystem = "WHISH";
       } catch {
         // system_settings may be absent in minimal/test schemas — default to OMT.
@@ -1858,8 +1920,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         this.db
           .prepare(
             `
-          INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, created_at)
-          VALUES (?, ?, 'financial_services', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, tenant_id, created_at)
+          VALUES (?, ?, 'financial_services', ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
         `,
           )
           .run(
@@ -1870,6 +1932,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             currency,
             direction,
             1,
+            tenantId,
             data.transaction_time ?? null,
           );
       }
@@ -1921,11 +1984,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Get transaction history, optionally filtered by provider
    */
   getHistory(provider?: string, limit: number = 50): FinancialServiceEntity[] {
-    let query = `SELECT ${this.getColumns()} FROM financial_services`;
-    const params: (string | number)[] = [];
+    let query = `SELECT ${this.getColumns()} FROM financial_services WHERE tenant_id = ?`;
+    const params: (string | number)[] = [getCurrentTenantId()];
 
     if (provider) {
-      query += " WHERE provider = ?";
+      query += " AND provider = ?";
       params.push(provider);
     }
 
@@ -1967,12 +2030,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * pay-down (Manual Entry → PAYMENT), which nets the SALE_COST entries directly.
    */
   getUnsettledBySupplier(provider: string): FinancialServiceEntity[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM financial_services
            WHERE provider = ?
              AND is_settled = 0
              AND commission > 0
+             AND tenant_id = ?
          UNION ALL
          SELECT ${this.getSaleCostSettleColumns()} FROM financial_services
            WHERE provider = ?
@@ -1980,9 +2045,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
              AND cost > 0
              AND settlement_id IS NULL
              AND supplier_debt_booked = 1
+             AND tenant_id = ?
          ORDER BY created_at ASC`,
       )
-      .all(provider, provider) as FinancialServiceEntity[];
+      .all(provider, tenantId, provider, tenantId) as FinancialServiceEntity[];
   }
 
   /**
@@ -2008,20 +2074,23 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    *  - All other rows → full columns via getColumns().
    */
   getAllByProvider(provider: string, limit = 200): FinancialServiceEntity[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM financial_services
            WHERE provider = ?
              AND NOT (service_type = 'SEND' AND cost > 0)
+             AND tenant_id = ?
          UNION ALL
          SELECT ${this.getSaleCostSettleColumns()} FROM financial_services
            WHERE provider = ?
              AND service_type = 'SEND'
              AND cost > 0
+             AND tenant_id = ?
          ORDER BY created_at DESC
          LIMIT ?`,
       )
-      .all(provider, provider, limit) as FinancialServiceEntity[];
+      .all(provider, tenantId, provider, tenantId, limit) as FinancialServiceEntity[];
   }
 
   /**
@@ -2042,9 +2111,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
          FROM financial_services
          WHERE is_settled = 0
            AND commission > 0
+           AND tenant_id = ?
          GROUP BY provider`,
       )
-      .all() as UnsettledSummary[];
+      .all(getCurrentTenantId()) as UnsettledSummary[];
   }
 
   // ---------------------------------------------------------------------------
@@ -2055,6 +2125,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Get comprehensive analytics for financial services (all currencies)
    */
   getAnalytics(providers?: string[]): FinancialServiceAnalytics {
+    const tenantId = getCurrentTenantId();
     // Build optional provider filter clause
     const providerFilter =
       providers && providers.length > 0
@@ -2070,9 +2141,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COALESCE(SUM(CASE WHEN is_settled = 0 THEN commission ELSE 0 END), 0) as today_pending,
           COUNT(*) as today_count
         FROM financial_services
-        WHERE DATE(created_at) = DATE('now', 'localtime')${providerFilter}`,
+        WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}`,
       )
-      .get(...providerParams) as {
+      .get(tenantId, ...providerParams) as {
       today_commission: number;
       today_pending: number;
       today_count: number;
@@ -2086,10 +2157,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as commission,
           COUNT(*) as count
         FROM financial_services
-        WHERE DATE(created_at) = DATE('now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}
         GROUP BY currency`,
       )
-      .all(...providerParams) as CurrencyStats[];
+      .all(tenantId, ...providerParams) as CurrencyStats[];
 
     // This month's totals — split realized vs pending
     const monthStats = this.db
@@ -2099,9 +2170,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COALESCE(SUM(CASE WHEN is_settled = 0 THEN commission ELSE 0 END), 0) as month_pending,
           COUNT(*) as month_count
         FROM financial_services
-        WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}`,
+        WHERE tenant_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}`,
       )
-      .get(...providerParams) as {
+      .get(tenantId, ...providerParams) as {
       month_commission: number;
       month_pending: number;
       month_count: number;
@@ -2115,10 +2186,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as commission,
           COUNT(*) as count
         FROM financial_services
-        WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}
         GROUP BY currency`,
       )
-      .all(...providerParams) as CurrencyStats[];
+      .all(tenantId, ...providerParams) as CurrencyStats[];
 
     // By Provider Today (all currencies, realized only)
     const byProvider = this.db
@@ -2129,10 +2200,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           currency,
           COUNT(*) as count
         FROM financial_services
-        WHERE DATE(created_at) = DATE('now', 'localtime')${providerFilter}
+        WHERE tenant_id = ? AND DATE(created_at) = DATE('now', 'localtime')${providerFilter}
         GROUP BY provider, currency`,
       )
-      .all(...providerParams) as ProviderStats[];
+      .all(tenantId, ...providerParams) as ProviderStats[];
 
     return {
       today: {
@@ -2207,11 +2278,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
-    values.push(id);
+    values.push(id, getCurrentTenantId());
 
     this.db
       .prepare(
-        `UPDATE financial_services SET ${fields.join(", ")} WHERE id = ?`,
+        `UPDATE financial_services SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
       )
       .run(...values);
 

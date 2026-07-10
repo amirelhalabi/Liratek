@@ -36,6 +36,7 @@ function createTestDb(): Database.Database {
 
     CREATE TABLE loto_tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
       ticket_number TEXT,
       sale_amount REAL NOT NULL,
       commission_rate REAL DEFAULT 0.0445,
@@ -53,6 +54,7 @@ function createTestDb(): Database.Database {
 
     CREATE TABLE transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
       type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
       source_table TEXT NOT NULL,
@@ -75,6 +77,7 @@ function createTestDb(): Database.Database {
 
     CREATE TABLE payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
       transaction_id INTEGER,
       session_id INTEGER,
       method TEXT NOT NULL,
@@ -86,18 +89,22 @@ function createTestDb(): Database.Database {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- tenant_id joins the PRIMARY KEY (multi-tenant retrofit v123 — matches
+    -- production's per-tenant drawer_balances rebuild).
     CREATE TABLE drawer_balances (
+      tenant_id INTEGER NOT NULL DEFAULT 1,
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
-    INSERT INTO drawer_balances VALUES ('General', 'USD', 100, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General', 'LBP', 10000000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General', 'USD', 100, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General', 'LBP', 10000000, CURRENT_TIMESTAMP);
 
     CREATE TABLE suppliers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
       name TEXT NOT NULL,
       contact_name TEXT,
       phone TEXT,
@@ -111,6 +118,7 @@ function createTestDb(): Database.Database {
 
     CREATE TABLE supplier_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
       supplier_id INTEGER NOT NULL,
       entry_type TEXT NOT NULL,
       amount_usd REAL NOT NULL DEFAULT 0,
@@ -124,6 +132,7 @@ function createTestDb(): Database.Database {
 
     CREATE TABLE debt_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER,
       client_id INTEGER NOT NULL,
       transaction_type TEXT NOT NULL,
       amount_usd REAL NOT NULL DEFAULT 0,

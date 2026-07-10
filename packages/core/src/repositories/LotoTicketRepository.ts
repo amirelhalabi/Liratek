@@ -6,6 +6,7 @@
 
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
@@ -99,17 +100,19 @@ export class LotoTicketRepository {
   }
 
   createTicket(data: LotoTicketCreate): LotoTicket {
+    const tenantId = getCurrentTenantId();
     const createInTxn = this.db.transaction(() => {
       // 1. Insert the ticket record
       const stmt = this.db.prepare(`
         INSERT INTO loto_tickets (
-          ticket_number, sale_amount, commission_rate, commission_amount,
+          tenant_id, ticket_number, sale_amount, commission_rate, commission_amount,
           is_winner, prize_amount, sale_date, payment_method, currency, note,
           client_id, client_name, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
+        tenantId,
         data.ticket_number || null,
         data.sale_amount,
         data.commission_rate ?? 0.0445,
@@ -159,13 +162,15 @@ export class LotoTicketRepository {
       // post, so skip the drawer movement here (the supplier ledger below stays).
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      // drawer_balances' PRIMARY KEY is now (tenant_id, drawer_name,
+      // currency_code) — the ON CONFLICT target must match it exactly.
       const upsertBalanceLeg = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
@@ -196,6 +201,7 @@ export class LotoTicketRepository {
               ? -Math.abs(leg.amount)
               : Math.abs(leg.amount);
           insertPayment.run(
+            tenantId,
             txnId,
             leg.method,
             legDrawer,
@@ -204,7 +210,7 @@ export class LotoTicketRepository {
             data.note || txnSummary,
             data.userId,
           );
-          upsertBalanceLeg.run(legDrawer, leg.currencyCode, signed);
+          upsertBalanceLeg.run(tenantId, legDrawer, leg.currencyCode, signed);
         }
       } else if (!data.deferPayment && paymentMethod === "CUSTOMER_ACCOUNT") {
         // Legacy single-payment on account: the full ticket value is debt.
@@ -217,6 +223,7 @@ export class LotoTicketRepository {
         const currency = data.currency || "LBP";
 
         insertPayment.run(
+          tenantId,
           txnId,
           paymentMethod,
           drawerName,
@@ -226,15 +233,16 @@ export class LotoTicketRepository {
           data.userId,
         );
 
-        // Update drawer balance (positive delta = money IN)
+        // Update drawer balance (positive delta = money IN). Same composite
+        // (tenant_id, drawer_name, currency_code) conflict target as above.
         const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
-        upsertBalance.run(drawerName, currency, data.sale_amount);
+        upsertBalance.run(tenantId, drawerName, currency, data.sale_amount);
       }
 
       // 3b. Book the on-account portion as client debt (open-debt model, same
@@ -246,10 +254,11 @@ export class LotoTicketRepository {
         this.db
           .prepare(
             `INSERT INTO debt_ledger (
-              client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-            ) VALUES (?, 'Loto Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+              tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+            ) VALUES (?, ?, 'Loto Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
           )
           .run(
+            tenantId,
             data.clientId,
             debtUsd,
             debtLbp,
@@ -263,22 +272,22 @@ export class LotoTicketRepository {
       const amountWeOwe = data.sale_amount - data.commission_amount;
       const insertLedger = this.db.prepare(`
         INSERT INTO supplier_ledger (
-          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       // Get or create LOTO supplier
       let supplierStmt = this.db.prepare(
-        `SELECT id FROM suppliers WHERE provider = 'LOTO' LIMIT 1`,
+        `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
       );
-      let supplier = supplierStmt.get() as { id: number } | undefined;
+      let supplier = supplierStmt.get(tenantId) as { id: number } | undefined;
 
       if (!supplier) {
         const createSupplier = this.db.prepare(`
-          INSERT INTO suppliers (name, provider, is_active, is_system)
-          VALUES (?, ?, 1, 1)
+          INSERT INTO suppliers (tenant_id, name, provider, is_active, is_system)
+          VALUES (?, ?, ?, 1, 1)
         `);
-        const result = createSupplier.run("Loto Liban", "LOTO");
+        const result = createSupplier.run(tenantId, "Loto Liban", "LOTO");
         supplier = { id: result.lastInsertRowid as number };
       }
 
@@ -289,6 +298,7 @@ export class LotoTicketRepository {
       // not PAYMENT — because addLedgerEntry force-negates PAYMENT amounts; a
       // future refactor through it would silently re-invert this row.
       insertLedger.run(
+        tenantId,
         supplierId,
         "TOP_UP",
         0, // USD
@@ -306,18 +316,18 @@ export class LotoTicketRepository {
 
   getTicketById(id: number): LotoTicket | null {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_tickets WHERE id = ?
+      SELECT * FROM loto_tickets WHERE id = ? AND tenant_id = ?
     `);
-    return stmt.get(id) as LotoTicket | null;
+    return stmt.get(id, getCurrentTenantId()) as LotoTicket | null;
   }
 
   getTicketsByDateRange(from: string, to: string): LotoTicket[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_tickets 
-      WHERE date(sale_date) BETWEEN date(?) AND date(?)
+      SELECT * FROM loto_tickets
+      WHERE date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
       ORDER BY sale_date DESC, id DESC
     `);
-    return stmt.all(from, to) as LotoTicket[];
+    return stmt.all(from, to, getCurrentTenantId()) as LotoTicket[];
   }
 
   updateTicket(id: number, data: LotoTicketUpdate): LotoTicket | null {
@@ -370,10 +380,10 @@ export class LotoTicketRepository {
     }
 
     fields.push("updated_at = CURRENT_TIMESTAMP");
-    values.push(id);
+    values.push(id, getCurrentTenantId());
 
     const stmt = this.db.prepare(`
-      UPDATE loto_tickets SET ${fields.join(", ")} WHERE id = ?
+      UPDATE loto_tickets SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?
     `);
 
     stmt.run(...values);
@@ -387,45 +397,53 @@ export class LotoTicketRepository {
   getTotalSales(from: string, to: string): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(sale_amount), 0) as total FROM loto_tickets
-      WHERE date(sale_date) BETWEEN date(?) AND date(?)
+      WHERE date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
     `);
-    const result = stmt.get(from, to) as { total: number };
+    const result = stmt.get(from, to, getCurrentTenantId()) as {
+      total: number;
+    };
     return result.total;
   }
 
   getTotalCommission(from: string, to: string): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(commission_amount), 0) as total FROM loto_tickets
-      WHERE date(sale_date) BETWEEN date(?) AND date(?)
+      WHERE date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
     `);
-    const result = stmt.get(from, to) as { total: number };
+    const result = stmt.get(from, to, getCurrentTenantId()) as {
+      total: number;
+    };
     return result.total;
   }
 
   getTotalPrizes(from: string, to: string): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_tickets
-      WHERE is_winner = 1 AND date(sale_date) BETWEEN date(?) AND date(?)
+      WHERE is_winner = 1 AND date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
     `);
-    const result = stmt.get(from, to) as { total: number };
+    const result = stmt.get(from, to, getCurrentTenantId()) as {
+      total: number;
+    };
     return result.total;
   }
 
   getOutstandingPrizes(): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_tickets
-      WHERE is_winner = 1 AND (prize_paid_date IS NULL OR prize_paid_date = '')
+      WHERE is_winner = 1 AND (prize_paid_date IS NULL OR prize_paid_date = '') AND tenant_id = ?
     `);
-    const result = stmt.get() as { total: number };
+    const result = stmt.get(getCurrentTenantId()) as { total: number };
     return result.total;
   }
 
   getTicketCount(from: string, to: string): number {
     const stmt = this.db.prepare(`
       SELECT COUNT(*) as count FROM loto_tickets
-      WHERE date(sale_date) BETWEEN date(?) AND date(?)
+      WHERE date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
     `);
-    const result = stmt.get(from, to) as { count: number };
+    const result = stmt.get(from, to, getCurrentTenantId()) as {
+      count: number;
+    };
     return result.count;
   }
 
@@ -439,10 +457,10 @@ export class LotoTicketRepository {
   getUncheckpointedTickets(): LotoTicket[] {
     const stmt = this.db.prepare(`
       SELECT * FROM loto_tickets
-      WHERE checkpoint_id IS NULL
+      WHERE checkpoint_id IS NULL AND tenant_id = ?
       ORDER BY sale_date DESC, id DESC
     `);
-    return stmt.all() as LotoTicket[];
+    return stmt.all(getCurrentTenantId()) as LotoTicket[];
   }
 
   /**
@@ -452,9 +470,9 @@ export class LotoTicketRepository {
     const stmt = this.db.prepare(`
       UPDATE loto_tickets
       SET checkpoint_id = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE id = ? AND tenant_id = ?
     `);
-    stmt.run(checkpointId, ticketId);
+    stmt.run(checkpointId, ticketId, getCurrentTenantId());
   }
 
   /**
@@ -464,9 +482,9 @@ export class LotoTicketRepository {
     const stmt = this.db.prepare(`
       UPDATE loto_tickets
       SET checkpoint_id = NULL, updated_at = CURRENT_TIMESTAMP
-      WHERE checkpoint_id = ?
+      WHERE checkpoint_id = ? AND tenant_id = ?
     `);
-    const result = stmt.run(checkpointId);
+    const result = stmt.run(checkpointId, getCurrentTenantId());
     return result.changes;
   }
 
@@ -486,9 +504,9 @@ export class LotoTicketRepository {
         COALESCE(SUM(commission_amount), 0) as totalCommission,
         COALESCE(SUM(CASE WHEN is_winner = 1 THEN prize_amount ELSE 0 END), 0) as totalPrizes
       FROM loto_tickets
-      WHERE checkpoint_id IS NULL
+      WHERE checkpoint_id IS NULL AND tenant_id = ?
     `);
-    return stmt.get() as {
+    return stmt.get(getCurrentTenantId()) as {
       count: number;
       totalSales: number;
       totalCommission: number;
@@ -520,10 +538,12 @@ export class LotoTicketRepository {
 
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
-    values.push(id);
+    values.push(id, getCurrentTenantId());
 
     this.db
-      .prepare(`UPDATE loto_tickets SET ${fields.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE loto_tickets SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+      )
       .run(...values);
 
     return this.getTicketById(id);

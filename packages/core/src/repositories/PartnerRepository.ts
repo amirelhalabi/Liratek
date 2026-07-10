@@ -7,6 +7,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Entity Types
@@ -132,14 +133,15 @@ export class PartnerRepository extends BaseRepository<Partner> {
   create(data: CreatePartnerData): Partner {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO partners (name, phone, notes, system_association, is_active, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO partners (name, phone, notes, system_association, is_active, tenant_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `);
       const result = stmt.run(
         data.name.trim(),
         data.phone ?? null,
         data.notes ?? null,
         data.system_association ?? null,
+        getCurrentTenantId(),
       );
       const id = Number(result.lastInsertRowid);
       const partner = this.getById(id);
@@ -155,9 +157,11 @@ export class PartnerRepository extends BaseRepository<Partner> {
   getById(id: number): Partner | null {
     try {
       const stmt = this.db.prepare(
-        `SELECT ${this.getColumns()} FROM partners WHERE id = ?`,
+        `SELECT ${this.getColumns()} FROM partners WHERE id = ? AND tenant_id = ?`,
       );
-      return (stmt.get(id) as Partner | undefined) ?? null;
+      return (
+        (stmt.get(id, getCurrentTenantId()) as Partner | undefined) ?? null
+      );
     } catch (e) {
       throw new DatabaseError("Failed to get partner by id", { cause: e });
     }
@@ -166,9 +170,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
   getAll(includeInactive = false): Partner[] {
     try {
       const sql = includeInactive
-        ? `SELECT ${this.getColumns()} FROM partners ORDER BY name ASC`
-        : `SELECT ${this.getColumns()} FROM partners WHERE is_active = 1 ORDER BY name ASC`;
-      return this.query<Partner>(sql);
+        ? `SELECT ${this.getColumns()} FROM partners WHERE tenant_id = ? ORDER BY name ASC`
+        : `SELECT ${this.getColumns()} FROM partners WHERE tenant_id = ? AND is_active = 1 ORDER BY name ASC`;
+      return this.query<Partner>(sql, getCurrentTenantId());
     } catch (e) {
       throw new DatabaseError("Failed to get partners", { cause: e });
     }
@@ -210,9 +214,10 @@ export class PartnerRepository extends BaseRepository<Partner> {
 
       fields.push("updated_at = CURRENT_TIMESTAMP");
       values.push(id);
+      values.push(getCurrentTenantId());
 
       const stmt = this.db.prepare(
-        `UPDATE partners SET ${fields.join(", ")} WHERE id = ?`,
+        `UPDATE partners SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
       );
       stmt.run(...values);
 
@@ -230,9 +235,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
   deactivate(id: number): void {
     try {
       const stmt = this.db.prepare(
-        `UPDATE partners SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE partners SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
       );
-      stmt.run(id);
+      stmt.run(id, getCurrentTenantId());
     } catch (e) {
       throw new DatabaseError("Failed to deactivate partner", { cause: e });
     }
@@ -241,9 +246,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
   activate(id: number): void {
     try {
       const stmt = this.db.prepare(
-        `UPDATE partners SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE partners SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
       );
-      stmt.run(id);
+      stmt.run(id, getCurrentTenantId());
     } catch (e) {
       throw new DatabaseError("Failed to activate partner", { cause: e });
     }
@@ -253,12 +258,13 @@ export class PartnerRepository extends BaseRepository<Partner> {
 
   addLedgerEntry(data: CreateLedgerEntryData): PartnerLedgerEntry {
     try {
+      const tenantId = getCurrentTenantId();
       const stmt = this.db.prepare(`
         INSERT INTO partner_ledger (
           partner_id, transaction_type, reference_table, reference_id,
           amount, currency, direction, notes, user_id, settlement_method,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const result = stmt.run(
         data.partner_id,
@@ -271,13 +277,14 @@ export class PartnerRepository extends BaseRepository<Partner> {
         data.notes ?? null,
         data.user_id ?? null,
         data.settlement_method ?? null,
+        tenantId,
       );
       const id = Number(result.lastInsertRowid);
       const entry = this.db
         .prepare(
-          `SELECT id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at FROM partner_ledger WHERE id = ?`,
+          `SELECT id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at FROM partner_ledger WHERE id = ? AND tenant_id = ?`,
         )
-        .get(id) as PartnerLedgerEntry | undefined;
+        .get(id, tenantId) as PartnerLedgerEntry | undefined;
       if (!entry) {
         throw new DatabaseError("Failed to retrieve created ledger entry");
       }
@@ -294,8 +301,8 @@ export class PartnerRepository extends BaseRepository<Partner> {
     filters?: LedgerFilters,
   ): PartnerLedgerEntry[] {
     try {
-      const conditions = ["pl.partner_id = ?"];
-      const params: unknown[] = [partnerId];
+      const conditions = ["pl.partner_id = ?", "pl.tenant_id = ?"];
+      const params: unknown[] = [partnerId, getCurrentTenantId()];
 
       if (filters?.startDate) {
         conditions.push("pl.created_at >= ?");
@@ -345,6 +352,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
         FROM partner_ledger pl
         LEFT JOIN financial_services fs
           ON pl.reference_table = 'financial_services' AND pl.reference_id = fs.id
+          AND fs.tenant_id = pl.tenant_id
         WHERE ${conditions.join(" AND ")}
         ORDER BY pl.created_at DESC
       `;
@@ -378,10 +386,10 @@ export class PartnerRepository extends BaseRepository<Partner> {
             COALESCE(SUM(CASE WHEN currency='LBP' AND direction='DEBIT'  AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
             - COALESCE(SUM(CASE WHEN currency='LBP' AND direction='CREDIT' AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS lbp_other
           FROM partner_ledger
-          WHERE partner_id = ?
+          WHERE partner_id = ? AND tenant_id = ?
         `,
         )
-        .get(partnerId) as {
+        .get(partnerId, getCurrentTenantId()) as {
         usd_for: number;
         lbp_for: number;
         usd_through: number;
@@ -422,10 +430,10 @@ export class PartnerRepository extends BaseRepository<Partner> {
             COALESCE(SUM(CASE WHEN currency = 'LBP' AND direction = 'DEBIT'  THEN amount ELSE 0 END), 0)
             - COALESCE(SUM(CASE WHEN currency = 'LBP' AND direction = 'CREDIT' THEN amount ELSE 0 END), 0) AS lbp
           FROM partner_ledger
-          WHERE partner_id = ?
+          WHERE partner_id = ? AND tenant_id = ?
         `,
         )
-        .get(partnerId) as { usd: number; lbp: number };
+        .get(partnerId, getCurrentTenantId()) as { usd: number; lbp: number };
 
       return { usd: row.usd, lbp: row.lbp };
     } catch (e) {
@@ -435,8 +443,12 @@ export class PartnerRepository extends BaseRepository<Partner> {
 
   getAllBalances(includeInactive?: boolean): Array<Partner & PartnerBalance> {
     try {
-      const filter = includeInactive ? "1=1" : "p.is_active = 1";
-      return this.query<Partner & PartnerBalance>(`
+      const tenantId = getCurrentTenantId();
+      const filter = includeInactive
+        ? "p.tenant_id = ?"
+        : "p.tenant_id = ? AND p.is_active = 1";
+      return this.query<Partner & PartnerBalance>(
+        `
         SELECT
           p.id, p.name, p.phone, p.notes, p.is_active, p.system_association, p.created_at, p.updated_at,
           COALESCE(SUM(CASE WHEN l.currency = 'USD' AND l.direction = 'DEBIT'  THEN l.amount ELSE 0 END), 0)
@@ -444,11 +456,13 @@ export class PartnerRepository extends BaseRepository<Partner> {
           COALESCE(SUM(CASE WHEN l.currency = 'LBP' AND l.direction = 'DEBIT'  THEN l.amount ELSE 0 END), 0)
           - COALESCE(SUM(CASE WHEN l.currency = 'LBP' AND l.direction = 'CREDIT' THEN l.amount ELSE 0 END), 0) AS lbp
         FROM partners p
-        LEFT JOIN partner_ledger l ON l.partner_id = p.id
+        LEFT JOIN partner_ledger l ON l.partner_id = p.id AND l.tenant_id = p.tenant_id
         WHERE ${filter}
         GROUP BY p.id
         ORDER BY p.name ASC
-      `);
+      `,
+        tenantId,
+      );
     } catch (e) {
       throw new DatabaseError("Failed to get all partner balances", {
         cause: e,

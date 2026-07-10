@@ -7,6 +7,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { rechargeLogger } from "../utils/logger.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 import {
   paymentMethodToDrawerName,
@@ -141,11 +142,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       .prepare(
         `SELECT ${this.getColumns()}
          FROM recharges
-         WHERE carrier = ?
+         WHERE carrier = ? AND tenant_id = ?
          ORDER BY created_at DESC
          LIMIT 100`,
       )
-      .all(provider) as RechargeEntity[];
+      .all(provider, getCurrentTenantId()) as RechargeEntity[];
 
     return rows;
   }
@@ -155,17 +156,18 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    * This reads from the drawer_balances table instead of products table
    */
   getVirtualStock(currency = "USD"): VirtualStock {
+    const tenantId = getCurrentTenantId();
     const mtc = this.db
       .prepare(
-        "SELECT balance FROM drawer_balances WHERE drawer_name = 'MTC' AND currency_code = ?",
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'MTC' AND currency_code = ? AND tenant_id = ?",
       )
-      .get(currency) as { balance: number | null };
+      .get(currency, tenantId) as { balance: number | null };
 
     const alfa = this.db
       .prepare(
-        "SELECT balance FROM drawer_balances WHERE drawer_name = 'Alfa' AND currency_code = ?",
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'Alfa' AND currency_code = ? AND tenant_id = ?",
       )
-      .get(currency) as { balance: number | null };
+      .get(currency, tenantId) as { balance: number | null };
 
     return {
       mtc: mtc?.balance || 0,
@@ -187,13 +189,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     try {
       const drawerName = data.provider === "MTC" ? "MTC" : "Alfa";
       const currency = data.currency ?? "USD";
+      const tenantId = getCurrentTenantId();
 
       this.db.transaction(() => {
         // Record the top-up in recharges table
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'CASH', ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'CASH', ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -201,6 +204,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             currency,
             `${data.provider} top-up: +${data.amount} ${currency}`,
             data.userId,
+            tenantId,
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -225,13 +229,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Increase the provider drawer balance
         this.db
           .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-             VALUES (?, ?, ?)
-             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
                balance = drawer_balances.balance + excluded.balance,
                updated_at = CURRENT_TIMESTAMP`,
           )
-          .run(drawerName, currency, Math.abs(data.amount));
+          .run(drawerName, currency, Math.abs(data.amount), tenantId);
       })();
 
       rechargeLogger.info(
@@ -265,13 +269,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
+      const tenantId = getCurrentTenantId();
 
       // Validate source drawer has sufficient balance
       const sourceBalanceRow = this.db
         .prepare(
-          "SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?",
+          "SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?",
         )
-        .get(data.sourceDrawer, currency) as { balance: number | null };
+        .get(data.sourceDrawer, currency, tenantId) as {
+        balance: number | null;
+      };
 
       const sourceBalance = sourceBalanceRow?.balance ?? 0;
       if (sourceBalance < amount) {
@@ -285,8 +292,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Record the top-up in recharges table
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -295,6 +302,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             data.sourceDrawer,
             `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up from ${data.sourceDrawer}: +${amount} ${currency}`,
             data.userId,
+            tenantId,
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -321,20 +329,20 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         this.db
           .prepare(
             `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-             WHERE drawer_name = ? AND currency_code = ?`,
+             WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?`,
           )
-          .run(amount, data.sourceDrawer, currency);
+          .run(amount, data.sourceDrawer, currency, tenantId);
 
         // Add to destination drawer
         this.db
           .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-             VALUES (?, ?, ?)
-             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
                balance = drawer_balances.balance + excluded.balance,
                updated_at = CURRENT_TIMESTAMP`,
           )
-          .run(destDrawer, currency, amount);
+          .run(destDrawer, currency, amount, tenantId);
       })();
 
       rechargeLogger.info(
@@ -371,12 +379,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
+      const tenantId = getCurrentTenantId();
 
       this.db.transaction(() => {
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'EXTERNAL', ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'EXTERNAL', ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -384,6 +393,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             currency,
             `${TOP_UP_PROVIDER_LABELS[data.provider]} external top-up: +${amount} ${currency}`,
             data.userId,
+            tenantId,
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -407,13 +417,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
         this.db
           .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-             VALUES (?, ?, ?)
-             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
                balance = drawer_balances.balance + excluded.balance,
                updated_at = CURRENT_TIMESTAMP`,
           )
-          .run(destDrawer, currency, amount);
+          .run(destDrawer, currency, amount, tenantId);
       })();
 
       rechargeLogger.info(
@@ -450,6 +460,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const credits = Math.abs(data.creditsAmount);
       const cashPaid = Math.abs(data.cashPaid);
       const cashCurrency = data.cashPaidCurrency;
+      const tenantId = getCurrentTenantId();
 
       if (credits <= 0) {
         return {
@@ -461,9 +472,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       // Validate the General drawer can cover the cash paid to the customer
       const generalRow = this.db
         .prepare(
-          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ?",
+          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ? AND tenant_id = ?",
         )
-        .get(cashCurrency) as { balance: number | null } | undefined;
+        .get(cashCurrency, tenantId) as { balance: number | null } | undefined;
 
       const generalBalance = generalRow?.balance ?? 0;
       if (generalBalance < cashPaid) {
@@ -477,8 +488,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Record the top-up in recharges table
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES (?, 'TOP_UP', ?, ?, ?, 'USD', 'CUSTOMER', ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
+             VALUES (?, 'TOP_UP', ?, ?, ?, 'USD', 'CUSTOMER', ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -487,6 +498,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             credits,
             `${data.provider} top-up from customer: +${credits} credits, paid ${cashPaid} ${cashCurrency} cash`,
             data.userId,
+            tenantId,
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -528,21 +540,21 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           this.db
             .prepare(
               `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-               WHERE drawer_name = 'General' AND currency_code = ?`,
+               WHERE drawer_name = 'General' AND currency_code = ? AND tenant_id = ?`,
             )
-            .run(cashPaid, cashCurrency);
+            .run(cashPaid, cashCurrency, tenantId);
         }
 
         // Add the received credits to the provider drawer
         this.db
           .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-             VALUES (?, 'USD', ?)
-             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+             VALUES (?, 'USD', ?, ?)
+             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
                balance = drawer_balances.balance + excluded.balance,
                updated_at = CURRENT_TIMESTAMP`,
           )
-          .run(destDrawer, credits);
+          .run(destDrawer, credits, tenantId);
       })();
 
       rechargeLogger.info(
@@ -580,10 +592,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         .prepare(
           `SELECT drawer_name, currency_code, balance
            FROM drawer_balances
-           WHERE currency_code IN ('USD', 'LBP', 'USDT')
+           WHERE currency_code IN ('USD', 'LBP', 'USDT') AND tenant_id = ?
            ORDER BY drawer_name`,
         )
-        .all() as Array<{
+        .all(getCurrentTenantId()) as Array<{
         drawer_name: string;
         currency_code: string;
         balance: number;
@@ -635,13 +647,18 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const paidBy = data.paid_by_method || "CASH";
         const currency = data.currency ?? "USD";
         const createdBy = data.userId ?? 1;
+        const tenantId = getCurrentTenantId();
 
         // 1. Create Recharge Record (goes into recharges table, not sales)
         const clientName = data.clientId
           ? ((
               this.db
-                .prepare("SELECT full_name FROM clients WHERE id = ?")
-                .get(data.clientId) as { full_name: string } | undefined
+                .prepare(
+                  "SELECT full_name FROM clients WHERE id = ? AND tenant_id = ?",
+                )
+                .get(data.clientId, tenantId) as
+                | { full_name: string }
+                | undefined
             )?.full_name ??
             data.clientName ??
             null)
@@ -650,8 +667,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const insertRecharge = this.db.prepare(`
           INSERT INTO recharges (
             carrier, recharge_type, amount, cost, price, default_price_to_client, currency_code,
-            paid_by, phone_number, client_id, client_name, note, created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+            paid_by, phone_number, client_id, client_name, note, created_by, tenant_id, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
         `);
         const rechargeResult = insertRecharge.run(
           data.provider,
@@ -667,6 +684,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           clientName,
           note,
           createdBy,
+          tenantId,
           data.transaction_time ?? null,
         );
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -718,21 +736,54 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const methodDrawerName = paymentMethodToDrawerName(paidBy);
         const providerDrawerName = data.provider === "MTC" ? "MTC" : "Alfa";
 
-        const insertPayment = this.db.prepare(`
+        // insertPayment / upsertBalanceDelta are shared prepared statements
+        // used by several call sites below. Wrapped (rather than threading
+        // tenant_id through every call site) so the existing `.run(...)`
+        // call sites — all money-flow control logic, untouched — transparently
+        // carry the current tenant. Predicates/columns only, per WP3b scope.
+        const insertPaymentStmt = this.db.prepare(`
           INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
           ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?
           )
         `);
+        const insertPayment = {
+          run: (
+            transactionId: number,
+            method: string,
+            drawerName: string,
+            currencyCode: string,
+            amount: number,
+            note: string | null,
+            createdBy: number,
+          ) =>
+            insertPaymentStmt.run(
+              transactionId,
+              method,
+              drawerName,
+              currencyCode,
+              amount,
+              note,
+              createdBy,
+              tenantId,
+            ),
+        };
 
-        const upsertBalanceDelta = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        // drawer_balances' PK is now (tenant_id, drawer_name, currency_code) —
+        // the ON CONFLICT target must match it exactly or SQLite throws at
+        // prepare time.
+        const upsertBalanceDeltaStmt = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
+        const upsertBalanceDelta = {
+          run: (drawerName: string, currencyCode: string, balance: number) =>
+            upsertBalanceDeltaStmt.run(drawerName, currencyCode, balance, tenantId),
+        };
 
         // Customer payment (cash-like inflow). Split returned-change (OUT) legs
         // out so the inflow loop and debt calc only see customer-paid (IN) legs.
@@ -836,8 +887,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           this.db
             .prepare(
               `INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, due_date
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
             )
             .run(
               data.clientId,
@@ -847,6 +898,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               txnId,
               note,
               createdBy,
+              tenantId,
             );
         }
 
@@ -924,6 +976,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
+      const tenantId = getCurrentTenantId();
 
       // Find matching active supplier for this provider
       const supplier = getSupplierRepository().getByProvider(data.provider);
@@ -932,8 +985,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Insert TOP_UP recharge record (no paid_by drawer — funded by supplier)
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'SUPPLIER', ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'SUPPLIER', ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -941,6 +994,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             currency,
             `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amount} ${currency}`,
             data.userId,
+            tenantId,
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -967,8 +1021,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         if (supplier) {
           this.db
             .prepare(
-              `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at)
-               VALUES (?, 'TOP_UP', ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+              `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+               VALUES (?, 'TOP_UP', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
             )
             .run(
               supplier.id,
@@ -976,19 +1030,20 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               currency === "LBP" ? amount : 0,
               `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amount} ${currency}`,
               data.userId,
+              tenantId,
             );
         }
 
         // Increase the provider drawer balance
         this.db
           .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-             VALUES (?, ?, ?)
-             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
                balance = drawer_balances.balance + excluded.balance,
                updated_at = CURRENT_TIMESTAMP`,
           )
-          .run(destDrawer, currency, amount);
+          .run(destDrawer, currency, amount, tenantId);
       })();
 
       rechargeLogger.info(
@@ -1029,11 +1084,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
+      const tenantId = getCurrentTenantId();
 
       // Validate the partner exists and is active
       const partner = this.db
-        .prepare("SELECT id FROM partners WHERE id = ? AND is_active = 1")
-        .get(data.partnerId) as { id: number } | undefined;
+        .prepare(
+          "SELECT id FROM partners WHERE id = ? AND is_active = 1 AND tenant_id = ?",
+        )
+        .get(data.partnerId, tenantId) as { id: number } | undefined;
       if (!partner) {
         return { success: false, error: "Partner not found" };
       }
@@ -1042,14 +1100,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Insert TOP_UP recharge record (funded by partner)
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES ('WHISH_APP', 'TOP_UP', ?, 0, 0, ?, 'PARTNER', ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
+             VALUES ('WHISH_APP', 'TOP_UP', ?, 0, 0, ?, 'PARTNER', ?, ?, ?)`,
           )
           .run(
             amount,
             currency,
             `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up via partner: +${amount} ${currency}`,
             data.userId,
+            tenantId,
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -1058,10 +1117,17 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Inlined here (not via addLedgerEntry) to stay in this transaction.
         this.db
           .prepare(
-            `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, created_at)
-             VALUES (?, 'WHISH_TOPUP', 'recharges', ?, ?, ?, 'CREDIT', ?, CURRENT_TIMESTAMP)`,
+            `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, tenant_id, created_at)
+             VALUES (?, 'WHISH_TOPUP', 'recharges', ?, ?, ?, 'CREDIT', ?, ?, CURRENT_TIMESTAMP)`,
           )
-          .run(data.partnerId, rechargeId, amount, currency, data.userId);
+          .run(
+            data.partnerId,
+            rechargeId,
+            amount,
+            currency,
+            data.userId,
+            tenantId,
+          );
 
         // Create unified transaction record
         getTransactionRepository().createTransaction({
@@ -1084,13 +1150,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Increase the Whish App drawer balance
         this.db
           .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-             VALUES (?, ?, ?)
-             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
                balance = drawer_balances.balance + excluded.balance,
                updated_at = CURRENT_TIMESTAMP`,
           )
-          .run(destDrawer, currency, amount);
+          .run(destDrawer, currency, amount, tenantId);
       })();
 
       rechargeLogger.info(
@@ -1133,6 +1199,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const currency = data.currency;
       const amount = Math.abs(data.amount);
       const cashPaid = Math.abs(data.cashPaid);
+      const tenantId = getCurrentTenantId();
 
       if (amount <= 0) {
         return { success: false, error: "Amount must be greater than 0" };
@@ -1141,9 +1208,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       // Validate the General drawer can cover the cash paid to the client
       const generalRow = this.db
         .prepare(
-          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ?",
+          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ? AND tenant_id = ?",
         )
-        .get(currency) as { balance: number | null } | undefined;
+        .get(currency, tenantId) as { balance: number | null } | undefined;
 
       const generalBalance = generalRow?.balance ?? 0;
       if (generalBalance < cashPaid) {
@@ -1159,8 +1226,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Record the top-up in recharges table
         const rechargeResult = this.db
           .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES ('WHISH_APP', 'TOP_UP', ?, ?, ?, ?, 'CLIENT', ?, ?)`,
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
+             VALUES ('WHISH_APP', 'TOP_UP', ?, ?, ?, ?, 'CLIENT', ?, ?, ?)`,
           )
           .run(
             amount,
@@ -1169,6 +1236,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             currency,
             `Whish App top-up from client: +${amount} credits, paid ${cashPaid} ${currency} cash`,
             data.userId,
+            tenantId,
           );
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
@@ -1203,21 +1271,21 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           this.db
             .prepare(
               `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-               WHERE drawer_name = 'General' AND currency_code = ?`,
+               WHERE drawer_name = 'General' AND currency_code = ? AND tenant_id = ?`,
             )
-            .run(cashPaid, currency);
+            .run(cashPaid, currency, tenantId);
         }
 
         // Add the received credits to the Whish App drawer
         this.db
           .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-             VALUES (?, ?, ?)
-             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
                balance = drawer_balances.balance + excluded.balance,
                updated_at = CURRENT_TIMESTAMP`,
           )
-          .run(destDrawer, currency, amount);
+          .run(destDrawer, currency, amount, tenantId);
       })();
 
       rechargeLogger.info(
@@ -1273,10 +1341,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
-    values.push(id);
+    values.push(id, getCurrentTenantId());
 
     this.db
-      .prepare(`UPDATE recharges SET ${fields.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE recharges SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+      )
       .run(...values);
 
     return this.findById(id);

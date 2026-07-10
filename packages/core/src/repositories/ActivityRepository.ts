@@ -40,6 +40,7 @@ export class ActivityRepository extends BaseRepository<ActivityLogEntity> {
            a.id, a.user_id, u.username, a.action, a.table_name, a.record_id,
            a.details_json, a.created_at,
            COALESCE(c.full_name, fc.full_name) AS customer_name
+         /* tenant-exempt: activity_logs is a ghost table (dropped in migration v19, never recreated) — dead feature, tracked as pre-existing defect */
          FROM activity_logs a
          LEFT JOIN users u ON u.id = a.user_id
          LEFT JOIN sales s ON a.table_name = 'sales' AND s.id = a.record_id
@@ -62,6 +63,7 @@ export class ActivityRepository extends BaseRepository<ActivityLogEntity> {
     recordId?: number,
   ): number {
     const stmt = this.db.prepare(`
+      /* tenant-exempt: activity_logs is a ghost table (dropped in migration v19, never recreated) — dead feature, tracked as pre-existing defect */
       INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json, created_at)
       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
@@ -81,7 +83,8 @@ export class ActivityRepository extends BaseRepository<ActivityLogEntity> {
   getSyncErrors(limit: number = 200): SyncErrorEntity[] {
     return this.db
       .prepare(
-        `SELECT id, endpoint, error, created_at 
+        `SELECT id, endpoint, error, created_at
+         /* tenant-exempt: sync_errors is a global/control-plane table (schema_migrations-adjacent legacy sync scaffolding), not tenant-owned */
          FROM sync_errors ORDER BY id DESC LIMIT ?`,
       )
       .all(limit) as SyncErrorEntity[];

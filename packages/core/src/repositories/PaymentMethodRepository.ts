@@ -6,6 +6,7 @@
  */
 
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import type Database from "better-sqlite3";
 
 // =============================================================================
@@ -57,31 +58,37 @@ export class PaymentMethodRepository {
   /** Get all payment methods ordered by sort_order */
   getAll(): PaymentMethodEntity[] {
     return this.db
-      .prepare(`SELECT ${COLUMNS} FROM payment_methods ORDER BY sort_order`)
-      .all() as PaymentMethodEntity[];
+      .prepare(
+        `SELECT ${COLUMNS} FROM payment_methods WHERE tenant_id = ? ORDER BY sort_order`,
+      )
+      .all(getCurrentTenantId()) as PaymentMethodEntity[];
   }
 
   /** Get only active payment methods */
   getActive(): PaymentMethodEntity[] {
     return this.db
       .prepare(
-        `SELECT ${COLUMNS} FROM payment_methods WHERE is_active = 1 ORDER BY sort_order`,
+        `SELECT ${COLUMNS} FROM payment_methods WHERE is_active = 1 AND tenant_id = ? ORDER BY sort_order`,
       )
-      .all() as PaymentMethodEntity[];
+      .all(getCurrentTenantId()) as PaymentMethodEntity[];
   }
 
   /** Get a single payment method by code */
   getByCode(code: string): PaymentMethodEntity | undefined {
     return this.db
-      .prepare(`SELECT ${COLUMNS} FROM payment_methods WHERE code = ?`)
-      .get(code) as PaymentMethodEntity | undefined;
+      .prepare(
+        `SELECT ${COLUMNS} FROM payment_methods WHERE code = ? AND tenant_id = ?`,
+      )
+      .get(code, getCurrentTenantId()) as PaymentMethodEntity | undefined;
   }
 
   /** Get a single payment method by id */
   getById(id: number): PaymentMethodEntity | undefined {
     return this.db
-      .prepare(`SELECT ${COLUMNS} FROM payment_methods WHERE id = ?`)
-      .get(id) as PaymentMethodEntity | undefined;
+      .prepare(
+        `SELECT ${COLUMNS} FROM payment_methods WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(id, getCurrentTenantId()) as PaymentMethodEntity | undefined;
   }
 
   /** Create a new payment method */
@@ -91,21 +98,22 @@ export class PaymentMethodRepository {
     error?: string;
   } {
     try {
+      const tenantId = getCurrentTenantId();
       // Get next sort_order if not provided
       const sortOrder =
         data.sort_order ??
         (
           this.db
             .prepare(
-              `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM payment_methods`,
+              `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM payment_methods WHERE tenant_id = ?`,
             )
-            .get() as { next: number }
+            .get(tenantId) as { next: number }
         ).next;
 
       const result = this.db
         .prepare(
-          `INSERT INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, tenant_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
         )
         .run(
           data.code.toUpperCase(),
@@ -113,6 +121,7 @@ export class PaymentMethodRepository {
           data.drawer_name,
           data.affects_drawer ?? 1,
           sortOrder,
+          tenantId,
         );
 
       return { success: true, id: result.lastInsertRowid as number };
@@ -171,10 +180,10 @@ export class PaymentMethodRepository {
       return { success: true };
     }
 
-    params.push(id);
+    params.push(id, getCurrentTenantId());
     this.db
       .prepare(
-        `UPDATE payment_methods SET ${setClauses.join(", ")} WHERE id = ?`,
+        `UPDATE payment_methods SET ${setClauses.join(", ")} WHERE id = ? AND tenant_id = ?`,
       )
       .run(...params);
 
@@ -191,19 +200,22 @@ export class PaymentMethodRepository {
       return { success: false, error: "Cannot delete system payment method" };
     }
 
-    this.db.prepare(`DELETE FROM payment_methods WHERE id = ?`).run(id);
+    this.db
+      .prepare(`DELETE FROM payment_methods WHERE id = ? AND tenant_id = ?`)
+      .run(id, getCurrentTenantId());
     return { success: true };
   }
 
   /** Reorder payment methods */
   reorder(ids: number[]): { success: boolean; error?: string } {
     try {
+      const tenantId = getCurrentTenantId();
       this.db.transaction(() => {
         const stmt = this.db.prepare(
-          `UPDATE payment_methods SET sort_order = ? WHERE id = ?`,
+          `UPDATE payment_methods SET sort_order = ? WHERE id = ? AND tenant_id = ?`,
         );
         for (let i = 0; i < ids.length; i++) {
-          stmt.run(i, ids[i]);
+          stmt.run(i, ids[i], tenantId);
         }
       })();
       return { success: true };

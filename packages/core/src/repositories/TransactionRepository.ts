@@ -23,6 +23,7 @@ import {
 } from "../constants/transactionTypes.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Types
@@ -310,8 +311,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `INSERT INTO transactions
         (type, source_table, source_id, user_id, amount_usd, amount_lbp,
          profit_usd, profit_lbp,
-         exchange_rate, client_id, client_name, client_phone, summary, metadata_json, device_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+         exchange_rate, client_id, client_name, client_phone, summary, metadata_json, device_id, created_at, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)`,
       data.type,
       data.source_table,
       data.source_id,
@@ -328,6 +329,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       metadataStr,
       data.device_id ?? null,
       data.transaction_time ?? null,
+      getCurrentTenantId(),
     );
 
     return result.lastInsertRowid as number;
@@ -349,6 +351,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * of their own) bucket by their payment date.
    */
   getCashFlowByDate(from: string, to: string): CashFlowByDateRow[] {
+    const tenantId = getCurrentTenantId();
     return this.query<CashFlowByDateRow>(
       `SELECT
          l.date,
@@ -359,26 +362,30 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
          SELECT substr(t.created_at, 1, 10) AS date,
                 p.currency_code, p.amount, p.method, p.drawer_name, p.note
            FROM payments p
-           JOIN transactions t ON t.id = p.transaction_id
-          WHERE t.status = 'ACTIVE'
+           JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = ?
+          WHERE t.status = 'ACTIVE' AND p.tenant_id = ?
          UNION ALL
          SELECT substr(p.created_at, 1, 10) AS date,
                 p.currency_code, p.amount, p.method, p.drawer_name, p.note
            FROM payments p
-          WHERE p.transaction_id IS NULL AND p.session_id IS NOT NULL
+          WHERE p.transaction_id IS NULL AND p.session_id IS NOT NULL AND p.tenant_id = ?
        ) l
        WHERE l.date BETWEEN ? AND ?
          AND ${customerCashLegSql("l")}
        GROUP BY l.date, l.currency_code
        ORDER BY l.date DESC`,
+      tenantId,
+      tenantId,
+      tenantId,
       from,
       to,
     );
   }
 
   getRecent(limit = 50, filters?: TransactionFilters): TransactionWithUser[] {
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const tenantId = getCurrentTenantId();
+    const conditions: string[] = ["t.tenant_id = ?"];
+    const params: unknown[] = [tenantId];
 
     if (filters?.type) {
       conditions.push("t.type = ?");
@@ -451,13 +458,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               COALESCE(t.client_name, c.full_name) AS client_name,
               cst.session_id AS session_id
        FROM transactions t
-       LEFT JOIN users u ON u.id = t.user_id
-       LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN users u ON u.id = t.user_id AND u.tenant_id = ?
+       LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
        LEFT JOIN customer_session_transactions cst
-              ON cst.unified_transaction_id = t.id
+              ON cst.unified_transaction_id = t.id AND cst.tenant_id = ?
        ${where}
        ORDER BY t.created_at DESC, t.id DESC
        LIMIT ?`,
+      tenantId,
+      tenantId,
+      tenantId,
       ...params,
     );
 
@@ -477,6 +487,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   ): TransactionWithUser[] {
     if (rows.length === 0) return rows;
 
+    const tenantId = getCurrentTenantId();
     const ids = rows.map((r) => r.id);
     const placeholders = ids.map(() => "?").join(", ");
 
@@ -490,9 +501,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }>(
       `SELECT transaction_id, method, drawer_name, currency_code, amount, note
        FROM payments
-       WHERE transaction_id IN (${placeholders})
+       WHERE transaction_id IN (${placeholders}) AND tenant_id = ?
        ORDER BY id ASC`,
       ...ids,
+      tenantId,
     );
 
     const toLeg = (p: {
@@ -547,9 +559,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }>(
         `SELECT session_id, method, drawer_name, currency_code, amount, note
          FROM payments
-         WHERE session_id IN (${sPlaceholders})
+         WHERE session_id IN (${sPlaceholders}) AND tenant_id = ?
          ORDER BY id ASC`,
         ...sessionIds,
+        tenantId,
       );
       for (const p of basketRows) {
         const leg = toLeg(p);
@@ -569,8 +582,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       }>(
         `SELECT session_id, amount_usd, amount_lbp
          FROM debt_ledger
-         WHERE session_id IN (${sPlaceholders})`,
+         WHERE session_id IN (${sPlaceholders}) AND tenant_id = ?`,
         ...sessionIds,
+        tenantId,
       );
       for (const d of debtRows) {
         const legs = accountLegsBySession.get(d.session_id) ?? [];
@@ -625,10 +639,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   ): TransactionEntity | null {
     return this.queryOne<TransactionEntity>(
       `SELECT ${this.getColumns()} FROM transactions
-       WHERE source_table = ? AND source_id = ? AND status = 'ACTIVE'
+       WHERE source_table = ? AND source_id = ? AND status = 'ACTIVE' AND tenant_id = ?
        ORDER BY id DESC LIMIT 1`,
       sourceTable,
       sourceId,
+      getCurrentTenantId(),
     );
   }
 
@@ -638,10 +653,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   getByClientId(clientId: number, limit = 100): TransactionEntity[] {
     return this.query<TransactionEntity>(
       `SELECT ${this.getColumns()} FROM transactions
-       WHERE client_id = ?
+       WHERE client_id = ? AND tenant_id = ?
        ORDER BY created_at DESC
        LIMIT ?`,
       clientId,
+      getCurrentTenantId(),
       limit,
     );
   }
@@ -654,22 +670,25 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     to: string,
     type?: TransactionType,
   ): TransactionEntity[] {
+    const tenantId = getCurrentTenantId();
     if (type) {
       return this.query<TransactionEntity>(
         `SELECT ${this.getColumns()} FROM transactions
-         WHERE created_at >= ? AND created_at <= ? AND type = ?
+         WHERE created_at >= ? AND created_at <= ? AND type = ? AND tenant_id = ?
          ORDER BY created_at DESC`,
         from,
         to,
         type,
+        tenantId,
       );
     }
     return this.query<TransactionEntity>(
       `SELECT ${this.getColumns()} FROM transactions
-       WHERE created_at >= ? AND created_at <= ?
+       WHERE created_at >= ? AND created_at <= ? AND tenant_id = ?
        ORDER BY created_at DESC`,
       from,
       to,
+      tenantId,
     );
   }
 
@@ -697,11 +716,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       });
     }
     this._assertReversible(original);
+    const tenantId = getCurrentTenantId();
     // A transaction that already has an ACTIVE REFUND reverser had its cash
     // reversed once — voiding it too would double-reverse the drawers.
     const refunded = this.queryOne<{ id: number }>(
-      `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND' AND status = 'ACTIVE'`,
+      `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND' AND status = 'ACTIVE' AND tenant_id = ?`,
       id,
+      tenantId,
     );
     if (refunded) {
       throw new DatabaseError(
@@ -713,8 +734,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     return this.transaction(() => {
       // 1. Mark original as VOIDED
       this.execute(
-        `UPDATE transactions SET status = 'VOIDED' WHERE id = ?`,
+        `UPDATE transactions SET status = 'VOIDED' WHERE id = ? AND tenant_id = ?`,
         id,
+        tenantId,
       );
 
       // 2. Create reversal row
@@ -722,8 +744,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         `INSERT INTO transactions
           (type, status, source_table, source_id, user_id,
            amount_usd, amount_lbp, exchange_rate,
-           client_id, reverses_id, summary, metadata_json, device_id)
-         VALUES (?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           client_id, reverses_id, summary, metadata_json, device_id, tenant_id)
+         VALUES (?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         original.type,
         original.source_table,
         original.source_id,
@@ -736,6 +758,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         `VOID: ${original.summary ?? original.type}`,
         original.metadata_json,
         original.device_id,
+        tenantId,
       );
 
       const reversalId = result.lastInsertRowid as number;
@@ -749,8 +772,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 5. If SALE: cancel sale, restore stock, cancel debt
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
-          `UPDATE sales SET status = 'cancelled' WHERE id = ?`,
+          `UPDATE sales SET status = 'cancelled' WHERE id = ? AND tenant_id = ?`,
           original.source_id,
+          tenantId,
         );
         this._restoreStock(original.source_id);
         this._cancelDebt(id, userId);
@@ -781,9 +805,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   refundBySaleId(saleId: number, userId: number): number {
     const txn = this.queryOne<{ id: number }>(
       `SELECT id FROM transactions
-       WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'
+       WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?
        ORDER BY id DESC LIMIT 1`,
       saleId,
+      getCurrentTenantId(),
     );
     if (!txn) {
       throw new DatabaseError(`No SALE transaction found for sale #${saleId}`, {
@@ -804,11 +829,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       });
     }
     this._assertReversible(original);
+    const tenantId = getCurrentTenantId();
 
     // Guard: prevent double-refund
     const existing = this.queryOne<{ id: number }>(
-      `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND'`,
+      `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND' AND tenant_id = ?`,
       id,
+      tenantId,
     );
     if (existing) {
       throw new DatabaseError("Transaction has already been refunded", {
@@ -825,8 +852,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         `INSERT INTO transactions
           (type, status, source_table, source_id, user_id,
            amount_usd, amount_lbp, exchange_rate, profit_usd, profit_lbp,
-           client_id, reverses_id, summary, metadata_json, device_id)
-         VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           client_id, reverses_id, summary, metadata_json, device_id, tenant_id)
+         VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         original.source_table,
         original.source_id,
         userId,
@@ -840,6 +867,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         `REFUND: ${original.summary ?? original.type}`,
         original.metadata_json,
         original.device_id,
+        tenantId,
       );
 
       const refundId = result.lastInsertRowid as number;
@@ -853,12 +881,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4. If SALE: mark sale & items as refunded, restore stock, cancel debt
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
-          `UPDATE sales SET status = 'refunded' WHERE id = ?`,
+          `UPDATE sales SET status = 'refunded' WHERE id = ? AND tenant_id = ?`,
           original.source_id,
+          tenantId,
         );
         this.execute(
-          `UPDATE sale_items SET is_refunded = 1 WHERE sale_id = ?`,
+          `UPDATE sale_items SET is_refunded = 1 WHERE sale_id = ? AND tenant_id = ?`,
           original.source_id,
+          tenantId,
         );
         this._restoreStock(original.source_id);
         this._cancelDebt(id, userId);
@@ -908,9 +938,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     return this.query<PaymentRow>(
       `SELECT id, method, drawer_name, currency_code, amount, note, created_at
        FROM payments
-       WHERE transaction_id = ?
+       WHERE transaction_id = ? AND tenant_id = ?
        ORDER BY id ASC`,
       transactionId,
+      getCurrentTenantId(),
     );
   }
 
@@ -944,9 +975,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "supplier_ledger",
     ];
     if (!supported.includes(sourceTable)) return;
+    // tenant_id predicate applies to every legal value of sourceTable above —
+    // all are tenant-scoped tables (see scripts/check-tenant-scoping.mjs's
+    // __UNRESOLVED__ fail-closed flag on this dynamic-table-name statement).
     this.execute(
-      `UPDATE ${sourceTable} SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE ${sourceTable} SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
       sourceId,
+      getCurrentTenantId(),
     );
   }
 
@@ -966,14 +1001,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     ) {
       return;
     }
+    const tenantId = getCurrentTenantId();
     const ledger = this.queryOne<{
       supplier_id: number;
       entry_type: string;
       amount_usd: number;
       amount_lbp: number;
     }>(
-      `SELECT supplier_id, entry_type, amount_usd, amount_lbp FROM supplier_ledger WHERE id = ?`,
+      `SELECT supplier_id, entry_type, amount_usd, amount_lbp FROM supplier_ledger WHERE id = ? AND tenant_id = ?`,
       original.source_id,
+      tenantId,
     );
     if (!ledger || ledger.entry_type !== "PAYMENT") return;
 
@@ -984,17 +1021,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     const covered = this.query<{ id: number; paid_usd: number }>(
       `SELECT id, paid_usd FROM supplier_purchases
-       WHERE supplier_id = ? AND paid_usd > 0
+       WHERE supplier_id = ? AND paid_usd > 0 AND tenant_id = ?
        ORDER BY created_at DESC, id DESC`,
       ledger.supplier_id,
+      tenantId,
     );
     for (const row of covered) {
       if (remaining <= 0) break;
       const giveBack = Math.min(remaining, row.paid_usd);
       this.execute(
-        `UPDATE supplier_purchases SET paid_usd = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE supplier_purchases SET paid_usd = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
         row.paid_usd - giveBack,
         row.id,
+        tenantId,
       );
       remaining -= giveBack;
     }
@@ -1005,6 +1044,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     reversalTxnId: number,
     userId: number,
   ): void {
+    const tenantId = getCurrentTenantId();
     const payments = this.query<{
       method: string;
       drawer_name: string;
@@ -1012,20 +1052,21 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       amount: number;
     }>(
       `SELECT method, drawer_name, currency_code, amount
-       FROM payments WHERE transaction_id = ?`,
+       FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
       originalTxnId,
+      tenantId,
     );
 
     const insertPayment = this.db.prepare(`
       INSERT INTO payments (
-        transaction_id, method, drawer_name, currency_code, amount, note, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const upsertBalance = this.db.prepare(`
-      INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-      VALUES (?, ?, ?)
-      ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+      INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
         balance = drawer_balances.balance + excluded.balance,
         updated_at = CURRENT_TIMESTAMP
     `);
@@ -1040,8 +1081,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         negatedAmount,
         "Reversal",
         userId,
+        tenantId,
       );
-      upsertBalance.run(p.drawer_name, p.currency_code, negatedAmount);
+      upsertBalance.run(tenantId, p.drawer_name, p.currency_code, negatedAmount);
     }
   }
 
@@ -1049,17 +1091,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Restore stock for all items in a sale.
    */
   private _restoreStock(saleId: number): void {
+    const tenantId = getCurrentTenantId();
     const items = this.query<{ product_id: number; quantity: number }>(
-      `SELECT product_id, quantity FROM sale_items WHERE sale_id = ?`,
+      `SELECT product_id, quantity FROM sale_items WHERE sale_id = ? AND tenant_id = ?`,
       saleId,
+      tenantId,
     );
 
     const restoreStmt = this.db.prepare(
-      `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+      `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
     );
 
     for (const item of items) {
-      restoreStmt.run(item.quantity, item.product_id);
+      restoreStmt.run(item.quantity, item.product_id, tenantId);
     }
   }
 
@@ -1068,24 +1112,32 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Inserts a reversing "Refund Reversal" entry to zero out the debt.
    */
   private _cancelDebt(originalTxnId: number, userId: number): void {
+    const tenantId = getCurrentTenantId();
     const debts = this.query<{
       id: number;
       client_id: number;
       amount_usd: number;
     }>(
       `SELECT id, client_id, amount_usd FROM debt_ledger
-       WHERE transaction_id = ? AND transaction_type = 'Sale Debt'`,
+       WHERE transaction_id = ? AND transaction_type = 'Sale Debt' AND tenant_id = ?`,
       originalTxnId,
+      tenantId,
     );
 
     const insertReversal = this.db.prepare(`
       INSERT INTO debt_ledger (
-        client_id, transaction_type, amount_usd, transaction_id, note, created_by
-      ) VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by refund/void', ?)
+        client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id
+      ) VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by refund/void', ?, ?)
     `);
 
     for (const d of debts) {
-      insertReversal.run(d.client_id, -d.amount_usd, originalTxnId, userId);
+      insertReversal.run(
+        d.client_id,
+        -d.amount_usd,
+        originalTxnId,
+        userId,
+        tenantId,
+      );
     }
   }
 
@@ -1097,6 +1149,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Get a summary of all transactions for a given date.
    */
   getDailySummary(date: string): DailySummary {
+    const tenantId = getCurrentTenantId();
     const byType = this.query<{
       type: string;
       count: number;
@@ -1108,9 +1161,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               SUM(amount_usd) AS total_usd,
               SUM(amount_lbp) AS total_lbp
        FROM transactions
-       WHERE DATE(created_at) = ? AND status = 'ACTIVE'
+       WHERE DATE(created_at) = ? AND status = 'ACTIVE' AND tenant_id = ?
        GROUP BY type`,
       date,
+      tenantId,
     );
 
     const voids = this.queryOne<{
@@ -1122,8 +1176,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               COALESCE(SUM(amount_usd), 0) AS void_usd,
               COALESCE(SUM(amount_lbp), 0) AS void_lbp
        FROM transactions
-       WHERE DATE(created_at) = ? AND status = 'VOIDED'`,
+       WHERE DATE(created_at) = ? AND status = 'VOIDED' AND tenant_id = ?`,
       date,
+      tenantId,
     );
 
     return {
@@ -1168,8 +1223,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       FROM debt_ledger
       WHERE client_id = ?
         AND due_date IS NOT NULL
-        AND (amount_usd > 0 OR amount_lbp > 0)`,
+        AND (amount_usd > 0 OR amount_lbp > 0)
+        AND tenant_id = ?`,
       clientId,
+      getCurrentTenantId(),
     );
 
     return {
@@ -1191,6 +1248,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Get all clients with overdue debts (due_date < today AND net balance > 0).
    */
   getOverdueDebts(): OverdueDebtEntry[] {
+    const tenantId = getCurrentTenantId();
     return this.query<OverdueDebtEntry>(
       `SELECT
         c.id AS client_id,
@@ -1202,12 +1260,15 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         CAST(MAX(julianday('now') - julianday(d.due_date)) AS INTEGER) AS max_days_overdue,
         COUNT(*) AS entry_count
       FROM debt_ledger d
-      JOIN clients c ON c.id = d.client_id
+      JOIN clients c ON c.id = d.client_id AND c.tenant_id = ?
       WHERE d.due_date < datetime('now')
         AND d.due_date IS NOT NULL
+        AND d.tenant_id = ?
       GROUP BY d.client_id
       HAVING SUM(d.amount_usd) > 0 OR SUM(d.amount_lbp) > 0
       ORDER BY max_days_overdue DESC`,
+      tenantId,
+      tenantId,
     );
   }
 
@@ -1231,10 +1292,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        FROM transactions
        WHERE status = 'ACTIVE'
          AND created_at >= ? AND created_at <= ?
+         AND tenant_id = ?
        GROUP BY type
        ORDER BY total_usd DESC`,
       from,
       to,
+      getCurrentTenantId(),
     );
   }
 
@@ -1251,6 +1314,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     total_usd: number;
     total_lbp: number;
   }> {
+    const tenantId = getCurrentTenantId();
     return this.query(
       `SELECT t.user_id,
               u.username,
@@ -1258,13 +1322,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               SUM(t.amount_usd) AS total_usd,
               SUM(t.amount_lbp) AS total_lbp
        FROM transactions t
-       LEFT JOIN users u ON u.id = t.user_id
+       LEFT JOIN users u ON u.id = t.user_id AND u.tenant_id = ?
        WHERE t.status = 'ACTIVE'
          AND t.created_at >= ? AND t.created_at <= ?
+         AND t.tenant_id = ?
        GROUP BY t.user_id
        ORDER BY total_usd DESC`,
+      tenantId,
       from,
       to,
+      tenantId,
     );
   }
 }

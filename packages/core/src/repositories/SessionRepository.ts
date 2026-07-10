@@ -6,6 +6,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
 import crypto from "crypto";
 
@@ -144,12 +145,16 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   }
 
   /**
-   * Find session by token
+   * Find session by token.
+   *
+   * Unlike `validateSession` (the auth-critical, pre-tenant-context lookup),
+   * this helper is for callers that already run inside an established
+   * tenant scope, so it is tenant-scoped like any other session read.
    */
   findByToken(token: string): SessionEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE token = ?`;
-      return this.queryOne<SessionEntity>(query, token);
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE token = ? AND tenant_id = ?`;
+      return this.queryOne<SessionEntity>(query, token, getCurrentTenantId());
     } catch (error) {
       throw new DatabaseError("Failed to find session by token", {
         cause: error,
@@ -284,10 +289,16 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       const query = `
         UPDATE ${this.tableName}
         SET last_activity_at = ?, expires_at = ?
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `;
 
-      const result = this.execute(query, nowISO, newExpiresAt, sessionId);
+      const result = this.execute(
+        query,
+        nowISO,
+        newExpiresAt,
+        sessionId,
+        getCurrentTenantId(),
+      );
       return result.changes > 0;
     } catch (error) {
       throw new DatabaseError("Failed to update session activity", {
@@ -322,10 +333,10 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
     try {
       const query = `
         SELECT ${this.getColumns()} FROM ${this.tableName}
-        WHERE user_id = ?
+        WHERE user_id = ? AND tenant_id = ?
         ORDER BY last_activity_at DESC
       `;
-      return this.query<SessionEntity>(query, userId);
+      return this.query<SessionEntity>(query, userId, getCurrentTenantId());
     } catch (error) {
       throw new DatabaseError("Failed to find sessions by user ID", {
         cause: error,
@@ -341,10 +352,15 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       const now = new Date().toISOString();
       const query = `
         SELECT ${this.getColumns()} FROM ${this.tableName}
-        WHERE user_id = ? AND expires_at > ?
+        WHERE user_id = ? AND expires_at > ? AND tenant_id = ?
         ORDER BY last_activity_at DESC
       `;
-      return this.query<SessionEntity>(query, userId, now);
+      return this.query<SessionEntity>(
+        query,
+        userId,
+        now,
+        getCurrentTenantId(),
+      );
     } catch (error) {
       throw new DatabaseError("Failed to find active sessions by user ID", {
         cause: error,
@@ -357,8 +373,8 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
    */
   deleteByUserId(userId: number): number {
     try {
-      const query = `DELETE FROM ${this.tableName} WHERE user_id = ?`;
-      const result = this.execute(query, userId);
+      const query = `DELETE FROM ${this.tableName} WHERE user_id = ? AND tenant_id = ?`;
+      const result = this.execute(query, userId, getCurrentTenantId());
       return result.changes;
     } catch (error) {
       throw new DatabaseError("Failed to delete sessions by user ID", {
@@ -383,12 +399,19 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   }
 
   /**
-   * Delete all expired sessions (cleanup)
+   * Delete all expired sessions (cleanup).
+   *
+   * Runs as a background maintenance sweep (electron-app main process
+   * interval, and eventually a web cron), never inside a per-request/per-
+   * tenant scope. It must purge every tenant's stale rows in one pass —
+   * scoping it to "the current tenant" would either throw (no context in a
+   * background timer) or, worse, silently leave every OTHER tenant's
+   * expired sessions rotting in the table.
    */
   deleteExpiredSessions(): number {
     try {
       const now = new Date().toISOString();
-      const query = `DELETE FROM ${this.tableName} WHERE expires_at < ?`;
+      const query = `DELETE FROM ${this.tableName} /* tenant-exempt: global session expiry sweep — background maintenance job, must purge every tenant, not just the current context */ WHERE expires_at < ?`;
       const result = this.execute(query, now);
       return result.changes;
     } catch (error) {
@@ -399,7 +422,10 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   }
 
   /**
-   * Delete inactive short sessions (30+ min of inactivity)
+   * Delete inactive short sessions (30+ min of inactivity).
+   *
+   * Same rationale as `deleteExpiredSessions`: a global background sweep,
+   * deliberately not tenant-scoped.
    */
   deleteInactiveSessions(): number {
     try {
@@ -408,6 +434,7 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
 
       const query = `
         DELETE FROM ${this.tableName}
+        /* tenant-exempt: global session inactivity sweep — background maintenance job, must purge every tenant, not just the current context */
         WHERE remember_me = 0 AND last_activity_at < ?
       `;
 
@@ -429,9 +456,14 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       const query = `
         SELECT COUNT(*) as count
         FROM ${this.tableName}
-        WHERE user_id = ? AND expires_at > ?
+        WHERE user_id = ? AND expires_at > ? AND tenant_id = ?
       `;
-      const result = this.queryOne<{ count: number }>(query, userId, now);
+      const result = this.queryOne<{ count: number }>(
+        query,
+        userId,
+        now,
+        getCurrentTenantId(),
+      );
       return result?.count ?? 0;
     } catch (error) {
       throw new DatabaseError("Failed to count active sessions", {
@@ -449,9 +481,14 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
       const query = `
         SELECT COUNT(*) as count
         FROM ${this.tableName}
-        WHERE device_type = ? AND expires_at > ?
+        WHERE device_type = ? AND expires_at > ? AND tenant_id = ?
       `;
-      const result = this.queryOne<{ count: number }>(query, deviceType, now);
+      const result = this.queryOne<{ count: number }>(
+        query,
+        deviceType,
+        now,
+        getCurrentTenantId(),
+      );
       return result?.count ?? 0;
     } catch (error) {
       throw new DatabaseError("Failed to count sessions by device type", {

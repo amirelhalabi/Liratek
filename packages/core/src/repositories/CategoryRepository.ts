@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
 
 export interface ProductCategory {
@@ -22,19 +23,20 @@ export class CategoryRepository {
   getAll(): ProductCategory[] {
     return this.db
       .prepare(
-        `SELECT ${COLUMNS} FROM product_categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC`,
+        `SELECT ${COLUMNS} FROM product_categories WHERE is_active = 1 AND tenant_id = ? ORDER BY sort_order ASC, name ASC`,
       )
-      .all() as ProductCategory[];
+      .all(getCurrentTenantId()) as ProductCategory[];
   }
 
   create(name: string): { id: number } {
     const trimmed = name.trim();
     if (!trimmed) throw new DatabaseError("Category name is required");
+    const tenantId = getCurrentTenantId();
     const result = this.db
       .prepare(
-        `INSERT INTO product_categories (name, sort_order) VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_categories))`,
+        `INSERT INTO product_categories (name, sort_order, tenant_id) VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_categories WHERE tenant_id = ?), ?)`,
       )
-      .run(trimmed);
+      .run(trimmed, tenantId, tenantId);
     return { id: Number(result.lastInsertRowid) };
   }
 
@@ -42,21 +44,22 @@ export class CategoryRepository {
     const trimmed = name.trim();
     if (!trimmed) throw new DatabaseError("Category name is required");
     const result = this.db
-      .prepare(`UPDATE product_categories SET name = ? WHERE id = ?`)
-      .run(trimmed, id);
+      .prepare(`UPDATE product_categories SET name = ? WHERE id = ? AND tenant_id = ?`)
+      .run(trimmed, id, getCurrentTenantId());
     return result.changes > 0;
   }
 
   delete(id: number): boolean {
+    const tenantId = getCurrentTenantId();
     // Nullify category_id on products first, then remove the category
     this.db
       .prepare(
-        `UPDATE products SET category_id = NULL, category = 'General' WHERE category_id = ?`,
+        `UPDATE products SET category_id = NULL, category = 'General' WHERE category_id = ? AND tenant_id = ?`,
       )
-      .run(id);
+      .run(id, tenantId);
     const result = this.db
-      .prepare(`DELETE FROM product_categories WHERE id = ?`)
-      .run(id);
+      .prepare(`DELETE FROM product_categories WHERE id = ? AND tenant_id = ?`)
+      .run(id, tenantId);
     return result.changes > 0;
   }
 
@@ -64,27 +67,28 @@ export class CategoryRepository {
   getOrCreate(name: string): number {
     const trimmed = name.trim();
     if (!trimmed) throw new DatabaseError("Category name is required");
+    const tenantId = getCurrentTenantId();
     const existing = this.db
       .prepare(
-        `SELECT id FROM product_categories WHERE name = ? COLLATE NOCASE`,
+        `SELECT id FROM product_categories WHERE name = ? COLLATE NOCASE AND tenant_id = ?`,
       )
-      .get(trimmed) as { id: number } | undefined;
+      .get(trimmed, tenantId) as { id: number } | undefined;
     if (existing) return existing.id;
     const result = this.db
       .prepare(
-        `INSERT INTO product_categories (name, sort_order)
-         VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_categories))`,
+        `INSERT INTO product_categories (name, sort_order, tenant_id)
+         VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_categories WHERE tenant_id = ?), ?)`,
       )
-      .run(trimmed);
+      .run(trimmed, tenantId, tenantId);
     return Number(result.lastInsertRowid);
   }
 
   getNames(): string[] {
     const rows = this.db
       .prepare(
-        `SELECT name FROM product_categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC`,
+        `SELECT name FROM product_categories WHERE is_active = 1 AND tenant_id = ? ORDER BY sort_order ASC, name ASC`,
       )
-      .all() as { name: string }[];
+      .all(getCurrentTenantId()) as { name: string }[];
     return rows.map((r) => r.name);
   }
 }

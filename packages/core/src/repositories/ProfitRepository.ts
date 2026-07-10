@@ -18,6 +18,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Row types (raw rows returned to the service for assembly)
@@ -300,9 +301,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE s.status = 'completed'
           AND si.is_refunded = 0
           AND ${saleFullyPaid("s")}
-          AND ${dateRange("s.created_at")}`,
+          AND ${dateRange("s.created_at")}
+          AND si.tenant_id = ? AND s.tenant_id = ?`,
       )
-      .get(fromDt, toDt) as SalesRevCostRow;
+      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as SalesRevCostRow;
   }
 
   /**
@@ -324,9 +326,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.type IN ('SALE', 'REFUND')
           AND s.status IN ('completed', 'refunded')
           AND ${saleFullyPaid("s")}
-          AND ${dateRange("s.created_at")}`,
+          AND ${dateRange("s.created_at")}
+          AND t.tenant_id = ? AND s.tenant_id = ?`,
       )
-      .get(fromDt, toDt) as SalesProfitRow;
+      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as SalesProfitRow;
   }
 
   /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */
@@ -348,9 +351,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
+          AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
       )
-      .all(fromDt, toDt) as FinCurrencyRow[];
+      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as FinCurrencyRow[];
   }
 
   /** Pending (unsettled) financial-service commissions grouped by currency. */
@@ -372,9 +376,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
+          AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
       )
-      .all(fromDt, toDt) as FinCurrencyRow[];
+      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as FinCurrencyRow[];
   }
 
   /** Mobile services (iPick/KATCH/BOB) revenue/cost/profit grouped by currency. */
@@ -396,9 +401,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
+          AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
       )
-      .all(fromDt, toDt) as MobileCurrencyRow[];
+      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as MobileCurrencyRow[];
   }
 
   /** Recharges (MTC/Alfa) revenue/cost/profit grouped by currency. */
@@ -416,9 +422,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("r")}
           AND ${dateRange("r.created_at")}
+          AND r.tenant_id = ? AND t.tenant_id = ?
         GROUP BY r.currency_code`,
       )
-      .all(fromDt, toDt) as RechargeCurrencyRow[];
+      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as RechargeCurrencyRow[];
   }
 
   /** Custom services totals (revenue/cost from source, profit from transactions). */
@@ -438,9 +445,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE cs.status = 'completed'
           AND t.status = 'ACTIVE'
           AND ${notRefunded("cs")}
-          AND ${dateRange("cs.created_at")}`,
+          AND ${dateRange("cs.created_at")}
+          AND cs.tenant_id = ? AND t.tenant_id = ?`,
       )
-      .get(fromDt, toDt) as CustomTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as CustomTotalsRow;
   }
 
   /**
@@ -464,9 +472,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE ${MAINTENANCE_COMPLETED}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("m")}
-          AND ${dateRange("m.created_at")}`,
+          AND ${dateRange("m.created_at")}
+          AND m.tenant_id = ? AND t.tenant_id = ?`,
       )
-      .get(fromDt, toDt) as MaintTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as MaintTotalsRow;
   }
 
   /**
@@ -485,9 +494,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("lt")}
-          AND ${dateRange("lt.created_at")}`,
+          AND ${dateRange("lt.created_at")}
+          AND lt.tenant_id = ? AND t.tenant_id = ?`,
       )
-      .get(fromDt, toDt) as LotoTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as LotoTotalsRow;
   }
 
   /**
@@ -515,9 +525,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE COALESCE(fs.payment_method_fee, 0) <> 0
           AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
+          AND fs.tenant_id = ?
         GROUP BY fs.currency`,
       )
-      .all(fromDt, toDt) as PmFeeCurrencyRow[];
+      .all(fromDt, toDt, getCurrentTenantId()) as PmFeeCurrencyRow[];
   }
 
   /** Exchange totals (v30+: leg1 + leg2 profit; revenue = sum of amount_in). */
@@ -530,9 +541,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COUNT(*) AS count
         FROM exchange_transactions
         WHERE ${notRefunded("exchange_transactions")}
-          AND ${dateRange("created_at")}`,
+          AND ${dateRange("created_at")}
+          AND tenant_id = ?`,
       )
-      .get(fromDt, toDt) as ExchangeTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId()) as ExchangeTotalsRow;
   }
 
   /** Active expenses totals in the date range. */
@@ -545,9 +557,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COUNT(*) AS count
         FROM expenses
         WHERE status = 'active'
-          AND ${dateRange("expense_date")}`,
+          AND ${dateRange("expense_date")}
+          AND tenant_id = ?`,
       )
-      .get(fromDt, toDt) as ExpenseTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId()) as ExpenseTotalsRow;
   }
 
   // ---------------------------------------------------------------------------
@@ -574,9 +587,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${dateRange("fs.created_at")}
+          AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.provider`,
       )
-      .all(fromDt, toDt) as FinByProviderRow[];
+      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as FinByProviderRow[];
   }
 
   /** Recharge revenue/cost/profit grouped by carrier. */
@@ -597,9 +611,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("r")}
           AND ${dateRange("r.created_at")}
+          AND r.tenant_id = ? AND t.tenant_id = ?
         GROUP BY r.carrier`,
       )
-      .all(fromDt, toDt) as RechargeByCarrierRow[];
+      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as RechargeByCarrierRow[];
   }
 
   // ---------------------------------------------------------------------------
@@ -616,6 +631,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     fromDt: string,
     toDt: string,
   ): ProfitByDateRow[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `WITH dates AS (
@@ -635,6 +651,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND si.is_refunded = 0
             AND ${saleFullyPaid("s")}
             AND ${dateRange("s.created_at")}
+            AND si.tenant_id = ? AND s.tenant_id = ?
           GROUP BY DATE(s.created_at)
         ),
         daily_sales_profit AS (
@@ -653,6 +670,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND s.status IN ('completed', 'refunded')
             AND ${saleFullyPaid("s")}
             AND ${dateRange("s.created_at")}
+            AND t.tenant_id = ? AND s.tenant_id = ?
           GROUP BY DATE(s.created_at)
         ),
         daily_commissions AS (
@@ -668,6 +686,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND t.status = 'ACTIVE'
             AND ${notRefunded("fs")}
             AND ${dateRange("fs.created_at")}
+            AND fs.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(fs.created_at)
         ),
         daily_recharges AS (
@@ -684,6 +703,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE t.status = 'ACTIVE'
             AND ${notRefunded("r")}
             AND ${dateRange("r.created_at")}
+            AND r.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(r.created_at)
         ),
         daily_custom AS (
@@ -701,6 +721,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND t.status = 'ACTIVE'
             AND ${notRefunded("cs")}
             AND ${dateRange("cs.created_at")}
+            AND cs.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(cs.created_at)
         ),
         daily_maint AS (
@@ -718,6 +739,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND t.status = 'ACTIVE'
             AND ${notRefunded("m")}
             AND ${dateRange("m.created_at")}
+            AND m.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(m.created_at)
         ),
         daily_loto AS (
@@ -730,6 +752,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE t.status = 'ACTIVE'
             AND ${notRefunded("lt")}
             AND ${dateRange("lt.created_at")}
+            AND lt.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(lt.created_at)
         ),
         daily_expenses AS (
@@ -740,6 +763,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           FROM expenses
           WHERE status = 'active'
             AND ${dateRange("expense_date")}
+            AND tenant_id = ?
           GROUP BY DATE(expense_date)
         ),
         daily_exchange AS (
@@ -750,6 +774,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           FROM exchange_transactions
           WHERE ${notRefunded("exchange_transactions")}
             AND ${dateRange("created_at")}
+            AND tenant_id = ?
           GROUP BY DATE(created_at)
         ),
         daily_pmfee AS (
@@ -764,6 +789,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE COALESCE(fs.payment_method_fee, 0) <> 0
             AND ${notRefunded("fs")}
             AND ${dateRange("fs.created_at")}
+            AND fs.tenant_id = ?
           GROUP BY DATE(fs.created_at)
         )
         SELECT
@@ -795,25 +821,42 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         from,
         to, // dates CTE
         fromDt,
-        toDt, // daily_sales
+        toDt,
+        tenantId,
+        tenantId, // daily_sales (si, s)
         fromDt,
-        toDt, // daily_sales_profit
+        toDt,
+        tenantId,
+        tenantId, // daily_sales_profit (t, s)
         fromDt,
-        toDt, // daily_commissions
+        toDt,
+        tenantId,
+        tenantId, // daily_commissions (fs, t)
         fromDt,
-        toDt, // daily_recharges
+        toDt,
+        tenantId,
+        tenantId, // daily_recharges (r, t)
         fromDt,
-        toDt, // daily_custom
+        toDt,
+        tenantId,
+        tenantId, // daily_custom (cs, t)
         fromDt,
-        toDt, // daily_maint
+        toDt,
+        tenantId,
+        tenantId, // daily_maint (m, t)
         fromDt,
-        toDt, // daily_loto
+        toDt,
+        tenantId,
+        tenantId, // daily_loto (lt, t)
         fromDt,
-        toDt, // daily_expenses
+        toDt,
+        tenantId, // daily_expenses
         fromDt,
-        toDt, // daily_exchange
+        toDt,
+        tenantId, // daily_exchange
         fromDt,
-        toDt, // daily_pmfee
+        toDt,
+        tenantId, // daily_pmfee (fs)
       ) as ProfitByDateRow[];
   }
 
@@ -823,6 +866,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
 
   /** Real customer-facing payment methods (excludes internal/system flows). */
   getPaymentMethodRows(fromDt: string, toDt: string): PaymentMethodRow[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `SELECT
@@ -835,15 +879,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- Flag if ALL entries for this method are debt repayments (no profit)
           CASE WHEN SUM(CASE WHEN t.type != 'DEBT_REPAYMENT' THEN 1 ELSE 0 END) = 0 THEN 1 ELSE 0 END AS is_debt_repayment_only
         FROM payments p
-        LEFT JOIN transactions t ON t.id = p.transaction_id
+        LEFT JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = ?
         WHERE ${dateRange("p.created_at")}
           -- Exclude internal system flows
           AND p.method NOT IN (${INTERNAL_PAYMENT_METHODS})
           AND p.amount > 0
+          AND p.tenant_id = ?
         GROUP BY p.method
         HAVING total_usd > 0 OR total_lbp > 0`,
       )
-      .all(fromDt, toDt) as PaymentMethodRow[];
+      .all(tenantId, fromDt, toDt, tenantId) as PaymentMethodRow[];
   }
 
   /** Realized (settled) financial-service commission totals by currency. */
@@ -861,9 +906,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE is_settled = 1
           AND commission > 0
           AND ${notRefunded("financial_services")}
-          AND ${dateRange("created_at")}`,
+          AND ${dateRange("created_at")}
+          AND tenant_id = ?`,
       )
-      .get(fromDt, toDt) as CommissionTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId()) as CommissionTotalsRow;
   }
 
   /** Pending (unsettled) financial-service commission totals by currency. */
@@ -881,9 +927,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE is_settled = 0
           AND commission > 0
           AND ${notRefunded("financial_services")}
-          AND ${dateRange("created_at")}`,
+          AND ${dateRange("created_at")}
+          AND tenant_id = ?`,
       )
-      .get(fromDt, toDt) as CommissionTotalsRow;
+      .get(fromDt, toDt, getCurrentTenantId()) as CommissionTotalsRow;
   }
 
   /** Per-provider pending commission detail (for the pending-row label). */
@@ -900,9 +947,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
          WHERE is_settled = 0 AND commission > 0
            AND ${notRefunded("financial_services")}
            AND ${dateRange("created_at")}
+           AND tenant_id = ?
          GROUP BY provider`,
       )
-      .all(fromDt, toDt) as PendingCommissionByProviderRow[];
+      .all(fromDt, toDt, getCurrentTenantId()) as PendingCommissionByProviderRow[];
   }
 
   // ---------------------------------------------------------------------------
@@ -915,6 +963,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * Profit comes from transactions.profit_usd with the same realized gates.
    */
   getByUser(fromDt: string, toDt: string): ProfitByUserRow[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `SELECT
@@ -932,7 +981,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               SELECT CASE WHEN fs.is_settled = 1
                 THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0)
                 ELSE 0 END
-              FROM financial_services fs WHERE fs.id = t.source_id
+              FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
@@ -941,7 +990,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                            THEN s2.final_amount_usd
                            ELSE t.amount_usd END)
                 ELSE 0 END
-              FROM sales s2 WHERE s2.id = t.source_id
+              FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             ELSE t.amount_usd
           END) AS revenue_usd,
@@ -951,7 +1000,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               SELECT CASE
                 WHEN ${saleFullyPaid("s2")}
                 THEN t.profit_usd ELSE 0 END
-              FROM sales s2 WHERE s2.id = t.source_id
+              FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             WHEN t.source_table = 'financial_services' THEN (
               -- FS + its REFUND both gated by is_settled (t.profit_usd already
@@ -959,20 +1008,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- the refund). Fixes: refunding an UNSETTLED commission used to
               -- fall to the ungated ELSE and post a phantom -commission here.
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_usd ELSE 0 END
-              FROM financial_services fs WHERE fs.id = t.source_id
+              FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             ELSE t.profit_usd
           END) AS profit_usd,
           SUM(CASE
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
-              FROM financial_services fs WHERE fs.id = t.source_id
+              FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
                 WHEN ${saleFullyPaid("s2")}
                 THEN t.profit_lbp ELSE 0 END
-              FROM sales s2 WHERE s2.id = t.source_id
+              FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             ELSE t.profit_lbp
           END) AS profit_lbp,
@@ -987,17 +1036,35 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               AND fs2.commission > 0
               AND ${notRefunded("fs2")}
               AND ${dateRange("fs2.created_at")}
+              AND fs2.tenant_id = ? AND t2.tenant_id = ?
           ), 0) AS pending_profit_usd
         FROM transactions t
-        LEFT JOIN transactions orig ON t.type = 'REFUND' AND orig.id = t.reverses_id
-        LEFT JOIN users u ON u.id = COALESCE(orig.user_id, t.user_id)
+        LEFT JOIN transactions orig ON t.type = 'REFUND' AND orig.id = t.reverses_id AND orig.tenant_id = ?
+        LEFT JOIN users u ON u.id = COALESCE(orig.user_id, t.user_id) AND u.tenant_id = ?
         WHERE t.status = 'ACTIVE'
           AND t.type IN (${PROFIT_TXN_TYPES})
           AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
         GROUP BY COALESCE(orig.user_id, t.user_id)
         ORDER BY profit_usd DESC`,
       )
-      .all(fromDt, toDt, fromDt, toDt) as ProfitByUserRow[];
+      .all(
+        tenantId, // revenue_usd CASE — financial_services fs subquery
+        tenantId, // revenue_usd CASE — sales s2 subquery
+        tenantId, // profit_usd CASE — sales s2 subquery
+        tenantId, // profit_usd CASE — financial_services fs subquery
+        tenantId, // profit_lbp CASE — financial_services fs subquery
+        tenantId, // profit_lbp CASE — sales s2 subquery
+        fromDt,
+        toDt, // pending_profit_usd — dateRange(fs2.created_at)
+        tenantId, // pending_profit_usd — fs2.tenant_id
+        tenantId, // pending_profit_usd — t2.tenant_id
+        tenantId, // LEFT JOIN transactions orig
+        tenantId, // LEFT JOIN users u
+        fromDt,
+        toDt, // WHERE dateRange(t.created_at)
+        tenantId, // WHERE t.tenant_id
+      ) as ProfitByUserRow[];
   }
 
   // ---------------------------------------------------------------------------
@@ -1010,6 +1077,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     toDt: string,
     limit: number,
   ): ProfitByClientRow[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `SELECT
@@ -1025,7 +1093,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               SELECT CASE WHEN fs.is_settled = 1
                 THEN (CASE WHEN t.type = 'REFUND' THEN -1 ELSE 1 END) * COALESCE(${fsRevenue("fs")}, 0)
                 ELSE 0 END
-              FROM financial_services fs WHERE fs.id = t.source_id
+              FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
@@ -1034,7 +1102,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                            THEN s2.final_amount_usd
                            ELSE t.amount_usd END)
                 ELSE 0 END
-              FROM sales s2 WHERE s2.id = t.source_id
+              FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             ELSE t.amount_usd
           END) AS revenue_usd,
@@ -1044,7 +1112,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               SELECT CASE
                 WHEN ${saleFullyPaid("s2")}
                 THEN t.profit_usd ELSE 0 END
-              FROM sales s2 WHERE s2.id = t.source_id
+              FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             WHEN t.source_table = 'financial_services' THEN (
               -- FS + its REFUND both gated by is_settled (t.profit_usd already
@@ -1052,20 +1120,20 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               -- the refund). Fixes: refunding an UNSETTLED commission used to
               -- fall to the ungated ELSE and post a phantom -commission here.
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_usd ELSE 0 END
-              FROM financial_services fs WHERE fs.id = t.source_id
+              FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             ELSE t.profit_usd
           END) AS profit_usd,
           SUM(CASE
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
-              FROM financial_services fs WHERE fs.id = t.source_id
+              FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
                 WHEN ${saleFullyPaid("s2")}
                 THEN t.profit_lbp ELSE 0 END
-              FROM sales s2 WHERE s2.id = t.source_id
+              FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
             ELSE t.profit_lbp
           END) AS profit_lbp,
@@ -1083,17 +1151,35 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
               AND fs2.commission > 0
               AND ${notRefunded("fs2")}
               AND ${dateRange("fs2.created_at")}
+              AND fs2.tenant_id = ? AND t2.tenant_id = ?
           ), 0) AS pending_profit_usd
         FROM transactions t
-        LEFT JOIN clients c ON c.id = t.client_id
+        LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
         WHERE t.status = 'ACTIVE'
           AND t.type IN (${PROFIT_TXN_TYPES})
           AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?
         GROUP BY t.client_id, COALESCE(t.client_name, c.full_name), COALESCE(t.client_phone, c.phone_number)
         ORDER BY profit_usd DESC
         LIMIT ?`,
       )
-      .all(fromDt, toDt, fromDt, toDt, limit) as ProfitByClientRow[];
+      .all(
+        tenantId, // revenue_usd CASE — financial_services fs subquery
+        tenantId, // revenue_usd CASE — sales s2 subquery
+        tenantId, // profit_usd CASE — sales s2 subquery
+        tenantId, // profit_usd CASE — financial_services fs subquery
+        tenantId, // profit_lbp CASE — financial_services fs subquery
+        tenantId, // profit_lbp CASE — sales s2 subquery
+        fromDt,
+        toDt, // pending_profit_usd — dateRange(fs2.created_at)
+        tenantId, // pending_profit_usd — fs2.tenant_id
+        tenantId, // pending_profit_usd — t2.tenant_id
+        tenantId, // LEFT JOIN clients c
+        fromDt,
+        toDt, // WHERE dateRange(t.created_at)
+        tenantId, // WHERE t.tenant_id
+        limit,
+      ) as ProfitByClientRow[];
   }
 
   // ---------------------------------------------------------------------------
@@ -1102,6 +1188,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
 
   /** Completed-but-not-fully-paid sales with their potential (deferred) profit. */
   getPendingSaleProfit(fromDt: string, toDt: string): PendingSaleProfitRow[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `SELECT
@@ -1115,23 +1202,33 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE((
             SELECT SUM((si.sold_price_usd - si.cost_price_snapshot_usd) * si.quantity)
             FROM sale_items si
-            WHERE si.sale_id = s.id AND si.is_refunded = 0
+            WHERE si.sale_id = s.id AND si.is_refunded = 0 AND si.tenant_id = ?
           ), 0) AS potential_profit_usd,
           COALESCE((
             SELECT GROUP_CONCAT(si.quantity || 'x ' || COALESCE(p.name, 'Item'), ', ')
             FROM sale_items si
-            LEFT JOIN products p ON p.id = si.product_id
-            WHERE si.sale_id = s.id AND si.is_refunded = 0
+            LEFT JOIN products p ON p.id = si.product_id AND p.tenant_id = ?
+            WHERE si.sale_id = s.id AND si.is_refunded = 0 AND si.tenant_id = ?
           ), '') AS items_summary
         FROM sales s
-        LEFT JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id AND t.type = 'SALE'
-        LEFT JOIN clients c ON c.id = t.client_id
+        LEFT JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id AND t.type = 'SALE' AND t.tenant_id = ?
+        LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
         WHERE s.status = 'completed'
           AND ${saleNotFullyPaid("s")}
           AND ${dateRange("s.created_at")}
+          AND s.tenant_id = ?
         ORDER BY s.created_at DESC`,
       )
-      .all(fromDt, toDt) as PendingSaleProfitRow[];
+      .all(
+        tenantId, // potential_profit_usd — si subquery
+        tenantId, // items_summary — products p join
+        tenantId, // items_summary — si predicate
+        tenantId, // LEFT JOIN transactions t
+        tenantId, // LEFT JOIN clients c
+        fromDt,
+        toDt, // WHERE dateRange(s.created_at)
+        tenantId, // WHERE s.tenant_id
+      ) as PendingSaleProfitRow[];
   }
 
   /** Unsettled financial-service commissions (RECEIVE rows not yet settled). */
@@ -1148,9 +1245,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND commission > 0
           AND ${notRefunded("financial_services")}
           AND ${dateRange("created_at")}
+          AND tenant_id = ?
         ORDER BY created_at DESC`,
       )
-      .all(fromDt, toDt) as UnsettledCommissionRow[];
+      .all(fromDt, toDt, getCurrentTenantId()) as UnsettledCommissionRow[];
   }
 }
 

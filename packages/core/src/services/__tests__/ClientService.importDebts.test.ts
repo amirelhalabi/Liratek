@@ -63,6 +63,7 @@ function createTestDb(): Database.Database {
       note TEXT,
       due_date TEXT,
       created_by INTEGER,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -85,6 +86,7 @@ function createTestDb(): Database.Database {
       summary TEXT,
       metadata_json TEXT,
       device_id TEXT,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

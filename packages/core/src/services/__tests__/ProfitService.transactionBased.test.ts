@@ -32,17 +32,20 @@ let service: ProfitService;
 function createSchema(d: TestDb): void {
   d.exec(`
     CREATE TABLE users (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT
     );
 
     CREATE TABLE clients (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name TEXT,
       phone_number TEXT
     );
 
     CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -63,6 +66,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE sales (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       status TEXT NOT NULL DEFAULT 'completed',
       final_amount_usd REAL NOT NULL DEFAULT 0,
@@ -73,6 +77,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE sale_items (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       sale_id INTEGER NOT NULL,
       product_id INTEGER,
@@ -84,11 +89,13 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE products (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT
     );
 
     CREATE TABLE financial_services (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
       omt_service_type TEXT,
@@ -105,6 +112,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE recharges (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       carrier TEXT NOT NULL,
       recharge_type TEXT NOT NULL DEFAULT 'CREDIT_TRANSFER',
@@ -116,6 +124,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE custom_services (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       status TEXT NOT NULL DEFAULT 'completed',
       price_usd REAL NOT NULL DEFAULT 0,
@@ -129,6 +138,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE maintenance (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       status TEXT NOT NULL DEFAULT 'Delivered_Paid',
       final_amount_usd REAL NOT NULL DEFAULT 0,
@@ -140,6 +150,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE loto_tickets (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ticket_number TEXT,
       sale_amount REAL NOT NULL DEFAULT 0,
@@ -149,6 +160,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE exchange_transactions (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       amount_in REAL NOT NULL DEFAULT 0,
       leg1_profit_usd REAL,
@@ -158,6 +170,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE expenses (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       amount_usd REAL NOT NULL DEFAULT 0,
       amount_lbp REAL NOT NULL DEFAULT 0,
@@ -166,6 +179,7 @@ function createSchema(d: TestDb): void {
     );
 
     CREATE TABLE payments (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       method TEXT,

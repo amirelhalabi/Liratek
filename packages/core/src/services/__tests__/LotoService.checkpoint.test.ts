@@ -15,6 +15,7 @@ describe("LotoService Checkpoint Functionality", () => {
     db.exec(`
       CREATE TABLE loto_tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL DEFAULT 1,
         ticket_number TEXT,
         sale_amount REAL DEFAULT 0,
         commission_rate REAL DEFAULT 0.0445,
@@ -35,6 +36,7 @@ describe("LotoService Checkpoint Functionality", () => {
 
       CREATE TABLE loto_monthly_fees (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL DEFAULT 1,
         fee_amount REAL DEFAULT 0,
         fee_month TEXT,
         fee_year INTEGER,
@@ -47,6 +49,7 @@ describe("LotoService Checkpoint Functionality", () => {
 
       CREATE TABLE loto_checkpoints (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL DEFAULT 1,
         checkpoint_date TEXT NOT NULL,
         period_start TEXT NOT NULL,
         period_end TEXT NOT NULL,
@@ -66,6 +69,7 @@ describe("LotoService Checkpoint Functionality", () => {
 
       CREATE TABLE loto_cash_prizes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id INTEGER NOT NULL DEFAULT 1,
         ticket_number TEXT,
         prize_amount REAL NOT NULL,
         customer_name TEXT,

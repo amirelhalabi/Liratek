@@ -6,6 +6,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Entity Types
@@ -44,9 +45,11 @@ export class VoucherImageRepository extends BaseRepository<VoucherImageEntity> {
     const row = this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM voucher_images
-         WHERE provider = ? AND category = ? AND item_key = ?`,
+         WHERE provider = ? AND category = ? AND item_key = ? AND tenant_id = ?`,
       )
-      .get(provider, category, itemKey) as VoucherImageEntity | undefined;
+      .get(provider, category, itemKey, getCurrentTenantId()) as
+      | VoucherImageEntity
+      | undefined;
     return row ?? null;
   }
 
@@ -56,9 +59,9 @@ export class VoucherImageRepository extends BaseRepository<VoucherImageEntity> {
   getAllImages(): VoucherImageEntity[] {
     return this.db
       .prepare(
-        `SELECT ${this.getColumns()} FROM voucher_images ORDER BY provider, category, item_key`,
+        `SELECT ${this.getColumns()} FROM voucher_images WHERE tenant_id = ? ORDER BY provider, category, item_key`,
       )
-      .all() as VoucherImageEntity[];
+      .all(getCurrentTenantId()) as VoucherImageEntity[];
   }
 
   /**
@@ -72,13 +75,13 @@ export class VoucherImageRepository extends BaseRepository<VoucherImageEntity> {
   ): void {
     this.db
       .prepare(
-        `INSERT INTO voucher_images (provider, category, item_key, image_path)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(provider, category, item_key) DO UPDATE SET
+        `INSERT INTO voucher_images (provider, category, item_key, image_path, tenant_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(tenant_id, provider, category, item_key) DO UPDATE SET
            image_path = excluded.image_path,
            created_at = CURRENT_TIMESTAMP`,
       )
-      .run(provider, category, itemKey, imagePath);
+      .run(provider, category, itemKey, imagePath, getCurrentTenantId());
   }
 
   /**
@@ -86,8 +89,8 @@ export class VoucherImageRepository extends BaseRepository<VoucherImageEntity> {
    */
   deleteImage(id: number): boolean {
     const result = this.db
-      .prepare(`DELETE FROM voucher_images WHERE id = ?`)
-      .run(id);
+      .prepare(`DELETE FROM voucher_images WHERE id = ? AND tenant_id = ?`)
+      .run(id, getCurrentTenantId());
     return result.changes > 0;
   }
 
@@ -101,9 +104,9 @@ export class VoucherImageRepository extends BaseRepository<VoucherImageEntity> {
   ): boolean {
     const result = this.db
       .prepare(
-        `DELETE FROM voucher_images WHERE provider = ? AND category = ? AND item_key = ?`,
+        `DELETE FROM voucher_images WHERE provider = ? AND category = ? AND item_key = ? AND tenant_id = ?`,
       )
-      .run(provider, category, itemKey);
+      .run(provider, category, itemKey, getCurrentTenantId());
     return result.changes > 0;
   }
 }

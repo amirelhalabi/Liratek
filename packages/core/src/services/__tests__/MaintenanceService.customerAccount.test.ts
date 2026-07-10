@@ -30,10 +30,11 @@ jest.mock("../../db/connection", () => {
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
-    CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL);
+    CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, tenant_id INTEGER DEFAULT 1);
     INSERT INTO users (id, username) VALUES (1, 'admin');
 
     CREATE TABLE clients (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name TEXT NOT NULL,
       phone_number TEXT,
@@ -43,6 +44,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE maintenance (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER,
       client_name TEXT,
@@ -68,6 +70,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE debt_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       client_id INTEGER NOT NULL,
       transaction_type TEXT NOT NULL,
@@ -81,6 +84,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -104,6 +108,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE payments (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       session_id INTEGER,
@@ -117,14 +122,15 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
-    INSERT INTO drawer_balances VALUES ('General', 'USD', 1000, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General', 'LBP', 0,    CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance, updated_at) VALUES ('General', 'USD', 1000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance, updated_at) VALUES ('General', 'LBP', 0,    CURRENT_TIMESTAMP);
   `);
   return db;
 }

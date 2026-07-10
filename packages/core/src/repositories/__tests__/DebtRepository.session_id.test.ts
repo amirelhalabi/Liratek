@@ -41,7 +41,8 @@ function createTestDb(): Database.Database {
       created_by       INTEGER,
       edited_by        TEXT,
       edited_at        TEXT,
-      session_id       INTEGER
+      session_id       INTEGER,
+      tenant_id        INTEGER DEFAULT 1
     );
   `);
   return db;

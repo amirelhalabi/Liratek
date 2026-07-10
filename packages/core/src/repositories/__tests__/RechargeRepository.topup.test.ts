@@ -10,6 +10,10 @@
 
 import Database from "better-sqlite3";
 import { RechargeRepository } from "../RechargeRepository";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 
 // ─── In-memory schema ─────────────────────────────────────────────────────────
 
@@ -18,6 +22,7 @@ function createTestDb(): Database.Database {
 
   db.exec(`
     CREATE TABLE recharges (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       carrier TEXT NOT NULL,
       recharge_type TEXT NOT NULL,
@@ -39,6 +44,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE partners (
+      tenant_id INTEGER DEFAULT 1,
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
       name               TEXT NOT NULL UNIQUE,
       phone              TEXT,
@@ -50,6 +56,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE partner_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id                INTEGER PRIMARY KEY AUTOINCREMENT,
       partner_id        INTEGER NOT NULL REFERENCES partners(id),
       transaction_type  TEXT,
@@ -65,14 +72,16 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -95,6 +104,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE payments (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       method TEXT NOT NULL,
@@ -163,10 +173,12 @@ describe("RechargeRepository.topUpFromPartner()", () => {
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     repo = new RechargeRepository();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
   });
 
@@ -252,10 +264,12 @@ describe("RechargeRepository.topUpFromClient()", () => {
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     repo = new RechargeRepository();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
   });
 
@@ -367,10 +381,12 @@ describe("RechargeRepository.topUpFromCustomer()", () => {
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     repo = new RechargeRepository();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
   });
 

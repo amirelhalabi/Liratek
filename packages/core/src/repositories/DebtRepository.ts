@@ -15,6 +15,7 @@ import {
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 /** A single payment leg for multi-payment repayments */
 export interface RepaymentPaymentLine {
@@ -118,9 +119,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   private getExchangeRate(fromCode = "USD", toCode = "LBP"): number {
     const rateResult = this.db
       .prepare(
-        `SELECT market_rate, buy_rate, sell_rate, is_stronger FROM exchange_rates WHERE to_code = ? LIMIT 1`,
+        `SELECT market_rate, buy_rate, sell_rate, is_stronger FROM exchange_rates WHERE to_code = ? AND tenant_id = ? LIMIT 1`,
       )
-      .get(toCode) as
+      .get(toCode, getCurrentTenantId()) as
       | {
           market_rate: number;
           buy_rate: number;
@@ -146,21 +147,23 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   findAllDebtors(): DebtorSummary[] {
     // Use exchange rate to convert LBP portion into USD for consistent totals
     const rate = this.getExchangeRate("USD", "LBP");
+    const tenantId = getCurrentTenantId();
 
     const stmt = this.db.prepare(`
-      SELECT 
-        c.id, 
-        c.full_name, 
+      SELECT
+        c.id,
+        c.full_name,
         c.phone_number,
         ROUND(COALESCE(SUM(dl.amount_usd), 0) + (COALESCE(SUM(dl.amount_lbp), 0) / ?), 2) as total_debt,
         ROUND(COALESCE(SUM(dl.amount_usd), 0), 2) as total_debt_usd,
         ROUND(COALESCE(SUM(dl.amount_lbp), 0), 2) as total_debt_lbp
       FROM debt_ledger dl
-      JOIN clients c ON dl.client_id = c.id
+      JOIN clients c ON dl.client_id = c.id AND c.tenant_id = dl.tenant_id
+      WHERE dl.tenant_id = ?
       GROUP BY c.id
       ORDER BY total_debt DESC
     `);
-    return stmt.all(rate) as DebtorSummary[];
+    return stmt.all(rate, tenantId) as DebtorSummary[];
   }
 
   /**
@@ -169,11 +172,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   findClientHistory(clientId: number): DebtLedgerEntity[] {
     const stmt = this.db.prepare(`
-      SELECT ${this.getColumns()} FROM debt_ledger 
-      WHERE client_id = ? 
+      SELECT ${this.getColumns()} FROM debt_ledger
+      WHERE client_id = ? AND tenant_id = ?
       ORDER BY created_at DESC
     `);
-    return stmt.all(clientId) as DebtLedgerEntity[];
+    return stmt.all(clientId, getCurrentTenantId()) as DebtLedgerEntity[];
   }
 
   /**
@@ -183,11 +186,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const rate = this.getExchangeRate("USD", "LBP");
 
     const stmt = this.db.prepare(
-      `SELECT ROUND(COALESCE(SUM(amount_usd), 0) + (COALESCE(SUM(amount_lbp), 0) / ?), 2) as total 
-       FROM debt_ledger 
-       WHERE client_id = ?`,
+      `SELECT ROUND(COALESCE(SUM(amount_usd), 0) + (COALESCE(SUM(amount_lbp), 0) / ?), 2) as total
+       FROM debt_ledger
+       WHERE client_id = ? AND tenant_id = ?`,
     );
-    const result = stmt.get(rate, clientId) as { total: number | null };
+    const result = stmt.get(rate, clientId, getCurrentTenantId()) as {
+      total: number | null;
+    };
     return result?.total || 0;
   }
 
@@ -200,11 +205,12 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * Wrapped in transaction to ensure atomicity with payments and drawer updates
    */
   addRepayment(data: CreateRepaymentData): { id: number } {
+    const tenantId = getCurrentTenantId();
     return this.transaction(() => {
       // 1. Insert debt ledger entry
       const stmt = this.db.prepare(`
-        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
-        VALUES (?, 'Repayment', ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+        VALUES (?, 'Repayment', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       // Store as negative values to signify a reduction in debt
@@ -214,6 +220,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         -data.amount_lbp,
         data.note || null,
         data.created_by,
+        tenantId,
         data.transaction_time ?? null,
       );
 
@@ -286,21 +293,23 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       // Link debt_ledger row to unified transaction
       this.db
-        .prepare(`UPDATE debt_ledger SET transaction_id = ? WHERE id = ?`)
-        .run(txnId, repaymentId);
+        .prepare(
+          `UPDATE debt_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(txnId, repaymentId, tenantId);
 
       // 2. Record payment entries for drawer tracking
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       // 3. Update drawer balances
       const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
@@ -333,14 +342,17 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
            JOIN transactions t ON t.id = dl.transaction_id
              AND t.source_table = 'financial_services'
              AND t.status = 'ACTIVE'
+             AND t.tenant_id = dl.tenant_id
            JOIN financial_services fs ON fs.id = t.source_id
+             AND fs.tenant_id = dl.tenant_id
            WHERE dl.client_id = ?
              AND dl.transaction_type = 'Service Debt'
              AND fs.provider IN ('OMT', 'WHISH')
+             AND dl.tenant_id = ?
            GROUP BY fs.provider
            ORDER BY oldest_at ASC`,
         )
-        .all(data.client_id) as Array<{
+        .all(data.client_id, tenantId) as Array<{
         provider: "OMT" | "WHISH";
         debt_usd: number;
         debt_lbp: number;
@@ -352,15 +364,20 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
                   COALESCE(SUM(CASE WHEN p.currency_code = 'USD' THEN p.amount ELSE 0 END), 0) AS routed_usd,
                   COALESCE(SUM(CASE WHEN p.currency_code = 'LBP' THEN p.amount ELSE 0 END), 0) AS routed_lbp
            FROM payments p
-           JOIN transactions t ON t.id = p.transaction_id
+           JOIN transactions t ON t.id = p.transaction_id AND t.tenant_id = p.tenant_id
            WHERE t.client_id = ?
              AND t.type = ?
              AND t.status = 'ACTIVE'
              AND p.drawer_name IN ('OMT_System', 'Whish_System')
              AND p.amount > 0
+             AND p.tenant_id = ?
            GROUP BY p.drawer_name`,
         )
-        .all(data.client_id, TRANSACTION_TYPES.DEBT_REPAYMENT) as Array<{
+        .all(
+          data.client_id,
+          TRANSACTION_TYPES.DEBT_REPAYMENT,
+          tenantId,
+        ) as Array<{
         drawer_name: string;
         routed_usd: number;
         routed_lbp: number;
@@ -409,8 +426,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           leg.amount,
           legNote,
           data.created_by,
+          tenantId,
         );
-        upsertBalance.run(legDrawer, legCurrency, leg.amount);
+        upsertBalance.run(legDrawer, legCurrency, leg.amount, tenantId);
 
         // For Service Debt: transfer from payment drawer → provider system
         // drawer, capped per currency at the remaining OUTSTANDING service
@@ -436,8 +454,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
               -routeAmount,
               `Reserve for ${routingProvider} settlement`,
               data.created_by,
+              tenantId,
             );
-            upsertBalance.run(legDrawer, legCurrency, -routeAmount);
+            upsertBalance.run(legDrawer, legCurrency, -routeAmount, tenantId);
 
             insertPayment.run(
               txnId,
@@ -447,8 +466,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
               routeAmount,
               `Debt repayment → ${providerSystemDrawer}`,
               data.created_by,
+              tenantId,
             );
-            upsertBalance.run(providerSystemDrawer, legCurrency, routeAmount);
+            upsertBalance.run(
+              providerSystemDrawer,
+              legCurrency,
+              routeAmount,
+              tenantId,
+            );
           }
         }
       }
@@ -479,8 +504,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             -amt,
             "Change returned",
             data.created_by,
+            tenantId,
           );
-          upsertBalance.run(drawer, r.currencyCode, -amt);
+          upsertBalance.run(drawer, r.currencyCode, -amt, tenantId);
         }
       }
 
@@ -512,6 +538,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   private _markSalesPaidFIFO(clientId: number, repaymentUsd: number): void {
     if (repaymentUsd <= 0) return;
+    const tenantId = getCurrentTenantId();
 
     // Find the client's unpaid sales, oldest first
     const unpaidSales = this.db
@@ -521,11 +548,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
                 COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1) AS rate
          FROM sales s
          JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id
+           AND t.tenant_id = s.tenant_id
          WHERE t.client_id = ? AND s.status = 'completed'
            AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) < s.final_amount_usd - 0.05
+           AND s.tenant_id = ?
          ORDER BY s.created_at ASC`,
       )
-      .all(clientId) as {
+      .all(clientId, tenantId) as {
       id: number;
       final_amount_usd: number;
       paid_usd: number;
@@ -535,7 +564,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
     let remaining = repaymentUsd;
     const updateStmt = this.db.prepare(
-      `UPDATE sales SET paid_usd = paid_usd + ? WHERE id = ?`,
+      `UPDATE sales SET paid_usd = paid_usd + ? WHERE id = ? AND tenant_id = ?`,
     );
 
     for (const sale of unpaidSales) {
@@ -544,7 +573,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       const outstanding = sale.final_amount_usd - paidInUsd;
       const apply = Math.min(remaining, outstanding);
       if (apply > 0.01) {
-        updateStmt.run(apply, sale.id);
+        updateStmt.run(apply, sale.id, tenantId);
         remaining -= apply;
       }
     }
@@ -571,8 +600,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     sessionId?: number;
   }): { id: number } {
     const stmt = this.db.prepare(`
-      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, session_id, created_at)
-      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, session_id, tenant_id, created_at)
+      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
       data.clientId,
@@ -581,6 +610,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       data.note || null,
       data.createdBy,
       data.sessionId ?? null,
+      getCurrentTenantId(),
       data.transactionTime ?? null,
     );
     return { id: Number(result.lastInsertRowid) };
@@ -598,8 +628,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     transactionTime?: string;
   }): { id: number } {
     const stmt = this.db.prepare(`
-      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
-      VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+      VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
       data.clientId,
@@ -607,6 +637,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       Math.abs(data.amountLbp),
       data.note || null,
       data.createdBy,
+      getCurrentTenantId(),
       data.transactionTime ?? null,
     );
     return { id: Number(result.lastInsertRowid) };
@@ -629,10 +660,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     created_by: number;
     transaction_time?: string;
   }): { id: number } {
+    const tenantId = getCurrentTenantId();
     return this.transaction(() => {
       const stmt = this.db.prepare(`
-        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
-        VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+        VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
       const result = stmt.run(
         data.client_id,
@@ -640,6 +672,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         Math.abs(data.amount_lbp),
         data.note || "Credit cash out",
         data.created_by,
+        tenantId,
         data.transaction_time ?? null,
       );
       const ledgerId = Number(result.lastInsertRowid);
@@ -690,18 +723,20 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       });
 
       this.db
-        .prepare(`UPDATE debt_ledger SET transaction_id = ? WHERE id = ?`)
-        .run(txnId, ledgerId);
+        .prepare(
+          `UPDATE debt_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(txnId, ledgerId, tenantId);
 
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
@@ -718,8 +753,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           -amt,
           data.note || "Credit cash out",
           data.created_by,
+          tenantId,
         );
-        upsertBalance.run(drawer, leg.currencyCode, -amt);
+        upsertBalance.run(drawer, leg.currencyCode, -amt, tenantId);
       }
 
       return { id: ledgerId };
@@ -739,9 +775,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         ROUND(COALESCE(SUM(amount_usd), 0), 2) as balance_usd,
         ROUND(COALESCE(SUM(amount_lbp), 0), 2) as balance_lbp
       FROM debt_ledger
-      WHERE client_id = ?
+      WHERE client_id = ? AND tenant_id = ?
     `);
-    const result = stmt.get(clientId) as
+    const result = stmt.get(clientId, getCurrentTenantId()) as
       | { balance_usd: number; balance_lbp: number }
       | undefined;
     return {
@@ -772,8 +808,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // above every space-format row of the same day (A6). For an already
     // SQLite-format string the SUBSTR+REPLACE is a no-op.
     const stmt = this.db.prepare(`
-      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, COALESCE(REPLACE(SUBSTR(?, 1, 19), 'T', ' '), CURRENT_TIMESTAMP))
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(REPLACE(SUBSTR(?, 1, 19), 'T', ' '), CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
       data.client_id,
@@ -782,6 +818,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       data.amount_lbp,
       data.note,
       data.created_by,
+      getCurrentTenantId(),
       data.created_at ?? null,
     );
     return Number(result.lastInsertRowid);
@@ -811,7 +848,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             AND amount_usd = ?
             AND amount_lbp = ?
             AND COALESCE(note, '') = COALESCE(?, '')
-            AND (? IS NULL OR created_at = REPLACE(SUBSTR(?, 1, 19), 'T', ' '))`,
+            AND (? IS NULL OR created_at = REPLACE(SUBSTR(?, 1, 19), 'T', ' '))
+            AND tenant_id = ?`,
       )
       .get(
         data.client_id,
@@ -821,6 +859,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         data.note,
         data.created_at ?? null,
         data.created_at ?? null,
+        getCurrentTenantId(),
       ) as { n: number };
     return row.n;
   }
@@ -835,18 +874,20 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   getDebtSummary(topN: number = 5): DebtSummary {
     // Total debt receivable
     const rate = this.getExchangeRate("USD", "LBP");
+    const tenantId = getCurrentTenantId();
 
     const totalDebtResult = this.db
       .prepare(
         `
-      SELECT 
+      SELECT
         ROUND(COALESCE(SUM(amount_usd), 0) + (COALESCE(SUM(amount_lbp), 0) / ?), 2) as totalDebt,
         ROUND(COALESCE(SUM(amount_usd), 0), 2) as totalDebtUsd,
         ROUND(COALESCE(SUM(amount_lbp), 0), 2) as totalDebtLbp
       FROM debt_ledger
+      WHERE tenant_id = ?
     `,
       )
-      .get(rate) as {
+      .get(rate, tenantId) as {
       totalDebt: number | null;
       totalDebtUsd: number | null;
       totalDebtLbp: number | null;
@@ -856,20 +897,21 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const topDebtors = this.db
       .prepare(
         `
-      SELECT 
+      SELECT
         c.full_name,
         ROUND(COALESCE(SUM(dl.amount_usd), 0) + (COALESCE(SUM(dl.amount_lbp), 0) / ?), 2) as total_debt,
         ROUND(COALESCE(SUM(dl.amount_usd), 0), 2) as total_debt_usd,
         ROUND(COALESCE(SUM(dl.amount_lbp), 0), 2) as total_debt_lbp
       FROM debt_ledger dl
-      JOIN clients c ON dl.client_id = c.id
+      JOIN clients c ON dl.client_id = c.id AND c.tenant_id = dl.tenant_id
+      WHERE dl.tenant_id = ?
       GROUP BY dl.client_id
       HAVING total_debt > 0.01
       ORDER BY total_debt DESC
       LIMIT ?
     `,
       )
-      .all(rate, topN) as TopDebtor[];
+      .all(rate, tenantId, topN) as TopDebtor[];
 
     return {
       totalDebt: totalDebtResult?.totalDebt || 0,
@@ -904,9 +946,12 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
     values.push(id);
+    values.push(getCurrentTenantId());
 
     this.db
-      .prepare(`UPDATE debt_ledger SET ${fields.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE debt_ledger SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+      )
       .run(...values);
 
     return this.findById(id);

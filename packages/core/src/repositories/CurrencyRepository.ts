@@ -5,6 +5,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
 
 // =============================================================================
@@ -54,9 +55,9 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
    */
   findAllCurrencies(): CurrencyEntity[] {
     const stmt = this.db.prepare(
-      "SELECT id, code, name, symbol, decimal_places, is_active FROM currencies ORDER BY code ASC",
+      "SELECT id, code, name, symbol, decimal_places, is_active FROM currencies WHERE tenant_id = ? ORDER BY code ASC",
     );
-    return stmt.all() as CurrencyEntity[];
+    return stmt.all(getCurrentTenantId()) as CurrencyEntity[];
   }
 
   /**
@@ -65,13 +66,14 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
   createCurrency(data: CreateCurrencyData): { id: number } {
     try {
       const stmt = this.db.prepare(
-        "INSERT INTO currencies (code, name, symbol, decimal_places, is_active) VALUES (?, ?, ?, ?, 1)",
+        "INSERT INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id) VALUES (?, ?, ?, ?, 1, ?)",
       );
       const result = stmt.run(
         data.code.toUpperCase(),
         data.name,
         data.symbol ?? "",
         data.decimal_places ?? 2,
+        getCurrentTenantId(),
       );
       return { id: Number(result.lastInsertRowid) };
     } catch (error) {
@@ -90,12 +92,13 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
    * Update a currency
    */
   updateCurrency(id: number, data: UpdateCurrencyData): boolean {
+    const tenantId = getCurrentTenantId();
     // Use direct query — don't filter by is_active since we may be activating an inactive currency
     const current = this.db
       .prepare(
-        "SELECT id, code, name, symbol, decimal_places, is_active FROM currencies WHERE id = ?",
+        "SELECT id, code, name, symbol, decimal_places, is_active FROM currencies WHERE id = ? AND tenant_id = ?",
       )
-      .get(id) as CurrencyEntity | undefined;
+      .get(id, tenantId) as CurrencyEntity | undefined;
     if (!current) return false;
 
     const code = (data.code ?? current.code).toUpperCase();
@@ -106,9 +109,9 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
 
     this.db
       .prepare(
-        "UPDATE currencies SET code = ?, name = ?, symbol = ?, decimal_places = ?, is_active = ? WHERE id = ?",
+        "UPDATE currencies SET code = ?, name = ?, symbol = ?, decimal_places = ?, is_active = ? WHERE id = ? AND tenant_id = ?",
       )
-      .run(code, name, symbol, decimalPlaces, isActive, id);
+      .run(code, name, symbol, decimalPlaces, isActive, id, tenantId);
 
     return true;
   }
@@ -117,15 +120,20 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
    * Delete a currency
    */
   deleteCurrency(id: number): void {
-    this.db.prepare("DELETE FROM currencies WHERE id = ?").run(id);
+    this.db
+      .prepare("DELETE FROM currencies WHERE id = ? AND tenant_id = ?")
+      .run(id, getCurrentTenantId());
   }
 
   /**
    * Check if currency code exists
    */
   codeExists(code: string, excludeId?: number): boolean {
-    let query = "SELECT 1 FROM currencies WHERE code = ?";
-    const params: (string | number)[] = [code.toUpperCase()];
+    let query = "SELECT 1 FROM currencies WHERE code = ? AND tenant_id = ?";
+    const params: (string | number)[] = [
+      code.toUpperCase(),
+      getCurrentTenantId(),
+    ];
 
     if (excludeId) {
       query += " AND id != ?";
@@ -143,38 +151,44 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
   getModulesForCurrency(code: string): string[] {
     const rows = this.db
       .prepare(
-        `SELECT module_key FROM currency_modules WHERE currency_code = ?`,
+        `SELECT module_key FROM currency_modules WHERE currency_code = ? AND tenant_id = ?`,
       )
-      .all(code.toUpperCase()) as { module_key: string }[];
+      .all(code.toUpperCase(), getCurrentTenantId()) as {
+      module_key: string;
+    }[];
     return rows.map((r) => r.module_key);
   }
 
   /** Get active currencies enabled for a module */
   getCurrenciesForModule(moduleKey: string): CurrencyEntity[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `
       SELECT c.id, c.code, c.name, c.symbol, c.decimal_places, c.is_active
       FROM currencies c
-      JOIN currency_modules cm ON c.code = cm.currency_code
-      WHERE cm.module_key = ? AND c.is_active = 1
+      JOIN currency_modules cm ON c.code = cm.currency_code AND cm.tenant_id = c.tenant_id
+      WHERE cm.module_key = ? AND c.is_active = 1 AND c.tenant_id = ?
       ORDER BY c.code
     `,
       )
-      .all(moduleKey) as CurrencyEntity[];
+      .all(moduleKey, tenantId) as CurrencyEntity[];
   }
 
   /** Set modules for a currency (replace all) */
   setModulesForCurrency(code: string, modules: string[]): void {
+    const tenantId = getCurrentTenantId();
     this.db.transaction(() => {
       this.db
-        .prepare(`DELETE FROM currency_modules WHERE currency_code = ?`)
-        .run(code.toUpperCase());
+        .prepare(
+          `DELETE FROM currency_modules WHERE currency_code = ? AND tenant_id = ?`,
+        )
+        .run(code.toUpperCase(), tenantId);
       const insert = this.db.prepare(
-        `INSERT INTO currency_modules (currency_code, module_key) VALUES (?, ?)`,
+        `INSERT INTO currency_modules (currency_code, module_key, tenant_id) VALUES (?, ?, ?)`,
       );
       for (const m of modules) {
-        insert.run(code.toUpperCase(), m);
+        insert.run(code.toUpperCase(), m, tenantId);
       }
     })();
   }
@@ -187,9 +201,12 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
   getAllDrawerCurrencies(): Record<string, string[]> {
     const rows = this.db
       .prepare(
-        `SELECT drawer_name, currency_code FROM currency_drawers ORDER BY drawer_name, currency_code`,
+        `SELECT drawer_name, currency_code FROM currency_drawers WHERE tenant_id = ? ORDER BY drawer_name, currency_code`,
       )
-      .all() as { drawer_name: string; currency_code: string }[];
+      .all(getCurrentTenantId()) as {
+      drawer_name: string;
+      currency_code: string;
+    }[];
 
     const result: Record<string, string[]> = {};
     for (const row of rows) {
@@ -203,48 +220,54 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
   getCurrenciesForDrawer(drawerName: string): string[] {
     const rows = this.db
       .prepare(
-        `SELECT currency_code FROM currency_drawers WHERE drawer_name = ? ORDER BY currency_code`,
+        `SELECT currency_code FROM currency_drawers WHERE drawer_name = ? AND tenant_id = ? ORDER BY currency_code`,
       )
-      .all(drawerName) as { currency_code: string }[];
+      .all(drawerName, getCurrentTenantId()) as { currency_code: string }[];
     return rows.map((r) => r.currency_code);
   }
 
   /** Get full active currency entities for a drawer (mirrors getCurrenciesForModule) */
   getFullCurrenciesForDrawer(drawerName: string): CurrencyEntity[] {
+    const tenantId = getCurrentTenantId();
     return this.db
       .prepare(
         `
       SELECT c.id, c.code, c.name, c.symbol, c.decimal_places, c.is_active
       FROM currencies c
-      JOIN currency_drawers cd ON c.code = cd.currency_code
-      WHERE cd.drawer_name = ? AND c.is_active = 1
+      JOIN currency_drawers cd ON c.code = cd.currency_code AND cd.tenant_id = c.tenant_id
+      WHERE cd.drawer_name = ? AND c.is_active = 1 AND c.tenant_id = ?
       ORDER BY c.code
     `,
       )
-      .all(drawerName) as CurrencyEntity[];
+      .all(drawerName, tenantId) as CurrencyEntity[];
   }
 
   /** Get drawer names enabled for a specific currency */
   getDrawersForCurrency(code: string): string[] {
     const rows = this.db
       .prepare(
-        `SELECT drawer_name FROM currency_drawers WHERE currency_code = ? ORDER BY drawer_name`,
+        `SELECT drawer_name FROM currency_drawers WHERE currency_code = ? AND tenant_id = ? ORDER BY drawer_name`,
       )
-      .all(code.toUpperCase()) as { drawer_name: string }[];
+      .all(code.toUpperCase(), getCurrentTenantId()) as {
+      drawer_name: string;
+    }[];
     return rows.map((r) => r.drawer_name);
   }
 
   /** Set currencies for a drawer (replace all) */
   setCurrenciesForDrawer(drawerName: string, currencies: string[]): void {
+    const tenantId = getCurrentTenantId();
     this.db.transaction(() => {
       this.db
-        .prepare(`DELETE FROM currency_drawers WHERE drawer_name = ?`)
-        .run(drawerName);
+        .prepare(
+          `DELETE FROM currency_drawers WHERE drawer_name = ? AND tenant_id = ?`,
+        )
+        .run(drawerName, tenantId);
       const insert = this.db.prepare(
-        `INSERT INTO currency_drawers (currency_code, drawer_name) VALUES (?, ?)`,
+        `INSERT INTO currency_drawers (currency_code, drawer_name, tenant_id) VALUES (?, ?, ?)`,
       );
       for (const code of currencies) {
-        insert.run(code.toUpperCase(), drawerName);
+        insert.run(code.toUpperCase(), drawerName, tenantId);
       }
     })();
   }
@@ -253,9 +276,9 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
   getConfiguredDrawerNames(): string[] {
     const rows = this.db
       .prepare(
-        `SELECT DISTINCT drawer_name FROM currency_drawers ORDER BY drawer_name`,
+        `SELECT DISTINCT drawer_name FROM currency_drawers WHERE tenant_id = ? ORDER BY drawer_name`,
       )
-      .all() as { drawer_name: string }[];
+      .all(getCurrentTenantId()) as { drawer_name: string }[];
     return rows.map((r) => r.drawer_name);
   }
 }

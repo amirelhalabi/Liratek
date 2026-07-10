@@ -1,4 +1,5 @@
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { closingLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -127,9 +128,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   getSystemExpectedBalancesDynamic(): DynamicSystemExpectedBalances {
     const rows = this.db
       .prepare(
-        `SELECT drawer_name, currency_code, balance FROM drawer_balances`,
+        `SELECT drawer_name, currency_code, balance FROM drawer_balances WHERE tenant_id = ?`,
       )
-      .all() as {
+      .all(getCurrentTenantId()) as {
       drawer_name: string;
       currency_code: string;
       balance: number;
@@ -151,18 +152,27 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    */
   recalculateDrawerBalances(): { success: boolean; error?: string } {
     try {
-      this.db.exec(`
-        UPDATE drawer_balances SET balance = 0, updated_at = CURRENT_TIMESTAMP;
-
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        SELECT drawer_name, currency_code, SUM(amount)
-        FROM payments
-        WHERE method != 'CUSTOMER_ACCOUNT'
-        GROUP BY drawer_name, currency_code
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
-          balance = excluded.balance,
-          updated_at = CURRENT_TIMESTAMP;
-      `);
+      // db.exec cannot bind parameters, so the tenant-scoped rewrite uses two
+      // prepared statements run back-to-back (same sequential semantics as the
+      // previous multi-statement exec).
+      const tenantId = getCurrentTenantId();
+      this.db
+        .prepare(
+          `UPDATE drawer_balances SET balance = 0, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?`,
+        )
+        .run(tenantId);
+      this.db
+        .prepare(
+          `INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+           SELECT ?, drawer_name, currency_code, SUM(amount)
+           FROM payments
+           WHERE method != 'CUSTOMER_ACCOUNT' AND tenant_id = ?
+           GROUP BY drawer_name, currency_code
+           ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
+             balance = excluded.balance,
+             updated_at = CURRENT_TIMESTAMP`,
+        )
+        .run(tenantId, tenantId);
       closingLogger.info("Drawer balances recalculated from payments journal");
       return { success: true };
     } catch (error) {
@@ -180,8 +190,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    */
   hasInitialBalancesSet(): boolean {
     const row = this.db
-      .prepare(`SELECT COUNT(*) as cnt FROM drawer_balances WHERE balance != 0`)
-      .get() as { cnt: number };
+      .prepare(
+        `SELECT COUNT(*) as cnt FROM drawer_balances WHERE balance != 0 AND tenant_id = ?`,
+      )
+      .get(getCurrentTenantId()) as { cnt: number };
     return row.cnt > 0;
   }
 
@@ -191,9 +203,12 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Used as baseline for the next checkpoint.
    */
   getLastCheckpointActuals(): Record<string, Record<string, number>> {
+    const tenantId = getCurrentTenantId();
     const lastCheckpoint = this.db
-      .prepare(`SELECT id FROM daily_closings ORDER BY id DESC LIMIT 1`)
-      .get() as { id: number } | undefined;
+      .prepare(
+        `SELECT id FROM daily_closings WHERE tenant_id = ? ORDER BY id DESC LIMIT 1`,
+      )
+      .get(tenantId) as { id: number } | undefined;
 
     if (!lastCheckpoint) return {};
 
@@ -201,9 +216,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       .prepare(
         `SELECT drawer_name, currency_code, physical_amount
          FROM daily_closing_amounts
-         WHERE closing_id = ? AND physical_amount IS NOT NULL`,
+         WHERE closing_id = ? AND physical_amount IS NOT NULL AND tenant_id = ?`,
       )
-      .all(lastCheckpoint.id) as {
+      .all(lastCheckpoint.id, tenantId) as {
       drawer_name: string;
       currency_code: string;
       physical_amount: number;
@@ -228,15 +243,17 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   } {
     try {
       const closingDate = new Date().toISOString().split("T")[0];
+      const tenantId = getCurrentTenantId();
 
       const stmt = this.db.prepare(`
         INSERT INTO daily_closings (
-          closing_date, drawer_name, opening_balance_usd, opening_balance_lbp,
+          tenant_id, closing_date, drawer_name, opening_balance_usd, opening_balance_lbp,
           physical_usd, physical_lbp, physical_eur, system_expected_usd,
           system_expected_lbp, variance_usd, notes, report_path, created_by
-        ) VALUES (?, ?, 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?)
+        ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?)
       `);
       const result = stmt.run(
+        tenantId,
         closingDate,
         data.drawer_name,
         data.notes || null,
@@ -245,8 +262,8 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       );
 
       const upsertAmounts = this.db.prepare(`
-        INSERT INTO daily_closing_amounts (closing_id, drawer_name, currency_code, opening_amount, physical_amount)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO daily_closing_amounts (tenant_id, closing_id, drawer_name, currency_code, opening_amount, physical_amount)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(closing_id, drawer_name, currency_code) DO UPDATE SET
           opening_amount = excluded.opening_amount,
           physical_amount = excluded.physical_amount
@@ -258,24 +275,25 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       // dashboard reflects the counted amount. Currencies whose count already
       // matches the balance produce a zero delta and are skipped.
       const getBalance = this.db.prepare(
-        `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
+        `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?`,
       );
       const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
       const insertPayment = this.db.prepare(`
-        INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const tx = this.db.transaction((rows: CheckpointAmount[]) => {
         // 1. Persist the audit snapshot (expected vs physical) for variance reports.
         for (const r of rows) {
           upsertAmounts.run(
+            tenantId,
             result.lastInsertRowid,
             r.drawer_name,
             r.currency_code,
@@ -287,9 +305,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         // 2. Compute per-currency reconciliation deltas against live balances.
         const adjustments = rows
           .map((r) => {
-            const existing = getBalance.get(r.drawer_name, r.currency_code) as
-              | { balance: number }
-              | undefined;
+            const existing = getBalance.get(
+              r.drawer_name,
+              r.currency_code,
+              tenantId,
+            ) as { balance: number } | undefined;
             const current = existing?.balance ?? 0;
             return {
               drawer_name: r.drawer_name,
@@ -326,6 +346,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         // 4. Post the reconciliation entries to the journal + live balances.
         for (const a of adjustments) {
           insertPayment.run(
+            tenantId,
             txnId,
             CHECKPOINT_ADJUSTMENT_METHOD,
             a.drawer_name,
@@ -334,7 +355,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
             `Checkpoint reconciliation for ${closingDate}`,
             data.user_id,
           );
-          upsertBalance.run(a.drawer_name, a.currency_code, a.delta);
+          upsertBalance.run(tenantId, a.drawer_name, a.currency_code, a.delta);
         }
       });
       tx(data.amounts);
@@ -358,6 +379,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    */
   getDailyStatsSnapshot(): DailyStatsSnapshot {
     const today = new Date().toISOString().split("T")[0];
+    const tenantId = getCurrentTenantId();
 
     // Sales stats
     const salesStats = this.db
@@ -367,9 +389,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(final_amount_usd) as total_sales_usd,
           SUM(paid_lbp) as total_sales_lbp
          FROM sales
-         WHERE DATE(created_at) = ? AND status = 'completed'`,
+         WHERE DATE(created_at) = ? AND status = 'completed' AND tenant_id = ?`,
       )
-      .get(today) as
+      .get(today, tenantId) as
       | {
           sales_count: number;
           total_sales_usd: number;
@@ -384,9 +406,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(ABS(amount_usd)) as total_debt_payments_usd,
           SUM(ABS(amount_lbp)) as total_debt_payments_lbp
          FROM debt_ledger
-         WHERE DATE(created_at) = ? AND transaction_type = 'Repayment'`,
+         WHERE DATE(created_at) = ? AND transaction_type = 'Repayment' AND tenant_id = ?`,
       )
-      .get(today) as
+      .get(today, tenantId) as
       | { total_debt_payments_usd: number; total_debt_payments_lbp: number }
       | undefined;
 
@@ -397,9 +419,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(amount_usd) as total_expenses_usd,
           SUM(amount_lbp) as total_expenses_lbp
          FROM expenses
-         WHERE DATE(expense_date) = ?`,
+         WHERE DATE(expense_date) = ? AND tenant_id = ?`,
       )
-      .get(today) as
+      .get(today, tenantId) as
       | { total_expenses_usd: number; total_expenses_lbp: number }
       | undefined;
 
@@ -412,45 +434,46 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
          JOIN sale_items si ON s.id = si.sale_id
          WHERE DATE(s.created_at) = ? AND s.status = 'completed'
            AND si.is_refunded = 0
-           AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) >= s.final_amount_usd - 0.05`,
+           AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) >= s.final_amount_usd - 0.05
+           AND s.tenant_id = ? AND si.tenant_id = ?`,
       )
-      .get(today) as { profit_usd: number };
+      .get(today, tenantId, tenantId) as { profit_usd: number };
 
     const finProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
          FROM financial_services
-         WHERE DATE(created_at) = ?`,
+         WHERE DATE(created_at) = ? AND tenant_id = ?`,
       )
-      .get(today) as { profit_usd: number };
+      .get(today, tenantId) as { profit_usd: number };
 
     const rechargeProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
          FROM recharges
-         WHERE DATE(created_at) = ?`,
+         WHERE DATE(created_at) = ? AND tenant_id = ?`,
       )
-      .get(today) as { profit_usd: number };
+      .get(today, tenantId) as { profit_usd: number };
 
     const customProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(profit_usd), 0) as profit_usd
          FROM custom_services
-         WHERE DATE(created_at) = ? AND status = 'completed'`,
+         WHERE DATE(created_at) = ? AND status = 'completed' AND tenant_id = ?`,
       )
-      .get(today) as { profit_usd: number };
+      .get(today, tenantId) as { profit_usd: number };
 
     const maintProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
          FROM maintenance
-         WHERE DATE(created_at) = ? AND LOWER(status) = 'completed'`,
+         WHERE DATE(created_at) = ? AND LOWER(status) = 'completed' AND tenant_id = ?`,
       )
-      .get(today) as { profit_usd: number };
+      .get(today, tenantId) as { profit_usd: number };
 
     const totalProfitUSD =
       salesProfit.profit_usd +
@@ -477,8 +500,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   hasOpeningBalanceToday(): boolean {
     const today = new Date().toISOString().split("T")[0];
     const row = this.db
-      .prepare(`SELECT 1 FROM daily_closings WHERE closing_date = ? LIMIT 1`)
-      .get(today);
+      .prepare(
+        `SELECT 1 FROM daily_closings WHERE closing_date = ? AND tenant_id = ? LIMIT 1`,
+      )
+      .get(today, getCurrentTenantId());
     return row !== undefined;
   }
 
@@ -491,7 +516,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * (mirrors hasInitialBalancesSet for opening drawer amounts).
    */
   hasStartingCheckpoint(): boolean {
-    const row = this.db.prepare(`SELECT 1 FROM daily_closings LIMIT 1`).get();
+    const row = this.db
+      .prepare(`SELECT 1 FROM daily_closings WHERE tenant_id = ? LIMIT 1`)
+      .get(getCurrentTenantId());
     return row !== undefined;
   }
 
@@ -503,8 +530,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    */
   getInitialCheckpointDate(): string | null {
     const row = this.db
-      .prepare(`SELECT closing_date FROM daily_closings ORDER BY id ASC LIMIT 1`)
-      .get() as { closing_date: string } | undefined;
+      .prepare(
+        `SELECT closing_date FROM daily_closings WHERE tenant_id = ? ORDER BY id ASC LIMIT 1`,
+      )
+      .get(getCurrentTenantId()) as { closing_date: string } | undefined;
     return row?.closing_date ?? null;
   }
 
@@ -536,7 +565,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           report_path           = COALESCE(?, report_path),
           updated_by            = COALESCE(?, updated_by),
           updated_at            = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
 
       const result = stmt.run(
@@ -550,6 +579,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         data.report_path ?? null,
         data.user_id ?? null,
         data.id,
+        getCurrentTenantId(),
       );
 
       if (result.changes === 0) {
@@ -584,9 +614,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     }>(
       `SELECT drawer_name, currency_code, opening_amount, physical_amount
        FROM daily_closing_amounts
-       WHERE closing_id = ?
+       WHERE closing_id = ? AND tenant_id = ?
        ORDER BY drawer_name, currency_code`,
       checkpointId,
+      getCurrentTenantId(),
     );
   }
 
@@ -619,12 +650,20 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           ELSE 'CHECKPOINT'
         END as checkpoint_type
       FROM daily_closings dc
-      LEFT JOIN users u ON u.id = dc.created_by
-      LEFT JOIN transactions t ON t.source_table = 'daily_closings' AND t.source_id = dc.id
+      LEFT JOIN users u ON u.id = dc.created_by AND u.tenant_id = ?
+      LEFT JOIN transactions t ON t.source_table = 'daily_closings' AND t.source_id = dc.id AND t.tenant_id = ?
       WHERE dc.closing_date BETWEEN ? AND ?
+        AND dc.tenant_id = ?
     `;
 
-    const params: (string | number)[] = [date_from, date_to];
+    const tenantId = getCurrentTenantId();
+    const params: (string | number)[] = [
+      tenantId,
+      tenantId,
+      date_from,
+      date_to,
+      tenantId,
+    ];
 
     if (type !== "ALL") {
       sql += ` AND t.type = ?`;
@@ -653,11 +692,12 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         opening_amount: number;
         physical_amount: number;
       }>(
-        `SELECT drawer_name, currency_code, opening_amount, physical_amount 
-         FROM daily_closing_amounts 
-         WHERE closing_id = ?
+        `SELECT drawer_name, currency_code, opening_amount, physical_amount
+         FROM daily_closing_amounts
+         WHERE closing_id = ? AND tenant_id = ?
          ORDER BY drawer_name, currency_code`,
         checkpoint.id,
+        tenantId,
       );
 
       checkpoint.currencies = amounts.map((a: any) => ({
@@ -686,20 +726,23 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     // Checkpoints are stored as AGGREGATED rows in daily_closings, with
     // per-drawer amounts in daily_closing_amounts. Group by the amounts
     // table's drawer_name to find the latest checkpoint per drawer.
+    const tenantId = getCurrentTenantId();
     const rows = this.db
       .prepare(
         `SELECT dc.created_at as checked_at,
                 dca.drawer_name, dca.currency_code, dca.physical_amount, dca.opening_amount
          FROM daily_closing_amounts dca
-         JOIN daily_closings dc ON dc.id = dca.closing_id
+         JOIN daily_closings dc ON dc.id = dca.closing_id AND dc.tenant_id = ?
          WHERE dca.closing_id IN (
            SELECT MAX(dca2.closing_id)
            FROM daily_closing_amounts dca2
+           WHERE dca2.tenant_id = ?
            GROUP BY dca2.drawer_name
          )
+           AND dca.tenant_id = ?
          ORDER BY dca.drawer_name, dca.currency_code`,
       )
-      .all() as {
+      .all(tenantId, tenantId, tenantId) as {
       drawer_name: string;
       checked_at: string;
       currency_code: string;

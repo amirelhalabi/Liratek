@@ -49,6 +49,7 @@ function createTestDb(): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name TEXT NOT NULL,
       phone_number TEXT,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -59,6 +60,7 @@ function createTestDb(): Database.Database {
       provider TEXT NOT NULL,
       service_type TEXT DEFAULT 'SEND',
       amount REAL DEFAULT 0,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -81,6 +83,7 @@ function createTestDb(): Database.Database {
       summary TEXT,
       metadata_json TEXT,
       device_id TEXT,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -94,6 +97,7 @@ function createTestDb(): Database.Database {
       amount REAL NOT NULL,
       note TEXT,
       created_by INTEGER,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -101,11 +105,12 @@ function createTestDb(): Database.Database {
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
+      tenant_id INTEGER DEFAULT 1,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
-    INSERT INTO drawer_balances VALUES ('General', 'USD', 500, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General', 'LBP', 20000000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance, updated_at) VALUES ('General', 'USD', 500, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance, updated_at) VALUES ('General', 'LBP', 20000000, CURRENT_TIMESTAMP);
 
     CREATE TABLE debt_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,6 +125,7 @@ function createTestDb(): Database.Database {
       edited_by TEXT,
       edited_at DATETIME,
       session_id INTEGER,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -130,6 +136,7 @@ function createTestDb(): Database.Database {
       paid_lbp REAL DEFAULT 0,
       exchange_rate_snapshot REAL DEFAULT 0,
       status TEXT DEFAULT 'completed',
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -140,7 +147,8 @@ function createTestDb(): Database.Database {
       market_rate REAL NOT NULL,
       buy_rate REAL NOT NULL,
       sell_rate REAL NOT NULL,
-      is_stronger INTEGER NOT NULL DEFAULT 1
+      is_stronger INTEGER NOT NULL DEFAULT 1,
+      tenant_id INTEGER DEFAULT 1
     );
     INSERT INTO exchange_rates (to_code, market_rate, buy_rate, sell_rate, is_stronger)
     VALUES ('LBP', ${RATE}, ${RATE}, ${RATE}, 1);

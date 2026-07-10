@@ -20,6 +20,10 @@
 
 import Database from "better-sqlite3";
 import { FinancialServiceRepository } from "../FinancialServiceRepository";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 import { resetTransactionRepository } from "../TransactionRepository";
 
 jest.mock("../../db/connection", () => {
@@ -48,12 +52,14 @@ function createTestDb(): Database.Database {
 
   db.exec(`
     CREATE TABLE users (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL,
       role TEXT
     );
 
     CREATE TABLE clients (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name TEXT NOT NULL,
       phone_number TEXT,
@@ -63,6 +69,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE financial_services (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
       service_type TEXT NOT NULL,
@@ -103,6 +110,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -127,6 +135,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE payments (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       session_id INTEGER,
@@ -142,16 +151,18 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
-    INSERT INTO drawer_balances VALUES ('General', 'LBP', 20000000, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('Katsh',   'LBP', 5000000,  CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General', 'LBP', 20000000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'Katsh',   'LBP', 5000000,  CURRENT_TIMESTAMP);
 
     CREATE TABLE suppliers (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       provider TEXT,
@@ -162,6 +173,7 @@ function createTestDb(): Database.Database {
     INSERT INTO suppliers (name, provider, is_system) VALUES ('Katsh', 'Katsh', 0);
 
     CREATE TABLE supplier_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       supplier_id INTEGER NOT NULL,
       entry_type TEXT NOT NULL,
@@ -176,6 +188,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE system_settings (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       key_name TEXT NOT NULL UNIQUE,
       value TEXT
@@ -216,11 +229,13 @@ describe("FinancialServiceRepository — user_id FK on stamped rows", () => {
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     resetTransactionRepository();
     repo = new FinancialServiceRepository();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
     resetTransactionRepository();
   });

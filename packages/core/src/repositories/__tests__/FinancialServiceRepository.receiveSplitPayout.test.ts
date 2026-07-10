@@ -13,6 +13,10 @@
 
 import Database from "better-sqlite3";
 import { FinancialServiceRepository } from "../FinancialServiceRepository";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -42,10 +46,12 @@ function createTestDb(): Database.Database {
   const db = new Database(":memory:");
 
   db.exec(`
-    CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, role TEXT DEFAULT 'staff');
+    CREATE TABLE users (
+      tenant_id INTEGER DEFAULT 1,id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, role TEXT DEFAULT 'staff');
     INSERT INTO users (id, username, role) VALUES (1, 'admin', 'admin');
 
     CREATE TABLE clients (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name TEXT NOT NULL,
       phone_number TEXT,
@@ -55,6 +61,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE partners (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       is_active INTEGER NOT NULL DEFAULT 1,
@@ -62,6 +69,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE financial_services (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
       service_type TEXT NOT NULL,
@@ -102,6 +110,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE partner_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       partner_id INTEGER NOT NULL REFERENCES partners(id),
       transaction_type TEXT NOT NULL,
@@ -117,6 +126,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -139,6 +149,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE payments (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       session_id INTEGER,
@@ -152,14 +163,16 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     CREATE TABLE suppliers (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       contact_name TEXT,
@@ -174,6 +187,7 @@ function createTestDb(): Database.Database {
     INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT', 'OMT', 1);
 
     CREATE TABLE supplier_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       supplier_id INTEGER NOT NULL,
       entry_type TEXT NOT NULL,
@@ -187,6 +201,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE system_settings (
+      tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       key_name TEXT NOT NULL UNIQUE,
       value TEXT,
@@ -194,9 +209,9 @@ function createTestDb(): Database.Database {
     );
     INSERT INTO system_settings (key_name, value) VALUES ('shop_base_system', 'OMT');
 
-    INSERT INTO drawer_balances VALUES ('General',    'USD', 1000,        CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General',    'LBP', 100000000,   CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('OMT_System', 'USD', 500,         CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General',    'USD', 1000,        CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General',    'LBP', 100000000,   CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'OMT_System', 'USD', 500,         CURRENT_TIMESTAMP);
   `);
 
   return db;
@@ -224,10 +239,14 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     repo = new FinancialServiceRepository();
   });
 
-  afterEach(() => db.close());
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
 
   it("deducts BOTH currency legs from General on a split cash payout", () => {
     const beforeUsd = balance(db, "General", "USD");

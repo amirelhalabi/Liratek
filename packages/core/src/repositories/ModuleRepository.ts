@@ -6,6 +6,7 @@
  */
 
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import type Database from "better-sqlite3";
 
 // =============================================================================
@@ -37,48 +38,53 @@ export class ModuleRepository {
   /** Get all modules ordered by sort_order */
   getAll(): ModuleEntity[] {
     return this.db
-      .prepare(`SELECT * FROM modules ORDER BY sort_order`)
-      .all() as ModuleEntity[];
+      .prepare(`SELECT * FROM modules WHERE tenant_id = ? ORDER BY sort_order`)
+      .all(getCurrentTenantId()) as ModuleEntity[];
   }
 
   /** Get only enabled modules (for sidebar rendering) */
   getEnabledModules(): ModuleEntity[] {
     return this.db
-      .prepare(`SELECT * FROM modules WHERE is_enabled = 1 ORDER BY sort_order`)
-      .all() as ModuleEntity[];
+      .prepare(
+        `SELECT * FROM modules WHERE is_enabled = 1 AND tenant_id = ? ORDER BY sort_order`,
+      )
+      .all(getCurrentTenantId()) as ModuleEntity[];
   }
 
   /** Get toggleable modules (non-system) for the Settings > Modules UI */
   getToggleableModules(): ModuleEntity[] {
     return this.db
-      .prepare(`SELECT * FROM modules WHERE is_system = 0 ORDER BY sort_order`)
-      .all() as ModuleEntity[];
+      .prepare(
+        `SELECT * FROM modules WHERE is_system = 0 AND tenant_id = ? ORDER BY sort_order`,
+      )
+      .all(getCurrentTenantId()) as ModuleEntity[];
   }
 
   /** Get a single module by key */
   getByKey(key: string): ModuleEntity | undefined {
-    return this.db.prepare(`SELECT * FROM modules WHERE key = ?`).get(key) as
-      | ModuleEntity
-      | undefined;
+    return this.db
+      .prepare(`SELECT * FROM modules WHERE key = ? AND tenant_id = ?`)
+      .get(key, getCurrentTenantId()) as ModuleEntity | undefined;
   }
 
   /** Enable or disable a module (only non-system modules) */
   setEnabled(key: string, enabled: boolean): void {
     this.db
       .prepare(
-        `UPDATE modules SET is_enabled = ? WHERE key = ? AND is_system = 0`,
+        `UPDATE modules SET is_enabled = ? WHERE key = ? AND is_system = 0 AND tenant_id = ?`,
       )
-      .run(enabled ? 1 : 0, key);
+      .run(enabled ? 1 : 0, key, getCurrentTenantId());
   }
 
   /** Bulk update enabled state */
   bulkSetEnabled(updates: { key: string; is_enabled: boolean }[]): void {
+    const tenantId = getCurrentTenantId();
     this.db.transaction(() => {
       const stmt = this.db.prepare(
-        `UPDATE modules SET is_enabled = ? WHERE key = ? AND is_system = 0`,
+        `UPDATE modules SET is_enabled = ? WHERE key = ? AND is_system = 0 AND tenant_id = ?`,
       );
       for (const u of updates) {
-        stmt.run(u.is_enabled ? 1 : 0, u.key);
+        stmt.run(u.is_enabled ? 1 : 0, u.key, tenantId);
       }
     })();
   }
@@ -86,18 +92,19 @@ export class ModuleRepository {
   /** Update sort order */
   updateSortOrder(key: string, sortOrder: number): void {
     this.db
-      .prepare(`UPDATE modules SET sort_order = ? WHERE key = ?`)
-      .run(sortOrder, key);
+      .prepare(`UPDATE modules SET sort_order = ? WHERE key = ? AND tenant_id = ?`)
+      .run(sortOrder, key, getCurrentTenantId());
   }
 
   /** Bulk update sort order from an ordered array of keys */
   bulkUpdateSortOrder(orderedKeys: string[]): void {
+    const tenantId = getCurrentTenantId();
     this.db.transaction(() => {
       const stmt = this.db.prepare(
-        `UPDATE modules SET sort_order = ? WHERE key = ?`,
+        `UPDATE modules SET sort_order = ? WHERE key = ? AND tenant_id = ?`,
       );
       for (let i = 0; i < orderedKeys.length; i++) {
-        stmt.run(i, orderedKeys[i]);
+        stmt.run(i, orderedKeys[i], tenantId);
       }
     })();
   }

@@ -7,6 +7,7 @@
 
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
@@ -83,13 +84,14 @@ export class LotoCheckpointRepository {
   createCheckpoint(data: LotoCheckpointCreate): LotoCheckpoint {
     const stmt = this.db.prepare(`
       INSERT INTO loto_checkpoints (
-        checkpoint_date, period_start, period_end, 
+        tenant_id, checkpoint_date, period_start, period_end,
         total_sales, total_commission, total_tickets, total_prizes,
         total_cash_prizes, total_cash_prizes_count, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
+      getCurrentTenantId(),
       data.checkpoint_date,
       data.period_start,
       data.period_end,
@@ -107,36 +109,36 @@ export class LotoCheckpointRepository {
 
   getCheckpointById(id: number): LotoCheckpoint | null {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_checkpoints WHERE id = ?
+      SELECT * FROM loto_checkpoints WHERE id = ? AND tenant_id = ?
     `);
-    return stmt.get(id) as LotoCheckpoint | null;
+    return stmt.get(id, getCurrentTenantId()) as LotoCheckpoint | null;
   }
 
   getCheckpointByDate(date: string): LotoCheckpoint | null {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_checkpoints WHERE date(checkpoint_date) = date(?)
+      SELECT * FROM loto_checkpoints WHERE date(checkpoint_date) = date(?) AND tenant_id = ?
       ORDER BY checkpoint_date DESC
       LIMIT 1
     `);
-    return stmt.get(date) as LotoCheckpoint | null;
+    return stmt.get(date, getCurrentTenantId()) as LotoCheckpoint | null;
   }
 
   getCheckpointsByDateRange(from: string, to: string): LotoCheckpoint[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_checkpoints 
-      WHERE date(checkpoint_date) BETWEEN date(?) AND date(?)
+      SELECT * FROM loto_checkpoints
+      WHERE date(checkpoint_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
       ORDER BY checkpoint_date DESC
     `);
-    return stmt.all(from, to) as LotoCheckpoint[];
+    return stmt.all(from, to, getCurrentTenantId()) as LotoCheckpoint[];
   }
 
   getUnsettledCheckpoints(): LotoCheckpoint[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_checkpoints 
-      WHERE is_settled = 0
+      SELECT * FROM loto_checkpoints
+      WHERE is_settled = 0 AND tenant_id = ?
       ORDER BY checkpoint_date DESC
     `);
-    return stmt.all() as LotoCheckpoint[];
+    return stmt.all(getCurrentTenantId()) as LotoCheckpoint[];
   }
 
   updateCheckpoint(
@@ -196,10 +198,10 @@ export class LotoCheckpointRepository {
     }
 
     fields.push("updated_at = CURRENT_TIMESTAMP");
-    values.push(id);
+    values.push(id, getCurrentTenantId());
 
     const stmt = this.db.prepare(`
-      UPDATE loto_checkpoints SET ${fields.join(", ")} WHERE id = ?
+      UPDATE loto_checkpoints SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?
     `);
 
     stmt.run(...values);
@@ -212,13 +214,13 @@ export class LotoCheckpointRepository {
     settlementId?: number,
   ): LotoCheckpoint | null {
     const stmt = this.db.prepare(`
-      UPDATE loto_checkpoints 
+      UPDATE loto_checkpoints
       SET is_settled = 1, settled_at = ?, settlement_id = ?
-      WHERE id = ?
+      WHERE id = ? AND tenant_id = ?
     `);
 
     const settledDate = settledAt || new Date().toISOString();
-    stmt.run(settledDate, settlementId || null, id);
+    stmt.run(settledDate, settlementId || null, id, getCurrentTenantId());
     return this.getCheckpointById(id);
   }
 
@@ -245,6 +247,7 @@ export class LotoCheckpointRepository {
       direction?: "IN" | "OUT";
     }>,
   ): LotoCheckpoint {
+    const tenantId = getCurrentTenantId();
     const settleInTxn = this.db.transaction(() => {
       const settledDate = settledAt || new Date().toISOString();
 
@@ -264,9 +267,11 @@ export class LotoCheckpointRepository {
 
       // Get LOTO supplier ID
       const supplierStmt = this.db.prepare(
-        `SELECT id FROM suppliers WHERE provider = 'LOTO' LIMIT 1`,
+        `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
       );
-      const supplier = supplierStmt.get() as { id: number } | undefined;
+      const supplier = supplierStmt.get(tenantId) as
+        | { id: number }
+        | undefined;
       const supplierId = supplier?.id || 1;
 
       // 1. Create unified transaction for settlement
@@ -294,15 +299,16 @@ export class LotoCheckpointRepository {
       // 2. Create loto_settlements record
       const insertSettlement = this.db.prepare(`
         INSERT INTO loto_settlements (
-          settlement_date, checkpoint_ids, total_sales, total_commission,
+          tenant_id, settlement_date, checkpoint_ids, total_sales, total_commission,
           total_cash_prizes, net_settlement, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const settlementNote = `Settled: sales=${totalSales}, commission=${totalCommission}, prizes=${totalCashPrizes}`;
       const checkpointIdsJson = JSON.stringify([id]);
 
       const settlementResult = insertSettlement.run(
+        tenantId,
         settledDate,
         checkpointIdsJson,
         totalSales,
@@ -320,11 +326,12 @@ export class LotoCheckpointRepository {
       // is -netSettlement, so this row zeroes it. Do NOT negate.
       const insertLedger = this.db.prepare(`
         INSERT INTO supplier_ledger (
-          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       insertLedger.run(
+        tenantId,
         supplierId,
         "SETTLEMENT",
         0,
@@ -334,24 +341,26 @@ export class LotoCheckpointRepository {
         null,
       );
 
-      // 4. Credit commission to General drawer
+      // 4. Credit commission to General drawer. drawer_balances' PRIMARY KEY
+      // is now (tenant_id, drawer_name, currency_code) — the ON CONFLICT
+      // target must match it exactly.
       const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
 
       if (totalCommission > 0) {
-        upsertBalance.run("General", "LBP", totalCommission);
+        upsertBalance.run(tenantId, "General", "LBP", totalCommission);
       }
 
       // 5. Record payment legs and update drawer balances
       if (payments && payments.length > 0) {
         const insertPayment = this.db.prepare(`
-          INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const p of payments) {
           // OUT legs (returned change) are not part of a supplier settlement.
@@ -359,6 +368,7 @@ export class LotoCheckpointRepository {
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
           insertPayment.run(
+            tenantId,
             txnId,
             p.method,
             drawerName,
@@ -367,25 +377,25 @@ export class LotoCheckpointRepository {
             `Loto settlement #${id}`,
             userId,
           );
-          upsertBalance.run(drawerName, p.currency_code, p.amount);
+          upsertBalance.run(tenantId, drawerName, p.currency_code, p.amount);
         }
       }
 
       // 6. Mark linked cash prizes as reimbursed
       const markReimbursed = this.db.prepare(`
-        UPDATE loto_cash_prizes 
+        UPDATE loto_cash_prizes
         SET is_reimbursed = 1, reimbursed_date = ?, reimbursed_in_settlement_id = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE checkpoint_id = ? AND is_reimbursed = 0
+        WHERE checkpoint_id = ? AND is_reimbursed = 0 AND tenant_id = ?
       `);
-      markReimbursed.run(settledDate, settlementId, id);
+      markReimbursed.run(settledDate, settlementId, id, tenantId);
 
       // 7. Mark checkpoint as settled
       const updateCheckpoint = this.db.prepare(`
-        UPDATE loto_checkpoints 
+        UPDATE loto_checkpoints
         SET is_settled = 1, settled_at = ?, settlement_id = ?
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
-      updateCheckpoint.run(settledDate, settlementId, id);
+      updateCheckpoint.run(settledDate, settlementId, id, tenantId);
 
       return this.getCheckpointById(id)!;
     });
@@ -414,6 +424,7 @@ export class LotoCheckpointRepository {
     if (checkpointIds.length === 0)
       throw new Error("No checkpoint IDs provided");
 
+    const tenantId = getCurrentTenantId();
     const settleInTxn = this.db.transaction(() => {
       const settledDate = settledAt || new Date().toISOString();
 
@@ -428,8 +439,10 @@ export class LotoCheckpointRepository {
       const netSettlement = totalCommission + totalCashPrizes - totalSales;
 
       const supplier = this.db
-        .prepare(`SELECT id FROM suppliers WHERE provider = 'LOTO' LIMIT 1`)
-        .get() as { id: number } | undefined;
+        .prepare(
+          `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
+        )
+        .get(tenantId) as { id: number } | undefined;
       const supplierId = supplier?.id || 1;
 
       // 1. Create unified transaction
@@ -457,12 +470,13 @@ export class LotoCheckpointRepository {
         .prepare(
           `
         INSERT INTO loto_settlements (
-          settlement_date, checkpoint_ids, total_sales, total_commission,
+          tenant_id, settlement_date, checkpoint_ids, total_sales, total_commission,
           total_cash_prizes, net_settlement, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
         )
         .run(
+          tenantId,
           settledDate,
           JSON.stringify(checkpointIds),
           totalSales,
@@ -480,11 +494,12 @@ export class LotoCheckpointRepository {
         .prepare(
           `
         INSERT INTO supplier_ledger (
-          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
         )
         .run(
+          tenantId,
           supplierId,
           "SETTLEMENT",
           0,
@@ -494,17 +509,19 @@ export class LotoCheckpointRepository {
           null,
         );
 
-      // 4. Credit commission to General drawer once
+      // 4. Credit commission to General drawer once. drawer_balances'
+      // PRIMARY KEY is now (tenant_id, drawer_name, currency_code) — the ON
+      // CONFLICT target must match it exactly.
       const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
 
       if (totalCommission > 0) {
-        upsertBalance.run("General", "LBP", totalCommission);
+        upsertBalance.run(tenantId, "General", "LBP", totalCommission);
       }
 
       // 5. Record net payment and update drawer balance
@@ -512,11 +529,12 @@ export class LotoCheckpointRepository {
         this.db
           .prepare(
             `
-          INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
           )
           .run(
+            tenantId,
             txnId,
             payment.method,
             payment.drawer_name,
@@ -526,6 +544,7 @@ export class LotoCheckpointRepository {
             userId,
           );
         upsertBalance.run(
+          tenantId,
           payment.drawer_name,
           payment.currency_code,
           payment.amount,
@@ -536,18 +555,18 @@ export class LotoCheckpointRepository {
       const markReimbursed = this.db.prepare(`
         UPDATE loto_cash_prizes
         SET is_reimbursed = 1, reimbursed_date = ?, reimbursed_in_settlement_id = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE checkpoint_id = ? AND is_reimbursed = 0
+        WHERE checkpoint_id = ? AND is_reimbursed = 0 AND tenant_id = ?
       `);
       const markSettled = this.db.prepare(`
         UPDATE loto_checkpoints
         SET is_settled = 1, settled_at = ?, settlement_id = ?
-        WHERE id = ?
+        WHERE id = ? AND tenant_id = ?
       `);
 
       const results: LotoCheckpoint[] = [];
       for (const cpId of checkpointIds) {
-        markReimbursed.run(settledDate, settlementId, cpId);
-        markSettled.run(settledDate, settlementId, cpId);
+        markReimbursed.run(settledDate, settlementId, cpId, tenantId);
+        markSettled.run(settledDate, settlementId, cpId, tenantId);
         results.push(this.getCheckpointById(cpId)!);
       }
 
@@ -560,28 +579,29 @@ export class LotoCheckpointRepository {
   getTotalSalesFromUnsettledCheckpoints(): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(total_sales), 0) as total FROM loto_checkpoints
-      WHERE is_settled = 0
+      WHERE is_settled = 0 AND tenant_id = ?
     `);
-    const result = stmt.get() as { total: number };
+    const result = stmt.get(getCurrentTenantId()) as { total: number };
     return result.total;
   }
 
   getTotalCommissionFromUnsettledCheckpoints(): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(total_commission), 0) as total FROM loto_checkpoints
-      WHERE is_settled = 0
+      WHERE is_settled = 0 AND tenant_id = ?
     `);
-    const result = stmt.get() as { total: number };
+    const result = stmt.get(getCurrentTenantId()) as { total: number };
     return result.total;
   }
 
   getLastCheckpoint(): LotoCheckpoint | null {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_checkpoints 
+      SELECT * FROM loto_checkpoints
+      WHERE tenant_id = ?
       ORDER BY checkpoint_date DESC
       LIMIT 1
     `);
-    return stmt.get() as LotoCheckpoint | null;
+    return stmt.get(getCurrentTenantId()) as LotoCheckpoint | null;
   }
 
   /**
@@ -590,20 +610,21 @@ export class LotoCheckpointRepository {
    */
   deleteCheckpoint(id: number): boolean {
     const stmt = this.db.prepare(`
-      DELETE FROM loto_checkpoints WHERE id = ? AND is_settled = 0
+      DELETE FROM loto_checkpoints WHERE id = ? AND is_settled = 0 AND tenant_id = ?
     `);
-    const result = stmt.run(id);
+    const result = stmt.run(id, getCurrentTenantId());
     return result.changes > 0;
   }
 
   getSettlementHistory(limit?: number): LotoSettlement[] {
     const limitClause = limit ? `LIMIT ${limit}` : "";
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_settlements 
+      SELECT * FROM loto_settlements
+      WHERE tenant_id = ?
       ORDER BY settlement_date DESC, id DESC
       ${limitClause}
     `);
-    return stmt.all() as LotoSettlement[];
+    return stmt.all(getCurrentTenantId()) as LotoSettlement[];
   }
 }
 

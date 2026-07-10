@@ -6,6 +6,7 @@
 
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
@@ -52,15 +53,17 @@ export class LotoCashPrizeRepository {
   }
 
   createCashPrize(data: LotoCashPrizeCreate): LotoCashPrize {
+    const tenantId = getCurrentTenantId();
     const createInTxn = this.db.transaction(() => {
       // 1. Insert the cash prize record
       const stmt = this.db.prepare(`
         INSERT INTO loto_cash_prizes (
-          ticket_number, prize_amount, prize_date
-        ) VALUES (?, ?, ?)
+          tenant_id, ticket_number, prize_amount, prize_date
+        ) VALUES (?, ?, ?, ?)
       `);
 
       const result = stmt.run(
+        tenantId,
         data.ticket_number || null,
         data.prize_amount,
         data.prize_date,
@@ -99,10 +102,11 @@ export class LotoCashPrizeRepository {
 
         const insertPayment = this.db.prepare(`
           INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         insertPayment.run(
+          tenantId,
           txnId,
           paymentMethod,
           drawerName,
@@ -114,35 +118,37 @@ export class LotoCashPrizeRepository {
           data.userId,
         );
 
+        // drawer_balances' PRIMARY KEY is now (tenant_id, drawer_name,
+        // currency_code) — the ON CONFLICT target must match it exactly.
         const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
-        upsertBalance.run(drawerName, currency, -data.prize_amount);
+        upsertBalance.run(tenantId, drawerName, currency, -data.prize_amount);
       }
 
       // 4. Create supplier ledger entry (LOTO owes us this amount - reimbursable)
       const insertLedger = this.db.prepare(`
         INSERT INTO supplier_ledger (
-          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       // Get or create LOTO supplier
       let supplierStmt = this.db.prepare(
-        `SELECT id FROM suppliers WHERE provider = 'LOTO' LIMIT 1`,
+        `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
       );
-      let supplier = supplierStmt.get() as { id: number } | undefined;
+      let supplier = supplierStmt.get(tenantId) as { id: number } | undefined;
 
       if (!supplier) {
         const createSupplier = this.db.prepare(`
-          INSERT INTO suppliers (name, provider, is_active, is_system)
-          VALUES (?, ?, 1, 1)
+          INSERT INTO suppliers (tenant_id, name, provider, is_active, is_system)
+          VALUES (?, ?, ?, 1, 1)
         `);
-        const result = createSupplier.run("Loto Liban", "LOTO");
+        const result = createSupplier.run(tenantId, "Loto Liban", "LOTO");
         supplier = { id: result.lastInsertRowid as number };
       }
 
@@ -151,6 +157,7 @@ export class LotoCashPrizeRepository {
       // Negative amount = LOTO owes us / reduces what we owe (standard
       // supplier convention: the Suppliers page reads <0 as "They owe you").
       insertLedger.run(
+        tenantId,
         supplierId,
         "CASH_PRIZE",
         0,
@@ -170,27 +177,27 @@ export class LotoCashPrizeRepository {
 
   getCashPrizeById(id: number): LotoCashPrize | null {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_cash_prizes WHERE id = ?
+      SELECT * FROM loto_cash_prizes WHERE id = ? AND tenant_id = ?
     `);
-    return stmt.get(id) as LotoCashPrize | null;
+    return stmt.get(id, getCurrentTenantId()) as LotoCashPrize | null;
   }
 
   getCashPrizesByDateRange(from: string, to: string): LotoCashPrize[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_cash_prizes 
-      WHERE date(prize_date) BETWEEN date(?) AND date(?)
+      SELECT * FROM loto_cash_prizes
+      WHERE date(prize_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
       ORDER BY prize_date DESC, id DESC
     `);
-    return stmt.all(from, to) as LotoCashPrize[];
+    return stmt.all(from, to, getCurrentTenantId()) as LotoCashPrize[];
   }
 
   getUnreimbursedCashPrizes(): LotoCashPrize[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_cash_prizes 
-      WHERE is_reimbursed = 0
+      SELECT * FROM loto_cash_prizes
+      WHERE is_reimbursed = 0 AND tenant_id = ?
       ORDER BY prize_date DESC
     `);
-    return stmt.all() as LotoCashPrize[];
+    return stmt.all(getCurrentTenantId()) as LotoCashPrize[];
   }
 
   markCashPrizeReimbursed(
@@ -199,31 +206,33 @@ export class LotoCashPrizeRepository {
     settlementId?: number,
   ): LotoCashPrize | null {
     const stmt = this.db.prepare(`
-      UPDATE loto_cash_prizes 
+      UPDATE loto_cash_prizes
       SET is_reimbursed = 1, reimbursed_date = ?, reimbursed_in_settlement_id = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE id = ? AND tenant_id = ?
     `);
 
     const date = reimbursedDate || new Date().toISOString();
-    stmt.run(date, settlementId || null, id);
+    stmt.run(date, settlementId || null, id, getCurrentTenantId());
     return this.getCashPrizeById(id);
   }
 
   getTotalCashPrizes(from: string, to: string): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_cash_prizes
-      WHERE date(prize_date) BETWEEN date(?) AND date(?)
+      WHERE date(prize_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
     `);
-    const result = stmt.get(from, to) as { total: number };
+    const result = stmt.get(from, to, getCurrentTenantId()) as {
+      total: number;
+    };
     return result.total;
   }
 
   getTotalUnreimbursedCashPrizes(): number {
     const stmt = this.db.prepare(`
       SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_cash_prizes
-      WHERE is_reimbursed = 0
+      WHERE is_reimbursed = 0 AND tenant_id = ?
     `);
-    const result = stmt.get() as { total: number };
+    const result = stmt.get(getCurrentTenantId()) as { total: number };
     return result.total;
   }
 
@@ -232,11 +241,11 @@ export class LotoCashPrizeRepository {
    */
   assignToCheckpoint(prizeId: number, checkpointId: number): void {
     const stmt = this.db.prepare(`
-      UPDATE loto_cash_prizes 
+      UPDATE loto_cash_prizes
       SET checkpoint_id = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE id = ? AND tenant_id = ?
     `);
-    stmt.run(checkpointId, prizeId);
+    stmt.run(checkpointId, prizeId, getCurrentTenantId());
   }
 
   /**
@@ -244,11 +253,11 @@ export class LotoCashPrizeRepository {
    */
   unlinkFromCheckpoint(checkpointId: number): number {
     const stmt = this.db.prepare(`
-      UPDATE loto_cash_prizes 
+      UPDATE loto_cash_prizes
       SET checkpoint_id = NULL, updated_at = CURRENT_TIMESTAMP
-      WHERE checkpoint_id = ?
+      WHERE checkpoint_id = ? AND tenant_id = ?
     `);
-    const result = stmt.run(checkpointId);
+    const result = stmt.run(checkpointId, getCurrentTenantId());
     return result.changes;
   }
 
@@ -257,9 +266,9 @@ export class LotoCashPrizeRepository {
    */
   getByCheckpointId(checkpointId: number): LotoCashPrize[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_cash_prizes WHERE checkpoint_id = ? ORDER BY prize_date DESC
+      SELECT * FROM loto_cash_prizes WHERE checkpoint_id = ? AND tenant_id = ? ORDER BY prize_date DESC
     `);
-    return stmt.all(checkpointId) as LotoCashPrize[];
+    return stmt.all(checkpointId, getCurrentTenantId()) as LotoCashPrize[];
   }
 
   /**
@@ -267,13 +276,14 @@ export class LotoCashPrizeRepository {
    */
   getUnassignedByDateRange(from: string, to: string): LotoCashPrize[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_cash_prizes 
-      WHERE checkpoint_id IS NULL 
+      SELECT * FROM loto_cash_prizes
+      WHERE checkpoint_id IS NULL
         AND is_reimbursed = 0
         AND date(prize_date) BETWEEN date(?) AND date(?)
+        AND tenant_id = ?
       ORDER BY prize_date DESC
     `);
-    return stmt.all(from, to) as LotoCashPrize[];
+    return stmt.all(from, to, getCurrentTenantId()) as LotoCashPrize[];
   }
 
   /**
@@ -282,12 +292,13 @@ export class LotoCashPrizeRepository {
    */
   getUnassigned(): LotoCashPrize[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_cash_prizes 
-      WHERE checkpoint_id IS NULL 
+      SELECT * FROM loto_cash_prizes
+      WHERE checkpoint_id IS NULL
         AND is_reimbursed = 0
+        AND tenant_id = ?
       ORDER BY prize_date DESC
     `);
-    return stmt.all() as LotoCashPrize[];
+    return stmt.all(getCurrentTenantId()) as LotoCashPrize[];
   }
 }
 

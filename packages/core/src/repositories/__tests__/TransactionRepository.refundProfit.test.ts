@@ -18,6 +18,10 @@ import {
   TransactionRepository,
   resetTransactionRepository,
 } from "../TransactionRepository.js";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext.js";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -60,24 +64,27 @@ function createTestDb(): Database.Database {
       amount         REAL NOT NULL,
       note           TEXT,
       created_by     INTEGER,
+      tenant_id      INTEGER NOT NULL DEFAULT 1,
       created_at     TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE drawer_balances (
+      tenant_id     INTEGER NOT NULL DEFAULT 1,
       drawer_name   TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance       REAL NOT NULL DEFAULT 0,
       updated_at    TEXT DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
-    INSERT INTO drawer_balances VALUES ('General', 'USD', 500, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General', 'LBP', 20000000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance, updated_at) VALUES (1, 'General', 'USD', 500, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance, updated_at) VALUES (1, 'General', 'LBP', 20000000, CURRENT_TIMESTAMP);
 
     CREATE TABLE recharges (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       carrier     TEXT,
       is_refunded INTEGER DEFAULT 0,
-      refunded_at TEXT
+      refunded_at TEXT,
+      tenant_id   INTEGER NOT NULL DEFAULT 1
     );
   `);
   db.prepare(`INSERT INTO users (id, username) VALUES (1, 'cashier')`).run();
@@ -108,6 +115,7 @@ describe("TransactionRepository — refund profit stamp", () => {
     (
       globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
     ).__LIRATEK_TEST_DB__ = db;
+    initFixedTenantContext(1);
     resetTransactionRepository();
     repo = new TransactionRepository();
   });
@@ -118,6 +126,7 @@ describe("TransactionRepository — refund profit stamp", () => {
     ).__LIRATEK_TEST_DB__;
     db.close();
     resetTransactionRepository();
+    resetTenantContext();
   });
 
   function seedRecharge(profitUsd: number, profitLbp: number): number {

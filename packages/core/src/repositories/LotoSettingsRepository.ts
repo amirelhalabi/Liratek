@@ -6,6 +6,7 @@
 
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 export interface LotoSetting {
   key_name: string;
@@ -22,8 +23,11 @@ export class LotoSettingsRepository {
   }
 
   getSettings(): Map<string, string> {
-    const stmt = this.db.prepare(`SELECT * FROM loto_settings`);
-    const rows = stmt.all() as LotoSetting[];
+    const tenantId = getCurrentTenantId();
+    const stmt = this.db.prepare(
+      `SELECT * FROM loto_settings WHERE tenant_id = ?`,
+    );
+    const rows = stmt.all(tenantId) as LotoSetting[];
     const settings = new Map<string, string>();
     rows.forEach((row) => {
       settings.set(row.key_name, row.value);
@@ -32,16 +36,22 @@ export class LotoSettingsRepository {
   }
 
   updateSetting(key: string, value: string): LotoSetting | null {
+    const tenantId = getCurrentTenantId();
+    // loto_settings' PRIMARY KEY is now (tenant_id, key_name) — the conflict
+    // target for INSERT OR REPLACE MUST include tenant_id in both the column
+    // list and the values, or every tenant's upsert collides on key_name alone
+    // (or worse, silently stacks NULL-tenant rows that no tenant's scoped
+    // read/write can ever see again).
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO loto_settings (key_name, value, updated_at)
-      VALUES (?, ?, CURRENT_TIMESTAMP)
+      INSERT OR REPLACE INTO loto_settings (tenant_id, key_name, value, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     `);
-    stmt.run(key, value);
+    stmt.run(tenantId, key, value);
 
     const getStmt = this.db.prepare(
-      `SELECT * FROM loto_settings WHERE key_name = ?`,
+      `SELECT * FROM loto_settings WHERE tenant_id = ? AND key_name = ?`,
     );
-    return getStmt.get(key) as LotoSetting | null;
+    return getStmt.get(tenantId, key) as LotoSetting | null;
   }
 }
 

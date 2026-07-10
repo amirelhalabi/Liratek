@@ -7,6 +7,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import type { CurrencyRate } from "../utils/currencyConverter.js";
 import type { SetRateData } from "../validators/rate.js";
 
@@ -46,9 +47,9 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
   findAll(): ExchangeRateEntity[] {
     return this.db
       .prepare(
-        "SELECT id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at FROM exchange_rates ORDER BY to_code",
+        "SELECT id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at FROM exchange_rates WHERE tenant_id = ? ORDER BY to_code",
       )
-      .all() as ExchangeRateEntity[];
+      .all(getCurrentTenantId()) as ExchangeRateEntity[];
   }
 
   /**
@@ -71,9 +72,11 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
     return (
       (this.db
         .prepare(
-          "SELECT id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at FROM exchange_rates WHERE to_code = ?",
+          "SELECT id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at FROM exchange_rates WHERE to_code = ? AND tenant_id = ?",
         )
-        .get(code.toUpperCase()) as ExchangeRateEntity | undefined) ?? null
+        .get(code.toUpperCase(), getCurrentTenantId()) as
+        | ExchangeRateEntity
+        | undefined) ?? null
     );
   }
 
@@ -83,9 +86,9 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
   upsert(data: SetRateData): void {
     this.db
       .prepare(
-        `INSERT INTO exchange_rates (to_code, market_rate, buy_rate, sell_rate, is_stronger)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(to_code) DO UPDATE SET
+        `INSERT INTO exchange_rates (to_code, market_rate, buy_rate, sell_rate, is_stronger, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(tenant_id, to_code) DO UPDATE SET
            market_rate = excluded.market_rate,
            buy_rate    = excluded.buy_rate,
            sell_rate   = excluded.sell_rate,
@@ -98,6 +101,7 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
         data.buy_rate,
         data.sell_rate,
         data.is_stronger,
+        getCurrentTenantId(),
       );
   }
 
@@ -106,8 +110,8 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
    */
   deleteByCode(code: string): void {
     this.db
-      .prepare("DELETE FROM exchange_rates WHERE to_code = ?")
-      .run(code.toUpperCase());
+      .prepare("DELETE FROM exchange_rates WHERE to_code = ? AND tenant_id = ?")
+      .run(code.toUpperCase(), getCurrentTenantId());
   }
 
   /**

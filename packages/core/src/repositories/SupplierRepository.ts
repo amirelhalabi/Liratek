@@ -9,6 +9,7 @@ import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 export interface SupplierEntity {
   id: number;
@@ -140,17 +141,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   listSuppliers(search?: string, includeInactive?: boolean): SupplierEntity[] {
     try {
+      const tenantId = getCurrentTenantId();
       // Hide the SECONDARY OMT/WHISH system: it has no direct supplier relationship
       // (its obligations live in partner_ledger), so it shouldn't appear on the
       // suppliers page. The shop's base system is the only legacy system shown.
       let sql = includeInactive
-        ? `SELECT ${this.getColumns()} FROM suppliers WHERE 1=1`
-        : `SELECT ${this.getColumns()} FROM suppliers WHERE is_active = 1
+        ? `SELECT ${this.getColumns()} FROM suppliers WHERE tenant_id = ?`
+        : `SELECT ${this.getColumns()} FROM suppliers WHERE tenant_id = ? AND is_active = 1
              AND NOT (provider IN ('OMT', 'WHISH')
                       AND provider <> COALESCE(
-                        (SELECT value FROM system_settings WHERE key_name = 'shop_base_system'),
+                        (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = suppliers.tenant_id),
                         'OMT'))`;
-      const params: string[] = [];
+      const params: (string | number)[] = [tenantId];
       if (search?.trim()) {
         sql += ` AND name LIKE ?`;
         params.push(`%${search.trim()}%`);
@@ -165,8 +167,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   createSupplier(data: CreateSupplierData): { id: number } {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO suppliers (name, contact_name, phone, note, module_key, provider, is_active, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+        INSERT INTO suppliers (name, contact_name, phone, note, module_key, provider, is_active, tenant_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.name.trim(),
@@ -175,6 +177,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         data.note ?? null,
         data.module_key ?? null,
         data.provider ?? null,
+        getCurrentTenantId(),
       );
       return { id: Number(res.lastInsertRowid) };
     } catch (e) {
@@ -185,8 +188,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   getByProvider(provider: string): SupplierEntity | undefined {
     try {
       const rows = this.query<SupplierEntity>(
-        `SELECT ${this.getColumns()} FROM suppliers WHERE provider = ? AND is_active = 1 LIMIT 1`,
+        `SELECT ${this.getColumns()} FROM suppliers WHERE provider = ? AND is_active = 1 AND tenant_id = ? LIMIT 1`,
         provider,
+        getCurrentTenantId(),
       );
       return rows[0];
     } catch (e) {
@@ -199,8 +203,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   getByModuleKey(moduleKey: string): SupplierEntity[] {
     try {
       return this.query<SupplierEntity>(
-        `SELECT ${this.getColumns()} FROM suppliers WHERE module_key = ? AND is_active = 1 ORDER BY name ASC`,
+        `SELECT ${this.getColumns()} FROM suppliers WHERE module_key = ? AND is_active = 1 AND tenant_id = ? ORDER BY name ASC`,
         moduleKey,
+        getCurrentTenantId(),
       );
     } catch (e) {
       throw new DatabaseError("Failed to get suppliers by module", {
@@ -211,6 +216,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   addLedgerEntry(data: CreateSupplierLedgerEntryData): { id: number } {
     try {
+      const tenantId = getCurrentTenantId();
       // Enforce sign convention: PAYMENT amounts stored as negative
       let amountUsd = data.amount_usd || 0;
       let amountLbp = data.amount_lbp || 0;
@@ -222,8 +228,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const stmt = this.db.prepare(`
         INSERT INTO supplier_ledger (
           supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.supplier_id,
@@ -233,15 +239,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         data.note ?? null,
         data.created_by,
         data.is_auto ? 1 : 0,
+        tenantId,
       );
       const entryId = Number(res.lastInsertRowid);
 
       // If drawer_name is provided, update drawer_balances
       if (data.drawer_name) {
         const upsertBalanceDelta = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
@@ -269,21 +276,31 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // Link supplier_ledger row to unified transaction
           this.db
             .prepare(
-              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`,
+              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
             )
-            .run(txnId, entryId);
+            .run(txnId, entryId, tenantId);
 
           if (amountUsd)
-            upsertBalanceDelta.run(data.drawer_name, "USD", amountUsd);
+            upsertBalanceDelta.run(
+              data.drawer_name,
+              "USD",
+              amountUsd,
+              tenantId,
+            );
           if (amountLbp)
-            upsertBalanceDelta.run(data.drawer_name, "LBP", amountLbp);
+            upsertBalanceDelta.run(
+              data.drawer_name,
+              "LBP",
+              amountLbp,
+              tenantId,
+            );
 
           // Log to payments table
           this.db
             .prepare(
               `
-            INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-            VALUES (?, 'CASH', ?, ?, ?, ?, ?)
+            INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
+            VALUES (?, 'CASH', ?, ?, ?, ?, ?, ?)
           `,
             )
             .run(
@@ -293,6 +310,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               amountUsd || amountLbp,
               data.note || `Supplier Payment: ${data.supplier_id}`,
               data.created_by,
+              tenantId,
             );
         }
       } else {
@@ -348,9 +366,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           // Link supplier_ledger row to unified transaction
           this.db
             .prepare(
-              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`,
+              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
             )
-            .run(txnId, entryId);
+            .run(txnId, entryId, tenantId);
         }
       }
 
@@ -368,8 +386,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   ): SupplierLedgerEntryEntity[] {
     try {
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at FROM supplier_ledger WHERE supplier_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT ?`,
         supplierId,
+        getCurrentTenantId(),
         limit,
       );
     } catch (e) {
@@ -391,9 +410,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             ABS(COALESCE(SUM(CASE WHEN amount_usd < 0 THEN amount_usd ELSE 0 END), 0)) as send_pool_usd,
             COALESCE(SUM(CASE WHEN amount_usd > 0 THEN amount_usd ELSE 0 END), 0) as receive_pool_usd
           FROM supplier_ledger
-          WHERE supplier_id = ? AND is_auto = 0 AND ${ledgerNotRefunded()}`,
+          WHERE supplier_id = ? AND is_auto = 0 AND tenant_id = ? AND ${ledgerNotRefunded()}`,
         )
-        .get(supplierId) as
+        .get(supplierId, getCurrentTenantId()) as
         | { send_pool_usd: number; receive_pool_usd: number }
         | undefined;
       return row ?? { send_pool_usd: 0, receive_pool_usd: 0 };
@@ -412,7 +431,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    */
   getProductSupplierBalances(): SupplierBalance[] {
     try {
-      return this.query<SupplierBalance>(`
+      const tenantId = getCurrentTenantId();
+      return this.query<SupplierBalance>(
+        `
         SELECT
           s.id as supplier_id,
           ROUND(
@@ -421,20 +442,24 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           ) as total_usd,
           0 as total_lbp
         FROM suppliers s
-        JOIN product_suppliers ps ON ps.supplier_id = s.id
+        JOIN product_suppliers ps ON ps.supplier_id = s.id AND ps.tenant_id = s.tenant_id
         LEFT JOIN (
-          SELECT ps2.supplier_id,
+          SELECT ps2.supplier_id, ps2.tenant_id,
                  SUM(p.stock_quantity * p.cost_price_usd) as inv_usd
           FROM product_suppliers ps2
           JOIN products p ON LOWER(p.supplier) = LOWER(ps2.name) AND p.is_active = 1
-          WHERE ps2.supplier_id IS NOT NULL
-          GROUP BY ps2.supplier_id
-        ) inv ON inv.supplier_id = s.id
-        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND ${ledgerNotRefunded("l.")}
-        WHERE s.is_system = 0 AND s.is_active = 1
+            AND p.tenant_id = ps2.tenant_id
+          WHERE ps2.supplier_id IS NOT NULL AND ps2.tenant_id = ?
+          GROUP BY ps2.supplier_id, ps2.tenant_id
+        ) inv ON inv.supplier_id = s.id AND inv.tenant_id = s.tenant_id
+        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND l.tenant_id = s.tenant_id AND ${ledgerNotRefunded("l.")}
+        WHERE s.is_system = 0 AND s.is_active = 1 AND s.tenant_id = ?
         GROUP BY s.id
         ORDER BY s.name ASC
-      `);
+      `,
+        tenantId,
+        tenantId,
+      );
     } catch (e) {
       throw new DatabaseError("Failed to get product supplier balances", {
         cause: e,
@@ -444,25 +469,29 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   getSupplierBalances(includeInactive?: boolean): SupplierBalance[] {
     try {
+      const tenantId = getCurrentTenantId();
       // Hide the SECONDARY OMT/WHISH system (obligations live in partner_ledger).
       const filter = includeInactive
-        ? "1=1"
-        : `s.is_active = 1
+        ? "s.tenant_id = ?"
+        : `s.tenant_id = ? AND s.is_active = 1
            AND NOT (s.provider IN ('OMT', 'WHISH')
                     AND s.provider <> COALESCE(
-                      (SELECT value FROM system_settings WHERE key_name = 'shop_base_system'),
+                      (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = s.tenant_id),
                       'OMT'))`;
-      return this.query<SupplierBalance>(`
+      return this.query<SupplierBalance>(
+        `
         SELECT
           s.id as supplier_id,
           COALESCE(SUM(l.amount_usd), 0) as total_usd,
           COALESCE(SUM(l.amount_lbp), 0) as total_lbp
         FROM suppliers s
-        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND ${ledgerNotRefunded("l.")}
+        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id AND l.tenant_id = s.tenant_id AND ${ledgerNotRefunded("l.")}
         WHERE ${filter}
         GROUP BY s.id
         ORDER BY s.name ASC
-      `);
+      `,
+        tenantId,
+      );
     } catch (e) {
       throw new DatabaseError("Failed to get supplier balances", { cause: e });
     }
@@ -484,6 +513,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
 
     try {
+      const tenantId = getCurrentTenantId();
       const settle = this.db.transaction(() => {
         // Timestamps are stamped by SQLite (datetime('now')) so they share the
         // 'YYYY-MM-DD HH:MM:SS' format of every CURRENT_TIMESTAMP column. A JS
@@ -497,8 +527,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const ledgerRes = this.db
           .prepare(
             `INSERT INTO supplier_ledger
-               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at)
-             VALUES (?, 'SETTLEMENT', ?, ?, ?, ?, datetime('now'))`,
+               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+             VALUES (?, 'SETTLEMENT', ?, ?, ?, ?, ?, datetime('now'))`,
           )
           .run(
             data.supplier_id,
@@ -506,6 +536,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             netLbp,
             data.note ?? null,
             data.created_by,
+            tenantId,
           );
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
@@ -525,24 +556,25 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                  settled_at = datetime('now'),
                  settlement_id = ?
              WHERE id IN (${placeholders})
-               AND settlement_id IS NULL`,
+               AND settlement_id IS NULL
+               AND tenant_id = ?`,
           )
-          .run(ledgerEntryId, ...data.financial_service_ids);
+          .run(ledgerEntryId, ...data.financial_service_ids, tenantId);
 
         // ── 3. Credit commission to General drawer ─────────────────────────
         const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
 
         if (data.commission_usd > 0) {
-          upsertBalance.run("General", "USD", data.commission_usd);
+          upsertBalance.run("General", "USD", data.commission_usd, tenantId);
         }
         if (data.commission_lbp > 0) {
-          upsertBalance.run("General", "LBP", data.commission_lbp);
+          upsertBalance.run("General", "LBP", data.commission_lbp, tenantId);
         }
 
         // ── 4. Create unified transaction for audit trail ──────────────────
@@ -550,8 +582,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .prepare(
             `INSERT INTO transactions
                (type, status, source_table, source_id, user_id,
-                amount_usd, amount_lbp, summary, metadata_json, created_at)
-             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, datetime('now'))`,
+                amount_usd, amount_lbp, summary, metadata_json, tenant_id, created_at)
+             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
           )
           .run(
             TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
@@ -567,24 +599,32 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               commission_lbp: data.commission_lbp,
               drawer_name: data.drawer_name,
             }),
+            tenantId,
           );
         const txnId = Number(txnRes.lastInsertRowid);
 
         // Link ledger entry to unified transaction
         this.db
-          .prepare(`UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`)
-          .run(txnId, ledgerEntryId);
+          .prepare(
+            `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(txnId, ledgerEntryId, tenantId);
 
         // ── 5. Debit net payment from drawer(s) and insert payment rows ──
         if (data.payments && data.payments.length > 0) {
           const insertPayment = this.db.prepare(
-            `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           );
           for (const p of data.payments) {
             if (!isDrawerAffectingMethod(p.method)) continue;
             const drawerName = paymentMethodToDrawerName(p.method);
-            upsertBalance.run(drawerName, p.currency_code, -Math.abs(p.amount));
+            upsertBalance.run(
+              drawerName,
+              p.currency_code,
+              -Math.abs(p.amount),
+              tenantId,
+            );
             insertPayment.run(
               txnId,
               p.method,
@@ -593,23 +633,34 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               -Math.abs(p.amount),
               data.note ?? "Settlement payment",
               data.created_by,
+              tenantId,
             );
           }
         } else {
           // Legacy: single drawer
           if (data.amount_usd > 0) {
-            upsertBalance.run(data.drawer_name, "USD", -data.amount_usd);
+            upsertBalance.run(
+              data.drawer_name,
+              "USD",
+              -data.amount_usd,
+              tenantId,
+            );
           }
           if (data.amount_lbp > 0) {
-            upsertBalance.run(data.drawer_name, "LBP", -data.amount_lbp);
+            upsertBalance.run(
+              data.drawer_name,
+              "LBP",
+              -data.amount_lbp,
+              tenantId,
+            );
           }
 
           // Insert legacy payment row
           if (data.amount_usd > 0) {
             this.db
               .prepare(
-                `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-                 VALUES (?, 'CASH', ?, 'USD', ?, ?, ?)`,
+                `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
+                 VALUES (?, 'CASH', ?, 'USD', ?, ?, ?, ?)`,
               )
               .run(
                 txnId,
@@ -617,6 +668,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                 -data.amount_usd,
                 data.note ?? "Settlement payment",
                 data.created_by,
+                tenantId,
               );
           }
         }
@@ -646,6 +698,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       throw new DatabaseError("No payment legs provided");
     }
     try {
+      const tenantId = getCurrentTenantId();
       const run = this.db.transaction(() => {
         // SQLite-side timestamps — see settleTransactions (A6 ordering).
         const isPay = data.direction === "PAY";
@@ -671,8 +724,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const ledgerRes = this.db
           .prepare(
             `INSERT INTO supplier_ledger
-               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
           )
           .run(
             data.supplier_id,
@@ -681,6 +734,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             sign * lbp,
             data.note ?? null,
             data.created_by,
+            tenantId,
           );
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
@@ -692,8 +746,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .prepare(
             `INSERT INTO transactions
                (type, status, source_table, source_id, user_id,
-                amount_usd, amount_lbp, summary, metadata_json, created_at)
-             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, datetime('now'))`,
+                amount_usd, amount_lbp, summary, metadata_json, tenant_id, created_at)
+             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
           )
           .run(
             TRANSACTION_TYPES.SUPPLIER_PAYMENT,
@@ -707,28 +761,31 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               direction: data.direction,
               entry_type: entryType,
             }),
+            tenantId,
           );
         const txnId = Number(txnRes.lastInsertRowid);
         this.db
-          .prepare(`UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`)
-          .run(txnId, ledgerEntryId);
+          .prepare(
+            `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(txnId, ledgerEntryId, tenantId);
 
         const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
             balance = drawer_balances.balance + excluded.balance,
             updated_at = CURRENT_TIMESTAMP
         `);
         const insertPayment = this.db.prepare(
-          `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         );
         for (const p of data.payments) {
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
           const delta = sign * Math.abs(p.amount);
-          upsertBalance.run(drawerName, p.currency_code, delta);
+          upsertBalance.run(drawerName, p.currency_code, delta, tenantId);
           insertPayment.run(
             txnId,
             p.method,
@@ -737,6 +794,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             delta,
             data.note ?? summary,
             data.created_by,
+            tenantId,
           );
         }
 
@@ -749,10 +807,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               .prepare(
                 `SELECT id, total_usd, paid_usd
                  FROM supplier_purchases
-                 WHERE supplier_id = ? AND paid_usd < total_usd - 0.005
+                 WHERE supplier_id = ? AND paid_usd < total_usd - 0.005 AND tenant_id = ?
                  ORDER BY created_at ASC`,
               )
-              .all(data.supplier_id) as {
+              .all(data.supplier_id, tenantId) as {
               id: number;
               total_usd: number;
               paid_usd: number;
@@ -761,7 +819,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             const updatePurchase = this.db.prepare(
               `UPDATE supplier_purchases
                SET paid_usd = ?, updated_at = CURRENT_TIMESTAMP
-               WHERE id = ?`,
+               WHERE id = ? AND tenant_id = ?`,
             );
 
             let remaining = totalUsdEquiv;
@@ -772,6 +830,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               updatePurchase.run(
                 Math.min(row.paid_usd + applied, row.total_usd),
                 row.id,
+                tenantId,
               );
               remaining -= applied;
             }

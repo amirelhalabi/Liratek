@@ -13,6 +13,10 @@
 
 import Database from "better-sqlite3";
 import { RechargeRepository } from "../RechargeRepository";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 import { resetTransactionRepository } from "../TransactionRepository";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
@@ -44,6 +48,7 @@ function createTestDb(): Database.Database {
 
   db.exec(`
     CREATE TABLE recharges (
+      tenant_id INTEGER DEFAULT 1,
       id                     INTEGER PRIMARY KEY AUTOINCREMENT,
       carrier                TEXT NOT NULL,
       recharge_type          TEXT NOT NULL,
@@ -64,6 +69,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       type         TEXT NOT NULL,
       status       TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -86,6 +92,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE payments (
+      tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       method         TEXT NOT NULL,
@@ -98,14 +105,16 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name   TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance       REAL NOT NULL DEFAULT 0,
       updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     CREATE TABLE clients (
+      tenant_id INTEGER DEFAULT 1,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name    TEXT NOT NULL,
       phone_number TEXT,
@@ -115,9 +124,9 @@ function createTestDb(): Database.Database {
       updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    INSERT INTO drawer_balances VALUES ('MTC',     'USD', 1000, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('Alfa',    'USD', 1000, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General', 'USD', 5000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'MTC',     'USD', 1000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'Alfa',    'USD', 1000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General', 'USD', 5000, CURRENT_TIMESTAMP);
   `);
 
   return db;
@@ -170,11 +179,13 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     resetTransactionRepository();
     repo = new RechargeRepository();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
   });
 

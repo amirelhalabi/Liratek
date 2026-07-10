@@ -7,6 +7,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Entity Types
@@ -65,10 +66,10 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM mobile_service_items
-         WHERE is_active = 1
+         WHERE is_active = 1 AND tenant_id = ?
          ORDER BY provider, category, subcategory, sort_order, label`,
       )
-      .all() as MobileServiceItemEntity[];
+      .all(getCurrentTenantId()) as MobileServiceItemEntity[];
   }
 
   /**
@@ -78,9 +79,10 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM mobile_service_items
+         WHERE tenant_id = ?
          ORDER BY provider, category, subcategory, sort_order, label`,
       )
-      .all() as MobileServiceItemEntity[];
+      .all(getCurrentTenantId()) as MobileServiceItemEntity[];
   }
 
   /**
@@ -90,10 +92,10 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM mobile_service_items
-         WHERE provider = ? AND is_active = 1
+         WHERE provider = ? AND is_active = 1 AND tenant_id = ?
          ORDER BY category, subcategory, sort_order, label`,
       )
-      .all(provider) as MobileServiceItemEntity[];
+      .all(provider, getCurrentTenantId()) as MobileServiceItemEntity[];
   }
 
   /**
@@ -106,10 +108,10 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM mobile_service_items
-         WHERE provider = ? AND category = ? AND is_active = 1
+         WHERE provider = ? AND category = ? AND is_active = 1 AND tenant_id = ?
          ORDER BY subcategory, sort_order, label`,
       )
-      .all(provider, category) as MobileServiceItemEntity[];
+      .all(provider, category, getCurrentTenantId()) as MobileServiceItemEntity[];
   }
 
   /**
@@ -119,10 +121,10 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     const rows = this.db
       .prepare(
         `SELECT DISTINCT category FROM mobile_service_items
-         WHERE provider = ? AND is_active = 1
+         WHERE provider = ? AND is_active = 1 AND tenant_id = ?
          ORDER BY category`,
       )
-      .all(provider) as { category: string }[];
+      .all(provider, getCurrentTenantId()) as { category: string }[];
     return rows.map((r) => r.category);
   }
 
@@ -133,10 +135,10 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     const rows = this.db
       .prepare(
         `SELECT DISTINCT subcategory FROM mobile_service_items
-         WHERE provider = ? AND category = ? AND is_active = 1
+         WHERE provider = ? AND category = ? AND is_active = 1 AND tenant_id = ?
          ORDER BY subcategory`,
       )
-      .all(provider, category) as { subcategory: string }[];
+      .all(provider, category, getCurrentTenantId()) as { subcategory: string }[];
     return rows.map((r) => r.subcategory);
   }
 
@@ -146,8 +148,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
   createItem(data: CreateMobileServiceItemData): MobileServiceItemEntity {
     const stmt = this.db.prepare(
       `INSERT INTO mobile_service_items
-       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
     const result = stmt.run(
       data.provider,
@@ -158,6 +160,7 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
       data.sell_lbp,
       data.sort_order ?? 0,
       data.is_active ?? 1,
+      getCurrentTenantId(),
     );
     return this.getById(result.lastInsertRowid as number)!;
   }
@@ -196,11 +199,11 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     if (sets.length === 0) return this.getById(id);
 
     sets.push("updated_at = CURRENT_TIMESTAMP");
-    values.push(id);
+    values.push(id, getCurrentTenantId());
 
     this.db
       .prepare(
-        `UPDATE mobile_service_items SET ${sets.join(", ")} WHERE id = ?`,
+        `UPDATE mobile_service_items SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`,
       )
       .run(...values);
 
@@ -216,9 +219,9 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
         `UPDATE mobile_service_items
          SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ? AND tenant_id = ?`,
       )
-      .run(id);
+      .run(id, getCurrentTenantId());
     return this.getById(id);
   }
 
@@ -226,7 +229,9 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
    * Hard delete an item
    */
   deleteItem(id: number): void {
-    this.db.prepare(`DELETE FROM mobile_service_items WHERE id = ?`).run(id);
+    this.db
+      .prepare(`DELETE FROM mobile_service_items WHERE id = ? AND tenant_id = ?`)
+      .run(id, getCurrentTenantId());
   }
 
   /**
@@ -234,10 +239,11 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
    * Returns count of inserted rows
    */
   bulkCreate(items: CreateMobileServiceItemData[]): number {
+    const tenantId = getCurrentTenantId();
     const stmt = this.db.prepare(
       `INSERT OR IGNORE INTO mobile_service_items
-       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
 
     let inserted = 0;
@@ -253,6 +259,7 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
             item.sell_lbp,
             item.sort_order ?? 0,
             item.is_active ?? 1,
+            tenantId,
           );
           if (result.changes > 0) inserted++;
         }
@@ -268,8 +275,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
    */
   getCount(): number {
     const row = this.db
-      .prepare(`SELECT COUNT(*) as cnt FROM mobile_service_items`)
-      .get() as { cnt: number };
+      .prepare(`SELECT COUNT(*) as cnt FROM mobile_service_items WHERE tenant_id = ?`)
+      .get(getCurrentTenantId()) as { cnt: number };
     return row.cnt;
   }
 
@@ -279,9 +286,9 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
   getById(id: number): MobileServiceItemEntity | null {
     return this.db
       .prepare(
-        `SELECT ${this.getColumns()} FROM mobile_service_items WHERE id = ?`,
+        `SELECT ${this.getColumns()} FROM mobile_service_items WHERE id = ? AND tenant_id = ?`,
       )
-      .get(id) as MobileServiceItemEntity | null;
+      .get(id, getCurrentTenantId()) as MobileServiceItemEntity | null;
   }
 }
 

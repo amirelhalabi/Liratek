@@ -25,6 +25,10 @@
 
 import Database from "better-sqlite3";
 import { FinancialServiceRepository } from "../FinancialServiceRepository";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -57,6 +61,7 @@ function createTestDb(): Database.Database {
   db.exec(`
     -- Users (FK target)
     CREATE TABLE users (
+      tenant_id INTEGER DEFAULT 1,
       id       INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL,
       role TEXT DEFAULT 'staff',
@@ -66,6 +71,7 @@ function createTestDb(): Database.Database {
 
     -- Clients (FK target for financial_services / debt_ledger)
     CREATE TABLE clients (
+      tenant_id INTEGER DEFAULT 1,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name    TEXT NOT NULL,
       phone_number TEXT,
@@ -79,6 +85,7 @@ function createTestDb(): Database.Database {
 
     -- Partners
     CREATE TABLE partners (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT NOT NULL UNIQUE,
       phone       TEXT,
@@ -90,6 +97,7 @@ function createTestDb(): Database.Database {
 
     -- Financial services (main table under test)
     CREATE TABLE financial_services (
+      tenant_id INTEGER DEFAULT 1,
       id                    INTEGER PRIMARY KEY AUTOINCREMENT,
       provider              TEXT NOT NULL,
       service_type          TEXT NOT NULL,
@@ -133,6 +141,7 @@ function createTestDb(): Database.Database {
 
     -- Partner ledger (tracks debits / credits per partner)
     CREATE TABLE partner_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
       partner_id       INTEGER NOT NULL REFERENCES partners(id),
       transaction_type TEXT NOT NULL,
@@ -149,6 +158,7 @@ function createTestDb(): Database.Database {
 
     -- Unified accounting journal (TransactionRepository)
     CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       type         TEXT NOT NULL,
       status       TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -172,6 +182,7 @@ function createTestDb(): Database.Database {
 
     -- Payment sub-ledger rows (one row per drawer movement)
     CREATE TABLE payments (
+      tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       method         TEXT NOT NULL,
@@ -185,15 +196,17 @@ function createTestDb(): Database.Database {
 
     -- Drawer balances (live ledger updated by upsertBalanceDelta)
     CREATE TABLE drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name   TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance       REAL NOT NULL DEFAULT 0,
       updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     -- Suppliers (SupplierRepository FK target)
     CREATE TABLE suppliers (
+      tenant_id INTEGER DEFAULT 1,
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       name       TEXT NOT NULL,
       provider   TEXT,
@@ -207,6 +220,7 @@ function createTestDb(): Database.Database {
 
     -- Supplier ledger (SupplierRepository FK target)
     CREATE TABLE supplier_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       supplier_id INTEGER NOT NULL,
       entry_type  TEXT NOT NULL,
@@ -219,10 +233,10 @@ function createTestDb(): Database.Database {
     );
 
     -- Seed drawer balances
-    INSERT INTO drawer_balances VALUES ('General',      'USD', 1000, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General',      'LBP',    0, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('OMT_System',   'USD',  500, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('Whish_System', 'USD',  500, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General',      'USD', 1000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General',      'LBP',    0, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'OMT_System',   'USD',  500, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'Whish_System', 'USD',  500, CURRENT_TIMESTAMP);
   `);
 
   return db;
@@ -282,11 +296,13 @@ describe("FinancialServiceRepository — partner mode", () => {
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     repo = new FinancialServiceRepository();
     mockAddCredit.mockClear();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
   });
 

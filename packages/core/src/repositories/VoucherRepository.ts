@@ -13,6 +13,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getDebtRepository } from "./DebtRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 
 // =============================================================================
 // Entity Types
@@ -107,8 +108,10 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
 
   getByCode(code: string): VoucherEntity | null {
     const row = this.db
-      .prepare(`SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE code = ?`)
-      .get(code) as VoucherEntity | undefined;
+      .prepare(
+        `SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE code = ? AND tenant_id = ?`,
+      )
+      .get(code, getCurrentTenantId()) as VoucherEntity | undefined;
     return row ? this.withEffectiveStatus(row) : null;
   }
 
@@ -119,7 +122,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
    */
   getAll(filters: VoucherFilters = {}): VoucherEntity[] {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: unknown[] = [getCurrentTenantId()];
 
     if (filters.clientId) {
       clauses.push("client_id = ?");
@@ -130,10 +133,12 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       params.push(filters.status);
     }
 
-    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    // tenant_id is always the first predicate (literal, statically visible to
+    // the tenant-scoping checker) — additional filters are appended via AND.
+    const extraWhere = clauses.length ? ` AND ${clauses.join(" AND ")}` : "";
     const rows = this.db
       .prepare(
-        `SELECT ${VOUCHER_COLUMNS} FROM vouchers ${where} ORDER BY created_at DESC, id DESC`,
+        `SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE tenant_id = ?${extraWhere} ORDER BY created_at DESC, id DESC`,
       )
       .all(...params) as VoucherEntity[];
     return rows.map((r) => this.withEffectiveStatus(r));
@@ -147,8 +152,8 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     const stmt = this.db.prepare(`
       INSERT INTO vouchers (
         code, client_id, client_name, client_phone, amount, currency_code,
-        expiry_date, status, note, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        expiry_date, status, note, created_by, tenant_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `);
     const result = stmt.run(
       data.code,
@@ -160,6 +165,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       data.expiry_date,
       data.note,
       data.created_by,
+      getCurrentTenantId(),
     );
     return this.findByIdOrFail(Number(result.lastInsertRowid));
   }
@@ -179,8 +185,8 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     for (let attempt = 0; attempt < 10; attempt++) {
       const code = `GIFT-${block()}-${block()}`;
       const exists = this.db
-        .prepare(`SELECT 1 FROM vouchers WHERE code = ?`)
-        .get(code);
+        .prepare(`SELECT 1 FROM vouchers WHERE code = ? AND tenant_id = ?`)
+        .get(code, getCurrentTenantId());
       if (!exists) return code;
     }
     // Extremely unlikely fallback — append a timestamp fragment
@@ -196,9 +202,9 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       .prepare(
         `UPDATE vouchers
          SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, cancelled_by = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND status = 'pending'`,
+         WHERE id = ? AND status = 'pending' AND tenant_id = ?`,
       )
-      .run(cancelledBy, id);
+      .run(cancelledBy, id, getCurrentTenantId());
     if (result.changes === 0) return null;
     return this.findById(id);
   }
@@ -219,8 +225,10 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     const { code, context, transactionId, userId } = params;
 
     const voucher = this.db
-      .prepare(`SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE code = ?`)
-      .get(code) as VoucherEntity | undefined;
+      .prepare(
+        `SELECT ${VOUCHER_COLUMNS} FROM vouchers WHERE code = ? AND tenant_id = ?`,
+      )
+      .get(code, getCurrentTenantId()) as VoucherEntity | undefined;
 
     if (!voucher) {
       throw new Error(`Voucher ${code} not found`);
@@ -251,9 +259,9 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
         `UPDATE vouchers
          SET status = 'redeemed', redeemed_at = CURRENT_TIMESTAMP, redeemed_by = ?,
              redeemed_in_transaction = ?, redeemed_transaction_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         WHERE id = ? AND tenant_id = ?`,
       )
-      .run(userId, context, transactionId, voucher.id);
+      .run(userId, context, transactionId, voucher.id, getCurrentTenantId());
 
     return this.findByIdOrFail(voucher.id);
   }

@@ -83,8 +83,12 @@ describe("ProfitService.getPendingProfit", () => {
       const lastStmt = calls[calls.length - 1].value;
       const allArgs = (lastStmt.all as any).mock.calls[0];
 
-      expect(allArgs[0]).toBe("2026-02-20 00:00:00");
-      expect(allArgs[1]).toBe("2026-02-22 23:59:59");
+      // Multi-tenant retrofit (WP3e): every tenant-scoped join/subquery in
+      // this query binds tenant_id ahead of the date-range params, shifting
+      // fromDt/toDt from indices [0,1] to [5,6] — see
+      // ProfitRepository.getPendingSaleProfit's .all(...) param comments.
+      expect(allArgs[5]).toBe("2026-02-20 00:00:00");
+      expect(allArgs[6]).toBe("2026-02-22 23:59:59");
     });
 
     it("excludes refunded items with is_refunded = 0 filter", () => {

@@ -22,6 +22,10 @@
 
 import Database from "better-sqlite3";
 import { FinancialServiceRepository } from "../FinancialServiceRepository";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 import { SupplierRepository } from "../SupplierRepository";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
@@ -54,6 +58,7 @@ function createTestDb(): Database.Database {
 
   db.exec(`
     CREATE TABLE users (
+      tenant_id INTEGER DEFAULT 1,
       id       INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL,
       role TEXT DEFAULT 'staff',
@@ -62,6 +67,7 @@ function createTestDb(): Database.Database {
     INSERT INTO users (id, username, role) VALUES (1, 'admin', 'admin');
 
     CREATE TABLE clients (
+      tenant_id INTEGER DEFAULT 1,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name    TEXT NOT NULL,
       phone_number TEXT,
@@ -74,6 +80,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE financial_services (
+      tenant_id INTEGER DEFAULT 1,
       id                    INTEGER PRIMARY KEY AUTOINCREMENT,
       provider              TEXT NOT NULL,
       service_type          TEXT NOT NULL,
@@ -117,6 +124,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE transactions (
+      tenant_id INTEGER DEFAULT 1,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       type         TEXT NOT NULL,
       status       TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -140,6 +148,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE payments (
+      tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
       method         TEXT NOT NULL,
@@ -152,14 +161,16 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE drawer_balances (
+      tenant_id INTEGER DEFAULT 1,
       drawer_name   TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance       REAL NOT NULL DEFAULT 0,
       updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     CREATE TABLE suppliers (
+      tenant_id INTEGER DEFAULT 1,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       name         TEXT NOT NULL,
       contact_name TEXT,
@@ -174,6 +185,7 @@ function createTestDb(): Database.Database {
 
     -- supplier_ledger WITH the post-v103 CHECK (SALE_COST + SUPPLIER_PAYS_US)
     CREATE TABLE supplier_ledger (
+      tenant_id INTEGER DEFAULT 1,
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       supplier_id   INTEGER NOT NULL,
       entry_type    TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','SALE_COST','PAYMENT','ADJUSTMENT','SETTLEMENT','CASH_PRIZE','SUPPLIER_PAYS_US')),
@@ -187,12 +199,12 @@ function createTestDb(): Database.Database {
     );
 
     -- Provider drawers for the cost/price flow
-    INSERT INTO drawer_balances VALUES ('General', 'USD',  1000, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General', 'LBP',     0, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('Katsh',   'USD',   500, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('Katsh',   'LBP',     0, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('iPick',   'USD',   500, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('iPick',   'LBP',     0, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General', 'USD',  1000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'General', 'LBP',     0, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'Katsh',   'USD',   500, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'Katsh',   'LBP',     0, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'iPick',   'USD',   500, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances VALUES (1, 'iPick',   'LBP',     0, CURRENT_TIMESTAMP);
   `);
 
   return db;
@@ -251,11 +263,13 @@ describe("FinancialServiceRepository — cost/price SEND books NO supplier debt 
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     repo = new FinancialServiceRepository();
     mockAddCredit.mockClear();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
   });
 
@@ -414,12 +428,14 @@ describe("Supplier debt reconciliation (C5 prepaid-units)", () => {
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     repo = new FinancialServiceRepository();
     supplierRepo = new SupplierRepository();
     mockAddCredit.mockClear();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
   });
 
@@ -532,11 +548,13 @@ describe("FinancialServiceRepository — BILL books SUPPLIER_PAYS_US commission 
   beforeEach(() => {
     db = createTestDb();
     setDb(db);
+    initFixedTenantContext(1);
     repo = new FinancialServiceRepository();
     mockAddCredit.mockClear();
   });
 
   afterEach(() => {
+    resetTenantContext();
     db.close();
   });
 

@@ -43,6 +43,7 @@ function createTestDb(): Database.Database {
       summary       TEXT,
       metadata_json TEXT,
       device_id     TEXT,
+      tenant_id     INTEGER DEFAULT 1,
       created_at    TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -56,6 +57,7 @@ function createTestDb(): Database.Database {
       amount         REAL NOT NULL,
       note           TEXT,
       created_by     INTEGER,
+      tenant_id      INTEGER DEFAULT 1,
       created_at     TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -63,8 +65,9 @@ function createTestDb(): Database.Database {
       drawer_name   TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance       REAL NOT NULL DEFAULT 0,
+      tenant_id     INTEGER DEFAULT 1,
       updated_at    TEXT DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
 
     CREATE TABLE hold_money (
@@ -78,6 +81,7 @@ function createTestDb(): Database.Database {
       created_by   INTEGER,
       collected_by INTEGER,
       collected_at TEXT,
+      tenant_id    INTEGER DEFAULT 1,
       created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at   TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -99,6 +103,7 @@ function createTestDb(): Database.Database {
       note         TEXT,
       category     TEXT,
       created_by   INTEGER,
+      tenant_id    INTEGER DEFAULT 1,
       created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
       edited_by    TEXT,
       edited_at    TEXT

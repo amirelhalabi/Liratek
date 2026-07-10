@@ -1,4 +1,5 @@
 import { BaseRepository } from "./BaseRepository.js";
+import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
@@ -81,13 +82,14 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   createJob(job: MaintenanceJob): number {
     const stmt = this.db.prepare(`
       INSERT INTO maintenance (
-        client_id, client_name, device_name, issue_description,
+        tenant_id, client_id, client_name, device_name, issue_description,
         cost_usd, price_usd, cost_lbp, price_lbp,
         discount_usd, final_amount_usd, final_amount_lbp, currency,
         paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
+      getCurrentTenantId(),
       job.client_id ?? null,
       job.client_name ?? null,
       job.device_name,
@@ -122,7 +124,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         discount_usd = ?, final_amount_usd = ?, final_amount_lbp = ?, currency = ?,
         paid_usd = ?, paid_lbp = ?, exchange_rate = ?, status = ?, paid_by = ?, note = ?,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE id = ? AND tenant_id = ?
     `);
     stmt.run(
       job.client_id ?? null,
@@ -144,6 +146,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       job.paid_by ?? "CASH",
       job.note ?? null,
       id,
+      getCurrentTenantId(),
     );
   }
 
@@ -153,25 +156,26 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   getJobs(statusFilter?: string): MaintenanceRow[] {
     if (statusFilter && statusFilter !== "All") {
       const stmt = this.db.prepare(
-        `SELECT ${this.getColumns()} FROM maintenance WHERE status = ? ORDER BY created_at DESC`,
+        `SELECT ${this.getColumns()} FROM maintenance WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC`,
       );
-      return stmt.all(statusFilter) as MaintenanceRow[];
+      return stmt.all(statusFilter, getCurrentTenantId()) as MaintenanceRow[];
     }
     const stmt = this.db.prepare(
-      `SELECT ${this.getColumns()} FROM maintenance WHERE status NOT IN ('Voided', 'Deleted') ORDER BY created_at DESC`,
+      `SELECT ${this.getColumns()} FROM maintenance WHERE status NOT IN ('Voided', 'Deleted') AND tenant_id = ? ORDER BY created_at DESC`,
     );
-    return stmt.all() as MaintenanceRow[];
+    return stmt.all(getCurrentTenantId()) as MaintenanceRow[];
   }
 
   /**
    * Check if payments already exist for a maintenance job
    */
   hasPayments(jobId: number): boolean {
+    const tenantId = getCurrentTenantId();
     const row = this.db
       .prepare(
-        `SELECT COUNT(*) as cnt FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'maintenance' AND source_id = ?)`,
+        `SELECT COUNT(*) as cnt FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'maintenance' AND source_id = ? AND tenant_id = ?) AND tenant_id = ?`,
       )
-      .get(jobId) as { cnt: number };
+      .get(jobId, tenantId, tenantId) as { cnt: number };
     return row.cnt > 0;
   }
 
@@ -205,6 +209,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     },
   ): void {
     const createdBy = 1;
+    const tenantId = getCurrentTenantId();
     const defer = opts.defer === true;
     const isLbp = opts.currency === "LBP";
     const profit = opts.profit ?? 0;
@@ -235,22 +240,22 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     // Clear any old payment rows for this job (idempotent)
     this.db
       .prepare(
-        `DELETE FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'maintenance' AND source_id = ?)`,
+        `DELETE FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'maintenance' AND source_id = ? AND tenant_id = ?) AND tenant_id = ?`,
       )
-      .run(jobId);
+      .run(jobId, tenantId, tenantId);
 
     const insertPayment = this.db.prepare(`
       INSERT INTO payments (
-        transaction_id, method, drawer_name, currency_code, amount, note, created_by
+        tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?
       )
     `);
 
     const upsertBalanceDelta = this.db.prepare(`
-      INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-      VALUES (?, ?, ?)
-      ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+      INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
         balance = drawer_balances.balance + excluded.balance,
         updated_at = CURRENT_TIMESTAMP
     `);
@@ -264,6 +269,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         if (!isDrawerAffectingMethod(p.method)) continue;
         const drawerName = paymentMethodToDrawerName(p.method);
         insertPayment.run(
+          tenantId,
           txnId,
           p.method,
           drawerName,
@@ -272,7 +278,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
           opts.note ?? null,
           createdBy,
         );
-        upsertBalanceDelta.run(drawerName, p.currency_code, p.amount);
+        upsertBalanceDelta.run(tenantId, drawerName, p.currency_code, p.amount);
       }
     }
 
@@ -286,6 +292,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const changeLbp = Math.abs(opts.changeLbp || 0);
     if (changeUsd) {
       insertPayment.run(
+        tenantId,
         txnId,
         "CASH",
         "General",
@@ -294,10 +301,11 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         "Change given",
         createdBy,
       );
-      upsertBalanceDelta.run("General", "USD", -changeUsd);
+      upsertBalanceDelta.run(tenantId, "General", "USD", -changeUsd);
     }
     if (changeLbp) {
       insertPayment.run(
+        tenantId,
         txnId,
         "CASH",
         "General",
@@ -306,7 +314,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         "Change given",
         createdBy,
       );
-      upsertBalanceDelta.run("General", "LBP", -changeLbp);
+      upsertBalanceDelta.run(tenantId, "General", "LBP", -changeLbp);
     }
 
     // Handle debt (partial payment)
@@ -332,10 +340,11 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       }
       this.db
         .prepare(
-          `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, due_date)
-           VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+          `INSERT INTO debt_ledger (tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, due_date)
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
         )
         .run(
+          tenantId,
           opts.clientId,
           "Maintenance Debt",
           isLbp ? 0 : debtAmount,
@@ -370,25 +379,28 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       );
     }
     this.db
-      .prepare("UPDATE maintenance SET status = 'Deleted' WHERE id = ?")
-      .run(id);
+      .prepare(
+        "UPDATE maintenance SET status = 'Deleted' WHERE id = ? AND tenant_id = ?",
+      )
+      .run(id, getCurrentTenantId());
   }
 
   /**
    * Find or create a client by name
    */
   findOrCreateClient(name: string, phone?: string | null): number {
+    const tenantId = getCurrentTenantId();
     const existing = this.db
-      .prepare(`SELECT id FROM clients WHERE full_name = ?`)
-      .get(name) as { id: number } | undefined;
+      .prepare(`SELECT id FROM clients WHERE full_name = ? AND tenant_id = ?`)
+      .get(name, tenantId) as { id: number } | undefined;
 
     if (existing) return existing.id;
 
     const result = this.db
       .prepare(
-        `INSERT INTO clients (full_name, phone_number, whatsapp_opt_in) VALUES (?, ?, 0)`,
+        `INSERT INTO clients (tenant_id, full_name, phone_number, whatsapp_opt_in) VALUES (?, ?, ?, 0)`,
       )
-      .run(name, phone ?? null);
+      .run(tenantId, name, phone ?? null);
     return Number(result.lastInsertRowid);
   }
 
@@ -441,9 +453,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
     values.push(editedBy);
     values.push(id);
+    values.push(getCurrentTenantId());
 
     this.db
-      .prepare(`UPDATE maintenance SET ${fields.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE maintenance SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+      )
       .run(...values);
 
     return this.findById(id);

@@ -145,11 +145,16 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
-   * Find a user by username including inactive users
+   * Find a user by username including inactive users.
+   *
+   * Deliberately GLOBAL, same rationale as `findByUsername`: usernames are
+   * globally unique (plan §1), so a "by username" lookup is definitionally
+   * cross-tenant — there is at most one row anywhere in the DB with a given
+   * username.
    */
   findByUsernameIncludingInactive(username: string): UserEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE username = ?`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — a by-username lookup is inherently cross-tenant */ WHERE username = ?`;
       return this.queryOne<UserEntity>(query, username);
     } catch (error) {
       throw new DatabaseError("Failed to find user by username", {
@@ -159,13 +164,20 @@ export class UserRepository extends BaseRepository<UserEntity> {
   }
 
   /**
-   * Check if username already exists
+   * Check if username already exists.
+   *
+   * Deliberately GLOBAL: `users.username` carries a single global UNIQUE
+   * constraint (not per-tenant — plan §1), so this check MUST search across
+   * every tenant. Scoping it to the current tenant would let the app-level
+   * check report "available" for a username already taken by another
+   * tenant, and the subsequent INSERT would then fail on the (still global)
+   * UNIQUE constraint instead of the clean `ConflictError` callers expect.
    */
   usernameExists(username: string, excludeId?: number): boolean {
     try {
       const query = excludeId
-        ? `SELECT 1 FROM ${this.tableName} WHERE username = ? AND id != ?`
-        : `SELECT 1 FROM ${this.tableName} WHERE username = ?`;
+        ? `SELECT 1 FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — this check must search every tenant or a same-username collision across tenants would pass here and only fail later at the DB's global UNIQUE constraint */ WHERE username = ? AND id != ?`
+        : `SELECT 1 FROM ${this.tableName} /* tenant-exempt: username stays globally unique (plan §1) — this check must search every tenant or a same-username collision across tenants would pass here and only fail later at the DB's global UNIQUE constraint */ WHERE username = ?`;
 
       const params = excludeId ? [username, excludeId] : [username];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;
@@ -187,18 +199,19 @@ export class UserRepository extends BaseRepository<UserEntity> {
         orderBy = "id",
         orderDirection = "DESC",
       } = options;
+      const tenantId = getCurrentTenantId();
 
-      let query = `SELECT id, username, role, is_active 
-                   FROM ${this.tableName} WHERE is_active = 1`;
+      let query = `SELECT id, username, role, is_active
+                   FROM ${this.tableName} WHERE is_active = 1 AND tenant_id = ?`;
 
       query += ` ORDER BY ${orderBy} ${orderDirection}`;
 
       if (limit !== undefined) {
         query += ` LIMIT ? OFFSET ?`;
-        return this.query<SafeUser>(query, limit, offset);
+        return this.query<SafeUser>(query, tenantId, limit, offset);
       }
 
-      return this.query<SafeUser>(query);
+      return this.query<SafeUser>(query, tenantId);
     } catch (error) {
       throw new DatabaseError("Failed to find all users", { cause: error });
     }
@@ -215,18 +228,19 @@ export class UserRepository extends BaseRepository<UserEntity> {
         orderBy = "id",
         orderDirection = "DESC",
       } = options;
+      const tenantId = getCurrentTenantId();
 
-      let query = `SELECT id, username, role, is_active 
-                   FROM ${this.tableName}`;
+      let query = `SELECT id, username, role, is_active
+                   FROM ${this.tableName} WHERE tenant_id = ?`;
 
       query += ` ORDER BY ${orderBy} ${orderDirection}`;
 
       if (limit !== undefined) {
         query += ` LIMIT ? OFFSET ?`;
-        return this.query<SafeUser>(query, limit, offset);
+        return this.query<SafeUser>(query, tenantId, limit, offset);
       }
 
-      return this.query<SafeUser>(query);
+      return this.query<SafeUser>(query, tenantId);
     } catch (error) {
       throw new DatabaseError("Failed to find all users", { cause: error });
     }
@@ -237,9 +251,9 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   findByIdSafe(id: number): SafeUser | null {
     try {
-      const query = `SELECT id, username, role, is_active 
-                     FROM ${this.tableName} WHERE id = ? AND is_active = 1`;
-      return this.queryOne<SafeUser>(query, id);
+      const query = `SELECT id, username, role, is_active
+                     FROM ${this.tableName} WHERE id = ? AND is_active = 1 AND tenant_id = ?`;
+      return this.queryOne<SafeUser>(query, id, getCurrentTenantId());
     } catch (error) {
       throw new DatabaseError("Failed to find user by id", {
         cause: error,
@@ -253,8 +267,12 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   countByRole(role: "admin" | "staff"): number {
     try {
-      const query = `SELECT COUNT(*) as count FROM ${this.tableName} WHERE role = ? AND is_active = 1`;
-      const result = this.queryOne<{ count: number }>(query, role);
+      const query = `SELECT COUNT(*) as count FROM ${this.tableName} WHERE role = ? AND is_active = 1 AND tenant_id = ?`;
+      const result = this.queryOne<{ count: number }>(
+        query,
+        role,
+        getCurrentTenantId(),
+      );
       return result?.count ?? 0;
     } catch (error) {
       throw new DatabaseError("Failed to count users by role", {
@@ -275,8 +293,13 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   updatePassword(id: number, passwordHash: string): boolean {
     try {
-      const query = `UPDATE ${this.tableName} SET password_hash = ? WHERE id = ?`;
-      const result = this.execute(query, passwordHash, id);
+      const query = `UPDATE ${this.tableName} SET password_hash = ? WHERE id = ? AND tenant_id = ?`;
+      const result = this.execute(
+        query,
+        passwordHash,
+        id,
+        getCurrentTenantId(),
+      );
       return result.changes > 0;
     } catch (error) {
       throw new DatabaseError("Failed to update password", {
@@ -342,8 +365,8 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   override softDeleteById(id: number): boolean {
     try {
-      const query = `UPDATE ${this.tableName} SET is_active = 0 WHERE id = ?`;
-      const result = this.execute(query, id);
+      const query = `UPDATE ${this.tableName} SET is_active = 0 WHERE id = ? AND tenant_id = ?`;
+      const result = this.execute(query, id, getCurrentTenantId());
       return result.changes > 0;
     } catch (error) {
       throw new DatabaseError("Failed to deactivate user", {
@@ -358,8 +381,8 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   override restore(id: number): boolean {
     try {
-      const query = `UPDATE ${this.tableName} SET is_active = 1 WHERE id = ?`;
-      const result = this.execute(query, id);
+      const query = `UPDATE ${this.tableName} SET is_active = 1 WHERE id = ? AND tenant_id = ?`;
+      const result = this.execute(query, id, getCurrentTenantId());
       return result.changes > 0;
     } catch (error) {
       throw new DatabaseError("Failed to reactivate user", {

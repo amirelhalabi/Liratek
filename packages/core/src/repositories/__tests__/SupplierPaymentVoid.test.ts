@@ -50,6 +50,7 @@ function createTestDb(): Database.Database {
       is_active INTEGER NOT NULL DEFAULT 1,
       is_system INTEGER NOT NULL DEFAULT 0,
       module_key TEXT,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     INSERT INTO suppliers (name, provider) VALUES ('Acme', NULL);
@@ -66,6 +67,7 @@ function createTestDb(): Database.Database {
       is_auto INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at DATETIME,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -76,6 +78,7 @@ function createTestDb(): Database.Database {
       paid_usd REAL NOT NULL DEFAULT 0,
       note TEXT,
       created_by INTEGER,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -113,6 +116,7 @@ function createTestDb(): Database.Database {
       amount REAL NOT NULL,
       note TEXT,
       created_by INTEGER,
+      tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -120,11 +124,12 @@ function createTestDb(): Database.Database {
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
       balance REAL NOT NULL DEFAULT 0,
+      tenant_id INTEGER DEFAULT 1,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (drawer_name, currency_code)
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
-    INSERT INTO drawer_balances VALUES ('General', 'USD', 1000, CURRENT_TIMESTAMP);
-    INSERT INTO drawer_balances VALUES ('General', 'LBP', 10000000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance, updated_at) VALUES ('General', 'USD', 1000, CURRENT_TIMESTAMP);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance, updated_at) VALUES ('General', 'LBP', 10000000, CURRENT_TIMESTAMP);
   `);
   return db;
 }

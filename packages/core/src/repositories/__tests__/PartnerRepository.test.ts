@@ -11,6 +11,7 @@ function createTestDb(): Database.Database {
       notes              TEXT,
       is_active          INTEGER NOT NULL DEFAULT 1,
       system_association TEXT,
+      tenant_id          INTEGER DEFAULT 1,
       created_at         TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at         TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -27,6 +28,7 @@ function createTestDb(): Database.Database {
       notes             TEXT,
       user_id           INTEGER,
       settlement_method TEXT,
+      tenant_id         INTEGER DEFAULT 1,
       created_at        TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -43,6 +45,7 @@ function createTestDb(): Database.Database {
       client_name      TEXT,
       reference_number TEXT,
       phone_number     TEXT,
+      tenant_id        INTEGER DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
