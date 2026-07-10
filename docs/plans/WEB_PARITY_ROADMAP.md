@@ -45,6 +45,7 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | Service presets | `6472d91` | config CRUD (no money); schemas already in core; `backend/src/api/servicePresets.ts`; proof `lira-web-004` |
 | Audit log (read) | `40e4c5d` | read-only; `backend/src/api/audit.ts` (search/recent/by-entity); core AuditService already present; proof `lira-web-005`. NOTE: distinct from `/api/activity`; the viewer uses the `audit` trail |
 | Drawer top-ups | `104e9e1` | `backend/src/api/drawerTopUp.ts` (source-drawers/history/create/from-drawer); no schema/core change; proof `lira-web-006` |
+| Debts cash-out + account-entry | `919cb7e` | lifted debtCashOut/debtAccountEntry schemas; `/api/debts/{clients/:id/balance,cash-out,account-entry}`; Debts page fully dual-mode; proof `lira-web-007`. (getDebtors/history/repayment/summary were already dual-mode) |
 
 **Pending** (verified 2026-07-11: no REST route yet; page still calls `window.api.*` directly):
 
