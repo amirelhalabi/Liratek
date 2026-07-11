@@ -159,6 +159,19 @@ drop and the dup-active-session `res.success===false` rejection).
 REST yet (`maintenance`, `omt`, `recharge.topUpFrom*`, `suppliers.recordCashflow`,
 `profits.summary`, `auth.createUser`) — those need phase-2-style routes built first.
 
+**⚠️ Deferred — possible real web-mode money gap (found enabling `lira-099-session-debt-detail`):**
+the shim mappings work (`session.start`/`getActive`/`cartAdd`/`checkout` all round-trip; REST
+`/api/sessions/checkout` returns `success:true`), but a basket checked out to **CUSTOMER_ACCOUNT
+produces NO findable debtor** — the Debts page shows "No debtors found" for the session's customer.
+The desktop spec passes, so the IPC `SessionCheckoutService` creates the on-account debt + client
+linkage; the **REST checkout path apparently doesn't** (likely doesn't propagate the session's
+customer name/phone into the debt/client creation, or the debtor isn't created at all). This is the
+FIRST test of session-basket → on-account-debt → debtor over REST (lira-web-002 asserted only the
+checkout response). Needs a focused, `new-money-feature`-skill investigation of the REST checkout →
+`SessionCheckoutService` → `DebtRepository` client/debt linkage — NOT a shim fix. `lira-099` stays
+out of the allowlist until then; the `session.start/close/getActiveSessions/getTodayAllSessions`
+mappings that ARE landed serve `lira-session-multiple-per-day`.
+
 **Writes + field translation — now proven (`ffaad3b`).** `session.start` maps with a real
 arg→body translation (drops the IPC-only `started_by`; `close` drops `closedBy` — REST derives the
 actor from the JWT). The discipline holds: cross-check each write body against the actual
