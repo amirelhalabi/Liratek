@@ -22,3 +22,4 @@ export * from "./tenant.js";
 export * from "./loto.js";
 export * from "./session.js";
 export * from "./holdMoney.js";
+export * from "./partner.js";

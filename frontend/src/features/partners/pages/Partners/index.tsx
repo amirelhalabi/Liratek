@@ -33,7 +33,7 @@ import type {
   LedgerFilters,
   PartnerWithBalance,
 } from "@/types/electron";
-import { appEvents, PageHeader, DecimalInput, Select } from "@liratek/ui";
+import { appEvents, PageHeader, DecimalInput, Select, useApi } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -184,6 +184,7 @@ function PartnerFormModal({
     partner?.system_association ?? partnerSystem,
   );
   const [submitting, setSubmitting] = useState(false);
+  const api = useApi();
 
   async function handleSubmit() {
     if (!name.trim()) {
@@ -194,14 +195,14 @@ function PartnerFormModal({
     try {
       let result;
       if (partner) {
-        result = await window.api.partners.update(partner.id, {
+        result = await api.partners.update(partner.id, {
           name: name.trim(),
           ...(phone.trim() ? { phone: phone.trim() } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
           system_association: systemAssociation || null,
         });
       } else {
-        result = await window.api.partners.create({
+        result = await api.partners.create({
           name: name.trim(),
           ...(phone.trim() ? { phone: phone.trim() } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -326,6 +327,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   const [method, setMethod] = useState("CASH");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const api = useApi();
 
   const parsedAmount = parseFloat(amount) || 0;
   const isValid = parsedAmount > 0;
@@ -337,7 +339,7 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
     }
     setSubmitting(true);
     try {
-      const result = await window.api.partners.settle({
+      const result = await api.partners.settle({
         partnerId: partner.id,
         amount: parsedAmount,
         currency,
@@ -473,6 +475,7 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
   const [direction, setDirection] = useState<"DEBIT" | "CREDIT">("DEBIT");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const api = useApi();
 
   const parsedAmount = parseFloat(amount) || 0;
   const isValid = parsedAmount > 0;
@@ -484,7 +487,7 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
     }
     setSubmitting(true);
     try {
-      const result = await window.api.partners.recordTransaction({
+      const result = await api.partners.recordTransaction({
         partnerId: partner.id,
         transactionType: txType,
         amount: parsedAmount,
@@ -636,11 +639,12 @@ function DeactivateModal({
   onDeactivated: () => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
+  const api = useApi();
 
   async function handleDeactivate() {
     setSubmitting(true);
     try {
-      const result = await window.api.partners.deactivate(partner.id);
+      const result = await api.partners.deactivate(partner.id);
       if (result.success) {
         appEvents.emit("notification:show", "Partner deactivated.", "success");
         onDeactivated();
@@ -887,6 +891,7 @@ function DetailPanel({
   const [filterDirection, setFilterDirection] = useState<
     "" | "DEBIT" | "CREDIT"
   >("");
+  const api = useApi();
 
   const loadLedger = useCallback(async () => {
     setLoading(true);
@@ -898,7 +903,7 @@ function DetailPanel({
       if (filterMode) filters.mode = filterMode;
       if (filterProvider) filters.provider = filterProvider;
       if (filterDirection) filters.direction = filterDirection;
-      const result = await window.api.partners.getLedger(
+      const result = await api.partners.getLedger(
         partner.id,
         Object.keys(filters).length ? filters : undefined,
       );
@@ -917,6 +922,7 @@ function DetailPanel({
     filterMode,
     filterProvider,
     filterDirection,
+    api,
   ]);
 
   useEffect(() => {
@@ -1344,13 +1350,14 @@ export function PartnersPage() {
     useState<PartnerWithBalance | null>(null);
   const [deactivatingPartner, setDeactivatingPartner] =
     useState<PartnerWithBalance | null>(null);
+  const api = useApi();
 
   const selectedPartner = partners.find((p) => p.id === selectedId) ?? null;
 
   const loadPartners = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await window.api.partners.getAllBalances(true);
+      const data = await api.partners.getAllBalances(true);
       const filtered = includeInactive
         ? data
         : data.filter((p) => p.is_active === 1);
@@ -1364,7 +1371,7 @@ export function PartnersPage() {
     } finally {
       setLoading(false);
     }
-  }, [includeInactive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [includeInactive, api]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     loadPartners();
@@ -1507,7 +1514,7 @@ export function PartnersPage() {
               onRecordTx={() => setRecordingTxPartner(selectedPartner)}
               onDeactivate={() => setDeactivatingPartner(selectedPartner)}
               onActivate={async () => {
-                const result = await window.api.partners.activate(
+                const result = await api.partners.activate(
                   selectedPartner.id,
                 );
                 if (result.success) {

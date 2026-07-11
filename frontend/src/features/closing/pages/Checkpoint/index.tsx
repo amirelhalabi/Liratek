@@ -56,7 +56,7 @@ export default function CheckpointModal({
 
   useEffect(() => {
     if (isOpen) {
-      window.api.partners
+      api.partners
         .getAll(false)
         .then((partners: Array<{ system_association: string | null }>) => {
           const exists = partners.some(
@@ -66,7 +66,7 @@ export default function CheckpointModal({
         })
         .catch(() => setHasActivePartner(false));
     }
-  }, [isOpen, partnerSystem]);
+  }, [isOpen, partnerSystem, api]);
 
   const isPartnerDrawerInactive =
     drawerName === partnerDrawerName && !hasActivePartner;

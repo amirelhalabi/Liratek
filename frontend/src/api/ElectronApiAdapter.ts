@@ -422,6 +422,64 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.auditGetByEntity(entityType, entityId),
   };
 
+  // Nested namespace mirroring window.api.partners (dual-mode IPC/REST).
+  // Reads return raw values (array / statement object) to match the IPC
+  // handlers; writes return the { success, data? } envelope.
+  partners = {
+    getAll: (includeInactive?: boolean) =>
+      api.partnersGetAll(includeInactive ?? false),
+    getById: (id: number) => api.partnersGetById(id),
+    getAllBalances: (includeInactive?: boolean) =>
+      api.partnersGetAllBalances(includeInactive ?? false),
+    getBalance: (partnerId: number) => api.partnersGetBalance(partnerId),
+    getLedger: (
+      partnerId: number,
+      filters?: {
+        startDate?: string;
+        endDate?: string;
+        type?: string;
+        mode?: "FOR" | "THROUGH";
+        provider?: string;
+        direction?: "DEBIT" | "CREDIT";
+      },
+    ) => api.partnersGetLedger(partnerId, filters),
+    create: (data: {
+      name: string;
+      phone?: string;
+      notes?: string;
+      system_association?: string | null;
+    }) => api.partnersCreate(data),
+    update: (
+      id: number,
+      data: {
+        name?: string;
+        phone?: string;
+        notes?: string;
+        is_active?: number;
+        system_association?: string | null;
+      },
+    ) => api.partnersUpdate(id, data),
+    deactivate: (id: number) => api.partnersDeactivate(id),
+    activate: (id: number) => api.partnersActivate(id),
+    recordTransaction: (data: {
+      partnerId: number;
+      transactionType?: string;
+      referenceTable?: string;
+      referenceId?: number;
+      amount: number;
+      currency: string;
+      direction: "DEBIT" | "CREDIT";
+      notes?: string;
+    }) => api.partnersRecordTransaction(data),
+    settle: (data: {
+      partnerId: number;
+      amount: number;
+      currency: string;
+      settlementMethod: string;
+      notes?: string;
+    }) => api.partnersSettle(data),
+  };
+
   // Nested namespace mirroring window.api.drawerTopUp (dual-mode).
   drawerTopUp = {
     create: (data: {

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Users } from "lucide-react";
 import type { Partner } from "@/types/electron";
 import logger from "@/utils/logger";
-import { Select } from "@liratek/ui";
+import { Select, useApi } from "@liratek/ui";
 
 interface PartnerSelectorProps {
   selectedPartnerId: number | null;
@@ -23,13 +23,14 @@ export function PartnerSelector({
   systemFilter,
 }: PartnerSelectorProps): React.ReactElement | null {
   const [allPartners, setAllPartners] = useState<Partner[]>([]);
+  const api = useApi();
 
   useEffect(() => {
-    window.api.partners
+    api.partners
       .getAll(false)
       .then(setAllPartners)
       .catch((err: unknown) => logger.error("Failed to load partners:", err));
-  }, []);
+  }, [api]);
 
   // Filter by system association if specified
   const partners = systemFilter

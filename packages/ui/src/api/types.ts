@@ -769,6 +769,62 @@ export type ApiAdapter = {
     ) => Promise<{ success: boolean; rows?: any[]; error?: string }>;
   };
 
+  /** Partners — config records + partner_ledger money writes.
+   *  Reads return RAW values (array / statement object) mirroring the IPC
+   *  handlers; writes return the { success, data? } envelope. */
+  partners: {
+    getAll: (includeInactive?: boolean) => Promise<any[]>;
+    getById: (id: number) => Promise<any>;
+    getAllBalances: (includeInactive?: boolean) => Promise<any[]>;
+    getBalance: (partnerId: number) => Promise<any>;
+    getLedger: (
+      partnerId: number,
+      filters?: {
+        startDate?: string;
+        endDate?: string;
+        type?: string;
+        mode?: "FOR" | "THROUGH";
+        provider?: string;
+        direction?: "DEBIT" | "CREDIT";
+      },
+    ) => Promise<any>;
+    create: (data: {
+      name: string;
+      phone?: string;
+      notes?: string;
+      system_association?: string | null;
+    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    update: (
+      id: number,
+      data: {
+        name?: string;
+        phone?: string;
+        notes?: string;
+        is_active?: number;
+        system_association?: string | null;
+      },
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
+    deactivate: (id: number) => Promise<{ success: boolean; error?: string }>;
+    activate: (id: number) => Promise<{ success: boolean; error?: string }>;
+    recordTransaction: (data: {
+      partnerId: number;
+      transactionType?: string;
+      referenceTable?: string;
+      referenceId?: number;
+      amount: number;
+      currency: string;
+      direction: "DEBIT" | "CREDIT";
+      notes?: string;
+    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    settle: (data: {
+      partnerId: number;
+      amount: number;
+      currency: string;
+      settlementMethod: string;
+      notes?: string;
+    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  };
+
   /** Drawer top-ups — cash into a drawer / transfer between drawers. */
   drawerTopUp: {
     create: (data: {

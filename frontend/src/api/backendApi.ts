@@ -469,6 +469,153 @@ export async function debtAccountEntry(payload: any) {
   );
 }
 
+// Partners (config CRUD + partner_ledger money writes).
+// Reads mirror the IPC handlers' RAW return shape (array / statement object);
+// writes return the { success, data? } envelope.
+export async function partnersGetAll(includeInactive = false) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.getAll(includeInactive),
+    async () => {
+      const res = await requestJson<{ success: boolean; partners: any[] }>(
+        `/api/partners?includeInactive=${includeInactive}`,
+      );
+      return res.partners;
+    },
+  );
+}
+
+export async function partnersGetById(id: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.getById(id),
+    async () => {
+      const res = await requestJson<{ success: boolean; partner?: any }>(
+        `/api/partners/${id}`,
+      );
+      return res.partner;
+    },
+  );
+}
+
+export async function partnersGetAllBalances(includeInactive = false) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.getAllBalances(includeInactive),
+    async () => {
+      const res = await requestJson<{ success: boolean; balances: any[] }>(
+        `/api/partners/balances?includeInactive=${includeInactive}`,
+      );
+      return res.balances;
+    },
+  );
+}
+
+export async function partnersGetBalance(partnerId: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.getBalance(partnerId),
+    async () => {
+      const res = await requestJson<{ success: boolean; balance?: any }>(
+        `/api/partners/${partnerId}/balance`,
+      );
+      return res.balance;
+    },
+  );
+}
+
+export async function partnersGetLedger(
+  partnerId: number,
+  filters?: {
+    startDate?: string;
+    endDate?: string;
+    type?: string;
+    mode?: "FOR" | "THROUGH";
+    provider?: string;
+    direction?: "DEBIT" | "CREDIT";
+  },
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.getLedger(partnerId, filters),
+    async () => {
+      const qs = new URLSearchParams();
+      if (filters?.startDate) qs.set("startDate", filters.startDate);
+      if (filters?.endDate) qs.set("endDate", filters.endDate);
+      if (filters?.type) qs.set("type", filters.type);
+      if (filters?.mode) qs.set("mode", filters.mode);
+      if (filters?.provider) qs.set("provider", filters.provider);
+      if (filters?.direction) qs.set("direction", filters.direction);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      const res = await requestJson<{ success: boolean; statement?: any }>(
+        `/api/partners/${partnerId}/ledger${suffix}`,
+      );
+      return res.statement;
+    },
+  );
+}
+
+export async function partnersCreate(payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.create(payload),
+    async () =>
+      requestJson<{ success: boolean; data?: any; error?: string }>(
+        `/api/partners`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+export async function partnersUpdate(id: number, payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.update(id, payload),
+    async () =>
+      requestJson<{ success: boolean; data?: any; error?: string }>(
+        `/api/partners/${id}`,
+        { method: "PUT", body: payload },
+      ),
+  );
+}
+
+export async function partnersDeactivate(id: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.deactivate(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/partners/${id}/deactivate`,
+        { method: "POST" },
+      ),
+  );
+}
+
+export async function partnersActivate(id: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.activate(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/partners/${id}/activate`,
+        { method: "POST" },
+      ),
+  );
+}
+
+export async function partnersRecordTransaction(payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.recordTransaction(payload),
+    async () =>
+      requestJson<{ success: boolean; data?: any; error?: string }>(
+        `/api/partners/transactions`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+export async function partnersSettle(payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.settle(payload),
+    async () =>
+      requestJson<{ success: boolean; data?: any; error?: string }>(
+        `/api/partners/settle`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
 // Exchange
 export async function getExchangeRates() {
   return ipcOrHttp(

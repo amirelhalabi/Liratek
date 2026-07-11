@@ -99,6 +99,7 @@ import holdMoneyRoutes from "./api/holdMoney.js";
 import servicePresetsRoutes from "./api/servicePresets.js";
 import auditRoutes from "./api/audit.js";
 import drawerTopUpRoutes from "./api/drawerTopUp.js";
+import partnersRoutes from "./api/partners.js";
 import voiceRoutes, { initVoiceWebSocketServer } from "./api/voice.js";
 import adminRoutes from "./api/admin.js";
 
@@ -138,6 +139,7 @@ app.use("/api/hold-money", holdMoneyRoutes);
 app.use("/api/service-presets", servicePresetsRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/drawer-topup", drawerTopUpRoutes);
+app.use("/api/partners", partnersRoutes);
 app.use("/api/voice", voiceRoutes);
 app.use("/api/admin", adminRoutes);
 
