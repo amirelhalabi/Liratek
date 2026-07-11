@@ -27,7 +27,7 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 |---|---|---|
 | **1. Fix broken pages** | Every page renders (not crash) in a browser | ✅ Done (`c7bf8b4`) |
 | **2. REST parity per money module** | Each module reachable + wired over REST | ✅ Done — all modules reachable over REST (§3); debts addCredit reclassified as no-web-work |
-| **3. `window.api`→REST shim** | Let the ~50 IPC-driven desktop specs run over HTTP | 🔴 Not started |
+| **3. `window.api`→REST shim** | Let the ~50 IPC-driven desktop specs run over HTTP | 🟡 In progress — shim scaffold landed (`dbeffdd`, canary green); 1st desktop spec green over web (`f5a8cbc`); ~48 specs remain (grow shim per-spec, §10) |
 | **4. Unify the suites** | Run all ~148 specs against BOTH transports | 🔴 Not started |
 
 ---
@@ -119,6 +119,41 @@ Followed for sales/loto/sessions; reuse verbatim. **This is money-path work — 
 - **Both transports:** web e2e (`yarn test:e2e:web`) green; desktop specs for the module green (`yarn rebuild:native` first). Keep `frontend/tests/e2e-web/lira-web-*` extended as modules land.
 
 ---
+
+## 7b. Phase 3 — the `window.api`→REST shim (how it works + rollout loop)
+
+**Scaffold** (`frontend/tests/e2e-electron/helpers/webApiShim.ts`, committed `dbeffdd`):
+a browser-side `window.api` installed via `addInitScript` in the **web-shared** fixture
+only (the phase-2 `lira-web-*` specs use a different fixture, unaffected). It's a
+`Proxy` whose **unmapped methods reject** with `web-api-shim miss: <ns>.<method>` and
+whose `on*` methods return a synchronous no-op unsubscribe (Electron event contract).
+Reads unwrap the REST envelope to the raw IPC shape; writes pass `{success,…}` through.
+
+**The load-bearing trick:** installing `window.api` would flip `isElectron()` (`!!window.api`)
+true app-wide, activating Electron-only boot paths (auth restore/session-events, direct
+`if (isElectron()) return window.api.X` fns like login) that a partial shim can't satisfy →
+render crash / login failure. So the shim sets `window.__LIRATEK_WEB_API_SHIM = true` and
+`backendApi.isElectron()` returns **false** when that flag is set. Result: **app code keeps
+taking the HTTP path exactly as in shim-absent web mode**; the shim exists ONLY for the
+specs' direct `page.evaluate(window.api.*)` calls (and any component still gating on raw
+`window.api` truthiness — see below). Canary proof: `app.spec.ts` runs green in web WITH
+the shim installed.
+
+**Rollout loop (per spec):**
+1. `E2E_WEB_SPECS=<spec>.spec.ts yarn test:e2e:web` (Node ABI — fully runnable this session, no Electron ABI fight).
+2. For each `web-api-shim miss: ns.method` → add a route to the table in `webApiShim.ts`
+   (REST path/verb MUST match `backend/src/api/*`; centralize IPC-arg→REST-body translation there).
+   If the REST route doesn't exist yet, build it with the phase-2 recipe first.
+3. If a **component the spec renders** gates on raw `window.api` (not `isElectron()`) and
+   breaks, fix the component: drop the dead `if (window.api)` branch and use the dual-mode
+   `useApi()` adapter (it's already `ipcOrHttp`). Did this for `ClientList`; the same
+   pattern applies to the debts page reads, `AuthContext`, etc. as specs surface them.
+4. Add the spec to `SHARED_DESKTOP_SPECS` in `playwright.web.config.ts` once green.
+
+**Done:** `lira-transactions-timezone.spec.ts` (`f5a8cbc`; needed `transactions.getRecent`).
+**Remaining:** ~48 specs. Highest-surface (`lira-090/094/097`) touch namespaces with no
+REST yet (`maintenance`, `omt`, `recharge.topUpFrom*`, `suppliers.recordCashflow`,
+`profits.summary`, `auth.createUser`) — those need phase-2-style routes built first.
 
 ## 8. Related plan docs
 
