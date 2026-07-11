@@ -159,18 +159,17 @@ drop and the dup-active-session `res.success===false` rejection).
 REST yet (`maintenance`, `omt`, `recharge.topUpFrom*`, `suppliers.recordCashflow`,
 `profits.summary`, `auth.createUser`) — those need phase-2-style routes built first.
 
-**⚠️ Deferred — possible real web-mode money gap (found enabling `lira-099-session-debt-detail`):**
-the shim mappings work (`session.start`/`getActive`/`cartAdd`/`checkout` all round-trip; REST
-`/api/sessions/checkout` returns `success:true`), but a basket checked out to **CUSTOMER_ACCOUNT
-produces NO findable debtor** — the Debts page shows "No debtors found" for the session's customer.
-The desktop spec passes, so the IPC `SessionCheckoutService` creates the on-account debt + client
-linkage; the **REST checkout path apparently doesn't** (likely doesn't propagate the session's
-customer name/phone into the debt/client creation, or the debtor isn't created at all). This is the
-FIRST test of session-basket → on-account-debt → debtor over REST (lira-web-002 asserted only the
-checkout response). Needs a focused, `new-money-feature`-skill investigation of the REST checkout →
-`SessionCheckoutService` → `DebtRepository` client/debt linkage — NOT a shim fix. `lira-099` stays
-out of the allowlist until then; the `session.start/close/getActiveSessions/getTodayAllSessions`
-mappings that ARE landed serve `lira-session-multiple-per-day`.
+**Deferred — `lira-099-session-debt-detail` (NOT a money bug; a shim read-shape detail).**
+Investigated 2026-07-11 (`new-money-feature` skill): the REST session-checkout money flow is
+**verified correct** — a REST-only reproduction (start session name+phone → checkout to
+CUSTOMER_ACCOUNT) creates the client, books the on-account debt, and `/api/debts/debtors` returns
+the debtor `{full_name, total_debt}`. So `SessionCheckoutService` behaves identically on both
+transports. lira-099's "No debtors found" is a **read-shape mismatch in the shim**: the Debts page
+(and `SessionDebtDetailModal`) were authored against the IPC debtor/basket shape, but the shim's
+`debt.getDebtors` returns the REST debtor shape (`full_name`/`total_debt_usd` …) — the page's
+client-side filter/render doesn't match. Fix is shim-side (translate the debtor read shape to the
+IPC contract) or migrate the Debts page reads to `useApi()`. Deferred as coverage, not correctness.
+The landed `session.*` mappings serve `lira-session-multiple-per-day`.
 
 **Writes + field translation — now proven (`ffaad3b`).** `session.start` maps with a real
 arg→body translation (drops the IPC-only `started_by`; `close` drops `closedBy` — REST derives the
