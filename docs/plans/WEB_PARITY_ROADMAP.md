@@ -155,6 +155,26 @@ the shim installed.
 REST yet (`maintenance`, `omt`, `recharge.topUpFrom*`, `suppliers.recordCashflow`,
 `profits.summary`, `auth.createUser`) — those need phase-2-style routes built first.
 
+**⚠️ What "proven" means so far — reads only.** Both proofs exercise reads/passthrough
+(`app.spec` create-client goes through the dual-mode adapter, not the shim; `transactions.getRecent`
+is a read). The shim has **zero field translations yet**, but `seed.ts` documents IPC args ≠ REST
+bodies (`cost_price`↔`cost_price_usd`, `stock_quantity`↔`stock`, `whatsapp_opt_in` 0/1↔boolean). The
+first `window.api.<ns>.create/process(payload)` mapping whose IPC arg shape differs from the REST body
+will **silently POST a malformed body** (no "shim miss" — the method is mapped, just wrong) → debug it
+as an assertion failure. Cross-check each write body against the actual `backend/src/api/*` schema, not
+the IPC arg, and centralize translation in the shim.
+
+**Also (self-heal is gone by design):** since `isElectron()` is false under the shim, app code never
+enters `ipcOrHttp`'s ipc branch — there is NO fallback catching shim misses for raw-`window.api`
+components. Migrating them to `useApi()` (rollout step 3) is the ONLY fix, not optional cleanup.
+
+**Diagnosing a tail failure — four distinct fixes:** (a) `web-api-shim miss:` in the log → map the
+method / build its REST route; (b) mapped but wrong body → field-translation bug; (c) missing
+desktop-only UI (a component's `if (isElectron())` now renders its web branch, or an Electron-only
+feature — `display/print/diagnostics/whatsapp/backup`) → `isElectron()`-gate the component or benign-stub
+in the shim, NOT a REST mapping; (d) assertion/state mismatch → the accumulating web DB differs from the
+desktop DB's seed state (rule 15 delta assertions should hold; adjust seeds, not the shim).
+
 ## 8. Related plan docs
 
 - `SESSIONS_WEB_PARITY_PLAN.md` — sessions, ✅ complete (the extraction pattern-setter).
