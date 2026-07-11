@@ -50,6 +50,7 @@ const SHARED_DESKTOP_SPECS: string[] = SPECS_OVERRIDE
       // enabled over web as their window.api.* surface is mapped in the shim.
       // Add a spec here once it passes via `E2E_WEB_SPECS=<spec> yarn test:e2e:web`.
       "lira-transactions-timezone.spec.ts", // needs transactions.getRecent
+      "lira-session-multiple-per-day.spec.ts", // session.start/close/getActiveSessions/getTodayAllSessions (write path proven)
     ];
 
 // Optional per-file sub-test filter for partially-passing spec files.

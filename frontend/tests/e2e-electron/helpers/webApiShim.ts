@@ -92,6 +92,25 @@ function webApiShimBody(): void {
     "debt.addRepayment": async ([payload]) =>
       rest("POST", "/api/debts/repayments", payload),
 
+    // ── Customer sessions ──
+    // start: the spec passes { customer_name, started_by }; started_by is
+    // IPC-only (REST derives the actor from the JWT) so it's dropped — a real
+    // arg→body field translation, not passthrough.
+    "session.start": async ([data]) => {
+      const { started_by: _b, ...body } = (data ?? {}) as Record<
+        string,
+        unknown
+      >;
+      return rest("POST", "/api/sessions/start", body);
+    },
+    // close(id, closedBy) — closedBy is IPC-only (JWT actor on REST); drop it.
+    "session.close": async ([id]) =>
+      rest("POST", `/api/sessions/${id}/close`),
+    "session.getActiveSessions": async () =>
+      rest("GET", "/api/sessions/active-list"),
+    "session.getTodayAllSessions": async () =>
+      rest("GET", "/api/sessions/today-all"),
+
     // ── Transactions (unified) ──
     "transactions.getRecent": async ([limit, filters]) =>
       (
