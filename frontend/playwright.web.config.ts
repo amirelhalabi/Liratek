@@ -52,6 +52,7 @@ const SHARED_DESKTOP_SPECS: string[] = SPECS_OVERRIDE
       "lira-transactions-timezone.spec.ts", // needs transactions.getRecent
       "lira-session-multiple-per-day.spec.ts", // session.start/close/getActiveSessions/getTodayAllSessions (write path proven)
       "lira-099-session-debt-detail.spec.ts", // session.getActive/cartAdd/checkout — basket→CUSTOMER_ACCOUNT debt
+      "lira-081-maintenance-customer-account.spec.ts", // maintenance.getJobs/save/delete (save = money → debt_ledger)
     ];
 
 // Optional per-file sub-test filter for partially-passing spec files.

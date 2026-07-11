@@ -116,6 +116,17 @@ function webApiShimBody(): void {
     "session.checkout": async ([data]) =>
       rest("POST", "/api/sessions/checkout", data),
 
+    // ── Maintenance (repair jobs) — REST routes already exist. save is a MONEY
+    //    path (job → unified transaction + drawers + optional CUSTOMER_ACCOUNT
+    //    debt_ledger), routed through the same core MaintenanceService. ──
+    "maintenance.getJobs": async ([statusFilter]) =>
+      (await rest("GET", "/api/maintenance/jobs" + qs({ status: statusFilter })))
+        .jobs,
+    "maintenance.save": async ([job]) =>
+      rest("POST", "/api/maintenance/jobs", job),
+    "maintenance.delete": async ([id]) =>
+      rest("DELETE", `/api/maintenance/jobs/${id}`),
+
     // ── Transactions (unified) ──
     "transactions.getRecent": async ([limit, filters]) =>
       (
