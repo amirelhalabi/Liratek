@@ -313,6 +313,17 @@ export function registerInventoryHandlers(): void {
     }
   });
 
+  // Get products at negative stock (oversold before the stock guard — need
+  // reconciliation; they can't be sold until the count is corrected)
+  ipcMain.handle("inventory:get-negative-stock", () => {
+    try {
+      return service.getNegativeStockProducts();
+    } catch (error) {
+      inventoryLogger.error({ error }, "Failed to get negative-stock products");
+      return [];
+    }
+  });
+
   // ---------------------------------------------------------------------------
   // Category Management
   // ---------------------------------------------------------------------------

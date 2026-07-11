@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("inventory:adjust-stock", id, quantity),
     getLowStockProducts: () =>
       ipcRenderer.invoke("inventory:get-low-stock-products"),
+    getNegativeStock: () => ipcRenderer.invoke("inventory:get-negative-stock"),
     getStockStats: () => ipcRenderer.invoke("inventory:get-stock-stats"),
     getCategories: () => ipcRenderer.invoke("inventory:get-categories"),
     getCategoriesFull: () =>

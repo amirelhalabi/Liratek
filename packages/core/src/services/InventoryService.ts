@@ -19,6 +19,7 @@ import {
   type UpdateProductData,
   type StockStats,
   type LowStockProduct,
+  type NegativeStockProduct,
 } from "../repositories/index.js";
 import { ValidationError, NotFoundError } from "../utils/errors.js";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors.js";
@@ -377,6 +378,13 @@ export class InventoryService {
    */
   getLowStockProducts(): LowStockProduct[] {
     return this.productRepo.findLowStock();
+  }
+
+  /**
+   * Products at negative stock (oversold — need reconciliation).
+   */
+  getNegativeStockProducts(): NegativeStockProduct[] {
+    return this.productRepo.findNegativeStock();
   }
 }
 

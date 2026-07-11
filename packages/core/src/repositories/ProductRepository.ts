@@ -96,6 +96,13 @@ export interface LowStockProduct {
   min_stock_level: number;
 }
 
+export interface NegativeStockProduct {
+  id: number;
+  name: string;
+  barcode: string | null;
+  stock_quantity: number;
+}
+
 // =============================================================================
 // Repository
 // =============================================================================
@@ -582,6 +589,32 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       );
     } catch (error) {
       throw new DatabaseError("Failed to get low stock products", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Products whose stock has gone negative — oversold before the stock-oversell
+   * guard shipped, or via a manual adjustment. They can no longer be sold (the
+   * guard blocks stock < qty) until the count is reconciled. Excludes virtual
+   * (MTC/Alfa) items, which are not physical stock. Tenant-scoped.
+   */
+  findNegativeStock(): NegativeStockProduct[] {
+    try {
+      return this.query<NegativeStockProduct>(
+        `
+        SELECT id, name, barcode, stock_quantity
+        FROM ${this.tableName}
+        WHERE stock_quantity < 0 AND is_deleted = 0
+          AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
+          AND tenant_id = ?
+        ORDER BY stock_quantity ASC
+      `,
+        getCurrentTenantId(),
+      );
+    } catch (error) {
+      throw new DatabaseError("Failed to get negative-stock products", {
         cause: error,
       });
     }

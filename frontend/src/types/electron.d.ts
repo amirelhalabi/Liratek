@@ -356,6 +356,14 @@ export interface ElectronAPI {
       stock_count: number;
     }>;
     getLowStockProducts: () => Promise<Array<import("@liratek/core").Product>>;
+    getNegativeStock: () => Promise<
+      Array<{
+        id: number;
+        name: string;
+        barcode: string | null;
+        stock_quantity: number;
+      }>
+    >;
     getCategories: () => Promise<string[]>;
     getCategoriesFull: () => Promise<
       Array<{ id: number; name: string; sort_order: number; is_active: number }>

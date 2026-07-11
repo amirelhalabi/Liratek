@@ -54,6 +54,16 @@ export default function Diagnostics() {
   useModalFocusFix(showDbPathEdit);
   const [dbPathChanging, setDbPathChanging] = useState(false);
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [negStock, setNegStock] = useState<
+    Array<{
+      id: number;
+      name: string;
+      barcode: string | null;
+      stock_quantity: number;
+    }>
+  >([]);
+  const [negStockLoading, setNegStockLoading] = useState(false);
+  const [negStockChecked, setNegStockChecked] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -345,6 +355,23 @@ export default function Diagnostics() {
       });
   }, []);
 
+  const checkNegativeStock = async () => {
+    setNegStockLoading(true);
+    try {
+      const rows = (await window.api.inventory.getNegativeStock()) ?? [];
+      setNegStock(rows);
+      setNegStockChecked(true);
+    } catch (e) {
+      appEvents.emit(
+        "notification:show",
+        e instanceof Error ? e.message : "Failed to load negative stock",
+        "error",
+      );
+    } finally {
+      setNegStockLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* FK Check */}
@@ -372,6 +399,61 @@ export default function Diagnostics() {
         {fkCheckError && (
           <div className="bg-red-500/10 border border-red-500/30 rounded p-3 text-red-200 text-sm">
             {fkCheckError}
+          </div>
+        )}
+      </div>
+
+      {/* Negative Stock (oversold products needing reconciliation) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-white font-semibold">Negative Stock</h3>
+          <button
+            onClick={checkNegativeStock}
+            disabled={negStockLoading}
+            className="px-3 py-1 bg-slate-700 rounded text-white text-sm"
+          >
+            {negStockLoading ? "Checking..." : "Check Negative Stock"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-500">
+          Products whose stock dropped below 0. They cannot be sold until the
+          count is corrected in Inventory.
+        </p>
+
+        {negStockChecked && negStock.length === 0 && (
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded p-3 text-emerald-200 text-sm">
+            No products at negative stock.
+          </div>
+        )}
+
+        {negStock.length > 0 && (
+          <div className="border border-slate-700 rounded overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
+                <tr>
+                  <th className="p-2">Product</th>
+                  <th className="p-2">Barcode</th>
+                  <th className="p-2 text-right">Stock</th>
+                  <th className="p-2 text-right">Oversold by</th>
+                </tr>
+              </thead>
+              <tbody>
+                {negStock.map((p) => (
+                  <tr key={p.id} className="border-t border-slate-800">
+                    <td className="p-2 text-sm text-white">{p.name}</td>
+                    <td className="p-2 font-mono text-xs text-slate-400">
+                      {p.barcode ?? "—"}
+                    </td>
+                    <td className="p-2 text-sm text-right text-red-300">
+                      {p.stock_quantity}
+                    </td>
+                    <td className="p-2 text-sm text-right text-slate-300">
+                      {-p.stock_quantity}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

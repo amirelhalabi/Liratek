@@ -37,6 +37,7 @@ export type {
   UpdateProductData,
   StockStats,
   LowStockProduct,
+  NegativeStockProduct,
 } from "./ProductRepository.js";
 
 // Client Repository
