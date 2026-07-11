@@ -76,6 +76,42 @@ Do NOT try to launch the app directly (`npx electron .`) to validate — it fail
 16. **Payment legs — flow branches consume IN legs only** — every money repository (`FinancialServiceRepository`, `RechargeRepository`, `SalesRepository`, `DebtRepository`) splits its `payments[]` with `partitionLegs` (`utils/payments.ts`): legs without a `direction` are IN (customer-paid / payout), `direction: "OUT"` marks change/return legs. Each repo has ONE shared end-of-transaction loop that debits every drawer-affecting OUT leg exactly once ("Change returned"). A flow-specific branch that iterates legs MUST build from the IN set only — including `returnLegs` double-debits the drawer (this exact bug was caught pre-merge in the C1 split-payout fix). The frontend sends split legs, return legs, and cashout method in ONE IPC call; there is never a follow-up call, so money-movement fixes belong in the repository layer.
 17. **Prove regression tests against the buggy code** — a test added to guard a fix only counts once it has been shown to FAIL on the pre-fix code: temporarily reintroduce the bug, watch the new test fail, revert. A guard test that has never failed proves nothing.
 18. **Read the Feature Guide before touching money** — before building or modifying ANY flow that writes transactions, payments, drawers, or ledgers, read `docs/FEATURE_GUIDE.md` and work through its §13 checklist (transaction row fields, IN/OUT badge case, payment legs, client propagation, CUSTOMER_ACCOUNT model, supplier/partner ledger, void path, profit stamping, session branch). Rules 11/15/16/17 above are the enforcement summary; the guide is the full map with the guarding spec named for each rule.
+19. **Dual-transport by default — every feature MUST work on BOTH desktop (Electron/IPC) and web (browser/REST).** LiraTek ships as an Electron desktop app AND a multi-tenant web app off the SAME codebase. New code is not done until it works in both. The non-negotiables: (a) frontend data access goes through `useApi()` / the dual-mode `frontend/src/api/backendApi.ts` adapter (`ipcOrHttp` picks IPC vs REST) — **never** a raw `window.api.*` call or a `if (window.api) … else …` transport gate in a page/component (that breaks in the browser and under the web-test shim; if you must detect the runtime, call the canonical `isElectron()`, never `!!window.api` inline); (b) every write-path IPC handler in `electron-app/handlers/` gets a mirroring REST route in `backend/src/api/` that feeds the **same** `@liratek/core` service, with the Zod schema lifted to `packages/core/src/validators/` and shared by both (rules 13 + 14); (c) REST routes use `authenticateJWT` (tenant context) **then** `requireRole(...)` matching the handler, inject `userId`/actor from the JWT (never trust the client), and return the IPC-identical envelope (`{ success, … }`, HTTP 200 even on failure); (d) prove it in web mode — extend `frontend/tests/e2e-web/lira-web-*` or enable the desktop spec over the web shim (`docs/plans/WEB_PARITY_ROADMAP.md`). See **Dual-Transport Architecture** below for the full pattern. The old desktop-only shortcuts (raw `window.api`, IPC-only handlers with no REST) are the debt being paid down, not the pattern to copy.
+
+---
+
+## Dual-Transport Architecture (Desktop IPC + Web REST)
+
+One React frontend, two transports, one core. Both land on the SAME `@liratek/core` service/repository — the transport is the only thing that differs.
+
+```
+page/component
+  → useApi()  (ApiProvider → ElectronApiAdapter, a thin shim over backendApi.ts)
+  → backendApi.ts fn → ipcOrHttp(ipc, http)
+       isElectron()?  window.api.* (IPC, desktop)   :   /api/* (REST, browser)
+  → BOTH call the same @liratek/core service → repository (tenant-scoped)
+```
+
+**Adding/changing a feature — the checklist:**
+
+- **Core** owns the logic. Repositories do SQL; services orchestrate (rule 13). Both transports call the service — no logic in the handler or the route.
+- **Schema once** in `packages/core/src/validators/<module>.ts`; re-export in `electron-app/schemas/index.ts` with the zod-major cast (`as unknown as z.ZodSchema<T>`); `backend/` imports it directly for `validateRequest(...)` (rule 14).
+- **IPC handler** (`electron-app/handlers/`): `requireRole` + `validatePayload` + `{ success, data?, error? }`.
+- **REST route** (`backend/src/api/<module>.ts`, mounted in `server.ts`): `authenticateJWT` → `requireRole(...)` (same roles), `validateRequest(coreSchema)`, inject `userId` from `req.user`, IPC-identical envelope. Static paths before `/:id`.
+- **Adapter**: dual-mode fn in `backendApi.ts` (`ipcOrHttp`); expose on `ElectronApiAdapter.ts`; type it in `packages/ui/src/api/types.ts` (`ApiAdapter`). Reads return the RAW IPC shape (array/object), writes return the envelope — the shim and the app both depend on that contract.
+- **Frontend**: call `useApi().<fn>` — migrate any raw `window.api.*` you touch.
+- **Prove both**: web e2e green (`yarn test:e2e:web`) AND desktop e2e green (`yarn rebuild:native` first).
+
+**Gotchas that cost real time:**
+
+- **`isElectron()` is `!!window.api`.** Any component gating on raw `window.api` truthiness (instead of `isElectron()` / the adapter) takes the wrong branch in the browser and crashes under the web-test `window.api` shim. Fix on sight: drop the branch, use `useApi()`.
+- **`requireRole` needs `requireAuth`/`authenticateJWT` FIRST** — it only reads `req.user`. Most route files have a router-level `authenticateJWT`; a few (e.g. `closing.ts`) don't — add `requireAuth` per admin route or `req.user` is undefined → 401 with no `success` field.
+- **better-sqlite3 ABI is NOT portable.** Electron ABI (`yarn rebuild:native`) vs Node ABI (`yarn rebuild:node`, used by `yarn test:e2e:web` and core jest). Running the wrong one makes desktop e2e fail EVERY spec at `fixtures.ts` `waitForEvent "window"` — environmental, not a code bug. Probe: `node -e "require('better-sqlite3')"` LOADS ⇒ Node ABI (wrong for desktop).
+- **Envelope parity**: REST returns HTTP 200 even on failure (`{success:false,error}`) to match IPC; the adapter branches on `result.success`, not status code. Don't "fix" to 4xx.
+- **Field translation**: IPC args ≠ REST bodies sometimes (`seed.ts`: `cost_price`↔`cost_price_usd`, `whatsapp_opt_in` 0/1↔boolean; IPC-only fields like `started_by`/`closedBy` are dropped — REST derives the actor from the JWT). Cross-check the body against the actual `backend/src/api/*` route, not the IPC arg.
+- **Tenant context is automatic** on REST via `authenticateJWT` (→ `runWithTenant`) as long as repos extend `BaseRepository`; desktop uses the fixed tenant from `initFixedTenantContext(1)` at boot. `tenantContext.ts` is fail-closed.
+
+The living tracker + per-module status + the web-test shim mechanism is `docs/plans/WEB_PARITY_ROADMAP.md`.
 
 ---
 
@@ -540,6 +576,7 @@ export const MySchema = z.object({
 - [ ] Register handler function in `main.ts`
 - [ ] Add TypeScript types in `frontend/src/types/electron.d.ts`
 - [ ] If the form has a client name/phone field: pass `clientId` + `clientName` through IPC → service → `createTransaction({ client_id })`
+- [ ] **Mirror it for the web (rule 19):** add a REST route in `backend/src/api/` feeding the same core service, a dual-mode `backendApi.ts` fn on `useApi()`, and consume via `useApi()` in the frontend — never a raw `window.api.*` call. See **Dual-Transport Architecture**.
 
 ---
 
@@ -812,6 +849,8 @@ When adding a new feature module, complete every step:
 | What                            | Where                                               |
 | ------------------------------- | --------------------------------------------------- |
 | Money rules & feature checklist | `docs/FEATURE_GUIDE.md`                             |
+| Dual-transport (desktop+web) status & shim | `docs/plans/WEB_PARITY_ROADMAP.md`       |
+| Dual-mode API adapter           | `frontend/src/api/backendApi.ts` + `ElectronApiAdapter.ts` |
 | E2E suite index & conventions   | `frontend/tests/e2e-electron/README.md`             |
 | Repository example              | `packages/core/src/repositories/SalesRepository.ts` |
 | Service example                 | `packages/core/src/services/SalesService.ts`        |
