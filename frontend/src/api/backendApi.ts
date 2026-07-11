@@ -616,6 +616,60 @@ export async function partnersSettle(payload: any) {
   );
 }
 
+// Vouchers (gift cards) — config CRUD; all channels return the service
+// envelope directly ({ success, voucher?/vouchers?, error? }).
+export async function vouchersGetAll(filters?: {
+  status?: string;
+  clientId?: number;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().vouchers.getAll(filters),
+    async () => {
+      const qs = new URLSearchParams();
+      if (filters?.status) qs.set("status", filters.status);
+      if (filters?.clientId != null)
+        qs.set("clientId", String(filters.clientId));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return requestJson<{ success: boolean; vouchers?: any[]; error?: string }>(
+        `/api/vouchers${suffix}`,
+      );
+    },
+  );
+}
+
+export async function vouchersCreate(payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().vouchers.create(payload),
+    async () =>
+      requestJson<{ success: boolean; voucher?: any; error?: string }>(
+        `/api/vouchers`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+export async function vouchersValidate(code: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().vouchers.validate(code),
+    async () =>
+      requestJson<{ success: boolean; voucher?: any; error?: string }>(
+        `/api/vouchers/validate`,
+        { method: "POST", body: { code } },
+      ),
+  );
+}
+
+export async function vouchersCancel(id: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().vouchers.cancel(id),
+    async () =>
+      requestJson<{ success: boolean; voucher?: any; error?: string }>(
+        `/api/vouchers/${id}/cancel`,
+        { method: "POST" },
+      ),
+  );
+}
+
 // Exchange
 export async function getExchangeRates() {
   return ipcOrHttp(

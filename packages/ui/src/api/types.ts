@@ -338,6 +338,12 @@ export type ApiAdapter = {
   // Clients
   // ---------------------------------------------------------------------------
   getClients: (search?: string) => Promise<ClientEntity[]>;
+  createClient: (payload: {
+    full_name: string;
+    phone_number?: string;
+    whatsapp_opt_in?: number | boolean;
+    [key: string]: unknown;
+  }) => Promise<{ success: boolean; id?: number; error?: string }>;
   deleteClient: (id: number) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
@@ -823,6 +829,28 @@ export type ApiAdapter = {
       settlementMethod: string;
       notes?: string;
     }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  };
+
+  /** Vouchers (gift cards) — config CRUD. Channels return the service
+   *  envelope directly ({ success, voucher?/vouchers?, error? }). */
+  vouchers: {
+    getAll: (filters?: {
+      status?: string;
+      clientId?: number;
+    }) => Promise<{ success: boolean; vouchers?: any[]; error?: string }>;
+    create: (data: {
+      clientId: number;
+      amount: number;
+      currency?: "USD" | "LBP";
+      expiryDate?: string | null;
+      note?: string | null;
+    }) => Promise<{ success: boolean; voucher?: any; error?: string }>;
+    validate: (
+      code: string,
+    ) => Promise<{ success: boolean; voucher?: any; error?: string }>;
+    cancel: (
+      id: number,
+    ) => Promise<{ success: boolean; voucher?: any; error?: string }>;
   };
 
   /** Drawer top-ups — cash into a drawer / transfer between drawers. */

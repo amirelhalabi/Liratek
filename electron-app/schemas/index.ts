@@ -19,6 +19,8 @@ import {
   holdMoneyCreateSchema,
   debtCashOutSchema,
   debtAccountEntrySchema,
+  voucherCreateSchema,
+  type VoucherCreateInput,
   type DebtCashOutInput,
   type DebtAccountEntryInput,
   type HoldMoneyCreateInput,
@@ -538,13 +540,11 @@ export const SupplierPurchaseCreateSchema = z.object({
 // Vouchers (Gift Cards)
 // =============================================================================
 
-export const VoucherCreateSchema = z.object({
-  clientId: z.number().int().positive(),
-  amount: z.number().positive(),
-  currency: z.enum(["USD", "LBP"]).optional().default("USD"),
-  expiryDate: z.string().min(1).optional().nullable(),
-  note: z.string().optional().nullable(),
-});
+// The voucher-create contract lives in packages/core/src/validators/voucher.ts
+// so the Electron IPC handler and the REST route validate against ONE schema
+// (CLAUDE.md rule 14). Re-exported under the historical local name.
+export const VoucherCreateSchema =
+  voucherCreateSchema as unknown as z.ZodSchema<VoucherCreateInput>;
 
 // =============================================================================
 // Customer Sessions — basket checkout

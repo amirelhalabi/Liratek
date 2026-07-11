@@ -23,3 +23,4 @@ export * from "./loto.js";
 export * from "./session.js";
 export * from "./holdMoney.js";
 export * from "./partner.js";
+export * from "./voucher.js";

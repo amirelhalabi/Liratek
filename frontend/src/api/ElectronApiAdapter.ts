@@ -22,6 +22,12 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Clients
   // ---------------------------------------------------------------------------
   getClients = (search?: string) => api.getClients(search ?? "");
+  createClient = (payload: {
+    full_name: string;
+    phone_number?: string;
+    whatsapp_opt_in?: number | boolean;
+    [key: string]: unknown;
+  }) => api.createClient(payload);
   deleteClient = (id: number) => api.deleteClient(id);
 
   // ---------------------------------------------------------------------------
@@ -478,6 +484,22 @@ export class ElectronApiAdapter implements ApiAdapter {
       settlementMethod: string;
       notes?: string;
     }) => api.partnersSettle(data),
+  };
+
+  // Nested namespace mirroring window.api.vouchers (dual-mode IPC/REST).
+  // All channels return the service envelope directly.
+  vouchers = {
+    getAll: (filters?: { status?: string; clientId?: number }) =>
+      api.vouchersGetAll(filters),
+    create: (data: {
+      clientId: number;
+      amount: number;
+      currency?: "USD" | "LBP";
+      expiryDate?: string | null;
+      note?: string | null;
+    }) => api.vouchersCreate(data),
+    validate: (code: string) => api.vouchersValidate(code),
+    cancel: (id: number) => api.vouchersCancel(id),
   };
 
   // Nested namespace mirroring window.api.drawerTopUp (dual-mode).

@@ -9,7 +9,7 @@ import {
   Calendar,
   Loader2,
 } from "lucide-react";
-import { PageHeader, DecimalInput } from "@liratek/ui";
+import { PageHeader, DecimalInput, useApi } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import type { Voucher } from "@/types/electron";
 
@@ -39,6 +39,7 @@ const STATUS_STYLES: Record<Voucher["status"], string> = {
 export function VouchersPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const api = useApi();
 
   // ─── List state ───
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
@@ -66,21 +67,14 @@ export function VouchersPage() {
   const loadVouchers = useCallback(async () => {
     setLoading(true);
     setListError(null);
-    // Vouchers are IPC-only (no REST route yet)
-    if (!window.api?.vouchers) {
-      setVouchers([]);
-      setListError("Vouchers are not available in the web version yet");
-      setLoading(false);
-      return;
-    }
-    const result = await window.api.vouchers.getAll();
+    const result = await api.vouchers.getAll();
     if (result.success) {
       setVouchers(result.vouchers ?? []);
     } else {
       setListError(result.error ?? "Failed to load vouchers");
     }
     setLoading(false);
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     loadVouchers();
@@ -95,7 +89,7 @@ export function VouchersPage() {
     }
     searchTimer.current = setTimeout(async () => {
       try {
-        const results = await window.api.clients.getAll(clientQuery);
+        const results = await api.getClients(clientQuery);
         setClientResults(results.slice(0, 8) as ClientLite[]);
         setShowResults(true);
       } catch {
@@ -105,7 +99,7 @@ export function VouchersPage() {
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
-  }, [clientQuery]);
+  }, [clientQuery, api]);
 
   const selectClient = (client: ClientLite) => {
     setSelectedClient(client);
@@ -148,7 +142,7 @@ export function VouchersPage() {
     if (!phone)
       return { ok: false, error: "Enter a phone number for the new client" };
 
-    const created = await window.api.clients.create({
+    const created = await api.createClient({
       full_name: name,
       phone_number: phone,
       whatsapp_opt_in: 1,
@@ -158,7 +152,7 @@ export function VouchersPage() {
     }
 
     // Phone may already belong to a client — reuse it instead of failing
-    const matches = await window.api.clients.getAll(phone);
+    const matches = await api.getClients(phone);
     const existing = matches.find((c) => c.phone_number === phone);
     if (existing) return { ok: true, clientId: existing.id };
 
@@ -181,11 +175,7 @@ export function VouchersPage() {
         return;
       }
 
-      if (!window.api?.vouchers) {
-        setFormError("Vouchers are not available in the web version yet");
-        return;
-      }
-      const result = await window.api.vouchers.create({
+      const result = await api.vouchers.create({
         clientId: resolved.clientId,
         amount: amountVal,
         currency,
@@ -217,11 +207,7 @@ export function VouchersPage() {
     ) {
       return;
     }
-    if (!window.api?.vouchers) {
-      alert("Vouchers are not available in the web version yet");
-      return;
-    }
-    const result = await window.api.vouchers.cancel(voucher.id);
+    const result = await api.vouchers.cancel(voucher.id);
     if (result.success) {
       loadVouchers();
     } else {
