@@ -46,17 +46,27 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | Audit log (read) | `40e4c5d` | read-only; `backend/src/api/audit.ts` (search/recent/by-entity); core AuditService already present; proof `lira-web-005`. NOTE: distinct from `/api/activity`; the viewer uses the `audit` trail |
 | Drawer top-ups | `104e9e1` | `backend/src/api/drawerTopUp.ts` (source-drawers/history/create/from-drawer); no schema/core change; proof `lira-web-006` |
 | Debts cash-out + account-entry | `919cb7e` | lifted debtCashOut/debtAccountEntry schemas; `/api/debts/{clients/:id/balance,cash-out,account-entry}`; Debts page fully dual-mode; proof `lira-web-007`. (getDebtors/history/repayment/summary were already dual-mode) |
+| Partners (config + partner_ledger) | `6338f6f` | new `partner.ts` validators (no `userId` — injected from JWT; `transactionType` = full repo union); `backend/src/api/partners.ts` (all 11 channels); `partners` adapter namespace (reads raw, writes enveloped); migrated Partners page + **shared** PartnerSelector + Services + Checkpoint; proof `lira-web-008` (create → DEBIT ledger → settle → **page-level** getAllBalances round-trip through the adapter). ⚠️ Desktop harness NOT re-run to green — shared better-sqlite3 was at Node ABI (parallel-agent contention), so all desktop specs incl. partners-unrelated `app.spec` failed at Electron window-launch (environmental, not a regression). |
 
 **Pending** (verified 2026-07-11: no REST route yet; page still calls `window.api.*` directly):
 
 | Module | REST route | Web-broken page(s) | Size |
 |---|---|---|---|
-| partners | ❌ | `partners/pages/Partners`, `partners/components/PartnerSelector` | S–M |
 | voucher codes | ❌ (only voucher-*images* exists) | `vouchers/pages/Vouchers` | M |
 | debts `addCredit` | ❌ (debts route exists; no add-credit endpoint) | Debts page | S |
 | closing / checkpoint | ❌ | `closing/pages/Checkpoint` | M |
 
-**Suggested order:** hold-money (smallest, self-contained money flow) → service presets → drawer top-ups → partners → audit log (mostly wiring) → voucher codes → debts addCredit → closing/checkpoint. Reassess after the first one or two.
+**Suggested order:** voucher codes → debts addCredit → closing/checkpoint, then move to phase 3.
+
+> **Desktop e2e verification note (2026-07-11):** the shared checkout's `better-sqlite3`
+> ABI is contended by a parallel agent that needs Node ABI (127) for backend/core jest;
+> desktop e2e needs Electron ABI (125). While that contention is live, desktop specs may
+> fail wholesale at `fixtures.ts:203` (`waitForEvent "window"` timeout) — this is the DB
+> failing to load in the Electron main process, NOT a code regression. Confirm by probing
+> the binary: `node -e "require('better-sqlite3')"` LOADS under Node → wrong ABI for desktop.
+> Frontend-only `window.api.X` → `useApi().X` migrations route to the identical `window.api`
+> call in Electron, so they are transparent by construction on desktop; the meaningful
+> new risk (adapter unwrap-key bugs) is caught by a page-level web round-trip instead.
 
 ---
 
