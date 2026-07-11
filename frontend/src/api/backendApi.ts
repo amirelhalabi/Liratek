@@ -8,6 +8,12 @@ import {
 import { decodeJwtPayload } from "@/shared/utils/jwt";
 
 function isElectron(): boolean {
+  // The e2e web-mode `window.api` shim (tests/e2e-electron/helpers/webApiShim.ts)
+  // sets this flag so it does NOT masquerade as a real Electron preload bridge:
+  // app code keeps taking the HTTP path (identical to shim-absent web mode),
+  // while the shim exists only to serve the specs' direct `window.api.*` calls.
+  if (typeof window !== "undefined" && (window as any).__LIRATEK_WEB_API_SHIM)
+    return false;
   return typeof window !== "undefined" && !!(window as any).api;
 }
 

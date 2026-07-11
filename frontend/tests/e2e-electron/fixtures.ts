@@ -31,6 +31,7 @@ export {
   seedCustomService,
   seedExchangeRate,
 } from "./helpers/seed.js";
+import { installWebApiShim } from "./helpers/webApiShim.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -121,6 +122,9 @@ export const test = base.extend<
             globalThis as { __LIRATEK_BACKEND_URL?: string }
           ).__LIRATEK_BACKEND_URL = url;
         }, WEB_BACKEND_URL);
+        // Phase 3: install the browser-side window.api → REST shim so the
+        // IPC-driven desktop specs (page.evaluate(window.api.*)) run over HTTP.
+        await installWebApiShim(context);
         sharedPage = await context.newPage();
         sharedPage.on("dialog", (dialog) => {
           dialog.accept().catch(() => {});

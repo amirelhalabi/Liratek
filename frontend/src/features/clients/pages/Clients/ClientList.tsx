@@ -28,19 +28,16 @@ export default function ClientList() {
   const loadClients = useCallback(async () => {
     setLoading(true);
     try {
-      if (window.api) {
-        const data = await window.api.clients.getAll(search);
-        setClients(data);
-      } else {
-        const data = await api.getClients(search);
-        setClients(data as any);
-      }
+      // The adapter is dual-mode (ipcOrHttp): IPC on desktop, REST in the
+      // browser — no need to branch on window.api here.
+      const data = await api.getClients(search);
+      setClients(data as Client[]);
     } catch (error) {
       logger.error("Failed to load clients", { error });
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, api]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -62,22 +59,9 @@ export default function ClientList() {
     )
       return;
     try {
-      if (window.api) {
-        const result = await window.api.clients.delete(id);
-        if (result.success) {
-          loadClients();
-        } else {
-          alert(result.error);
-        }
-      } else {
-        try {
-          const result = await api.deleteClient(id);
-          if (result.success) loadClients();
-          else alert(result.error || "Delete failed");
-        } catch (e: any) {
-          alert(e?.message || "Delete failed");
-        }
-      }
+      const result = await api.deleteClient(id);
+      if (result.success) loadClients();
+      else alert(result.error || "Delete failed");
     } catch (error) {
       logger.error("Failed to delete client", { error });
     }
