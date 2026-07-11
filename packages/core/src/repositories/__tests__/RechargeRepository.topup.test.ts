@@ -405,9 +405,7 @@ describe("RechargeRepository.topUpFromCustomer()", () => {
     expect(result.success).toBe(true);
 
     const txn = db
-      .prepare(
-        "SELECT * FROM transactions ORDER BY id DESC LIMIT 1",
-      )
+      .prepare("SELECT * FROM transactions ORDER BY id DESC LIMIT 1")
       .get() as any;
     expect(txn.profit_usd).toBeCloseTo(1, 2); // 10 − 9
     expect(txn.profit_lbp).toBeCloseTo(0, 2);
@@ -430,9 +428,7 @@ describe("RechargeRepository.topUpFromCustomer()", () => {
     expect(result.success).toBe(true);
 
     const txn = db
-      .prepare(
-        "SELECT * FROM transactions ORDER BY id DESC LIMIT 1",
-      )
+      .prepare("SELECT * FROM transactions ORDER BY id DESC LIMIT 1")
       .get() as any;
     expect(txn.profit_usd).toBeCloseTo(10 - 850_500 / 89_500, 4);
     // No phantom negative LBP profit anymore.

@@ -1682,110 +1682,114 @@ export default function Services() {
                   SEND collects the sender, RECEIVE collects the receiver. */}
               <div className="grid grid-cols-2 gap-2">
                 {serviceType === "SEND" && (
-                <>
-                <div>
-                  <label
-                    htmlFor="service-sender-name"
-                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                  >
-                    <User size={12} /> Sender{" "}
-                    {activeSession && serviceType === "SEND" && "• Session"}
-                  </label>
-                  <ClientAutocompleteInput
-                    id="service-sender-name"
-                    type="text"
-                    value={senderName}
-                    onChange={(v) => setSenderName(v)}
-                    onClientSelect={(c) => {
-                      setSenderPhone(c.phone_number || "");
-                    }}
-                    className={INPUT_CLASS}
-                    placeholder={
-                      activeSession && serviceType === "SEND"
-                        ? "From session"
-                        : "Sender name"
-                    }
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="service-sender-phone"
-                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                  >
-                    <Phone size={12} /> Sender Phone{" "}
-                    {activeSession && serviceType === "SEND" && "• Session"}
-                  </label>
-                  <ClientAutocompleteInput
-                    id="service-sender-phone"
-                    type="tel"
-                    value={senderPhone}
-                    onChange={(v) => setSenderPhone(v)}
-                    onClientSelect={(c) => {
-                      setSenderName(c.full_name);
-                    }}
-                    searchByPhone
-                    className={INPUT_CLASS}
-                    placeholder={
-                      activeSession && serviceType === "SEND"
-                        ? "From session"
-                        : "Sender phone"
-                    }
-                  />
-                </div>
-                </>
+                  <>
+                    <div>
+                      <label
+                        htmlFor="service-sender-name"
+                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <User size={12} /> Sender{" "}
+                        {activeSession && serviceType === "SEND" && "• Session"}
+                      </label>
+                      <ClientAutocompleteInput
+                        id="service-sender-name"
+                        type="text"
+                        value={senderName}
+                        onChange={(v) => setSenderName(v)}
+                        onClientSelect={(c) => {
+                          setSenderPhone(c.phone_number || "");
+                        }}
+                        className={INPUT_CLASS}
+                        placeholder={
+                          activeSession && serviceType === "SEND"
+                            ? "From session"
+                            : "Sender name"
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="service-sender-phone"
+                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <Phone size={12} /> Sender Phone{" "}
+                        {activeSession && serviceType === "SEND" && "• Session"}
+                      </label>
+                      <ClientAutocompleteInput
+                        id="service-sender-phone"
+                        type="tel"
+                        value={senderPhone}
+                        onChange={(v) => setSenderPhone(v)}
+                        onClientSelect={(c) => {
+                          setSenderName(c.full_name);
+                        }}
+                        searchByPhone
+                        className={INPUT_CLASS}
+                        placeholder={
+                          activeSession && serviceType === "SEND"
+                            ? "From session"
+                            : "Sender phone"
+                        }
+                      />
+                    </div>
+                  </>
                 )}
                 {serviceType === "RECEIVE" && (
-                <>
-                <div>
-                  <label
-                    htmlFor="service-receiver-name"
-                    className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                  >
-                    <User size={12} /> Receiver{" "}
-                    {activeSession && serviceType === "RECEIVE" && "• Session"}
-                  </label>
-                  <ClientAutocompleteInput
-                    id="service-receiver-name"
-                    type="text"
-                    value={receiverName}
-                    onChange={(v) => setReceiverName(v)}
-                    onClientSelect={(c) => {
-                      setReceiverPhone(c.phone_number || "");
-                    }}
-                    className={INPUT_CLASS}
-                    placeholder={
-                      activeSession && serviceType === "RECEIVE"
-                        ? "From session"
-                        : "Receiver name"
-                    }
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="service-receiver-phone"
-                    className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                  >
-                    <Phone size={12} /> Receiver Phone{" "}
-                    {activeSession && serviceType === "RECEIVE" && "• Session"}
-                  </label>
-                  <ClientAutocompleteInput
-                    id="service-receiver-phone"
-                    type="tel"
-                    value={receiverPhone}
-                    onChange={(v) => setReceiverPhone(v)}
-                    onClientSelect={(c) => {
-                      setReceiverName(c.full_name);
-                    }}
-                    searchByPhone
-                    className={INPUT_CLASS}
-                    placeholder={
-                      activeSession && serviceType === "RECEIVE"
-                        ? "From session"
-                        : "Receiver phone"
-                    }
-                  />
-                </div>
-                </>
+                  <>
+                    <div>
+                      <label
+                        htmlFor="service-receiver-name"
+                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <User size={12} /> Receiver{" "}
+                        {activeSession &&
+                          serviceType === "RECEIVE" &&
+                          "• Session"}
+                      </label>
+                      <ClientAutocompleteInput
+                        id="service-receiver-name"
+                        type="text"
+                        value={receiverName}
+                        onChange={(v) => setReceiverName(v)}
+                        onClientSelect={(c) => {
+                          setReceiverPhone(c.phone_number || "");
+                        }}
+                        className={INPUT_CLASS}
+                        placeholder={
+                          activeSession && serviceType === "RECEIVE"
+                            ? "From session"
+                            : "Receiver name"
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="service-receiver-phone"
+                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <Phone size={12} /> Receiver Phone{" "}
+                        {activeSession &&
+                          serviceType === "RECEIVE" &&
+                          "• Session"}
+                      </label>
+                      <ClientAutocompleteInput
+                        id="service-receiver-phone"
+                        type="tel"
+                        value={receiverPhone}
+                        onChange={(v) => setReceiverPhone(v)}
+                        onClientSelect={(c) => {
+                          setReceiverName(c.full_name);
+                        }}
+                        searchByPhone
+                        className={INPUT_CLASS}
+                        placeholder={
+                          activeSession && serviceType === "RECEIVE"
+                            ? "From session"
+                            : "Receiver phone"
+                        }
+                      />
+                    </div>
+                  </>
                 )}
               </div>
               <SaveAsClientCheckbox

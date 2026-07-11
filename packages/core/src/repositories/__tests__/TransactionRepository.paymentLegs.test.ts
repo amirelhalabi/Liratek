@@ -560,7 +560,12 @@ describe("TransactionRepository.getRecent — CUSTOMER_ACCOUNT method leg", () =
     // Session row: debt carries BOTH session_id and transaction_id; the row is
     // matched via session_id. Basket payment row carries session_id only.
     insertTxn(db, { id: 1, summary: "Session basket", sessionId: 7 });
-    insertDebt(db, { txnId: 1, sessionId: 7, type: "Session Debt", lbp: 900_000 });
+    insertDebt(db, {
+      txnId: 1,
+      sessionId: 7,
+      type: "Session Debt",
+      lbp: 900_000,
+    });
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
     expect(accountMethods(row)).toEqual(["CUSTOMER_ACCOUNT"]);
@@ -702,7 +707,11 @@ describe("TransactionRepository.getCashFlowByDate — D1 currency in/out report"
   });
 
   it("excludes VOIDED transactions", () => {
-    insertTxn(db, { id: 1, createdAt: "2024-03-05 10:00:00", status: "VOIDED" });
+    insertTxn(db, {
+      id: 1,
+      createdAt: "2024-03-05 10:00:00",
+      status: "VOIDED",
+    });
     insertPayment(db, 1, "CASH", "USD", 500);
 
     expect(repo.getCashFlowByDate("2024-03-01", "2024-03-31")).toHaveLength(0);

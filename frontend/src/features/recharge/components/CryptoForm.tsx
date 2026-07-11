@@ -408,12 +408,12 @@ export function CryptoForm({
         summary={
           cryptoType === "RECEIVE"
             ? [
-              ...(cryptoClientName.trim()
-                ? [{ label: "Client", value: cryptoClientName.trim() }]
-                : []),
-              ...(cryptoClientPhone.trim()
-                ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
-                : []),
+                ...(cryptoClientName.trim()
+                  ? [{ label: "Client", value: cryptoClientName.trim() }]
+                  : []),
+                ...(cryptoClientPhone.trim()
+                  ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
+                  : []),
                 {
                   label: "USDT Received",
                   value: `${receiveUsdt.toFixed(2)} USDT`,
@@ -433,12 +433,12 @@ export function CryptoForm({
                 },
               ]
             : [
-              ...(cryptoClientName.trim()
-                ? [{ label: "Client", value: cryptoClientName.trim() }]
-                : []),
-              ...(cryptoClientPhone.trim()
-                ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
-                : []),
+                ...(cryptoClientName.trim()
+                  ? [{ label: "Client", value: cryptoClientName.trim() }]
+                  : []),
+                ...(cryptoClientPhone.trim()
+                  ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
+                  : []),
                 { label: "USDT Sent", value: `${sendUsdt.toFixed(2)} USDT` },
                 ...(fee > 0
                   ? [

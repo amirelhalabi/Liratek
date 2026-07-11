@@ -25,7 +25,9 @@
  */
 import type { BrowserContext } from "@playwright/test";
 
-export async function installWebApiShim(context: BrowserContext): Promise<void> {
+export async function installWebApiShim(
+  context: BrowserContext,
+): Promise<void> {
   await context.addInitScript(webApiShimBody);
 }
 

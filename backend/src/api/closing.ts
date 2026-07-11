@@ -71,9 +71,10 @@ router.post(
   validateRequest(setOpeningBalancesSchema),
   async (req: AuthRequest, res) => {
     try {
+      const userId = req.user?.userId ?? 1;
       const result = closingService.setOpeningBalances({
         ...req.body,
-        userId: req.body.userId || req.user?.userId,
+        userId,
       });
 
       if (result.success) {
@@ -101,9 +102,10 @@ router.post(
   validateRequest(createDailyClosingSchema),
   async (req: AuthRequest, res) => {
     try {
+      const userId = req.user?.userId ?? 1;
       const result = closingService.createDailyClosing({
         ...req.body,
-        userId: req.body.userId || req.user?.userId,
+        userId,
       });
 
       if (result.success) {
@@ -144,6 +146,8 @@ router.put("/daily-closing/:id", requireAuth, async (req: AuthRequest, res) => {
       user_id,
     } = req.body;
 
+    const userId = req.user?.userId ?? 1;
+
     const result = closingService.updateDailyClosing({
       id,
       physical_usd,
@@ -154,7 +158,7 @@ router.put("/daily-closing/:id", requireAuth, async (req: AuthRequest, res) => {
       variance_usd,
       notes,
       report_path,
-      user_id: user_id || req.user?.userId,
+      user_id: userId,
     });
 
     if (result.success) {

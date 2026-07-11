@@ -45,8 +45,7 @@ jest.mock("../server.js", () => ({
   },
 }));
 
-const JWT_TEST_SECRET =
-  "wp8-rt-test-secret-0123456789-0123456789-0123456789";
+const JWT_TEST_SECRET = "wp8-rt-test-secret-0123456789-0123456789-0123456789";
 
 // Must be set BEFORE the first @liratek/core import (transitively pulled in
 // by middleware/auth.ts, imported by websocket/io.ts) — core's env.ts
@@ -146,7 +145,9 @@ describe("Socket.IO tenant isolation — real server + real clients", () => {
 
   it("delivers an event emitted for tenant A only to tenant A's socket", async () => {
     const receivedByB: unknown[] = [];
-    clientB.on("sales:processed", (payload: unknown) => receivedByB.push(payload));
+    clientB.on("sales:processed", (payload: unknown) =>
+      receivedByB.push(payload),
+    );
 
     const received = waitForEvent(clientA, "sales:processed");
     ioModule.emitEvent(TENANT_A, "sales:processed", { marker: "only-for-A" });
@@ -160,7 +161,9 @@ describe("Socket.IO tenant isolation — real server + real clients", () => {
 
   it("delivers an event emitted for tenant B only to tenant B's socket (reverse check)", async () => {
     const receivedByA: unknown[] = [];
-    clientA.on("sales:processed", (payload: unknown) => receivedByA.push(payload));
+    clientA.on("sales:processed", (payload: unknown) =>
+      receivedByA.push(payload),
+    );
 
     const received = waitForEvent(clientB, "sales:processed");
     ioModule.emitEvent(TENANT_B, "sales:processed", { marker: "only-for-B" });

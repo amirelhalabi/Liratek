@@ -128,10 +128,7 @@ export class TenantProvisioningService {
       );
       return tenant;
     } catch (error) {
-      tenantLogger.error(
-        { error, slug: data.slug },
-        "provisionTenant failed",
-      );
+      tenantLogger.error({ error, slug: data.slug }, "provisionTenant failed");
       throw error;
     }
   }

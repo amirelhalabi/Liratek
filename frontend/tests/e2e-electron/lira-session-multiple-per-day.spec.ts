@@ -66,7 +66,8 @@ test.afterEach(async ({ appPage }) => {
     .evaluate(async () => {
       const r = await (window as any).api.session.getActiveSessions();
       const list = (r.sessions ?? r) as Array<{ id: number }>;
-      for (const s of list) await (window as any).api.session.close(s.id, "admin");
+      for (const s of list)
+        await (window as any).api.session.close(s.id, "admin");
     })
     .catch(() => {});
 });
@@ -130,7 +131,9 @@ test.describe("Customer sessions — multiple per day", () => {
     // Try to open another for the SAME name while the first is still open.
     await openStartSessionModal(appPage);
     await appPage.locator("#customer-name").fill(name);
-    await expect(appPage.getByText(DUP_WARNING)).toBeVisible({ timeout: 5_000 });
+    await expect(appPage.getByText(DUP_WARNING)).toBeVisible({
+      timeout: 5_000,
+    });
     await expect(
       appPage.getByRole("button", { name: /Start Session/i }),
     ).toBeDisabled();

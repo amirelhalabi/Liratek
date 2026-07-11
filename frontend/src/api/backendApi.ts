@@ -159,7 +159,11 @@ export async function me() {
 }
 
 // Clients
-export type ClientWriteResult = { success: boolean; id?: number; error?: string };
+export type ClientWriteResult = {
+  success: boolean;
+  id?: number;
+  error?: string;
+};
 
 export async function createClient(payload: any): Promise<ClientWriteResult> {
   if (isElectron()) {
@@ -174,10 +178,9 @@ export async function createClient(payload: any): Promise<ClientWriteResult> {
         : {}),
     };
     // Route wraps in createSuccessResponse ({success, data:{id}})
-    const res = await requestJson<ClientWriteResult & { data?: { id?: number } }>(
-      `/api/clients`,
-      { method: "POST", body },
-    );
+    const res = await requestJson<
+      ClientWriteResult & { data?: { id?: number } }
+    >(`/api/clients`, { method: "POST", body });
     const id = res.id ?? res.data?.id;
     return id != null ? { ...res, id } : res;
   } catch (err) {
@@ -283,10 +286,9 @@ export async function createProduct(payload: any): Promise<ProductWriteResult> {
       supplier: payload.supplier ?? null,
     };
     // Route wraps in createSuccessResponse ({success, data:{id}})
-    const res = await requestJson<ProductWriteResult & { data?: { id?: number } }>(
-      `/api/inventory/products`,
-      { method: "POST", body },
-    );
+    const res = await requestJson<
+      ProductWriteResult & { data?: { id?: number } }
+    >(`/api/inventory/products`, { method: "POST", body });
     const id = res.id ?? res.data?.id;
     return id != null ? { ...res, id } : res;
   } catch (err) {
@@ -636,9 +638,11 @@ export async function vouchersGetAll(filters?: {
       if (filters?.clientId != null)
         qs.set("clientId", String(filters.clientId));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return requestJson<{ success: boolean; vouchers?: any[]; error?: string }>(
-        `/api/vouchers${suffix}`,
-      );
+      return requestJson<{
+        success: boolean;
+        vouchers?: any[];
+        error?: string;
+      }>(`/api/vouchers${suffix}`);
     },
   );
 }
@@ -2355,9 +2359,11 @@ export async function getSessionsByCustomer(data: {
     async () => {
       const qs = new URLSearchParams({ name: data.customerName });
       if (data.customerPhone) qs.set("phone", data.customerPhone);
-      return requestJson<{ success: boolean; sessions?: any[]; error?: string }>(
-        `/api/sessions/by-customer?${qs.toString()}`,
-      );
+      return requestJson<{
+        success: boolean;
+        sessions?: any[];
+        error?: string;
+      }>(`/api/sessions/by-customer?${qs.toString()}`);
     },
   );
 }
@@ -2573,16 +2579,16 @@ export async function servicePresetsDelete(id: number) {
 // ── Audit log (dual-mode, read-only) — user-action audit trail ──
 
 export async function auditSearch(filters: {
-    userId?: number;
-    action?: string;
-    entityType?: string;
-    entityId?: string;
-    from?: string;
-    to?: string;
-    search?: string;
-    limit?: number;
-    offset?: number;
-  }) {
+  userId?: number;
+  action?: string;
+  entityType?: string;
+  entityId?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
   return ipcOrHttp(
     async () => getElectronApi().audit.search(filters),
     async () =>

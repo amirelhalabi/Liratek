@@ -29,7 +29,9 @@ export class SettingsRepository {
    */
   getAllSettings(): SettingEntity[] {
     return this.db
-      .prepare(`SELECT ${this.columns} FROM system_settings WHERE tenant_id = ?`)
+      .prepare(
+        `SELECT ${this.columns} FROM system_settings WHERE tenant_id = ?`,
+      )
       .all(getCurrentTenantId()) as SettingEntity[];
   }
 

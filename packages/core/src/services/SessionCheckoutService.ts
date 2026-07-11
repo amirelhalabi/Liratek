@@ -318,9 +318,8 @@ export class SessionCheckoutService {
         return { success: false, error: "Cart is empty" };
       }
 
-      const sessionResult = await this.sessionService.getSessionDetails(
-        sessionId,
-      );
+      const sessionResult =
+        await this.sessionService.getSessionDetails(sessionId);
       if (!sessionResult.success || !sessionResult.session) {
         return {
           success: false,

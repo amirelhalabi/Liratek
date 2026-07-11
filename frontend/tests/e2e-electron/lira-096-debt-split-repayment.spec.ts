@@ -51,7 +51,11 @@ type Api = {
     rates: {
       list: () => Promise<{
         success?: boolean;
-        data?: Array<{ to_code: string; sell_rate?: number; buy_rate?: number }>;
+        data?: Array<{
+          to_code: string;
+          sell_rate?: number;
+          buy_rate?: number;
+        }>;
       }>;
     };
     dashboard: {
@@ -160,15 +164,11 @@ test.describe("LIRA-096 — debt split repayment (USD + LBP)", () => {
     const amount = (i: number) =>
       appPage.locator('[data-testid^="payment-amount-"]').nth(i);
     await amount(0).fill(String(USD_LEG));
-    await appPage
-      .getByRole("button", { name: /Add Payment Line/i })
-      .click();
+    await appPage.getByRole("button", { name: /Add Payment Line/i }).click();
     const line2 = appPage.locator('[data-testid^="payment-line-"]').nth(1);
     await line2.locator("select").nth(1).selectOption("LBP");
     await amount(1).fill(String(LBP_LEG));
-    await appPage
-      .getByRole("button", { name: /^Confirm Payment$/ })
-      .click();
+    await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
 
     // Pre-fix this fired "Error: Validation failed: amountUSD: Expected
     // number, received nan" — the success dialog is the guard.

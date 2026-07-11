@@ -5,7 +5,7 @@
  */
 
 import { Router } from "express";
-import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireRole, AuthRequest } from "../middleware/auth.js";
 import { getSupplierService } from "@liratek/core";
 import { logger } from "../server.js";
 
@@ -59,7 +59,7 @@ router.get("/:id/ledger", requireAuth, async (req, res) => {
 });
 
 // POST /api/suppliers
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requireRole(["admin"]), async (req, res) => {
   try {
     const { name, contact_name, phone, note, module_key, provider } = req.body;
 
@@ -93,44 +93,54 @@ router.post("/", requireAuth, async (req, res) => {
 });
 
 // POST /api/suppliers/:id/ledger
-router.post("/:id/ledger", requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const supplier_id = parseInt(req.params.id);
-    if (isNaN(supplier_id)) {
-      res.status(400).json({ success: false, error: "Invalid supplier ID" });
-    }
+router.post(
+  "/:id/ledger",
+  requireAuth,
+  requireRole(["admin"]),
+  async (req: AuthRequest, res) => {
+    try {
+      const supplier_id = parseInt(req.params.id);
+      if (isNaN(supplier_id)) {
+        res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      }
 
-    const { entry_type, amount_usd, amount_lbp, note, drawer_name } = req.body;
+      const { entry_type, amount_usd, amount_lbp, note, drawer_name } =
+        req.body;
 
-    if (!entry_type || (amount_usd === undefined && amount_lbp === undefined)) {
-      res.status(400).json({
-        success: false,
-        error: "Missing required fields: entry_type, amount_usd or amount_lbp",
+      if (
+        !entry_type ||
+        (amount_usd === undefined && amount_lbp === undefined)
+      ) {
+        res.status(400).json({
+          success: false,
+          error:
+            "Missing required fields: entry_type, amount_usd or amount_lbp",
+        });
+      }
+
+      const result = supplierService.addLedgerEntry({
+        supplier_id,
+        entry_type,
+        amount_usd: amount_usd || 0,
+        amount_lbp: amount_lbp || 0,
+        note,
+        drawer_name,
+        created_by: req.user?.userId || 1,
       });
-    }
 
-    const result = supplierService.addLedgerEntry({
-      supplier_id,
-      entry_type,
-      amount_usd: amount_usd || 0,
-      amount_lbp: amount_lbp || 0,
-      note,
-      drawer_name,
-      created_by: req.user?.userId || 1,
-    });
-
-    if (result.success) {
-      logger.info({ supplier_id, entry_type }, "Supplier ledger entry added");
-      res.json(result);
-    } else {
-      res.status(400).json(result);
+      if (result.success) {
+        logger.info({ supplier_id, entry_type }, "Supplier ledger entry added");
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      logger.error({ error }, "Add supplier ledger entry error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to add ledger entry" });
     }
-  } catch (error) {
-    logger.error({ error }, "Add supplier ledger entry error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to add ledger entry" });
-  }
-});
+  },
+);
 
 export default router;

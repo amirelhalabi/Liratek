@@ -22,7 +22,9 @@ type Api = {
         error?: string;
       }>;
       delete: (id: number) => Promise<{ success: boolean; error?: string }>;
-      getJobs: (filter?: string) => Promise<Array<{ id: number; status: string }>>;
+      getJobs: (
+        filter?: string,
+      ) => Promise<Array<{ id: number; status: string }>>;
     };
     debt: {
       getDebtors: () => Promise<

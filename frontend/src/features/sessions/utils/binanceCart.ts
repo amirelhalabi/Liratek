@@ -43,7 +43,12 @@ export function binanceCashSide(
  */
 export function splitBasketCashSides(
   items: Array<Pick<CartItem, "module" | "amount" | "currency">>,
-): { chargeUsd: number; chargeLbp: number; payoutUsd: number; payoutLbp: number } {
+): {
+  chargeUsd: number;
+  chargeLbp: number;
+  payoutUsd: number;
+  payoutLbp: number;
+} {
   let chargeUsd = 0,
     chargeLbp = 0,
     payoutUsd = 0,

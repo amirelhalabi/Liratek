@@ -11,7 +11,11 @@
  */
 import express from "express";
 import { getDrawerTopUpService } from "@liratek/core";
-import { authenticateJWT, requireRole, type AuthRequest } from "../middleware/auth.js";
+import {
+  authenticateJWT,
+  requireRole,
+  type AuthRequest,
+} from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -25,7 +29,10 @@ function errMessage(err: unknown): string {
 // GET /api/drawer-topup/source-drawers — drawers available as a transfer source
 router.get("/source-drawers", (_req, res) => {
   try {
-    res.json({ success: true, data: getDrawerTopUpService().getSourceDrawers() });
+    res.json({
+      success: true,
+      data: getDrawerTopUpService().getSourceDrawers(),
+    });
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -35,7 +42,10 @@ router.get("/source-drawers", (_req, res) => {
 router.get("/history", (req, res) => {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : undefined;
-    res.json({ success: true, data: getDrawerTopUpService().getHistory(limit) });
+    res.json({
+      success: true,
+      data: getDrawerTopUpService().getHistory(limit),
+    });
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }

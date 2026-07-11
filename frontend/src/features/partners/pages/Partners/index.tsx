@@ -33,7 +33,13 @@ import type {
   LedgerFilters,
   PartnerWithBalance,
 } from "@/types/electron";
-import { appEvents, PageHeader, DecimalInput, Select, useApi } from "@liratek/ui";
+import {
+  appEvents,
+  PageHeader,
+  DecimalInput,
+  Select,
+  useApi,
+} from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -1514,9 +1520,7 @@ export function PartnersPage() {
               onRecordTx={() => setRecordingTxPartner(selectedPartner)}
               onDeactivate={() => setDeactivatingPartner(selectedPartner)}
               onActivate={async () => {
-                const result = await api.partners.activate(
-                  selectedPartner.id,
-                );
+                const result = await api.partners.activate(selectedPartner.id);
                 if (result.success) {
                   appEvents.emit(
                     "notification:show",

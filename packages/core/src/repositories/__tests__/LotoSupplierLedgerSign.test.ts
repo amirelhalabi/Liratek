@@ -352,7 +352,12 @@ describe("B6b — Loto supplier-ledger sign convention", () => {
         "Cash prize payout: LOTO owes us 30000 LBP (ticket: T-1)",
       );
       // SETTLEMENT row — already standard, must NOT be touched.
-      ins.run(supplierId, "SETTLEMENT", -55_000, "Settlement for checkpoint #1");
+      ins.run(
+        supplierId,
+        "SETTLEMENT",
+        -55_000,
+        "Settlement for checkpoint #1",
+      );
       // Decoy: a legitimate manual Loto settlement payment written by
       // addLedgerEntry (PAYMENT, negative) — must NOT be re-flipped.
       ins.run(supplierId, "PAYMENT", -40_000, "Manual settlement");

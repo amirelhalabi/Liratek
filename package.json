@@ -4,7 +4,7 @@
   "description": "Electron",
   "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "1.29.4",
+  "version": "1.29.5",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "dev": "concurrently -k \"cd frontend && npm run dev\" \"wait-on tcp:5173 && npm run electron:start\"",
-    "dev:web": "npm run rebuild:node && concurrently -k -n vite,backend -c blue,green \"cd frontend && npm run dev\" \"yarn workspace @liratek/backend dev\"",
+    "dev:web": "npm run rebuild:node && concurrently -k -n vite,backend -c blue,green \"cd frontend && cross-env VITE_BACKEND_URL=http://127.0.0.1:4300 npm run dev\" \"yarn workspace @liratek/backend dev\"",
     "electron:start": "npm run rebuild:native && cd electron-app && npm run build && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 npm start",
     "build": "yarn workspaces foreach -ptA --exclude liratek run build && node scripts/build-stage.cjs",
     "test": "npm run rebuild:node && yarn workspaces foreach -A --exclude liratek run test",

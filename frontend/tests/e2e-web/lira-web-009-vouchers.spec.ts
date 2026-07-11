@@ -47,10 +47,9 @@ test("voucher create → list → validate → cancel → page render over REST"
 
   // Identity match: find OUR voucher by code in the client-scoped list.
   const list = await (
-    await page.request.get(
-      `${BACKEND_URL}/api/vouchers?clientId=${clientId}`,
-      { headers: auth },
-    )
+    await page.request.get(`${BACKEND_URL}/api/vouchers?clientId=${clientId}`, {
+      headers: auth,
+    })
   ).json();
   expect(list.success).toBeTruthy();
   expect(list.vouchers.some((v: { code: string }) => v.code === code)).toBe(

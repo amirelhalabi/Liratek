@@ -12,7 +12,7 @@
 Two differences from the earlier modules, both established during mapping:
 
 1. **The frontend bypasses the adapter.** `SessionContext` + the `/customer-sessions` page call `window.api.session.*` **directly** (~18 sites), not `useApi()`. Loto's page used `useApi()`, so it rode the HTTP branch for free; sessions must be migrated onto the adapter or it can never reach REST.
-2. **Checkout logic is not in core.** `session:checkout` runs ~450 lines of orchestration *inside the Electron handler* (`electron-app/handlers/sessionHandlers.ts`) — DB transaction, per-item replay dispatch, profit accumulation, `recordBasketPayment`, the `customer_sessions` UPDATE. It must be extracted into a core service before it can be shared. **This is the only part that changes the desktop money path** and is isolated as WP4.
+2. **Checkout logic is not in core.** `session:checkout` runs ~450 lines of orchestration _inside the Electron handler_ (`electron-app/handlers/sessionHandlers.ts`) — DB transaction, per-item replay dispatch, profit accumulation, `recordBasketPayment`, the `customer_sessions` UPDATE. It must be extracted into a core service before it can be shared. **This is the only part that changes the desktop money path** and is isolated as WP4.
 
 Transport model (unchanged, for reference): `page → useApi() adapter → backendApi.fn() → ipcOrHttp()`; `isElectron()` (`!!window.api`) picks IPC on desktop, HTTP (our REST routes) in a browser. Both hit the **same core service**.
 
@@ -22,7 +22,7 @@ Transport model (unchanged, for reference): `page → useApi() adapter → backe
 
 The read/cart endpoints (WP1) move no money. The checkout path (WP4) does; answers below, verified against the current handler:
 
-1. **Transaction rows**: none created by checkout *itself* — each replayed cart item creates its own row via its module service (`sale`, `recharge_*`, `omt_app`/`financial_service`, `loto_ticket`, `custom_service`, `maintenance`). Checkout only (a) links each to the session (`repo.linkTransaction`, stamping the unified `transactions.id`), (b) records the ONE basket payment, (c) closes the session. `source_table`/`source_id` are per-module (unchanged).
+1. **Transaction rows**: none created by checkout _itself_ — each replayed cart item creates its own row via its module service (`sale`, `recharge_*`, `omt_app`/`financial_service`, `loto_ticket`, `custom_service`, `maintenance`). Checkout only (a) links each to the session (`repo.linkTransaction`, stamping the unified `transactions.id`), (b) records the ONE basket payment, (c) closes the session. `source_table`/`source_id` are per-module (unchanged).
 2. **IN/OUT badge**: n/a — checkout adds no new transaction type; replayed items keep their existing badges.
 3. **Payment legs**: the basket sends split + change legs in ONE payload (`payments[]`, IN default / `direction:"OUT"`). `recordBasketPayment` (core `SessionPaymentService`) already owns the ONE-loop rule — items are replayed with `deferPayment:true` so only the basket recorder posts to drawers. **Extraction must preserve `deferPayment:true` injection and must NOT re-post legs per item** (FEATURE_GUIDE §4, §11).
 4. **Drawers**: handled inside `recordBasketPayment` (per-leg, per-currency) — not re-implemented; extraction keeps calling it.
@@ -41,11 +41,13 @@ The read/cart endpoints (WP1) move no money. The checkout path (WP4) does; answe
 ## 2. Work packages (ordered; each has a proof gate)
 
 ### WP1 — Backend REST route parity (SAFE, additive)
+
 Rebuild `backend/src/api/sessions.ts` to cover the full non-checkout surface, matching IPC envelopes exactly (`{success, <key>}`, 200 + `{success:false,error}` on failure). Use the singleton pattern consistent with other routes and `getCustomerSessionRepository()` for cart ops.
 
 Endpoints (channel → route), all calling existing core methods:
+
 - `session:getActive` → `GET /active` → `getActiveSession`
-- `session:getActiveSessions` → `GET /active-list` → `repo.getActiveSessions` *(distinct from singular `/active`)*
+- `session:getActiveSessions` → `GET /active-list` → `repo.getActiveSessions` _(distinct from singular `/active`)_
 - `session:getDetails` / `getTransactions` → `GET /:id` → `getSessionDetails`
 - `session:start` → `POST /start` → `startSession`
 - `session:update` → `PUT /:id` → `updateSession`
@@ -64,16 +66,19 @@ Endpoints (channel → route), all calling existing core methods:
 **Proof gate WP1:** curl start → cart:add → cart:get → close, asserting the rows via sqlite. No frontend change yet.
 
 ### WP2 — Adapter functions (SAFE)
+
 Add the missing session functions to `frontend/src/api/backendApi.ts` (`ipcOrHttp`, IPC branch = existing `getElectronApi().session.*`, HTTP branch = WP1 routes): `getActiveSessions`, `getSessionsByDateRange`, `getTodayAllSessions`, `getTodaySessions`, `getSessionsByCustomer`, `deleteSession`, cart add/get/remove/clear. Then expose them on `frontend/src/api/ElectronApiAdapter.ts` under `.session` matching the `window.api.session` shape the pages expect.
 
 **Proof gate WP2:** typecheck; adapter `.session` surface matches the preload shape 1:1.
 
 ### WP3 — Frontend migration off `window.api.session` (MODERATE, touches desktop renderer)
+
 Migrate `SessionContext.tsx` (~15 sites) and `CustomerSessions/index.tsx` (~3 sites) from `window.api.session.*` to `useApi().session.*`. Remove the web-mode `if (!window.api?.session) return` guards added during the broken-page pass (the adapter now handles both transports). Leave `checkout` pointing at the adapter too (wired in WP4).
 
 **Proof gate WP3:** web — `/customer-sessions` POPULATES over REST (not just renders empty); start/cart/close work in the browser. Desktop — session specs still green (WP3 changes the desktop renderer's transport indirection but not its logic: still IPC-first via `ipcOrHttp`).
 
 ### WP4 — Checkout core extraction (MONEY-PATH, isolated commit)
+
 1. **Lift the schema** (rule 14): move `SessionCheckoutSchema` (+ its cart-item/payment sub-schemas) from `electron-app/schemas/index.ts` to `packages/core/src/validators/session.ts` as `sessionCheckoutSchema`; re-export in electron schemas with the zod-major cast (as done for sale/loto).
 2. **New core service** `packages/core/src/services/SessionCheckoutService.ts` exposing `checkout(request, { userId, username }): CheckoutResult`. Move verbatim from the handler: `processCartItem`, `processBatchCartItem`, `resolveUnifiedTransactionId`, `checkoutPaymentsToBasketLegs`, the client-injection block, the profit accumulation, the `recordBasketPayment` call, and the final session-close write. Move the checkout types (`CheckoutRequest`, `CheckoutCartItem`, `CheckoutPayment`, `ProcessedItem`, `CheckoutItemResult`) to core.
    - **Rule 13 compliance for the DB boundary**: the handler currently uses `getDatabase()` + `db.transaction()` + a raw `UPDATE customer_sessions`. In core, the service must not touch `getDatabase()` directly. Add `CustomerSessionRepository.runCheckoutTransaction(fn)` (wraps `this.db.transaction(fn)()`) and `CustomerSessionRepository.recordCheckoutClose(sessionId, totals)` (the UPDATE). The service composes: `repo.runCheckoutTransaction(() => { ...replay + link + basket payment...; repo.recordCheckoutClose(...) })`. Nested module-service calls run on the same synchronous connection inside the transaction — no behavior change.
@@ -83,32 +88,34 @@ Migrate `SessionContext.tsx` (~15 sites) and `CustomerSessions/index.tsx` (~3 si
 5. **Wire the adapter** `checkout` HTTP branch to the new route; point `SessionContext` checkout at `useApi().session.checkout`.
 
 **Proof gate WP4 (the heavy one):**
+
 - Repo/unit level: a core test that runs a 2-item basket checkout (one SALE + one on-account item) and asserts drawer delta posts ONCE, ONE debt row, profit stamped — the money invariants.
 - Rule 17: temporarily point the handler back at its inline body (git stash the handler rewrite) and confirm the new test passes identically on both — i.e. prove the extraction is behavior-preserving, not just that the new path works.
 - **Desktop re-verification**: full `env -u ELECTRON_RUN_AS_NODE yarn test:e2e` at 1 worker for the session specs — `lira-094/095/098/099`, `lira-session-*` (allocation, basket-debt, basket-payment, cashout-credit, debt-payout-signs, exchange-rate, multiple-per-day, payout, profits). Green before (baseline) and after. Known flakes (lira-093 @2workers, lira-099 paired-after-093) per memory — rerun solo.
 - Web: a basket checkout over REST with a live money-delta curl/e2e assertion (drawer + debt), mirroring the loto sell proof.
 
 ### WP5 — Docs + close-out
+
 Update `WEBAPP_MULTI_TENANT_PLAN.md` Appendix A (sessions ✅, remaining step-2 items), record any desktop quirks found, note the rule-13 cleanup done (checkout SQL now in repo). Commit WP1–WP3 together (safe) and WP4 as its own commit (money-path, revertible in isolation).
 
 ---
 
 ## 3. Files touched
 
-| Layer | File | WP |
-|---|---|---|
-| Backend | `backend/src/api/sessions.ts` (rewrite) | WP1, WP4 |
-| Backend | `backend/src/server.ts` (confirm mount) | WP1 |
-| Core | `packages/core/src/validators/session.ts` (new) + `validators/index.ts` | WP4 |
-| Core | `packages/core/src/services/SessionCheckoutService.ts` (new) + `services/index.ts` | WP4 |
-| Core | `packages/core/src/repositories/CustomerSessionRepository.ts` (+2 methods) | WP4 |
-| Electron | `electron-app/schemas/index.ts` (re-export cast) | WP4 |
-| Electron | `electron-app/handlers/sessionHandlers.ts` (checkout → thin wrapper) | WP4 |
-| Frontend | `frontend/src/api/backendApi.ts` (+session fns) | WP2 |
-| Frontend | `frontend/src/api/ElectronApiAdapter.ts` (+session surface) | WP2 |
-| Frontend | `frontend/src/features/sessions/context/SessionContext.tsx` | WP3 |
-| Frontend | `frontend/src/features/sessions/pages/CustomerSessions/index.tsx` | WP3 |
-| Tests | web e2e route walk already covers `/customer-sessions`; add basket-checkout proof | WP4 |
+| Layer    | File                                                                               | WP       |
+| -------- | ---------------------------------------------------------------------------------- | -------- |
+| Backend  | `backend/src/api/sessions.ts` (rewrite)                                            | WP1, WP4 |
+| Backend  | `backend/src/server.ts` (confirm mount)                                            | WP1      |
+| Core     | `packages/core/src/validators/session.ts` (new) + `validators/index.ts`            | WP4      |
+| Core     | `packages/core/src/services/SessionCheckoutService.ts` (new) + `services/index.ts` | WP4      |
+| Core     | `packages/core/src/repositories/CustomerSessionRepository.ts` (+2 methods)         | WP4      |
+| Electron | `electron-app/schemas/index.ts` (re-export cast)                                   | WP4      |
+| Electron | `electron-app/handlers/sessionHandlers.ts` (checkout → thin wrapper)               | WP4      |
+| Frontend | `frontend/src/api/backendApi.ts` (+session fns)                                    | WP2      |
+| Frontend | `frontend/src/api/ElectronApiAdapter.ts` (+session surface)                        | WP2      |
+| Frontend | `frontend/src/features/sessions/context/SessionContext.tsx`                        | WP3      |
+| Frontend | `frontend/src/features/sessions/pages/CustomerSessions/index.tsx`                  | WP3      |
+| Tests    | web e2e route walk already covers `/customer-sessions`; add basket-checkout proof  | WP4      |
 
 ## 4. Risk & rollback
 

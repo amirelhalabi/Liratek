@@ -67,7 +67,11 @@ function createTestDb(): Database.Database {
 }
 
 /** Seed one tenant's mirrored MTC recharge + MTC/Alfa/General drawer balances. */
-function seedTenant(db: Database.Database, tenantId: number, mult: number): void {
+function seedTenant(
+  db: Database.Database,
+  tenantId: number,
+  mult: number,
+): void {
   db.prepare(
     `INSERT INTO recharges (tenant_id, carrier, recharge_type, amount, cost, price, currency_code, created_at)
      VALUES (?, 'MTC', 'CREDIT_TRANSFER', ?, ?, ?, 'USD', ?)`,
@@ -91,12 +95,16 @@ describe("RechargeRepository — cross-tenant isolation", () => {
 
   beforeEach(() => {
     db = createTestDb();
-    (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }).__LIRATEK_TEST_DB__ = db;
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
     repo = new RechargeRepository();
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }).__LIRATEK_TEST_DB__;
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
     db.close();
   });
 

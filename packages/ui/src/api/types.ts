@@ -774,16 +774,16 @@ export type ApiAdapter = {
       limit?: number,
     ) => Promise<{ success: boolean; rows?: any[]; error?: string }>;
     search: (filters: {
-    userId?: number;
-    action?: string;
-    entityType?: string;
-    entityId?: string;
-    from?: string;
-    to?: string;
-    search?: string;
-    limit?: number;
-    offset?: number;
-  }) => Promise<{
+      userId?: number;
+      action?: string;
+      entityType?: string;
+      entityId?: string;
+      from?: string;
+      to?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    }) => Promise<{
       success: boolean;
       rows?: any[];
       total?: number;

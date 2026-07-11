@@ -21,16 +21,21 @@ test.describe.serial("web sessions", () => {
     );
     expect(token).toBeTruthy();
     const uniqueName = "WEB-E2E Session Cust";
-    const started = await page.request.post(`${BACKEND_URL}/api/sessions/start`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { customer_name: uniqueName, customer_phone: "03777888" },
-    });
+    const started = await page.request.post(
+      `${BACKEND_URL}/api/sessions/start`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { customer_name: uniqueName, customer_phone: "03777888" },
+      },
+    );
     const startedBody = await started.json();
     expect(startedBody.success, JSON.stringify(startedBody)).toBeTruthy();
 
     // Load the page — it must fetch today's sessions over REST and render ours.
     await page.goto("/#/customer-sessions");
-    await expect(page.locator("#root")).not.toContainText("Something went wrong");
+    await expect(page.locator("#root")).not.toContainText(
+      "Something went wrong",
+    );
     await expect(page.getByText(uniqueName).first()).toBeVisible({
       timeout: 10_000,
     });

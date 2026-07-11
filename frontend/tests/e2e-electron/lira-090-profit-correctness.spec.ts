@@ -37,16 +37,24 @@ type Api = {
   api: {
     profits: { summary: (from: string, to: string) => Promise<Summary> };
     recharge: {
-      process: (d: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+      process: (
+        d: Record<string, unknown>,
+      ) => Promise<{ success: boolean; error?: string }>;
     };
     maintenance: {
-      save: (d: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+      save: (
+        d: Record<string, unknown>,
+      ) => Promise<{ success: boolean; error?: string }>;
     };
     loto: {
-      sell: (d: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
+      sell: (
+        d: Record<string, unknown>,
+      ) => Promise<{ success: boolean; error?: string }>;
     };
     sales: {
-      process: (d: unknown) => Promise<{ success: boolean; id?: number; error?: string }>;
+      process: (
+        d: unknown,
+      ) => Promise<{ success: boolean; id?: number; error?: string }>;
       // getSaleItems returns the raw array (no success envelope).
       getItems: (saleId: number) => Promise<Array<{ id: number }>>;
       refundItem: (
@@ -57,15 +65,17 @@ type Api = {
       refund: (saleId: number) => Promise<{ success: boolean; error?: string }>;
     };
     transactions: {
-      getRecent: (limit: number) => Promise<
-        Array<{ id: number; type: string; summary: string | null }>
-      >;
+      getRecent: (
+        limit: number,
+      ) => Promise<Array<{ id: number; type: string; summary: string | null }>>;
       refund: (id: number) => Promise<{ success: boolean; error?: string }>;
     };
   };
 };
 
-async function summary(appPage: import("@playwright/test").Page): Promise<Summary> {
+async function summary(
+  appPage: import("@playwright/test").Page,
+): Promise<Summary> {
   return appPage.evaluate(
     ({ FROM, TO }) => (window as unknown as Api).api.profits.summary(FROM, TO),
     { FROM, TO },
@@ -73,7 +83,9 @@ async function summary(appPage: import("@playwright/test").Page): Promise<Summar
 }
 
 test.describe("LIRA-090 — profit correctness", () => {
-  test("Fix 1: a refund reverses the module's profit (net 0)", async ({ appPage }) => {
+  test("Fix 1: a refund reverses the module's profit (net 0)", async ({
+    appPage,
+  }) => {
     const result = await appPage.evaluate(
       async ({ FROM, TO }) => {
         const w = window as unknown as Api;
@@ -149,7 +161,11 @@ test.describe("LIRA-090 — profit correctness", () => {
           exchange_rate: 90000,
         });
         const after = (await s()).sales.profit_usd;
-        return { ok: res.success, error: res.error ?? null, delta: after - before };
+        return {
+          ok: res.success,
+          error: res.error ?? null,
+          delta: after - before,
+        };
       },
       { FROM, TO, productId },
     );
@@ -237,7 +253,11 @@ test.describe("LIRA-090 — profit correctness", () => {
           paid_by_method: "CASH",
         });
         const after = (await s()).recharges.profit_lbp;
-        return { ok: res.success, error: res.error ?? null, delta: after - before };
+        return {
+          ok: res.success,
+          error: res.error ?? null,
+          delta: after - before,
+        };
       },
       { FROM, TO },
     );
@@ -253,7 +273,9 @@ test.describe("LIRA-090 — profit correctness", () => {
     expect(result.delta).toBeGreaterThan(0);
   });
 
-  test("Fix 4: an LBP maintenance job counts LBP profit", async ({ appPage }) => {
+  test("Fix 4: an LBP maintenance job counts LBP profit", async ({
+    appPage,
+  }) => {
     const result = await appPage.evaluate(
       async ({ FROM, TO }) => {
         const w = window as unknown as Api;
@@ -279,7 +301,11 @@ test.describe("LIRA-090 — profit correctness", () => {
           payments: [{ method: "CASH", currency_code: "LBP", amount: 900000 }],
         });
         const after = (await s()).maintenance.profit_lbp;
-        return { ok: res.success, error: res.error ?? null, delta: after - before };
+        return {
+          ok: res.success,
+          error: res.error ?? null,
+          delta: after - before,
+        };
       },
       { FROM, TO },
     );

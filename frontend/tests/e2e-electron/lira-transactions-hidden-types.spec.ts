@@ -61,7 +61,10 @@ test.describe("Transactions table — hidden types", () => {
         paidByMethod: "CASH",
       });
 
-      return { paymentOk: payment.success === true, billOk: bill.success === true };
+      return {
+        paymentOk: payment.success === true,
+        billOk: bill.success === true,
+      };
     });
     expect(gen.billOk).toBe(true);
 
@@ -99,9 +102,9 @@ test.describe("Transactions table — hidden types", () => {
     });
 
     // Hidden types are absent from the table…
-    await expect(appPage.getByText("CLIENT CREATED", { exact: true })).toHaveCount(
-      0,
-    );
+    await expect(
+      appPage.getByText("CLIENT CREATED", { exact: true }),
+    ).toHaveCount(0);
     await expect(
       appPage.getByText("SUPPLIER PAYMENT", { exact: true }),
     ).toHaveCount(0);

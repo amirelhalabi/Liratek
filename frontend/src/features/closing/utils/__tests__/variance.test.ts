@@ -1,11 +1,11 @@
-import {
-  getVarianceStatus,
-  formatCurrencyAmount,
-} from "../variance";
+import { getVarianceStatus, formatCurrencyAmount } from "../variance";
 
 describe("getVarianceStatus", () => {
   it("reports a match when physical equals expected", () => {
-    expect(getVarianceStatus(100, 100)).toEqual({ status: "match", variance: 0 });
+    expect(getVarianceStatus(100, 100)).toEqual({
+      status: "match",
+      variance: 0,
+    });
   });
 
   it("treats sub-epsilon rounding noise as a match", () => {

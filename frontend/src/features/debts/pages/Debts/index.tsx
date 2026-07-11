@@ -505,10 +505,7 @@ export default function Debts() {
       // total credit — the excess would leave cash out of the till unbooked.
       const cashOutRate = repayModalRate ?? EXCHANGE_RATE;
       const rateNeeded = paidLBP > 0 || creditLbp > 0;
-      if (
-        rateNeeded &&
-        !(Number.isFinite(cashOutRate) && cashOutRate > 0)
-      ) {
+      if (rateNeeded && !(Number.isFinite(cashOutRate) && cashOutRate > 0)) {
         alert(
           "Exchange rate unavailable — set today's USD/LBP rate before a cash out involving LBP.",
         );
@@ -1774,9 +1771,7 @@ export default function Debts() {
             debtAmountLbp={sessionDetail.amountLbp}
             mode={sessionDetail.mode}
             // Same per-entry-currency framing as the service modal above.
-            isCreditor={
-              sessionDetail.amountLbp !== 0 ? netLbp < 0 : netUsd < 0
-            }
+            isCreditor={sessionDetail.amountLbp !== 0 ? netLbp < 0 : netUsd < 0}
             onClose={() => setSessionDetail(null)}
           />
         )}

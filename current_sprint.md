@@ -1283,7 +1283,7 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 | Field                | Value             |
 | -------------------- | ----------------- |
 | **Epic**             | Customer Sessions |
-| **Type**             | Cleanup / UX       |
+| **Type**             | Cleanup / UX      |
 | **Priority**         | Medium            |
 | **Status**           | DONE              |
 | **Affected Modules** | Sessions          |
@@ -1307,9 +1307,9 @@ Starting a customer session with a name + phone saved a `clients` row **even whe
 
 ### Files Modified
 
-| Layer    | File                                                               | Change                                                                 |
-| -------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Frontend | `frontend/src/features/sessions/components/StartSessionModal.tsx`  | Removed the "Save as client" checkbox + its hook wiring; session client save is now purely automatic (backend) |
+| Layer    | File                                                              | Change                                                                                                         |
+| -------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Frontend | `frontend/src/features/sessions/components/StartSessionModal.tsx` | Removed the "Save as client" checkbox + its hook wiring; session client save is now purely automatic (backend) |
 
 ---
 
@@ -1324,7 +1324,7 @@ Starting a customer session with a name + phone saved a `clients` row **even whe
 ### Sprint 3 board
 
 | ID       | Title                                               | Priority | Status      |
-| -------- | ----------------------------------------------------- | -------- | ----------- |
+| -------- | --------------------------------------------------- | -------- | ----------- |
 | LIRA-065 | Setup — initial drawer amounts page                 | Medium   | DONE        |
 | LIRA-066 | Settlement txns (client/supplier/partner) in table  | Medium   | TODO        |
 | LIRA-067 | Txn payment detail — expandable row + report print  | Medium   | DISREGARDED |

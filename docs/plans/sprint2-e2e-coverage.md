@@ -101,7 +101,7 @@ drawer deducted** (the core regression). Settlement: `suppliers.addLedgerEntry({
 
 ---
 
-## LIRA-061 — cost/price SEND books settleable SALE_COST _(EXTEND existing spec)_
+## LIRA-061 — cost/price SEND books settleable SALE*COST *(EXTEND existing spec)\_
 
 **Existing:** Katsh SEND → `SALE_COST` (not `TOP_UP`), surfaces in `getUnsettledTransactions`, UI badge.
 **Gaps:** iPick SEND; the actual **settle** path; the **pay-down** path; drawer-money invariants; the **WISH_APP bug**.
@@ -155,7 +155,7 @@ General balance (`Insufficient balance in General drawer`); **no** partner_ledge
 **Add scenarios (IPC-driven):**
 
 1. **All four combos empty** — `omt.addTransaction` for `{OMT_APP,WISH_APP}×{SEND,RECEIVE}` with name/phone omitted → each `{success:true}`; `omt.getById(id)` → `client_name`/`phone_number`/`client_id` all null.
-2. **Provided is persisted** — OMT_APP SEND + WISH_APP RECEIVE with a **unique** name+phone → `omt.getById` shows `client_name`/`phone_number` saved and `client_id` non-null (auto-create). _Use a unique phone to avoid matching an earlier auto-created client._
+2. **Provided is persisted** — OMT*APP SEND + WISH_APP RECEIVE with a **unique** name+phone → `omt.getById` shows `client_name`/`phone_number` saved and `client_id` non-null (auto-create). \_Use a unique phone to avoid matching an earlier auto-created client.*
 3. _(Optional)_ WISH_APP SEND UI parity — form opens PaymentSheet with empty name/phone.
 
 > Note: `omt.addTransaction`'s `electron.d.ts` type is **stale** — cast `window as unknown as {...}` and pass the rich `CreateFinancialServiceData` shape (as `lira-supplier-secondary-system.spec.ts` does).

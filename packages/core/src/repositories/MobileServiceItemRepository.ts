@@ -111,7 +111,11 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
          WHERE provider = ? AND category = ? AND is_active = 1 AND tenant_id = ?
          ORDER BY subcategory, sort_order, label`,
       )
-      .all(provider, category, getCurrentTenantId()) as MobileServiceItemEntity[];
+      .all(
+        provider,
+        category,
+        getCurrentTenantId(),
+      ) as MobileServiceItemEntity[];
   }
 
   /**
@@ -138,7 +142,9 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
          WHERE provider = ? AND category = ? AND is_active = 1 AND tenant_id = ?
          ORDER BY subcategory`,
       )
-      .all(provider, category, getCurrentTenantId()) as { subcategory: string }[];
+      .all(provider, category, getCurrentTenantId()) as {
+      subcategory: string;
+    }[];
     return rows.map((r) => r.subcategory);
   }
 
@@ -230,7 +236,9 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
    */
   deleteItem(id: number): void {
     this.db
-      .prepare(`DELETE FROM mobile_service_items WHERE id = ? AND tenant_id = ?`)
+      .prepare(
+        `DELETE FROM mobile_service_items WHERE id = ? AND tenant_id = ?`,
+      )
       .run(id, getCurrentTenantId());
   }
 
@@ -275,7 +283,9 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
    */
   getCount(): number {
     const row = this.db
-      .prepare(`SELECT COUNT(*) as cnt FROM mobile_service_items WHERE tenant_id = ?`)
+      .prepare(
+        `SELECT COUNT(*) as cnt FROM mobile_service_items WHERE tenant_id = ?`,
+      )
       .get(getCurrentTenantId()) as { cnt: number };
     return row.cnt;
   }

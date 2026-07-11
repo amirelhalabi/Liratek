@@ -30,7 +30,9 @@ type SafeParseable<T> = {
     | { success: true; data: T }
     | {
         success: false;
-        error: { issues: Array<{ path: (string | number)[]; message: string }> };
+        error: {
+          issues: Array<{ path: (string | number)[]; message: string }>;
+        };
       };
 };
 const createSchema =

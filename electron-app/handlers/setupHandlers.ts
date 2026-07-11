@@ -176,11 +176,17 @@ export function registerSetupHandlers() {
         // 5. Feature flags
         db.prepare(
           "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'feature_session_management', ?)",
-        ).run(tenantId, payload.session_management_enabled ? "enabled" : "disabled");
+        ).run(
+          tenantId,
+          payload.session_management_enabled ? "enabled" : "disabled",
+        );
 
         db.prepare(
           "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'feature_customer_sessions', ?)",
-        ).run(tenantId, payload.customer_sessions_enabled ? "enabled" : "disabled");
+        ).run(
+          tenantId,
+          payload.customer_sessions_enabled ? "enabled" : "disabled",
+        );
 
         // 6. Active currencies (optional — skip if not provided)
         if (payload.active_currencies && payload.active_currencies.length > 0) {

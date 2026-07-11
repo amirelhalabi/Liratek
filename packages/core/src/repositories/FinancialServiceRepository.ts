@@ -356,7 +356,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     }
 
     this.db
-      .prepare(`UPDATE transactions SET client_id = ? WHERE id = ? AND tenant_id = ?`)
+      .prepare(
+        `UPDATE transactions SET client_id = ? WHERE id = ? AND tenant_id = ?`,
+      )
       .run(resolvedClientId, txnId, tenantId);
 
     return resolvedClientId;
@@ -667,7 +669,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // sender/receiver transfer — surface the selected item(s)
           // (category + label, via `data.note`) or call out a bill payment
           // explicitly, instead of the generic provider+amount line below.
-          const isKatchLike = data.provider === "iPick" || data.provider === "Katsh";
+          const isKatchLike =
+            data.provider === "iPick" || data.provider === "Katsh";
           const head =
             isKatchLike && data.serviceType === "BILL"
               ? `${data.provider} Bill: ${data.amount} ${currency}`
@@ -750,7 +753,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       `);
       const upsertBalanceDelta = {
         run: (drawerName: string, currencyCode: string, balance: number) =>
-          upsertBalanceDeltaStmt.run(drawerName, currencyCode, balance, tenantId),
+          upsertBalanceDeltaStmt.run(
+            drawerName,
+            currencyCode,
+            balance,
+            tenantId,
+          ),
       };
 
       // Separate shop→customer change (OUT) legs up front so every inflow branch
@@ -981,7 +989,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               systemDrawer, // "Binance" / "OMT_App" / "Whish_App"
               cryptoCurrency,
               -cryptoAmount,
-              isBINANCE ? `Crypto sent to customer` : `Sent from ${systemDrawer} wallet`,
+              isBINANCE
+                ? `Crypto sent to customer`
+                : `Sent from ${systemDrawer} wallet`,
               createdBy,
             );
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, -cryptoAmount);
@@ -1090,7 +1100,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               systemDrawer, // "Binance" / "OMT_App" / "Whish_App"
               cryptoCurrency,
               cryptoAmount,
-              isBINANCE ? `Crypto received from customer` : `Received into ${systemDrawer} wallet`,
+              isBINANCE
+                ? `Crypto received from customer`
+                : `Received into ${systemDrawer} wallet`,
               createdBy,
             );
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
@@ -1354,9 +1366,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 .prepare(
                   `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
                 )
-                .get(data.phoneNumber, tenantId) as
-                | { id: number }
-                | undefined;
+                .get(data.phoneNumber, tenantId) as { id: number } | undefined;
               const debtClientId = existingClient
                 ? existingClient.id
                 : Number(
@@ -2092,7 +2102,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
          ORDER BY created_at DESC
          LIMIT ?`,
       )
-      .all(provider, tenantId, provider, tenantId, limit) as FinancialServiceEntity[];
+      .all(
+        provider,
+        tenantId,
+        provider,
+        tenantId,
+        limit,
+      ) as FinancialServiceEntity[];
   }
 
   /**

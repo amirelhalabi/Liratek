@@ -45,7 +45,9 @@ type SafeParseable<T> = {
     | { success: true; data: T }
     | {
         success: false;
-        error: { issues: Array<{ path: (string | number)[]; message: string }> };
+        error: {
+          issues: Array<{ path: (string | number)[]; message: string }>;
+        };
       };
 };
 const checkoutSchema =
@@ -281,23 +283,19 @@ router.delete("/:id/cart", writeGate, (req: Request, res: Response) => {
 });
 
 // DELETE /api/sessions/:id/cart/:itemId — remove one cart line
-router.delete(
-  "/:id/cart/:itemId",
-  writeGate,
-  (req: Request, res: Response) => {
-    try {
-      const id = parseId(req.params.id);
-      if (id == null) {
-        res.json({ success: false, error: "Invalid session ID" });
-        return;
-      }
-      getCustomerSessionRepository().removeCartItem(id, req.params.itemId);
-      res.json({ success: true });
-    } catch (err) {
-      res.json({ success: false, error: errMessage(err) });
+router.delete("/:id/cart/:itemId", writeGate, (req: Request, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.json({ success: false, error: "Invalid session ID" });
+      return;
     }
-  },
-);
+    getCustomerSessionRepository().removeCartItem(id, req.params.itemId);
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
 
 // ── Session by id (parameterized, keep LAST) ────────────────────────────────
 

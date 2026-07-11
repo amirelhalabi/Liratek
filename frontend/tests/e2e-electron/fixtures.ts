@@ -132,10 +132,7 @@ export const test = base.extend<
         // Web mode has no setup wizard (it is IPC-gated) — log in directly.
         // The admin password is seeded by tests/e2e-web/global-setup.ts.
         await sharedPage.goto(`${WEB_BASE_URL}/#/login`);
-        await sharedPage.fill(
-          'input[placeholder="Enter username"]',
-          "admin",
-        );
+        await sharedPage.fill('input[placeholder="Enter username"]', "admin");
         await sharedPage.fill('input[type="password"]', "admin123");
         await sharedPage.click('button[type="submit"]');
         await sharedPage.waitForURL((u) => !u.hash.includes("/login"), {

@@ -302,9 +302,7 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
     await expect(posSearch).toBeVisible({ timeout: 10_000 });
     await posSearch.fill(PRODUCT_NAME);
     await appPage.locator(`text=${PRODUCT_NAME}`).first().click();
-    await appPage
-      .getByRole("button", { name: /Add to Session Cart/i })
-      .click();
+    await appPage.getByRole("button", { name: /Add to Session Cart/i }).click();
     await expectCartCount(appPage, 3);
 
     // 4. Maintenance $12 via its CheckoutModal (session branch on complete).
@@ -312,9 +310,7 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
     await appPage.locator("#maintenance-device-name").fill("L094 Phone");
     await appPage.locator("#maintenance-issue").fill("screen");
     await appPage.locator("#maintenance-price").fill("12");
-    await appPage
-      .getByRole("button", { name: /Proceed to Checkout/i })
-      .click();
+    await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
     const modal = appPage.locator('[data-testid="checkout-modal"]');
     await expect(modal).toBeVisible({ timeout: 5_000 });
     await appPage.locator('[data-testid="checkout-complete-btn"]').click();
@@ -582,11 +578,7 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
     });
     await appPage.locator("div.cursor-pointer").first().click();
     await appPage.getByRole("button", { name: /^Pay$/ }).click();
-    await appPage
-      .locator("button")
-      .filter({ hasText: /^Pay / })
-      .last()
-      .click();
+    await appPage.locator("button").filter({ hasText: /^Pay / }).last().click();
     await expectCartCount(appPage, 24);
   });
 

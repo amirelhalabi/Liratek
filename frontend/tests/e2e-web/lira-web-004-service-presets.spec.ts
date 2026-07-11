@@ -17,7 +17,11 @@ test("service presets create → list → update → delete over REST", async ({
   const created = await (
     await page.request.post(`${BACKEND_URL}/api/service-presets`, {
       headers: auth,
-      data: { name: "Web Spec Preset", category: "digital_account", price_usd: 5 },
+      data: {
+        name: "Web Spec Preset",
+        category: "digital_account",
+        price_usd: 5,
+      },
     })
   ).json();
   expect(created.success, JSON.stringify(created)).toBeTruthy();
@@ -25,7 +29,9 @@ test("service presets create → list → update → delete over REST", async ({
   expect(id).toBeTruthy();
 
   const listed = await (
-    await page.request.get(`${BACKEND_URL}/api/service-presets`, { headers: auth })
+    await page.request.get(`${BACKEND_URL}/api/service-presets`, {
+      headers: auth,
+    })
   ).json();
   expect(listed.success).toBeTruthy();
   expect(listed.data.some((p: { id: number }) => p.id === id)).toBe(true);
@@ -48,7 +54,9 @@ test("service presets create → list → update → delete over REST", async ({
 
   // Gone from the default (active) list.
   const after = await (
-    await page.request.get(`${BACKEND_URL}/api/service-presets`, { headers: auth })
+    await page.request.get(`${BACKEND_URL}/api/service-presets`, {
+      headers: auth,
+    })
   ).json();
   expect(after.data.some((p: { id: number }) => p.id === id)).toBe(false);
 });

@@ -109,13 +109,19 @@ const RECHARGE_TYPE_LABELS: Record<RechargeData["type"], string> = {
  * unified transaction summary and the recharge/debt notes so an operator can
  * see both the quantity sold and the amount collected at a glance.
  */
-function describeRechargeAmount(type: RechargeData["type"], amount: number): string {
+function describeRechargeAmount(
+  type: RechargeData["type"],
+  amount: number,
+): string {
   if (type === "DAYS") return `${amount} days`;
   if (type === "TOP_UP") return "";
   return `$${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
-function rechargeDetailLabel(type: RechargeData["type"], amount: number): string {
+function rechargeDetailLabel(
+  type: RechargeData["type"],
+  amount: number,
+): string {
   const label = RECHARGE_TYPE_LABELS[type] ?? type;
   const amountDetail = describeRechargeAmount(type, amount);
   return amountDetail ? `${label} ${amountDetail}` : label;
@@ -705,7 +711,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const sellRate = getUsdLbpSellRate(this.db);
         const smsCostInSaleCurrency =
           currency === "LBP" ? smsCostUsd * sellRate : smsCostUsd;
-        const netRechargeCommission = rechargeCommission - smsCostInSaleCurrency;
+        const netRechargeCommission =
+          rechargeCommission - smsCostInSaleCurrency;
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE,
           source_table: "recharges",
@@ -782,7 +789,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         `);
         const upsertBalanceDelta = {
           run: (drawerName: string, currencyCode: string, balance: number) =>
-            upsertBalanceDeltaStmt.run(drawerName, currencyCode, balance, tenantId),
+            upsertBalanceDeltaStmt.run(
+              drawerName,
+              currencyCode,
+              balance,
+              tenantId,
+            ),
         };
 
         // Customer payment (cash-like inflow). Split returned-change (OUT) legs

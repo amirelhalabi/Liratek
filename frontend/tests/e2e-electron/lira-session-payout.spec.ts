@@ -102,7 +102,12 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
         // The net cash-OUT leg the Session Checkout emits for the negative
         // basket total — this is what posts the payout.
         payments: [
-          { method: "CASH", currency_code: "USD", amount: 98, direction: "OUT" },
+          {
+            method: "CASH",
+            currency_code: "USD",
+            amount: 98,
+            direction: "OUT",
+          },
         ],
         exchangeRate: 90000,
         userId: 1,

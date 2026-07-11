@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticateJWT } from "../middleware/auth.js";
+import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import {
   MaintenanceService,
@@ -34,6 +34,7 @@ router.get(
 // POST /api/maintenance/jobs - Create or update maintenance job
 router.post(
   "/jobs",
+  requireRole(["admin"]),
   validateRequest(saveMaintenanceJobSchema),
   async (req, res): Promise<void> => {
     try {
@@ -53,26 +54,30 @@ router.post(
 );
 
 // DELETE /api/maintenance/jobs/:id - Delete maintenance job
-router.delete("/jobs/:id", async (req, res): Promise<void> => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      res.status(400).json({ success: false, error: "Invalid job ID" });
-      return;
+router.delete(
+  "/jobs/:id",
+  requireRole(["admin"]),
+  async (req, res): Promise<void> => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ success: false, error: "Invalid job ID" });
+        return;
+      }
+
+      const result = maintenanceService.deleteJob(id);
+
+      if (!result.success) {
+        res.status(400).json(result);
+        return;
+      }
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Delete maintenance job error");
+      res.status(500).json({ success: false, error: "Failed to delete job" });
     }
-
-    const result = maintenanceService.deleteJob(id);
-
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
-    }
-
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Delete maintenance job error");
-    res.status(500).json({ success: false, error: "Failed to delete job" });
-  }
-});
+  },
+);
 
 export default router;

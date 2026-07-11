@@ -150,9 +150,9 @@ describe("resolveSessionClientForCheckout", () => {
 
   it("a phone owned by an existing client resolves to that client — no duplicate", () => {
     const owner = seedClient(db, "amir halabi", "81077357");
-    const before = db
-      .prepare(`SELECT COUNT(*) AS n FROM clients`)
-      .get() as { n: number };
+    const before = db.prepare(`SELECT COUNT(*) AS n FROM clients`).get() as {
+      n: number;
+    };
 
     // Same phone typed under a different spelling: phone is the identity key.
     const resolved = resolveSessionClientForCheckout(
@@ -162,9 +162,9 @@ describe("resolveSessionClientForCheckout", () => {
     );
 
     expect(resolved).toBe(owner);
-    const after = db
-      .prepare(`SELECT COUNT(*) AS n FROM clients`)
-      .get() as { n: number };
+    const after = db.prepare(`SELECT COUNT(*) AS n FROM clients`).get() as {
+      n: number;
+    };
     expect(after.n).toBe(before.n);
   });
 
@@ -172,6 +172,8 @@ describe("resolveSessionClientForCheckout", () => {
     expect(
       resolveSessionClientForCheckout(undefined, "81077357", 1),
     ).toBeUndefined();
-    expect(resolveSessionClientForCheckout("   ", "81077357", 1)).toBeUndefined();
+    expect(
+      resolveSessionClientForCheckout("   ", "81077357", 1),
+    ).toBeUndefined();
   });
 });

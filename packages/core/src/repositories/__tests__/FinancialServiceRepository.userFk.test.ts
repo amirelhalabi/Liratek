@@ -197,9 +197,9 @@ function createTestDb(): Database.Database {
   `);
 
   // The only user is id 2 — reproducing the reported DB (no user id 1).
-  db.prepare("INSERT INTO users (id, username, role) VALUES (?, 'Admin', 'admin')").run(
-    ADMIN_ID,
-  );
+  db.prepare(
+    "INSERT INTO users (id, username, role) VALUES (?, 'Admin', 'admin')",
+  ).run(ADMIN_ID);
 
   return db;
 }

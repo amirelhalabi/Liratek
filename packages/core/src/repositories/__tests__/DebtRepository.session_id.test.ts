@@ -15,10 +15,7 @@
  */
 
 import Database from "better-sqlite3";
-import {
-  getDebtRepository,
-  resetDebtRepository,
-} from "../DebtRepository.js";
+import { getDebtRepository, resetDebtRepository } from "../DebtRepository.js";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -64,9 +61,8 @@ describe("DebtRepository.findClientHistory — session_id column", () => {
 
   it("includes session_id on a 'Session Debt' row", () => {
     const clientId = Number(
-      db
-        .prepare("INSERT INTO clients (full_name) VALUES ('E2E Client')")
-        .run().lastInsertRowid,
+      db.prepare("INSERT INTO clients (full_name) VALUES ('E2E Client')").run()
+        .lastInsertRowid,
     );
     db.prepare(
       `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, session_id)

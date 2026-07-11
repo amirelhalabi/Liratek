@@ -55,14 +55,14 @@ jest.mock("../server.js", () => ({
 
 // Real better-sqlite3 (subpath import escapes the moduleNameMapper mock).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const RealDatabase = require("better-sqlite3/lib/index.js") as typeof DatabaseCtor;
+const RealDatabase =
+  require("better-sqlite3/lib/index.js") as typeof DatabaseCtor;
 
 import express from "express";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 
-const JWT_TEST_SECRET =
-  "wp5-wp6-test-secret-0123456789-0123456789-0123456789";
+const JWT_TEST_SECRET = "wp5-wp6-test-secret-0123456789-0123456789-0123456789";
 const PASSWORD = "Password123!";
 
 // Deferred (set in beforeAll after env + DB are ready)
@@ -264,7 +264,8 @@ describe("GET /api/admin/tenants", () => {
   // this test go from 403 to 200, then restoring it (see the WP5/WP6 report).
   it("rejects a forged super_admin-shaped token that also carries impersonatorId", async () => {
     const loginRes = await login("root");
-    const sessionToken = (loginRes.body as ApiBody).data!.sessionToken as string;
+    const sessionToken = (loginRes.body as ApiBody).data!
+      .sessionToken as string;
     const rootId = ((loginRes.body as ApiBody).data!.user as { id: number }).id;
 
     const forgedToken = jwt.sign(

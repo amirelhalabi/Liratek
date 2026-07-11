@@ -227,11 +227,63 @@ function seedCheckpoints(db: Database.Database) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   // Tenant 1: one unsettled (id 1), one settled (id 2) — both 2026-01-05.
-  insert.run(1, 1, "2026-01-05", "2026-01-01", "2026-01-05", 100, 10, 2, 0, 0, 0, 0);
-  insert.run(2, 1, "2026-01-10", "2026-01-06", "2026-01-10", 50, 5, 1, 0, 0, 0, 1);
+  insert.run(
+    1,
+    1,
+    "2026-01-05",
+    "2026-01-01",
+    "2026-01-05",
+    100,
+    10,
+    2,
+    0,
+    0,
+    0,
+    0,
+  );
+  insert.run(
+    2,
+    1,
+    "2026-01-10",
+    "2026-01-06",
+    "2026-01-10",
+    50,
+    5,
+    1,
+    0,
+    0,
+    0,
+    1,
+  );
   // Tenant 2: mirrored dates, different amounts — one unsettled, one settled.
-  insert.run(3, 2, "2026-01-05", "2026-01-01", "2026-01-05", 900, 90, 5, 0, 0, 0, 0);
-  insert.run(4, 2, "2026-01-10", "2026-01-06", "2026-01-10", 400, 40, 3, 0, 0, 0, 1);
+  insert.run(
+    3,
+    2,
+    "2026-01-05",
+    "2026-01-01",
+    "2026-01-05",
+    900,
+    90,
+    5,
+    0,
+    0,
+    0,
+    0,
+  );
+  insert.run(
+    4,
+    2,
+    "2026-01-10",
+    "2026-01-06",
+    "2026-01-10",
+    400,
+    40,
+    3,
+    0,
+    0,
+    0,
+    1,
+  );
 
   db.prepare(
     `INSERT INTO loto_settlements (id, tenant_id, settlement_date, checkpoint_ids, total_sales, total_commission, total_cash_prizes, net_settlement)
@@ -255,7 +307,18 @@ function seedTickets(db: Database.Database) {
   insert.run(1, 1, "T1-1", 100_000, 5_000, 1, 50_000, null, "2026-01-02", null);
   insert.run(2, 1, "T1-2", 200_000, 10_000, 0, 0, null, "2026-01-03", 1);
   // Tenant 2: mirrored dates, much larger amounts — same shape.
-  insert.run(3, 2, "T2-1", 900_000, 45_000, 1, 80_000, null, "2026-01-02", null);
+  insert.run(
+    3,
+    2,
+    "T2-1",
+    900_000,
+    45_000,
+    1,
+    80_000,
+    null,
+    "2026-01-02",
+    null,
+  );
   insert.run(4, 2, "T2-2", 400_000, 20_000, 0, 0, null, "2026-01-03", 3);
 }
 
@@ -285,11 +348,15 @@ describe("LotoCheckpointRepository — cross-tenant isolation", () => {
   });
 
   it("getCheckpointByDate and getCheckpointsByDateRange scope by tenant even on identical dates", () => {
-    const t1ByDate = runWithTenant(1, () => repo.getCheckpointByDate("2026-01-05"));
+    const t1ByDate = runWithTenant(1, () =>
+      repo.getCheckpointByDate("2026-01-05"),
+    );
     expect(t1ByDate?.id).toBe(1);
     expect(t1ByDate?.total_sales).toBe(100);
 
-    const t2ByDate = runWithTenant(2, () => repo.getCheckpointByDate("2026-01-05"));
+    const t2ByDate = runWithTenant(2, () =>
+      repo.getCheckpointByDate("2026-01-05"),
+    );
     expect(t2ByDate?.id).toBe(3);
     expect(t2ByDate?.total_sales).toBe(900);
 

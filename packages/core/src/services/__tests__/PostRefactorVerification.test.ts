@@ -170,7 +170,8 @@ function buildSchema(db: Database.Database): void {
       edited_by              TEXT,
       edited_at              TEXT,
       created_by             INTEGER,
-      created_at             DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at             DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS sale_items (

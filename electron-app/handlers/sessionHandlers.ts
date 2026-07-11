@@ -12,7 +12,6 @@ import { audit } from "./auditHelper.js";
 
 const sessionService = new CustomerSessionService();
 
-
 export function registerSessionHandlers() {
   // Start a new customer session
   ipcMain.handle(

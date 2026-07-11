@@ -44,7 +44,8 @@ import {
 // (CLAUDE.md rule 14). Re-exported under the historical local name.
 // Cast bridges the zod major mismatch (core types against zod 4, this
 // workspace types against zod 3); the runtime API used is identical.
-export const SaleProcessSchema = saleProcessSchema as unknown as z.ZodSchema<SaleProcessInput>;
+export const SaleProcessSchema =
+  saleProcessSchema as unknown as z.ZodSchema<SaleProcessInput>;
 
 export const SaleRefundSchema = z.number().int().positive();
 

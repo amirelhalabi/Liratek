@@ -48,7 +48,8 @@ jest.mock("../server.js", () => ({
 
 // Real better-sqlite3 (subpath import escapes the moduleNameMapper mock).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const RealDatabase = require("better-sqlite3/lib/index.js") as typeof DatabaseCtor;
+const RealDatabase =
+  require("better-sqlite3/lib/index.js") as typeof DatabaseCtor;
 
 import express from "express";
 import request from "supertest";
@@ -65,7 +66,11 @@ let authMiddleware: typeof import("../middleware/auth");
 
 interface LoginBody {
   success: boolean;
-  data?: { user?: { id: number; role: string }; token?: string; sessionToken?: string };
+  data?: {
+    user?: { id: number; role: string };
+    token?: string;
+    sessionToken?: string;
+  };
   error?: { code: string; message: string };
 }
 
@@ -208,18 +213,22 @@ beforeAll(async () => {
   // Tenant-data probe backed by BaseRepository generic CRUD. The await before
   // the DB call hops the event loop, proving the ALS tenant context set by
   // runWithTenant(tid, () => next()) survives async boundaries downstream.
-  app.get("/api/test/partners", authenticateJWT, async (_req: Request, res: Response) => {
-    try {
-      await new Promise((resolve) => setImmediate(resolve));
-      const rows = new core.PartnerRepository().findAll();
-      res.json({ success: true, rows });
-    } catch (err) {
-      res.status(500).json({
-        success: false,
-        error: err instanceof Error ? err.name : "unknown",
-      });
-    }
-  });
+  app.get(
+    "/api/test/partners",
+    authenticateJWT,
+    async (_req: Request, res: Response) => {
+      try {
+        await new Promise((resolve) => setImmediate(resolve));
+        const rows = new core.PartnerRepository().findAll();
+        res.json({ success: true, rows });
+      } catch (err) {
+        res.status(500).json({
+          success: false,
+          error: err instanceof Error ? err.name : "unknown",
+        });
+      }
+    },
+  );
 
   // Control-plane probe for requireSuperAdmin.
   app.get(
@@ -267,7 +276,10 @@ describe("POST /api/auth/login (JWT v2)", () => {
 
   it("super_admin login yields tenantId null", async () => {
     const token = await loginToken("root");
-    const decoded = jwt.verify(token, JWT_TEST_SECRET) as Record<string, unknown>;
+    const decoded = jwt.verify(token, JWT_TEST_SECRET) as Record<
+      string,
+      unknown
+    >;
     expect(decoded.tenantId).toBeNull();
     expect(decoded.role).toBe("super_admin");
   });

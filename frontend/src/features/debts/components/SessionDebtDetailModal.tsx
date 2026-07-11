@@ -51,7 +51,8 @@ interface Props {
 // A row/item is a PAYOUT (shop pays the customer) iff any currency is negative;
 // otherwise it is a CHARGE. Sign is the only reliable discriminator — a
 // transaction_type like "binance"/"omt_system" is written for both directions.
-const isPayoutAmount = (usd: number, lbp: number): boolean => usd < 0 || lbp < 0;
+const isPayoutAmount = (usd: number, lbp: number): boolean =>
+  usd < 0 || lbp < 0;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -66,9 +67,7 @@ export function SessionDebtDetailModal({
   const api = useApi();
   useModalFocusFix(true);
   const [cartItems, setCartItems] = useState<SessionCartItem[]>([]);
-  const [transactions, setTransactions] = useState<SessionTransactionRow[]>(
-    [],
-  );
+  const [transactions, setTransactions] = useState<SessionTransactionRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

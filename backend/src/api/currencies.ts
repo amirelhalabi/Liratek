@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticateJWT } from "../middleware/auth.js";
+import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { getCurrencyService } from "@liratek/core";
 import { logger } from "../server.js";
 
@@ -23,7 +23,7 @@ router.get("/", (_req, res): void => {
 });
 
 // POST /api/currencies - Create a currency (admin only)
-router.post("/", async (req, res): Promise<void> => {
+router.post("/", requireRole(["admin"]), async (req, res): Promise<void> => {
   try {
     const currencyService = getCurrencyService();
     const result = currencyService.createCurrency(req.body);
@@ -43,7 +43,7 @@ router.post("/", async (req, res): Promise<void> => {
 });
 
 // PUT /api/currencies/:id - Update a currency (admin only)
-router.put("/:id", async (req, res): Promise<void> => {
+router.put("/:id", requireRole(["admin"]), async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
@@ -69,30 +69,34 @@ router.put("/:id", async (req, res): Promise<void> => {
 });
 
 // DELETE /api/currencies/:id - Delete a currency (admin only)
-router.delete("/:id", async (req, res): Promise<void> => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      res.status(400).json({ success: false, error: "Invalid currency ID" });
-      return;
+router.delete(
+  "/:id",
+  requireRole(["admin"]),
+  async (req, res): Promise<void> => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        res.status(400).json({ success: false, error: "Invalid currency ID" });
+        return;
+      }
+
+      const currencyService = getCurrencyService();
+      const result = currencyService.deleteCurrency(id);
+
+      if (!result.success) {
+        res.status(400).json(result);
+        return;
+      }
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Delete currency error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to delete currency" });
     }
-
-    const currencyService = getCurrencyService();
-    const result = currencyService.deleteCurrency(id);
-
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
-    }
-
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Delete currency error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to delete currency" });
-  }
-});
+  },
+);
 
 // GET /api/currencies/by-module/:moduleKey - Get currencies for a module
 router.get("/by-module/:moduleKey", (_req, res): void => {
@@ -155,26 +159,30 @@ router.get("/:code/modules", (_req, res): void => {
 });
 
 // PUT /api/currencies/:code/modules - Set modules for a currency (admin only)
-router.put("/:code/modules", async (req, res): Promise<void> => {
-  try {
-    const currencyService = getCurrencyService();
-    const result = currencyService.setModulesForCurrency(
-      req.params.code,
-      req.body.modules,
-    );
+router.put(
+  "/:code/modules",
+  requireRole(["admin"]),
+  async (req, res): Promise<void> => {
+    try {
+      const currencyService = getCurrencyService();
+      const result = currencyService.setModulesForCurrency(
+        req.params.code,
+        req.body.modules,
+      );
 
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
+      if (!result.success) {
+        res.status(400).json(result);
+        return;
+      }
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Set modules for currency error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to set modules for currency" });
     }
-
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Set modules for currency error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to set modules for currency" });
-  }
-});
+  },
+);
 
 export default router;

@@ -82,6 +82,7 @@ router.get("/client/:clientId", requireAuth, async (req, res) => {
 // POST /api/transactions/:id/void
 router.post(
   "/:id/void",
+  requireAuth,
   requireRole(["admin"]),
   async (req: AuthRequest, res) => {
     try {
@@ -100,6 +101,7 @@ router.post(
 // POST /api/transactions/:id/refund
 router.post(
   "/:id/refund",
+  requireAuth,
   requireRole(["admin"]),
   async (req: AuthRequest, res) => {
     try {

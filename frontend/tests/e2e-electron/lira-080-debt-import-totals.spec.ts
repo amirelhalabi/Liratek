@@ -104,9 +104,8 @@ test.describe("LIRA-080 (B2) — debt import totals", () => {
           const w = window as unknown as Api;
           const res = await w.api.clients.importDebts(data);
           const debtor =
-            (await w.api.debt.getDebtors()).find(
-              (d) => d.full_name === name,
-            ) ?? null;
+            (await w.api.debt.getDebtors()).find((d) => d.full_name === name) ??
+            null;
           return { res, debtor };
         },
         { data, name },

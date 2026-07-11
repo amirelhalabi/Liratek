@@ -14,6 +14,9 @@ const config: Config = {
     ],
   },
   moduleNameMapper: {
+    // Must precede the generic "^@/(.*)$" alias: viteEnv.ts touches
+    // `import.meta`, which ts-jest's CommonJS build cannot compile (TS1343).
+    "^@/config/viteEnv$": "<rootDir>/src/config/viteEnv.jest.ts",
     "^@/(.*)$": "<rootDir>/src/$1",
     "^@shared/(.*)$": "<rootDir>/../packages/shared/src/$1",
     "^@liratek/core$": "<rootDir>/../packages/core/src/index.ts",

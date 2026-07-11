@@ -252,11 +252,21 @@ describe("SalesRepository — discount reduces stamped profit", () => {
 
     // Refund 1 of 2 units: gross margin 40 − pro-rata discount (20 × 100/200 = 10)
     // = 30. Net = 60 − 30 = 30 (pre-fix: 60 − 40 = 20).
-    repo.refundSaleItem({ saleId, saleItemId: itemId, refundQuantity: 1, userId: 1 });
+    repo.refundSaleItem({
+      saleId,
+      saleItemId: itemId,
+      refundQuantity: 1,
+      userId: 1,
+    });
     expect(netProfit()).toBe(30);
 
     // Refund the 2nd unit → fully reversed → net 0 (pre-fix: 60 − 80 = −20).
-    repo.refundSaleItem({ saleId, saleItemId: itemId, refundQuantity: 1, userId: 1 });
+    repo.refundSaleItem({
+      saleId,
+      saleItemId: itemId,
+      refundQuantity: 1,
+      userId: 1,
+    });
     expect(netProfit()).toBe(0);
   });
 });

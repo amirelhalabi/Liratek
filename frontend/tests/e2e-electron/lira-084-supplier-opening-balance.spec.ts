@@ -21,7 +21,9 @@ type Api = {
         search: string,
         includeInactive: boolean,
       ) => Promise<Array<{ id: number; provider: string | null }>>;
-      getBalances: (includeInactive?: boolean) => Promise<
+      getBalances: (
+        includeInactive?: boolean,
+      ) => Promise<
         Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
       >;
       addLedgerEntry: (data: {

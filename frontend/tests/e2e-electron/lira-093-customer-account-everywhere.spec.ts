@@ -82,7 +82,9 @@ async function balance(page: Page): Promise<{ usd: number; lbp: number }> {
 
 /** The owner's flow: type the first letters, click the suggestion. */
 async function pickClient(scope: Page | ReturnType<Page["locator"]>) {
-  const field = scope.locator('[data-testid="client-autocomplete-field"]').first();
+  const field = scope
+    .locator('[data-testid="client-autocomplete-field"]')
+    .first();
   await field.click();
   await field.fill(CLIENT_NAME.slice(0, 3)); // "E2E"
   const option = scope
@@ -162,7 +164,10 @@ test.describe("LIRA-093 — customer account everywhere", () => {
     await expectCustomerAccount(appPage);
 
     // Two "Sell Ticket" buttons exist (tab + submit); the submit is last.
-    await appPage.getByRole("button", { name: /Sell Ticket/i }).last().click();
+    await appPage
+      .getByRole("button", { name: /Sell Ticket/i })
+      .last()
+      .click();
 
     // Pre-fix: the leg was silently dropped and this delta stayed 0.
     await expect
@@ -201,11 +206,7 @@ test.describe("LIRA-093 — customer account everywhere", () => {
       .click();
 
     await expectCustomerAccount(appPage);
-    await appPage
-      .locator("button")
-      .filter({ hasText: /^Pay / })
-      .last()
-      .click();
+    await appPage.locator("button").filter({ hasText: /^Pay / }).last().click();
 
     // Telecom debt books in the recharge's LBP bucket: $10 of credit at the
     // sell rate (~89,500) ≈ 900k LBP; the exact total varies with rate + SMS
@@ -266,11 +267,7 @@ test.describe("LIRA-093 — customer account everywhere", () => {
     // Katsh sheet uses the shared autocomplete.
     await pickClient(appPage);
     await expectCustomerAccount(appPage);
-    await appPage
-      .locator("button")
-      .filter({ hasText: /^Pay / })
-      .last()
-      .click();
+    await appPage.locator("button").filter({ hasText: /^Pay / }).last().click();
 
     // Open debt: the LBP balance moves UP by the item price (no seeded
     // credit involved). On failure, surface any captured app alert — submit
@@ -313,11 +310,7 @@ test.describe("LIRA-093 — customer account everywhere", () => {
 
     await appPage.getByRole("button", { name: /Proceed to Pay/i }).click();
     await expectCustomerAccount(appPage);
-    await appPage
-      .locator("button")
-      .filter({ hasText: /^Pay / })
-      .last()
-      .click();
+    await appPage.locator("button").filter({ hasText: /^Pay / }).last().click();
 
     await expect
       .poll(async () => (await balance(appPage)).usd - before.usd, {

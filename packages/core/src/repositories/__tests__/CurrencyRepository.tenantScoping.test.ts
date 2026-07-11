@@ -171,15 +171,15 @@ describe("CurrencyRepository — cross-tenant isolation", () => {
   });
 
   it("currency_modules / currency_drawers junction reads are scoped per tenant", () => {
-    expect(runWithTenant(1, () => repo.getModulesForCurrency("USD"))).toEqual(
-      ["pos"],
-    );
-    expect(
-      runWithTenant(1, () => repo.getDrawersForCurrency("USD")),
-    ).toEqual(["POS"]);
-    expect(
-      runWithTenant(2, () => repo.getDrawersForCurrency("USD")),
-    ).toEqual(["Recharge"]);
+    expect(runWithTenant(1, () => repo.getModulesForCurrency("USD"))).toEqual([
+      "pos",
+    ]);
+    expect(runWithTenant(1, () => repo.getDrawersForCurrency("USD"))).toEqual([
+      "POS",
+    ]);
+    expect(runWithTenant(2, () => repo.getDrawersForCurrency("USD"))).toEqual([
+      "Recharge",
+    ]);
   });
 
   it("setModulesForCurrency() replace-all only touches the current tenant's junction rows", () => {
@@ -188,8 +188,8 @@ describe("CurrencyRepository — cross-tenant isolation", () => {
       [],
     );
     // Tenant 2's mapping must survive tenant 1's "replace all".
-    expect(runWithTenant(2, () => repo.getModulesForCurrency("USD"))).toEqual(
-      ["pos"],
-    );
+    expect(runWithTenant(2, () => repo.getModulesForCurrency("USD"))).toEqual([
+      "pos",
+    ]);
   });
 });

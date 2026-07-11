@@ -92,7 +92,9 @@ export class ModuleRepository {
   /** Update sort order */
   updateSortOrder(key: string, sortOrder: number): void {
     this.db
-      .prepare(`UPDATE modules SET sort_order = ? WHERE key = ? AND tenant_id = ?`)
+      .prepare(
+        `UPDATE modules SET sort_order = ? WHERE key = ? AND tenant_id = ?`,
+      )
       .run(sortOrder, key, getCurrentTenantId());
   }
 

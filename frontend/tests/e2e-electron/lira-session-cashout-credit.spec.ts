@@ -167,11 +167,7 @@ test.describe("Session cash-out → account credit (Debts Payments side)", () =>
     await navigateTo(appPage, "/");
     await navigateTo(appPage, "/debts");
     await appPage.getByPlaceholder("Search client...").fill(CLIENT);
-    await appPage
-      .locator("button")
-      .filter({ hasText: CLIENT })
-      .first()
-      .click();
+    await appPage.locator("button").filter({ hasText: CLIENT }).first().click();
 
     // The payments-side "Credit Deposit" row carries an eye button (its credit
     // is session-linked). Pre-fix the credit had no session_id → no eye button.

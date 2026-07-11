@@ -242,9 +242,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 .prepare(
                   `SELECT id FROM clients WHERE full_name = ? AND tenant_id = ? LIMIT 1`,
                 )
-                .get(sale.client_name, tenantId) as
-                | { id: number }
-                | undefined);
+                .get(sale.client_name, tenantId) as { id: number } | undefined);
             if (existing) {
               finalClientId = existing.id;
             } else {
@@ -326,8 +324,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             INSERT INTO ${tableName} (
               client_id, total_amount_usd, discount_usd, final_amount_usd,
               paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
-              drawer_name, status, note, created_at, tenant_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)
+              drawer_name, status, note, created_at, updated_at, tenant_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?)
           `);
 
           const saleResult = saleStmt.run(
@@ -343,6 +341,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.drawer_name || "General",
             status,
             sale.note || null,
+            sale.transaction_time ?? null,
             sale.transaction_time ?? null,
             tenantId,
           );
@@ -517,12 +516,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               createdBy,
               tenantId,
             );
-            upsertBalanceDelta.run(
-              tenantId,
-              drawerName,
-              r.currency_code,
-              -amt,
-            );
+            upsertBalanceDelta.run(tenantId, drawerName, r.currency_code, -amt);
           }
         }
 
@@ -749,8 +743,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         INSERT INTO ${this.tableName} (
           client_id, total_amount_usd, discount_usd, final_amount_usd,
           paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
-          drawer_name, status, note, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          drawer_name, status, note, updated_at, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
       `);
 
       const result = stmt.run(

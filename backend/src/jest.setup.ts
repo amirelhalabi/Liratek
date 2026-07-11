@@ -30,7 +30,9 @@ import { mockDatabase } from "./__mocks__/better-sqlite3";
 //     rootDir-constrained program.
 beforeEach(() => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { initFixedTenantContext } = require("../../packages/core/src/db/tenantContext");
+  const {
+    initFixedTenantContext,
+  } = require("../../packages/core/src/db/tenantContext");
   initFixedTenantContext(1);
 });
 

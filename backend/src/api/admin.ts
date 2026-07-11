@@ -70,7 +70,10 @@ router.get("/tenants", (_req, res) => {
     res
       .status(500)
       .json(
-        createErrorResponse(ErrorCodes.INTERNAL_ERROR, "Failed to list tenants"),
+        createErrorResponse(
+          ErrorCodes.INTERNAL_ERROR,
+          "Failed to list tenants",
+        ),
       );
   }
 });
@@ -116,49 +119,66 @@ router.post("/tenants", validateRequest(createTenantSchema), (req, res) => {
 // PATCH /api/admin/tenants/:id — update name/status/contact/notes
 // =============================================================================
 
-router.patch("/tenants/:id", validateRequest(updateTenantSchema), (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) {
-      res
-        .status(400)
-        .json(createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"));
-      return;
-    }
+router.patch(
+  "/tenants/:id",
+  validateRequest(updateTenantSchema),
+  (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        res
+          .status(400)
+          .json(
+            createErrorResponse(
+              ErrorCodes.VALIDATION_ERROR,
+              "Invalid tenant id",
+            ),
+          );
+        return;
+      }
 
-    const tenant = runWithoutTenant(() =>
-      getTenantRepository().update(id, {
-        name: req.body.name,
-        status: req.body.status,
-        contact_name: req.body.contactName,
-        contact_phone: req.body.contactPhone,
-        notes: req.body.notes,
-      }),
-    );
-
-    if (!tenant) {
-      res
-        .status(404)
-        .json(createErrorResponse(ErrorCodes.TENANT_NOT_FOUND, "Tenant not found"));
-      return;
-    }
-
-    res.json(createSuccessResponse({ tenant }));
-  } catch (error) {
-    if (error instanceof AppError) {
-      res
-        .status(error.statusCode)
-        .json(createErrorResponse(error.code, error.message, error.details));
-      return;
-    }
-    logger.error({ error }, "PATCH /api/admin/tenants/:id failed");
-    res
-      .status(500)
-      .json(
-        createErrorResponse(ErrorCodes.INTERNAL_ERROR, "Failed to update tenant"),
+      const tenant = runWithoutTenant(() =>
+        getTenantRepository().update(id, {
+          name: req.body.name,
+          status: req.body.status,
+          contact_name: req.body.contactName,
+          contact_phone: req.body.contactPhone,
+          notes: req.body.notes,
+        }),
       );
-  }
-});
+
+      if (!tenant) {
+        res
+          .status(404)
+          .json(
+            createErrorResponse(
+              ErrorCodes.TENANT_NOT_FOUND,
+              "Tenant not found",
+            ),
+          );
+        return;
+      }
+
+      res.json(createSuccessResponse({ tenant }));
+    } catch (error) {
+      if (error instanceof AppError) {
+        res
+          .status(error.statusCode)
+          .json(createErrorResponse(error.code, error.message, error.details));
+        return;
+      }
+      logger.error({ error }, "PATCH /api/admin/tenants/:id failed");
+      res
+        .status(500)
+        .json(
+          createErrorResponse(
+            ErrorCodes.INTERNAL_ERROR,
+            "Failed to update tenant",
+          ),
+        );
+    }
+  },
+);
 
 // =============================================================================
 // POST /api/admin/tenants/:id/impersonate — mint a tenant-admin session (WP6)
@@ -175,7 +195,9 @@ router.post("/tenants/:id/impersonate", (req, res) => {
       req.user.tenantId !== null ||
       req.user.impersonatorId !== undefined
     ) {
-      res.status(403).json(createErrorResponse(ErrorCodes.FORBIDDEN, "Forbidden"));
+      res
+        .status(403)
+        .json(createErrorResponse(ErrorCodes.FORBIDDEN, "Forbidden"));
       return;
     }
     const superAdmin = req.user;
@@ -184,15 +206,21 @@ router.post("/tenants/:id/impersonate", (req, res) => {
     if (!Number.isInteger(tenantId) || tenantId <= 0) {
       res
         .status(400)
-        .json(createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"));
+        .json(
+          createErrorResponse(ErrorCodes.VALIDATION_ERROR, "Invalid tenant id"),
+        );
       return;
     }
 
-    const tenant = runWithoutTenant(() => getTenantRepository().getById(tenantId));
+    const tenant = runWithoutTenant(() =>
+      getTenantRepository().getById(tenantId),
+    );
     if (!tenant) {
       res
         .status(404)
-        .json(createErrorResponse(ErrorCodes.TENANT_NOT_FOUND, "Tenant not found"));
+        .json(
+          createErrorResponse(ErrorCodes.TENANT_NOT_FOUND, "Tenant not found"),
+        );
       return;
     }
     if (tenant.status !== "active") {

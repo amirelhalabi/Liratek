@@ -8,10 +8,7 @@ import {
   useImpersonateTenantMutation,
 } from "../../hooks/useTenants";
 import { AddTenantModal } from "../../components/AddTenantModal";
-import type {
-  AdminTenant,
-  AdminCreateTenantPayload,
-} from "@/api/backendApi";
+import type { AdminTenant, AdminCreateTenantPayload } from "@/api/backendApi";
 
 const STATUS_BADGE_CLASSES: Record<AdminTenant["status"], string> = {
   active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -45,9 +42,7 @@ export function TenantsPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<AdminTenant | null>(null);
-  const [impersonateError, setImpersonateError] = useState<string | null>(
-    null,
-  );
+  const [impersonateError, setImpersonateError] = useState<string | null>(null);
   const [impersonatingId, setImpersonatingId] = useState<number | null>(null);
 
   const handleCreate = async (payload: AdminCreateTenantPayload) => {
@@ -95,9 +90,7 @@ export function TenantsPage() {
       window.open(`/?${params.toString()}`, "_blank", "noopener,noreferrer");
     } catch (err) {
       setImpersonateError(
-        err instanceof Error
-          ? err.message
-          : "Failed to start impersonation",
+        err instanceof Error ? err.message : "Failed to start impersonation",
       );
     } finally {
       setImpersonatingId(null);
@@ -215,9 +208,7 @@ export function TenantsPage() {
                           onClick={() => setConfirmTarget(tenant)}
                           className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors"
                         >
-                          {tenant.status === "active"
-                            ? "Suspend"
-                            : "Activate"}
+                          {tenant.status === "active" ? "Suspend" : "Activate"}
                         </button>
                       )}
                       {tenant.status === "active" && (
@@ -261,7 +252,9 @@ export function TenantsPage() {
             ? `This blocks all logins for "${confirmTarget?.name}" until reactivated.`
             : `This restores login access for "${confirmTarget?.name}".`
         }
-        confirmLabel={confirmTarget?.status === "active" ? "Suspend" : "Activate"}
+        confirmLabel={
+          confirmTarget?.status === "active" ? "Suspend" : "Activate"
+        }
         variant={confirmTarget?.status === "active" ? "danger" : "info"}
         onConfirm={confirmToggleStatus}
         onCancel={() => setConfirmTarget(null)}

@@ -1,5 +1,9 @@
 import { logout } from "../backendApi";
-import { setToken, setImpersonationToken, getImpersonationToken } from "../httpClient";
+import {
+  setToken,
+  setImpersonationToken,
+  getImpersonationToken,
+} from "../httpClient";
 
 // This is the exact isolation guarantee the multi-tenant plan (§5) depends
 // on: logging out FROM an impersonation tab must never clobber the super
@@ -35,9 +39,7 @@ describe("backendApi.logout() impersonation isolation", () => {
 
     await logout();
 
-    expect(localStorage.getItem("liratek.jwt")).toBe(
-      "super-admins-own-token",
-    );
+    expect(localStorage.getItem("liratek.jwt")).toBe("super-admins-own-token");
     expect(getImpersonationToken()).toBeNull();
 
     // The bearer actually sent was the impersonation token (not the super

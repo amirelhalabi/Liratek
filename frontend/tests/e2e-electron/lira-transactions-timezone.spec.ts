@@ -31,7 +31,10 @@ test.describe("Transactions table — timezone", () => {
     const ts = Date.now();
     const marker = `TZ probe ${ts}`;
 
-    await seedCustomService(appPage, { description: marker, amount_usd: 12.34 });
+    await seedCustomService(appPage, {
+      description: marker,
+      amount_usd: 12.34,
+    });
 
     // The raw value the DB stored for this row (a marker-less UTC string).
     const createdAt = await appPage.evaluate(async (mk: string) => {
@@ -57,7 +60,15 @@ test.describe("Transactions table — timezone", () => {
       minute: "2-digit" as const,
     };
     const { storedMs, acceptable } = await appPage.evaluate(
-      ({ iso, ts, fmt }: { iso: string; ts: number; fmt: Intl.DateTimeFormatOptions }) => {
+      ({
+        iso,
+        ts,
+        fmt,
+      }: {
+        iso: string;
+        ts: number;
+        fmt: Intl.DateTimeFormatOptions;
+      }) => {
         const parseUtc = (s: string) =>
           /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)
             ? new Date(s)

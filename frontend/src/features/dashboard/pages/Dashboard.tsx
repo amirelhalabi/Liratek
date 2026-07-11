@@ -39,9 +39,17 @@ const TAB_ACCENT: Record<
   DashboardTab,
   { borderL: string; glow: string; hex: string }
 > = {
-  trend: { borderL: "border-l-violet-500", glow: "bg-violet-500", hex: "#8b5cf6" },
+  trend: {
+    borderL: "border-l-violet-500",
+    glow: "bg-violet-500",
+    hex: "#8b5cf6",
+  },
   sales: { borderL: "border-l-blue-500", glow: "bg-blue-500", hex: "#3b82f6" },
-  debtors: { borderL: "border-l-rose-500", glow: "bg-rose-500", hex: "#f43f5e" },
+  debtors: {
+    borderL: "border-l-rose-500",
+    glow: "bg-rose-500",
+    hex: "#f43f5e",
+  },
 };
 
 /** Shared <th> className for the insight tables — mirrors the Transactions page */
@@ -67,14 +75,27 @@ function NameAmountTable({
 }: {
   rows: NameAmountRow[];
   emptyMessage: string;
-  formatAmount: (amount: number | null | undefined, currencyCode: string) => string;
+  formatAmount: (
+    amount: number | null | undefined,
+    currencyCode: string,
+  ) => string;
 }) {
   return (
     <DataTable<NameAmountRow>
       columns={[
         { header: "Name", sortKey: "name", className: INSIGHT_TH_CLS },
-        { header: "USD", sortKey: "usd", width: "150px", className: INSIGHT_TH_CLS },
-        { header: "LBP", sortKey: "lbp", width: "170px", className: INSIGHT_TH_CLS },
+        {
+          header: "USD",
+          sortKey: "usd",
+          width: "150px",
+          className: INSIGHT_TH_CLS,
+        },
+        {
+          header: "LBP",
+          sortKey: "lbp",
+          width: "170px",
+          className: INSIGHT_TH_CLS,
+        },
       ]}
       data={rows}
       emptyMessage={emptyMessage}

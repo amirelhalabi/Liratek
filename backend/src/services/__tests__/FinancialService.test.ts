@@ -718,7 +718,9 @@ describe("FinancialService (SQL-level)", () => {
       expect(selectStmt).toBeDefined();
       // Multi-tenant retrofit (WP3b): tenant_id is now the first WHERE
       // predicate, with the provider filter appended after it.
-      expect(selectStmt!._sql).toContain("WHERE tenant_id = ? AND provider = ?");
+      expect(selectStmt!._sql).toContain(
+        "WHERE tenant_id = ? AND provider = ?",
+      );
       expect(selectStmt!.all.mock.calls[0]).toContain("OMT");
     });
 

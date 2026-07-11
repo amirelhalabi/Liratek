@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticateJWT } from "../middleware/auth.js";
+import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { getModuleService } from "@liratek/core";
 import { logger } from "../server.js";
 
@@ -49,44 +49,54 @@ router.get("/toggleable", (_req, res): void => {
 });
 
 // PATCH /api/modules/:key/enabled - Toggle a single module (admin only)
-router.patch("/:key/enabled", async (req, res): Promise<void> => {
-  try {
-    const moduleService = getModuleService();
-    const result = moduleService.setModuleEnabled(
-      req.params.key,
-      req.body.enabled,
-    );
+router.patch(
+  "/:key/enabled",
+  requireRole(["admin"]),
+  async (req, res): Promise<void> => {
+    try {
+      const moduleService = getModuleService();
+      const result = moduleService.setModuleEnabled(
+        req.params.key,
+        req.body.enabled,
+      );
 
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
+      if (!result.success) {
+        res.status(400).json(result);
+        return;
+      }
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Toggle module error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to toggle module" });
     }
-
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Toggle module error");
-    res.status(500).json({ success: false, error: "Failed to toggle module" });
-  }
-});
+  },
+);
 
 // PUT /api/modules/bulk-enabled - Bulk toggle modules (admin only)
-router.put("/bulk-enabled", async (req, res): Promise<void> => {
-  try {
-    const moduleService = getModuleService();
-    const result = moduleService.bulkSetEnabled(req.body.updates);
+router.put(
+  "/bulk-enabled",
+  requireRole(["admin"]),
+  async (req, res): Promise<void> => {
+    try {
+      const moduleService = getModuleService();
+      const result = moduleService.bulkSetEnabled(req.body.updates);
 
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
+      if (!result.success) {
+        res.status(400).json(result);
+        return;
+      }
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Bulk toggle modules error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to bulk toggle modules" });
     }
-
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Bulk toggle modules error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to bulk toggle modules" });
-  }
-});
+  },
+);
 
 export default router;

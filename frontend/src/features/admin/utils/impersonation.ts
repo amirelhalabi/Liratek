@@ -53,9 +53,8 @@ export function parseImpersonationHandoff(href: string): ImpersonationHandoff {
  * normal boot path is untouched.
  */
 export function bootstrapImpersonationSession(win: Window = window): boolean {
-  const { token, tenantName, username, strippedUrl } = parseImpersonationHandoff(
-    win.location.href,
-  );
+  const { token, tenantName, username, strippedUrl } =
+    parseImpersonationHandoff(win.location.href);
   if (!token) return false;
 
   setImpersonationToken(token);
@@ -100,7 +99,8 @@ export function getImpersonationInfo(): ImpersonationInfo {
 
   const decoded = decodeJwtPayload(token);
   const tenantId =
-    decoded && (typeof decoded.tenantId === "number" || decoded.tenantId === null)
+    decoded &&
+    (typeof decoded.tenantId === "number" || decoded.tenantId === null)
       ? decoded.tenantId
       : null;
   const impersonatorId =

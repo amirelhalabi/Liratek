@@ -518,9 +518,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
         // Poll transactions for active session
         try {
-          const txResult = await api.session.getTransactions(
-            activeSession.id,
-          );
+          const txResult = await api.session.getTransactions(activeSession.id);
           if (txResult.success && txResult.transactions) {
             setSessionTransactions((prev) => {
               if (

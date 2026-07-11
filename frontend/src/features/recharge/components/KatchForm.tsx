@@ -535,7 +535,8 @@ function KatchFormInner({
 
   if (!activeConfig || !activeProvider) return null;
 
-  const billAccent = BILL_ACCENTS[activeProvider === "iPick" ? "sky" : "orange"];
+  const billAccent =
+    BILL_ACCENTS[activeProvider === "iPick" ? "sky" : "orange"];
 
   const categories = getCategoriesForProvider(activeProvider);
 

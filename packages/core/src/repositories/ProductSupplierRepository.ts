@@ -119,7 +119,9 @@ export class ProductSupplierRepository {
       // Keep or create linked supplier row with updated name
       if (existing?.supplier_id) {
         this.db
-          .prepare(`UPDATE suppliers SET name = ? WHERE id = ? AND tenant_id = ?`)
+          .prepare(
+            `UPDATE suppliers SET name = ? WHERE id = ? AND tenant_id = ?`,
+          )
           .run(trimmed, existing.supplier_id, tenantId);
       }
 
@@ -135,7 +137,9 @@ export class ProductSupplierRepository {
   delete(id: number): boolean {
     const tenantId = getCurrentTenantId();
     const row = this.db
-      .prepare(`SELECT name FROM product_suppliers WHERE id = ? AND tenant_id = ?`)
+      .prepare(
+        `SELECT name FROM product_suppliers WHERE id = ? AND tenant_id = ?`,
+      )
       .get(id, tenantId) as { name: string } | undefined;
 
     if (row) {

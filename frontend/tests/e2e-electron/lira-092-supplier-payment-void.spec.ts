@@ -262,34 +262,37 @@ test.describe("LIRA-092 — supplier-payment void reversal", () => {
     await expect
       .poll(
         async () =>
-          appPage.evaluate(async (args: { fsId: number; before: number }) => {
-            const w = window as unknown as Api;
-            const recent = await w.api.transactions.getRecent(50, {
-              source_table: "financial_services",
-            });
-            const list = (
-              Array.isArray(recent)
-                ? recent
-                : ((recent as { transactions?: unknown[] })?.transactions ??
-                  [])
-            ) as Array<{
-              id: number;
-              source_id?: number | null;
-              type?: string;
-              status?: string;
-              reverses_id?: number | null;
-            }>;
-            // The void writes a same-type reversal row (reverses_id set, newer)
-            // for the same source — match the ORIGINAL only.
-            const txn = list.find(
-              (t) =>
-                t.source_id === args.fsId &&
-                t.type === "FINANCIAL_SERVICE" &&
-                !t.reverses_id,
-            );
-            const after = await w.api.dashboard.getDrawerBalances();
-            return `${txn?.status ?? "missing"}|${(after.generalDrawer.usd - args.before).toFixed(2)}`;
-          }, { fsId: created.id!, before: created.generalUsdBefore }),
+          appPage.evaluate(
+            async (args: { fsId: number; before: number }) => {
+              const w = window as unknown as Api;
+              const recent = await w.api.transactions.getRecent(50, {
+                source_table: "financial_services",
+              });
+              const list = (
+                Array.isArray(recent)
+                  ? recent
+                  : ((recent as { transactions?: unknown[] })?.transactions ??
+                    [])
+              ) as Array<{
+                id: number;
+                source_id?: number | null;
+                type?: string;
+                status?: string;
+                reverses_id?: number | null;
+              }>;
+              // The void writes a same-type reversal row (reverses_id set, newer)
+              // for the same source — match the ORIGINAL only.
+              const txn = list.find(
+                (t) =>
+                  t.source_id === args.fsId &&
+                  t.type === "FINANCIAL_SERVICE" &&
+                  !t.reverses_id,
+              );
+              const after = await w.api.dashboard.getDrawerBalances();
+              return `${txn?.status ?? "missing"}|${(after.generalDrawer.usd - args.before).toFixed(2)}`;
+            },
+            { fsId: created.id!, before: created.generalUsdBefore },
+          ),
         { timeout: 10_000 },
       )
       .toBe("VOIDED|0.00");

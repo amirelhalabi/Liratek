@@ -71,56 +71,61 @@ test.describe("LIRA-079 (A6) — created_at format & ordering", () => {
     // Unique cents make the supplier row identity-matchable in the shared DB.
     const payAmount = 3 + (ts % 89) / 100;
 
-    const result = await appPage.evaluate(async ({ marker, payAmount }) => {
-      const w = window as unknown as Api;
+    const result = await appPage.evaluate(
+      async ({ marker, payAmount }) => {
+        const w = window as unknown as Api;
 
-      // 1. Supplier cashflow row (the path that used to stamp ISO).
-      const omt = (await w.api.suppliers.list("", true)).find(
-        (s) => s.provider === "OMT",
-      );
-      if (!omt) throw new Error("OMT supplier not found");
-      const pay = await w.api.suppliers.recordCashflow({
-        supplier_id: omt.id,
-        direction: "PAY",
-        payments: [{ method: "CASH", currency_code: "USD", amount: payAmount }],
-        note: marker,
-      });
+        // 1. Supplier cashflow row (the path that used to stamp ISO).
+        const omt = (await w.api.suppliers.list("", true)).find(
+          (s) => s.provider === "OMT",
+        );
+        if (!omt) throw new Error("OMT supplier not found");
+        const pay = await w.api.suppliers.recordCashflow({
+          supplier_id: omt.id,
+          direction: "PAY",
+          payments: [
+            { method: "CASH", currency_code: "USD", amount: payAmount },
+          ],
+          note: marker,
+        });
 
-      // 2. A NEWER ordinary transaction (CURRENT_TIMESTAMP format).
-      const send = await w.api.omt.addTransaction({
-        provider: "OMT",
-        serviceType: "SEND",
-        amount: 7,
-        currency: "USD",
-        commission: 0,
-        omtServiceType: "INTRA",
-        clientName: marker,
-        paidByMethod: "CASH",
-      });
+        // 2. A NEWER ordinary transaction (CURRENT_TIMESTAMP format).
+        const send = await w.api.omt.addTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 7,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          clientName: marker,
+          paidByMethod: "CASH",
+        });
 
-      const recent = await w.api.transactions.getRecent(200);
-      const payLabel = `$${payAmount.toFixed(2)}`;
-      const supplierIdx = recent.findIndex(
-        (t) => t.type === "SUPPLIER_PAYMENT" && t.summary?.includes(payLabel),
-      );
-      const supplierRow = supplierIdx >= 0 ? recent[supplierIdx] : null;
-      const sendIdx = recent.findIndex(
-        (t) =>
-          t.type === "FINANCIAL_SERVICE" &&
-          t.source_table === "financial_services" &&
-          t.source_id === (send.id ?? -1),
-      );
+        const recent = await w.api.transactions.getRecent(200);
+        const payLabel = `$${payAmount.toFixed(2)}`;
+        const supplierIdx = recent.findIndex(
+          (t) => t.type === "SUPPLIER_PAYMENT" && t.summary?.includes(payLabel),
+        );
+        const supplierRow = supplierIdx >= 0 ? recent[supplierIdx] : null;
+        const sendIdx = recent.findIndex(
+          (t) =>
+            t.type === "FINANCIAL_SERVICE" &&
+            t.source_table === "financial_services" &&
+            t.source_id === (send.id ?? -1),
+        );
 
-      return {
-        payOk: pay.success === true,
-        payError: pay.error ?? null,
-        sendOk: send.success === true,
-        sendError: send.error ?? null,
-        supplierIdx,
-        sendIdx,
-        supplierCreatedAt: supplierRow?.created_at ?? null,
-      };
-    }, { marker, payAmount });
+        return {
+          payOk: pay.success === true,
+          payError: pay.error ?? null,
+          sendOk: send.success === true,
+          sendError: send.error ?? null,
+          supplierIdx,
+          sendIdx,
+          supplierCreatedAt: supplierRow?.created_at ?? null,
+        };
+      },
+      { marker, payAmount },
+    );
 
     expect(result.payError).toBeNull();
     expect(result.payOk).toBe(true);

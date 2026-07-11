@@ -129,7 +129,8 @@ export class AuditRepository extends BaseRepository<AuditLogEntity> {
     // scripts/check-tenant-scoping.mjs — it can trace a reassignment chain
     // on the bare identifier passed to `.prepare()`, but not a value that
     // only exists inside another local variable or an Array#join().
-    let countQuery = "SELECT COUNT(*) as count FROM audit_log WHERE tenant_id = ?";
+    let countQuery =
+      "SELECT COUNT(*) as count FROM audit_log WHERE tenant_id = ?";
     let rowsQuery = "SELECT * FROM audit_log WHERE tenant_id = ?";
 
     if (filters.userId != null) {

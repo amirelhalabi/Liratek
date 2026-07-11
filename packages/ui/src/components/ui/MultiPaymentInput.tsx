@@ -917,9 +917,7 @@ export default function MultiPaymentInput({
                       data-testid={`payment-amount-${line.id}`}
                       value={line.amount}
                       decimals={line.currencyCode === "LBP" ? 0 : 2}
-                      onChange={(n) =>
-                        updatePaymentLine(line.id, "amount", n)
-                      }
+                      onChange={(n) => updatePaymentLine(line.id, "amount", n)}
                       className={`w-full bg-slate-900 border border-slate-600 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
                         ["$", "€", "£"].includes(getSymbol(line.currencyCode))
                           ? "pl-7"

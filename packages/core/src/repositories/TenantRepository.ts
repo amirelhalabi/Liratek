@@ -560,12 +560,7 @@ export class TenantRepository {
       INSERT OR IGNORE INTO loto_settings (tenant_id, key_name, value, description)
       VALUES (?, ?, ?, ?)
     `);
-    stmt.run(
-      tenantId,
-      "commission_rate",
-      "0.0445",
-      "Commission rate (4.45%)",
-    );
+    stmt.run(tenantId, "commission_rate", "0.0445", "Commission rate (4.45%)");
     stmt.run(
       tenantId,
       "monthly_fee_amount",

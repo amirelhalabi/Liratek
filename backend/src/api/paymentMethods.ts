@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticateJWT } from "../middleware/auth.js";
+import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { getPaymentMethodService } from "@liratek/core";
 import { logger } from "../server.js";
 
@@ -38,7 +38,7 @@ router.get("/active", (_req, res): void => {
 });
 
 // POST /api/payment-methods - Create a payment method
-router.post("/", (req, res): void => {
+router.post("/", requireRole(["admin"]), (req, res): void => {
   try {
     const service = getPaymentMethodService();
     const result = service.create(req.body);
@@ -55,8 +55,27 @@ router.post("/", (req, res): void => {
   }
 });
 
+// PUT /api/payment-methods/reorder - Reorder payment methods
+// (registered before /:id so Express doesn't match "reorder" as an :id param)
+router.put("/reorder", requireRole(["admin"]), (req, res): void => {
+  try {
+    const service = getPaymentMethodService();
+    const result = service.reorder(req.body.ids);
+    if (!result.success) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, "Reorder payment methods error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to reorder payment methods" });
+  }
+});
+
 // PUT /api/payment-methods/:id - Update a payment method
-router.put("/:id", (req, res): void => {
+router.put("/:id", requireRole(["admin"]), (req, res): void => {
   try {
     const service = getPaymentMethodService();
     const id = parseInt(req.params.id, 10);
@@ -79,7 +98,7 @@ router.put("/:id", (req, res): void => {
 });
 
 // DELETE /api/payment-methods/:id - Delete a payment method
-router.delete("/:id", (req, res): void => {
+router.delete("/:id", requireRole(["admin"]), (req, res): void => {
   try {
     const service = getPaymentMethodService();
     const id = parseInt(req.params.id, 10);
@@ -98,24 +117,6 @@ router.delete("/:id", (req, res): void => {
     res
       .status(500)
       .json({ success: false, error: "Failed to delete payment method" });
-  }
-});
-
-// PUT /api/payment-methods/reorder - Reorder payment methods
-router.put("/reorder", (req, res): void => {
-  try {
-    const service = getPaymentMethodService();
-    const result = service.reorder(req.body.ids);
-    if (!result.success) {
-      res.status(400).json(result);
-      return;
-    }
-    res.json(result);
-  } catch (error) {
-    logger.error({ error }, "Reorder payment methods error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to reorder payment methods" });
   }
 });
 

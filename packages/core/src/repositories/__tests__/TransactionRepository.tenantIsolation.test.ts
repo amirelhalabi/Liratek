@@ -153,12 +153,16 @@ describe("TransactionRepository — cross-tenant isolation", () => {
 
   beforeEach(() => {
     db = createTestDb();
-    (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }).__LIRATEK_TEST_DB__ = db;
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
     repo = new TransactionRepository();
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }).__LIRATEK_TEST_DB__;
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
     db.close();
   });
 
@@ -183,10 +187,14 @@ describe("TransactionRepository — cross-tenant isolation", () => {
     seedTenant(db, 1, 1, "alice", 500);
     seedTenant(db, 2, 3, "bob", 500);
 
-    const seenByTenant1 = runWithTenant(1, () => repo.getBySourceId("sales", 500));
+    const seenByTenant1 = runWithTenant(1, () =>
+      repo.getBySourceId("sales", 500),
+    );
     expect(seenByTenant1?.amount_usd).toBe(100);
 
-    const seenByTenant2 = runWithTenant(2, () => repo.getBySourceId("sales", 500));
+    const seenByTenant2 = runWithTenant(2, () =>
+      repo.getBySourceId("sales", 500),
+    );
     expect(seenByTenant2?.amount_usd).toBe(300);
   });
 
@@ -194,12 +202,16 @@ describe("TransactionRepository — cross-tenant isolation", () => {
     seedTenant(db, 1, 1, "alice", 500);
     seedTenant(db, 2, 3, "bob", 501);
 
-    const summaryT1 = runWithTenant(1, () => repo.getDailySummary("2026-01-15"));
+    const summaryT1 = runWithTenant(1, () =>
+      repo.getDailySummary("2026-01-15"),
+    );
     expect(summaryT1.total_usd).toBe(100); // NOT 400
     expect(summaryT1.by_type).toHaveLength(1);
     expect(summaryT1.by_type[0].total_usd).toBe(100);
 
-    const summaryT2 = runWithTenant(2, () => repo.getDailySummary("2026-01-15"));
+    const summaryT2 = runWithTenant(2, () =>
+      repo.getDailySummary("2026-01-15"),
+    );
     expect(summaryT2.total_usd).toBe(300);
   });
 

@@ -41,7 +41,10 @@ describe("splitBasketCashSides", () => {
     // The exact point-3 scenario: $10 of items + a $20 Binance cash-out, same
     // currency. A netted split would report −$10 (or charge $10 / payout $0)
     // and the $20 credit would vanish from the Debts page.
-    const result = splitBasketCashSides([charge(10, "USD"), binanceReceive(20)]);
+    const result = splitBasketCashSides([
+      charge(10, "USD"),
+      binanceReceive(20),
+    ]);
 
     expect(result.chargeUsd).toBe(10);
     expect(result.payoutUsd).toBe(20);

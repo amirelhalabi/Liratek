@@ -98,10 +98,7 @@ export function AddTenantModal({
           </button>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="p-6 space-y-4 overflow-y-auto"
-        >
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
           {error && (
             <div className="p-3 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-sm">
               {error}
@@ -109,9 +106,7 @@ export function AddTenantModal({
           )}
 
           <div>
-            <label className="text-xs text-slate-400 block mb-1">
-              Name *
-            </label>
+            <label className="text-xs text-slate-400 block mb-1">Name *</label>
             <input
               type="text"
               value={name}
@@ -123,9 +118,7 @@ export function AddTenantModal({
           </div>
 
           <div>
-            <label className="text-xs text-slate-400 block mb-1">
-              Slug *
-            </label>
+            <label className="text-xs text-slate-400 block mb-1">Slug *</label>
             <input
               type="text"
               value={slug}
@@ -174,9 +167,7 @@ export function AddTenantModal({
           </div>
 
           <div>
-            <label className="text-xs text-slate-400 block mb-1">
-              Notes
-            </label>
+            <label className="text-xs text-slate-400 block mb-1">Notes</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}

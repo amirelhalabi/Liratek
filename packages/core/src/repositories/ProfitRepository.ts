@@ -304,7 +304,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${dateRange("s.created_at")}
           AND si.tenant_id = ? AND s.tenant_id = ?`,
       )
-      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as SalesRevCostRow;
+      .get(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as SalesRevCostRow;
   }
 
   /**
@@ -329,7 +334,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${dateRange("s.created_at")}
           AND t.tenant_id = ? AND s.tenant_id = ?`,
       )
-      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as SalesProfitRow;
+      .get(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as SalesProfitRow;
   }
 
   /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */
@@ -354,7 +364,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
       )
-      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as FinCurrencyRow[];
+      .all(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as FinCurrencyRow[];
   }
 
   /** Pending (unsettled) financial-service commissions grouped by currency. */
@@ -379,7 +394,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
       )
-      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as FinCurrencyRow[];
+      .all(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as FinCurrencyRow[];
   }
 
   /** Mobile services (iPick/KATCH/BOB) revenue/cost/profit grouped by currency. */
@@ -404,7 +424,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
       )
-      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as MobileCurrencyRow[];
+      .all(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as MobileCurrencyRow[];
   }
 
   /** Recharges (MTC/Alfa) revenue/cost/profit grouped by currency. */
@@ -425,7 +450,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND r.tenant_id = ? AND t.tenant_id = ?
         GROUP BY r.currency_code`,
       )
-      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as RechargeCurrencyRow[];
+      .all(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as RechargeCurrencyRow[];
   }
 
   /** Custom services totals (revenue/cost from source, profit from transactions). */
@@ -448,7 +478,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${dateRange("cs.created_at")}
           AND cs.tenant_id = ? AND t.tenant_id = ?`,
       )
-      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as CustomTotalsRow;
+      .get(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as CustomTotalsRow;
   }
 
   /**
@@ -475,7 +510,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${dateRange("m.created_at")}
           AND m.tenant_id = ? AND t.tenant_id = ?`,
       )
-      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as MaintTotalsRow;
+      .get(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as MaintTotalsRow;
   }
 
   /**
@@ -497,7 +537,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND ${dateRange("lt.created_at")}
           AND lt.tenant_id = ? AND t.tenant_id = ?`,
       )
-      .get(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as LotoTotalsRow;
+      .get(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as LotoTotalsRow;
   }
 
   /**
@@ -590,7 +635,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.provider`,
       )
-      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as FinByProviderRow[];
+      .all(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as FinByProviderRow[];
   }
 
   /** Recharge revenue/cost/profit grouped by carrier. */
@@ -614,7 +664,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND r.tenant_id = ? AND t.tenant_id = ?
         GROUP BY r.carrier`,
       )
-      .all(fromDt, toDt, getCurrentTenantId(), getCurrentTenantId()) as RechargeByCarrierRow[];
+      .all(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as RechargeByCarrierRow[];
   }
 
   // ---------------------------------------------------------------------------
@@ -950,7 +1005,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
            AND tenant_id = ?
          GROUP BY provider`,
       )
-      .all(fromDt, toDt, getCurrentTenantId()) as PendingCommissionByProviderRow[];
+      .all(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+      ) as PendingCommissionByProviderRow[];
   }
 
   // ---------------------------------------------------------------------------

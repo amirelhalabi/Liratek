@@ -68,7 +68,10 @@ const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
 // still reachable via the dedicated "Supplier Credit" filter option (see
 // auditConstants FILTER_GROUPS) — the load filter below only un-hides it when
 // that option is explicitly selected.
-const HIDDEN_TRANSACTION_TYPES = new Set(["SUPPLIER_PAYMENT", "CLIENT_CREATED"]);
+const HIDDEN_TRANSACTION_TYPES = new Set([
+  "SUPPLIER_PAYMENT",
+  "CLIENT_CREATED",
+]);
 
 // ---------------------------------------------------------------------------
 // Type label helpers
@@ -129,7 +132,8 @@ function getTypeLabel(row: TransactionRow): string {
         if (st === "RECEIVE") return `${base} Recv`;
       }
       if (p === "WHISH_APP" && ik) return "Whish App Bills";
-      if ((p === "iPick" || p === "Katsh") && st === "BILL") return `${base} Bill`;
+      if ((p === "iPick" || p === "Katsh") && st === "BILL")
+        return `${base} Bill`;
       return base;
     }
 

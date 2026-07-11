@@ -338,7 +338,8 @@ export class DebtService {
     userId: number;
     transaction_time?: string;
   }): RepaymentResult {
-    const { direction, clientId, amountUSD, amountLBP, transaction_time } = data;
+    const { direction, clientId, amountUSD, amountLBP, transaction_time } =
+      data;
 
     if (!clientId) {
       return { success: false, error: "Client ID is required" };

@@ -771,9 +771,8 @@ describe("SupplierRepository — opening balance via signed ADJUSTMENT (B4)", ()
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { setDb } = require("../../db/connection");
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const {
-    resetTransactionRepository,
-  } = require("../TransactionRepository") as typeof import("../TransactionRepository");
+  const { resetTransactionRepository } =
+    require("../TransactionRepository") as typeof import("../TransactionRepository");
 
   beforeEach(() => {
     db = createTestDb();

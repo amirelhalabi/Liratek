@@ -18,17 +18,25 @@ test("hold-money create → active → collect over REST", async ({ page }) => {
   const created = await (
     await page.request.post(`${BACKEND_URL}/api/hold-money`, {
       headers: auth,
-      data: { client_name: "HM Web Spec", phone_number: "03111000", usd_amount: 15 },
+      data: {
+        client_name: "HM Web Spec",
+        phone_number: "03111000",
+        usd_amount: 15,
+      },
     })
   ).json();
   expect(created.success, JSON.stringify(created)).toBeTruthy();
   expect(created.id).toBeTruthy();
 
   const active = await (
-    await page.request.get(`${BACKEND_URL}/api/hold-money/active`, { headers: auth })
+    await page.request.get(`${BACKEND_URL}/api/hold-money/active`, {
+      headers: auth,
+    })
   ).json();
   expect(active.success).toBeTruthy();
-  expect(active.data.some((h: { id: number }) => h.id === created.id)).toBe(true);
+  expect(active.data.some((h: { id: number }) => h.id === created.id)).toBe(
+    true,
+  );
 
   const collected = await (
     await page.request.post(
@@ -40,7 +48,11 @@ test("hold-money create → active → collect over REST", async ({ page }) => {
 
   // No longer active after collection.
   const after = await (
-    await page.request.get(`${BACKEND_URL}/api/hold-money/active`, { headers: auth })
+    await page.request.get(`${BACKEND_URL}/api/hold-money/active`, {
+      headers: auth,
+    })
   ).json();
-  expect(after.data.some((h: { id: number }) => h.id === created.id)).toBe(false);
+  expect(after.data.some((h: { id: number }) => h.id === created.id)).toBe(
+    false,
+  );
 });

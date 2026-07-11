@@ -240,7 +240,7 @@ function tokenize(src) {
       i = j;
     } else {
       let j = i + 1;
-      while (j < n && !'/"\'`'.includes(src[j])) j++;
+      while (j < n && !"/\"'`".includes(src[j])) j++;
       tokens.push({ type: "code", start: i, end: j });
       i = j;
     }
@@ -508,7 +508,11 @@ function walkFiles(root, exts) {
       return;
     }
     for (const entry of entries) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".git") {
+      if (
+        entry.name === "node_modules" ||
+        entry.name === "dist" ||
+        entry.name === ".git"
+      ) {
         continue;
       }
       const full = path.join(dir, entry.name);
@@ -625,7 +629,12 @@ function scanFile(file) {
     const { idx, openParenIdx } = site;
     const argStart = openParenIdx + 1;
     const argText = extractArgument(src, argStart);
-    const { sql, unresolvedArg } = resolveStatementSql(src, argText, idx, fieldMap);
+    const { sql, unresolvedArg } = resolveStatementSql(
+      src,
+      argText,
+      idx,
+      fieldMap,
+    );
     const lineNum = lineOf(src, idx);
 
     const tables = extractTables(sql);
@@ -636,7 +645,9 @@ function scanFile(file) {
     const unresolvedTable = [...tables].some((t) =>
       t.includes(UNRESOLVED_TOKEN_LC),
     );
-    const tenantHits = [...tables].filter((t) => TENANT_TABLE_SET.has(t)).sort();
+    const tenantHits = [...tables]
+      .filter((t) => TENANT_TABLE_SET.has(t))
+      .sort();
     if (unresolvedTable || unresolvedArg) tenantHits.push("<unresolved>");
     // (NON_TENANT_TABLES is informational only — anything not in
     // TENANT_TABLE_SET, including these, is simply never flagged.)
@@ -648,7 +659,8 @@ function scanFile(file) {
       const hay = `${sql} ${argText}`;
       const hasTenantId = TENANT_ID_RE.test(hay);
       const precedingLines = lines.slice(Math.max(0, lineNum - 4), lineNum - 1);
-      const hasExempt = EXEMPT_RE.test(hay) || precedingLines.some((l) => EXEMPT_RE.test(l));
+      const hasExempt =
+        EXEMPT_RE.test(hay) || precedingLines.some((l) => EXEMPT_RE.test(l));
       if (hasExempt) reason = "exempt";
       else if (hasTenantId) reason = "ok";
       else reason = "violation";
@@ -689,7 +701,11 @@ function scanRepositories(root) {
     });
   }
 
-  perFile.sort((a, b) => b.violationCount - a.violationCount || b.statementCount - a.statementCount);
+  perFile.sort(
+    (a, b) =>
+      b.violationCount - a.violationCount ||
+      b.statementCount - a.statementCount,
+  );
 
   return {
     perFile,
@@ -734,7 +750,11 @@ function scanMultipleRoots(roots) {
     skipped.push(...result.skipped);
   }
 
-  perFile.sort((a, b) => b.violationCount - a.violationCount || b.statementCount - a.statementCount);
+  perFile.sort(
+    (a, b) =>
+      b.violationCount - a.violationCount ||
+      b.statementCount - a.statementCount,
+  );
 
   return {
     perFile,
@@ -833,7 +853,12 @@ function printSummary(result, runWithoutTenantHits) {
 
   console.log("Violations per repository file (top 15):");
   const withActivity = result.perFile.filter((f) => f.statementCount > 0);
-  const header = "  " + "file".padEnd(45) + "statements".padStart(11) + "violations".padStart(12) + "exempt".padStart(9);
+  const header =
+    "  " +
+    "file".padEnd(45) +
+    "statements".padStart(11) +
+    "violations".padStart(12) +
+    "exempt".padStart(9);
   console.log(header);
   for (const f of withActivity.slice(0, 15)) {
     console.log(
@@ -851,7 +876,9 @@ function printSummary(result, runWithoutTenantHits) {
   );
 
   console.log("");
-  console.log(`runWithoutTenant( call sites (informational): ${runWithoutTenantHits.length}`);
+  console.log(
+    `runWithoutTenant( call sites (informational): ${runWithoutTenantHits.length}`,
+  );
   for (const hit of runWithoutTenantHits.slice(0, 25)) {
     console.log(`  ${hit.file}:${hit.line}  ${hit.snippet}`);
   }

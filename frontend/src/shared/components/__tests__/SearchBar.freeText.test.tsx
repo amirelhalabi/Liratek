@@ -12,7 +12,13 @@
  * results list is showing — regardless of search state.
  */
 
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import { SearchBar } from "@liratek/ui";
 
 type Item = { id: number; name: string };
@@ -30,7 +36,11 @@ function setup(results: Item[] = []) {
       getKey={(i) => i.id}
     />,
   );
-  return { onFreeText, onSearch, input: screen.getByPlaceholderText("Search item...") };
+  return {
+    onFreeText,
+    onSearch,
+    input: screen.getByPlaceholderText("Search item..."),
+  };
 }
 
 describe("SearchBar — Enter commits free text (A5)", () => {
@@ -67,7 +77,9 @@ describe("SearchBar — Enter commits free text (A5)", () => {
     await act(async () => {
       jest.advanceTimersByTime(500);
     });
-    await waitFor(() => expect(screen.getByText("iPhone 13")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("iPhone 13")).toBeInTheDocument(),
+    );
 
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onFreeText).not.toHaveBeenCalled();

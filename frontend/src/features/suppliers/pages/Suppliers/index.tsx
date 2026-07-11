@@ -1,9 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  MultiPaymentInput,
-  PageHeader,
-  type PaymentLine,
-} from "@liratek/ui";
+import { MultiPaymentInput, PageHeader, type PaymentLine } from "@liratek/ui";
 import { Truck } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";

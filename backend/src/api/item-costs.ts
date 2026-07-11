@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticateJWT } from "../middleware/auth.js";
+import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { getItemCostService } from "@liratek/core";
 import { logger } from "../server.js";
 
@@ -23,7 +23,7 @@ router.get("/", (_req, res): void => {
 });
 
 // POST /api/item-costs - Save/update an item cost
-router.post("/", (req, res): void => {
+router.post("/", requireRole(["admin"]), (req, res): void => {
   try {
     const { provider, category, itemKey, cost, currency } = req.body;
 

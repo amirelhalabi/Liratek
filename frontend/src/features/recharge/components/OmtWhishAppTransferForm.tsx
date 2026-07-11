@@ -517,126 +517,126 @@ function OmtWhishAppTransferFormInner({
           SEND collects the sender, RECEIVE collects the receiver. */}
       <div className="grid grid-cols-2 gap-3">
         {serviceType === "SEND" && (
-        <>
-        <div>
-          <label
-            htmlFor="sender-name"
-            className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-          >
-            <User size={12} /> Sender Name{" "}
-            {activeSession && serviceType === "SEND" && "• Session"}
-          </label>
-          <ClientAutocompleteInput
-            id="sender-name"
-            type="text"
-            value={senderName}
-            onChange={(v) => {
-              setSenderName(v);
-              if (serviceType === "SEND") setClientId(null);
-            }}
-            onClientSelect={(c) => {
-              setSenderPhone(c.phone_number || "");
-              if (serviceType === "SEND") {
-                setClientId(c.id);
-                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                setPaymentInputKey((k) => k + 1);
-              }
-            }}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-            placeholder="Sender name"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="sender-phone"
-            className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-          >
-            <Phone size={12} /> Sender Phone{" "}
-            {activeSession && serviceType === "SEND" && "• Session"}
-          </label>
-          <ClientAutocompleteInput
-            id="sender-phone"
-            type="tel"
-            value={senderPhone}
-            onChange={(v) => {
-              setSenderPhone(v);
-              if (serviceType === "SEND") setClientId(null);
-            }}
-            onClientSelect={(c) => {
-              setSenderName(c.full_name);
-              if (serviceType === "SEND") {
-                setClientId(c.id);
-                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                setPaymentInputKey((k) => k + 1);
-              }
-            }}
-            searchByPhone
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-            placeholder="Sender phone"
-          />
-        </div>
-        </>
+          <>
+            <div>
+              <label
+                htmlFor="sender-name"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+              >
+                <User size={12} /> Sender Name{" "}
+                {activeSession && serviceType === "SEND" && "• Session"}
+              </label>
+              <ClientAutocompleteInput
+                id="sender-name"
+                type="text"
+                value={senderName}
+                onChange={(v) => {
+                  setSenderName(v);
+                  if (serviceType === "SEND") setClientId(null);
+                }}
+                onClientSelect={(c) => {
+                  setSenderPhone(c.phone_number || "");
+                  if (serviceType === "SEND") {
+                    setClientId(c.id);
+                    setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                    setPaymentInputKey((k) => k + 1);
+                  }
+                }}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                placeholder="Sender name"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="sender-phone"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+              >
+                <Phone size={12} /> Sender Phone{" "}
+                {activeSession && serviceType === "SEND" && "• Session"}
+              </label>
+              <ClientAutocompleteInput
+                id="sender-phone"
+                type="tel"
+                value={senderPhone}
+                onChange={(v) => {
+                  setSenderPhone(v);
+                  if (serviceType === "SEND") setClientId(null);
+                }}
+                onClientSelect={(c) => {
+                  setSenderName(c.full_name);
+                  if (serviceType === "SEND") {
+                    setClientId(c.id);
+                    setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                    setPaymentInputKey((k) => k + 1);
+                  }
+                }}
+                searchByPhone
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                placeholder="Sender phone"
+              />
+            </div>
+          </>
         )}
         {serviceType === "RECEIVE" && (
-        <>
-        <div>
-          <label
-            htmlFor="receiver-name"
-            className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-          >
-            <User size={12} /> Receiver Name{" "}
-            {activeSession && serviceType === "RECEIVE" && "• Session"}
-          </label>
-          <ClientAutocompleteInput
-            id="receiver-name"
-            type="text"
-            value={receiverName}
-            onChange={(v) => {
-              setReceiverName(v);
-              if (serviceType === "RECEIVE") setClientId(null);
-            }}
-            onClientSelect={(c) => {
-              setReceiverPhone(c.phone_number || "");
-              if (serviceType === "RECEIVE") {
-                setClientId(c.id);
-                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                setPaymentInputKey((k) => k + 1);
-              }
-            }}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-            placeholder="Receiver name"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor="receiver-phone"
-            className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-          >
-            <Phone size={12} /> Receiver Phone{" "}
-            {activeSession && serviceType === "RECEIVE" && "• Session"}
-          </label>
-          <ClientAutocompleteInput
-            id="receiver-phone"
-            type="tel"
-            value={receiverPhone}
-            onChange={(v) => {
-              setReceiverPhone(v);
-              if (serviceType === "RECEIVE") setClientId(null);
-            }}
-            onClientSelect={(c) => {
-              setReceiverName(c.full_name);
-              if (serviceType === "RECEIVE") {
-                setClientId(c.id);
-                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                setPaymentInputKey((k) => k + 1);
-              }
-            }}
-            searchByPhone
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-            placeholder="Receiver phone"
-          />
-        </div>
-        </>
+          <>
+            <div>
+              <label
+                htmlFor="receiver-name"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+              >
+                <User size={12} /> Receiver Name{" "}
+                {activeSession && serviceType === "RECEIVE" && "• Session"}
+              </label>
+              <ClientAutocompleteInput
+                id="receiver-name"
+                type="text"
+                value={receiverName}
+                onChange={(v) => {
+                  setReceiverName(v);
+                  if (serviceType === "RECEIVE") setClientId(null);
+                }}
+                onClientSelect={(c) => {
+                  setReceiverPhone(c.phone_number || "");
+                  if (serviceType === "RECEIVE") {
+                    setClientId(c.id);
+                    setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                    setPaymentInputKey((k) => k + 1);
+                  }
+                }}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                placeholder="Receiver name"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="receiver-phone"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+              >
+                <Phone size={12} /> Receiver Phone{" "}
+                {activeSession && serviceType === "RECEIVE" && "• Session"}
+              </label>
+              <ClientAutocompleteInput
+                id="receiver-phone"
+                type="tel"
+                value={receiverPhone}
+                onChange={(v) => {
+                  setReceiverPhone(v);
+                  if (serviceType === "RECEIVE") setClientId(null);
+                }}
+                onClientSelect={(c) => {
+                  setReceiverName(c.full_name);
+                  if (serviceType === "RECEIVE") {
+                    setClientId(c.id);
+                    setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                    setPaymentInputKey((k) => k + 1);
+                  }
+                }}
+                searchByPhone
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                placeholder="Receiver phone"
+              />
+            </div>
+          </>
         )}
       </div>
       <SaveAsClientCheckbox

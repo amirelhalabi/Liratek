@@ -97,7 +97,10 @@ function getColumns(db, table) {
     .all()
     .map((c) => ({
       name: c.name,
-      type: String(c.type || "").toUpperCase().replace(/\s+/g, " ").trim(),
+      type: String(c.type || "")
+        .toUpperCase()
+        .replace(/\s+/g, " ")
+        .trim(),
       notnull: c.notnull,
       dflt: normalizeDefault(c.dflt_value),
     }))
@@ -187,21 +190,31 @@ function diffTableSchemas(a, b) {
     const ca = aCols.get(name);
     const cb = bCols.get(name);
     if (!ca) {
-      diffs.push(`column "${name}" missing in migrated DB (A), present in fresh DB (B)`);
+      diffs.push(
+        `column "${name}" missing in migrated DB (A), present in fresh DB (B)`,
+      );
       continue;
     }
     if (!cb) {
-      diffs.push(`column "${name}" missing in fresh DB (B), present in migrated DB (A)`);
+      diffs.push(
+        `column "${name}" missing in fresh DB (B), present in migrated DB (A)`,
+      );
       continue;
     }
     if (ca.type !== cb.type) {
-      diffs.push(`column "${name}" type differs: A="${ca.type}" B="${cb.type}"`);
+      diffs.push(
+        `column "${name}" type differs: A="${ca.type}" B="${cb.type}"`,
+      );
     }
     if (ca.notnull !== cb.notnull) {
-      diffs.push(`column "${name}" notnull differs: A=${ca.notnull} B=${cb.notnull}`);
+      diffs.push(
+        `column "${name}" notnull differs: A=${ca.notnull} B=${cb.notnull}`,
+      );
     }
     if (ca.dflt !== cb.dflt) {
-      diffs.push(`column "${name}" default differs: A="${ca.dflt}" B="${cb.dflt}"`);
+      diffs.push(
+        `column "${name}" default differs: A="${ca.dflt}" B="${cb.dflt}"`,
+      );
     }
   }
 
@@ -240,7 +253,9 @@ function diffTableSchemas(a, b) {
       continue;
     }
     if (ia.unique !== ib.unique) {
-      diffs.push(`index "${name}" unique flag differs: A=${ia.unique} B=${ib.unique}`);
+      diffs.push(
+        `index "${name}" unique flag differs: A=${ia.unique} B=${ib.unique}`,
+      );
     }
     if (ia.columns.join(",") !== ib.columns.join(",")) {
       diffs.push(
@@ -323,7 +338,9 @@ async function main() {
     );
     process.exit(0);
   } else {
-    console.log(`FOUND ${totalDiffs} diff(s) across ${allTables.length} tables:\n`);
+    console.log(
+      `FOUND ${totalDiffs} diff(s) across ${allTables.length} tables:\n`,
+    );
     console.log(report.join("\n"));
     process.exit(1);
   }

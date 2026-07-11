@@ -3186,14 +3186,17 @@ export const MIGRATIONS: Migration[] = [
         name: string;
       }[];
       const colNames = cols.map((c) => c.name);
+      // SQLite rejects ADD COLUMN with a non-constant default ("Cannot add a
+      // column with non-constant default") — add defaultless, then backfill.
+      // ExpenseRepository stamps created_at explicitly on INSERT either way.
       if (!colNames.includes("created_at")) {
-        db.exec(
-          `ALTER TABLE expenses ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP;`,
-        );
+        db.exec(`ALTER TABLE expenses ADD COLUMN created_at DATETIME;`);
+        db.exec(`UPDATE expenses SET created_at = CURRENT_TIMESTAMP;`);
       }
       if (!colNames.includes("updated_at")) {
+        db.exec(`ALTER TABLE expenses ADD COLUMN updated_at DATETIME;`);
         db.exec(
-          `ALTER TABLE expenses ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP;`,
+          `UPDATE expenses SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP);`,
         );
       }
       console.log("Migration v81: Added created_at/updated_at to expenses");
@@ -4279,8 +4282,14 @@ export const MIGRATIONS: Migration[] = [
         name: string;
       }[];
       if (!cols.some((c) => c.name === "updated_at")) {
+        // SQLite rejects ADD COLUMN with a non-constant default ("Cannot add
+        // a column with non-constant default") — this exact statement bricked
+        // production DBs at v103 (fresh installs never hit it: create_db.sql
+        // already has the column, so the guard skipped). Add defaultless,
+        // backfill, and let SalesRepository stamp updated_at on INSERT/UPDATE.
+        db.exec("ALTER TABLE sales ADD COLUMN updated_at DATETIME;");
         db.exec(
-          "ALTER TABLE sales ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP;",
+          "UPDATE sales SET updated_at = COALESCE(edited_at, created_at);",
         );
       }
       console.log("Migration v104: Added updated_at to sales");
@@ -4729,7 +4738,9 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
         CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
       `);
-      console.log("Migration v114: added 'ALFA_GIFT' to recharges.recharge_type CHECK");
+      console.log(
+        "Migration v114: added 'ALFA_GIFT' to recharges.recharge_type CHECK",
+      );
     },
     down(db: Database.Database) {
       // Restore the pre-ALFA_GIFT CHECK. Throws if ALFA_GIFT rows exist
@@ -4778,7 +4789,9 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
         CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
       `);
-      console.log("Migration v114 rolled back: removed 'ALFA_GIFT' from recharges.recharge_type CHECK");
+      console.log(
+        "Migration v114 rolled back: removed 'ALFA_GIFT' from recharges.recharge_type CHECK",
+      );
     },
   },
   {
@@ -4805,9 +4818,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec(
         `ALTER TABLE financial_services DROP COLUMN supplier_debt_booked;`,
       );
-      console.log(
-        "Migration v115 rolled back: supplier_debt_booked dropped",
-      );
+      console.log("Migration v115 rolled back: supplier_debt_booked dropped");
     },
   },
   {
@@ -5051,9 +5062,7 @@ export const MIGRATIONS: Migration[] = [
     down(db: Database.Database) {
       db.exec(`DROP INDEX IF EXISTS idx_debt_ledger_session_id`);
       db.exec(`ALTER TABLE debt_ledger DROP COLUMN session_id`);
-      console.log(
-        "Migration v121 rolled back: debt_ledger.session_id removed",
-      );
+      console.log("Migration v121 rolled back: debt_ledger.session_id removed");
     },
   },
   {
@@ -5068,7 +5077,9 @@ export const MIGRATIONS: Migration[] = [
     },
     down(db: Database.Database) {
       db.exec(`UPDATE modules SET label = 'Debts' WHERE key = 'debts'`);
-      console.log("Migration v122 rolled back: 'debts' module label restored to 'Debts'");
+      console.log(
+        "Migration v122 rolled back: 'debts' module label restored to 'Debts'",
+      );
     },
   },
   {
@@ -5366,7 +5377,9 @@ export const MIGRATIONS: Migration[] = [
         SELECT id, 1, name, sort_order, is_active, created_at FROM product_categories
       `);
       db.exec(`DROP TABLE product_categories`);
-      db.exec(`ALTER TABLE product_categories_new RENAME TO product_categories`);
+      db.exec(
+        `ALTER TABLE product_categories_new RENAME TO product_categories`,
+      );
 
       // product_suppliers: name UNIQUE COLLATE NOCASE -> UNIQUE(tenant_id, name)
       db.exec(`
@@ -5588,9 +5601,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec(
         `CREATE INDEX idx_msi_provider_category ON mobile_service_items(provider, category)`,
       );
-      db.exec(
-        `CREATE INDEX idx_msi_active ON mobile_service_items(is_active)`,
-      );
+      db.exec(`CREATE INDEX idx_msi_active ON mobile_service_items(is_active)`);
 
       // loto_settings: key_name TEXT PRIMARY KEY -> PRIMARY KEY (tenant_id, key_name)
       db.exec(`
@@ -5828,7 +5839,9 @@ export const MIGRATIONS: Migration[] = [
         SELECT id, name, sort_order, is_active, created_at FROM product_categories
       `);
       db.exec(`DROP TABLE product_categories`);
-      db.exec(`ALTER TABLE product_categories_old RENAME TO product_categories`);
+      db.exec(
+        `ALTER TABLE product_categories_old RENAME TO product_categories`,
+      );
 
       // product_suppliers -> restore name UNIQUE COLLATE NOCASE
       db.exec(`
@@ -6033,9 +6046,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec(
         `CREATE INDEX idx_msi_provider_category ON mobile_service_items(provider, category)`,
       );
-      db.exec(
-        `CREATE INDEX idx_msi_active ON mobile_service_items(is_active)`,
-      );
+      db.exec(`CREATE INDEX idx_msi_active ON mobile_service_items(is_active)`);
 
       // loto_settings -> restore key_name TEXT PRIMARY KEY
       db.exec(`

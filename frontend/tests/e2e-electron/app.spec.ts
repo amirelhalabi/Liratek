@@ -283,11 +283,9 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
     // "Sale failed: <error>" / validation / "unexpected error" alert and does NOT
     // clear the cart. Race the success signal against that alert.
     const cartEmpty = appPage.locator("text=Cart is empty");
-    const failureAlert = appPage
-      .locator('[role="alert"]')
-      .filter({
-        hasText: /fail|error|debt|disabled|required|phone|anonymous/i,
-      });
+    const failureAlert = appPage.locator('[role="alert"]').filter({
+      hasText: /fail|error|debt|disabled|required|phone|anonymous/i,
+    });
     await Promise.race([
       cartEmpty.waitFor({ state: "visible", timeout: 12_000 }).catch(() => {}),
       failureAlert

@@ -968,10 +968,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       );
     }
     if (original.reverses_id != null) {
-      throw new DatabaseError(
-        "Cannot void or refund a reversal transaction",
-        { entityId: original.id },
-      );
+      throw new DatabaseError("Cannot void or refund a reversal transaction", {
+        entityId: original.id,
+      });
     }
   }
 
@@ -1137,7 +1136,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         userId,
         tenantId,
       );
-      upsertBalance.run(tenantId, p.drawer_name, p.currency_code, negatedAmount);
+      upsertBalance.run(
+        tenantId,
+        p.drawer_name,
+        p.currency_code,
+        negatedAmount,
+      );
     }
   }
 

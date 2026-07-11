@@ -5,7 +5,7 @@
  */
 
 import { Router } from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
 import { getRateService, setRateSchema } from "@liratek/core";
 import { logger } from "../server.js";
@@ -28,6 +28,7 @@ router.get("/", requireAuth, async (_req, res) => {
 router.post(
   "/",
   requireAuth,
+  requireRole(["admin"]),
   validateRequest(setRateSchema),
   async (req, res) => {
     try {
@@ -54,21 +55,26 @@ router.post(
 );
 
 // DELETE /api/rates/:fromCurrency/:toCurrency
-router.delete("/:fromCurrency/:toCurrency", requireAuth, async (req, res) => {
-  try {
-    const { fromCurrency, toCurrency } = req.params;
-    const result = rateService.deleteRate(fromCurrency, toCurrency);
+router.delete(
+  "/:fromCurrency/:toCurrency",
+  requireAuth,
+  requireRole(["admin"]),
+  async (req, res) => {
+    try {
+      const { fromCurrency, toCurrency } = req.params;
+      const result = rateService.deleteRate(fromCurrency, toCurrency);
 
-    if (result.success) {
-      logger.info({ fromCurrency, toCurrency }, "Exchange rate deleted");
-      res.json(result);
-    } else {
-      res.status(400).json(result);
+      if (result.success) {
+        logger.info({ fromCurrency, toCurrency }, "Exchange rate deleted");
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      logger.error({ error }, "Delete rate error");
+      res.status(500).json({ success: false, error: "Failed to delete rate" });
     }
-  } catch (error) {
-    logger.error({ error }, "Delete rate error");
-    res.status(500).json({ success: false, error: "Failed to delete rate" });
-  }
-});
+  },
+);
 
 export default router;

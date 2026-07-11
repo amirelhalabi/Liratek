@@ -43,9 +43,7 @@ type Api = {
         started_by: string;
       }) => Promise<{ success?: boolean; sessionId?: number }>;
       getActive: () => Promise<{ session?: { id: number } }>;
-      cartGet: (
-        sessionId: number,
-      ) => Promise<{ items: Array<{ id: number }> }>;
+      cartGet: (sessionId: number) => Promise<{ items: Array<{ id: number }> }>;
     };
   };
 };
@@ -109,7 +107,10 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
     // deferring into the basket).
     await navigateTo(appPage, "/recharge");
     await expect(
-      appPage.locator("button").filter({ hasText: /Session - / }).first(),
+      appPage
+        .locator("button")
+        .filter({ hasText: /Session - / })
+        .first(),
     ).toBeVisible({ timeout: 20_000 });
     await appPage
       .locator("button")
@@ -125,9 +126,7 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
       .first()
       .click();
     await appPage.locator("#crypto-amount").fill(String(USDT));
-    await appPage
-      .getByRole("button", { name: /Confirm Cash Out/i })
-      .click();
+    await appPage.getByRole("button", { name: /Confirm Cash Out/i }).click();
     await expect
       .poll(
         async () =>
@@ -159,9 +158,9 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
     await expect(appPage.getByText("+50.00 USDT")).toHaveCount(0);
     // Cart Total is the customer's NET position per currency — a payout-only
     // basket nets to −$50.00 (the shop owes the customer fifty dollars).
-    await expect(
-      appPage.getByText("Cart Total").locator(".."),
-    ).toContainText("-$50.00");
+    await expect(appPage.getByText("Cart Total").locator("..")).toContainText(
+      "-$50.00",
+    );
 
     const generalBefore = await drawerUsd(appPage, "General");
     const binanceBefore = await drawerUsdt(appPage, "Binance");
@@ -182,9 +181,7 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
       appPage.getByText("Total", { exact: true }).locator(".."),
     ).toContainText("-$50.00");
     await expect(appPage.getByText("Binance wallet")).toHaveCount(0);
-    await expect(
-      appPage.getByText("Payout to customer (cash)"),
-    ).toBeVisible();
+    await expect(appPage.getByText("Payout to customer (cash)")).toBeVisible();
     // The amber panel (the title's parent) carries the USD amount row.
     await expect(
       appPage.getByText("Payout to customer (cash)").locator(".."),

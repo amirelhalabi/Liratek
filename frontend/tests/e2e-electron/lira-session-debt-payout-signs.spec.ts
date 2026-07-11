@@ -133,7 +133,12 @@ test.describe("Session Debt modal — signed amounts + payout visibility", () =>
           sessionId,
         };
       },
-      { name: CLIENT, phone: PHONE, lbpCharge: LBP_CHARGE, payout: BINANCE_PAYOUT },
+      {
+        name: CLIENT,
+        phone: PHONE,
+        lbpCharge: LBP_CHARGE,
+        payout: BINANCE_PAYOUT,
+      },
     );
 
     expect(setup.error).toBeNull();
@@ -147,11 +152,7 @@ test.describe("Session Debt modal — signed amounts + payout visibility", () =>
     const search = appPage.getByPlaceholder("Search client...");
     await expect(search).toBeVisible({ timeout: 10_000 });
     await search.fill(CLIENT);
-    await appPage
-      .locator("button")
-      .filter({ hasText: CLIENT })
-      .first()
-      .click();
+    await appPage.locator("button").filter({ hasText: CLIENT }).first().click();
 
     await expect(
       appPage.getByText("Session Debt", { exact: true }),

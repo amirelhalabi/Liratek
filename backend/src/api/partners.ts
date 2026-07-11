@@ -114,19 +114,24 @@ router.get("/:id", (req, res) => {
 // ── Writes (admin, staff) ───────────────────────────────────────────────────
 
 // POST /api/partners — create a partner
-router.post("/", writeGate, validateRequest(partnerCreateSchema), (req, res) => {
-  try {
-    const partner = getPartnerService().createPartner(req.body);
-    res.json({ success: true, data: partner });
-  } catch (error) {
-    res.json({
-      success: false,
-      error: uniqueNameError(error)
-        ? "A partner with this name already exists."
-        : "Failed to create partner",
-    });
-  }
-});
+router.post(
+  "/",
+  writeGate,
+  validateRequest(partnerCreateSchema),
+  (req, res) => {
+    try {
+      const partner = getPartnerService().createPartner(req.body);
+      res.json({ success: true, data: partner });
+    } catch (error) {
+      res.json({
+        success: false,
+        error: uniqueNameError(error)
+          ? "A partner with this name already exists."
+          : "Failed to create partner",
+      });
+    }
+  },
+);
 
 // POST /api/partners/transactions — record a manual ledger entry.
 // partnerId travels in the body (mirrors the IPC payload); userId is injected.
@@ -213,9 +218,7 @@ router.post("/:id/deactivate", writeGate, (req, res) => {
     res.json({
       success: false,
       error:
-        error instanceof Error
-          ? error.message
-          : "Failed to deactivate partner",
+        error instanceof Error ? error.message : "Failed to deactivate partner",
     });
   }
 });

@@ -133,7 +133,13 @@ function makeMockIoServer(): {
   const globalEmit = jest.fn();
   const use = jest.fn();
   const raw = { to, emit: globalEmit, use };
-  return { io: raw as unknown as LiratekSocketServer, to, roomEmit, globalEmit, use };
+  return {
+    io: raw as unknown as LiratekSocketServer,
+    to,
+    roomEmit,
+    globalEmit,
+    use,
+  };
 }
 
 // ---------------------------------------------------------------------------

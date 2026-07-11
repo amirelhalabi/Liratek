@@ -134,9 +134,7 @@ describe("UserRepository — cross-tenant isolation", () => {
   });
 
   it("updatePassword() cannot reach another tenant's user by id", () => {
-    const changed = runWithTenant(1, () =>
-      repo.updatePassword(3, "new-hash"),
-    );
+    const changed = runWithTenant(1, () => repo.updatePassword(3, "new-hash"));
     expect(changed).toBe(false);
     const stillOld = runWithTenant(2, () => repo.findById(3));
     expect(stillOld?.password_hash).toBe("hash3");

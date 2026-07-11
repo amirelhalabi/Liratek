@@ -1,3 +1,5 @@
+import { viteBackendUrl } from "@/config/viteEnv";
+
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type ApiError = {
@@ -22,13 +24,19 @@ const IMPERSONATION_TENANT_NAME_KEY = "liratek.impersonation_tenant";
 const IMPERSONATION_USERNAME_KEY = "liratek.impersonation_username";
 
 function getBaseUrl(): string {
-  // Prefer runtime override (works in both Vite and Jest typecheck)
+  // Precedence: runtime global override (set by e2e/tests) > build-time env
+  // (VITE_BACKEND_URL, set by `yarn dev:web` so the web backend can live off
+  // the default port when something else — e.g. a Docker container — squats it)
+  // > the default.
   const fromGlobal = (globalThis as any).__LIRATEK_BACKEND_URL as
     | string
     | undefined;
   // 127.0.0.1 (not localhost): browsers may resolve localhost to IPv6 ::1,
   // where another process (e.g. Docker) can be listening on the same port.
-  return (fromGlobal || "http://127.0.0.1:3000").replace(/\/$/, "");
+  return (fromGlobal || viteBackendUrl || "http://127.0.0.1:3000").replace(
+    /\/$/,
+    "",
+  );
 }
 
 /**

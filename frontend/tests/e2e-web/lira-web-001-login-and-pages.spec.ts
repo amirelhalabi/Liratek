@@ -49,10 +49,11 @@ test.describe.serial("web boot path", () => {
 
   test("logs in via the UI and stores a JWT", async ({ page }) => {
     await loginAsAdmin(page);
-    const jwt = await page.evaluate(() =>
-      localStorage.getItem("liratek.jwt"),
-    );
-    expect(jwt, "JWT must be persisted for web-mode session restore").toBeTruthy();
+    const jwt = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
+    expect(
+      jwt,
+      "JWT must be persisted for web-mode session restore",
+    ).toBeTruthy();
     await expect(page.locator("#root")).not.toContainText(
       "Something went wrong",
     );

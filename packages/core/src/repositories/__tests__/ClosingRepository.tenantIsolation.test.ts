@@ -143,12 +143,16 @@ describe("ClosingRepository — cross-tenant isolation", () => {
 
   beforeEach(() => {
     db = createTestDb();
-    (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }).__LIRATEK_TEST_DB__ = db;
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
     repo = new ClosingRepository();
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }).__LIRATEK_TEST_DB__;
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
     db.close();
   });
 
@@ -167,10 +171,14 @@ describe("ClosingRepository — cross-tenant isolation", () => {
     seedTenantCheckpoint(db, 1, 1, "alice");
     const t2ClosingId = seedTenantCheckpoint(db, 2, 5, "bob");
 
-    const seenByTenant1 = runWithTenant(1, () => repo.getCheckpointAmounts(t2ClosingId));
+    const seenByTenant1 = runWithTenant(1, () =>
+      repo.getCheckpointAmounts(t2ClosingId),
+    );
     expect(seenByTenant1).toEqual([]);
 
-    const seenByTenant2 = runWithTenant(2, () => repo.getCheckpointAmounts(t2ClosingId));
+    const seenByTenant2 = runWithTenant(2, () =>
+      repo.getCheckpointAmounts(t2ClosingId),
+    );
     expect(seenByTenant2).toHaveLength(1);
     expect(seenByTenant2[0].opening_amount).toBe(5000);
     expect(seenByTenant2[0].physical_amount).toBe(4500);

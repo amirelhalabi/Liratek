@@ -301,8 +301,7 @@ export function SessionPopupPanel() {
                             netUsd >= 0 ? "text-emerald-400" : "text-red-400"
                           }
                         >
-                          {netUsd < 0 ? "-" : ""}$
-                          {Math.abs(netUsd).toFixed(2)}
+                          {netUsd < 0 ? "-" : ""}${Math.abs(netUsd).toFixed(2)}
                         </span>
                       )}
                       {netUsd !== 0 && netLbp !== 0 && (

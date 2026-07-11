@@ -34,9 +34,7 @@ describe("httpClient token precedence", () => {
 
     expect(getToken()).toBe("impersonation-token");
     // The super admin's own (localStorage) token must be untouched.
-    expect(localStorage.getItem("liratek.jwt")).toBe(
-      "super-admins-own-token",
-    );
+    expect(localStorage.getItem("liratek.jwt")).toBe("super-admins-own-token");
   });
 
   it("clearToken() removes only the localStorage JWT, not an active impersonation token", () => {
@@ -88,8 +86,6 @@ describe("httpClient token precedence", () => {
 
     clearImpersonationSession();
 
-    expect(localStorage.getItem("liratek.jwt")).toBe(
-      "super-admins-own-token",
-    );
+    expect(localStorage.getItem("liratek.jwt")).toBe("super-admins-own-token");
   });
 });

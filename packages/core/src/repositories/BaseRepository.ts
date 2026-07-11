@@ -281,7 +281,8 @@ export abstract class BaseRepository<T extends BaseEntity> {
     try {
       const columns = Object.keys(data);
       const values = Object.values(data);
-      const tenantActive = this.tenantScopeActive && !columns.includes("tenant_id");
+      const tenantActive =
+        this.tenantScopeActive && !columns.includes("tenant_id");
 
       const allColumns = tenantActive ? [...columns, "tenant_id"] : columns;
       const allValues = tenantActive

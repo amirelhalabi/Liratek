@@ -9,10 +9,7 @@ import {
   JWT_EXPIRES_IN,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
-import {
-  authenticateJWT,
-  type LiratekJwtPayload,
-} from "../middleware/auth.js";
+import { authenticateJWT, type LiratekJwtPayload } from "../middleware/auth.js";
 import { logger } from "../server.js";
 import jwt from "jsonwebtoken";
 

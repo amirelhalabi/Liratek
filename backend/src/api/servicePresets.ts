@@ -29,7 +29,9 @@ type SafeParseable<T> = {
     | { success: true; data: T }
     | {
         success: false;
-        error: { issues: Array<{ path: (string | number)[]; message: string }> };
+        error: {
+          issues: Array<{ path: (string | number)[]; message: string }>;
+        };
       };
 };
 const createSchema =
@@ -58,7 +60,10 @@ router.get("/", (req, res) => {
       includeInactive,
     };
     if (category) filter.category = category;
-    res.json({ success: true, data: getServicePresetService().getPresets(filter) });
+    res.json({
+      success: true,
+      data: getServicePresetService().getPresets(filter),
+    });
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }

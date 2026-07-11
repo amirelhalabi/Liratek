@@ -235,9 +235,7 @@ async function addBill(
     .fill("");
   const card = billCard(page);
   // Toggling the currency clears the amount input — switch first, then fill.
-  await card
-    .getByRole("button", { name: new RegExp(`^${currency}$`) })
-    .click();
+  await card.getByRole("button", { name: new RegExp(`^${currency}$`) }).click();
   await card.locator("input").last().fill(String(amount));
   await card.getByRole("button", { name: /^Add Bill$/ }).click();
   const chip =
@@ -357,9 +355,7 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     const myRows = appPage.locator("tbody tr").filter({ hasText: CLIENT });
     await expect(myRows).toHaveCount(2, { timeout: 15_000 });
     for (const amount of BILLS) {
-      await expect(
-        myRows.filter({ hasText: `${amount} LBP` }),
-      ).toHaveCount(1);
+      await expect(myRows.filter({ hasText: `${amount} LBP` })).toHaveCount(1);
     }
   });
 
@@ -470,10 +466,9 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     expect((await drawerLbp(appPage, "General")) - generalLbpBefore).toBe(
       inLbp,
     );
-    expect((await drawerUsd(appPage, "General")) - generalUsdBefore).toBeCloseTo(
-      inByCurrency("USD"),
-      2,
-    );
+    expect(
+      (await drawerUsd(appPage, "General")) - generalUsdBefore,
+    ).toBeCloseTo(inByCurrency("USD"), 2);
   });
 
   test("normal mode: catalog item + two bills in ONE payment (items SEND carries the legs)", async ({
@@ -515,9 +510,7 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
 
     // Add the catalog item (search → card click), then the two bills (the
     // addBill helper clears the search so the BILL card renders again).
-    await appPage
-      .getByPlaceholder(/Search Katsh items/i)
-      .fill(item!.label);
+    await appPage.getByPlaceholder(/Search Katsh items/i).fill(item!.label);
     await appPage
       .locator("div.cursor-pointer")
       .filter({ hasText: item!.label })
@@ -689,9 +682,7 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     const myRows = appPage.locator("tbody tr").filter({ hasText: CUSTOMER });
     await expect(myRows).toHaveCount(3, { timeout: 15_000 });
     for (const amount of [...KATSH_BILLS, IPICK_BILL]) {
-      await expect(
-        myRows.filter({ hasText: `${amount} LBP` }),
-      ).toHaveCount(1);
+      await expect(myRows.filter({ hasText: `${amount} LBP` })).toHaveCount(1);
     }
   });
 
@@ -792,8 +783,6 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     expect(rows[0].summary ?? "").toContain(`${LBP_BILL} LBP`);
     const legs = rows[0].payments ?? [];
     expect(legs.filter((p) => p.direction === "in").length).toBeGreaterThan(0);
-    expect(legs.filter((p) => p.direction === "out").length).toBeGreaterThan(
-      0,
-    );
+    expect(legs.filter((p) => p.direction === "out").length).toBeGreaterThan(0);
   });
 });

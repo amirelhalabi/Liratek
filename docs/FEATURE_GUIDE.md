@@ -1,7 +1,7 @@
 # LiraTek Feature Guide — money rules & cross-cutting invariants
 
 **Read this before building or modifying ANY flow that writes money.** Every rule
-below is enforced by at least one regression test; the *Guarded by* column names the
+below is enforced by at least one regression test; the _Guarded by_ column names the
 e2e spec (in `frontend/tests/e2e-electron/`) or code file that proves it. If your
 feature violates a rule here, a test will fail — or worse, money will silently leak.
 
@@ -16,22 +16,22 @@ Companion docs: [CLAUDE.md](../CLAUDE.md) (non-negotiable rules 11–17),
 
 **Customer-interaction modules** (each writes unified transactions):
 
-| Section | Code identity | Notes |
-| --- | --- | --- |
-| POS | `sales`, `sale_items` | multi-item cart, drafts, refunds |
-| Primary system send/receive | `financial_services`, service_type SEND/RECEIVE | the shop's **base system** (`system_settings.shop_base_system`, default OMT) |
-| Secondary system send/receive | same table, routed **through a partner** | the non-base system (e.g. WHISH when base=OMT); obligation lives in `partner_ledger`, never `supplier_ledger` |
-| Exchange | `exchange` | USD↔LBP, direction "both" |
-| Maintenance | `maintenance_jobs` | statuses: Received / In_Progress / Ready / Delivered / Delivered_Paid (there is **no** "completed" status) |
-| Custom services | `custom_services` | includes Hold Money (HOLD_MONEY / HOLD_MONEY_COLLECT) |
-| Recharge — MTC | provider `MTC` | credits (CREDIT_TRANSFER), days |
-| Recharge — Alfa | provider `ALFA` | credits, days, **Alfa Gift** (ALFA_GIFT — payload `{type, amount, cost, price}`) |
-| Recharge — iPick | provider `IPICK` | bills + catalog items |
-| Recharge — Katsh | provider `Katsh` | bills + catalog items |
-| Whish App | provider `WHISH_APP` (drawer `Whish_App`) | transfers (send/receive) + bills/items section. Spelling is always `WHISH_APP` — the `WISH_APP` typo was migrated away in v105 |
-| OMT App | provider `OMT_APP` (drawer `OMT_App`) | transfers (send/receive) |
-| Binance | provider `BINANCE` | send + cashout (USDT wallet) |
-| Loto | `loto_tickets`, `loto_cash_prizes` | ticket sales, cash prizes, monthly fees, settlements |
+| Section                       | Code identity                                   | Notes                                                                                                                          |
+| ----------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| POS                           | `sales`, `sale_items`                           | multi-item cart, drafts, refunds                                                                                               |
+| Primary system send/receive   | `financial_services`, service_type SEND/RECEIVE | the shop's **base system** (`system_settings.shop_base_system`, default OMT)                                                   |
+| Secondary system send/receive | same table, routed **through a partner**        | the non-base system (e.g. WHISH when base=OMT); obligation lives in `partner_ledger`, never `supplier_ledger`                  |
+| Exchange                      | `exchange`                                      | USD↔LBP, direction "both"                                                                                                      |
+| Maintenance                   | `maintenance_jobs`                              | statuses: Received / In_Progress / Ready / Delivered / Delivered_Paid (there is **no** "completed" status)                     |
+| Custom services               | `custom_services`                               | includes Hold Money (HOLD_MONEY / HOLD_MONEY_COLLECT)                                                                          |
+| Recharge — MTC                | provider `MTC`                                  | credits (CREDIT_TRANSFER), days                                                                                                |
+| Recharge — Alfa               | provider `ALFA`                                 | credits, days, **Alfa Gift** (ALFA_GIFT — payload `{type, amount, cost, price}`)                                               |
+| Recharge — iPick              | provider `IPICK`                                | bills + catalog items                                                                                                          |
+| Recharge — Katsh              | provider `Katsh`                                | bills + catalog items                                                                                                          |
+| Whish App                     | provider `WHISH_APP` (drawer `Whish_App`)       | transfers (send/receive) + bills/items section. Spelling is always `WHISH_APP` — the `WISH_APP` typo was migrated away in v105 |
+| OMT App                       | provider `OMT_APP` (drawer `OMT_App`)           | transfers (send/receive)                                                                                                       |
+| Binance                       | provider `BINANCE`                              | send + cashout (USDT wallet)                                                                                                   |
+| Loto                          | `loto_tickets`, `loto_cash_prizes`              | ticket sales, cash prizes, monthly fees, settlements                                                                           |
 
 **Shop-only pages**: debts, inventory, clients, profits (admin-only), sessions,
 partners, suppliers, vouchers/gift cards, expenses, closing.
@@ -44,16 +44,16 @@ partners, suppliers, vouchers/gift cards, expenses, closing.
 
 Every money action writes **at least one** row here. This is the accounting journal.
 
-| Rule | Detail | Guarded by |
-| --- | --- | --- |
-| Identity | A row is identified by `source_table` + `source_id` (+ type). Never "newest row" — `created_at` is second-granular and ties are common. | lira-078, lira-092 |
-| Multiple rows per action | One user action can write several rows: a cost/price SEND or supplier-credit op writes a `FINANCIAL_SERVICE`/`RECHARGE` row **and** an auto `SUPPLIER_PAYMENT` sibling. | lira-063 |
-| Timestamp format | `created_at` must be SQLite `CURRENT_TIMESTAMP` format (`YYYY-MM-DD HH:MM:SS`). Never JS `toISOString()` — `'T' > ' '` in string ordering, so ISO rows sort permanently-newest for their whole day. | lira-079 |
-| Timestamp zone | Stored marker-less **UTC**; render via `parseDbDate` (pins to UTC) so local wall-clock displays correctly. Raw `new Date(str)` shows hours-off times. | lira-transactions-timezone |
-| Business date | `transaction_time` (operator-overridable) drives by-date reports (Cash Report). | lira-087 |
-| Status & voiding | `status` ∈ ACTIVE / VOIDED. Deletion = a **reversal row** of the same type with `reverses_id` → original and negated amounts. No "DELETED" types. | transactionTypes.ts, lira-092 |
-| Stamped fields | `client_id`, `session_id`, `exchange_rate`, `profit_usd` / `profit_lbp` must be set by the creating repository — reports read them from here. | lira-094, lira-session-exchange-rate, lira-session-profits |
-| Hidden types | The viewer hides `CLIENT_CREATED` and non-credit `SUPPLIER_PAYMENT`. The `is_credit` variant ("Supplier Credit", commission revenue) stays visible. | lira-transactions-hidden-types |
+| Rule                     | Detail                                                                                                                                                                                              | Guarded by                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Identity                 | A row is identified by `source_table` + `source_id` (+ type). Never "newest row" — `created_at` is second-granular and ties are common.                                                             | lira-078, lira-092                                         |
+| Multiple rows per action | One user action can write several rows: a cost/price SEND or supplier-credit op writes a `FINANCIAL_SERVICE`/`RECHARGE` row **and** an auto `SUPPLIER_PAYMENT` sibling.                             | lira-063                                                   |
+| Timestamp format         | `created_at` must be SQLite `CURRENT_TIMESTAMP` format (`YYYY-MM-DD HH:MM:SS`). Never JS `toISOString()` — `'T' > ' '` in string ordering, so ISO rows sort permanently-newest for their whole day. | lira-079                                                   |
+| Timestamp zone           | Stored marker-less **UTC**; render via `parseDbDate` (pins to UTC) so local wall-clock displays correctly. Raw `new Date(str)` shows hours-off times.                                               | lira-transactions-timezone                                 |
+| Business date            | `transaction_time` (operator-overridable) drives by-date reports (Cash Report).                                                                                                                     | lira-087                                                   |
+| Status & voiding         | `status` ∈ ACTIVE / VOIDED. Deletion = a **reversal row** of the same type with `reverses_id` → original and negated amounts. No "DELETED" types.                                                   | transactionTypes.ts, lira-092                              |
+| Stamped fields           | `client_id`, `session_id`, `exchange_rate`, `profit_usd` / `profit_lbp` must be set by the creating repository — reports read them from here.                                                       | lira-094, lira-session-exchange-rate, lira-session-profits |
+| Hidden types             | The viewer hides `CLIENT_CREATED` and non-credit `SUPPLIER_PAYMENT`. The `is_credit` variant ("Supplier Credit", commission revenue) stays visible.                                                 | lira-transactions-hidden-types                             |
 
 ---
 
@@ -64,12 +64,12 @@ The green ↓ (in) / red ↑ (out) badge in the transactions table comes from
 **A new transaction type MUST add a case there — unmapped types render a blank badge**
 (this was the B7 loto bug).
 
-| Direction | Types |
-| --- | --- |
-| **in** (customer hands us cash) | SALE, RECHARGE, CUSTOM_SERVICE, MAINTENANCE, DEBT_REPAYMENT, SUPPLIER_PAYMENT, MTC_TOPUP, ALFA_TOPUP, LOTO, FINANCIAL_SERVICE with service_type SEND or BILL |
+| Direction                          | Types                                                                                                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **in** (customer hands us cash)    | SALE, RECHARGE, CUSTOM_SERVICE, MAINTENANCE, DEBT_REPAYMENT, SUPPLIER_PAYMENT, MTC_TOPUP, ALFA_TOPUP, LOTO, FINANCIAL_SERVICE with service_type SEND or BILL                         |
 | **out** (shop pays out of drawers) | FINANCIAL_SERVICE with service_type RECEIVE, EXPENSE, LOTO_MONTHLY_FEE, LOTO_SETTLEMENT, LOTO_CASH_PRIZE, SUPPLIER_SETTLEMENT, CREDIT_CASH_OUT, RECHARGE_TOPUP (classic from-drawer) |
-| **in** (special case) | RECHARGE_TOPUP with `partnerId` or `cashPaid` metadata (Whish credit acquisition — provider drawer inflow) |
-| **both** | EXCHANGE |
+| **in** (special case)              | RECHARGE_TOPUP with `partnerId` or `cashPaid` metadata (Whish credit acquisition — provider drawer inflow)                                                                           |
+| **both**                           | EXCHANGE                                                                                                                                                                             |
 
 On a system SEND the row reads as cash **in only**; on a RECEIVE as cash **out only**
 with the per-currency payout legs shown in the payment-legs subtext (lira-075).
@@ -183,13 +183,13 @@ One missing link and the transactions table shows "—".
 Drawers: `General` (till), provider stock drawers (MTC, Alfa, Katsh, iPick), app
 wallets (`OMT_App`, `Whish_App`, `Binance`), plus the base-system drawer (e.g. OMT).
 
-| Rule | Detail | Guarded by |
-| --- | --- | --- |
-| App-wallet movement | SEND: app wallet −, General + · RECEIVE: app wallet +, General −. Binance is the reference implementation. | lira-077 |
-| System drawer can go negative | A RECEIVE leaves the system drawer negative by the transfer amount (provider owes shop). | lira-074 |
-| SMS cost | MTC/Alfa credit transfer debits provider drawer by amount **+ SMS cost** = `ceil(amount/3) × $0.16`; converted to LBP for LBP transfers. | recharge.spec, lira-090 |
-| Currency of payment | Book what the customer actually paid — an LBP-priced ticket paid in USD credits General **USD**, no phantom LBP. | lira-082 |
-| Read APIs | `dashboard.getDrawerBalances()` → general/omt only. `recharge.getDrawerBalances()` → all drawers, name-keyed. `closing.getSystemExpectedBalancesDynamic()` → expected balances. | fixtures/specs |
+| Rule                          | Detail                                                                                                                                                                          | Guarded by              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| App-wallet movement           | SEND: app wallet −, General + · RECEIVE: app wallet +, General −. Binance is the reference implementation.                                                                      | lira-077                |
+| System drawer can go negative | A RECEIVE leaves the system drawer negative by the transfer amount (provider owes shop).                                                                                        | lira-074                |
+| SMS cost                      | MTC/Alfa credit transfer debits provider drawer by amount **+ SMS cost** = `ceil(amount/3) × $0.16`; converted to LBP for LBP transfers.                                        | recharge.spec, lira-090 |
+| Currency of payment           | Book what the customer actually paid — an LBP-priced ticket paid in USD credits General **USD**, no phantom LBP.                                                                | lira-082                |
+| Read APIs                     | `dashboard.getDrawerBalances()` → general/omt only. `recharge.getDrawerBalances()` → all drawers, name-keyed. `closing.getSystemExpectedBalancesDynamic()` → expected balances. | fixtures/specs          |
 
 ---
 
@@ -197,16 +197,16 @@ wallets (`OMT_App`, `Whish_App`, `Binance`), plus the base-system drawer (e.g. O
 
 Balance = **SUM of ledger rows**; **> 0 = shop owes supplier** ("You owe", red).
 
-| Rule | Detail | Guarded by |
-| --- | --- | --- |
-| Entry signs | `TOP_UP` positive; `PAYMENT` negative; `ADJUSTMENT` signed either way (opening balances); `SUPPLIER_PAYS_US` signed by direction of obligation (a Katsh BILL books −20,000 LBP commission = supplier owes us). | lira-056/059/062/084 |
-| Amount = transfer only | The auto ledger entry for a system transaction equals the **transfer amount** — never customer-paid total, never amount ± fee/commission. | lira-076 |
-| Prepaid-units model | Supplier debt is booked **ONCE at top-up**; sales only draw down the provider drawer — no per-sale SALE_COST. | lira-061, lira-078 |
-| Loto exception | Standard convention since v119: a ticket sale books **+(sale − commission)**; a cash prize books **−prize**. | lira-091-loto-ledger-sign |
-| Credit top-up | Supplier-credit top-up funds the provider drawer and touches **no** cash drawer; settle later via `PAYMENT` from a named drawer (General −). | lira-056 |
-| Cash both ways | PAY (shop→supplier) and `SUPPLIER_PAYS_US` (supplier→shop) both move **General**, never the provider stock drawer. | lira-059 |
-| Void restores everything | Voiding a SUPPLIER_PAYMENT restores supplier balance AND drawer, and soft-flags the ledger row (`is_refunded`, v120); aggregates exclude flagged rows. | lira-092 |
-| Secondary system | Transactions through a partner write **partner_ledger**, never supplier_ledger; the Suppliers page hides the non-base provider. | lira-supplier-secondary-system |
+| Rule                     | Detail                                                                                                                                                                                                         | Guarded by                     |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Entry signs              | `TOP_UP` positive; `PAYMENT` negative; `ADJUSTMENT` signed either way (opening balances); `SUPPLIER_PAYS_US` signed by direction of obligation (a Katsh BILL books −20,000 LBP commission = supplier owes us). | lira-056/059/062/084           |
+| Amount = transfer only   | The auto ledger entry for a system transaction equals the **transfer amount** — never customer-paid total, never amount ± fee/commission.                                                                      | lira-076                       |
+| Prepaid-units model      | Supplier debt is booked **ONCE at top-up**; sales only draw down the provider drawer — no per-sale SALE_COST.                                                                                                  | lira-061, lira-078             |
+| Loto exception           | Standard convention since v119: a ticket sale books **+(sale − commission)**; a cash prize books **−prize**.                                                                                                   | lira-091-loto-ledger-sign      |
+| Credit top-up            | Supplier-credit top-up funds the provider drawer and touches **no** cash drawer; settle later via `PAYMENT` from a named drawer (General −).                                                                   | lira-056                       |
+| Cash both ways           | PAY (shop→supplier) and `SUPPLIER_PAYS_US` (supplier→shop) both move **General**, never the provider stock drawer.                                                                                             | lira-059                       |
+| Void restores everything | Voiding a SUPPLIER_PAYMENT restores supplier balance AND drawer, and soft-flags the ledger row (`is_refunded`, v120); aggregates exclude flagged rows.                                                         | lira-092                       |
+| Secondary system         | Transactions through a partner write **partner_ledger**, never supplier_ledger; the Suppliers page hides the non-base provider.                                                                                | lira-supplier-secondary-system |
 
 Partner ledger: a Whish top-up **via partner** credits `Whish_App`, touches no cash
 drawer, and books a partner CREDIT (we owe the partner); **from client** debits General

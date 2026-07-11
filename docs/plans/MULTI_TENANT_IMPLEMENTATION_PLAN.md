@@ -9,17 +9,18 @@
 
 ## 1. Decisions made
 
-| # | Decision | Choice |
-|---|---|---|
-| D5 | Tenant vocabulary | Table **`tenants`**, column **`tenant_id`** (snake_case, matching every other FK in the schema: `user_id`, `client_id`) |
-| D6 | DB model | **One shared SQLite database**, `tenant_id INTEGER REFERENCES tenants(id)` on every tenant-owned table. NOT database-per-tenant. |
-| — | Super-admin realm | Platform admins live in the existing `users` table with **`tenant_id = NULL` + new role `super_admin`**. No separate credential store for v1. |
-| — | Tenant resolution | **From the JWT**, not from the Host header. Subdomain routing is explicitly out of scope for v1 — one backend URL, tenant identity is embedded at login. |
-| — | Usernames | **Globally unique** (kept as-is). Login has no tenant hint (no subdomain yet), so `username → user → tenant_id` must resolve globally. Per-tenant usernames can come with subdomains later. |
-| — | Desktop | Electron stays **single-tenant**: migration creates tenant id=1 ("Default"), backfills every row, and the main process runs under a fixed tenant context. Zero behavior change for desktop users. |
-| — | Impersonation | Adapted from hetivo: super admin mints a short-lived tenant-admin JWT, handed off via URL param → sessionStorage in a new tab, orange banner + Disconnect. Details in §5. |
+| #   | Decision          | Choice                                                                                                                                                                                            |
+| --- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D5  | Tenant vocabulary | Table **`tenants`**, column **`tenant_id`** (snake_case, matching every other FK in the schema: `user_id`, `client_id`)                                                                           |
+| D6  | DB model          | **One shared SQLite database**, `tenant_id INTEGER REFERENCES tenants(id)` on every tenant-owned table. NOT database-per-tenant.                                                                  |
+| —   | Super-admin realm | Platform admins live in the existing `users` table with **`tenant_id = NULL` + new role `super_admin`**. No separate credential store for v1.                                                     |
+| —   | Tenant resolution | **From the JWT**, not from the Host header. Subdomain routing is explicitly out of scope for v1 — one backend URL, tenant identity is embedded at login.                                          |
+| —   | Usernames         | **Globally unique** (kept as-is). Login has no tenant hint (no subdomain yet), so `username → user → tenant_id` must resolve globally. Per-tenant usernames can come with subdomains later.       |
+| —   | Desktop           | Electron stays **single-tenant**: migration creates tenant id=1 ("Default"), backfills every row, and the main process runs under a fixed tenant context. Zero behavior change for desktop users. |
+| —   | Impersonation     | Adapted from hetivo: super admin mints a short-lived tenant-admin JWT, handed off via URL param → sessionStorage in a new tab, orange banner + Disconnect. Details in §5.                         |
 
 ### Out of scope for v1 (explicitly deferred)
+
 Subdomains/wildcard TLS/reverse proxy · billing/entitlements · Postgres migration · offline sync · per-tenant rate limiting (noted as follow-up) · desktop-to-cloud tenant import · Socket.io is scoped in v1 only to the extent of handshake auth + tenant rooms (WP8).
 
 ---
@@ -30,7 +31,7 @@ Subdomains/wildcard TLS/reverse proxy · billing/entitlements · Postgres migrat
 - **~21 uniqueness constraints collide across tenants** and must become composite or partial: single-column UNIQUEs (`users.username`†, `clients.phone_number`, `products.barcode`, `suppliers.name`, `system_settings.key_name`, `currencies.code`, `exchange_rates.to_code`, `product_categories.name`, `product_suppliers.name`, `partners.name`, `payment_methods.code`, `vouchers.code`, `modules.key` TEXT PK, `loto_settings.key_name` TEXT PK) and composite PKs/UNIQUEs (`drawer_balances`, `currency_modules`, `currency_drawers`, `daily_closing_amounts`, `item_costs`, `voucher_images`, `mobile_service_items`). † username stays globally unique per D-above; all others gain `tenant_id`.
 - **Query surface:** 43 repository classes; 30 extend `BaseRepository` (lazy `get db()` → `getDatabase()`), 13 standalone (12 of which bind `this.db` in the constructor). **~501 raw `.prepare(` statements** in production repo code. Heaviest: FinancialService (35), Recharge (33), Sales (29), LotoCheckpoint (26), Debt (24), Profit/CustomerSession (23), Closing (22).
 - **Migrations:** true max version **v122**. `runMigrations()` is called **only from `electron-app/main.ts:403`**. The backend bootstraps schema from `create_db.sql` when the `users` table is absent and **never migrates** — an existing backend DB would silently miss v123. Fixing this is in scope (WP0).
-- **Backend auth:** `POST /api/auth/login` → `AuthService.login` (users table, `is_active=1`) → DB session row → JWT `{ userId, role, sessionToken }`. **Legacy hole:** `backend/src/middleware/auth.ts:81-85` accepts any signed JWT *without* a `sessionToken` on signature alone. **No global auth middleware**; applied per route file, and **`sessions.ts` and `settings.ts` mount handlers with no auth at all.**
+- **Backend auth:** `POST /api/auth/login` → `AuthService.login` (users table, `is_active=1`) → DB session row → JWT `{ userId, role, sessionToken }`. **Legacy hole:** `backend/src/middleware/auth.ts:81-85` accepts any signed JWT _without_ a `sessionToken` on signature alone. **No global auth middleware**; applied per route file, and **`sessions.ts` and `settings.ts` mount handlers with no auth at all.**
 - **Roles today:** `'admin' | 'staff'` (`UserRepository.ts:19`). No tier above tenant admin.
 - **Frontend web mode:** JWT in localStorage `liratek.jwt` (`httpClient.ts`); `isElectron()` = `!!window.api`; `backendApi.login()` branches IPC/HTTP.
 - **Socket.io:** module singleton, `emitEvent()` = global unauthenticated `io.emit` — every event reaches every connected client.
@@ -91,7 +92,7 @@ Why ALS and not a connection-level "current tenant": better-sqlite3 calls are sy
 }
 ```
 
-Hetivo trap adopted-and-fixed: hetivo's token has *inverted* field semantics (`userId` = actor, `impersonatingUserId` = target). We use unambiguous names — `userId` is always the **effective identity** (whose data/permissions apply), `impersonatorId` is always the **real super admin** behind it.
+Hetivo trap adopted-and-fixed: hetivo's token has _inverted_ field semantics (`userId` = actor, `impersonatingUserId` = target). We use unambiguous names — `userId` is always the **effective identity** (whose data/permissions apply), `impersonatorId` is always the **real super admin** behind it.
 
 ---
 
@@ -120,7 +121,7 @@ CREATE TABLE IF NOT EXISTS tenants (
 - `users.role` CHECK (if any) extended to include `'super_admin'`; seed one super admin row (`tenant_id NULL`) with a forced-password-change flag or documented bootstrap credential.
 - `sessions` gains `tenant_id` (denormalized from user; simplifies `validateSession`) and `audit_log` gains `impersonator_id INTEGER NULL REFERENCES users(id)`.
 - Migration v123 (electron path): creates `tenants`, inserts `(1, 'Default', 'default', 'active')`, adds columns, backfills `tenant_id=1` everywhere, rebuilds constrained tables, creates indexes. `down()` implemented.
-- **`create_db.sql`** (backend fresh-install path): same end-state schema inline + `schema_migrations` entry for v123. **Fresh installs seed NO default tenant** — web tenants are provisioned explicitly (§5); only the super admin user is seeded. (The Default tenant is a *migration* artifact for existing desktop DBs, not part of the fresh web schema.)
+- **`create_db.sql`** (backend fresh-install path): same end-state schema inline + `schema_migrations` entry for v123. **Fresh installs seed NO default tenant** — web tenants are provisioned explicitly (§5); only the super admin user is seeded. (The Default tenant is a _migration_ artifact for existing desktop DBs, not part of the fresh web schema.)
 - **Backend gains a migration runner:** after `ensureSchema()`, `backend/src/database/connection.ts` calls core `runMigrations(db)` at startup. This is what delivers v123+ to existing backend DBs and permanently closes the "backend never migrates" drift.
 
 ### Per-tenant config seeding
@@ -133,12 +134,12 @@ All of today's global seeds in `create_db.sql` (`system_settings`, `currencies`,
 
 ### Control-plane API (new: `backend/src/api/admin.ts`, all behind `requireSuperAdmin`)
 
-| Endpoint | Behavior |
-|---|---|
-| `GET /api/admin/tenants` | List tenants + per-tenant stats (user count, last activity) |
-| `POST /api/admin/tenants` | `provisionTenant()` — creates tenant + config seeds + tenant admin |
-| `PATCH /api/admin/tenants/:id` | Update name/status (suspend blocks that tenant's logins) |
-| `POST /api/admin/tenants/:id/impersonate` | Mint impersonation token (below) |
+| Endpoint                                  | Behavior                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------ |
+| `GET /api/admin/tenants`                  | List tenants + per-tenant stats (user count, last activity)        |
+| `POST /api/admin/tenants`                 | `provisionTenant()` — creates tenant + config seeds + tenant admin |
+| `PATCH /api/admin/tenants/:id`            | Update name/status (suspend blocks that tenant's logins)           |
+| `POST /api/admin/tenants/:id/impersonate` | Mint impersonation token (below)                                   |
 
 `requireSuperAdmin` = JWT role `super_admin` **and** `tenantId === null`. Control-plane repos (`TenantRepository`, cross-tenant user lookup) are the only code allowed inside `runWithoutTenant()`.
 
@@ -195,43 +196,43 @@ Orchestrator: **Fable 5** (this session). Implementers: **Sonnet agents** (`back
 
 ### Phase 0 — Foundations (sequential; each WP blocks the next)
 
-| WP | Agent | Scope | Verify |
-|---|---|---|---|
-| **WP0 — Schema** | database | `tenants` table; `tenant_id` + backfill + indexes on ~47 tables; ~20 constraint rebuilds; `users.tenant_id` + `super_admin`; `sessions.tenant_id`; `audit_log.impersonator_id`; migration **v123** (with `down()`) + `create_db.sql` in lockstep; backend calls `runMigrations()` at startup; super admin seed | Fresh-from-SQL vs migrated-from-v122 schema diff is empty (script); `PRAGMA foreign_key_check` clean; desktop dev DB migrates without error |
-| **WP1 — Tenant context + checker** | backend | `tenantContext.ts` (ALS, fail-closed, fixed mode, `runWithoutTenant`); `BaseRepository` central scoping (flag-gated); electron main calls `initFixedTenantContext(1)`; **`scripts/check-tenant-scoping.mjs`** + CI wiring | Unit tests for context (async interleaving, fail-closed throw); checker runs and reports the current ~501 unscoped statements as the baseline TODO list |
-| **WP2 — Auth & realm** | backend | JWT payload v2 (`tenantId`, mandatory `sessionToken` — close auth.ts:81-85); tenant middleware (`runWithTenant` wrap); `requireSuperAdmin`; **add auth to `sessions.ts` + `settings.ts`**; login embeds `tenantId` from user row; suspended-tenant login block; `AuthService`/`UserRepository` tenant awareness | supertest: legacy JWT rejected, tenant JWT scoped, super admin blocked from tenant routes, unauthenticated settings/sessions now 401 |
-| **WP2b — Test fixtures** | backend | Update every core jest fixture/seed to create tenant 1 + run under fixed context, so Phase 1 agents inherit a green baseline | `yarn workspace @liratek/backend test` green pre-fan-out |
+| WP                                 | Agent    | Scope                                                                                                                                                                                                                                                                                                           | Verify                                                                                                                                                  |
+| ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **WP0 — Schema**                   | database | `tenants` table; `tenant_id` + backfill + indexes on ~47 tables; ~20 constraint rebuilds; `users.tenant_id` + `super_admin`; `sessions.tenant_id`; `audit_log.impersonator_id`; migration **v123** (with `down()`) + `create_db.sql` in lockstep; backend calls `runMigrations()` at startup; super admin seed  | Fresh-from-SQL vs migrated-from-v122 schema diff is empty (script); `PRAGMA foreign_key_check` clean; desktop dev DB migrates without error             |
+| **WP1 — Tenant context + checker** | backend  | `tenantContext.ts` (ALS, fail-closed, fixed mode, `runWithoutTenant`); `BaseRepository` central scoping (flag-gated); electron main calls `initFixedTenantContext(1)`; **`scripts/check-tenant-scoping.mjs`** + CI wiring                                                                                       | Unit tests for context (async interleaving, fail-closed throw); checker runs and reports the current ~501 unscoped statements as the baseline TODO list |
+| **WP2 — Auth & realm**             | backend  | JWT payload v2 (`tenantId`, mandatory `sessionToken` — close auth.ts:81-85); tenant middleware (`runWithTenant` wrap); `requireSuperAdmin`; **add auth to `sessions.ts` + `settings.ts`**; login embeds `tenantId` from user row; suspended-tenant login block; `AuthService`/`UserRepository` tenant awareness | supertest: legacy JWT rejected, tenant JWT scoped, super admin blocked from tenant routes, unauthenticated settings/sessions now 401                    |
+| **WP2b — Test fixtures**           | backend  | Update every core jest fixture/seed to create tenant 1 + run under fixed context, so Phase 1 agents inherit a green baseline                                                                                                                                                                                    | `yarn workspace @liratek/backend test` green pre-fan-out                                                                                                |
 
 ### Phase 1 — Repository fan-out (parallel Sonnet agents, worktree isolation)
 
 43 repos split into 6 batches by domain; each agent applies the §6 recipe to its batch, updates that batch's tests, and must leave **the checker green for its file list** + batch tests passing:
 
-- **WP3a** Sales/POS: `SalesRepository`, `TransactionRepository`, `PaymentRepository`, `ProductRepository`, `CategoryRepository`, `ProductSupplierRepository`, `InventoryRepository`*
-- **WP3b** Money services: `FinancialServiceRepository`, `RechargeRepository`, `ExchangeRepository`, `ItemCostRepository`, `VoucherRepository`, `MobileServiceItemRepository` *(predicates only — no leg/drawer logic changes)*
+- **WP3a** Sales/POS: `SalesRepository`, `TransactionRepository`, `PaymentRepository`, `ProductRepository`, `CategoryRepository`, `ProductSupplierRepository`, `InventoryRepository`\*
+- **WP3b** Money services: `FinancialServiceRepository`, `RechargeRepository`, `ExchangeRepository`, `ItemCostRepository`, `VoucherRepository`, `MobileServiceItemRepository` _(predicates only — no leg/drawer logic changes)_
 - **WP3c** Debts/clients/suppliers/partners: `DebtRepository`, `ClientRepository`, `SupplierRepository`, `SupplierLedger/PurchaseRepository`, `PartnerRepository`, `HoldMoneyRepository`
 - **WP3d** Loto (6 repos) + `CustomServiceRepository` + `ServicePresetRepository`
 - **WP3e** Closing/drawers/profits: `ClosingRepository`, `DrawerRepository`, `DrawerTopupRepository`, `ProfitRepository`, `CustomerSessionRepository`, `ExpenseRepository`, `MaintenanceRepository`
-- **WP3f** System: `SettingsRepository`, `ModuleRepository`, `PaymentMethodRepository`, `CurrencyRepository`, `ExchangeRateRepository`, `UserRepository`, `SessionRepository`, `AuditRepository`, `ActivityRepository`*
+- **WP3f** System: `SettingsRepository`, `ModuleRepository`, `PaymentMethodRepository`, `CurrencyRepository`, `ExchangeRateRepository`, `UserRepository`, `SessionRepository`, `AuditRepository`, `ActivityRepository`\*
 
-(*exact repo names to be confirmed from `repositories/index.ts` when cutting the batch prompts; the 6-way split stays.)
+(\*exact repo names to be confirmed from `repositories/index.ts` when cutting the batch prompts; the 6-way split stays.)
 
 **Gate to exit Phase 1:** checker 100% green across all repos + full core/backend test suites green + isolation tests (written here, WP3g, by one agent in parallel) proven per rule 17.
 
 ### Phase 2 — Control plane & impersonation (parallel where marked)
 
-| WP | Agent | Scope |
-|---|---|---|
-| **WP5 — Provisioning** | backend | `TenantRepository` (control-plane, `runWithoutTenant`), `TenantProvisioningService` (transactional seed extraction from create_db.sql), admin routes list/create/patch |
-| **WP6 — Impersonation** | backend | `POST /api/admin/tenants/:id/impersonate` per §5; middleware handling of `impersonatorId`; re-escalation block; audit rows; 2h expiry |
-| **WP7 — Admin UI** ∥ | frontend | `/admin/tenants` page (list/create/suspend/connect-as), token precedence in `httpClient`, `?impersonation_token=` bootstrap + URL strip, `ImpersonationBanner`, role-gated routing/nav, `electron.d.ts` untouched (web-only feature) |
+| WP                      | Agent    | Scope                                                                                                                                                                                                                                |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **WP5 — Provisioning**  | backend  | `TenantRepository` (control-plane, `runWithoutTenant`), `TenantProvisioningService` (transactional seed extraction from create_db.sql), admin routes list/create/patch                                                               |
+| **WP6 — Impersonation** | backend  | `POST /api/admin/tenants/:id/impersonate` per §5; middleware handling of `impersonatorId`; re-escalation block; audit rows; 2h expiry                                                                                                |
+| **WP7 — Admin UI** ∥    | frontend | `/admin/tenants` page (list/create/suspend/connect-as), token precedence in `httpClient`, `?impersonation_token=` bootstrap + URL strip, `ImpersonationBanner`, role-gated routing/nav, `electron.d.ts` untouched (web-only feature) |
 
 ### Phase 3 — Hardening & proof
 
-| WP | Agent | Scope |
-|---|---|---|
-| **WP8 — Socket.io** | backend | JWT in `io.use()` handshake; per-tenant rooms; `emitEvent(tenantId, event, payload)` signature change at the one production emit site; delete `/api/ws/emit` |
-| **WP9 — E2E** | frontend | Desktop suite green (migration + fixed-context proof); new web-mode spec: super admin login → tenant list → provision tenant → impersonate → verify banner + tenant data + isolation |
-| **WP10 — Review** | orchestrator | `/code-review` over the full diff; FEATURE_GUIDE §13 checklist pass on any file that touched money repos; `yarn typecheck && yarn lint` all workspaces; core build + node_modules sync |
+| WP                  | Agent        | Scope                                                                                                                                                                                  |
+| ------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **WP8 — Socket.io** | backend      | JWT in `io.use()` handshake; per-tenant rooms; `emitEvent(tenantId, event, payload)` signature change at the one production emit site; delete `/api/ws/emit`                           |
+| **WP9 — E2E**       | frontend     | Desktop suite green (migration + fixed-context proof); new web-mode spec: super admin login → tenant list → provision tenant → impersonate → verify banner + tenant data + isolation   |
+| **WP10 — Review**   | orchestrator | `/code-review` over the full diff; FEATURE_GUIDE §13 checklist pass on any file that touched money repos; `yarn typecheck && yarn lint` all workspaces; core build + node_modules sync |
 
 Dependency graph: `WP0 → WP1 → WP2 → WP2b → [WP3a..3g parallel] → gate → [WP5, WP6, WP7 parallel] → [WP8, WP9 parallel] → WP10`.
 
@@ -239,7 +240,7 @@ Dependency graph: `WP0 → WP1 → WP2 → WP2b → [WP3a..3g parallel] → gate
 
 ## 8. Risks & traps (each has an owner in the WPs)
 
-1. **A missed `WHERE tenant_id` is a silent money leak** → static checker (WP1) is built before any scoping work, fail-closed context means unscoped *contexts* crash loudly, isolation tests proven against removed predicates (rule 17).
+1. **A missed `WHERE tenant_id` is a silent money leak** → static checker (WP1) is built before any scoping work, fail-closed context means unscoped _contexts_ crash loudly, isolation tests proven against removed predicates (rule 17).
 2. **SQLite table rebuilds** on FK-referenced tables (users, clients, products…) → `foreign_keys=OFF` + `foreign_key_check`, backup-before-migrate, desktop E2E as the regression proof.
 3. **Backend never migrated before** → WP0 makes it run `runMigrations()`; the fresh-SQL-vs-migrated schema-diff script guards create_db.sql ↔ migrations drift (a known, twice-bitten failure mode in this repo).
 4. **Test-fixture cascade** (`no such column: tenant_id` masking real failures) → WP2b lands before the fan-out, not after.

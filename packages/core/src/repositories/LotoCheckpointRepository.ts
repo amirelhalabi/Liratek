@@ -269,9 +269,7 @@ export class LotoCheckpointRepository {
       const supplierStmt = this.db.prepare(
         `SELECT id FROM suppliers WHERE tenant_id = ? AND provider = 'LOTO' LIMIT 1`,
       );
-      const supplier = supplierStmt.get(tenantId) as
-        | { id: number }
-        | undefined;
+      const supplier = supplierStmt.get(tenantId) as { id: number } | undefined;
       const supplierId = supplier?.id || 1;
 
       // 1. Create unified transaction for settlement

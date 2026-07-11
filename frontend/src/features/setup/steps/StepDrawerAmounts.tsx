@@ -82,7 +82,10 @@ export default function StepDrawerAmounts() {
   // Configured + operator-added currencies for a drawer, de-duplicated.
   function currenciesFor(drawer: string): string[] {
     return Array.from(
-      new Set([...(drawerCurrencies[drawer] ?? []), ...(extraCurrencies[drawer] ?? [])]),
+      new Set([
+        ...(drawerCurrencies[drawer] ?? []),
+        ...(extraCurrencies[drawer] ?? []),
+      ]),
     );
   }
 

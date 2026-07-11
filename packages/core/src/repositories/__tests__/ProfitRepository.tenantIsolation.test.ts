@@ -194,12 +194,21 @@ function seedTenant(
   mult: number,
   username: string,
 ): void {
-  const t = (sql: string, ...params: unknown[]) => db.prepare(sql).run(...params);
+  const t = (sql: string, ...params: unknown[]) =>
+    db.prepare(sql).run(...params);
 
-  t(`INSERT INTO users (tenant_id, username) VALUES (?, ?)`, tenantId, username);
+  t(
+    `INSERT INTO users (tenant_id, username) VALUES (?, ?)`,
+    tenantId,
+    username,
+  );
   const userId = Number(
     db.prepare(`SELECT id FROM users WHERE tenant_id = ?`).get(tenantId) &&
-      (db.prepare(`SELECT id FROM users WHERE tenant_id = ?`).get(tenantId) as { id: number }).id,
+      (
+        db
+          .prepare(`SELECT id FROM users WHERE tenant_id = ?`)
+          .get(tenantId) as { id: number }
+      ).id,
   );
 
   // Sale: fully paid, completed. Revenue 100m, cost 60m, profit 40m.
@@ -231,7 +240,11 @@ function seedTenant(
     D,
   );
   const saleTxnId = Number(
-    (db.prepare(`SELECT MAX(id) AS id FROM transactions`).get() as { id: number }).id,
+    (
+      db.prepare(`SELECT MAX(id) AS id FROM transactions`).get() as {
+        id: number;
+      }
+    ).id,
   );
 
   // Settled OMT commission: amount 100m, commission 5m (cost 0 → revenue = amount).
@@ -393,12 +406,18 @@ describe("ProfitRepository — cross-tenant isolation (exact sums)", () => {
   });
 
   it("getSalesProfit sums ONLY the active tenant's ledger profit", () => {
-    expect(runWithTenant(1, () => repo.getSalesProfit(FROM, TO)).profit_usd).toBe(40);
-    expect(runWithTenant(2, () => repo.getSalesProfit(FROM, TO)).profit_usd).toBe(120);
+    expect(
+      runWithTenant(1, () => repo.getSalesProfit(FROM, TO)).profit_usd,
+    ).toBe(40);
+    expect(
+      runWithTenant(2, () => repo.getSalesProfit(FROM, TO)).profit_usd,
+    ).toBe(120);
   });
 
   it("getFinancialSettledByCurrency scopes both fs and its joined transaction", () => {
-    const rows = runWithTenant(1, () => repo.getFinancialSettledByCurrency(FROM, TO));
+    const rows = runWithTenant(1, () =>
+      repo.getFinancialSettledByCurrency(FROM, TO),
+    );
     expect(rows).toHaveLength(1);
     expect(rows[0].currency).toBe("USD");
     expect(rows[0].revenue).toBe(100);

@@ -197,15 +197,14 @@ describe("SalesRepository — stock oversell guard", () => {
 
   const stock = () =>
     (
-      db
-        .prepare(`SELECT stock_quantity FROM products WHERE id = 1`)
-        .get() as { stock_quantity: number }
+      db.prepare(`SELECT stock_quantity FROM products WHERE id = 1`).get() as {
+        stock_quantity: number;
+      }
     ).stock_quantity;
 
   const saleItemCount = () =>
-    (
-      db.prepare(`SELECT COUNT(*) AS n FROM sale_items`).get() as { n: number }
-    ).n;
+    (db.prepare(`SELECT COUNT(*) AS n FROM sale_items`).get() as { n: number })
+      .n;
 
   it("sells the last unit, then rejects the next sale instead of overselling", () => {
     // First sale takes the last unit.

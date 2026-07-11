@@ -105,7 +105,11 @@ async function seedCreditor(page: Page, name: string, creditUsd: number) {
         note: "L097 credit seed",
       });
       if (!credited.success) {
-        return { id: 0, balance: NaN, error: credited.error ?? "credit failed" };
+        return {
+          id: 0,
+          balance: NaN,
+          error: credited.error ?? "credit failed",
+        };
       }
       return {
         id: created.id,
@@ -159,9 +163,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
       .fill(String(CREDIT));
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
 
-    await expect
-      .poll(() => dialogs.length > 0, { timeout: 15_000 })
-      .toBe(true);
+    await expect.poll(() => dialogs.length > 0, { timeout: 15_000 }).toBe(true);
     expect(
       dialogs.filter((d) => /error|validation|nan/i.test(d)),
       "cash out raised an error dialog",
@@ -169,8 +171,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
 
     // The credit is SETTLED, not doubled (pre-fix: −40).
     const balanceAfter = await appPage.evaluate(
-      async (id) =>
-        (window as unknown as Api).api.debt.getClientTotal(id),
+      async (id) => (window as unknown as Api).api.debt.getClientTotal(id),
       seeded.id,
     );
     expect(Math.abs(balanceAfter)).toBeLessThan(0.01);
@@ -248,7 +249,12 @@ test.describe("LIRA-097 — creditor cash out", () => {
           ],
         });
         if (!job.success) {
-          return { id: 0, usd: NaN, lbp: NaN, error: job.error ?? "job failed" };
+          return {
+            id: 0,
+            usd: NaN,
+            lbp: NaN,
+            error: job.error ?? "job failed",
+          };
         }
         const debtors = await w.api.debt.getDebtors();
         const row = debtors.find(
@@ -263,7 +269,12 @@ test.describe("LIRA-097 — creditor cash out", () => {
           note: "L097 mixed credit seed",
         });
         if (!credited.success) {
-          return { id: 0, usd: NaN, lbp: NaN, error: credited.error ?? "credit" };
+          return {
+            id: 0,
+            usd: NaN,
+            lbp: NaN,
+            error: credited.error ?? "credit",
+          };
         }
         const after = (await w.api.debt.getDebtors()).find(
           (r) => (r.full_name ?? r.client_name) === name,
@@ -283,13 +294,10 @@ test.describe("LIRA-097 — creditor cash out", () => {
 
     // The panel's balance must equal the raw ledger balance the backend
     // guard enforces — one source of truth, per currency.
-    const ledger = await appPage.evaluate(
-      async (id) => {
-        const w = window as unknown as Api;
-        return (await w.api.debt.getClientBalance(id)).data ?? null;
-      },
-      seeded.id,
-    );
+    const ledger = await appPage.evaluate(async (id) => {
+      const w = window as unknown as Api;
+      return (await w.api.debt.getClientBalance(id)).data ?? null;
+    }, seeded.id);
     expect(ledger?.balance_usd).toBeCloseTo(-USD_CREDIT, 2);
     expect(ledger?.balance_lbp).toBeCloseTo(LBP_DEBT, 0);
 
@@ -297,11 +305,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
     await navigateTo(appPage, "/");
     await navigateTo(appPage, "/debts");
     await appPage.getByPlaceholder(/Search client/i).fill(CLIENT);
-    await appPage
-      .locator("button")
-      .filter({ hasText: CLIENT })
-      .first()
-      .click();
+    await appPage.locator("button").filter({ hasText: CLIENT }).first().click();
     await expect(appPage.getByText(`+$${USD_CREDIT.toFixed(2)}`)).toBeVisible();
     await expect(
       appPage.getByText(`-${LBP_DEBT.toLocaleString()} LBP`),
@@ -442,13 +446,10 @@ test.describe("LIRA-097 — creditor cash out", () => {
 
     // Confirm the seeded position is genuinely mixed per currency before the
     // UI assertions rest on it.
-    const seededLedger = await appPage.evaluate(
-      async (id) => {
-        const w = window as unknown as Api;
-        return (await w.api.debt.getClientBalance(id)).data ?? null;
-      },
-      seeded.id,
-    );
+    const seededLedger = await appPage.evaluate(async (id) => {
+      const w = window as unknown as Api;
+      return (await w.api.debt.getClientBalance(id)).data ?? null;
+    }, seeded.id);
     expect(seededLedger?.balance_usd).toBeCloseTo(-USD_CREDIT, 2);
     expect(seededLedger?.balance_lbp).toBeCloseTo(LBP_DEBT, 0);
 
@@ -490,11 +491,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
     await navigateTo(appPage, "/");
     await navigateTo(appPage, "/debts");
     await appPage.getByPlaceholder(/Search client/i).fill(CLIENT);
-    await appPage
-      .locator("button")
-      .filter({ hasText: CLIENT })
-      .first()
-      .click();
+    await appPage.locator("button").filter({ hasText: CLIENT }).first().click();
 
     // BOTH actions are offered simultaneously — pre-fix only Cash Out
     // rendered (netUsd < 0 picked the single button).
@@ -524,9 +521,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
     // no-op. selectedClient survives a search change (only a filter change
     // clears it).
     await appPage.getByPlaceholder(/Search client/i).fill("");
-    await expect(
-      appPage.getByRole("heading", { name: CLIENT }),
-    ).toBeVisible();
+    await expect(appPage.getByRole("heading", { name: CLIENT })).toBeVisible();
 
     const generalBefore = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
@@ -551,9 +546,7 @@ test.describe("LIRA-097 — creditor cash out", () => {
     // converted-net check saw net ≈ −$14 (< 0.01), deselected them, and (with
     // the search cleared above) auto-select jumped to a different, higher-debt
     // client, so this heading assertion fails on the pre-fix code.
-    await expect(
-      appPage.getByRole("heading", { name: CLIENT }),
-    ).toBeVisible();
+    await expect(appPage.getByRole("heading", { name: CLIENT })).toBeVisible();
     await expect(appPage.getByText(`+$${USD_CREDIT.toFixed(2)}`)).toBeVisible();
 
     // Only the LBP side moved: till collected the debt, USD untouched.
@@ -594,13 +587,10 @@ test.describe("LIRA-097 — creditor cash out", () => {
       appPage.locator("button").filter({ hasText: /Settle Debt/i }),
     ).toHaveCount(0);
 
-    const ledger = await appPage.evaluate(
-      async (id) => {
-        const w = window as unknown as Api;
-        return (await w.api.debt.getClientBalance(id)).data ?? null;
-      },
-      seeded.id,
-    );
+    const ledger = await appPage.evaluate(async (id) => {
+      const w = window as unknown as Api;
+      return (await w.api.debt.getClientBalance(id)).data ?? null;
+    }, seeded.id);
     expect(Math.abs(ledger?.balance_usd ?? NaN)).toBeLessThan(0.01);
     expect(Math.abs(ledger?.balance_lbp ?? NaN)).toBeLessThan(1000);
 

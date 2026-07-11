@@ -99,7 +99,10 @@ router.post(
   validateRequest(debtAccountEntrySchema),
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
-    const result = getDebtService().addAccountCashEntry({ ...req.body, userId });
+    const result = getDebtService().addAccountCashEntry({
+      ...req.body,
+      userId,
+    });
     res.json(result);
   },
 );

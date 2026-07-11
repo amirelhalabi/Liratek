@@ -44,7 +44,9 @@ export class CategoryRepository {
     const trimmed = name.trim();
     if (!trimmed) throw new DatabaseError("Category name is required");
     const result = this.db
-      .prepare(`UPDATE product_categories SET name = ? WHERE id = ? AND tenant_id = ?`)
+      .prepare(
+        `UPDATE product_categories SET name = ? WHERE id = ? AND tenant_id = ?`,
+      )
       .run(trimmed, id, getCurrentTenantId());
     return result.changes > 0;
   }

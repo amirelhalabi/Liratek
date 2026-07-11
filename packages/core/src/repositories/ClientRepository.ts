@@ -137,11 +137,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   findByName(fullName: string): ClientEntity | null {
     try {
       const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE full_name = ? COLLATE NOCASE AND tenant_id = ? LIMIT 1`;
-      return this.queryOne<ClientEntity>(
-        query,
-        fullName,
-        getCurrentTenantId(),
-      );
+      return this.queryOne<ClientEntity>(query, fullName, getCurrentTenantId());
     } catch (error) {
       throw new DatabaseError("Failed to find client by name", {
         cause: error,

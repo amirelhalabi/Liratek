@@ -84,10 +84,7 @@ async function submitAlfaGift(page: Page, tierLabel: string) {
   await nativeClickByText(page, "button", "Pay");
 
   // PaymentSheet confirm is "Pay <amount> LBP"; it calls onConfirm + onClose.
-  const confirm = page
-    .locator("button")
-    .filter({ hasText: /^Pay / })
-    .last();
+  const confirm = page.locator("button").filter({ hasText: /^Pay / }).last();
   await expect(confirm).toBeVisible({ timeout: 5_000 });
   await confirm.click();
   await expect(confirm).toBeHidden({ timeout: 8_000 });
@@ -136,7 +133,9 @@ test.describe("Alfa Gift recording", () => {
     await waitNoActiveSession(appPage);
 
     const beforeIds = await appPage.evaluate(async () => {
-      const h = (await (window as any).api.recharge.getHistory("Alfa")) as Array<{
+      const h = (await (window as any).api.recharge.getHistory(
+        "Alfa",
+      )) as Array<{
         id: number;
       }>;
       return h.map((r) => r.id);
@@ -145,7 +144,9 @@ test.describe("Alfa Gift recording", () => {
     await submitAlfaGift(appPage, "1 GB");
 
     const created = await appPage.evaluate(async (before: number[]) => {
-      const h = (await (window as any).api.recharge.getHistory("Alfa")) as Array<{
+      const h = (await (window as any).api.recharge.getHistory(
+        "Alfa",
+      )) as Array<{
         id: number;
         recharge_type: string;
         amount: number;
@@ -195,7 +196,9 @@ test.describe("Alfa Gift recording", () => {
     await navigateTo(appPage, "/recharge");
 
     const giftCountBefore = await appPage.evaluate(async () => {
-      const h = (await (window as any).api.recharge.getHistory("Alfa")) as Array<{
+      const h = (await (window as any).api.recharge.getHistory(
+        "Alfa",
+      )) as Array<{
         recharge_type: string;
       }>;
       return h.filter((r) => r.recharge_type === "ALFA_GIFT").length;
@@ -222,7 +225,9 @@ test.describe("Alfa Gift recording", () => {
     expect(inCart).toBe(true);
 
     const giftCountAfterAdd = await appPage.evaluate(async () => {
-      const h = (await (window as any).api.recharge.getHistory("Alfa")) as Array<{
+      const h = (await (window as any).api.recharge.getHistory(
+        "Alfa",
+      )) as Array<{
         recharge_type: string;
       }>;
       return h.filter((r) => r.recharge_type === "ALFA_GIFT").length;
@@ -270,7 +275,9 @@ test.describe("Alfa Gift recording", () => {
         exchangeRate: 90000,
         userId: 1,
       });
-      const h = (await (window as any).api.recharge.getHistory("Alfa")) as Array<{
+      const h = (await (window as any).api.recharge.getHistory(
+        "Alfa",
+      )) as Array<{
         recharge_type: string;
       }>;
       const recent = (await (window as any).api.transactions.getRecent(
