@@ -2,6 +2,7 @@ import { Router } from "express";
 import { Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { voiceTranscriptionService } from "../services/VoiceTranscriptionService.js";
+import { authenticateJWT, verifyJwt } from "../middleware/auth.js";
 
 const router = Router();
 let wss: WebSocketServer | null = null;
@@ -15,8 +16,12 @@ router.get("/health", (_req, res) => {
   });
 });
 
-// Start transcription session
-router.post("/start", async (_req, res) => {
+// Start transcription session.
+// Auth required (was anonymous): these routes drive a cost-bearing ASR proxy
+// on a process-wide singleton service. There is no live web caller today (the
+// voice bot runs over IPC on desktop; QwenASRClient is unused), so gating them
+// breaks nothing and closes the abuse/DoS hole. /health stays open.
+router.post("/start", authenticateJWT, async (_req, res) => {
   try {
     await voiceTranscriptionService.startListening();
     res.json({ success: true, message: "Listening started" });
@@ -30,7 +35,7 @@ router.post("/start", async (_req, res) => {
 });
 
 // Stop transcription session
-router.post("/stop", async (_req, res) => {
+router.post("/stop", authenticateJWT, async (_req, res) => {
   try {
     await voiceTranscriptionService.stopListening();
     res.json({ success: true, message: "Listening stopped" });
@@ -44,7 +49,7 @@ router.post("/stop", async (_req, res) => {
 });
 
 // Audio data endpoint (for chunked streaming)
-router.post("/audio", async (req, res) => {
+router.post("/audio", authenticateJWT, async (req, res) => {
   try {
     const { audioData, format = "base64" } = req.body;
 
@@ -74,6 +79,20 @@ export function initVoiceWebSocketServer(httpServer: Server): WebSocketServer {
 
   httpServer.on("upgrade", (request, socket, head) => {
     if (request.url?.startsWith("/api/voice/ws")) {
+      // The raw upgrade path bypasses Express middleware entirely, so auth must
+      // be enforced here by hand. Browsers can't set headers on a WebSocket
+      // handshake, so the JWT rides in the `?token=` query param; verify it the
+      // same way the HTTP path does (verifyJwt → HS256, signature-checked).
+      // Reject the handshake (no wss upgrade) on a missing/invalid token.
+      const token = new URL(
+        request.url,
+        "http://localhost",
+      ).searchParams.get("token");
+      if (!token || !verifyJwt(token)) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
       wss?.handleUpgrade(request, socket, head, (ws) => {
         wss?.emit("connection", ws, request);
       });
