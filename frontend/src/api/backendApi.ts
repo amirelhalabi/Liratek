@@ -1104,17 +1104,55 @@ export async function recalculateDrawerBalances(): Promise<{
 }
 
 export async function getCheckpointTimeline(filters?: {
-  date?: string;
-  type?: "OPENING" | "CLOSING" | "ALL";
+  date_from?: string;
+  date_to?: string;
+  type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
   drawer_name?: string;
   user_id?: number;
 }) {
-  if (isElectron()) {
-    return (window as any).api.closing.getCheckpointTimeline(filters);
-  }
-  return requestJson<{ success: boolean; checkpoints?: any[]; error?: string }>(
-    "/api/closing/checkpoint-timeline",
-    { method: "POST", body: filters },
+  return ipcOrHttp(
+    async () => getElectronApi().closing.getCheckpointTimeline(filters),
+    async () => {
+      const qs = new URLSearchParams();
+      if (filters?.date_from) qs.set("date_from", filters.date_from);
+      if (filters?.date_to) qs.set("date_to", filters.date_to);
+      if (filters?.type) qs.set("type", filters.type);
+      if (filters?.drawer_name) qs.set("drawer_name", filters.drawer_name);
+      if (filters?.user_id != null) qs.set("user_id", String(filters.user_id));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return requestJson<{
+        success: boolean;
+        checkpoints?: any[];
+        error?: string;
+      }>(`/api/closing/checkpoint-timeline${suffix}`);
+    },
+  );
+}
+
+// Create a unified checkpoint (money write — drawer_balances + payments
+// journal reconciliation). Envelope { success, id?, error? }.
+export async function createCheckpoint(payload: any) {
+  return ipcOrHttp(
+    async () => getElectronApi().closing.createCheckpoint(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        "/api/closing/checkpoint",
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+// The setup (initial) checkpoint's closing_date, or null. Raw value (matches IPC).
+export async function getInitialCheckpointDate(): Promise<string | null> {
+  return ipcOrHttp(
+    async () => getElectronApi().closing.getInitialCheckpointDate(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        date?: string | null;
+      }>("/api/closing/initial-checkpoint-date");
+      return res.date ?? null;
+    },
   );
 }
 

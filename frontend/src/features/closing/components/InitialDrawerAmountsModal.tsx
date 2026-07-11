@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, Wallet, Plus } from "lucide-react";
-import { DecimalInput } from "@liratek/ui";
+import { DecimalInput, useApi } from "@liratek/ui";
 import { useModules } from "@/contexts/ModuleContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
@@ -44,6 +44,7 @@ export function InitialDrawerAmountsModal({
   onSaved,
 }: InitialDrawerAmountsModalProps) {
   useModalFocusFix(true);
+  const api = useApi();
   const { isModuleEnabled } = useModules();
   const { user } = useAuth();
   const { activeCurrencies, getDecimals } = useCurrencyContext();
@@ -76,8 +77,8 @@ export function InitialDrawerAmountsModal({
   // operator sees existing state and the real per-drawer currency set.
   useEffect(() => {
     Promise.all([
-      window.api.currencies.allDrawerCurrencies(),
-      window.api.closing.getSystemExpectedBalancesDynamic(),
+      api.getAllDrawerCurrencies(),
+      api.getSystemExpectedBalancesDynamic(),
     ]).then(([configured, balances]) => {
       const initialCurrencies: Record<string, string[]> = {};
       const initialAmounts: Record<string, Record<string, number>> = {};
@@ -128,10 +129,7 @@ export function InitialDrawerAmountsModal({
       const baseline = baselineCurrencies[drawer] ?? [];
       const grew = current.some((c) => !baseline.includes(c));
       if (grew) {
-        const res = await window.api.currencies.setDrawerCurrencies(
-          drawer,
-          current,
-        );
+        const res = await api.setDrawerCurrencies(drawer, current);
         if (!res.success) {
           setSaving(false);
           setError(res.error ?? `Failed to add currency to ${drawer}`);
@@ -159,7 +157,7 @@ export function InitialDrawerAmountsModal({
       }
     }
 
-    const result = await window.api.closing.createCheckpoint({
+    const result = await api.createCheckpoint({
       user_id: user?.id ?? 0,
       drawer_name: "AGGREGATED",
       notes: "Initial drawer amounts setup",

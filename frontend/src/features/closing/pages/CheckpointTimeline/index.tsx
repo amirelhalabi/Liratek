@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
-import { PageHeader, Select } from "@liratek/ui";
+import { PageHeader, Select, useApi } from "@liratek/ui";
 import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
 import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";
@@ -40,6 +40,7 @@ function todayISO(): string {
 }
 
 export default function CheckpointTimeline() {
+  const api = useApi();
   const [checkpoints, setCheckpoints] = useState<CheckpointRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -61,16 +62,11 @@ export default function CheckpointTimeline() {
   // Fetch the setup checkpoint date once so we can surface it when it falls
   // outside the current filter window.
   useEffect(() => {
-    // Checkpoints are IPC-only (no REST route yet) — render empty in web mode
-    if (!window.api?.closing) {
-      setInitialCheckpointDate(null);
-      return;
-    }
-    window.api.closing
+    api
       .getInitialCheckpointDate()
       .then(setInitialCheckpointDate)
       .catch(() => setInitialCheckpointDate(null));
-  }, []);
+  }, [api]);
 
   // Refresh the timeline after a checkpoint completes
   useEffect(() => {
@@ -85,14 +81,9 @@ export default function CheckpointTimeline() {
   }, [filters]);
 
   const loadCheckpoints = async () => {
-    if (!window.api?.closing) {
-      setCheckpoints([]);
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     try {
-      const result = await window.api.closing.getCheckpointTimeline(filters);
+      const result = await api.getCheckpointTimeline(filters);
       if (result.success && result.checkpoints) {
         setCheckpoints(result.checkpoints);
       }

@@ -151,6 +151,26 @@ export class ElectronApiAdapter implements ApiAdapter {
   recalculateDrawerBalances = () => api.recalculateDrawerBalances();
   updateDailyClosing = (id: number, data: any) =>
     api.updateDailyClosing(id, data);
+  createCheckpoint = (data: {
+    user_id: number;
+    drawer_name: string;
+    notes?: string;
+    report_path?: string;
+    amounts: Array<{
+      drawer_name: string;
+      currency_code: string;
+      expected_amount: number;
+      physical_amount: number;
+    }>;
+  }) => api.createCheckpoint(data);
+  getCheckpointTimeline = (filters?: {
+    date_from?: string;
+    date_to?: string;
+    type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
+    drawer_name?: string;
+    user_id?: number;
+  }) => api.getCheckpointTimeline(filters);
+  getInitialCheckpointDate = () => api.getInitialCheckpointDate();
 
   // ---------------------------------------------------------------------------
   // Suppliers

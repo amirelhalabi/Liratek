@@ -494,6 +494,26 @@ export type ApiAdapter = {
       user_id?: number;
     },
   ) => Promise<ApiResult>;
+  createCheckpoint: (data: {
+    user_id: number;
+    drawer_name: string;
+    notes?: string;
+    report_path?: string;
+    amounts: Array<{
+      drawer_name: string;
+      currency_code: string;
+      expected_amount: number;
+      physical_amount: number;
+    }>;
+  }) => Promise<{ success: boolean; id?: number; error?: string }>;
+  getCheckpointTimeline: (filters?: {
+    date_from?: string;
+    date_to?: string;
+    type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
+    drawer_name?: string;
+    user_id?: number;
+  }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
+  getInitialCheckpointDate: () => Promise<string | null>;
 
   // ---------------------------------------------------------------------------
   // Suppliers

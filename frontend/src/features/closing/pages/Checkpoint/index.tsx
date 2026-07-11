@@ -195,15 +195,13 @@ export default function CheckpointModal({
         .replaceAll("'", "&#039;");
 
     try {
-      const checkpointData: Parameters<
-        typeof window.api.closing.createCheckpoint
-      >[0] = {
+      const checkpointData: Parameters<typeof api.createCheckpoint>[0] = {
         user_id: user?.id ?? 0,
         drawer_name: drawerName,
         amounts,
       };
       if (notes) checkpointData.notes = notes;
-      const result = await window.api.closing.createCheckpoint(checkpointData);
+      const result = await api.createCheckpoint(checkpointData);
 
       if (!result.success) {
         setSaveError(result.error || "Failed to save checkpoint");
