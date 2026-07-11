@@ -151,19 +151,20 @@ the shim installed.
    pattern applies to the debts page reads, `AuthContext`, etc. as specs surface them.
 4. Add the spec to `SHARED_DESKTOP_SPECS` in `playwright.web.config.ts` once green.
 
-**Done:** `lira-transactions-timezone.spec.ts` (`f5a8cbc`; needed `transactions.getRecent`).
-**Remaining:** ~48 specs. Highest-surface (`lira-090/094/097`) touch namespaces with no
+**Done:** `lira-transactions-timezone.spec.ts` (`f5a8cbc`; `transactions.getRecent` — read),
+`lira-session-multiple-per-day.spec.ts` (`ffaad3b`; `session.start`/`close`/`getActiveSessions`/
+`getTodayAllSessions` — **write path proven**, incl. the `started_by`/`closedBy` IPC-only field
+drop and the dup-active-session `res.success===false` rejection).
+**Remaining:** ~47 specs. Highest-surface (`lira-090/094/097`) touch namespaces with no
 REST yet (`maintenance`, `omt`, `recharge.topUpFrom*`, `suppliers.recordCashflow`,
 `profits.summary`, `auth.createUser`) — those need phase-2-style routes built first.
 
-**⚠️ What "proven" means so far — reads only.** Both proofs exercise reads/passthrough
-(`app.spec` create-client goes through the dual-mode adapter, not the shim; `transactions.getRecent`
-is a read). The shim has **zero field translations yet**, but `seed.ts` documents IPC args ≠ REST
-bodies (`cost_price`↔`cost_price_usd`, `stock_quantity`↔`stock`, `whatsapp_opt_in` 0/1↔boolean). The
-first `window.api.<ns>.create/process(payload)` mapping whose IPC arg shape differs from the REST body
-will **silently POST a malformed body** (no "shim miss" — the method is mapped, just wrong) → debug it
-as an assertion failure. Cross-check each write body against the actual `backend/src/api/*` schema, not
-the IPC arg, and centralize translation in the shim.
+**Writes + field translation — now proven (`ffaad3b`).** `session.start` maps with a real
+arg→body translation (drops the IPC-only `started_by`; `close` drops `closedBy` — REST derives the
+actor from the JWT). The discipline holds: cross-check each write body against the actual
+`backend/src/api/*` route/schema, NOT the IPC arg, and centralize translation in the shim.
+`seed.ts` documents more of these (`cost_price`↔`cost_price_usd`, `stock_quantity`↔`stock`,
+`whatsapp_opt_in` 0/1↔boolean) — a mapped-but-malformed write fails as an ASSERTION, not a "shim miss".
 
 **Also (self-heal is gone by design):** since `isElectron()` is false under the shim, app code never
 enters `ipcOrHttp`'s ipc branch — there is NO fallback catching shim misses for raw-`window.api`
