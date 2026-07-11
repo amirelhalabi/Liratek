@@ -56,14 +56,12 @@ run the ~50 IPC-driven desktop specs over HTTP), then phase 4 (both transports).
 
 **Reclassified — no web work needed:**
 
-- **debts `addCredit`** (verified 2026-07-11): NOT a web gap. The manual "Add Credit"
-  UI on the Debts page uses `api.addAccountEntry({direction:"credit"})`, which is already
-  dual-mode over REST (proof `lira-web-007`). The `debt:add-credit` IPC channel /
-  `DebtService.addCredit` have **zero renderer callers** (`frontend/src` reference is only
-  the `electron.d.ts` type decl) — they're invoked only by internal main-process/backend
-  flows (sessions, sales, financial services, voucher redemption) that never cross the
-  IPC/REST boundary. Adding a `POST /api/debts/add-credit` route would be dead surface with
-  no consumer, so it was intentionally NOT built.
+- **debts `addCredit`** (verified 2026-07-11, then revised): the manual "Add Credit" UI uses
+  `api.addAccountEntry({direction:"credit"})` (dual-mode, `lira-web-007`), and no PAGE calls
+  `debt.addCredit`. It was reclassified no-web-work on that basis — but the desktop **spec**
+  `lira-097` calls `window.api.debt.addCredit` directly, so phase 3 DID build `POST /api/debts/credit`
+  (`0cf0254`) feeding the existing `DebtService.addCredit` + `addCreditSchema`. Lesson: "no page
+  calls it" ≠ "no web consumer" — a shimmed desktop spec is a consumer too.
 
 > **Desktop e2e verification note (2026-07-11):** the shared checkout's `better-sqlite3`
 > ABI is contended by a parallel agent that needs Node ABI (127) for backend/core jest;
@@ -157,13 +155,16 @@ the shim installed.
 `getTodayAllSessions` — **write path proven**), `lira-081-maintenance-customer-account`
 (`85f9258`; `maintenance.getJobs`/`save`/`delete` — save is a MONEY path → `debt_ledger`),
 `lira-084-supplier-opening-balance` (`bd2fde5`; `suppliers.list`/`getBalances`/`addLedgerEntry`
-— supplier-ledger money path).
+— supplier-ledger money path), `lira-096-debt-split-repayment` (`e15e311`;
+`dashboard.getDrawerBalances`/`rates.list` + maintenance/debt — split USD+LBP repayment),
+`lira-097-debt-cashout` (`0cf0254`; **built `POST /api/debts/credit`** + `clients.create`/
+`debt.addCredit`/cash-out — 4 sub-tests, mixed USD-credit/LBP-debt).
 **Green STANDALONE but pulled from the default suite (order-flaky):**
 `lira-099-session-debt-detail` (`9cb5603` landed it, `bd2fde5` pulled it) — passes via
 `E2E_WEB_SPECS=lira-099-… yarn test:e2e:web`; in the full suite once 081/084 precede it, its
 checkout succeeds but the debtor doesn't surface (shared-DB/shared-page cross-spec state, NOT a
 shim/money bug). Its `session.getActive/cartAdd/checkout` mappings remain.
-**Remaining:** ~45 specs.
+**Remaining:** ~43 specs.
 
 **Two learnings from this pass:**
 1. **Most namespaces already have REST** (built in phases 1–2: maintenance, suppliers, recharge,
