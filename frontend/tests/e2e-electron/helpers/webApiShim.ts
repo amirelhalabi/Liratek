@@ -89,6 +89,16 @@ function webApiShimBody(): void {
       rest("GET", `/api/debts/clients/${clientId}/balance`),
     "debt.addRepayment": async ([payload]) =>
       rest("POST", "/api/debts/repayments", payload),
+
+    // ── Transactions (unified) ──
+    "transactions.getRecent": async ([limit, filters]) =>
+      (
+        await rest(
+          "GET",
+          "/api/transactions/recent" +
+            qs({ limit, ...(filters as Record<string, unknown>) }),
+        )
+      ).transactions,
   };
 
   const RESERVED = new Set(["then", "catch", "finally"]);

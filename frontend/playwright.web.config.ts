@@ -44,7 +44,13 @@ process.env.E2E_WEB_BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const SPECS_OVERRIDE = process.env.E2E_WEB_SPECS;
 const SHARED_DESKTOP_SPECS: string[] = SPECS_OVERRIDE
   ? SPECS_OVERRIDE.split(",").map((s) => s.trim())
-  : ["app.spec.ts"];
+  : [
+      "app.spec.ts",
+      // Phase 3 (window.api→REST shim, helpers/webApiShim.ts): desktop specs
+      // enabled over web as their window.api.* surface is mapped in the shim.
+      // Add a spec here once it passes via `E2E_WEB_SPECS=<spec> yarn test:e2e:web`.
+      "lira-transactions-timezone.spec.ts", // needs transactions.getRecent
+    ];
 
 // Optional per-file sub-test filter for partially-passing spec files.
 // app.spec.ts passes IN FULL in web mode (2026-07-10, incl. POS sale + debt
