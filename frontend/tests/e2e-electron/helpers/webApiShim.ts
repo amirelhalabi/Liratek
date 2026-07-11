@@ -145,6 +145,11 @@ function webApiShimBody(): void {
     "maintenance.delete": async ([id]) =>
       rest("DELETE", `/api/maintenance/jobs/${id}`),
 
+    // ── Dashboard / rates (reads) ──
+    "dashboard.getDrawerBalances": async () =>
+      (await rest("GET", "/api/dashboard/drawer-balances")).balances,
+    "rates.list": async () => (await rest("GET", "/api/rates")).rates,
+
     // ── Transactions (unified) ──
     "transactions.getRecent": async ([limit, filters]) =>
       (
