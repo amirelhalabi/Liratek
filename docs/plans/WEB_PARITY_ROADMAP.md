@@ -154,22 +154,22 @@ the shim installed.
 **Done:** `lira-transactions-timezone.spec.ts` (`f5a8cbc`; `transactions.getRecent` — read),
 `lira-session-multiple-per-day.spec.ts` (`ffaad3b`; `session.start`/`close`/`getActiveSessions`/
 `getTodayAllSessions` — **write path proven**, incl. the `started_by`/`closedBy` IPC-only field
-drop and the dup-active-session `res.success===false` rejection).
-**Remaining:** ~47 specs. Highest-surface (`lira-090/094/097`) touch namespaces with no
+drop and the dup-active-session `res.success===false` rejection),
+`lira-099-session-debt-detail.spec.ts` (`9cb5603`; `session.getActive`/`cartAdd`/`checkout` —
+basket → CUSTOMER_ACCOUNT debt → Debts-page detail modal).
+**Remaining:** ~46 specs. Highest-surface (`lira-090/094/097`) touch namespaces with no
 REST yet (`maintenance`, `omt`, `recharge.topUpFrom*`, `suppliers.recordCashflow`,
 `profits.summary`, `auth.createUser`) — those need phase-2-style routes built first.
 
-**Deferred — `lira-099-session-debt-detail` (NOT a money bug; a shim read-shape detail).**
-Investigated 2026-07-11 (`new-money-feature` skill): the REST session-checkout money flow is
-**verified correct** — a REST-only reproduction (start session name+phone → checkout to
-CUSTOMER_ACCOUNT) creates the client, books the on-account debt, and `/api/debts/debtors` returns
-the debtor `{full_name, total_debt}`. So `SessionCheckoutService` behaves identically on both
-transports. lira-099's "No debtors found" is a **read-shape mismatch in the shim**: the Debts page
-(and `SessionDebtDetailModal`) were authored against the IPC debtor/basket shape, but the shim's
-`debt.getDebtors` returns the REST debtor shape (`full_name`/`total_debt_usd` …) — the page's
-client-side filter/render doesn't match. Fix is shim-side (translate the debtor read shape to the
-IPC contract) or migrate the Debts page reads to `useApi()`. Deferred as coverage, not correctness.
-The landed `session.*` mappings serve `lira-session-multiple-per-day`.
+**Cross-spec test-data collision (the `lira-099` lesson, resolved `9cb5603`).** The web-shared DB is
+walked by BOTH the web-only `lira-web-*` specs AND the desktop specs. lira-099 (desktop, hardcodes
+phone `03777888`) failed because `lira-web-002` hardcoded the SAME phone — so `findOrCreateByPhone`
+attached lira-099's on-account debt to lira-web-002's client, and lira-099's name lookup found
+nothing. It was NOT a money or shim bug (REST checkout books the debtor correctly — verified by a
+REST-only repro). **Rule for web-only specs:** use per-run-unique names/phones (`Date.now()` suffix)
+so they can't squat an identifier a hardcoded desktop spec reuses. Desktop specs stay unchanged
+(phase-3 goal); fix the collision on the web side. When a landed desktop spec's UI assertion fails
+but the money/REST layer is provably fine, suspect a shared-DB identity collision before the shim.
 
 **Writes + field translation — now proven (`ffaad3b`).** `session.start` maps with a real
 arg→body translation (drops the IPC-only `started_by`; `close` drops `closedBy` — REST derives the
