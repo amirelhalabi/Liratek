@@ -116,6 +116,24 @@ function webApiShimBody(): void {
     "session.checkout": async ([data]) =>
       rest("POST", "/api/sessions/checkout", data),
 
+    // ── Suppliers (ledger) — addLedgerEntry is a MONEY path (drawer + supplier
+    //    ledger). IPC passes supplier_id INSIDE the object; REST puts it in the
+    //    URL — extract it (arg→URL+body translation). ──
+    "suppliers.list": async ([search, includeInactive]) =>
+      (
+        await rest(
+          "GET",
+          "/api/suppliers" + qs({ search, includeInactive }),
+        )
+      ).suppliers,
+    "suppliers.getBalances": async ([includeInactive]) =>
+      (await rest("GET", "/api/suppliers/balances" + qs({ includeInactive })))
+        .balances,
+    "suppliers.addLedgerEntry": async ([data]) => {
+      const { supplier_id, ...body } = (data ?? {}) as Record<string, unknown>;
+      return rest("POST", `/api/suppliers/${supplier_id}/ledger`, body);
+    },
+
     // ── Maintenance (repair jobs) — REST routes already exist. save is a MONEY
     //    path (job → unified transaction + drawers + optional CUSTOMER_ACCOUNT
     //    debt_ledger), routed through the same core MaintenanceService. ──
