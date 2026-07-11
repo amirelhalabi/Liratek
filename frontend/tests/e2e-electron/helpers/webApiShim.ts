@@ -110,6 +110,11 @@ function webApiShimBody(): void {
       rest("GET", "/api/sessions/active-list"),
     "session.getTodayAllSessions": async () =>
       rest("GET", "/api/sessions/today-all"),
+    "session.getActive": async () => rest("GET", "/api/sessions/active"),
+    "session.cartAdd": async ([sessionId, item]) =>
+      rest("POST", `/api/sessions/${sessionId}/cart`, item),
+    "session.checkout": async ([data]) =>
+      rest("POST", "/api/sessions/checkout", data),
 
     // ── Transactions (unified) ──
     "transactions.getRecent": async ([limit, filters]) =>

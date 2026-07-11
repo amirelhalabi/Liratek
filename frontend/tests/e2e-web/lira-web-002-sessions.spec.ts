@@ -21,11 +21,16 @@ test.describe.serial("web sessions", () => {
     );
     expect(token).toBeTruthy();
     const uniqueName = "WEB-E2E Session Cust";
+    // Per-run-unique phone: this shared web DB is also walked by the web-shared
+    // desktop specs, some of which hardcode a phone (e.g. lira-099 uses
+    // 03777888). A constant phone here would let findOrCreateByPhone attach a
+    // desktop spec's debt to THIS client, breaking that spec's name lookup.
+    const uniquePhone = `0355${Date.now().toString().slice(-6)}`;
     const started = await page.request.post(
       `${BACKEND_URL}/api/sessions/start`,
       {
         headers: { Authorization: `Bearer ${token}` },
-        data: { customer_name: uniqueName, customer_phone: "03777888" },
+        data: { customer_name: uniqueName, customer_phone: uniquePhone },
       },
     );
     const startedBody = await started.json();
