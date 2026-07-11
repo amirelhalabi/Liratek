@@ -4,6 +4,7 @@ import { validateRequest } from "../middleware/validation.js";
 import {
   getDebtService,
   addRepaymentSchema,
+  addCreditSchema,
   debtCashOutSchema,
   debtAccountEntrySchema,
 } from "@liratek/core";
@@ -103,6 +104,19 @@ router.post(
       ...req.body,
       userId,
     });
+    res.json(result);
+  },
+);
+
+// POST /api/debts/credit (admin+staff) — record a prepaid credit (shop owes
+// customer). Same core DebtService.addCredit the IPC handler uses; userId from JWT.
+router.post(
+  "/credit",
+  writeGate,
+  validateRequest(addCreditSchema),
+  (req, res) => {
+    const userId = (req as AuthRequest).user!.userId;
+    const result = getDebtService().addCredit({ ...req.body, userId });
     res.json(result);
   },
 );

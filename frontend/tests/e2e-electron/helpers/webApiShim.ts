@@ -91,6 +91,23 @@ function webApiShimBody(): void {
       rest("GET", `/api/debts/clients/${clientId}/balance`),
     "debt.addRepayment": async ([payload]) =>
       rest("POST", "/api/debts/repayments", payload),
+    "debt.addCredit": async ([payload]) =>
+      rest("POST", "/api/debts/credit", payload),
+
+    // ── Clients ── create takes whatsapp_opt_in as 0/1 over IPC; the REST
+    //    createClientSchema wants a boolean. Normalize the id out of {data:{id}}.
+    "clients.create": async ([data]) => {
+      const d = (data ?? {}) as Record<string, unknown>;
+      const body = {
+        ...d,
+        ...(d.whatsapp_opt_in != null
+          ? { whatsapp_opt_in: Boolean(d.whatsapp_opt_in) }
+          : {}),
+      };
+      const res = await rest("POST", "/api/clients", body);
+      const id = res.id ?? res.data?.id;
+      return id != null ? { ...res, id } : res;
+    },
 
     // ── Customer sessions ──
     // start: the spec passes { customer_name, started_by }; started_by is

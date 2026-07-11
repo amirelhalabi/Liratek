@@ -54,6 +54,7 @@ const SHARED_DESKTOP_SPECS: string[] = SPECS_OVERRIDE
       "lira-081-maintenance-customer-account.spec.ts", // maintenance.getJobs/save/delete (save = money → debt_ledger)
       "lira-084-supplier-opening-balance.spec.ts", // suppliers.list/getBalances/addLedgerEntry (ledger money path)
       "lira-096-debt-split-repayment.spec.ts", // dashboard.getDrawerBalances/rates.list/maintenance.save/debt; split USD+LBP repayment
+      "lira-097-debt-cashout.spec.ts", // clients.create + debt.addCredit (new POST /api/debts/credit) + cash-out
       // lira-099-session-debt-detail: green STANDALONE (E2E_WEB_SPECS) but
       // order-flaky in the full suite once 081/084 precede it — its session
       // checkout succeeds yet its debtor doesn't surface (shared-DB/shared-page
