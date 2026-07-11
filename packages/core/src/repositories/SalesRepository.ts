@@ -210,6 +210,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   processSale(
     sale: SaleRequest,
     userId: number,
+    opts?: { allowOutOfStock?: boolean },
   ): {
     success: boolean;
     id?: number;
@@ -218,6 +219,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     const db = this.db;
     const tableName = this.tableName;
     const tenantId = getCurrentTenantId();
+    // When the shop allows out-of-stock sales, stock is decremented blindly
+    // (may go negative); otherwise the guarded decrement blocks overselling.
+    const allowOutOfStock = opts?.allowOutOfStock ?? false;
 
     try {
       const processTransaction = db.transaction(() => {
@@ -560,11 +564,15 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?), ?, ?)
         `);
 
-        const stockStmt = db.prepare(`
-          UPDATE products
-          SET stock_quantity = stock_quantity - ?
-          WHERE id = ? AND tenant_id = ? AND stock_quantity >= ?
-        `);
+        const stockStmt = db.prepare(
+          allowOutOfStock
+            ? `UPDATE products
+               SET stock_quantity = stock_quantity - ?
+               WHERE id = ? AND tenant_id = ?`
+            : `UPDATE products
+               SET stock_quantity = stock_quantity - ?
+               WHERE id = ? AND tenant_id = ? AND stock_quantity >= ?`,
+        );
 
         for (const item of sale.items) {
           itemStmt.run(
@@ -579,29 +587,37 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           );
 
           // Update Stock: ONLY IF COMPLETED.
-          // Guarded conditional write: the `stock_quantity >= ?` clause plus the
-          // rows-affected check stop two concurrent sales from overselling the
-          // last unit(s) into negative stock. If nothing updated, stock is
-          // insufficient (or the product/tenant row is gone) → abort the sale
-          // (the surrounding db.transaction auto-rolls-back the whole sale).
           if (status === "completed") {
-            const stockRes = stockStmt.run(
-              item.quantity,
-              item.product_id,
-              tenantId,
-              item.quantity,
-            );
-            if (stockRes.changes === 0) {
-              const p = db
-                .prepare(
-                  `SELECT name, stock_quantity FROM products WHERE id = ? AND tenant_id = ?`,
-                )
-                .get(item.product_id, tenantId) as
-                | { name?: string; stock_quantity?: number }
-                | undefined;
-              throw new BusinessRuleError(
-                `Not enough stock for "${p?.name ?? `product #${item.product_id}`}" (${p?.stock_quantity ?? 0} available)`,
+            if (allowOutOfStock) {
+              // Shop opted into out-of-stock sales: decrement blindly (stock may
+              // go negative; the shortfall is surfaced in the Negative-Stock
+              // report for reconciliation).
+              stockStmt.run(item.quantity, item.product_id, tenantId);
+            } else {
+              // Guarded conditional write: the `stock_quantity >= ?` clause plus
+              // the rows-affected check stop two concurrent sales from
+              // overselling the last unit(s) into negative stock. If nothing
+              // updated, stock is insufficient (or the product/tenant row is
+              // gone) → abort the sale (the surrounding db.transaction
+              // auto-rolls-back the whole sale).
+              const stockRes = stockStmt.run(
+                item.quantity,
+                item.product_id,
+                tenantId,
+                item.quantity,
               );
+              if (stockRes.changes === 0) {
+                const p = db
+                  .prepare(
+                    `SELECT name, stock_quantity FROM products WHERE id = ? AND tenant_id = ?`,
+                  )
+                  .get(item.product_id, tenantId) as
+                  | { name?: string; stock_quantity?: number }
+                  | undefined;
+                throw new BusinessRuleError(
+                  `Not enough stock for "${p?.name ?? `product #${item.product_id}`}" (${p?.stock_quantity ?? 0} available)`,
+                );
+              }
             }
           }
         }

@@ -223,4 +223,26 @@ describe("SalesRepository — stock oversell guard", () => {
     // ... and the rejected sale was fully rolled back — no orphan sale_items.
     expect(saleItemCount()).toBe(itemsAfterFirst);
   });
+
+  it("allows overselling into negative stock when allowOutOfStock is set", () => {
+    // Stock is 1; selling 2 with out-of-stock sales allowed must SUCCEED and let
+    // stock go negative (the shop opted in; the shortfall is surfaced by the
+    // Negative-Stock report for reconciliation).
+    const res = repo.processSale(
+      {
+        client_id: null,
+        items: [{ product_id: 1, quantity: 2, price: 10 }],
+        total_amount: 20,
+        discount: 0,
+        final_amount: 20,
+        payment_usd: 20,
+        payment_lbp: 0,
+        exchange_rate: 90_000,
+      },
+      1,
+      { allowOutOfStock: true },
+    );
+    expect(res.success).toBe(true);
+    expect(stock()).toBe(-1);
+  });
 });

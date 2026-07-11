@@ -6191,6 +6191,32 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 125,
+    name: "add_allow_out_of_stock_sales_setting",
+    description:
+      "Add the per-shop 'allow_out_of_stock_sales' setting. Existing shops are set to '1' (allow) so the stock-oversell guard does not suddenly block shops that don't track stock; fresh installs default to '0' (enforce) via create_db.sql. Applied to every existing tenant.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const res = db
+        .prepare(
+          `INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value)
+           SELECT id, 'allow_out_of_stock_sales', '1' FROM tenants`,
+        )
+        .run();
+      console.log(
+        `Migration v125: allow_out_of_stock_sales='1' set for ${res.changes} existing tenant(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(
+        `DELETE FROM system_settings WHERE key_name = 'allow_out_of_stock_sales'`,
+      );
+      console.log(
+        "Migration v125 rolled back: allow_out_of_stock_sales removed",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

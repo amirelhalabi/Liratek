@@ -35,6 +35,7 @@ export default function ShopConfig() {
   const [customerSessions, setCustomerSessions] = useState(true);
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
   const [voiceBotEnabled, setVoiceBotEnabled] = useState(true);
+  const [allowOutOfStockSales, setAllowOutOfStockSales] = useState(false);
 
   // Print settings
   const [printers, setPrinters] = useState<
@@ -110,6 +111,7 @@ export default function ShopConfig() {
       setSessionMgmt(map.get("feature_session_management") !== "disabled");
       setCustomerSessions(map.get("feature_customer_sessions") !== "disabled");
       setAutoCheckUpdates(map.get("auto_check_updates") !== "0");
+      setAllowOutOfStockSales(map.get("allow_out_of_stock_sales") === "1");
       setReceiptPrinter((map.get("receipt_printer") as string) || "");
       setBarcodePrinter((map.get("barcode_printer") as string) || "");
       setAlfaCreditCost((map.get("alfa_credit_cost_lbp") as string) || "85000");
@@ -162,6 +164,10 @@ export default function ShopConfig() {
           customerSessions ? "enabled" : "disabled",
         ),
         api.updateSetting("auto_check_updates", autoCheckUpdates ? "1" : "0"),
+        api.updateSetting(
+          "allow_out_of_stock_sales",
+          allowOutOfStockSales ? "1" : "0",
+        ),
         api.updateSetting("receipt_printer", receiptPrinter),
         api.updateSetting("barcode_printer", barcodePrinter),
         api.updateSetting("alfa_credit_cost_lbp", alfaCreditCost),
@@ -476,6 +482,34 @@ export default function ShopConfig() {
               className={clsx(
                 "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
                 voiceBotEnabled ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </div>
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group">
+          <div className="flex items-center gap-3">
+            <div>
+              <span className="text-sm text-white">
+                Allow out-of-stock sales
+              </span>
+              <p className="text-xs text-slate-500">
+                When on, a sale completes even if an item is out of stock (stock
+                may go negative). When off, the sale is blocked.
+              </p>
+            </div>
+          </div>
+          <div
+            className={clsx(
+              "relative w-10 h-5 rounded-full transition-colors",
+              allowOutOfStockSales ? "bg-violet-600" : "bg-slate-600",
+            )}
+            onClick={() => setAllowOutOfStockSales(!allowOutOfStockSales)}
+          >
+            <div
+              className={clsx(
+                "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                allowOutOfStockSales ? "translate-x-5" : "translate-x-0.5",
               )}
             />
           </div>

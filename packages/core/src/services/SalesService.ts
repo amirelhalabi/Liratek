@@ -23,6 +23,7 @@ import {
   type ChartDataPoint,
 } from "../repositories/index.js";
 import { salesLogger } from "../utils/logger.js";
+import { getSettingsService } from "./SettingsService.js";
 
 // =============================================================================
 // Types
@@ -64,7 +65,12 @@ export class SalesService {
         }
       }
 
-      const result = this.salesRepo.processSale(sale, userId);
+      const allowOutOfStock =
+        getSettingsService().getSettingValue("allow_out_of_stock_sales")
+          ?.value === "1";
+      const result = this.salesRepo.processSale(sale, userId, {
+        allowOutOfStock,
+      });
 
       if (result.success && result.id) {
         const drawerName = sale.drawer_name || "General";

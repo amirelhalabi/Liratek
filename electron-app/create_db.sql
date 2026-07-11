@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS system_settings (
 INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
   (1, 'shop_name', 'Corner Tech'),
   (1, 'default_debt_term_days', '30'),
-  (1, 'shop_base_system', 'OMT');
+  (1, 'shop_base_system', 'OMT'),
+  (1, 'allow_out_of_stock_sales', '0');
 
 -- Users
 -- NOTE: username stays GLOBALLY unique (committed decision — login has no
@@ -1433,4 +1434,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (121, 'add_session_id_to_debt_ledger'),
     (122, 'rename_debts_module_to_accounts'),
     (123, 'add_multi_tenancy'),
-    (124, 'name_home_tenant_from_shop');
+    (124, 'name_home_tenant_from_shop'),
+    (125, 'add_allow_out_of_stock_sales_setting');
