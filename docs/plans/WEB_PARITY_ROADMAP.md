@@ -26,7 +26,7 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | Phase | Goal | Status |
 |---|---|---|
 | **1. Fix broken pages** | Every page renders (not crash) in a browser | ✅ Done (`c7bf8b4`) |
-| **2. REST parity per money module** | Each module reachable + wired over REST | 🟡 In progress — sales/loto/sessions done; ~7 modules remain (§3) |
+| **2. REST parity per money module** | Each module reachable + wired over REST | ✅ Done — all modules reachable over REST (§3); debts addCredit reclassified as no-web-work |
 | **3. `window.api`→REST shim** | Let the ~50 IPC-driven desktop specs run over HTTP | 🔴 Not started |
 | **4. Unify the suites** | Run all ~148 specs against BOTH transports | 🔴 Not started |
 
@@ -46,16 +46,13 @@ A module "works in the browser" when: (a) a REST route exists mirroring its IPC 
 | Audit log (read) | `40e4c5d` | read-only; `backend/src/api/audit.ts` (search/recent/by-entity); core AuditService already present; proof `lira-web-005`. NOTE: distinct from `/api/activity`; the viewer uses the `audit` trail |
 | Drawer top-ups | `104e9e1` | `backend/src/api/drawerTopUp.ts` (source-drawers/history/create/from-drawer); no schema/core change; proof `lira-web-006` |
 | Debts cash-out + account-entry | `919cb7e` | lifted debtCashOut/debtAccountEntry schemas; `/api/debts/{clients/:id/balance,cash-out,account-entry}`; Debts page fully dual-mode; proof `lira-web-007`. (getDebtors/history/repayment/summary were already dual-mode) |
+| Closing / checkpoint (createCheckpoint money write) | `57cfd6e` | new `createCheckpointSchema` → core; `backend/src/api/closing.ts` +4 routes (POST /checkpoint admin money-write, POST /recalculate-drawer-balances [adapter already called it — route was 404], GET /checkpoint-timeline [fixed filter shape], GET /initial-checkpoint-date); adapter gained createCheckpoint/getCheckpointTimeline/getInitialCheckpointDate; migrated Checkpoint page + CheckpointTimeline + InitialDrawerAmountsModal; proof `lira-web-010` (drawer-balance +10 delta, rule 15). **Gotcha:** closing.ts has no router-level `authenticateJWT` — admin routes need explicit `requireAuth` BEFORE `requireRole`. Same desktop-ABI caveat. |
 | Voucher codes (gift cards) | `ce10670` | lifted `VoucherCreateSchema` → core (rule 14, cast re-export in electron); `backend/src/api/vouchers.ts` (create/get-all/validate/cancel; cancel admin-only); `vouchers` adapter namespace + `createClient` exposed on the adapter; Vouchers page migrated off `window.api.vouchers.*`/`window.api.clients.*`; proof `lira-web-009`. Money path (redeemByCode) stays internal to parent sale/session txns — not exposed. Same desktop-ABI caveat as partners. |
 | Partners (config + partner_ledger) | `6338f6f` | new `partner.ts` validators (no `userId` — injected from JWT; `transactionType` = full repo union); `backend/src/api/partners.ts` (all 11 channels); `partners` adapter namespace (reads raw, writes enveloped); migrated Partners page + **shared** PartnerSelector + Services + Checkpoint; proof `lira-web-008` (create → DEBIT ledger → settle → **page-level** getAllBalances round-trip through the adapter). ⚠️ Desktop harness NOT re-run to green — shared better-sqlite3 was at Node ABI (parallel-agent contention), so all desktop specs incl. partners-unrelated `app.spec` failed at Electron window-launch (environmental, not a regression). |
 
-**Pending** (verified 2026-07-11: no REST route yet; page still calls `window.api.*` directly):
-
-| Module | REST route | Web-broken page(s) | Size |
-|---|---|---|---|
-| closing / checkpoint | ❌ | `closing/pages/Checkpoint` | M |
-
-**Suggested order:** closing/checkpoint, then move to phase 3.
+**Pending:** _none_ — **step-2 is complete.** Every money/config module the feature
+pages call is now reachable over REST. Next: **phase 3** (the `window.api`→REST shim to
+run the ~50 IPC-driven desktop specs over HTTP), then phase 4 (both transports).
 
 **Reclassified — no web work needed:**
 
