@@ -127,6 +127,15 @@ export function registerSetupHandlers() {
           "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'shop_name', ?)",
         ).run(tenantId, payload.shop_name.trim());
 
+        // 2a. Name this tenant after the shop, so the (web) admin panel shows
+        // the real shop name instead of the generic 'Default' seeded at install
+        // / v123 backfill. Migration v124 does the same for existing installs;
+        // this covers a fresh install completing the wizard.
+        db.prepare("UPDATE tenants SET name = ? WHERE id = ?").run(
+          payload.shop_name.trim(),
+          tenantId,
+        );
+
         // 2b. Save base system (OMT or WHISH) and deactivate partner supplier
         const baseSystem = payload.base_system === "WHISH" ? "WHISH" : "OMT";
         db.prepare(

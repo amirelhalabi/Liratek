@@ -1432,4 +1432,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (120, 'add_supplier_ledger_refund_flag'),
     (121, 'add_session_id_to_debt_ledger'),
     (122, 'rename_debts_module_to_accounts'),
-    (123, 'add_multi_tenancy');
+    (123, 'add_multi_tenancy'),
+    (124, 'name_home_tenant_from_shop');

@@ -6157,6 +6157,40 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 124,
+    name: "name_home_tenant_from_shop",
+    description:
+      "Cosmetic: rename the v123 backfill tenant (id 1, seeded as 'Default') to the shop's own name from system_settings.shop_name, so the admin panel shows e.g. 'CornerTech' instead of 'Default'. Guarded — fires ONLY when the tenant is still literally named 'Default' AND a non-empty shop_name exists; a no-op otherwise (already renamed by the operator, or no shop name recorded yet). Fresh installs name the tenant at setup:complete instead (the wizard writes shop_name after this migration has already run).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        UPDATE tenants
+        SET name = (
+          SELECT value FROM system_settings
+          WHERE key_name = 'shop_name' AND tenant_id = 1
+        )
+        WHERE id = 1
+          AND name = 'Default'
+          AND EXISTS (
+            SELECT 1 FROM system_settings
+            WHERE key_name = 'shop_name' AND tenant_id = 1
+              AND value IS NOT NULL AND TRIM(value) <> ''
+          )
+      `);
+      console.log(
+        "Migration v124: home tenant (id 1) named from shop_name where it was still 'Default'",
+      );
+    },
+    down(db: Database.Database) {
+      // Cosmetic rename only — no schema to revert. Best-effort restore of the
+      // generic 'Default' label on the home tenant.
+      db.exec(`UPDATE tenants SET name = 'Default' WHERE id = 1`);
+      console.log(
+        "Migration v124 rolled back: home tenant name reset to 'Default'",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
