@@ -221,7 +221,12 @@ export default function Expenses() {
 
             {/* Payment Method & Amount */}
             <MultiPaymentInput
-              totalAmount={paymentLines[0]?.amount || 0}
+              totals={[
+                {
+                  amount: paymentLines[0]?.amount || 0,
+                  currency: paymentLines[0]?.currencyCode || "USD",
+                },
+              ]}
               currency={paymentLines[0]?.currencyCode || "USD"}
               totalAmountCurrency={paymentLines[0]?.currencyCode || "USD"}
               onChange={setPaymentLines}

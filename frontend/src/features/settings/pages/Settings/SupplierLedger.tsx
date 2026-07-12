@@ -818,7 +818,7 @@ export default function SupplierLedger() {
                 Payment Method
               </label>
               <MultiPaymentInput
-                totalAmount={settleNetPayUsd}
+                totals={[{ amount: settleNetPayUsd, currency: "USD" }]}
                 currency="USD"
                 onChange={setSettlePaymentLines}
                 showPmFee={false}

@@ -1868,13 +1868,34 @@ export default function Debts() {
                     separate quick-fill button used to write page state this
                     component never displayed (book-what-you-don't-see). */}
                 <MultiPaymentInput
-                  totalAmount={
-                    (repayMode === "cashout" ? creditUsd : dueUsd) +
-                    (EXCHANGE_RATE > 0
-                      ? (repayMode === "cashout" ? creditLbp : dueLbp) /
-                        EXCHANGE_RATE
-                      : 0)
-                  }
+                  // Per-currency totals (multi-currency engine, T2 fix): the
+                  // debt keeps its native composition, so an LBP debt paid in
+                  // LBP is rate-invariant — editing the modal rate no longer
+                  // re-derives the LBP figure through a USD scalar
+                  // (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md, MCP-3).
+                  totals={[
+                    ...((repayMode === "cashout" ? creditUsd : dueUsd) > 0
+                      ? [
+                          {
+                            amount:
+                              repayMode === "cashout" ? creditUsd : dueUsd,
+                            currency: "USD",
+                          },
+                        ]
+                      : []),
+                    ...((repayMode === "cashout" ? creditLbp : dueLbp) > 0
+                      ? [
+                          {
+                            amount:
+                              repayMode === "cashout" ? creditLbp : dueLbp,
+                            currency: "LBP",
+                          },
+                        ]
+                      : []),
+                  ]}
+                  // Repayments convert at the BUY side (owner decision
+                  // 2026-07-06) — passed explicitly, never defaulted silently.
+                  side="buy"
                   initialLines={[
                     ...((repayMode === "cashout" ? creditUsd : dueUsd) > 0
                       ? [

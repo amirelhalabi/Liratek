@@ -486,7 +486,12 @@ export function LotoPage() {
                 <div>
                   <MultiPaymentInput
                     key={paymentInputKey}
-                    totalAmount={saleAmount ? parseFloat(saleAmount) : 0}
+                    totals={[
+                      {
+                        amount: saleAmount ? parseFloat(saleAmount) : 0,
+                        currency: "LBP",
+                      },
+                    ]}
                     totalAmountCurrency="LBP"
                     currency="LBP"
                     onChange={setPaymentLines}

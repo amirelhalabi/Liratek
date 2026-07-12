@@ -8,7 +8,7 @@
  *
  * Covered here by actually rendering + interacting with the component:
  *   - renders a single initial payment line, summary and split toggle
- *   - the initial line auto-fills with the full totalAmount
+ *   - the initial line auto-fills with the full total (per-currency `totals`)
  *   - method options come from the paymentMethods prop
  *   - CUSTOMER_ACCOUNT selection surfaces the "client required" debt warning
  *   - the exchange-rate field renders in both modes; split reveals the
@@ -52,28 +52,44 @@ const CURRENCIES: Currency[] = [
 const EXCHANGE_RATE = 90000;
 
 type ChangeMock = jest.Mock<void, [PaymentLine[]]>;
+type RateMock = jest.Mock<void, [number]>;
 
 interface RenderOptions {
+  /** Shorthand: becomes totals=[{amount, currency: totalAmountCurrency}]. */
   totalAmount?: number;
   currency?: string;
   totalAmountCurrency?: string;
   hasClient?: boolean;
   requiresClientForDebt?: boolean;
   onChange?: ChangeMock;
+  exchangeRate?: number;
+  initialLines?: Array<{ method?: string; currencyCode: string; amount: number }>;
+  onExchangeRateChange?: RateMock;
+  totals?: Array<{ amount: number; currency: string }>;
 }
 
 function renderMpi(opts: RenderOptions = {}) {
   const onChange: ChangeMock = opts.onChange ?? jest.fn();
+  const totals = opts.totals ?? [
+    {
+      amount: opts.totalAmount ?? 100,
+      currency: opts.totalAmountCurrency ?? "USD",
+    },
+  ];
   const utils = render(
     <MultiPaymentInput
-      totalAmount={opts.totalAmount ?? 100}
+      totals={totals}
       currency={opts.currency ?? "USD"}
       totalAmountCurrency={opts.totalAmountCurrency ?? "USD"}
       hasClient={opts.hasClient ?? false}
       requiresClientForDebt={opts.requiresClientForDebt ?? true}
       paymentMethods={PAYMENT_METHODS}
       currencies={CURRENCIES}
-      exchangeRate={EXCHANGE_RATE}
+      exchangeRate={opts.exchangeRate ?? EXCHANGE_RATE}
+      {...(opts.initialLines ? { initialLines: opts.initialLines } : {})}
+      {...(opts.onExchangeRateChange
+        ? { onExchangeRateChange: opts.onExchangeRateChange }
+        : {})}
       // Hide the discount field so the summary stays focused on totals.
       showDiscount={false}
       onChange={onChange}
@@ -96,6 +112,22 @@ function allLines(): Element[] {
   );
 }
 
+/** The first payment line's amount input. */
+function firstAmountInput(): HTMLInputElement {
+  const input = document.querySelector<HTMLInputElement>(
+    '[data-testid^="payment-amount-"]',
+  );
+  if (!input) throw new Error("no payment-amount input rendered");
+  return input;
+}
+
+/** Type a new value into the header exchange-rate field (commas allowed). */
+function setRate(value: string): void {
+  fireEvent.change(screen.getByTestId("payment-exchange-rate"), {
+    target: { value },
+  });
+}
+
 describe("MultiPaymentInput", () => {
   describe("initial render", () => {
     it("renders the root, a single payment line, summary and split toggle", () => {
@@ -107,7 +139,7 @@ describe("MultiPaymentInput", () => {
       expect(allLines()).toHaveLength(1);
     });
 
-    it("auto-fills the single line's amount with the full totalAmount", () => {
+    it("auto-fills the single line's amount with the full total", () => {
       renderMpi({ totalAmount: 75 });
 
       const amount = document.querySelector<HTMLInputElement>(
@@ -370,7 +402,7 @@ describe("MultiPaymentInput", () => {
       const onWaiveRemaining = jest.fn();
       render(
         <MultiPaymentInput
-          totalAmount={100}
+          totals={[{ amount: 100, currency: "USD" }]}
           currency="USD"
           totalAmountCurrency="USD"
           hasClient={false}
@@ -400,7 +432,7 @@ describe("MultiPaymentInput", () => {
       const onWaiveRemaining = jest.fn();
       render(
         <MultiPaymentInput
-          totalAmount={100}
+          totals={[{ amount: 100, currency: "USD" }]}
           currency="USD"
           totalAmountCurrency="USD"
           hasClient={false}
@@ -428,7 +460,7 @@ describe("MultiPaymentInput", () => {
     it("forces the CASH return fields even with multiple payment methods available", () => {
       render(
         <MultiPaymentInput
-          totalAmount={100}
+          totals={[{ amount: 100, currency: "USD" }]}
           currency="USD"
           totalAmountCurrency="USD"
           hasClient={false}
@@ -459,7 +491,7 @@ describe("MultiPaymentInput", () => {
     it("splits an overpaid USD amount into integer USD notes + LBP remainder", () => {
       render(
         <MultiPaymentInput
-          totalAmount={100}
+          totals={[{ amount: 100, currency: "USD" }]}
           currency="USD"
           totalAmountCurrency="USD"
           hasClient={false}
@@ -508,6 +540,162 @@ describe("MultiPaymentInput", () => {
         },
       ];
       expect(lines.some((l) => l.method === "CUSTOMER_ACCOUNT")).toBe(true);
+    });
+  });
+
+  describe("characterization — rate-driven conversion (current contract)", () => {
+    // These pin the CURRENT cross-currency math so the engine rewire (MCP-2,
+    // docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md) can prove zero behavior
+    // change. For a genuinely single-currency total (e.g. a POS sale
+    // denominated in USD), re-deriving the other currency's amount from the
+    // rate IS correct — these tests must stay green through every phase.
+
+    it("converts a single-mode currency switch at the edited rate, not the prop rate", () => {
+      renderMpi({ totalAmount: 100 });
+
+      setRate("100,000");
+      const id = firstLineId();
+      fireEvent.change(screen.getByTestId(`payment-currency-${id}`), {
+        target: { value: "LBP" },
+      });
+
+      // 100 USD × 100,000 (edited) — not × 90,000 (prop).
+      expect(firstAmountInput().value).toBe("10,000,000");
+    });
+
+    it("re-syncs a cross-currency single line when the rate is edited", () => {
+      renderMpi({ totalAmount: 100 });
+
+      const id = firstLineId();
+      fireEvent.change(screen.getByTestId(`payment-currency-${id}`), {
+        target: { value: "LBP" },
+      });
+      expect(firstAmountInput().value).toBe("9,000,000"); // 100 × 90,000
+
+      setRate("100,000");
+      expect(firstAmountInput().value).toBe("10,000,000"); // 100 × 100,000
+    });
+
+    it("stops re-syncing once the amount was manually edited (overpayment preserved)", () => {
+      renderMpi({ totalAmount: 100 });
+
+      const id = firstLineId();
+      fireEvent.change(screen.getByTestId(`payment-currency-${id}`), {
+        target: { value: "LBP" },
+      });
+      fireEvent.change(firstAmountInput(), { target: { value: "8000000" } });
+      expect(firstAmountInput().value).toBe("8,000,000");
+
+      setRate("100,000");
+      // Touched line is NOT re-derived to 10,000,000.
+      expect(firstAmountInput().value).toBe("8,000,000");
+    });
+
+    it("emits the rate via onExchangeRateChange on mount and on every edit", () => {
+      const onExchangeRateChange: RateMock = jest.fn();
+      renderMpi({ onExchangeRateChange });
+
+      // Mount effect reports the prop rate (Debts seeds repayModalRate off this).
+      expect(onExchangeRateChange).toHaveBeenCalledWith(EXCHANGE_RATE);
+
+      setRate("95,000");
+      expect(onExchangeRateChange).toHaveBeenLastCalledWith(95000);
+    });
+
+  });
+
+  describe("T2 — native-LBP total round-tripped through the USD scalar (bug proof)", () => {
+    // Sprint task T2 (docs/tickets/CURRENT_SPRINT.md), owner repro 2026-07-12:
+    // a 600,000 LBP debt opened at rate 89,000 showed 606,742 after editing
+    // the rate to 90,000 — the native-LBP amount was re-derived from the USD
+    // scalar (600000/89000 × 90000). Fixed in MCP-3 by feeding per-currency
+    // `totals` (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md). The rule-17
+    // failing-first proof lived here as an `it.failing` against the scalar
+    // `totalAmount` prop until MCP-5 deleted that prop (its documented death;
+    // see the plan for the recorded 600,000 → 606,742 failure output).
+
+    // The PERMANENT regression guard — mirrors the fixed Debts modal wiring
+    // (per-currency totals). Proven failing-first on the pre-fix code (rule 17).
+    it("totals contract: keeps a pure-LBP debt prefill invariant under rate edits", () => {
+      renderMpi({
+        totals: [{ amount: 600_000, currency: "LBP" }],
+        exchangeRate: 89_000,
+        initialLines: [{ currencyCode: "LBP", amount: 600_000 }],
+      });
+
+      expect(firstAmountInput().value).toBe("600,000");
+
+      setRate("90,000");
+
+      // The debt is 600,000 LBP regardless of the rate — paying LBP against
+      // an LBP debt involves no exchange.
+      expect(firstAmountInput().value).toBe("600,000");
+      expect(screen.getByTestId("payment-summary")).toBeInTheDocument();
+    });
+
+    it("totals contract: a mixed USD+LBP debt only re-derives the USD part on rate edits", () => {
+      // $50 + 600,000 LBP, seeded per currency (split mode, like the modal).
+      renderMpi({
+        totals: [
+          { amount: 50, currency: "USD" },
+          { amount: 600_000, currency: "LBP" },
+        ],
+        exchangeRate: 89_000,
+        initialLines: [
+          { currencyCode: "USD", amount: 50 },
+          { currencyCode: "LBP", amount: 600_000 },
+        ],
+      });
+
+      const amounts = () =>
+        Array.from(
+          document.querySelectorAll<HTMLInputElement>(
+            '[data-testid^="payment-amount-"]',
+          ),
+        ).map((i) => i.value);
+      expect(amounts()).toEqual(["50", "600,000"]);
+
+      setRate("90,000");
+
+      // Split-mode seeded lines are never auto-rewritten; the native LBP
+      // figure in particular must not budge.
+      expect(amounts()).toEqual(["50", "600,000"]);
+    });
+  });
+
+  describe("EUR-readiness (MCP-5 acceptance)", () => {
+    // The design's acceptance test: adding a currency is DATA — a registry/
+    // rate-table entry — with zero component changes. A EUR total prefill is
+    // native, and the USD↔LBP header rate field cannot touch it.
+    it("a EUR total prefills natively and is invariant to the LBP header rate", () => {
+      render(
+        <MultiPaymentInput
+          totals={[{ amount: 90, currency: "EUR" }]}
+          rateTable={{
+            base: "USD",
+            rates: {
+              LBP: { buy: 89_000, sell: 89_500 },
+              EUR: { buy: 0.9, sell: 0.92 },
+            },
+          }}
+          side="buy"
+          currency="EUR"
+          totalAmountCurrency="EUR"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={[...CURRENCIES, { code: "EUR", symbol: "€" }]}
+          exchangeRate={89_000}
+          showDiscount={false}
+          onChange={jest.fn()}
+        />,
+      );
+
+      expect(firstAmountInput().value).toBe("90");
+
+      // The header field edits the USD↔LBP pair only — EUR math is untouched.
+      setRate("100,000");
+      expect(firstAmountInput().value).toBe("90");
     });
   });
 });

@@ -656,7 +656,9 @@ export function SettlementVerification({
                       : "How you pay LOTO:"}
                   </p>
                   <MultiPaymentInput
-                    totalAmount={Math.abs(totals.net)}
+                    totals={[
+                      { amount: Math.abs(totals.net), currency: "LBP" },
+                    ]}
                     totalAmountCurrency="LBP"
                     currency="LBP"
                     onChange={setPaymentLines}

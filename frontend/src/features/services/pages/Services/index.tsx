@@ -1820,16 +1820,20 @@ export default function Services() {
               {/* Payment Method */}
               <div>
                 <MultiPaymentInput
-                  totalAmount={
-                    // On SEND:
-                    // - includingFees=false: customer pays amount + fee on top
-                    // - includingFees=true: fee is already inside amount, customer pays just amount
-                    serviceType === "SEND"
-                      ? includingFees
-                        ? parseFloat(amount) || 0
-                        : (parseFloat(amount) || 0) + renderProviderFee
-                      : parseFloat(amount) || 0
-                  }
+                  totals={[
+                    {
+                      // On SEND:
+                      // - includingFees=false: customer pays amount + fee on top
+                      // - includingFees=true: fee is already inside amount, customer pays just amount
+                      amount:
+                        serviceType === "SEND"
+                          ? includingFees
+                            ? parseFloat(amount) || 0
+                            : (parseFloat(amount) || 0) + renderProviderFee
+                          : parseFloat(amount) || 0,
+                      currency: "USD",
+                    },
+                  ]}
                   currency="USD"
                   onChange={(lines) => {
                     setPaymentLines(lines);

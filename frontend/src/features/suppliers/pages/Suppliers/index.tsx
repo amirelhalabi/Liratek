@@ -850,7 +850,9 @@ export default function SuppliersPage() {
 
                   <MultiPaymentInput
                     key={`${cashflowKey}-${cashflowDirection}`}
-                    totalAmount={Math.abs(payAmount)}
+                    totals={[
+                      { amount: Math.abs(payAmount), currency: payCurrency },
+                    ]}
                     totalAmountCurrency={payCurrency}
                     currency={payCurrency}
                     onChange={setCashflowLines}

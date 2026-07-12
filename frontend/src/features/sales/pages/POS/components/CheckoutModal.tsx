@@ -869,7 +869,7 @@ export default function CheckoutModal({
             <div className="space-y-6 flex-1 overflow-y-auto">
               <MultiPaymentInput
                 key={`payment-${paymentInputKey}`}
-                totalAmount={finalAmount}
+                totals={[{ amount: finalAmount, currency: totalCurrency }]}
                 currency={totalCurrency}
                 totalAmountCurrency={totalCurrency}
                 {...(draftInitialLines

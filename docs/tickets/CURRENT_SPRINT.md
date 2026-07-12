@@ -1,8 +1,22 @@
 # Current Sprint — March 2026
 
-> **Last Updated**: 2026-04-17  
+> **Last Updated**: 2026-07-12  
 > **Sprint Start**: 2026-03-01  
 > **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update, Sales Reporting, Recharge Page Overhaul, IPEC/KATCH/OMT App Implementation, Exchange Rate System
+
+---
+
+## 🔥 New Tasks — July 12, 2026 (Owner-reported)
+
+| #   | Task                                            | Status         | Details                                                                                                                                                              |
+| --- | ----------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T2  | **Rate change on Account page mutates LBP balance** | ✅ **Done** | Fixed 2026-07-12, full rollout complete (MCP-0…5). All payment forms now feed per-currency `totals` into MultiPaymentInput, which runs on the money engine (`packages/ui/src/money/`) — a rate is only consulted when a payment crosses currencies, so an LBP debt paid in LBP is rate-invariant. Guards: component tests + `lira-105` e2e (proven failing-first: 600,000 → 606,742 pre-fix). EUR-ready: a new currency = rate-table/registry row, zero component changes. Plan + full record: `docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md`. |
+| T3  | **Allow zero return in "Return amount" section**    | 🔴 **Pending** | When a client overpays, cashier should be able to return nothing (keep the extra in the drawer). Currently the return leg is forced. Mind rule 16 (IN/OUT legs).      |
+| T4  | **Timing error on Windows (works on Mac)**           | 🔴 **Pending** | Platform-specific timing bug — reproduce on Windows first. Suspect timestamp/timezone handling (see `parseDbDate` convention); needs investigation to pin down.      |
+| T5  | **Receipt logo + editable walk-in customer (POS)**   | 🔴 **Pending** | Two parts: (a) add shop logo to the printed receipt; (b) allow editing the "Walk-in customer" name on a POS sale.                                                    |
+| T6  | **Loto: cashed-out prizes reduce supplier balance**  | 🔴 **Pending** | Prizes cashed out to players must reduce the running balance between the shop and the loto supplier. Money flow — read `docs/FEATURE_GUIDE.md` §13 before touching.  |
+| T7  | **Expenses: enable all payment methods**             | 🔴 **Pending** | Expenses currently restricts payment methods — enable the full payment-method set like other modules.                                                                |
+| T8  | **Receipts for mobile services, maintenance, etc.**  | 🔴 **Pending** | Extend receipt printing beyond POS sales to service modules (recharge/financial services, maintenance, custom services…).                                            |
 
 ---
 

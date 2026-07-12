@@ -202,7 +202,7 @@ export function PaymentSheet({
             </h3>
             <MultiPaymentInput
               key={paymentInputKey}
-              totalAmount={totalAmount}
+              totals={[{ amount: totalAmount, currency: totalAmountCurrency }]}
               totalAmountCurrency={totalAmountCurrency}
               currency={currency}
               onChange={(lines) => {

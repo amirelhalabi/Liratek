@@ -671,7 +671,22 @@ export function SessionCheckoutModal({
             <div className="space-y-1">
               <MultiPaymentInput
                 key={`payment-${paymentInputKey}`}
-                totalAmount={combinedTotalUSD}
+                // Per-currency totals (multi-currency engine): the GROSS
+                // charges keep their native composition, so an LBP-only
+                // basket's prefill is rate-invariant — editing the modal rate
+                // no longer re-derives it through a USD scalar (the T2 bug,
+                // docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md MCP-4).
+                totals={[
+                  ...(chargeUsd > 0
+                    ? [{ amount: chargeUsd, currency: "USD" }]
+                    : []),
+                  ...(chargeLbp > 0
+                    ? [{ amount: chargeLbp, currency: "LBP" }]
+                    : []),
+                ]}
+                // Session payments convert at the BUY side (owner decision
+                // 2026-07-06), stated explicitly.
+                side="buy"
                 currency="USD"
                 totalAmountCurrency="USD"
                 initialLines={paymentInitialLines}

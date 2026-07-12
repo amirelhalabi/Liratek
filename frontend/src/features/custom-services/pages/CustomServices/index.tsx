@@ -857,7 +857,9 @@ export default function CustomServices() {
                   </label>
                   <MultiPaymentInput
                     key={paymentInputKey}
-                    totalAmount={priceUsdVal || costUsdVal}
+                    totals={[
+                      { amount: priceUsdVal || costUsdVal, currency: "USD" },
+                    ]}
                     currency="USD"
                     onChange={setPaymentLines}
                     onReturnChange={setReturnLegs}

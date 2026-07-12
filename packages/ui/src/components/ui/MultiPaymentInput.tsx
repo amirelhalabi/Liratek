@@ -2,6 +2,14 @@ import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { DecimalInput } from "./DecimalInput";
 import { roundLBPUp } from "../../config/denominations";
+import {
+  allocatePayments,
+  convert as convertMoney,
+  roundForCurrency,
+  type Money,
+  type RateSide,
+  type RateTable,
+} from "../../money";
 
 export type PaymentLine = {
   id: string;
@@ -40,11 +48,24 @@ export type TransactionType =
   | "CUSTOM_SERVICE";
 
 export interface MultiPaymentInputProps {
-  totalAmount: number;
   currency: string;
-  /** The currency that totalAmount is denominated in. Defaults to "USD".
+  /** The currency the summary/aggregate surfaces (total row, return-field
+   *  seeding, tolerances) are expressed in. Defaults to "USD".
    *  e.g. Whish/iPick/KATCH pass "LBP", POS sale passes "USD". */
   totalAmountCurrency?: string;
+  /** Per-currency totals — the multi-currency engine contract
+   *  (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md). Each entry is what is owed
+   *  in that currency NATIVELY; a rate is only ever consulted when a payment
+   *  crosses currencies, so e.g. an LBP debt paid in LBP is rate-invariant.
+   *  Defaults to [] (nothing owed). */
+  totals?: Money[];
+  /** Rate table for cross-currency math. Defaults to a USD-based table whose
+   *  LBP pair tracks the header rate field (which also overrides the LBP pair
+   *  of a provided table — the operator sets today's counter rate). */
+  rateTable?: RateTable;
+  /** Quote side used for EVERY conversion (business decision per flow, e.g.
+   *  debt repayments use "buy"). Default "buy". */
+  side?: RateSide;
   onChange: (payments: PaymentLine[]) => void;
   /** Emitted when the customer overpays — array of shop→customer change legs
    *  (direction "OUT"), empty when balanced/underpaid.
@@ -77,7 +98,7 @@ export interface MultiPaymentInputProps {
   /** Callback when exchange rate changes */
   onRateChange?: (rate: number) => void;
   /** Show an optional discount field that reduces the amount the customer pays.
-   *  Discount is subtracted from totalAmount before payment matching. */
+   *  Discount is subtracted from the totals before payment matching. */
   showDiscount?: boolean;
   /** Maximum allowed discount (in totalAmountCurrency). Cannot exceed cost. */
   maxDiscount?: number;
@@ -136,9 +157,11 @@ function parseNum(formatted: string): number {
 }
 
 export default function MultiPaymentInput({
-  totalAmount,
   currency,
   totalAmountCurrency = "USD",
+  totals: totalsProp,
+  rateTable: rateTableProp,
+  side = "buy",
   onChange,
   onReturnChange,
   requiresClientForDebt = true,
@@ -189,7 +212,9 @@ export default function MultiPaymentInput({
         id: crypto.randomUUID(),
         method: initialMethod || "CASH",
         currencyCode: currency,
-        amount: totalAmount,
+        // The mount run of the single-mode auto-sync effect fills this from
+        // the per-currency totals.
+        amount: 0,
       },
     ],
   );
@@ -222,35 +247,131 @@ export default function MultiPaymentInput({
   // deliberate overpayment isn't clobbered by the auto-sync-to-total effect.
   const singleAmountTouchedRef = useRef<boolean>(false);
 
+  const safeExchangeRate =
+    exchangeRate || rateTableProp?.rates["LBP"]?.[side] || 89000;
   const [customExchangeRate, setCustomExchangeRate] = useState<string>(
-    (exchangeRate || 89000).toString(),
+    safeExchangeRate.toString(),
   );
 
-  const safeExchangeRate = exchangeRate || 89000;
   const effectiveRate = parseFloat(customExchangeRate) || safeExchangeRate;
+
+  // ── Multi-currency engine model (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md) ──
+  // Every conversion in this component goes through this table. The header
+  // rate field ("1 USD = X LBP") overrides the USD↔LBP pair — other pairs of
+  // a provided table (e.g. EUR) pass through untouched.
+  const internalRates: RateTable = {
+    base: rateTableProp?.base ?? "USD",
+    rates: {
+      ...rateTableProp?.rates,
+      LBP: { buy: effectiveRate, sell: effectiveRate },
+    },
+  };
+
+  /** Convert an amount between currencies at the effective table. Unknown
+   *  pairs fall back to the amount unchanged — the legacy behavior of
+   *  normalizeToTarget's "no cross-rate support" branch. */
+  const convertSafe = (
+    amount: number,
+    from: string,
+    to: string,
+  ): number => {
+    if (from === to) return amount;
+    try {
+      return convertMoney({ amount, currency: from }, to, internalRates, side)
+        .amount;
+    } catch {
+      return amount;
+    }
+  };
 
   // --- Discount logic ---
   const discountAmount = parseNum(discountRaw);
 
   /** Normalize discount from discountCurrency to totalAmountCurrency */
-  const normalizeDiscount = (amt: number, fromCurr: string): number => {
-    if (fromCurr === totalAmountCurrency) return amt;
-    if (fromCurr === "LBP" && totalAmountCurrency === "USD")
-      return amt / effectiveRate;
-    if (fromCurr === "USD" && totalAmountCurrency === "LBP")
-      return amt * effectiveRate;
-    return amt;
-  };
-
-  const discountNormalized = normalizeDiscount(
+  const discountNormalized = convertSafe(
     discountAmount,
     discountCurrency,
+    totalAmountCurrency,
   );
   const clampedDiscount =
     maxDiscount !== undefined
       ? Math.min(discountNormalized, maxDiscount)
       : discountNormalized;
-  const effectiveTotalAmount = Math.max(0, totalAmount - clampedDiscount);
+
+  // What is owed, per currency — the native composition callers provide.
+  // Discount (normalized to totalAmountCurrency) is taken out of the buckets
+  // largest-first.
+  const baseTotals: Money[] = totalsProp ?? [];
+  const effectiveTotals: Money[] = (() => {
+    if (clampedDiscount <= 0) return baseTotals;
+    let discountLeft = clampedDiscount;
+    return [...baseTotals]
+      .sort(
+        (a, b) =>
+          convertSafe(b.amount, b.currency, totalAmountCurrency) -
+          convertSafe(a.amount, a.currency, totalAmountCurrency),
+      )
+      .map((t) => {
+        if (discountLeft <= 0) return t;
+        const discountHere = Math.min(
+          convertSafe(discountLeft, totalAmountCurrency, t.currency),
+          t.amount,
+        );
+        discountLeft -= convertSafe(
+          discountHere,
+          t.currency,
+          totalAmountCurrency,
+        );
+        return { ...t, amount: t.amount - discountHere };
+      });
+  })();
+
+  // Scalar bridges: totals expressed in totalAmountCurrency — they feed the
+  // single-number UI surfaces (summary rows, return-field seeding, waive
+  // threshold). Pre-discount and post-discount variants.
+  const sumInTarget = (items: Money[]): number =>
+    items.reduce(
+      (sum, t) => sum + convertSafe(t.amount, t.currency, totalAmountCurrency),
+      0,
+    );
+  const totalInTarget = sumInTarget(baseTotals);
+  const effectiveTotalInTarget = sumInTarget(effectiveTotals);
+
+  /** What one line should auto-fill to, in its own currency: the NATIVE
+   *  remaining in that currency plus the other currencies' remaining
+   *  converted at the effective rate (rounded — a converted figure is an
+   *  exchange, so currency precision applies; the native part passes through
+   *  raw, exactly like the legacy same-currency branch). This is the
+   *  currency-boundary rule that makes an LBP debt paid in LBP rate-proof. */
+  const prefillAmountFor = (
+    lineCurrency: string,
+    excludeLineId?: string,
+  ): number => {
+    const otherPayments: Money[] = paymentLines
+      .filter((l) => l.id !== excludeLineId)
+      .map((l) => ({
+        amount: Math.max(0, l.amount || 0),
+        currency: l.currencyCode,
+      }));
+    const { remaining } = allocatePayments(
+      {
+        totals: effectiveTotals,
+        payments: otherPayments,
+        rates: internalRates,
+        side,
+      },
+      { round: false },
+    );
+    const native =
+      remaining.find((m) => m.currency === lineCurrency)?.amount ?? 0;
+    const cross = remaining
+      .filter((m) => m.currency !== lineCurrency)
+      .reduce((s, m) => s + convertSafe(m.amount, m.currency, lineCurrency), 0);
+    return cross > 0
+      ? native +
+          roundForCurrency({ amount: cross, currency: lineCurrency }).amount
+      : native;
+  };
 
   // Auto-sync discount currency with single payment line currency
   useEffect(() => {
@@ -278,30 +399,25 @@ export default function MultiPaymentInput({
       ? paymentLines[0].currencyCode
       : null;
 
-  // In single mode, auto-sync the line amount with effectiveTotalAmount (currency-aware).
-  // Skipped once the user manually edits the amount, so a deliberate overpayment
-  // (customer hands more than the total) is preserved instead of being reset.
+  // Re-run the single-mode auto-sync when a caller-provided per-currency
+  // total changes (stable key — the prop is a fresh array each render).
+  const totalsKey = totalsProp
+    ? totalsProp.map((t) => `${t.currency}:${t.amount}`).join("|")
+    : null;
+
+  // In single mode, auto-sync the line amount with the effective totals
+  // (currency-aware). Skipped once the user manually edits the amount, so a
+  // deliberate overpayment (customer hands more than the total) is preserved
+  // instead of being reset.
   useEffect(() => {
     if (singleAmountTouchedRef.current) return;
     if (!isSplitMode && paymentLines.length === 1) {
       const line = paymentLines[0];
-      // Convert effectiveTotalAmount (in totalAmountCurrency) to the line's currency
-      let converted = effectiveTotalAmount;
-      if (line.currencyCode !== totalAmountCurrency) {
-        // Round to the line currency's precision (LBP whole, USD 2 dp) so a
-        // rate round-trip can't leak FP noise into the amount that is both
-        // displayed and submitted (mirrors the currency-change handler below).
-        if (totalAmountCurrency === "USD" && line.currencyCode === "LBP") {
-          converted = Math.round(effectiveTotalAmount * effectiveRate);
-        } else if (
-          totalAmountCurrency === "LBP" &&
-          line.currencyCode === "USD"
-        ) {
-          converted = parseFloat(
-            (effectiveTotalAmount / effectiveRate).toFixed(2),
-          );
-        }
-      }
+      // Native remaining passes through raw; only the cross-currency part is
+      // an exchange and gets rounded to the line currency's precision (LBP
+      // whole, USD 2 dp) so a rate round-trip can't leak FP noise into the
+      // amount that is both displayed and submitted.
+      const converted = prefillAmountFor(line.currencyCode, line.id);
       const updated = [{ ...line, amount: converted }];
       if (line.amount !== converted) {
         setPaymentLines(updated);
@@ -313,7 +429,7 @@ export default function MultiPaymentInput({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    totalAmount,
+    totalsKey,
     isSplitMode,
     effectiveRate,
     singleLineCurrency,
@@ -406,28 +522,16 @@ export default function MultiPaymentInput({
   }, [clientVouchers, giftCardSelectionKey]);
 
   const addPaymentLine = () => {
-    // Calculate remaining in totalAmountCurrency, then convert to the new line's currency
-    const remaining = effectiveTotalAmount - totalPaid;
+    // Auto-fill the new line with what's still outstanding, in its own
+    // currency: native remaining raw + cross-currency remainder converted.
     const newCurrency = currency;
-    let autoAmount = 0;
-    if (remaining > 0) {
-      if (newCurrency === totalAmountCurrency) {
-        autoAmount = remaining;
-      } else if (newCurrency === "LBP" && totalAmountCurrency === "USD") {
-        autoAmount = Math.round(remaining * effectiveRate);
-      } else if (newCurrency === "USD" && totalAmountCurrency === "LBP") {
-        autoAmount = parseFloat((remaining / effectiveRate).toFixed(2));
-      } else {
-        autoAmount = remaining;
-      }
-    }
     handleLinesChange([
       ...paymentLines,
       {
         id: crypto.randomUUID(),
         method: "CASH",
         currencyCode: newCurrency,
-        amount: autoAmount,
+        amount: prefillAmountFor(newCurrency),
       },
     ]);
   };
@@ -452,15 +556,14 @@ export default function MultiPaymentInput({
       if (line.id !== id) return line;
       const updated = { ...line, [field]: value };
 
-      // Convert amount when currency changes
+      // Convert amount when currency changes — an actual exchange, so the
+      // result is rounded to the new currency's precision (LBP whole, USD 2dp).
       if (field === "currencyCode" && value !== line.currencyCode) {
-        const oldCurr = line.currencyCode;
         const newCurr = value as string;
-        if (oldCurr === "USD" && newCurr === "LBP") {
-          updated.amount = Math.round(line.amount * effectiveRate);
-        } else if (oldCurr === "LBP" && newCurr === "USD") {
-          updated.amount = parseFloat((line.amount / effectiveRate).toFixed(2));
-        }
+        updated.amount = roundForCurrency({
+          amount: convertSafe(line.amount, line.currencyCode, newCurr),
+          currency: newCurr,
+        }).amount;
       }
 
       return updated;
@@ -598,20 +701,10 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pmFeesKey]);
 
-  /** Convert a payment line amount into the totalAmountCurrency.
-   *  - If the line currency matches totalAmountCurrency → no conversion.
-   *  - LBP → USD: divide by rate.   USD → LBP: multiply by rate. */
-  const normalizeToTarget = (amount: number, lineCurrency: string): number => {
-    if (lineCurrency === totalAmountCurrency) return amount;
-    if (lineCurrency === "LBP" && totalAmountCurrency === "USD") {
-      return amount / effectiveRate;
-    }
-    if (lineCurrency === "USD" && totalAmountCurrency === "LBP") {
-      return amount * effectiveRate;
-    }
-    // Fallback for other currency pairs — treat as-is (no cross-rate support yet)
-    return amount;
-  };
+  /** Convert a payment line amount into the totalAmountCurrency (unknown
+   *  pairs pass through as-is via convertSafe's legacy fallback). */
+  const normalizeToTarget = (amount: number, lineCurrency: string): number =>
+    convertSafe(amount, lineCurrency, totalAmountCurrency);
 
   // Calculate total paid normalized to the totalAmountCurrency
   const totalPaid = paymentLines.reduce((sum, line) => {
@@ -633,18 +726,19 @@ export default function MultiPaymentInput({
   // --- Return / change derivation ---
   // Overpaid amount (in totalAmountCurrency); only positive when the customer
   // paid more than the (post-discount) total.
-  const overpaidTarget = Math.max(0, totalPaid - effectiveTotalAmount);
+  const overpaidTarget = Math.max(0, totalPaid - effectiveTotalInTarget);
   const isOverpaid = overpaidTarget > matchTolerance;
 
   // --- Waive-remaining derivation ---
   // Shortfall in totalAmountCurrency, converted to USD-equivalent purely for
   // the threshold check (so waiveRemainingThreshold means "$1" regardless of
   // whether the job is USD- or LBP-denominated).
-  const remainingShortfall = Math.max(0, effectiveTotalAmount - totalPaid);
-  const remainingShortfallUsd =
-    totalAmountCurrency === "LBP"
-      ? remainingShortfall / effectiveRate
-      : remainingShortfall;
+  const remainingShortfall = Math.max(0, effectiveTotalInTarget - totalPaid);
+  const remainingShortfallUsd = convertSafe(
+    remainingShortfall,
+    totalAmountCurrency,
+    "USD",
+  );
   const showWaiveButton =
     !!onWaiveRemaining &&
     remainingShortfall > matchTolerance &&
@@ -717,14 +811,8 @@ export default function MultiPaymentInput({
   };
 
   /** Convert a value from totalAmountCurrency into an arbitrary currency. */
-  const convertFromTarget = (v: number, toCurrency: string): number => {
-    if (toCurrency === totalAmountCurrency) return v;
-    if (totalAmountCurrency === "USD" && toCurrency === "LBP")
-      return v * effectiveRate;
-    if (totalAmountCurrency === "LBP" && toCurrency === "USD")
-      return v / effectiveRate;
-    return v;
-  };
+  const convertFromTarget = (v: number, toCurrency: string): number =>
+    convertSafe(v, totalAmountCurrency, toCurrency);
 
   const rawReturnAmount = convertFromTarget(overpaidTarget, returnCurrency);
   const returnAmount =
@@ -797,14 +885,8 @@ export default function MultiPaymentInput({
   const targetDecimals = displayCurrency === "LBP" ? 0 : 2;
 
   /** Convert a value from totalAmountCurrency to displayCurrency for summary */
-  const toDisplayCurrency = (v: number): number => {
-    if (displayCurrency === totalAmountCurrency) return v;
-    if (totalAmountCurrency === "USD" && displayCurrency === "LBP")
-      return v * effectiveRate;
-    if (totalAmountCurrency === "LBP" && displayCurrency === "USD")
-      return v / effectiveRate;
-    return v;
-  };
+  const toDisplayCurrency = (v: number): number =>
+    convertSafe(v, totalAmountCurrency, displayCurrency);
 
   const fmtTarget = (v: number) => {
     const abs = Math.abs(v);
@@ -828,7 +910,9 @@ export default function MultiPaymentInput({
           id: crypto.randomUUID(),
           method: paymentLines[0]?.method || "CASH",
           currencyCode: paymentLines[0]?.currencyCode || currency,
-          amount: effectiveTotalAmount,
+          // Transient — the single-mode auto-sync effect immediately
+          // re-derives this via prefillAmountFor.
+          amount: effectiveTotalInTarget,
         },
       ];
       setPaymentLines(singleLine);
@@ -1145,7 +1229,7 @@ export default function MultiPaymentInput({
             <div className="flex justify-between text-xs">
               <span className="text-slate-400">Send Amount</span>
               <span className="font-mono text-white">
-                {fmtTarget(toDisplayCurrency(totalAmount - providerFee))}
+                {fmtTarget(toDisplayCurrency(totalInTarget - providerFee))}
               </span>
             </div>
             <div className="flex justify-between text-xs">
@@ -1157,7 +1241,7 @@ export default function MultiPaymentInput({
             <div className="flex justify-between text-xs pt-1 border-t border-slate-700/30">
               <span className="text-slate-300 font-medium">Subtotal</span>
               <span className="font-mono text-slate-200 font-medium">
-                {fmtTarget(toDisplayCurrency(totalAmount))}
+                {fmtTarget(toDisplayCurrency(totalInTarget))}
               </span>
             </div>
           </>
@@ -1166,7 +1250,7 @@ export default function MultiPaymentInput({
           <div className="flex justify-between text-xs">
             <span className="text-slate-400">Total Amount</span>
             <span className="font-mono text-white">
-              {fmtTarget(toDisplayCurrency(totalAmount))}
+              {fmtTarget(toDisplayCurrency(totalInTarget))}
             </span>
           </div>
         )}
@@ -1239,7 +1323,7 @@ export default function MultiPaymentInput({
           <div className="flex justify-between text-xs pt-1 border-t border-emerald-700/20">
             <span className="text-emerald-300 font-medium">After Discount</span>
             <span className="font-mono text-emerald-200 font-medium">
-              {fmtTarget(toDisplayCurrency(effectiveTotalAmount))}
+              {fmtTarget(toDisplayCurrency(effectiveTotalInTarget))}
             </span>
           </div>
         )}
@@ -1257,7 +1341,7 @@ export default function MultiPaymentInput({
         <div className="flex justify-between items-center text-xs pt-1.5 border-t border-slate-700/40">
           <span className="text-slate-300 font-medium">Paid</span>
           <span className="flex items-center gap-1.5">
-            {Math.abs(totalPaid - effectiveTotalAmount) < matchTolerance ? (
+            {Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance ? (
               <svg
                 width="12"
                 height="12"
@@ -1286,7 +1370,7 @@ export default function MultiPaymentInput({
             )}
             <span
               className={`font-mono font-semibold ${
-                Math.abs(totalPaid - effectiveTotalAmount) < matchTolerance
+                Math.abs(totalPaid - effectiveTotalInTarget) < matchTolerance
                   ? "text-emerald-400"
                   : "text-red-400"
               }`}
@@ -1297,12 +1381,12 @@ export default function MultiPaymentInput({
         </div>
 
         {/* Remaining (underpaid → debt) warning */}
-        {totalPaid < effectiveTotalAmount - matchTolerance && (
+        {totalPaid < effectiveTotalInTarget - matchTolerance && (
           <div className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md bg-red-500/10 border border-red-500/20">
             <span className="text-red-400">Remaining (Debt)</span>
             <span className="flex items-center gap-2">
               <span className="font-mono font-bold text-red-400">
-                {fmtTarget(toDisplayCurrency(effectiveTotalAmount - totalPaid))}
+                {fmtTarget(toDisplayCurrency(effectiveTotalInTarget - totalPaid))}
               </span>
               {showWaiveButton && (
                 <button
@@ -1431,7 +1515,7 @@ export default function MultiPaymentInput({
       </div>
 
       {/* Validation Messages */}
-      {hasDebt && requiresClientForDebt && !hasClient && totalAmount > 0 && (
+      {hasDebt && requiresClientForDebt && !hasClient && totalInTarget > 0 && (
         <div className="mx-4 mb-3 text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20 flex items-center gap-2">
           <svg
             width="14"
