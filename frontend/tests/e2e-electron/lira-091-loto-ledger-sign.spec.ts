@@ -84,13 +84,27 @@ test.describe("LIRA-091 (B6b) — Loto supplier-ledger sign", () => {
       })) as { success?: boolean; error?: string };
       const afterPrize = (await lotoBalance()) ?? 0;
 
+      // ── Cash prize WITHOUT a ticket number (owner repro 2026-07-13): the
+      // field is optional everywhere — the UI submits without it and the
+      // repository has a no-ticket fallback note — but lotoCashPrizeSchema
+      // required it, so this failed with "ticket_number: Required". The
+      // session-basket replay hits the same validation at checkout.
+      const prizeNoTicketRes = (await w.api.loto.cashPrize.create({
+        prize_amount: 40_000,
+        prize_date: "2026-07-04",
+      })) as { success?: boolean; error?: string };
+      const afterPrizeNoTicket = (await lotoBalance()) ?? 0;
+
       return {
         sellOk: sellRes?.success !== false,
         sellError: sellRes?.error ?? null,
         prizeOk: prizeRes?.success !== false,
         prizeError: prizeRes?.error ?? null,
+        prizeNoTicketOk: prizeNoTicketRes?.success !== false,
+        prizeNoTicketError: prizeNoTicketRes?.error ?? null,
         saleDelta: afterSale - before,
         prizeDelta: afterPrize - afterSale,
+        prizeNoTicketDelta: afterPrizeNoTicket - afterPrize,
       };
     });
 
@@ -98,10 +112,13 @@ test.describe("LIRA-091 (B6b) — Loto supplier-ledger sign", () => {
     expect(result.sellOk).toBe(true);
     expect(result.prizeError).toBeNull();
     expect(result.prizeOk).toBe(true);
+    expect(result.prizeNoTicketError).toBeNull();
+    expect(result.prizeNoTicketOk).toBe(true);
 
     // Standard convention: shop-owes-Loto is POSITIVE.
     // Pre-fix these deltas were −190,000 and +60,000 (inverted).
     expect(result.saleDelta).toBeCloseTo(190_000, 2);
     expect(result.prizeDelta).toBeCloseTo(-60_000, 2);
+    expect(result.prizeNoTicketDelta).toBeCloseTo(-40_000, 2);
   });
 });

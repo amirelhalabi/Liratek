@@ -40,7 +40,11 @@ export const lotoSellSchema = z.object({
 });
 
 export const lotoCashPrizeSchema = z.object({
-  ticket_number: z.string(),
+  // Optional everywhere else in the flow: the UI submits without it, the
+  // repository has a no-ticket fallback note, and the session-basket replay
+  // sends the same payload (owner repro 2026-07-13: "ticket_number: Required"
+  // on a blank field; guarded by lira-091's no-ticket prize).
+  ticket_number: z.string().optional(),
   prize_amount: z.number().positive(),
   prize_date: z.string().optional(),
   customer_name: z.string().optional(),

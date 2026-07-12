@@ -47,7 +47,12 @@ test.describe("Session checkout — profit counted (transaction-based)", () => {
     const result = await appPage.evaluate(
       async ({ price, cost }) => {
         const w = window as unknown as Api;
-        const today = new Date().toISOString().slice(0, 10);
+        // LOCAL calendar day, not toISOString's UTC date: profits.summary
+        // works on local business days (lira-102/103), so between local
+        // midnight and UTC midnight (00:00–03:00 Beirut) the UTC date is
+        // yesterday and the freshly booked profit lands outside the queried
+        // window — delta 0 (this spec failed every night in that window).
+        const today = new Date().toLocaleDateString("en-CA");
         const customProfit = (s: Summary) => s.custom_services?.profit_usd ?? 0;
 
         const before = customProfit(await w.api.profits.summary(today, today));

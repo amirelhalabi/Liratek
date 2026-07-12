@@ -950,7 +950,9 @@ export class LotoService {
    * Record a cash prize payout to a customer
    */
   recordCashPrize(data: {
-    ticket_number: string;
+    /** Optional — the body normalizes blank/missing to undefined and the
+     *  repository writes a no-ticket fallback note. */
+    ticket_number?: string;
     prize_amount: number;
     prize_date?: string;
     userId: number;
