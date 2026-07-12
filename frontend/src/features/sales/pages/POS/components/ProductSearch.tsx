@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import logger from "@/utils/logger";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   Search,
   ShoppingCart,
@@ -233,7 +234,7 @@ function ProductSearch({
   const isSearchEmpty = !search.trim();
 
   const formatTime = (dateStr: string) => {
-    const d = new Date(dateStr);
+    const d = parseDbDate(dateStr);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 

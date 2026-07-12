@@ -33,6 +33,10 @@ import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { computeRepaymentReduction } from "../../utils/repaymentReduction";
 import {
+  formatPaidAmount,
+  saleOutstandingUsd,
+} from "../../utils/salePaidFormat";
+import {
   ServiceDebtDetailModal,
   type FinancialServiceData,
   type PaymentRowData,
@@ -50,6 +54,7 @@ import {
 import { getDebtAging } from "@/api/backendApi";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import type { Client } from "@liratek/ui";
 
 type DebtAgingBuckets = {
@@ -95,8 +100,10 @@ export default function Debts() {
     id: number;
     final_amount_usd?: number;
     total_amount_usd?: number;
+    discount_usd?: number;
     paid_usd?: number;
     paid_lbp?: number;
+    exchange_rate_snapshot?: number;
     status: string;
     created_at: string;
     items: Array<{
@@ -213,10 +220,26 @@ export default function Debts() {
           if (
             item.transaction_id &&
             item.transaction_type === "Sale Debt" &&
+            // Enriched notes ("Sale #5: 1× Case — $4 (discounted …)") already
+            // name the items and carry the discount — show them verbatim so
+            // the row matches the transaction summary. The per-row item fetch
+            // below is only a fallback for legacy bare notes ("Balance from
+            // Sale").
+            !item.note?.startsWith("Sale #") &&
             (item.amount_usd > 0 || item.amount_lbp > 0)
           ) {
             try {
-              const items = await api.getSaleItems(item.transaction_id);
+              // item.transaction_id is a unified transactions.id, NOT a
+              // sales.id — resolve through getTransactionById first (same
+              // pattern as loadSaleDetails below) before calling getSaleItems.
+              const transaction = await api.getTransactionById(
+                item.transaction_id,
+              );
+              if (!transaction || transaction.source_table !== "sales") {
+                return item;
+              }
+              const saleId = transaction.source_id;
+              const items = await api.getSaleItems(saleId);
               const itemNames = items
                 .slice(0, 3)
                 .map((saleItem: any) => saleItem.name || "Unknown Product");
@@ -270,8 +293,8 @@ export default function Debts() {
     return [...history]
       .filter((item) => !PAYMENT_TYPES.has(item.transaction_type))
       .sort((a, b) => {
-        const dateA = new Date(a.created_at).getTime();
-        const dateB = new Date(b.created_at).getTime();
+        const dateA = parseDbDate(a.created_at).getTime();
+        const dateB = parseDbDate(b.created_at).getTime();
         return dateSortOrder === "desc" ? dateB - dateA : dateA - dateB;
       });
   }, [history, dateSortOrder]);
@@ -280,8 +303,8 @@ export default function Debts() {
     return [...history]
       .filter((item) => PAYMENT_TYPES.has(item.transaction_type))
       .sort((a, b) => {
-        const dateA = new Date(a.created_at).getTime();
-        const dateB = new Date(b.created_at).getTime();
+        const dateA = parseDbDate(a.created_at).getTime();
+        const dateB = parseDbDate(b.created_at).getTime();
         return dateSortOrder === "desc" ? dateB - dateA : dateA - dateB;
       });
   }, [history, dateSortOrder]);
@@ -1397,9 +1420,9 @@ export default function Debts() {
                               className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
                             >
                               <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                                {new Date(item.created_at).toLocaleDateString()}
+                                {parseDbDate(item.created_at).toLocaleDateString()}
                                 <div className="text-[10px] text-slate-500">
-                                  {new Date(
+                                  {parseDbDate(
                                     item.created_at,
                                   ).toLocaleTimeString()}
                                 </div>
@@ -1648,9 +1671,9 @@ export default function Debts() {
                               className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
                             >
                               <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                                {new Date(item.created_at).toLocaleDateString()}
+                                {parseDbDate(item.created_at).toLocaleDateString()}
                                 <div className="text-[10px] text-slate-500">
-                                  {new Date(
+                                  {parseDbDate(
                                     item.created_at,
                                   ).toLocaleTimeString()}
                                 </div>
@@ -2147,7 +2170,7 @@ export default function Debts() {
                 <div className="flex-[2]">
                   <p className="text-slate-500 text-sm">Date</p>
                   <p className="text-white font-medium">
-                    {new Date(selectedSale.created_at).toLocaleString()}
+                    {parseDbDate(selectedSale.created_at).toLocaleString()}
                   </p>
                 </div>
                 <div className="flex-1">
@@ -2164,10 +2187,10 @@ export default function Debts() {
                 <div className="flex-1">
                   <p className="text-slate-500 text-sm">Amount Paid</p>
                   <p className="text-emerald-400 font-medium">
-                    ${(selectedSale.paid_usd || 0).toFixed(2)}
-                    {selectedSale.paid_lbp &&
-                      selectedSale.paid_lbp > 0 &&
-                      ` + ${selectedSale.paid_lbp.toLocaleString()} LBP`}
+                    {formatPaidAmount(
+                      selectedSale.paid_usd || 0,
+                      selectedSale.paid_lbp || 0,
+                    )}
                   </p>
                 </div>
               </div>
@@ -2196,9 +2219,6 @@ export default function Debts() {
                       },
                     ]}
                     data={selectedSale.items}
-                    exportExcel
-                    exportPdf
-                    exportFilename="sale-items"
                     className="w-full"
                     theadClassName="border-b border-slate-700"
                     tbodyClassName="divide-y divide-slate-700"
@@ -2222,6 +2242,14 @@ export default function Debts() {
 
               {/* Summary */}
               <div className="border-t border-slate-700 pt-4 space-y-2">
+                {(selectedSale.discount_usd || 0) > 0 && (
+                  <div className="flex justify-between text-slate-400">
+                    <span>Discount:</span>
+                    <span className="text-amber-400 font-medium">
+                      -${(selectedSale.discount_usd || 0).toFixed(2)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-slate-400">
                   <span>Total Amount:</span>
                   <span className="text-white font-medium">
@@ -2236,18 +2264,16 @@ export default function Debts() {
                 <div className="flex justify-between text-slate-400">
                   <span>Amount Paid:</span>
                   <span className="text-emerald-400 font-medium">
-                    ${(selectedSale.paid_usd || 0).toFixed(2)}
+                    {formatPaidAmount(
+                      selectedSale.paid_usd || 0,
+                      selectedSale.paid_lbp || 0,
+                    )}
                   </span>
                 </div>
                 <div className="flex justify-between text-lg font-bold border-t border-slate-700 pt-2">
                   <span className="text-white">Outstanding Debt:</span>
                   <span className="text-red-400">
-                    $
-                    {(
-                      (selectedSale.final_amount_usd ||
-                        selectedSale.total_amount_usd ||
-                        0) - (selectedSale.paid_usd || 0)
-                    ).toFixed(2)}
+                    ${saleOutstandingUsd(selectedSale).toFixed(2)}
                   </span>
                 </div>
               </div>

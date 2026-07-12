@@ -14,6 +14,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getDebtRepository } from "./DebtRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { localDay } from "../utils/localDate.js";
 
 // =============================================================================
 // Entity Types
@@ -99,7 +100,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     if (
       row.status === "pending" &&
       row.expiry_date &&
-      row.expiry_date < new Date().toISOString().slice(0, 10)
+      row.expiry_date < localDay()
     ) {
       return { ...row, status: "expired" };
     }
@@ -239,7 +240,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     if (voucher.status === "redeemed") {
       throw new Error(`Voucher ${code} has already been redeemed`);
     }
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay();
     if (voucher.expiry_date && voucher.expiry_date < today) {
       throw new Error(`Voucher ${code} has expired`);
     }

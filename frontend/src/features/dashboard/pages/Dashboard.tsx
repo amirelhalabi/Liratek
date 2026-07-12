@@ -26,6 +26,7 @@ import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { localMonth } from "@/shared/utils/localDay";
 
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
 
@@ -339,7 +340,7 @@ export default function Dashboard() {
             window.api.debt.getSummary(),
             window.api.inventory.getStockStats(),
             window.api.financial.getMonthlyPL(
-              new Date().toISOString().slice(0, 7),
+              localMonth(),
             ),
             window.api.currencies.allDrawerCurrencies(),
             window.api.debt.getDebtors(),
@@ -351,7 +352,7 @@ export default function Dashboard() {
             api.getSystemExpectedBalancesDynamic(),
             api.getDebtSummary(),
             api.getInventoryStockStats(),
-            api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
+            api.getMonthlyPL(localMonth()),
             api.getAllDrawerCurrencies(),
             api.getDebtors(),
           ]);

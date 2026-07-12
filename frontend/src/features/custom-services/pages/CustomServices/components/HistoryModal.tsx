@@ -15,10 +15,11 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import type { CustomServiceEntry } from "../../../hooks/useCustomServices";
 
 function formatTime(dateStr: string): string {
-  const d = new Date(dateStr);
+  const d = parseDbDate(dateStr);
   const now = new Date();
   const sameDay =
     d.getFullYear() === now.getFullYear() &&

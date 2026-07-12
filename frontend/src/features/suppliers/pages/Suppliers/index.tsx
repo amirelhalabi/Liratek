@@ -4,6 +4,7 @@ import { Truck } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   useSuppliersQuery,
   useSupplierBalancesQuery,
@@ -655,7 +656,7 @@ export default function SuppliersPage() {
                             </div>
                             <div className="col-span-2 text-right text-xs text-slate-400">
                               {item.created_at
-                                ? new Date(item.created_at).toLocaleString()
+                                ? parseDbDate(item.created_at).toLocaleString()
                                 : "—"}
                             </div>
                           </div>
@@ -778,7 +779,7 @@ export default function SuppliersPage() {
                               )}
                             </div>
                             <div className="col-span-2 text-xs text-slate-400">
-                              {new Date(t.created_at).toLocaleString()}
+                              {parseDbDate(t.created_at).toLocaleString()}
                             </div>
                           </div>
                         ))}
@@ -944,7 +945,7 @@ export default function SuppliersPage() {
                           {row.note || ""}
                         </div>
                         <div className="col-span-2 text-slate-400 text-xs">
-                          {new Date(row.created_at).toLocaleString()}
+                          {parseDbDate(row.created_at).toLocaleString()}
                         </div>
                       </div>
                     ))}

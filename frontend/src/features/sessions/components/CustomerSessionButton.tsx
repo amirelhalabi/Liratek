@@ -14,6 +14,7 @@ import { SessionPopupPanel } from "./SessionFloatingWindow";
 import { useSession } from "../context/SessionContext";
 import { useApi, appEvents } from "@liratek/ui";
 import { arePhoneNumbersEqual } from "@/utils/phoneNumber";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import logger from "@/utils/logger";
 
 type SessionFilter = "all" | "active" | "closed";
@@ -502,7 +503,7 @@ export function CustomerSessionButton({
                               </p>
                               <p className="text-xs text-slate-400">
                                 {isClosed
-                                  ? `Closed${session.closed_at ? ` · ${new Date(session.closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
+                                  ? `Closed${session.closed_at ? ` · ${parseDbDate(session.closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
                                   : session.customer_phone || ""}
                               </p>
                             </>

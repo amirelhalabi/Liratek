@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useApi, DataTable, Select } from "@liratek/ui";
 import { calculateProfitSpread } from "@/utils/currencyUtils";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 interface CurrencyRow {
   id: number;
@@ -435,7 +436,7 @@ function ExchangeRatesSection() {
                   </div>
                 </td>
                 <td className="p-3 text-slate-400 text-xs">
-                  {new Date(row.updated_at).toLocaleString()}
+                  {parseDbDate(row.updated_at).toLocaleString()}
                 </td>
                 <td className="p-3">
                   <div className="flex items-center gap-2">

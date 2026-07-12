@@ -5,6 +5,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 type ExchangeTx = {
   id: number;
@@ -180,7 +181,7 @@ export function HistoryModal({
                       className={`hover:bg-slate-700/20 transition-colors${isRefunded ? " opacity-50" : ""}`}
                     >
                       <td className="px-4 py-3 text-sm text-slate-400">
-                        {new Date(tx.created_at).toLocaleTimeString([], {
+                        {parseDbDate(tx.created_at).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}

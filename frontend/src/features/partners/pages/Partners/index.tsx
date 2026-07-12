@@ -41,6 +41,7 @@ import {
   useApi,
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ function fmtLBP(n: number) {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleString("en-US", {
+  return parseDbDate(iso).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",

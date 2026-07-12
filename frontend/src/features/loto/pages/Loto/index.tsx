@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from "react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { localDay } from "@/shared/utils/localDay";
 import { useApi, PageHeader, DecimalInput } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { useSellRate } from "@/hooks/useSellRate";
@@ -112,7 +113,7 @@ export function LotoPage() {
         return;
       }
 
-      const today = new Date().toISOString().split("T")[0];
+      const today = localDay();
       const result = await lotoApi.report(today, today);
       if (result.success && result.reportData) {
         setStats({
@@ -143,10 +144,10 @@ export function LotoPage() {
         // Start from the day AFTER the last checkpoint's period_end
         const nextDay = new Date(lastResult.checkpoint.period_end);
         nextDay.setDate(nextDay.getDate() + 1);
-        periodStart = nextDay.toISOString().split("T")[0];
+        periodStart = localDay(nextDay);
       }
 
-      const today = new Date().toISOString().split("T")[0];
+      const today = localDay();
 
       // Check if there are any uncheckpointed sales or cash prizes
       const ticketsResult = await lotoApi.getUncheckpointed();
@@ -216,7 +217,7 @@ export function LotoPage() {
       sale_amount: parseFloat(saleAmount),
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
-      sale_date: new Date().toISOString().split("T")[0],
+      sale_date: localDay(),
       payment_method:
         paymentLines.length > 1 ? "SPLIT" : paymentLines[0]?.method || "CASH",
       currency: "LBP",
@@ -306,7 +307,7 @@ export function LotoPage() {
 
     const prizeData = {
       prize_amount: parseFloat(cashPrizeAmount),
-      prize_date: new Date().toISOString().split("T")[0],
+      prize_date: localDay(),
       ticket_number: cashPrizeTicketNumber.trim() || undefined,
       payment_method: "CASH",
     };

@@ -10,6 +10,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 type Supplier = {
   id: number;
@@ -567,7 +568,7 @@ export default function SupplierLedger() {
                               ${t.commission.toFixed(4)}
                             </div>
                             <div className="col-span-3 text-xs text-slate-400">
-                              {new Date(t.created_at).toLocaleString()}
+                              {parseDbDate(t.created_at).toLocaleString()}
                             </div>
                           </div>
                         ))}
@@ -762,7 +763,7 @@ export default function SupplierLedger() {
                         {row.note || ""}
                       </div>
                       <div className="col-span-2 text-slate-400 text-xs">
-                        {new Date(row.created_at).toLocaleString()}
+                        {parseDbDate(row.created_at).toLocaleString()}
                       </div>
                     </div>
                   ))}

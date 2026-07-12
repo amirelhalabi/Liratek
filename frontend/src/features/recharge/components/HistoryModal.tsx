@@ -15,6 +15,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import type { FinancialTransaction, ServiceType } from "../types";
 import { FINANCIAL_SERVICE_ICONS } from "../types";
 
@@ -365,7 +366,7 @@ export function HistoryModal({
                               trigger={
                                 <span
                                   className="ml-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors"
-                                  title={`Edited by ${tx.edited_by}${tx.edited_at ? ` at ${new Date(tx.edited_at).toLocaleString()}` : ""}`}
+                                  title={`Edited by ${tx.edited_by}${tx.edited_at ? ` at ${parseDbDate(tx.edited_at).toLocaleString()}` : ""}`}
                                 >
                                   <Pencil size={8} />
                                   Edited
@@ -415,12 +416,12 @@ export function HistoryModal({
 
                     {/* Time */}
                     <td className="px-5 py-3 text-sm text-slate-400">
-                      {new Date(tx.created_at).toLocaleTimeString([], {
+                      {parseDbDate(tx.created_at).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
                       <div className="text-xs text-slate-500">
-                        {new Date(tx.created_at).toLocaleDateString()}
+                        {parseDbDate(tx.created_at).toLocaleDateString()}
                       </div>
                     </td>
 

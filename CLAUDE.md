@@ -1,5 +1,7 @@
 # LiraTek POS — Claude Code Context
 
+@docs/fable-brain.md
+
 ## Project Overview
 
 LiraTek is a **desktop POS system for retail management** built as an Electron app with a React frontend and SQLite backend.

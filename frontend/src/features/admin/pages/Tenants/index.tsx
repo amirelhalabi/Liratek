@@ -9,6 +9,7 @@ import {
 } from "../../hooks/useTenants";
 import { AddTenantModal } from "../../components/AddTenantModal";
 import type { AdminTenant, AdminCreateTenantPayload } from "@/api/backendApi";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 const STATUS_BADGE_CLASSES: Record<AdminTenant["status"], string> = {
   active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -195,11 +196,11 @@ export function TenantsPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-400">
                     {tenant.last_activity
-                      ? new Date(tenant.last_activity).toLocaleString()
+                      ? parseDbDate(tenant.last_activity).toLocaleString()
                       : "—"}
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-400">
-                    {new Date(tenant.created_at).toLocaleDateString()}
+                    {parseDbDate(tenant.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useApi, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
+import { localDay } from "@/shared/utils/localDay";
 import {
   Calculator,
   CheckCircle,
@@ -112,7 +113,7 @@ export function SettlementVerification({
 
       // Calculate unchecked activity (sales not in any checkpoint)
       try {
-        const today = new Date().toISOString().split("T")[0];
+        const today = localDay();
         let periodStart = "1970-01-01";
 
         // Use the latest checkpoint (settled OR unsettled) to determine period start
@@ -120,7 +121,7 @@ export function SettlementVerification({
         if (lastResult.success && lastResult.checkpoint) {
           const nextDay = new Date(lastResult.checkpoint.period_end);
           nextDay.setDate(nextDay.getDate() + 1);
-          periodStart = nextDay.toISOString().split("T")[0];
+          periodStart = localDay(nextDay);
         }
 
         // Get sales after the last checkpoint period
@@ -192,7 +193,7 @@ export function SettlementVerification({
     setError(null);
 
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = localDay();
 
       // Build payments array from payment lines
       // Net > 0 = LOTO pays us (positive drawer credit)
@@ -613,9 +614,7 @@ export function SettlementVerification({
                       <button
                         onClick={async () => {
                           try {
-                            const today = new Date()
-                              .toISOString()
-                              .split("T")[0];
+                            const today = localDay();
                             const result =
                               await api.loto.checkpoint.createScheduled(today);
                             if (result.success) {

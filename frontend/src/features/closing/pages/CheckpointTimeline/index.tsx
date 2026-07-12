@@ -5,6 +5,8 @@ import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
 import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";
 import { formatCurrencyAmount, getVarianceStatus } from "../../utils/variance";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { localDay } from "@/shared/utils/localDay";
 import type { DrawerType } from "../../types";
 
 interface CheckpointCurrency {
@@ -36,7 +38,7 @@ interface CheckpointFilters {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+  return localDay();
 }
 
 export default function CheckpointTimeline() {
@@ -95,7 +97,7 @@ export default function CheckpointTimeline() {
   };
 
   const formatTime = (iso: string) => {
-    const date = new Date(iso);
+    const date = parseDbDate(iso);
     return date.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
@@ -335,7 +337,7 @@ export default function CheckpointTimeline() {
             theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
             getSortValue={(row, key) => {
               if (key === "created_at")
-                return new Date(row.created_at).getTime();
+                return parseDbDate(row.created_at).getTime();
               if (key === "drawer_name") return row.drawer_name;
               if (key === "user_name") return row.user_name;
               if (key === "notes") return row.notes ?? "";

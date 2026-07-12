@@ -26,6 +26,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X } from "lucide-react";
 import { useShopBase } from "@/hooks/useShopBase";
+import { localDay } from "@/shared/utils/localDay";
 
 interface CheckpointModalProps {
   isOpen: boolean;
@@ -222,7 +223,7 @@ export default function CheckpointModal({
 
           const reportText = generateClosingReport(
             {
-              closing_date: new Date().toISOString().split("T")[0],
+              closing_date: localDay(),
               drawer_name: drawerName,
               physical: Object.fromEntries(
                 currencies.map((c) => [c.code, sumByCurrency(c.code)]),

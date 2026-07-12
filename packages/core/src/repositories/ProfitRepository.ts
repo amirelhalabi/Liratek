@@ -232,9 +232,19 @@ function notRefunded(alias: string): string {
   return `COALESCE(${alias}.is_refunded, 0) = 0`;
 }
 
-/** Inclusive [from, to] date-range bound on a column (two bind params). */
+/**
+ * Inclusive [from, to] date-range bound on a timestamp column (two bind params).
+ *
+ * The column is converted to machine-local wall-clock before comparison, so the
+ * range is interpreted in the operator's local day, not UTC. ProfitService
+ * passes `"${from} 00:00:00"` / `"${to} 23:59:59"`, so a sale at 01:00 Beirut
+ * (stored as the previous UTC day) lands in the local day the operator expects.
+ * `'localtime'` follows the machine TZ (Beirut on desktop; pin `TZ=Asia/Beirut`
+ * on the web server). Non-sargable (defeats a `created_at` index) — same cost the
+ * other `'localtime'` reporting queries already pay.
+ */
 function dateRange(col: string): string {
-  return `${col} >= ? AND ${col} <= ?`;
+  return `datetime(${col}, 'localtime') >= ? AND datetime(${col}, 'localtime') <= ?`;
 }
 
 /** Financial-service revenue: price when a cost is present, else the amount. */
@@ -697,7 +707,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         daily_sales AS (
           -- Revenue + cost grouped by the SALE date (source tables, unchanged).
           SELECT
-            DATE(s.created_at) AS d,
+            DATE(s.created_at, 'localtime') AS d,
             COALESCE(SUM(si.sold_price_usd * si.quantity), 0) AS revenue_usd,
             COALESCE(SUM(si.cost_price_snapshot_usd * si.quantity), 0) AS cost_usd
           FROM sale_items si
@@ -707,7 +717,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${saleFullyPaid("s")}
             AND ${dateRange("s.created_at")}
             AND si.tenant_id = ? AND s.tenant_id = ?
-          GROUP BY DATE(s.created_at)
+          GROUP BY DATE(s.created_at, 'localtime')
         ),
         daily_sales_profit AS (
           -- Profit from the unified ledger (SALE + REFUND), grouped by the SALE
@@ -715,7 +725,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           -- sale) so a refund nets the sale at its ORIGINAL date, matching
           -- daily_sales revenue/cost and getSalesProfit (no cross-window divergence).
           SELECT
-            DATE(s.created_at) AS d,
+            DATE(s.created_at, 'localtime') AS d,
             COALESCE(SUM(t.profit_usd), 0) AS profit_usd
           FROM transactions t
           JOIN sales s ON s.id = t.source_id
@@ -726,11 +736,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${saleFullyPaid("s")}
             AND ${dateRange("s.created_at")}
             AND t.tenant_id = ? AND s.tenant_id = ?
-          GROUP BY DATE(s.created_at)
+          GROUP BY DATE(s.created_at, 'localtime')
         ),
         daily_commissions AS (
           SELECT
-            DATE(fs.created_at) AS d,
+            DATE(fs.created_at, 'localtime') AS d,
             COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN t.profit_usd ELSE 0 END), 0) AS profit_usd,
             COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN t.profit_lbp ELSE 0 END), 0) AS profit_lbp,
             COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN (${fsRevenue("fs")}) ELSE 0 END), 0) AS revenue_usd,
@@ -742,11 +752,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notRefunded("fs")}
             AND ${dateRange("fs.created_at")}
             AND fs.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(fs.created_at)
+          GROUP BY DATE(fs.created_at, 'localtime')
         ),
         daily_recharges AS (
           SELECT
-            DATE(r.created_at) AS d,
+            DATE(r.created_at, 'localtime') AS d,
             COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.price ELSE 0 END), 0) AS revenue_usd,
             COALESCE(SUM(CASE WHEN r.currency_code = 'LBP' THEN r.price ELSE 0 END), 0) AS revenue_lbp,
             COALESCE(SUM(CASE WHEN r.currency_code != 'LBP' THEN r.cost ELSE 0 END), 0) AS cost_usd,
@@ -759,11 +769,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notRefunded("r")}
             AND ${dateRange("r.created_at")}
             AND r.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(r.created_at)
+          GROUP BY DATE(r.created_at, 'localtime')
         ),
         daily_custom AS (
           SELECT
-            DATE(cs.created_at) AS d,
+            DATE(cs.created_at, 'localtime') AS d,
             COALESCE(SUM(cs.price_usd), 0) AS revenue_usd,
             COALESCE(SUM(cs.price_lbp), 0) AS revenue_lbp,
             COALESCE(SUM(cs.cost_usd), 0) AS cost_usd,
@@ -777,11 +787,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notRefunded("cs")}
             AND ${dateRange("cs.created_at")}
             AND cs.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(cs.created_at)
+          GROUP BY DATE(cs.created_at, 'localtime')
         ),
         daily_maint AS (
           SELECT
-            DATE(m.created_at) AS d,
+            DATE(m.created_at, 'localtime') AS d,
             COALESCE(SUM(m.final_amount_usd), 0) AS revenue_usd,
             COALESCE(SUM(m.final_amount_lbp), 0) AS revenue_lbp,
             COALESCE(SUM(m.cost_usd), 0) AS cost_usd,
@@ -795,11 +805,11 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notRefunded("m")}
             AND ${dateRange("m.created_at")}
             AND m.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(m.created_at)
+          GROUP BY DATE(m.created_at, 'localtime')
         ),
         daily_loto AS (
           SELECT
-            DATE(lt.created_at) AS d,
+            DATE(lt.created_at, 'localtime') AS d,
             COALESCE(SUM(lt.sale_amount), 0) AS revenue_lbp,
             COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
           FROM loto_tickets lt
@@ -808,36 +818,36 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notRefunded("lt")}
             AND ${dateRange("lt.created_at")}
             AND lt.tenant_id = ? AND t.tenant_id = ?
-          GROUP BY DATE(lt.created_at)
+          GROUP BY DATE(lt.created_at, 'localtime')
         ),
         daily_expenses AS (
           SELECT
-            DATE(expense_date) AS d,
+            DATE(expense_date, 'localtime') AS d,
             COALESCE(SUM(amount_usd), 0) AS expenses_usd,
             COALESCE(SUM(amount_lbp), 0) AS expenses_lbp
           FROM expenses
           WHERE status = 'active'
             AND ${dateRange("expense_date")}
             AND tenant_id = ?
-          GROUP BY DATE(expense_date)
+          GROUP BY DATE(expense_date, 'localtime')
         ),
         daily_exchange AS (
           SELECT
-            DATE(created_at) AS d,
+            DATE(created_at, 'localtime') AS d,
             COALESCE(SUM(amount_in), 0) AS revenue_usd,
             COALESCE(SUM(${EXCHANGE_LEG_PROFIT}), 0) AS profit_usd
           FROM exchange_transactions
           WHERE ${notRefunded("exchange_transactions")}
             AND ${dateRange("created_at")}
             AND tenant_id = ?
-          GROUP BY DATE(created_at)
+          GROUP BY DATE(created_at, 'localtime')
         ),
         daily_pmfee AS (
           -- Payment-method fees from financial_services (notRefunded, dated by
           -- fs.created_at) — same retroactive-removal semantics as commissions,
           -- so a cross-period void/refund never overstates the original period.
           SELECT
-            DATE(fs.created_at) AS d,
+            DATE(fs.created_at, 'localtime') AS d,
             COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_usd,
             COALESCE(SUM(CASE WHEN fs.currency = 'LBP' THEN fs.payment_method_fee ELSE 0 END), 0) AS profit_lbp
           FROM financial_services fs
@@ -845,7 +855,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND ${notRefunded("fs")}
             AND ${dateRange("fs.created_at")}
             AND fs.tenant_id = ?
-          GROUP BY DATE(fs.created_at)
+          GROUP BY DATE(fs.created_at, 'localtime')
         )
         SELECT
           dates.d AS date,

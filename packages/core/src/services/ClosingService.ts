@@ -7,6 +7,7 @@ import {
   getClosingRepository,
 } from "../repositories/ClosingRepository.js";
 import { closingLogger } from "../utils/logger.js";
+import { localDay } from "../utils/localDate.js";
 export interface ClosingResult {
   success: boolean;
   id?: number | bigint;
@@ -228,7 +229,7 @@ export class ClosingService {
       return this.repo.createCheckpoint({
         user_id: data.userId ?? 0,
         drawer_name: "AGGREGATED",
-        notes: `Opening balances for ${data.closingDate ?? new Date().toISOString().split("T")[0]}`,
+        notes: `Opening balances for ${data.closingDate ?? localDay()}`,
         amounts: data.amounts ?? [],
       });
     } catch (error) {
@@ -263,7 +264,7 @@ export class ClosingService {
         drawer_name: "AGGREGATED",
         notes:
           data.notes ??
-          `Daily closing for ${data.closingDate ?? new Date().toISOString().split("T")[0]}`,
+          `Daily closing for ${data.closingDate ?? localDay()}`,
         amounts: data.amounts ?? [],
       });
     } catch (error) {

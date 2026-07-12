@@ -207,6 +207,20 @@ function createTestDb(): Database.Database {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE debt_ledger (
+      tenant_id INTEGER DEFAULT 1,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      transaction_id INTEGER,
+      note TEXT,
+      due_date TEXT,
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     INSERT INTO drawer_balances VALUES (1, 'General',   'USD',  1000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'General',   'LBP',  100000000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'OMT_App',   'USD',  500,  CURRENT_TIMESTAMP);
@@ -284,6 +298,36 @@ describe("FinancialServiceRepository — C4: app-wallet transfers move the app d
     expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 20, 2);
   });
 
+  it("OMT_APP RECEIVE with the FULL fee as commission (lira-101 fix): app +105, General −100", () => {
+    // Mirrors the WHISH_APP full-fee case below — the repo already handles
+    // this correctly for BOTH app-wallet providers via the shared isAppWallet
+    // branch; this is a coverage gap closed alongside the frontend fix, not
+    // a repo behavior change. amount=105 is the gross wallet inflow the
+    // (now-fixed) form sends for a $100 transfer + $5 fee charged on top.
+    const appBefore = balance(db, "OMT_App", "USD");
+    const genBefore = balance(db, "General", "USD");
+
+    const { id } = repo.createTransaction({
+      provider: "OMT_APP",
+      serviceType: "RECEIVE",
+      amount: 105,
+      currency: "USD",
+      commission: 5, // FULL fee is shop profit
+      omtFee: 5,
+      cashoutMethod: "CASH",
+      exchangeRate: 90000,
+    });
+
+    expect(balance(db, "OMT_App", "USD")).toBeCloseTo(appBefore + 105, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 100, 2);
+
+    const row = db
+      .prepare("SELECT omt_fee, commission FROM financial_services WHERE id = ?")
+      .get(id) as { omt_fee: number; commission: number };
+    expect(row.omt_fee).toBeCloseTo(5, 2);
+    expect(row.commission).toBeCloseTo(5, 2);
+  });
+
   it("WHISH_APP SEND: app drawer −20, General +20", () => {
     const appBefore = balance(db, "Whish_App", "USD");
     const genBefore = balance(db, "General", "USD");
@@ -320,6 +364,62 @@ describe("FinancialServiceRepository — C4: app-wallet transfers move the app d
     expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 19.98, 2);
   });
 
+  it("WHISH_APP RECEIVE — shop keeps the FULL fee, not 10% of it (the lira-100 bug): wallet +100, payout −99", () => {
+    // Reproduces the reported case: entered 100, fee $1 (1% auto-fee), fee
+    // NOT included. The frontend must fold the fee into the wallet inflow
+    // (data.amount = 101 when the toggle isn't set) and send the FULL fee as
+    // commission — this repo-level test isolates the money-loop half of the
+    // fix (given already-correct inputs), the frontend contract itself is
+    // guarded by the OmtWhishAppTransferForm fee-math unit tests.
+    const appBefore = balance(db, "Whish_App", "USD");
+    const genBefore = balance(db, "General", "USD");
+
+    const { id } = repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "RECEIVE",
+      amount: 101, // wallet inflow: 100 transfer + $1 fee charged on top
+      currency: "USD",
+      commission: 1, // FULL fee is shop profit — not fee × 10%
+      whishFee: 1,
+      cashoutMethod: "CASH",
+      exchangeRate: 90000,
+    });
+
+    expect(balance(db, "Whish_App", "USD")).toBeCloseTo(appBefore + 101, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 100, 2);
+
+    const row = db
+      .prepare("SELECT whish_fee, commission FROM financial_services WHERE id = ?")
+      .get(id) as { whish_fee: number; commission: number };
+    expect(row.whish_fee).toBeCloseTo(1, 2);
+    expect(row.commission).toBeCloseTo(1, 2);
+  });
+
+  it("WHISH_APP RECEIVE with no fee: wallet +100, payout −100, no profit", () => {
+    const appBefore = balance(db, "Whish_App", "USD");
+    const genBefore = balance(db, "General", "USD");
+
+    const { id } = repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "RECEIVE",
+      amount: 100,
+      currency: "USD",
+      commission: 0,
+      cashoutMethod: "CASH",
+      exchangeRate: 90000,
+    });
+
+    expect(balance(db, "Whish_App", "USD")).toBeCloseTo(appBefore + 100, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 100, 2);
+
+    const row = db
+      .prepare(
+        "SELECT COUNT(*) as n FROM payments WHERE transaction_id = (SELECT id FROM transactions WHERE source_id = ? AND source_table = 'financial_services') AND method = 'COMMISSION'",
+      )
+      .get(id) as { n: number };
+    expect(row.n).toBe(0);
+  });
+
   it("BINANCE control: SEND unchanged (Binance USDT −20, General USD +20)", () => {
     const binBefore = balance(db, "Binance", "USDT");
     const genBefore = balance(db, "General", "USD");
@@ -336,5 +436,123 @@ describe("FinancialServiceRepository — C4: app-wallet transfers move the app d
 
     expect(balance(db, "Binance", "USDT")).toBeCloseTo(binBefore - 20, 2);
     expect(balance(db, "General", "USD")).toBeCloseTo(genBefore + 20, 2);
+  });
+});
+
+describe("FinancialServiceRepository — app-wallet SEND with a fee (missing-$2 bug, 2026-07-12)", () => {
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    repo = new FinancialServiceRepository();
+    db.prepare(
+      `INSERT INTO clients (id, full_name, phone_number) VALUES (1, 'amir halabi', '81077357')`,
+    ).run();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  it("on-account SEND books amount + fee as debt, with a provider-named note (was: $20 debt labeled 'Binance … USDT')", () => {
+    // $20 transfer + $2 fee charged entirely to the customer's account.
+    // The frontend sends the fee as `commission` (omtWhishAppFees.shopProfit).
+    const res = repo.createTransaction({
+      provider: "OMT_APP",
+      serviceType: "SEND",
+      amount: 20,
+      currency: "USD",
+      commission: 2,
+      omtFee: 2,
+      clientId: 1,
+      paidByMethod: "CUSTOMER_ACCOUNT",
+      exchangeRate: 90000,
+    });
+    expect(res.id).toBeGreaterThan(0);
+
+    const debt = db
+      .prepare(
+        `SELECT amount_usd, amount_lbp, note FROM debt_ledger WHERE transaction_type = 'Service Debt' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { amount_usd: number; amount_lbp: number; note: string };
+    expect(debt.amount_usd).toBeCloseTo(22, 2); // 20 transfer + 2 fee — NOT 20
+    expect(debt.amount_lbp).toBe(0);
+    // Headline = the TOTAL owed, breakdown in parentheses (a bare "$20" note
+    // on a $22 debt read as if the fee had been dropped).
+    expect(debt.note).toBe("OMT_APP SEND — $22 ($20 + $2 fee)");
+    expect(debt.note).not.toContain("Binance");
+    expect(debt.note).not.toContain("USDT");
+
+    // The audit row carries the customer total in its amount AND surfaces the
+    // fee in the summary — both were invisible ("↓ $20 … — 20 USD" on a $22
+    // charge).
+    const txn = db
+      .prepare(
+        `SELECT summary, amount_usd FROM transactions ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { summary: string; amount_usd: number };
+    expect(txn.summary).toContain("(+$2 fee)");
+    expect(txn.amount_usd).toBeCloseTo(22, 2);
+  });
+
+  it("cash SEND with fee: wallet −20, General +22, full fee stamped as profit", () => {
+    const appBefore = balance(db, "OMT_App", "USD");
+    const genBefore = balance(db, "General", "USD");
+
+    const res = repo.createTransaction({
+      provider: "OMT_APP",
+      serviceType: "SEND",
+      amount: 20,
+      currency: "USD",
+      commission: 2,
+      omtFee: 2,
+      paidByMethod: "CASH",
+      exchangeRate: 90000,
+    });
+    expect(res.id).toBeGreaterThan(0);
+
+    expect(balance(db, "OMT_App", "USD")).toBeCloseTo(appBefore - 20, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(genBefore + 22, 2);
+
+    const txn = db
+      .prepare(
+        `SELECT profit_usd, amount_usd FROM transactions ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { profit_usd: number; amount_usd: number };
+    // Row amount = TOTAL charged to the customer (transfer + fee), matching
+    // recharge (price) and app-wallet RECEIVE (gross inflow). Was 20 — the
+    // $2 fee was invisible in the transactions table.
+    expect(txn.amount_usd).toBeCloseTo(22, 2);
+    expect(txn.profit_usd).toBeCloseTo(2, 2); // the fee is shop profit
+  });
+
+  it("Binance on-account SEND keeps its USDT note", () => {
+    const res = repo.createTransaction({
+      provider: "BINANCE",
+      serviceType: "SEND",
+      amount: 20,
+      currency: "USDT",
+      commission: 2,
+      clientId: 1,
+      paidByMethod: "CUSTOMER_ACCOUNT",
+      exchangeRate: 90000,
+    });
+    expect(res.id).toBeGreaterThan(0);
+
+    const debt = db
+      .prepare(
+        `SELECT amount_usd, note FROM debt_ledger ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { amount_usd: number; note: string };
+    expect(debt.amount_usd).toBeCloseTo(22, 2);
+    // USDT transfer + USD fee can't share one headline number — the fee is
+    // appended instead.
+    expect(debt.note).toBe("Binance SEND — $20 USDT (+$2 fee)");
   });
 });

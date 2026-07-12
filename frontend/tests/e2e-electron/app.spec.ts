@@ -11,10 +11,19 @@
  * 4. Flow tests (actual business operations)
  */
 
-import { test, expect, navigateTo } from "./fixtures";
+import {
+  test,
+  expect,
+  navigateTo,
+  describeElectronDeath,
+  seedClient,
+  seedProduct,
+} from "./fixtures";
 
 // Tests share sequential state (product + client created in earlier tests).
 // Retries would relaunch Electron fresh, losing that state — disable them.
+// Exception: the "Debts: add sale debt and settle" describe below seeds its
+// own data and re-enables retries — see the comment there.
 test.describe.configure({ retries: 0 });
 
 // ============================================================
@@ -217,130 +226,166 @@ test("Expenses: record an expense", async ({ appPage }) => {
   await expect(descInput).toHaveValue("", { timeout: 5000 });
 });
 
-test("Debts: add sale debt and settle", async ({ appPage }) => {
-  // Create a debt by completing a POS sale on Customer Account
-  await navigateTo(appPage, "/pos");
+// This flow intermittently loses the Electron page target at the Complete Sale
+// click ("Target page ... closed" while the main process stays alive — see the
+// describeElectronDeath() diagnostics). Unlike its siblings, this test seeds
+// its OWN client + product, so a retry on a fresh worker (fresh DB) still has
+// its data — which lets us re-enable retries here despite the file-level
+// retries: 0 above, absorbing the environmental death the same way the rest of
+// the suite does.
+test.describe("Debts (self-seeded)", () => {
+  test.describe.configure({ retries: 2 });
 
-  const searchInput = appPage.getByPlaceholder(
-    "Search products by name or barcode...",
-  );
-  await expect(searchInput).toBeVisible({ timeout: 10_000 });
-  await searchInput.fill("E2E Test Widget");
-  await expect(appPage.locator("text=E2E Test Widget").first()).toBeVisible({
-    timeout: 10_000,
-  });
-  await appPage.locator("text=E2E Test Widget").first().click();
-  await expect(appPage.locator("text=Cart is empty")).not.toBeVisible();
-
-  await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
-  await expect(appPage.locator('[data-testid="checkout-modal"]')).toBeVisible({
-    timeout: 5000,
-  });
-
-  // Assign E2E Test Client — payment auto-switches to Customer Account
-  const clientField = appPage.locator(
-    '[data-testid="checkout-modal"] [data-testid="client-autocomplete-field"]',
-  );
-  await expect(clientField).toBeVisible({ timeout: 5000 });
-  await clientField.fill("E2E Test");
-  await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({
-    timeout: 5000,
-  });
-  await appPage.locator('[data-testid^="client-option-"]').first().click();
-
-  // Wait for the CUSTOMER_ACCOUNT auto-switch effect to commit before completing
-  // the sale, so the Complete Sale click cannot race the async payment-method
-  // switch (CheckoutModal auto-selects CUSTOMER_ACCOUNT once a client is set).
-  // The POS modal's method picker is a plain <select> (no testid) — target the
-  // one that offers a CUSTOMER_ACCOUNT option and wait for it to be selected.
-  await expect(
-    appPage
-      .locator('[data-testid="checkout-modal"] select')
-      .filter({ has: appPage.locator('option[value="CUSTOMER_ACCOUNT"]') })
-      .first(),
-  ).toHaveValue("CUSTOMER_ACCOUNT", { timeout: 5000 });
-
-  // Diagnostic: buffer renderer crash / console / page errors BEFORE the click so
-  // the cause survives even if the Electron page detaches (a main- OR renderer-
-  // process crash closes the page). A pure main-process crash won't appear here —
-  // its stack is printed by the harness as `[electron] …` stderr lines.
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  let pageCrashed = false;
-  appPage.on("console", (m) => {
-    if (m.type() === "error") consoleErrors.push(m.text());
-  });
-  appPage.on("pageerror", (e) => pageErrors.push(String(e?.message ?? e)));
-  appPage.on("crash", () => {
-    pageCrashed = true;
-  });
-
-  // Complete sale on Customer Account
-  await appPage.getByRole("button", { name: /Complete Sale/i }).click();
-
-  try {
-    // The modal stays open ONLY when handleCompleteSale hits a failure — it shows a
-    // "Sale failed: <error>" / validation / "unexpected error" alert and does NOT
-    // clear the cart. Race the success signal against that alert.
-    const cartEmpty = appPage.locator("text=Cart is empty");
-    const failureAlert = appPage.locator('[role="alert"]').filter({
-      hasText: /fail|error|debt|disabled|required|phone|anonymous/i,
+  test("Debts: add sale debt and settle", async ({ appPage }) => {
+    const debtClientName = `DebtClient-${Date.now()}`;
+    const debtProductName = `DebtWidget-${Date.now()}`;
+    await seedClient(appPage, {
+      name: debtClientName,
+      phone: `09${Math.floor(Math.random() * 9000000 + 1000000)}`,
     });
-    await Promise.race([
-      cartEmpty.waitFor({ state: "visible", timeout: 12_000 }).catch(() => {}),
-      failureAlert
-        .first()
-        .waitFor({ state: "visible", timeout: 12_000 })
-        .catch(() => {}),
-    ]);
-    if (
-      await failureAlert
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
-      const msg = (await failureAlert.allTextContents().catch(() => [])).join(
-        " | ",
-      );
-      throw new Error(`alert: "${msg}"`);
-    }
-    await expect(cartEmpty).toBeVisible({ timeout: 8_000 });
-  } catch (err) {
-    throw new Error(
-      `Complete Sale did not complete on CUSTOMER_ACCOUNT. ` +
-        `pageCrashed=${pageCrashed}; ` +
-        `pageErrors=${JSON.stringify(pageErrors)}; ` +
-        `consoleErrors=${JSON.stringify(consoleErrors.slice(-8))}; ` +
-        `original=${err instanceof Error ? err.message : String(err)}`,
+    await seedProduct(appPage, {
+      name: debtProductName,
+      cost_price: 3,
+      sell_price: 10,
+      quantity: 5,
+    });
+
+    // Create a debt by completing a POS sale on Customer Account
+    await navigateTo(appPage, "/pos");
+
+    const searchInput = appPage.getByPlaceholder(
+      "Search products by name or barcode...",
     );
-  }
+    await expect(searchInput).toBeVisible({ timeout: 10_000 });
+    await searchInput.fill(debtProductName);
+    await expect(
+      appPage.locator(`text=${debtProductName}`).first(),
+    ).toBeVisible({
+      timeout: 10_000,
+    });
+    await appPage.locator(`text=${debtProductName}`).first().click();
+    await expect(appPage.locator("text=Cart is empty")).not.toBeVisible();
 
-  // Navigate to Debts and settle
-  await navigateTo(appPage, "/debts");
-  // Wait for the debtor list to finish loading before clicking — avoids
-  // detach-on-click when the list re-renders during the initial data fetch.
-  await appPage.waitForLoadState("networkidle", { timeout: 10_000 });
+    await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
+    await expect(
+      appPage.locator('[data-testid="checkout-modal"]'),
+    ).toBeVisible({
+      timeout: 5000,
+    });
 
-  const clientRow = appPage
-    .locator("button")
-    .filter({ hasText: "E2E Test Client" })
-    .first();
-  await expect(clientRow).toBeVisible({ timeout: 10_000 });
-  await clientRow.click();
+    // Assign the seeded client — payment auto-switches to Customer Account
+    const clientField = appPage.locator(
+      '[data-testid="checkout-modal"] [data-testid="client-autocomplete-field"]',
+    );
+    await expect(clientField).toBeVisible({ timeout: 5000 });
+    await clientField.fill(debtClientName.slice(0, 16));
+    await expect(
+      appPage.locator('[data-testid="client-dropdown"]'),
+    ).toBeVisible({
+      timeout: 5000,
+    });
+    await appPage.locator('[data-testid^="client-option-"]').first().click();
 
-  const settleBtn = appPage.getByRole("button", { name: /Settle Debt/i });
-  await expect(settleBtn).toBeVisible({ timeout: 10_000 });
-  await settleBtn.click();
+    // Wait for the CUSTOMER_ACCOUNT auto-switch effect to commit before
+    // completing the sale, so the Complete Sale click cannot race the async
+    // payment-method switch (CheckoutModal auto-selects CUSTOMER_ACCOUNT once
+    // a client is set). The POS modal's method picker is a plain <select> (no
+    // testid) — target the one that offers a CUSTOMER_ACCOUNT option and wait
+    // for it to be selected.
+    await expect(
+      appPage
+        .locator('[data-testid="checkout-modal"] select')
+        .filter({ has: appPage.locator('option[value="CUSTOMER_ACCOUNT"]') })
+        .first(),
+    ).toHaveValue("CUSTOMER_ACCOUNT", { timeout: 5000 });
 
-  // The payment form opens pre-seeded with the full per-currency position
-  // (the separate "Full debt" quick-fill button was removed — it wrote page
-  // state the payment form never displayed).
-  await expect(
-    appPage.locator('[data-testid^="payment-amount-"]').first(),
-  ).not.toHaveValue("", { timeout: 5000 });
+    // Diagnostic: buffer renderer crash / console / page errors BEFORE the
+    // click so the cause survives even if the Electron page detaches (a main-
+    // OR renderer-process crash closes the page). A pure main-process crash
+    // won't appear here — its stack is printed by the harness as
+    // `[electron] …` stderr lines.
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    let pageCrashed = false;
+    appPage.on("console", (m) => {
+      if (m.type() === "error") consoleErrors.push(m.text());
+    });
+    appPage.on("pageerror", (e) => pageErrors.push(String(e?.message ?? e)));
+    appPage.on("crash", () => {
+      pageCrashed = true;
+    });
 
-  // Confirm (triggers native alert — auto-dismissed)
-  await appPage.getByRole("button", { name: /Confirm Payment/i }).click();
+    // Complete sale on Customer Account
+    await appPage.getByRole("button", { name: /Complete Sale/i }).click();
+
+    try {
+      // The modal stays open ONLY when handleCompleteSale hits a failure — it
+      // shows a "Sale failed: <error>" / validation / "unexpected error" alert
+      // and does NOT clear the cart. Race the success signal against that
+      // alert.
+      const cartEmpty = appPage.locator("text=Cart is empty");
+      const failureAlert = appPage.locator('[role="alert"]').filter({
+        hasText: /fail|error|debt|disabled|required|phone|anonymous/i,
+      });
+      await Promise.race([
+        cartEmpty
+          .waitFor({ state: "visible", timeout: 12_000 })
+          .catch(() => {}),
+        failureAlert
+          .first()
+          .waitFor({ state: "visible", timeout: 12_000 })
+          .catch(() => {}),
+      ]);
+      if (
+        await failureAlert
+          .first()
+          .isVisible()
+          .catch(() => false)
+      ) {
+        const msg = (await failureAlert.allTextContents().catch(() => [])).join(
+          " | ",
+        );
+        throw new Error(`alert: "${msg}"`);
+      }
+      await expect(cartEmpty).toBeVisible({ timeout: 8_000 });
+    } catch (err) {
+      throw new Error(
+        `Complete Sale did not complete on CUSTOMER_ACCOUNT. ` +
+          `pageCrashed=${pageCrashed}; ` +
+          `${await describeElectronDeath()}; ` +
+          `pageErrors=${JSON.stringify(pageErrors)}; ` +
+          `consoleErrors=${JSON.stringify(consoleErrors.slice(-8))}; ` +
+          `original=${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    // Navigate to Debts and settle
+    await navigateTo(appPage, "/debts");
+    // Wait for the debtor list to finish loading before clicking — avoids
+    // detach-on-click when the list re-renders during the initial data fetch.
+    await appPage.waitForLoadState("networkidle", { timeout: 10_000 });
+
+    const clientRow = appPage
+      .locator("button")
+      .filter({ hasText: debtClientName })
+      .first();
+    await expect(clientRow).toBeVisible({ timeout: 10_000 });
+    await clientRow.click();
+
+    const settleBtn = appPage.getByRole("button", { name: /Settle Debt/i });
+    await expect(settleBtn).toBeVisible({ timeout: 10_000 });
+    await settleBtn.click();
+
+    // The payment form opens pre-seeded with the full per-currency position
+    // (the separate "Full debt" quick-fill button was removed — it wrote page
+    // state the payment form never displayed).
+    await expect(
+      appPage.locator('[data-testid^="payment-amount-"]').first(),
+    ).not.toHaveValue("", { timeout: 5000 });
+
+    // Confirm (triggers native alert — auto-dismissed)
+    await appPage.getByRole("button", { name: /Confirm Payment/i }).click();
+  });
 });
 
 test("Services: WHISH disabled without partner (OMT-base)", async ({

@@ -12,6 +12,7 @@ import { HistoryModal } from "./components/HistoryModal";
 import { StatsCards } from "../../components/StatsCards";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { useSellRate } from "@/hooks/useSellRate";
+import { localDay } from "@/shared/utils/localDay";
 
 interface Expense {
   id?: number;
@@ -51,7 +52,7 @@ export default function Expenses() {
     paid_by_method: "CASH",
     amount_usd: 0,
     amount_lbp: 0,
-    expense_date: new Date().toISOString().split("T")[0],
+    expense_date: localDay(),
   });
 
   useEffect(() => {
@@ -107,7 +108,7 @@ export default function Expenses() {
           paid_by_method: "CASH",
           amount_usd: 0,
           amount_lbp: 0,
-          expense_date: new Date().toISOString().split("T")[0],
+          expense_date: localDay(),
         });
         setPaymentLines([
           {

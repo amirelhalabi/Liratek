@@ -189,6 +189,52 @@ type CountRow = { count: number };
 type DateRow = { date: string };
 type ProfitRow = { profit_date: string; profit: number };
 
+/**
+ * Human-readable "what was sold" label built from a sale's resolved line
+ * items, e.g. "2× iPhone Case, 1× Charger". Used on the unified transaction
+ * summary and the debt-ledger note so both surface item names instead of a
+ * bare sale id/amount (previously "Sale #3: $15" / "Balance from Sale").
+ * Caps at 3 items then appends a "+N more" tail (mirrors the truncation
+ * convention in the Debts client-history view,
+ * frontend/src/features/debts/pages/Debts/index.tsx).
+ */
+function formatSaleItemsLabel(
+  items: { name: string; quantity: number }[],
+): string {
+  const shown = items
+    .slice(0, 3)
+    .map((item) => `${item.quantity}× ${item.name}`)
+    .join(", ");
+  const extra = items.length - 3;
+  return extra > 0 ? `${shown} +${extra} more` : shown;
+}
+
+/**
+ * "discounted 90,000 LBP" tail for the transaction summary and debt note,
+ * null when the sale carries no discount. The discount is stored in USD;
+ * it is surfaced in the currency the customer paid with — the currency of
+ * the first customer-paid (non-OUT) payment row (single payment: that row;
+ * split payment: the first row), converted at the sale's exchange rate for
+ * LBP. Falls back to USD when nothing was tendered (fully on-account sales
+ * or legacy calls without payment rows).
+ */
+function formatDiscountLabel(sale: SaleRequest): string | null {
+  if (!sale.discount || sale.discount <= 0) return null;
+  let currency: string | undefined;
+  if (sale.payments?.length) {
+    currency = sale.payments.find((p) => p.direction !== "OUT")?.currency_code;
+  } else if (sale.payment_usd > 0) {
+    currency = "USD";
+  } else if (sale.payment_lbp > 0) {
+    currency = "LBP";
+  }
+  if (currency === "LBP") {
+    const lbp = Math.round(sale.discount * sale.exchange_rate);
+    return `discounted ${lbp.toLocaleString()} LBP`;
+  }
+  return `discounted $${sale.discount.toLocaleString()}`;
+}
+
 export class SalesRepository extends BaseRepository<SaleEntity> {
   constructor() {
     super("sales", { softDelete: false });
@@ -306,8 +352,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.total_amount,
             sale.discount,
             sale.final_amount,
-            sale.payment_usd,
-            sale.payment_lbp,
+            // Derived totals, NOT the raw legacy fields: paid_usd/paid_lbp mean
+            // "actually paid" — the fully-paid profit gate reads them and debt
+            // repayment backfills them. The raw client sums include DEBT /
+            // on-account / gift-card lines, which made an unpaid on-account
+            // sale look fully paid (profit counted early, repayment
+            // double-added).
+            paymentUsd,
+            paymentLbp,
             sale.change_given_usd || 0,
             sale.change_given_lbp || 0,
             sale.exchange_rate,
@@ -337,8 +389,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.total_amount,
             sale.discount,
             sale.final_amount,
-            sale.payment_usd,
-            sale.payment_lbp,
+            // Derived totals — see the UPDATE branch note above.
+            paymentUsd,
+            paymentLbp,
             sale.change_given_usd || 0,
             sale.change_given_lbp || 0,
             sale.exchange_rate,
@@ -358,26 +411,45 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // the shop's margin (final_amount = total − discount), so gross item
         // margins alone overstate profit on every discounted sale.
         let saleProfitUsd = 0;
+        // Resolve each item's product name alongside its cost price (same
+        // lookup, one query per item) so the transaction summary, metadata,
+        // and debt note can name what was sold instead of a bare sale id.
+        const saleItemDetails: { name: string; quantity: number }[] = [];
         for (const item of sale.items) {
-          const costRow = db
+          const productRow = db
             .prepare(
-              "SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?",
+              "SELECT name, cost_price_usd FROM products WHERE id = ? AND tenant_id = ?",
             )
             .get(item.product_id, tenantId) as
-            | { cost_price_usd: number }
+            | { name?: string; cost_price_usd: number }
             | undefined;
-          const costPrice = costRow?.cost_price_usd ?? 0;
+          const costPrice = productRow?.cost_price_usd ?? 0;
           saleProfitUsd += (item.price - costPrice) * item.quantity;
+          saleItemDetails.push({
+            name: productRow?.name ?? "Unknown Product",
+            quantity: item.quantity,
+          });
         }
         saleProfitUsd -= sale.discount || 0;
+        const itemsLabel = formatSaleItemsLabel(saleItemDetails);
+        const discountLabel = formatDiscountLabel(sale);
+        const discountTail = discountLabel ? ` (${discountLabel})` : "";
+        // One label for the unified transaction summary AND the debt-ledger
+        // note — the Debts history and the audit row must read identically.
+        const saleLabel = `Sale #${saleId}: ${itemsLabel} — $${sale.final_amount}${discountTail}`;
 
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SALE,
           source_table: "sales",
           source_id: saleId,
           user_id: userId,
+          // Unified-row amounts carry the sale's VALUE in its denominated
+          // currency (sales are USD-priced), never the tender — the LBP the
+          // customer handed over lives in the payment legs below. Stamping
+          // payment_lbp here double-counted the sale ($5 + 450,000 LBP) in the
+          // audit view and inflated revenue_lbp in profit/session reports.
           amount_usd: sale.final_amount,
-          amount_lbp: sale.payment_lbp || 0,
+          amount_lbp: 0,
           profit_usd: saleProfitUsd,
           exchange_rate: sale.exchange_rate,
           client_id: finalClientId ?? null,
@@ -385,13 +457,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           // no clients row could be resolved (lira-094).
           client_name: sale.client_name ?? null,
           client_phone: sale.client_phone ?? null,
-          summary: `Sale #${saleId}: $${sale.final_amount}`,
+          summary: saleLabel,
           metadata_json: {
             total_amount: sale.total_amount,
             discount: sale.discount,
             final_amount: sale.final_amount,
             status,
             item_count: sale.items.length,
+            items: saleItemDetails,
           },
           transaction_time: sale.transaction_time,
         });
@@ -646,7 +719,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               "Sale Debt",
               debtAmount,
               txnId,
-              "Balance from Sale",
+              saleLabel,
               tenantId,
             );
           }
@@ -1051,8 +1124,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         source_table: originalTxn.source_table,
         source_id: originalTxn.source_id,
         user_id: params.userId,
+        // Same value-not-tender rule as the SALE stamp: the refund is a USD
+        // value; writing its LBP conversion alongside double-counted every
+        // refund in currency-split reports.
         amount_usd: -refundAmount,
-        amount_lbp: -(refundAmount * originalTxn.exchange_rate),
+        amount_lbp: 0,
         profit_usd: -refundProfitUsd,
         profit_lbp: 0,
         exchange_rate: originalTxn.exchange_rate,

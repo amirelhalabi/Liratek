@@ -81,6 +81,98 @@ let sharedBrowser: Browser | null = null; // web mode only
 let sharedPage: Page | null = null;
 let setupDone = false;
 
+// A "Target page, context or browser has been closed" failure is silent about
+// the cause — it looks identical whether the renderer crashed, the main process
+// threw an uncaught JS exception, or the OS SIGKILL'd the process. These three
+// signals disambiguate it (describeElectronDeath() bundles them for a failure
+// message):
+//
+//   - lastElectronExit — the child `exit` event (code + signal). Async, so it
+//     can still be null at the instant the "page closed" error is thrown; the
+//     synchronous procState below is authoritative for alive-vs-dead.
+//   - procState — sharedApp.process().exitCode / .signalCode read live and
+//     SYNCHRONOUSLY at catch time. alive=true ⇒ the process is STILL RUNNING and
+//     only the window/target was destroyed (not a process crash). signal set ⇒
+//     OS/native kill (check ~/Library/Logs/DiagnosticReports for a matching
+//     .ips). exitCode 1, no signal ⇒ a main-process JS exception (a real bug).
+//   - recentStderr — the tail of the piped `[electron] …` stderr, where a
+//     main-process JS exception prints its stack (a signal kill is silent here).
+let lastElectronExit: {
+  code: number | null;
+  signal: string | null;
+  at: string;
+} | null = null;
+
+// Ring buffer of the most recent Electron stderr chunks (a JS crash stack lives
+// here but is otherwise buried in minutes of interleaved test output).
+const electronStderrRing: string[] = [];
+const MAX_STDERR_CHUNKS = 80;
+
+// Fixture-level page lifecycle timestamps. A test-local `page.on("crash")`
+// flag can race the failure throw (the death is detected ~1ms after the
+// trigger, before the crash event dispatches) — these listeners live for the
+// whole worker, so describeElectronDeath() reads them race-free.
+let pageClosedAt: string | null = null;
+let pageCrashedAt: string | null = null;
+
+export function getLastElectronExit(): {
+  code: number | null;
+  signal: string | null;
+  at: string;
+} | null {
+  return lastElectronExit;
+}
+
+// Live, synchronous liveness of the shared Electron main process. Unlike the
+// `exit` event this never races the "page closed" rejection.
+export function getElectronProcessState(): {
+  exists: boolean;
+  alive?: boolean;
+  exitCode?: number | null;
+  signalCode?: NodeJS.Signals | null;
+  killed?: boolean;
+  pid?: number;
+  appObjectDisposed?: boolean;
+} {
+  if (!sharedApp) return { exists: false };
+  try {
+    const p = sharedApp.process();
+    return {
+      exists: true,
+      alive: p.exitCode === null && p.signalCode === null,
+      exitCode: p.exitCode,
+      signalCode: p.signalCode,
+      killed: p.killed,
+      pid: p.pid,
+    };
+  } catch {
+    // sharedApp.process() throws once Playwright has disposed the
+    // ElectronApplication — which it only does when the debugger connection
+    // to the app is gone. Mid-test, this is the FINGERPRINT of the flake:
+    // the runner↔Electron inspector/CDP websocket dropped while the app,
+    // window, and renderer all stayed alive (confirmed 2026-07-11: main.ts
+    // render-process-gone/close diagnostics stayed silent at death time).
+    return { exists: true, appObjectDisposed: true };
+  }
+}
+
+// One compact string for a diagnostic failure message: is the process alive,
+// how did it exit, when did the page close/crash, and the last ~1.2k chars of
+// its output (both streams — render-process-gone diagnostics arrive via pino
+// on stdout). Await the returned promise: it settles ~750ms so in-flight
+// close/crash/process-gone events land before the snapshot is taken.
+export async function describeElectronDeath(): Promise<string> {
+  await new Promise((r) => setTimeout(r, 750));
+  const state = getElectronProcessState();
+  const outputTail = electronStderrRing.join("").slice(-1200);
+  return (
+    `procState=${JSON.stringify(state)}; ` +
+    `lastExit=${JSON.stringify(lastElectronExit)}; ` +
+    `pageClosedAt=${pageClosedAt}; pageCrashedAt=${pageCrashedAt}; ` +
+    `outputTail=${JSON.stringify(outputTail)}`
+  );
+}
+
 export const test = base.extend<
   {
     appPage: Page;
@@ -192,12 +284,38 @@ export const test = base.extend<
         cwd: electronAppPath,
       });
 
-      // Pipe Electron's stderr to console so startup errors are visible
+      // Pipe Electron's stdout/stderr to console so startup errors are
+      // visible, and keep the tail of BOTH in a ring buffer so a main-process
+      // crash stack or a render-process-gone diagnostic (pino → stdout) can be
+      // embedded in a failing test's error (see describeElectronDeath()).
       sharedApp.process().stderr?.on("data", (chunk: Buffer) => {
-        process.stderr.write(`[electron] ${chunk.toString()}`);
+        const s = chunk.toString();
+        process.stderr.write(`[electron] ${s}`);
+        electronStderrRing.push(s);
+        if (electronStderrRing.length > MAX_STDERR_CHUNKS)
+          electronStderrRing.shift();
       });
       sharedApp.process().stdout?.on("data", (chunk: Buffer) => {
-        process.stdout.write(`[electron] ${chunk.toString()}`);
+        const s = chunk.toString();
+        process.stdout.write(`[electron] ${s}`);
+        electronStderrRing.push(s);
+        if (electronStderrRing.length > MAX_STDERR_CHUNKS)
+          electronStderrRing.shift();
+      });
+
+      // Record HOW the main process dies. A SIGKILL is silent on stderr, so
+      // without this a "Target page closed" failure gives no cause. The marker
+      // line lands in the per-test captured output; getLastElectronExit() lets
+      // a failing assertion embed it in the thrown error too.
+      sharedApp.process().on("exit", (code, signal) => {
+        lastElectronExit = {
+          code,
+          signal,
+          at: new Date().toISOString(),
+        };
+        process.stderr.write(
+          `[electron-exit] code=${code} signal=${signal}\n`,
+        );
       });
 
       try {
@@ -226,6 +344,16 @@ export const test = base.extend<
       // worker and strand the NEXT dialog on screen unanswered.
       sharedPage.on("dialog", (dialog) => {
         dialog.accept().catch(() => {});
+      });
+
+      // Worker-lifetime page lifecycle tracking for describeElectronDeath().
+      pageClosedAt = null;
+      pageCrashedAt = null;
+      sharedPage.on("close", () => {
+        pageClosedAt = new Date().toISOString();
+      });
+      sharedPage.on("crash", () => {
+        pageCrashedAt = new Date().toISOString();
       });
     }
 

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 interface SessionSummary {
   id: number;
@@ -34,7 +35,7 @@ interface SessionSummary {
 }
 
 function formatTime(iso: string): string {
-  const d = new Date(iso);
+  const d = parseDbDate(iso);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 

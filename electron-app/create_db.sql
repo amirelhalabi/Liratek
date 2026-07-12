@@ -1435,4 +1435,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (122, 'rename_debts_module_to_accounts'),
     (123, 'add_multi_tenancy'),
     (124, 'name_home_tenant_from_shop'),
-    (125, 'add_allow_out_of_stock_sales_setting');
+    (125, 'add_allow_out_of_stock_sales_setting'),
+    (126, 'zero_sale_txn_amount_lbp_tender_dup');

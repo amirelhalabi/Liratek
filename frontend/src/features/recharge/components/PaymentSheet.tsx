@@ -140,7 +140,7 @@ export function PaymentSheet({
 
       {/* Sheet Panel */}
       <div
-        className={`relative w-full max-w-md bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+        className={`relative w-full max-w-lg bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
           visible ? "translate-x-0" : "translate-x-full"
         }`}
       >

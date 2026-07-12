@@ -7,6 +7,7 @@ import {
   todayISO,
 } from "@liratek/ui";
 import { useModules } from "@/contexts/ModuleContext";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   TrendingUp,
   DollarSign,
@@ -1634,7 +1635,7 @@ export default function Profits() {
                       ${r.commission.toFixed(4)}
                     </div>
                     <div className="col-span-1 text-right text-xs text-slate-500">
-                      {new Date(r.created_at).toLocaleDateString()}
+                      {parseDbDate(r.created_at).toLocaleDateString()}
                     </div>
                   </div>
                 ))}
@@ -1712,7 +1713,7 @@ export default function Profits() {
                     className="border-b border-slate-700/50 hover:bg-slate-700/30"
                   >
                     <td className="px-4 py-3 text-slate-300 text-xs">
-                      {new Date(row.created_at).toLocaleDateString()}
+                      {parseDbDate(row.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-white">

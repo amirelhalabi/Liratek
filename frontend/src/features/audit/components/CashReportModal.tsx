@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { X, Banknote } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
+import { localDay, localMonth } from "@/shared/utils/localDay";
 
 /**
  * D1 — Cash Report: customer cash in/out per business date, split by currency.
@@ -50,11 +51,11 @@ function pivotByDate(rows: ApiRow[]): ReportRow[] {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDay();
 }
 
 function monthStart(): string {
-  return `${new Date().toISOString().slice(0, 8)}01`;
+  return `${localMonth()}-01`;
 }
 
 const usd = (v: number) =>

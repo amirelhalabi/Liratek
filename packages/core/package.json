@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json",
-    "test": "node ../../node_modules/jest/bin/jest.js --config jest.config.cjs",
+    "test": "node ../../node_modules/cross-env/src/bin/cross-env.js TZ=Asia/Beirut node ../../node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:coverage": "node ../../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage"
   },
   "dependencies": {

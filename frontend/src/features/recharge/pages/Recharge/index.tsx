@@ -6,6 +6,7 @@ import {
   startTransition,
 } from "react";
 import logger from "@/utils/logger";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useApi } from "@liratek/ui";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -272,7 +273,7 @@ export default function MobileRecharge() {
 
       const today = new Date().toDateString();
       const todayTx = (history ?? []).filter(
-        (tx: any) => new Date(tx.created_at).toDateString() === today,
+        (tx: any) => parseDbDate(tx.created_at).toDateString() === today,
       );
       setBinanceStats({
         totalSent: todayTx
@@ -1072,7 +1073,7 @@ export default function MobileRecharge() {
     );
     const today = new Date().toDateString();
     const todayTx = providerTx.filter(
-      (tx) => new Date(tx.created_at).toDateString() === today,
+      (tx) => parseDbDate(tx.created_at).toDateString() === today,
     );
     // Group commissions by currency
     const currencyMap = new Map<string, number>();

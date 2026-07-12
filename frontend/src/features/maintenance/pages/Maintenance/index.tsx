@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   Wrench,
   Plus,
@@ -470,7 +471,7 @@ export default function Maintenance() {
                             )}
                             {job.created_at && (
                               <span className="text-[10px] text-slate-600">
-                                {new Date(job.created_at).toLocaleDateString()}
+                                {parseDbDate(job.created_at).toLocaleDateString()}
                               </span>
                             )}
                           </div>

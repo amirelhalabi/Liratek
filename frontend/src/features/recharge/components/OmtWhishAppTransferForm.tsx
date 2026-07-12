@@ -19,6 +19,7 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { ensureRechargeClient } from "../utils/ensureClient";
+import { calculateOmtWhishAppFees } from "../utils/omtWhishAppFees";
 import { toCamelLegs } from "@/utils/paymentUtils";
 
 type ServiceType = "SEND" | "RECEIVE";
@@ -127,35 +128,27 @@ function OmtWhishAppTransferFormInner({
     }
   }, [serviceType, customerName, customerPhone]);
 
-  // Calculate fees — Whish App uses 1% fee on RECEIVE (USD only, no fees for LBP)
+  // Fee/amount math — see calculateOmtWhishAppFees for the full contract.
+  // App-wallet RECEIVE (OMT App or Whish App): customer sends money INTO the
+  // shop's wallet, shop pays CASH OUT — walletAmount (the wallet inflow, sent
+  // to the API as `data.amount`) and totalAmount (the cash payout) diverge;
+  // the shop keeps the entire fee as profit (LEFT_TO_DO.md 2026-07-04).
   const parsedAmount = parseFloat(amount || "0");
-  const autoFee =
-    activeProvider === "WHISH_APP" &&
-    serviceType === "RECEIVE" &&
-    currency === "USD" &&
-    parsedAmount > 0
-      ? parsedAmount * 0.01
-      : 0;
-  const providerFee =
-    parseFloat(manualFee || "0") > 0 ? parseFloat(manualFee) : autoFee;
-
-  // When includingFees: entered amount is total, fee is subtracted
-  // When not includingFees: fee is added on top
-  const sentAmount = includingFees ? parsedAmount - providerFee : parsedAmount;
-  const totalAmount =
-    serviceType === "SEND"
-      ? parsedAmount + providerFee
-      : includingFees
-        ? parsedAmount
-        : parsedAmount + providerFee;
-  // Profit rules:
-  // - OMT App: $0 profit (all types)
-  // - Whish App SEND: $0 profit
-  // - Whish App RECEIVE: 10% of fee (1% of amount)
-  const shopProfit =
-    activeProvider === "WHISH_APP" && serviceType === "RECEIVE"
-      ? providerFee * 0.1
-      : 0;
+  const {
+    autoFee,
+    providerFee,
+    isAppWalletReceive,
+    walletAmount,
+    totalAmount,
+    shopProfit,
+  } = calculateOmtWhishAppFees({
+    activeProvider,
+    serviceType,
+    currency,
+    parsedAmount,
+    manualFee,
+    includingFees,
+  });
 
   const handleSubmit = async () => {
     const finalSenderName = senderName.trim();
@@ -207,7 +200,7 @@ function OmtWhishAppTransferFormInner({
         formData: {
           provider: activeProvider,
           serviceType,
-          amount: includingFees ? sentAmount : parseFloat(amount),
+          amount: walletAmount,
           currency,
           commission: shopProfit,
           ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
@@ -243,7 +236,7 @@ function OmtWhishAppTransferFormInner({
       const result = await api.addOMTTransaction({
         provider: activeProvider,
         serviceType,
-        amount: includingFees ? sentAmount : parseFloat(amount),
+        amount: walletAmount,
         currency,
         commission: Math.max(0, shopProfit - discount),
         ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
@@ -410,7 +403,7 @@ function OmtWhishAppTransferFormInner({
                 <DecimalInput
                   id="transfer-fee"
                   value={parseFloat(manualFee) || 0}
-                  onChange={(n) => setManualFee(n ? String(n) : "")}
+                  onChange={(n) => setManualFee(String(n))}
                   className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
                   placeholder={
                     autoFee > 0 ? autoFee.toFixed(2) + " (auto)" : "0.00"
@@ -437,65 +430,45 @@ function OmtWhishAppTransferFormInner({
               </span>
             </div>
 
-            {/* Fee included in amount checkbox (Whish App RECEIVE) */}
-            {activeProvider === "WHISH_APP" && serviceType === "RECEIVE" && (
+            {/* App-wallet RECEIVE (OMT App or Whish App): wallet-vs-payout
+                breakdown. The "fee included" toggle only applies to Whish
+                App — OMT App always charges the fee on top (no UI to net it
+                out of the entered amount). */}
+            {isAppWalletReceive && (
               <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3 space-y-2">
-                <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includingFees}
-                    onChange={(e) => setIncludingFees(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm font-medium">
-                    Fee included in amount
-                  </span>
-                </label>
+                {activeProvider === "WHISH_APP" && (
+                  <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includingFees}
+                      onChange={(e) => setIncludingFees(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium">
+                      Fee included in amount
+                    </span>
+                  </label>
+                )}
                 {parsedAmount > 0 && (
                   <div className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2">
-                    {includingFees ? (
-                      <>
-                        <p className="text-slate-400">
-                          Customer paid:{" "}
-                          <span className="text-white font-mono font-medium">
-                            ${parsedAmount.toFixed(2)}
-                          </span>
-                        </p>
-                        <p className="text-slate-400">
-                          Fee:{" "}
-                          <span className="text-amber-400 font-mono font-medium">
-                            -${providerFee.toFixed(2)}
-                          </span>
-                        </p>
-                        <p className="text-slate-400">
-                          Customer receives:{" "}
-                          <span className="text-emerald-400 font-mono font-medium">
-                            ${sentAmount.toFixed(2)}
-                          </span>
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-slate-400">
-                          Transfer amount:{" "}
-                          <span className="text-white font-mono font-medium">
-                            ${parsedAmount.toFixed(2)}
-                          </span>
-                        </p>
-                        <p className="text-slate-400">
-                          Fee (extra):{" "}
-                          <span className="text-amber-400 font-mono font-medium">
-                            +${providerFee.toFixed(2)}
-                          </span>
-                        </p>
-                        <p className="text-slate-400">
-                          Customer pays total:{" "}
-                          <span className="text-emerald-400 font-mono font-medium">
-                            ${totalAmount.toFixed(2)}
-                          </span>
-                        </p>
-                      </>
-                    )}
+                    <p className="text-slate-400">
+                      Received into wallet:{" "}
+                      <span className="text-white font-mono font-medium">
+                        ${walletAmount.toFixed(2)}
+                      </span>
+                    </p>
+                    <p className="text-slate-400">
+                      Fee:{" "}
+                      <span className="text-amber-400 font-mono font-medium">
+                        {includingFees ? "-" : "+"}${providerFee.toFixed(2)}
+                      </span>
+                    </p>
+                    <p className="text-slate-400">
+                      Customer receives:{" "}
+                      <span className="text-emerald-400 font-mono font-medium">
+                        ${totalAmount.toFixed(2)}
+                      </span>
+                    </p>
                   </div>
                 )}
               </div>
@@ -725,11 +698,16 @@ function OmtWhishAppTransferFormInner({
           ...(activeClientPhone.trim()
             ? [{ label: "Phone", value: activeClientPhone.trim() }]
             : []),
-          { label: "Transfer Amount", value: `$${parsedAmount.toFixed(2)}` },
+          isAppWalletReceive
+            ? {
+                label: "Received into Wallet",
+                value: `$${walletAmount.toFixed(2)}`,
+              }
+            : { label: "Transfer Amount", value: `$${parsedAmount.toFixed(2)}` },
           ...(providerFee > 0
             ? [
                 {
-                  label: "Provider Fee",
+                  label: isAppWalletReceive ? "Fee" : "Provider Fee",
                   value: `$${providerFee.toFixed(2)}`,
                   color: "text-amber-400",
                 },
@@ -744,7 +722,11 @@ function OmtWhishAppTransferFormInner({
                 },
               ]
             : []),
-          { label: "Total", value: `$${totalAmount.toFixed(2)}` },
+          {
+            label: isAppWalletReceive ? "Customer Receives" : "Total",
+            value: `$${totalAmount.toFixed(2)}`,
+            ...(isAppWalletReceive ? { color: "text-emerald-400" } : {}),
+          },
         ]}
         totalAmount={totalAmount}
         currency="USD"

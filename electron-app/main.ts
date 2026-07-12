@@ -142,10 +142,40 @@ function createWindow() {
     }
   });
 
+  // Renderer-death diagnostics: the e2e suite intermittently loses the page
+  // target ("Target page ... closed") while this main process stays alive and
+  // no JS error fires anywhere. These are the ONLY events that name the actual
+  // reason (oom / killed / crashed / clean-exit). The e2e harness captures
+  // main-process output into a ring buffer and embeds it in failing tests'
+  // error messages — keep these logs even though the events should never fire
+  // in healthy runs.
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    logger.error(
+      { reason: details.reason, exitCode: details.exitCode },
+      "MainWindow render process gone",
+    );
+  });
+  mainWindow.webContents.on("unresponsive", () => {
+    logger.error("MainWindow webContents unresponsive");
+  });
+  mainWindow.webContents.on("destroyed", () => {
+    logger.warn("MainWindow webContents destroyed");
+  });
+  mainWindow.on("close", () => {
+    logger.warn("MainWindow close requested");
+  });
+
   // Development: Load from Vite dev server
   if (ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(ELECTRON_RENDERER_URL);
-    mainWindow.webContents.openDevTools({ mode: "bottom", activate: false });
+    // Keep DevTools CLOSED under the e2e harness (NODE_ENV=test): it is a
+    // second debugger client attached to the same renderer Playwright drives,
+    // and its protocol re-initialization was observed seconds before the
+    // recurring "Target page ... closed" connection drop (devtools
+    // protocol_client Autofill errors in stderr are its fingerprint).
+    if (process.env.NODE_ENV !== "test") {
+      mainWindow.webContents.openDevTools({ mode: "bottom", activate: false });
+    }
   }
   // Production: Load from built files
   else {
@@ -164,6 +194,20 @@ function createWindow() {
 
 // Load electron-app/.env (repo-local, gitignored)
 loadDotEnvFile(path.join(__dirname, "../.env"));
+
+// GPU/utility child-process deaths can cascade into renderer teardown — log the
+// reason (see the render-process-gone diagnostics in createWindow()).
+app.on("child-process-gone", (_event, details) => {
+  logger.error(
+    {
+      type: details.type,
+      reason: details.reason,
+      exitCode: details.exitCode,
+      name: details.name,
+    },
+    "Child process gone",
+  );
+});
 
 app.whenReady().then(async () => {
   logger.info("App ready, creating window...");
@@ -187,8 +231,15 @@ app.whenReady().then(async () => {
   // Register IPC handlers
   await registerHandlers();
 
-  // Start automatic hourly backup
-  startHourlyBackup();
+  // Start automatic hourly backup. Skipped under the e2e harness
+  // (NODE_ENV=test): the per-run temp DB needs no backups, and the first
+  // backup fires at T+60s doing SYNCHRONOUS main-loop work
+  // (wal_checkpoint(TRUNCATE) + copyFileSync of the whole DB) — a once-per-run
+  // event-loop stall right in the window where the e2e debugger-connection
+  // drop was observed. Manual backups via IPC still work (handlers register).
+  if (process.env.NODE_ENV !== "test") {
+    startHourlyBackup();
+  }
 
   createWindow();
 

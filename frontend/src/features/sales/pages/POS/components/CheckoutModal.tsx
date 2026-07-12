@@ -4,9 +4,10 @@ import { X, User, Printer, Inbox, Pencil, Minus } from "lucide-react";
 import {
   canChargeToCustomerAccount,
   DecimalInput,
-  roundLBPUp,
+  MultiPaymentInput,
   useApi,
   appEvents,
+  type PaymentLine,
 } from "@liratek/ui";
 import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -15,20 +16,18 @@ import {
   formatReceipt58mm,
   type ReceiptData,
 } from "@/features/sales/utils/receiptFormatter";
-import type { Client, CartItem, SaleRequest, VoucherOption } from "@liratek/ui";
+import type { Client, CartItem, SaleRequest } from "@liratek/ui";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
-  PAYMENT_TOLERANCE,
   RECEIPT_NUMBER_PREFIX,
   DEFAULT_DRAWER_NAME as DRAWER_B,
 } from "@/constants/checkout";
 import {
-  calculateChange,
-  calculateRemaining,
   isPaymentComplete,
   convertLBPToUSD,
+  toSnakeLegs,
 } from "@/utils/paymentUtils";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
@@ -118,87 +117,6 @@ const printReceiptContent = async (content: string, targetPrinter?: string) => {
   }
 };
 
-/** Extracted component to avoid IIFE remount issues with DecimalInput state */
-type PaymentCurrencyCode = "USD" | "LBP";
-type PaymentLine = {
-  id: string;
-  method: string;
-  currency_code: PaymentCurrencyCode;
-  amount: number;
-  /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
-  voucher_code?: string;
-};
-
-function SimplePaymentFields({
-  singleMethod,
-  paymentLines,
-  setPaymentLines,
-  paidUSD,
-  paidLBP,
-}: {
-  singleMethod: { code: string; label: string };
-  paymentLines: PaymentLine[];
-  setPaymentLines: React.Dispatch<React.SetStateAction<PaymentLine[]>>;
-  paidUSD: number;
-  paidLBP: number;
-}) {
-  const usdLine = paymentLines.find((l) => l.currency_code === "USD");
-  const lbpLine = paymentLines.find((l) => l.currency_code === "LBP");
-
-  const updateSimpleLine = (currency: "USD" | "LBP", val: number) => {
-    setPaymentLines((prev) => {
-      const existing = prev.find((l) => l.currency_code === currency);
-      const other = prev.filter((l) => l.currency_code !== currency);
-      const updated = {
-        id: existing?.id ?? crypto.randomUUID(),
-        method: singleMethod.code,
-        currency_code: currency,
-        amount: val,
-      };
-      return [...other, updated];
-    });
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-        {singleMethod.label}
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px]">
-            <span className="pl-3 text-slate-400 text-sm shrink-0">$</span>
-            <DecimalInput
-              value={usdLine?.amount || 0}
-              onChange={(v) => updateSimpleLine("USD", v)}
-              className="bg-transparent border-none text-white w-full px-3 focus:outline-none font-mono"
-              placeholder="0.00"
-            />
-          </div>
-        </div>
-        <div>
-          <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px]">
-            <DecimalInput
-              value={lbpLine?.amount || 0}
-              onChange={(v) => updateSimpleLine("LBP", v)}
-              className="bg-transparent border-none text-white w-full px-4 focus:outline-none font-mono"
-              placeholder="0"
-            />
-            <span className="pr-3 text-slate-400 text-xs shrink-0">LBP</span>
-          </div>
-        </div>
-      </div>
-      <div className="text-xs text-slate-500 text-right">
-        Paid:{" "}
-        <span className="font-mono text-slate-300">
-          ${paidUSD.toFixed(2)} USD
-          {paidLBP > 0 && ` + ${paidLBP.toLocaleString()} LBP`}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 export default function CheckoutModal({
   items,
   totalAmount,
@@ -236,159 +154,41 @@ export default function CheckoutModal({
   const { allMethods: paymentMethodOptions } = usePaymentMethods();
   const shopInfo = useShopInfo();
 
-  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
-    {
-      id: crypto.randomUUID(),
-      method: "CASH",
-      currency_code: "USD",
-      amount: 0,
-    },
-  ]);
-
-  // Redeemable vouchers for the selected client (for GIFT_CARD lines)
-  const [clientVouchers, setClientVouchers] = useState<VoucherOption[]>([]);
-
-  // Load the selected client's vouchers when the client changes
-  useEffect(() => {
-    let cancelled = false;
-    const cid = selectedClient?.id;
-    if (cid && cid > 0) {
-      fetchClientVouchers(cid)
-        .then((vs) => {
-          if (!cancelled) setClientVouchers(vs);
-        })
-        .catch(() => {
-          if (!cancelled) setClientVouchers([]);
-        });
-    } else {
-      setClientVouchers([]);
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedClient?.id]);
-
-  /** Return a line with voucher_code set, or the key omitted when no code. */
-  const withVoucherCode = (
-    line: PaymentLine,
-    code: string | undefined,
-  ): PaymentLine => {
-    if (code) return { ...line, voucher_code: code };
-    if (line.voucher_code === undefined) return line;
-    const next = { ...line };
-    delete next.voucher_code;
-    return next;
-  };
-
-  // Keep each GIFT_CARD line bound to a valid, unique voucher (default first
-  // available; drop selections that are gone or taken by another line).
-  const giftCardKey = paymentLines
-    .map((l) => `${l.id}:${l.method}:${l.voucher_code ?? ""}`)
-    .join("|");
-  useEffect(() => {
-    setPaymentLines((prev) => {
-      const used = new Set<string>();
-      let changed = false;
-      const next = prev.map((line) => {
-        if (line.method !== "GIFT_CARD") {
-          if (line.voucher_code === undefined) return line;
-          changed = true;
-          return withVoucherCode(line, undefined);
-        }
-        const available = clientVouchers.filter((v) => !used.has(v.code));
-        let code = line.voucher_code;
-        if (!code || !available.some((v) => v.code === code)) {
-          code = available[0]?.code;
-        }
-        if (code) used.add(code);
-        if (code === line.voucher_code) return line;
-        changed = true;
-        return withVoucherCode(line, code);
+  // ── MultiPaymentInput state ──────────────────────────────────────────────
+  // Vouchers, currency conversion, exchange-rate editing, and the CASH
+  // return/change UI all live inside the shared component now (see
+  // fetchClientVouchers/clientId/cashOnlyReturn props on the element below).
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLines, setReturnLines] = useState<PaymentLine[]>([]);
+  // Bumped whenever a draft is (re)restored so MultiPaymentInput remounts and
+  // re-reads initialLines (its own contract: read once on mount).
+  const [paymentInputKey, setPaymentInputKey] = useState(0);
+  const [draftInitialLines, setDraftInitialLines] = useState<
+    Array<{ method?: string; currencyCode: string; amount: number }> | undefined
+  >(() => {
+    if (!draftData) return undefined;
+    const lines: Array<{ method?: string; currencyCode: string; amount: number }> =
+      [];
+    if (draftData.paidUSD) {
+      lines.push({
+        method: "CASH",
+        currencyCode: "USD",
+        amount: draftData.paidUSD,
       });
-      return changed ? next : prev;
-    });
-  }, [clientVouchers, giftCardKey]);
-
-  /** Vouchers a line may pick: its own + any not selected by another line. */
-  const voucherOptionsForLine = (line: PaymentLine): VoucherOption[] => {
-    const usedByOthers = new Set(
-      paymentLines
-        .filter(
-          (l) => l.id !== line.id && l.method === "GIFT_CARD" && l.voucher_code,
-        )
-        .map((l) => l.voucher_code as string),
-    );
-    return clientVouchers.filter(
-      (v) => v.code === line.voucher_code || !usedByOthers.has(v.code),
-    );
-  };
-
-  const selectLineVoucher = (id: string, code: string) => {
-    setPaymentLines((prev) =>
-      prev.map((line) =>
-        line.id === id ? withVoucherCode(line, code || undefined) : line,
-      ),
-    );
-  };
-
-  /** Voucher picker shown under a GIFT_CARD payment line. */
-  const renderVoucherSelector = (line: PaymentLine) => {
-    if (!(selectedClient && selectedClient.id > 0)) {
-      return (
-        <p className="text-xs text-amber-400">
-          Select a client to use a voucher.
-        </p>
-      );
     }
-    if (clientVouchers.length === 0) {
-      return (
-        <p className="text-xs text-amber-400">
-          No available vouchers for this client.
-        </p>
-      );
+    if (draftData.paidLBP) {
+      lines.push({
+        method: "CASH",
+        currencyCode: "LBP",
+        amount: draftData.paidLBP,
+      });
     }
-    const options = voucherOptionsForLine(line);
-    if (options.length === 0) {
-      return (
-        <p className="text-xs text-amber-400">No more vouchers available.</p>
-      );
-    }
-    const value = line.voucher_code ?? options[0]?.code ?? "";
-    const selected = options.find((v) => v.code === value);
-    return (
-      <>
-        {options.length === 1 ? (
-          <input
-            type="text"
-            value={value}
-            disabled
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm font-mono tracking-wider disabled:opacity-70"
-          />
-        ) : (
-          <select
-            value={value}
-            onChange={(e) => selectLineVoucher(line.id, e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-          >
-            {options.map((v) => (
-              <option key={v.code} value={v.code}>
-                {v.code} — ${v.amount.toFixed(2)}
-              </option>
-            ))}
-          </select>
-        )}
-        {selected && (
-          <p className="mt-1 text-xs text-emerald-400">
-            +${selected.amount.toFixed(2)} credit added on redemption
-          </p>
-        )}
-      </>
-    );
-  };
+    return lines.length > 0 ? lines : undefined;
+  });
 
   // Determine selected currency from payment lines
   const hasLBPPayment = paymentLines.some(
-    (line) => line.currency_code === "LBP",
+    (line) => line.currencyCode === "LBP",
   );
   const selectedCurrency = hasLBPPayment ? "LBP" : "USD";
 
@@ -402,7 +202,7 @@ export default function CheckoutModal({
     transactionType: "SALE",
   });
 
-  // State for custom exchange rate (editable)
+  // State for custom exchange rate (editable inside MultiPaymentInput now)
   const [customExchangeRate, setCustomExchangeRate] = useState<string>(
     exchangeRate.toString(),
   );
@@ -412,12 +212,19 @@ export default function CheckoutModal({
     setCustomExchangeRate(exchangeRate.toString());
   }, [exchangeRate]);
 
+  // Bubble a rate edited inside MultiPaymentInput up — CheckoutModal's own
+  // remaining/change/receipt math lives outside the shared component and
+  // must use the operator's override, not the stale dynamic-rate seed.
+  const handleRateChange = (rate: number) => {
+    setCustomExchangeRate(rate.toString());
+  };
+
   const paidUSD = paymentLines
-    .filter((p) => p.currency_code === "USD")
+    .filter((p) => p.currencyCode === "USD")
     .reduce((acc, p) => acc + (p.amount || 0), 0);
 
   const paidLBP = paymentLines
-    .filter((p) => p.currency_code === "LBP")
+    .filter((p) => p.currencyCode === "LBP")
     .reduce((acc, p) => acc + (p.amount || 0), 0);
 
   // Track if customer was auto-filled from session
@@ -454,50 +261,35 @@ export default function CheckoutModal({
     }
   }, [activeSession, draftData, clientSearch, isAutoFilledFromSession]);
 
-  // Restore draft data when it's provided
+  // Restore draft data when it's provided. Payment lines are restored via
+  // MultiPaymentInput's own initialLines contract (read once on mount) — bump
+  // paymentInputKey to force a remount so it re-reads the new seed. Change
+  // given is NOT restored explicitly: MultiPaymentInput re-derives it from
+  // (restored payment lines) vs. (finalAmount) on its own first render.
   useEffect(() => {
     if (draftData) {
       setSelectedClient(draftData.selectedClient);
       setClientSearch(draftData.clientSearchInput);
       setSecondaryInput(draftData.clientSearchSecondary);
       setDiscount(draftData.discount ?? 0);
-      // Restore legacy paid totals into a default CASH split
-      const restoredUSD = draftData.paidUSD ?? 0;
-      const restoredLBP = draftData.paidLBP ?? 0;
-      setPaymentLines([
-        ...(restoredUSD
-          ? [
-              {
-                id: crypto.randomUUID(),
-                method: "CASH" as const,
-                currency_code: "USD" as const,
-                amount: restoredUSD,
-              },
-            ]
-          : []),
-        ...(restoredLBP
-          ? [
-              {
-                id: crypto.randomUUID(),
-                method: "CASH" as const,
-                currency_code: "LBP" as const,
-                amount: restoredLBP,
-              },
-            ]
-          : []),
-        ...(!restoredUSD && !restoredLBP
-          ? [
-              {
-                id: crypto.randomUUID(),
-                method: "CASH" as const,
-                currency_code: "USD" as const,
-                amount: 0,
-              },
-            ]
-          : []),
-      ]);
-      setChangeGivenUSD(draftData.changeGivenUSD ?? 0);
-      setChangeGivenLBP(draftData.changeGivenLBP ?? 0);
+      const lines: Array<{ method?: string; currencyCode: string; amount: number }> =
+        [];
+      if (draftData.paidUSD) {
+        lines.push({
+          method: "CASH",
+          currencyCode: "USD",
+          amount: draftData.paidUSD,
+        });
+      }
+      if (draftData.paidLBP) {
+        lines.push({
+          method: "CASH",
+          currencyCode: "LBP",
+          amount: draftData.paidLBP,
+        });
+      }
+      setDraftInitialLines(lines.length > 0 ? lines : undefined);
+      setPaymentInputKey((k) => k + 1);
       onRestoreDraftComplete?.();
     }
   }, [draftData, onRestoreDraftComplete]);
@@ -521,10 +313,6 @@ export default function CheckoutModal({
   const secondaryPlaceholder = isSearchPhone
     ? "Enter Full Name..."
     : "Enter Phone Number...";
-
-  // Change State
-  const [changeGivenUSD, setChangeGivenUSD] = useState(0);
-  const [changeGivenLBP, setChangeGivenLBP] = useState(0);
 
   // Validation for Debt: both primary (clientSearch) and secondary (secondaryInput) must be filled for new clients
   const isNewClientInfoComplete = canChargeToCustomerAccount({
@@ -550,8 +338,17 @@ export default function CheckoutModal({
   const totalPaidInTotalCurrency = isLbpTotal
     ? paidLBP + paidUSD * effectiveExchangeRate
     : paidUSD + convertLBPToUSD(paidLBP, effectiveExchangeRate);
-  const remaining = calculateRemaining(totalPaidInTotalCurrency, finalAmount);
-  const change = calculateChange(totalPaidInTotalCurrency, finalAmount);
+  // Change/return legs from MultiPaymentInput. cashOnlyReturn={true} below
+  // guarantees every leg here is CASH (see the prop on the element), so this
+  // is the same value the old changeGivenUSD/LBP state used to hold — just
+  // derived instead of tracked, since MultiPaymentInput owns the return UI
+  // and re-derives it from (payment lines) vs. (finalAmount) on its own.
+  const cashReturnUSD = returnLines
+    .filter((l) => l.currencyCode === "USD")
+    .reduce((sum, l) => sum + (l.amount || 0), 0);
+  const cashReturnLBP = returnLines
+    .filter((l) => l.currencyCode === "LBP")
+    .reduce((sum, l) => sum + (l.amount || 0), 0);
 
   // Close on Escape key (prefer onClose, fall back to onCancel)
   useEffect(() => {
@@ -564,77 +361,21 @@ export default function CheckoutModal({
     return () => document.removeEventListener("keydown", handler);
   }, [onClose, onCancel]);
 
-  // Auto-switch to CUSTOMER_ACCOUNT when a chargeable client is selected. Gated
-  // on canCreateDebt so a phone-less client never auto-selects CUSTOMER_ACCOUNT
-  // (which would fail server-side — CUSTOMER_ACCOUNT needs name + phone).
-  useEffect(() => {
-    if (!selectedClient || !canCreateDebt) return;
+  // Auto-select CUSTOMER_ACCOUNT as MultiPaymentInput's initialMethod once a
+  // chargeable client is present. Gated on canCreateDebt so a phone-less
+  // client never auto-selects CUSTOMER_ACCOUNT (fails server-side —
+  // CUSTOMER_ACCOUNT needs name + phone).
+  const paymentMethodCodesKey = paymentMethodOptions
+    .map((pm) => pm.code)
+    .join(",");
+  const initialMethod = useMemo(() => {
+    if (!selectedClient || !canCreateDebt) return undefined;
     const hasCA = paymentMethodOptions.some(
       (pm) => pm.code === "CUSTOMER_ACCOUNT",
     );
-    if (!hasCA) return;
-    setPaymentLines((prev) => {
-      if (prev.length === 1 && prev[0].method !== "CUSTOMER_ACCOUNT") {
-        return [{ ...prev[0], method: "CUSTOMER_ACCOUNT" }];
-      }
-      return prev;
-    });
-  }, [selectedClient, canCreateDebt, paymentMethodOptions]);
-
-  // LIRA-017: Auto-fill payment amount when modal opens (if no draft and amount is 0)
-  useEffect(() => {
-    if (draftData) return;
-    // Respect the POS autofill payment setting
-    if (localStorage.getItem("pos_autofill_payment") === "false") return;
-    const hasNonZeroPayment = paymentLines.some((l) => l.amount > 0);
-    if (hasNonZeroPayment) return;
-
-    setPaymentLines((prev) => {
-      if (prev.length !== 1) return prev;
-      const line = prev[0];
-      // Fill the line with finalAmount, converting between the job currency
-      // and the line's currency as needed.
-      if (line.currency_code === "LBP") {
-        return [
-          {
-            ...line,
-            amount: isLbpTotal
-              ? roundLBPUp(finalAmount)
-              : roundLBPUp(finalAmount * effectiveExchangeRate),
-          },
-        ];
-      }
-      return [
-        {
-          ...line,
-          amount: isLbpTotal
-            ? Number((finalAmount / effectiveExchangeRate).toFixed(2))
-            : finalAmount,
-        },
-      ];
-    });
-  }, [finalAmount, effectiveExchangeRate, draftData, isLbpTotal]);
-
-  // LIRA-017: Auto-fill change given.
-  // USD job: USD integer + LBP remainder. LBP job: change is given in LBP.
-  useEffect(() => {
-    if (change <= 0) {
-      setChangeGivenUSD(0);
-      setChangeGivenLBP(0);
-      return;
-    }
-    if (isLbpTotal) {
-      setChangeGivenUSD(0);
-      setChangeGivenLBP(roundLBPUp(change));
-      return;
-    }
-    const integerUSD = Math.floor(change);
-    const fractionUSD = change - integerUSD;
-    const rawLBP = fractionUSD * effectiveExchangeRate;
-    const roundedLBP = roundLBPUp(rawLBP);
-    setChangeGivenUSD(integerUSD);
-    setChangeGivenLBP(roundedLBP);
-  }, [change, effectiveExchangeRate, isLbpTotal]);
+    return hasCA ? "CUSTOMER_ACCOUNT" : undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClient, canCreateDebt, paymentMethodCodesKey]);
 
   const getPaymentData = () => {
     // Determine effective client details
@@ -667,16 +408,13 @@ export default function CheckoutModal({
       currency: totalCurrency,
       payment_usd: paidUSD,
       payment_lbp: paidLBP,
-      payments: paymentLines.map(
-        ({ method, currency_code, amount, voucher_code }) => ({
-          method,
-          currency_code,
-          amount,
-          ...(method === "GIFT_CARD" && voucher_code ? { voucher_code } : {}),
-        }),
-      ),
-      change_given_usd: changeGivenUSD,
-      change_given_lbp: changeGivenLBP,
+      // IN legs only — cashOnlyReturn={true} on MultiPaymentInput means
+      // change never needs an OUT leg here (see change_given_* below), and
+      // saveMaintenanceJob (Maintenance also renders this modal) has no
+      // OUT-leg handling, so this payload must stay IN-only for both.
+      payments: toSnakeLegs(paymentLines),
+      change_given_usd: cashReturnUSD,
+      change_given_lbp: cashReturnLBP,
       exchange_rate: effectiveExchangeRate,
       drawer_name: DRAWER_B, // legacy field (kept for backward compatibility)
       ...(transactionTime ? { transaction_time: transactionTime } : {}),
@@ -761,8 +499,8 @@ export default function CheckoutModal({
       total: finalAmount,
       payment_usd: paidUSD,
       payment_lbp: paidLBP,
-      change_usd: changeGivenUSD,
-      change_lbp: changeGivenLBP,
+      change_usd: cashReturnUSD,
+      change_lbp: cashReturnLBP,
       exchange_rate: effectiveExchangeRate,
       timestamp: new Date().toISOString(),
       operator: "Staff",
@@ -823,8 +561,8 @@ export default function CheckoutModal({
     discount,
     paidUSD,
     paidLBP,
-    changeGivenUSD,
-    changeGivenLBP,
+    cashReturnUSD,
+    cashReturnLBP,
     effectiveExchangeRate,
     receiptNumber,
   ]);
@@ -1014,8 +752,8 @@ export default function CheckoutModal({
                           discount,
                           paidUSD,
                           paidLBP,
-                          changeGivenUSD,
-                          changeGivenLBP,
+                          changeGivenUSD: cashReturnUSD,
+                          changeGivenLBP: cashReturnLBP,
                           exchangeRate: effectiveExchangeRate,
                         })
                       }
@@ -1063,6 +801,7 @@ export default function CheckoutModal({
                       {isLbpTotal ? "LBP" : "$"}
                     </span>
                     <DecimalInput
+                      data-testid="checkout-discount-input"
                       value={discount}
                       onChange={(v) => setDiscount(v)}
                       className={`w-full bg-slate-800 border border-slate-700 rounded-xl ${isLbpTotal ? "pl-10" : "pl-7"} pr-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 text-right`}
@@ -1093,366 +832,77 @@ export default function CheckoutModal({
               <h3 className="text-lg font-semibold text-slate-300">
                 Payment Details
               </h3>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-slate-500">1 USD =</label>
-                  <DecimalInput
-                    value={parseFloat(customExchangeRate) || 0}
-                    onChange={(v) =>
-                      setCustomExchangeRate(v ? v.toString() : "")
+              <div className="flex items-center gap-1">
+                {onMinimize && (
+                  <button
+                    onClick={() =>
+                      onMinimize({
+                        selectedClient,
+                        clientSearchInput: clientSearch,
+                        clientSearchSecondary: secondaryInput,
+                        discount,
+                        paidUSD,
+                        paidLBP,
+                        changeGivenUSD: cashReturnUSD,
+                        changeGivenLBP: cashReturnLBP,
+                        exchangeRate: effectiveExchangeRate,
+                      })
                     }
-                    className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1 text-white font-mono text-xs focus:outline-none focus:border-violet-500"
-                    placeholder={exchangeRate.toString()}
-                  />
-                  <label className="text-xs text-slate-500">LBP</label>
-                  <div className="flex items-center gap-1">
-                    {onMinimize && (
-                      <button
-                        onClick={() =>
-                          onMinimize({
-                            selectedClient,
-                            clientSearchInput: clientSearch,
-                            clientSearchSecondary: secondaryInput,
-                            discount,
-                            paidUSD,
-                            paidLBP,
-                            changeGivenUSD,
-                            changeGivenLBP,
-                            exchangeRate: effectiveExchangeRate,
-                          })
-                        }
-                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Minimize Order"
-                      >
-                        <Minus size={20} />
-                      </button>
-                    )}
-                    {onCancel && (
-                      <button
-                        onClick={onCancel}
-                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
-                        title="Cancel Order"
-                      >
-                        <X size={20} />
-                      </button>
-                    )}
-                  </div>
-                </div>
+                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                    title="Minimize Order"
+                  >
+                    <Minus size={20} />
+                  </button>
+                )}
+                {onCancel && (
+                  <button
+                    onClick={onCancel}
+                    className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
+                    title="Cancel Order"
+                  >
+                    <X size={20} />
+                  </button>
+                )}
               </div>
             </div>
 
             <div className="space-y-6 flex-1 overflow-y-auto">
-              {/* ── Payment Input ─────────────────────────────────────────────────
-                  Single PM: simple currency + amount fields (no method dropdown)
-                  Multiple PMs: full payment-lines UI with + Add line              */}
-              {paymentMethodOptions.length === 1 ? (
-                /* ── Simple mode: two independent currency fields ─────────────── */
-                <SimplePaymentFields
-                  singleMethod={paymentMethodOptions[0]}
-                  paymentLines={paymentLines}
-                  setPaymentLines={setPaymentLines}
-                  paidUSD={paidUSD}
-                  paidLBP={paidLBP}
-                />
-              ) : (
-                /* ── Multi-line mode ──────────────────────────────────────────── */
-                <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-                      Payment Lines
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPaymentLines((prev) => [
-                          ...prev,
-                          {
-                            id: crypto.randomUUID(),
-                            method: paymentMethodOptions[0]?.code ?? "CASH",
-                            currency_code: "USD",
-                            amount: 0,
-                          },
-                        ])
-                      }
-                      className="text-xs px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-                    >
-                      + Add line
-                    </button>
+              <MultiPaymentInput
+                key={`payment-${paymentInputKey}`}
+                totalAmount={finalAmount}
+                currency={totalCurrency}
+                totalAmountCurrency={totalCurrency}
+                {...(draftInitialLines
+                  ? { initialLines: draftInitialLines }
+                  : {})}
+                onChange={setPaymentLines}
+                onReturnChange={setReturnLines}
+                requiresClientForDebt={true}
+                hasClient={canCreateDebt}
+                paymentMethods={paymentMethodOptions}
+                currencies={[
+                  { code: "USD", symbol: "$" },
+                  { code: "LBP", symbol: "LBP" },
+                ]}
+                exchangeRate={exchangeRate}
+                onRateChange={handleRateChange}
+                showDiscount={false}
+                smartSplitOverpay={!isLbpTotal}
+                cashOnlyReturn={true}
+                onWaiveRemaining={(amt) => setDiscount((d) => (d ?? 0) + amt)}
+                label="Payment"
+                {...(initialMethod ? { initialMethod } : {})}
+                clientId={selectedClient?.id ?? null}
+                fetchClientVouchers={fetchClientVouchers}
+              />
+
+              {!debtPaymentEnabled &&
+                !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) && (
+                  <div className="text-xs text-orange-400 bg-orange-500/10 rounded px-3 py-2">
+                    Debt is disabled. Full payment required to complete this
+                    sale.
                   </div>
-
-                  <div className="space-y-2">
-                    {paymentLines.map((line, idx) => (
-                      <div key={line.id} className="space-y-1">
-                        <div className="grid grid-cols-12 gap-2 items-center">
-                          <div className="col-span-4">
-                            <select
-                              value={line.method}
-                              onChange={(e) =>
-                                setPaymentLines((prev) =>
-                                  prev.map((p, i) =>
-                                    i === idx
-                                      ? { ...p, method: e.target.value }
-                                      : p,
-                                  ),
-                                )
-                              }
-                              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-                            >
-                              {paymentMethodOptions.map((pm) => (
-                                <option key={pm.code} value={pm.code}>
-                                  {pm.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="col-span-3">
-                            <select
-                              value={line.currency_code}
-                              onChange={(e) =>
-                                setPaymentLines((prev) =>
-                                  prev.map((p, i) =>
-                                    i === idx
-                                      ? {
-                                          ...p,
-                                          currency_code: e.target
-                                            .value as PaymentCurrencyCode,
-                                        }
-                                      : p,
-                                  ),
-                                )
-                              }
-                              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-                            >
-                              <option value="USD">USD</option>
-                              <option value="LBP">LBP</option>
-                            </select>
-                          </div>
-                          <div className="col-span-4">
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
-                                {line.currency_code === "USD" ? "$" : "LBP"}
-                              </span>
-                              <DecimalInput
-                                key={`line-${line.id}`}
-                                value={line.amount}
-                                onChange={(v) =>
-                                  setPaymentLines((prev) =>
-                                    prev.map((p, i) =>
-                                      i === idx ? { ...p, amount: v } : p,
-                                    ),
-                                  )
-                                }
-                                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-3 py-2 text-white text-sm font-mono"
-                                placeholder="0"
-                              />
-                            </div>
-                          </div>
-                          <div className="col-span-1 flex justify-end">
-                            <button
-                              type="button"
-                              disabled={paymentLines.length === 1}
-                              onClick={() =>
-                                setPaymentLines((prev) =>
-                                  prev.filter((_, i) => i !== idx),
-                                )
-                              }
-                              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent"
-                              title="Remove line"
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Voucher picker — shown when this line pays by gift card */}
-                        {line.method === "GIFT_CARD" && (
-                          <div className="pl-1">
-                            {renderVoucherSelector(line)}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-3 text-xs text-slate-400">
-                    Totals:{" "}
-                    <span className="font-mono">${paidUSD.toFixed(2)}</span> USD
-                    +{" "}
-                    <span className="font-mono">
-                      {paidLBP.toLocaleString()}
-                    </span>{" "}
-                    LBP
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* ── Calculations (pinned to bottom, mirrors Order Summary) ── */}
-            <div className="shrink-0 bg-slate-900/50 rounded-xl p-4 border border-slate-700/50 mt-4 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-400">Total Paid (Converted)</span>
-                <span className="text-white font-mono">
-                  {fmtTotal(totalPaidInTotalCurrency)}
-                </span>
-              </div>
-
-              {!isPaymentComplete(totalPaidInTotalCurrency, finalAmount) ? (
-                <>
-                  <div className="flex justify-between items-center pt-2 border-t border-slate-700">
-                    <span
-                      className={`font-medium ${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
-                    >
-                      {debtPaymentEnabled
-                        ? "Remaining (Debt)"
-                        : "Remaining (Must Pay)"}
-                    </span>
-                    <div className="text-right">
-                      <div
-                        className={`font-bold text-xl ${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
-                      >
-                        {fmtTotal(remaining)}
-                      </div>
-                      <div
-                        className={`text-xs ${debtPaymentEnabled ? "text-red-500/70" : "text-orange-500/70"}`}
-                      >
-                        {isLbpTotal
-                          ? `≈ $${(remaining / effectiveExchangeRate).toFixed(2)} USD`
-                          : `≈ ${(remaining * effectiveExchangeRate).toLocaleString()} LBP`}
-                      </div>
-                    </div>
-                  </div>
-                  {!debtPaymentEnabled && (
-                    <div className="mt-2 text-xs text-orange-400 bg-orange-500/10 rounded px-3 py-2">
-                      Debt is disabled. Full payment required to complete this
-                      sale.
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="flex justify-between items-center pt-2 border-t border-slate-700">
-                    <span className="text-emerald-400 font-medium">
-                      Change Due
-                    </span>
-                    <div className="text-right">
-                      <div className="text-emerald-400 font-bold text-2xl">
-                        {isLbpTotal
-                          ? `${Math.round(change).toLocaleString()} LBP`
-                          : `${(change * effectiveExchangeRate).toLocaleString()} LBP`}
-                      </div>
-                      <div className="text-sm text-emerald-500/70">
-                        {isLbpTotal
-                          ? `≈ $${(change / effectiveExchangeRate).toFixed(2)} USD`
-                          : `$${change.toFixed(2)} USD`}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Change Given Inputs */}
-                  {change > 0 && (
-                    <div className="mt-4 pt-4 border-t border-slate-700/50 animate-in fade-in slide-in-from-top-2">
-                      <span
-                        id="checkout-change-given-label"
-                        className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
-                      >
-                        Change Given
-                      </span>
-                      <div
-                        className="flex gap-4 mb-2"
-                        role="group"
-                        aria-labelledby="checkout-change-given-label"
-                      >
-                        <div className="flex-1">
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                              $
-                            </span>
-                            <DecimalInput
-                              value={changeGivenUSD}
-                              onChange={(v) => {
-                                setChangeGivenUSD(v);
-                                // Auto-fill LBP with remaining change due
-                                const remainingChangeUSD = change - v;
-                                if (remainingChangeUSD > 0) {
-                                  setChangeGivenLBP(
-                                    roundLBPUp(
-                                      remainingChangeUSD *
-                                        effectiveExchangeRate,
-                                    ),
-                                  );
-                                } else {
-                                  setChangeGivenLBP(0);
-                                }
-                              }}
-                              className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-8 pr-3 py-2 text-white focus:outline-none focus:border-violet-500"
-                              placeholder="USD"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <div className="relative">
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
-                              LBP
-                            </span>
-                            <DecimalInput
-                              value={changeGivenLBP}
-                              onChange={(v) => setChangeGivenLBP(v)}
-                              className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-10 py-2 text-white focus:outline-none focus:border-violet-500"
-                              placeholder="LBP"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Smart Change Logic — LIRA-017: removed red "Remaining change" indicator; kept overpay warning */}
-                      {(() => {
-                        // Change given, converted into the job currency.
-                        const totalGiven = isLbpTotal
-                          ? changeGivenLBP +
-                            changeGivenUSD * effectiveExchangeRate
-                          : changeGivenUSD +
-                            changeGivenLBP / effectiveExchangeRate;
-                        const diff = change - totalGiven;
-                        const absDiff = Math.abs(diff);
-
-                        // Smart Fix Handler - rounds to payable denominations
-                        const handleSmartFix = () => {
-                          if (isLbpTotal) {
-                            setChangeGivenUSD(0);
-                            setChangeGivenLBP(roundLBPUp(change));
-                            return;
-                          }
-                          const integerUSD = Math.floor(change);
-                          const fractionUSD = change - integerUSD;
-                          const rawLBP = fractionUSD * effectiveExchangeRate;
-                          const roundedLBP = roundLBPUp(rawLBP);
-                          setChangeGivenUSD(integerUSD);
-                          setChangeGivenLBP(roundedLBP);
-                        };
-
-                        if (diff < -PAYMENT_TOLERANCE) {
-                          // Overpaying change (Caution)
-                          return (
-                            <div className="text-center text-xs text-amber-400 font-medium bg-amber-500/10 py-2 rounded flex items-center justify-center gap-2">
-                              <span>
-                                Caution: Returning excess change of{" "}
-                                {fmtTotal(absDiff)}
-                              </span>
-                              <button
-                                onClick={handleSmartFix}
-                                className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded text-[10px] uppercase font-bold tracking-wider transition-colors"
-                              >
-                                Fix
-                              </button>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  )}
-                </>
-              )}
+                )}
             </div>
 
             {/* Drawer Info */}

@@ -247,6 +247,36 @@ function serviceDebtNote(data: CreateFinancialServiceData): string {
   return `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`;
 }
 
+/**
+ * Debt-ledger note for a wallet-transfer SEND charged to the customer's
+ * account. The wallet-transfer branch serves Binance AND the app wallets
+ * (OMT_APP / WHISH_APP) — the note must name the actual provider and its
+ * denomination (Binance is USDT; app wallets use the service currency), and
+ * when a fee was charged the headline number is the TOTAL the customer owes
+ * (transfer + fee), with the breakdown in parentheses — a bare "$20" note on
+ * a $22 debt read as if the fee had been dropped.
+ * Was hardcoded "Binance SEND — $X USDT", so an OMT App debt read as Binance.
+ */
+function walletSendDebtNote(
+  provider: string,
+  amount: number,
+  currency: string,
+  fee: number,
+): string {
+  if (provider === "BINANCE") {
+    // Binance is denominated in USDT while the fee is charged in the cash
+    // currency — the two can't be summed into one headline number.
+    return fee > 0
+      ? `Binance SEND — $${amount} USDT (+$${fee} fee)`
+      : `Binance SEND — $${amount} USDT`;
+  }
+  const fmt = (n: number) =>
+    currency === "LBP" ? `${n.toLocaleString()} LBP` : `$${n}`;
+  return fee > 0
+    ? `${provider} SEND — ${fmt(amount + fee)} (${fmt(amount)} + ${fmt(fee)} fee)`
+    : `${provider} SEND — ${fmt(amount)}`;
+}
+
 // =============================================================================
 // Financial Service Repository Class
 // =============================================================================
@@ -477,13 +507,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const settledAt = isSettled ? new Date().toISOString() : null;
 
       // 1. Insert the financial_services row
-      // Resolve the stored whish_fee: user-entered or auto-looked-up
+      // Resolve the stored whish_fee: user-entered or auto-looked-up (classic
+      // WHISH uses the tier table; WHISH_APP's flat 1% auto-fee is computed by
+      // the frontend, so it's stored as-is with no tier fallback here).
       const storedWhishFee =
         data.provider === "WHISH"
           ? data.whishFee != null
             ? data.whishFee
             : (lookupWhishFee(data.amount) ?? null)
-          : null;
+          : data.provider === "WHISH_APP"
+            ? (data.whishFee ?? null)
+            : null;
 
       const pmFee = data.paymentMethodFee ?? 0;
       const pmFeeRate = data.paymentMethodFeeRate ?? null;
@@ -642,6 +676,22 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       }
 
       // Create unified transaction row
+      //
+      // App-wallet SEND (OMT_APP / WHISH_APP): the row carries the TOTAL the
+      // customer is charged (transfer + fee), not the bare transfer. This
+      // matches recharge (row amount = customer-paid price) and app-wallet
+      // RECEIVE (data.amount is already the gross wallet inflow incl. fee) —
+      // a $20+$2-fee SEND used to read "↓ $20" in the table while the
+      // customer owed $22. Profit reports are unaffected (fsRevenue reads the
+      // financial_services row, not this amount). Binance is excluded: its
+      // `currency` is USDT so its amount fields are 0 and the summary carries
+      // the figure.
+      const isAppWalletSend =
+        (data.provider === "OMT_APP" || data.provider === "WHISH_APP") &&
+        data.serviceType === "SEND";
+      const unifiedAmount = isAppWalletSend
+        ? data.amount + Math.abs(commission)
+        : data.amount;
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
         source_table: "financial_services",
@@ -652,14 +702,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             ? price
             : 0
           : currency === "USD"
-            ? data.amount
+            ? unifiedAmount
             : 0,
         amount_lbp: useCostPriceFlow
           ? currency === "LBP"
             ? price
             : 0
           : currency === "LBP"
-            ? data.amount
+            ? unifiedAmount
             : 0,
         profit_usd: currency === "USD" ? commission : 0,
         profit_lbp: currency === "LBP" ? commission : 0,
@@ -671,12 +721,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // explicitly, instead of the generic provider+amount line below.
           const isKatchLike =
             data.provider === "iPick" || data.provider === "Katsh";
-          const head =
+          let head =
             isKatchLike && data.serviceType === "BILL"
               ? `${data.provider} Bill: ${data.amount} ${currency}`
               : isKatchLike && note
                 ? `${data.provider}: ${note} — ${data.amount} ${currency}`
                 : `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`;
+          // Wallet transfers (Binance / OMT App / Whish App): the fee the shop
+          // charges on top is the commission — surface it, otherwise the audit
+          // row reads "20 USD" while the customer was charged 22 and the fee
+          // is invisible anywhere in the table.
+          const isWalletProvider =
+            data.provider === "BINANCE" ||
+            data.provider === "OMT_APP" ||
+            data.provider === "WHISH_APP";
+          if (isWalletProvider && commission > 0) {
+            const fmtFee =
+              currency === "LBP"
+                ? `${Math.round(commission).toLocaleString()} LBP`
+                : `$${commission}`;
+            head += ` (+${fmtFee} fee)`;
+          }
           // When the customer paid in a currency different from the service-denominated
           // currency, surface that on the audit row so it's visible at a glance.
           if (paidCurrency && paidAmount != null && paidCurrency !== currency) {
@@ -966,6 +1031,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           //   - Wallet drawer: +walletAmount   (funds arrive)
           //   - Cash drawer:   -(walletAmount - fee)  (shop pays customer out)
           //   - Fee is shop profit, captured implicitly (wallet in − cash out).
+          //   - Contract (Whish App RECEIVE): `data.amount` is the GROSS wallet
+          //     inflow and `commission` is the FULL customer fee — the caller
+          //     (frontend) is responsible for folding a "fee included/excluded"
+          //     toggle into `amount` before it reaches here. The shop keeps the
+          //     entire fee as profit; a fee of 0 means no profit and the full
+          //     amount is paid out.
           const cryptoAmount = Math.abs(data.amount);
           const fee = Math.abs(calculatedCommission);
 
@@ -1049,7 +1120,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                         ? Math.abs(debtLeg.amount)
                         : 0,
                       txnId,
-                      `Binance SEND — $${data.amount} USDT`,
+                      walletSendDebtNote(data.provider, data.amount, currency, fee),
                       createdBy,
                       tenantId,
                     );
@@ -1073,7 +1144,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                     cashCurrency === "USD" ? cashTotal : 0,
                     cashCurrency === "LBP" ? cashTotal : 0,
                     txnId,
-                    `Binance SEND — $${data.amount} USDT`,
+                    walletSendDebtNote(data.provider, data.amount, currency, fee),
                     createdBy,
                     tenantId,
                   );
@@ -1130,7 +1201,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   clientId: resolvedPrimaryClientId,
                   amountUsd: cashCurrency === "USD" ? payoutAmount : 0,
                   amountLbp: cashCurrency === "LBP" ? payoutAmount : 0,
-                  note: `Binance RECEIVE cashout — credited to account`,
+                  note: `${data.provider === "BINANCE" ? "Binance" : data.provider} RECEIVE cashout — credited to account`,
                   userId: createdBy,
                 });
               } else {

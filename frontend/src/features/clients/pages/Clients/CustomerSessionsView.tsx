@@ -9,6 +9,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useApi } from "@liratek/ui";
 
 interface SessionTransaction {
@@ -99,7 +100,7 @@ export default function CustomerSessionsView({
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const date = parseDbDate(dateString);
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",

@@ -7,6 +7,7 @@ import {
   History,
 } from "lucide-react";
 import type { AuditLogEntry } from "@/types/electron";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ function extractChanges(entry: AuditLogEntry): ParsedChange[] {
  */
 function formatTimestamp(iso: string): string {
   try {
-    const d = new Date(iso);
+    const d = parseDbDate(iso);
     return d.toLocaleString(undefined, {
       year: "numeric",
       month: "short",

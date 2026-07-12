@@ -14,7 +14,11 @@ import {
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
 import { FILTER_GROUPS } from "../auditConstants";
-import { getCashFlowDirection, isCashTransaction } from "../cashFlow";
+import {
+  getCashFlowDirection,
+  isCashTransaction,
+  saleTenderTotals,
+} from "../cashFlow";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 
@@ -770,6 +774,7 @@ export default function TransactionsViewer({
     isSystem?: boolean,
   ) {
     const credit = isSupplierCredit(row.type, row.metadata_json);
+    const tender = saleTenderTotals(row.type, row.payments);
     return (
       <tr
         key={trKey ?? row.id}
@@ -797,8 +802,8 @@ export default function TransactionsViewer({
           <div className="flex flex-col gap-0.5">
             <CashFlowBadge
               type={row.type}
-              amountUsd={row.amount_usd}
-              amountLbp={row.amount_lbp}
+              amountUsd={tender?.usd ?? row.amount_usd}
+              amountLbp={tender?.lbp ?? row.amount_lbp}
               metaJson={row.metadata_json}
             />
             {row.summary && (
@@ -859,8 +864,8 @@ export default function TransactionsViewer({
                   );
                 })()
               : formatAmount(
-                  credit ? Math.abs(row.amount_usd) : row.amount_usd,
-                  credit ? Math.abs(row.amount_lbp) : row.amount_lbp,
+                  tender?.usd ?? (credit ? Math.abs(row.amount_usd) : row.amount_usd),
+                  tender?.lbp ?? (credit ? Math.abs(row.amount_lbp) : row.amount_lbp),
                   row.metadata_json,
                 )}
           </span>

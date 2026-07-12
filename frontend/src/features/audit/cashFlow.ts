@@ -74,6 +74,34 @@ export function getCashFlowDirection(
 }
 
 /**
+ * SALE rows show the TENDER — what the customer actually handed over, summed
+ * per currency from the IN payment legs — in the Amount column and cash-flow
+ * badge, instead of the row's amount fields. The amount fields carry the
+ * sale's USD value; rendering value + tendered LBP together read as
+ * "$5 + 450,000 LBP" for a $5 sale paid in LBP. Returns null when there are
+ * no IN legs (deferred/debt sales, legacy rows) so callers fall back to the
+ * value fields. Change is not netted here — the "out:" legs line below the
+ * summary already shows it (a $10-cash payment on a $5 sale reads
+ * "$10" + "out: $5", i.e. paid vs returned).
+ */
+export function saleTenderTotals(
+  type: string,
+  legs:
+    | Array<{ direction: "in" | "out"; amount: number; currency_code: string }>
+    | undefined,
+): { usd: number; lbp: number } | null {
+  if (type !== "SALE" || !legs?.length) return null;
+  let usd = 0;
+  let lbp = 0;
+  for (const leg of legs) {
+    if (leg.direction !== "in") continue;
+    if (leg.currency_code === "USD") usd += leg.amount;
+    else if (leg.currency_code === "LBP") lbp += leg.amount;
+  }
+  return usd || lbp ? { usd, lbp } : null;
+}
+
+/**
  * True when the transaction physically touched the till: at least one of its
  * (customer-facing) payment legs used the CASH method — CASH legs post to the
  * General drawer. Wallet-only transactions (OMT/WHISH app legs, on-account

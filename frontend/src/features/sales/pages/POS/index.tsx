@@ -14,6 +14,7 @@ import { appEvents, useApi } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { ConfirmModal } from "@liratek/ui";
 
@@ -700,7 +701,7 @@ export default function POS() {
                       </div>
                       <div className="text-xs text-slate-500">
                         {draft.created_at
-                          ? new Date(draft.created_at).toLocaleString()
+                          ? parseDbDate(draft.created_at).toLocaleString()
                           : "Unknown"}{" "}
                         • {draft.items?.length || 0} Items
                       </div>

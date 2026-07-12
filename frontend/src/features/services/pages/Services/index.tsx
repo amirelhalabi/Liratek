@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import logger from "@/utils/logger";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
@@ -2220,12 +2221,12 @@ export default function Services() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-400">
-                        {new Date(tx.created_at).toLocaleTimeString([], {
+                        {parseDbDate(tx.created_at).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                         <div className="text-xs text-slate-500">
-                          {new Date(tx.created_at).toLocaleDateString()}
+                          {parseDbDate(tx.created_at).toLocaleDateString()}
                         </div>
                       </td>
                       <td className="px-3 py-4">

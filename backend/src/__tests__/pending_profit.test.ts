@@ -69,11 +69,13 @@ describe("ProfitService.getPendingProfit", () => {
       expect(sql).toContain("< s.final_amount_usd - 0.05");
     });
 
-    it("filters by date range using created_at", () => {
+    it("filters by date range using created_at (in machine-local time)", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
       const sql = getLastPreparedSql(0);
-      expect(sql).toContain("s.created_at >= ?");
-      expect(sql).toContain("s.created_at <= ?");
+      // dateRange() converts the column to local wall-clock so the [from,to]
+      // window is the operator's local day, not UTC (see ProfitRepository).
+      expect(sql).toContain("datetime(s.created_at, 'localtime') >= ?");
+      expect(sql).toContain("datetime(s.created_at, 'localtime') <= ?");
     });
 
     it("passes correct date params (from 00:00:00 to 23:59:59)", () => {

@@ -6217,6 +6217,33 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 126,
+    name: "zero_sale_txn_amount_lbp_tender_dup",
+    description:
+      "Data repair: SALE unified-transaction rows stamped the LBP TENDER (payment_lbp) into amount_lbp alongside the sale's USD value in amount_usd, and item-REFUND rows stamped the refund's LBP conversion — so LBP-paid sales double-counted ('$5 + 450,000 LBP' in the audit view; revenue_lbp inflated in profit/session reports). The tender already lives in the payments legs. Zero amount_lbp on sales-sourced SALE/REFUND rows. Guarded on amount_usd != 0 so any legacy row whose only value is LBP is left untouched. Irreversible (the dropped LBP figure is redundant — it remains derivable from the payments legs), hence a no-op down().",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const res = db
+        .prepare(
+          `UPDATE transactions
+           SET amount_lbp = 0
+           WHERE source_table = 'sales'
+             AND type IN ('SALE', 'REFUND')
+             AND amount_lbp != 0
+             AND amount_usd != 0`,
+        )
+        .run();
+      console.log(
+        `Migration v126: cleared duplicated LBP tender on ${res.changes} sales transaction row(s)`,
+      );
+    },
+    down(_db: Database.Database) {
+      // Data repair of redundant (double-counted) figures — nothing to restore;
+      // the tender is still recorded in the payments legs.
+      console.log("Migration v126 rolled back: no-op (data repair)");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

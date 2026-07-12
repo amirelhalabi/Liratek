@@ -19,6 +19,7 @@ export * from "./utils/payments.js";
 export * from "./utils/currency.js";
 export * from "./utils/currencyConverter.js";
 export * from "./utils/tenantSlug.js";
+export * from "./utils/localDate.js";
 
 // Repositories
 export * from "./repositories/index.js";

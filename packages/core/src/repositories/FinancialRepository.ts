@@ -64,7 +64,7 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
         FROM sale_items si
         JOIN sales s ON si.sale_id = s.id
         WHERE s.status = 'completed'
-          AND strftime('%Y-%m', s.created_at) = ?
+          AND strftime('%Y-%m', s.created_at, 'localtime') = ?
           AND si.tenant_id = ?
           AND s.tenant_id = ?
       `,
@@ -79,7 +79,7 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
           currency,
           COALESCE(SUM(commission), 0) as commission
         FROM financial_services
-        WHERE strftime('%Y-%m', created_at) = ?
+        WHERE strftime('%Y-%m', created_at, 'localtime') = ?
           AND tenant_id = ?
         GROUP BY currency
       `,
@@ -102,7 +102,7 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
           COALESCE(SUM(amount_usd), 0) as expenses_usd,
           COALESCE(SUM(amount_lbp), 0) as expenses_lbp
         FROM expenses
-        WHERE strftime('%Y-%m', expense_date) = ?
+        WHERE strftime('%Y-%m', expense_date, 'localtime') = ?
           AND tenant_id = ?
       `,
         )

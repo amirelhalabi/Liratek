@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "@/utils/logger";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   Plus,
   Search,
@@ -733,7 +734,7 @@ export default function ProductList() {
             if (key === "supplier") return (product as any).supplier ?? "";
             if (key === "created_at")
               return product.created_at
-                ? new Date(product.created_at).getTime()
+                ? parseDbDate(product.created_at).getTime()
                 : 0;
             if (key === "profit_percent") {
               const cp = product.cost_price || 0;
@@ -807,7 +808,7 @@ export default function ProductList() {
                 </td>
                 <td className="p-4 text-slate-400 text-xs">
                   {product.created_at
-                    ? new Date(product.created_at).toLocaleDateString()
+                    ? parseDbDate(product.created_at).toLocaleDateString()
                     : "-"}
                 </td>
                 <td className="p-4 text-slate-400">

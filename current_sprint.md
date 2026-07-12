@@ -1340,6 +1340,37 @@ Starting a customer session with a name + phone saved a `clients` row **even whe
 
 ---
 
+## 🔮 Backlog / Future Enhancements
+
+## LIRA-077: Inventory — Stock Replenishment / Adjustment
+
+| Field                | Value                                                   |
+| -------------------- | ------------------------------------------------------- |
+| **Epic**             | Inventory                                               |
+| **Type**             | Feature / Enhancement                                   |
+| **Priority**         | High                                                    |
+| **Status**           | BACKLOG                                                 |
+| **Affected Modules** | Inventory, POS                                          |
+| **Assigned To**      | —                                                       |
+| **Depends On**       | Allow out-of-stock sales config + Negative-Stock report |
+
+### Summary
+
+With **"Allow out-of-stock sales"** enabled, `stock_quantity` can go **negative** (and the Negative-Stock report / Diagnostics panel now surfaces oversold items). Add a way to **replenish / adjust stock** so operators can correct negative or inaccurate counts — e.g. a "Restock" / stock-adjustment action reachable from the Negative-Stock report and from Inventory. This closes the reconciliation loop for shops running in out-of-stock mode.
+
+**TBD [to be discussed]:**
+
+- Set-absolute vs. add-delta (or both); single-item vs. bulk restock.
+- Entry point(s): Negative-Stock report row action, Inventory row action, and/or a dedicated screen.
+- Audit trail (who / when / why); whether a restock books a transaction/cost or is a pure count correction (supplier/cost reconciliation vs. count-only).
+- Permissions (admin vs. staff) and behaviour across desktop (IPC) + web (REST).
+
+### Acceptance Criteria
+
+- [ ] TBD — pending the discussion above.
+
+---
+
 ## Session Summary — Session Basket Payment, Transaction-Based Profits & Supplier-Ledger Fix
 
 > Builds on **LIRA-055** (session checkout modal) + **LIRA-064** (structured payment legs).

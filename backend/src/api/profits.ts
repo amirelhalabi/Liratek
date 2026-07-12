@@ -11,7 +11,7 @@ import {
   requireRole,
   type AuthRequest,
 } from "../middleware/auth.js";
-import { getProfitService } from "@liratek/core";
+import { getProfitService, localDay, localDaysAgo } from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = Router();
@@ -134,13 +134,11 @@ router.get("/pending", async (req, res) => {
 // ---------------------------------------------------------------------------
 
 function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+  return localDay();
 }
 
 function daysAgoISO(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().split("T")[0];
+  return localDaysAgo(n);
 }
 
 export default router;

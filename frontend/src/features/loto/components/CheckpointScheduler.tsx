@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useApi } from "@liratek/ui";
 import { AlertTriangle, CheckCircle } from "lucide-react";
+import { localDay } from "@/shared/utils/localDay";
 
 interface CheckpointSchedulerProps {
   onCheckpointCreated?: (checkpoint: any) => void;
@@ -28,7 +29,7 @@ export function CheckpointScheduler({
 
       if (isCorrectDay && isCorrectTime) {
         // Check if we already have a checkpoint for today
-        const today = now.toISOString().split("T")[0];
+        const today = localDay(now);
         checkForExistingCheckpoint(today);
       }
     };
@@ -73,9 +74,9 @@ export function CheckpointScheduler({
     try {
       // Create checkpoint for the period since last checkpoint
       const checkpointData = {
-        checkpoint_date: new Date().toISOString().split("T")[0],
+        checkpoint_date: localDay(),
         period_start: lastCheckpoint ? lastCheckpoint.period_end : "1970-01-01", // From beginning if no previous checkpoint
-        period_end: new Date().toISOString().split("T")[0],
+        period_end: localDay(),
         note: `Scheduled checkpoint for ${new Date().toLocaleDateString()}`,
       };
 

@@ -182,11 +182,20 @@ html:not(.dark) .bg-violet-500\/30 {
 }
 
 /* === INPUTS & FORM ELEMENTS === */
-html:not(.dark) input,
+/* .bg-transparent inputs are exempt from the forced white background: they
+   sit inside a styled pill (CheckoutModal customer fields, MultiPaymentInput)
+   whose container paints the surface — force-painting them white leaves a
+   white rectangle floating in the pill's light-gray (#f1f5f9, ex slate-900)
+   background. Their text/placeholder colors still come from the .text-white
+   and ::placeholder remaps. */
+html:not(.dark) input:not(.bg-transparent),
 html:not(.dark) select,
 html:not(.dark) textarea {
   background-color: #ffffff !important;
   border-color: #e2e8f0 !important;
+  color: #1e293b !important;
+}
+html:not(.dark) input.bg-transparent {
   color: #1e293b !important;
 }
 html:not(.dark) input::placeholder,
@@ -251,6 +260,79 @@ html:not(.dark) .shadow-lg {
 }
 html:not(.dark) .shadow-inner {
   box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.04) !important;
+}
+
+/* === TINTED CHIPS (dark-tint panels → soft light tints) ===
+   Chips/pills authored dark-first as bg-<color>-950/NN with text-<color>-300/400
+   (debt rows, account-charge rows, PM-fee rows, warning panels — e.g.
+   ServiceDebtDetailModal, SessionDebtDetailModal, MultiPaymentInput). The
+   near-black -950 tints render as muddy brown/mauve over light cards, and the
+   -300/-400 tint text (designed for dark surfaces) washes out. Remap to the
+   color's -100 tint with -700/-600 text. */
+html:not(.dark) .bg-red-950\/20,
+html:not(.dark) .bg-red-950\/30,
+html:not(.dark) .bg-red-950\/40 {
+  background-color: rgba(254, 226, 226, 0.6) !important;
+}
+html:not(.dark) .bg-sky-950\/40 {
+  background-color: rgba(224, 242, 254, 0.6) !important;
+}
+html:not(.dark) .bg-violet-950\/20,
+html:not(.dark) .bg-violet-950\/30,
+html:not(.dark) .bg-violet-950\/40 {
+  background-color: rgba(237, 233, 254, 0.6) !important;
+}
+html:not(.dark) .bg-emerald-950\/30,
+html:not(.dark) .bg-emerald-950\/40 {
+  background-color: rgba(209, 250, 229, 0.6) !important;
+}
+html:not(.dark) .bg-amber-950\/20,
+html:not(.dark) .bg-amber-950\/30,
+html:not(.dark) .bg-amber-950\/40 {
+  background-color: rgba(254, 243, 199, 0.6) !important;
+}
+html:not(.dark) .bg-amber-950\/80 {
+  background-color: rgba(254, 243, 199, 0.85) !important;
+}
+
+html:not(.dark) .text-red-300 {
+  color: #b91c1c !important;
+}
+html:not(.dark) .text-red-400 {
+  color: #dc2626 !important;
+}
+html:not(.dark) .text-red-400\/60 {
+  color: rgba(220, 38, 38, 0.65) !important;
+}
+html:not(.dark) .text-red-400\/70 {
+  color: rgba(220, 38, 38, 0.75) !important;
+}
+html:not(.dark) .text-red-400\/80 {
+  color: rgba(220, 38, 38, 0.85) !important;
+}
+html:not(.dark) .text-rose-300 {
+  color: #be123c !important;
+}
+html:not(.dark) .text-rose-400 {
+  color: #e11d48 !important;
+}
+html:not(.dark) .text-sky-300 {
+  color: #0369a1 !important;
+}
+html:not(.dark) .text-sky-400 {
+  color: #0284c7 !important;
+}
+html:not(.dark) .text-sky-400\/70 {
+  color: rgba(2, 132, 199, 0.75) !important;
+}
+html:not(.dark) .text-violet-300 {
+  color: #6d28d9 !important;
+}
+html:not(.dark) .text-violet-300\/80 {
+  color: rgba(109, 40, 217, 0.85) !important;
+}
+html:not(.dark) .text-violet-400 {
+  color: #7c3aed !important;
 }
 
 /* === COLORED ACCENTS (fintech card design — preserve in light mode) === */

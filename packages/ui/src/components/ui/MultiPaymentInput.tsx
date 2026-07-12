@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { DecimalInput } from "./DecimalInput";
+import { roundLBPUp } from "../../config/denominations";
 
 export type PaymentLine = {
   id: string;
@@ -93,6 +94,28 @@ export interface MultiPaymentInputProps {
    *  instead of a manual code field. The selected voucher's value is deposited to
    *  the account on redemption; the leg amount stays the charged portion. */
   fetchClientVouchers?: (clientId: number) => Promise<VoucherOption[]>;
+  /** When provided, shows a "Waive" button next to the Remaining (Debt)
+   *  warning whenever the shortfall (converted to USD if needed) is below
+   *  waiveRemainingThreshold. Clicking calls back with the shortfall amount
+   *  (in totalAmountCurrency) — this component has no opinion on what
+   *  "waiving" means upstream (e.g. the caller may fold it into a discount). */
+  onWaiveRemaining?: (amount: number) => void;
+  /** USD-equivalent threshold below which the waive button appears. Default 1. */
+  waiveRemainingThreshold?: number;
+  /** When true and totalAmountCurrency is "USD", auto-seed the CASH return
+   *  fields as integer USD notes + LBP remainder (the dual-currency
+   *  cash-drawer convention) instead of a single lump sum in one currency.
+   *  Default false — existing single-currency behavior, unaffected for
+   *  consumers that don't pass this. */
+  smartSplitOverpay?: boolean;
+  /** When true, always treat change/return as CASH — hides the return-method
+   *  picker and forces the dual USD/LBP cash fields regardless of what
+   *  forward payment methods are offered. Use when the consumer's backend
+   *  repository has no OUT-leg handling for non-CASH returns (it would
+   *  otherwise silently book a non-cash return leg as an ordinary inbound
+   *  payment). Default false — return method follows the forward methods,
+   *  as today. */
+  cashOnlyReturn?: boolean;
 }
 
 const CASH_EQUIVALENT_METHODS = new Set(["CASH", "CUSTOMER_ACCOUNT"]);
@@ -137,6 +160,10 @@ export default function MultiPaymentInput({
   initialLines,
   clientId,
   fetchClientVouchers,
+  onWaiveRemaining,
+  waiveRemainingThreshold = 1,
+  smartSplitOverpay = false,
+  cashOnlyReturn = false,
 }: MultiPaymentInputProps) {
   // Seeded lines are captured once — the prop is read at mount only.
   const seededLinesRef = useRef<PaymentLine[] | null>(
@@ -608,10 +635,25 @@ export default function MultiPaymentInput({
   // paid more than the (post-discount) total.
   const overpaidTarget = Math.max(0, totalPaid - effectiveTotalAmount);
   const isOverpaid = overpaidTarget > matchTolerance;
+
+  // --- Waive-remaining derivation ---
+  // Shortfall in totalAmountCurrency, converted to USD-equivalent purely for
+  // the threshold check (so waiveRemainingThreshold means "$1" regardless of
+  // whether the job is USD- or LBP-denominated).
+  const remainingShortfall = Math.max(0, effectiveTotalAmount - totalPaid);
+  const remainingShortfallUsd =
+    totalAmountCurrency === "LBP"
+      ? remainingShortfall / effectiveRate
+      : remainingShortfall;
+  const showWaiveButton =
+    !!onWaiveRemaining &&
+    remainingShortfall > matchTolerance &&
+    remainingShortfallUsd < waiveRemainingThreshold;
   // When the shop only has cash as a payment method, the change is obviously cash —
   // show a simple currency toggle. Any non-cash method available surfaces the full
   // method picker regardless of what the customer selected.
-  const isCashOnlyPayment = paymentMethods.every((pm) => pm.code === "CASH");
+  const isCashOnlyPayment =
+    cashOnlyReturn || paymentMethods.every((pm) => pm.code === "CASH");
   const effectiveReturnMethod = isCashOnlyPayment ? "CASH" : returnMethod;
 
   // Auto-init / reset CASH return fields whenever the overpaid amount changes.
@@ -623,14 +665,25 @@ export default function MultiPaymentInput({
       return;
     }
     if (totalAmountCurrency === "USD") {
-      setReturnAmountUSD(overpaidTarget.toFixed(2));
-      setReturnAmountLBP("");
+      if (smartSplitOverpay) {
+        // Lebanon dual-currency drawer convention: hand back whole USD notes
+        // and put the fractional remainder in LBP rather than a lump like
+        // "$4.73" the drawer may not have coins for.
+        const integerUSD = Math.floor(overpaidTarget);
+        const fractionUSD = overpaidTarget - integerUSD;
+        const roundedLBP = roundLBPUp(fractionUSD * effectiveRate);
+        setReturnAmountUSD(integerUSD ? String(integerUSD) : "");
+        setReturnAmountLBP(roundedLBP ? String(roundedLBP) : "");
+      } else {
+        setReturnAmountUSD(overpaidTarget.toFixed(2));
+        setReturnAmountLBP("");
+      }
     } else {
       setReturnAmountUSD("");
       setReturnAmountLBP(String(Math.round(overpaidTarget)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOverpaid, overpaidTarget, totalAmountCurrency]);
+  }, [isOverpaid, overpaidTarget, totalAmountCurrency, smartSplitOverpay]);
 
   // CASH return handlers: entering one currency auto-fills the other with the remainder.
   const handleReturnUSDChange = (raw: string) => {
@@ -799,6 +852,7 @@ export default function MultiPaymentInput({
         <div className="flex flex-1 items-center justify-center gap-1.5">
           <span className="text-xs text-slate-500">1 USD =</span>
           <input
+            data-testid="payment-exchange-rate"
             type="text"
             inputMode="decimal"
             value={fmtNum(customExchangeRate)}
@@ -865,14 +919,17 @@ export default function MultiPaymentInput({
               <div
                 key={line.id}
                 data-testid={`payment-line-${line.id}`}
-                className="bg-slate-800/60 border border-slate-700/40 rounded-xl p-3 space-y-2"
+                className="bg-slate-800/60 border border-slate-700/40 rounded-xl overflow-hidden flex"
               >
-                <div className="flex items-center gap-2">
-                  {/* Line number badge */}
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-slate-700 text-slate-300 text-[10px] font-bold flex items-center justify-center">
-                    {idx + 1}
-                  </span>
+                {/* Row-number rail — a slim strip fused to the card's left
+                    edge, spanning its full height (incl. voucher/PM-fee
+                    sub-rows), instead of a floating circle badge. */}
+                <div className="flex-shrink-0 w-6 bg-slate-700 text-slate-300 text-[10px] font-bold flex items-center justify-center">
+                  {idx + 1}
+                </div>
 
+                <div className="flex-1 min-w-0 p-3 space-y-2">
+                <div className="flex items-center gap-2">
                   {/* Payment Method */}
                   <select
                     data-testid={`payment-method-${line.id}`}
@@ -891,6 +948,7 @@ export default function MultiPaymentInput({
 
                   {/* Currency */}
                   <select
+                    data-testid={`payment-currency-${line.id}`}
                     value={line.currencyCode}
                     onChange={(e) =>
                       updatePaymentLine(line.id, "currencyCode", e.target.value)
@@ -907,7 +965,7 @@ export default function MultiPaymentInput({
                   {/* Amount — DecimalInput keeps the raw text while focused so
                       decimal points survive typing (a controlled fmtNum/parseNum
                       round-trip ate the "." on every keystroke). */}
-                  <div className="relative w-32">
+                  <div className="relative w-28">
                     {["$", "€", "£"].includes(getSymbol(line.currencyCode)) && (
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
                         {getSymbol(line.currencyCode)}
@@ -932,7 +990,7 @@ export default function MultiPaymentInput({
                     type="button"
                     disabled={paymentLines.length === 1}
                     onClick={() => removePaymentLine(line.id)}
-                    className="flex-shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
+                    className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
                     title="Remove"
                   >
                     <X size={14} />
@@ -941,14 +999,14 @@ export default function MultiPaymentInput({
 
                 {/* Voucher picker (GIFT_CARD) */}
                 {fetchClientVouchers && line.method === "GIFT_CARD" && (
-                  <div className="ml-7 pl-3 border-l-2 border-orange-500/30">
+                  <div className="pl-3 border-l-2 border-orange-500/30">
                     {renderVoucherSelector(line)}
                   </div>
                 )}
 
                 {/* PM Fee sub-line */}
                 {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
-                  <div className="flex items-center gap-2 ml-7 pl-3 border-l-2 border-violet-500/30">
+                  <div className="flex items-center gap-2 pl-3 border-l-2 border-violet-500/30">
                     <span className="text-[11px] text-violet-400 whitespace-nowrap">
                       PM fee
                     </span>
@@ -974,6 +1032,7 @@ export default function MultiPaymentInput({
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             ))}
 
@@ -1015,6 +1074,7 @@ export default function MultiPaymentInput({
 
               {/* Currency */}
               <select
+                data-testid={`payment-currency-${paymentLines[0]?.id}`}
                 value={paymentLines[0]?.currencyCode || currency}
                 onChange={(e) =>
                   updatePaymentLine(
@@ -1238,10 +1298,23 @@ export default function MultiPaymentInput({
 
         {/* Remaining (underpaid → debt) warning */}
         {totalPaid < effectiveTotalAmount - matchTolerance && (
-          <div className="flex justify-between text-xs px-2 py-1 rounded-md bg-red-500/10 border border-red-500/20">
+          <div className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md bg-red-500/10 border border-red-500/20">
             <span className="text-red-400">Remaining (Debt)</span>
-            <span className="font-mono font-bold text-red-400">
-              {fmtTarget(toDisplayCurrency(effectiveTotalAmount - totalPaid))}
+            <span className="flex items-center gap-2">
+              <span className="font-mono font-bold text-red-400">
+                {fmtTarget(toDisplayCurrency(effectiveTotalAmount - totalPaid))}
+              </span>
+              {showWaiveButton && (
+                <button
+                  type="button"
+                  data-testid="waive-remaining"
+                  onClick={() => onWaiveRemaining?.(remainingShortfall)}
+                  className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
+                  title="Waive the remaining shortfall (adds it to the discount)"
+                >
+                  Waive
+                </button>
+              )}
             </span>
           </div>
         )}

@@ -9,16 +9,29 @@
 // Helpers (exported so consumers can set sensible defaults)
 // ---------------------------------------------------------------------------
 
-/** Today in YYYY-MM-DD format (local time) */
-export function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+const pad = (n: number): string => n.toString().padStart(2, "0");
+
+/** Format a Date as YYYY-MM-DD in the LOCAL timezone (not UTC). */
+function toLocalDay(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** N days ago in YYYY-MM-DD format (local time) */
+/**
+ * Today in YYYY-MM-DD format (LOCAL time).
+ *
+ * Uses local getters, NOT `toISOString()` — the latter returns the UTC
+ * calendar day, which rolls over at 03:00 in Beirut (UTC+3) and mismatches the
+ * backend's `DATE(col, 'localtime')` reporting filters.
+ */
+export function todayISO(): string {
+  return toLocalDay(new Date());
+}
+
+/** N days ago in YYYY-MM-DD format (LOCAL time). */
 export function daysAgoISO(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().split("T")[0];
+  return toLocalDay(d);
 }
 
 // ---------------------------------------------------------------------------

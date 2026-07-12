@@ -16,6 +16,7 @@ import {
 import { useShopInfo } from "@/hooks/useShopName";
 import { ConfirmModal } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 interface SaleItem {
   id: number;
@@ -254,7 +255,7 @@ export default function SaleDetailModal({
   };
 
   const formatTime = (dateStr: string) => {
-    const d = new Date(dateStr);
+    const d = parseDbDate(dateStr);
     return d.toLocaleString();
   };
 

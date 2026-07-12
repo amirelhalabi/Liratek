@@ -48,6 +48,7 @@ import type { LotoRepository } from "../repositories/LotoRepository.js";
 import { getLotoRepository } from "../repositories/LotoRepository.js";
 
 import { lotoLogger } from "../utils/logger.js";
+import { localDay } from "../utils/localDate.js";
 
 export interface SellTicketData {
   ticket_number?: string;
@@ -149,7 +150,7 @@ export class LotoService {
         commission_amount,
         is_winner: data.is_winner ? 1 : 0,
         prize_amount: data.prize_amount || 0,
-        sale_date: data.sale_date || new Date().toISOString().split("T")[0],
+        sale_date: data.sale_date || localDay(),
         payment_method: data.payment_method,
         currency: data.currency || "LBP",
         note: data.note,
@@ -912,7 +913,7 @@ export class LotoService {
    */
   createScheduledCheckpoint(checkpointDate?: string): LotoCheckpoint {
     try {
-      const date = checkpointDate || new Date().toISOString().split("T")[0];
+      const date = checkpointDate || localDay();
 
       // Find the last checkpoint to determine the start date
       const lastCheckpoint = this.getLastCheckpoint();
@@ -922,7 +923,7 @@ export class LotoService {
         // to avoid double-counting tickets on the boundary day
         const nextDay = new Date(lastCheckpoint.period_end);
         nextDay.setDate(nextDay.getDate() + 1);
-        startDate = nextDay.toISOString().split("T")[0];
+        startDate = localDay(nextDay);
       }
 
       // Create a checkpoint for the period since the last checkpoint
@@ -966,7 +967,7 @@ export class LotoService {
       const prizeData: LotoCashPrizeCreate = {
         ticket_number: data.ticket_number?.trim() || undefined,
         prize_amount: data.prize_amount,
-        prize_date: data.prize_date || new Date().toISOString().split("T")[0],
+        prize_date: data.prize_date || localDay(),
         userId: data.userId,
         deferPayment: data.deferPayment,
         exchange_rate: data.exchange_rate,

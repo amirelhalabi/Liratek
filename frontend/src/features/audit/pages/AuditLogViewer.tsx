@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { AuditLogEntry, AuditSearchFilters } from "@/types/electron";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { DataTable, useApi } from "@liratek/ui";
 
 const ACTION_COLORS: Record<string, string> = {
@@ -21,7 +22,7 @@ const ACTION_COLORS: Record<string, string> = {
 
 function formatTime(ts: string): string {
   try {
-    return new Date(ts).toLocaleString("en-GB", {
+    return parseDbDate(ts).toLocaleString("en-GB", {
       day: "2-digit",
       month: "short",
       hour: "2-digit",
@@ -159,7 +160,7 @@ export default function AuditLogViewer({
         showRowCount
         totalRowCount={total ?? rows.length}
         getSortValue={(row, key) => {
-          if (key === "created_at") return new Date(row.created_at).getTime();
+          if (key === "created_at") return parseDbDate(row.created_at).getTime();
           return String((row as unknown as Record<string, unknown>)[key] ?? "");
         }}
         className="w-full text-left"

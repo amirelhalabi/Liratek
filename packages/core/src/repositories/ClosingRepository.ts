@@ -1,6 +1,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { closingLogger } from "../utils/logger.js";
+import { localDay } from "../utils/localDate.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
@@ -14,6 +15,18 @@ const CHECKPOINT_ADJUSTMENT_METHOD = "CHECKPOINT_ADJUSTMENT";
 
 /** Sub-cent threshold below which a reconciliation delta is treated as zero. */
 const RECONCILE_EPSILON = 0.0001;
+
+/**
+ * SQL predicate: timestamp column `col` falls on TODAY in machine-local time.
+ * Mirrors the `DATE(col,'localtime') = DATE('now','localtime')` convention used
+ * across the reporting repositories (SalesRepository, FinancialServiceRepository).
+ * Takes NO bind params — the whole comparison is evaluated in SQLite's local
+ * timezone, so it never mismatches a UTC-day param near midnight. `'localtime'`
+ * follows the machine TZ (Beirut on desktop; pin `TZ=Asia/Beirut` on the web
+ * server — see docs/plans/LOCAL_BUSINESS_DAY_PLAN.md).
+ */
+const todayLocal = (col: string): string =>
+  `DATE(${col}, 'localtime') = DATE('now', 'localtime')`;
 
 export interface DailyClosingEntity {
   id: number;
@@ -242,7 +255,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     error?: string;
   } {
     try {
-      const closingDate = new Date().toISOString().split("T")[0];
+      // Machine-local calendar day (not UTC) — a checkpoint recorded at 01:00
+      // Beirut must file under today, not yesterday's UTC day.
+      const closingDate = localDay();
       const tenantId = getCurrentTenantId();
 
       const stmt = this.db.prepare(`
@@ -378,7 +393,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Get daily stats snapshot for closing report
    */
   getDailyStatsSnapshot(): DailyStatsSnapshot {
-    const today = new Date().toISOString().split("T")[0];
+    // "Today" is the machine-local calendar day, evaluated inside SQLite via
+    // `todayLocal()` — no JS date param, so it can never mismatch a UTC day at
+    // the local-midnight boundary (matches SalesRepository et al.).
     const tenantId = getCurrentTenantId();
 
     // Sales stats
@@ -389,9 +406,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(final_amount_usd) as total_sales_usd,
           SUM(paid_lbp) as total_sales_lbp
          FROM sales
-         WHERE DATE(created_at) = ? AND status = 'completed' AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ?`,
       )
-      .get(today, tenantId) as
+      .get(tenantId) as
       | {
           sales_count: number;
           total_sales_usd: number;
@@ -406,9 +423,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(ABS(amount_usd)) as total_debt_payments_usd,
           SUM(ABS(amount_lbp)) as total_debt_payments_lbp
          FROM debt_ledger
-         WHERE DATE(created_at) = ? AND transaction_type = 'Repayment' AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND transaction_type = 'Repayment' AND tenant_id = ?`,
       )
-      .get(today, tenantId) as
+      .get(tenantId) as
       | { total_debt_payments_usd: number; total_debt_payments_lbp: number }
       | undefined;
 
@@ -419,9 +436,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(amount_usd) as total_expenses_usd,
           SUM(amount_lbp) as total_expenses_lbp
          FROM expenses
-         WHERE DATE(expense_date) = ? AND tenant_id = ?`,
+         WHERE ${todayLocal("expense_date")} AND tenant_id = ?`,
       )
-      .get(today, tenantId) as
+      .get(tenantId) as
       | { total_expenses_usd: number; total_expenses_lbp: number }
       | undefined;
 
@@ -432,48 +449,48 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           COALESCE(SUM(si.sold_price_usd - si.cost_price_snapshot_usd), 0) as profit_usd
          FROM sales s
          JOIN sale_items si ON s.id = si.sale_id
-         WHERE DATE(s.created_at) = ? AND s.status = 'completed'
+         WHERE ${todayLocal("s.created_at")} AND s.status = 'completed'
            AND si.is_refunded = 0
            AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) >= s.final_amount_usd - 0.05
            AND s.tenant_id = ? AND si.tenant_id = ?`,
       )
-      .get(today, tenantId, tenantId) as { profit_usd: number };
+      .get(tenantId, tenantId) as { profit_usd: number };
 
     const finProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
          FROM financial_services
-         WHERE DATE(created_at) = ? AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND tenant_id = ?`,
       )
-      .get(today, tenantId) as { profit_usd: number };
+      .get(tenantId) as { profit_usd: number };
 
     const rechargeProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
          FROM recharges
-         WHERE DATE(created_at) = ? AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND tenant_id = ?`,
       )
-      .get(today, tenantId) as { profit_usd: number };
+      .get(tenantId) as { profit_usd: number };
 
     const customProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(profit_usd), 0) as profit_usd
          FROM custom_services
-         WHERE DATE(created_at) = ? AND status = 'completed' AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND status = 'completed' AND tenant_id = ?`,
       )
-      .get(today, tenantId) as { profit_usd: number };
+      .get(tenantId) as { profit_usd: number };
 
     const maintProfit = this.db
       .prepare(
         `SELECT
           COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
          FROM maintenance
-         WHERE DATE(created_at) = ? AND LOWER(status) = 'completed' AND tenant_id = ?`,
+         WHERE ${todayLocal("created_at")} AND LOWER(status) = 'completed' AND tenant_id = ?`,
       )
-      .get(today, tenantId) as { profit_usd: number };
+      .get(tenantId) as { profit_usd: number };
 
     const totalProfitUSD =
       salesProfit.profit_usd +
@@ -498,12 +515,13 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Check if there is at least one checkpoint record in daily_closings for today's date.
    */
   hasOpeningBalanceToday(): boolean {
-    const today = new Date().toISOString().split("T")[0];
+    // closing_date is stamped with the machine-local day (see createCheckpoint),
+    // so compare against SQLite's local day, not a UTC JS date.
     const row = this.db
       .prepare(
-        `SELECT 1 FROM daily_closings WHERE closing_date = ? AND tenant_id = ? LIMIT 1`,
+        `SELECT 1 FROM daily_closings WHERE closing_date = DATE('now', 'localtime') AND tenant_id = ? LIMIT 1`,
       )
-      .get(today, getCurrentTenantId());
+      .get(getCurrentTenantId());
     return row !== undefined;
   }
 
@@ -625,7 +643,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Get checkpoint timeline for a date
    */
   getCheckpointTimeline(filters: CheckpointFilters = {}): CheckpointRecord[] {
-    const today = new Date().toISOString().split("T")[0];
+    const today = localDay();
     const {
       date_from = today,
       date_to = today,

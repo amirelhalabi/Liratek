@@ -353,6 +353,139 @@ describe("MultiPaymentInput", () => {
     });
   });
 
+  describe("waive-remaining button (opt-in)", () => {
+    it("does not render a Waive button when onWaiveRemaining is not provided", () => {
+      renderMpi({ totalAmount: 100 });
+
+      fireEvent.click(screen.getByTestId("split-toggle"));
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      fireEvent.change(firstAmount, { target: { value: "99.50" } });
+
+      expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
+    });
+
+    it("renders a Waive button when the shortfall is below the $1 threshold and calls back with the shortfall", () => {
+      const onWaiveRemaining = jest.fn();
+      render(
+        <MultiPaymentInput
+          totalAmount={100}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={jest.fn()}
+          onWaiveRemaining={onWaiveRemaining}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("split-toggle"));
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      fireEvent.change(firstAmount, { target: { value: "99.50" } });
+
+      const waiveBtn = screen.getByTestId("waive-remaining");
+      expect(waiveBtn).toBeInTheDocument();
+      fireEvent.click(waiveBtn);
+      expect(onWaiveRemaining).toHaveBeenCalledWith(0.5);
+    });
+
+    it("does not render a Waive button when the shortfall is at or above the $1 threshold", () => {
+      const onWaiveRemaining = jest.fn();
+      render(
+        <MultiPaymentInput
+          totalAmount={100}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={jest.fn()}
+          onWaiveRemaining={onWaiveRemaining}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("split-toggle"));
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      fireEvent.change(firstAmount, { target: { value: "60" } });
+
+      expect(screen.queryByTestId("waive-remaining")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("cashOnlyReturn (opt-in)", () => {
+    it("forces the CASH return fields even with multiple payment methods available", () => {
+      render(
+        <MultiPaymentInput
+          totalAmount={100}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={jest.fn()}
+          cashOnlyReturn={true}
+        />,
+      );
+
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      fireEvent.change(firstAmount, { target: { value: "150" } });
+
+      // Multiple non-CASH methods exist (OMT, CUSTOMER_ACCOUNT), so without
+      // cashOnlyReturn the method selector would render — it must not here.
+      expect(screen.queryByTestId("return-method")).not.toBeInTheDocument();
+      expect(screen.getByTestId("return-usd")).toBeInTheDocument();
+      expect(screen.getByTestId("return-lbp")).toBeInTheDocument();
+    });
+  });
+
+  describe("smartSplitOverpay (opt-in)", () => {
+    it("splits an overpaid USD amount into integer USD notes + LBP remainder", () => {
+      render(
+        <MultiPaymentInput
+          totalAmount={100}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={jest.fn()}
+          smartSplitOverpay={true}
+        />,
+      );
+
+      const firstAmount = document.querySelector<HTMLInputElement>(
+        '[data-testid^="payment-amount-"]',
+      )!;
+      // Overpay by $4.73 — without smartSplitOverpay this would seed a single
+      // "4.73" USD lump; with it, integer USD + LBP-bill-rounded remainder.
+      fireEvent.change(firstAmount, { target: { value: "104.73" } });
+
+      // 0.73 * 90000 = 65,700 → rounds up to nearest 5,000 → 70,000.
+      expect(screen.getByTestId("return-usd")).toHaveValue("4");
+      expect(screen.getByTestId("return-lbp")).toHaveValue("70000");
+    });
+  });
+
   describe("retained business-logic assertions", () => {
     // Lightweight derivations kept from the original logic-only test — they
     // mirror the component's internal calculations and read well as a spec.

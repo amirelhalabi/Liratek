@@ -12,6 +12,7 @@
 
 import { X } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,8 +92,12 @@ export function ServiceDebtDetailModal({
   onClose,
 }: Props) {
   useModalFocusFix(true);
-  const providerFee =
-    fs.provider === "OMT" ? (fs.omt_fee ?? 0) : (fs.whish_fee ?? 0);
+  // OMT and OMT_APP store their fee in omt_fee; WHISH/WHISH_APP in whish_fee.
+  // Matching on "OMT" alone made OMT_APP read the (null) whish_fee, so the
+  // fee row vanished and Total Charged showed the bare transfer amount.
+  const providerFee = fs.provider.startsWith("OMT")
+    ? (fs.omt_fee ?? 0)
+    : (fs.whish_fee ?? 0);
   const pmFee = fs.payment_method_fee ?? 0;
   const totalCharged = fs.amount + providerFee;
 
@@ -139,7 +144,7 @@ export function ServiceDebtDetailModal({
               )}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {new Date(fs.created_at).toLocaleString()}
+              {parseDbDate(fs.created_at).toLocaleString()}
             </p>
           </div>
           <button

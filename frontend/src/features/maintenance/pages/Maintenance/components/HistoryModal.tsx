@@ -4,6 +4,7 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 type MaintenanceJob = {
   id: number;
@@ -160,7 +161,7 @@ export function HistoryModal({
                   >
                     <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
                       {job.created_at
-                        ? new Date(job.created_at).toLocaleDateString()
+                        ? parseDbDate(job.created_at).toLocaleDateString()
                         : ""}
                     </td>
                     <td className="px-6 py-4">
