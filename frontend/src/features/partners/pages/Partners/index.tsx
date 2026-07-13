@@ -15,6 +15,7 @@ import {
   X,
   Edit2,
   DollarSign,
+  Wallet,
   ArrowDownLeft,
   ArrowUpRight,
   RefreshCw,
@@ -59,15 +60,6 @@ function fmtLBP(n: number) {
     currency: "LBP",
     maximumFractionDigits: 0,
   }).format(n);
-}
-
-// Intl.NumberFormat has no "USDT" ISO currency code, so format as a plain
-// decimal with a trailing unit label instead of style: "currency".
-function fmtUSDT(n: number) {
-  return `${n.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} USDT`;
 }
 
 function fmtDate(iso: string) {
@@ -339,7 +331,7 @@ interface SettleModalProps {
 
 function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState<"USD" | "LBP" | "USDT">("USD");
+  const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [method, setMethod] = useState("CASH");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -401,14 +393,6 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               {fmtLBP(partner.lbp)}
             </span>
           </div>
-          <div>
-            <span className="text-slate-400 text-xs block">Balance USDT</span>
-            <span
-              className={`font-semibold ${balanceColor(partner.usdt, 0)}`}
-            >
-              {fmtUSDT(partner.usdt)}
-            </span>
-          </div>
         </div>
 
         <div className="flex gap-3">
@@ -428,11 +412,10 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
             </label>
             <Select
               value={currency}
-              onChange={(v) => setCurrency(v as "USD" | "LBP" | "USDT")}
+              onChange={(v) => setCurrency(v as "USD" | "LBP")}
               options={[
                 { value: "USD", label: "USD" },
                 { value: "LBP", label: "LBP" },
-                { value: "USDT", label: "USDT" },
               ]}
               buttonClassName="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
             />
@@ -491,9 +474,23 @@ interface RecordTxModalProps {
   partner: PartnerWithBalance;
   onClose: () => void;
   onRecorded: () => void;
+  /**
+   * PFT-7 "Add credit / debt" mode — a focused manual partner_ledger
+   * adjustment (DEBIT = partner owes shop, CREDIT = shop owes partner).
+   * Locks the transaction type to ADJUSTMENT and hides the type picker so
+   * the modal reads as a simple credit/debt entry, like the Accounts page's
+   * "Add Credit / Debt". Uses the SAME `recordTransaction` IPC/REST call as
+   * the general "Record Tx" button — no new backend path.
+   */
+  adjustmentOnly?: boolean;
 }
 
-function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
+function RecordTxModal({
+  partner,
+  onClose,
+  onRecorded,
+  adjustmentOnly = false,
+}: RecordTxModalProps) {
   const [txType, setTxType] = useState("ADJUSTMENT");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
@@ -543,28 +540,37 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
   }
 
   return (
-    <Modal title={`Record Transaction – ${partner.name}`} onClose={onClose}>
+    <Modal
+      title={
+        adjustmentOnly
+          ? `Add Credit / Debt – ${partner.name}`
+          : `Record Transaction – ${partner.name}`
+      }
+      onClose={onClose}
+    >
       <div className="space-y-4">
-        <div>
-          <label className="text-xs text-slate-400 block mb-1">
-            Transaction Type
-          </label>
-          <select
-            value={txType}
-            onChange={(e) => setTxType(e.target.value)}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-          >
-            {TRANSACTION_TYPE_GROUPS.map((group) => (
-              <optgroup key={group.label} label={group.label}>
-                {group.options.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
+        {!adjustmentOnly && (
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">
+              Transaction Type
+            </label>
+            <select
+              value={txType}
+              onChange={(e) => setTxType(e.target.value)}
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+            >
+              {TRANSACTION_TYPE_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="flex gap-3">
           <div className="flex-1">
@@ -644,7 +650,11 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
             disabled={submitting || !isValid}
             className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors text-sm"
           >
-            {submitting ? "Recording..." : "Record Transaction"}
+            {submitting
+              ? "Recording..."
+              : adjustmentOnly
+                ? "Add Credit / Debt"
+                : "Record Transaction"}
           </button>
         </div>
       </div>
@@ -885,6 +895,7 @@ interface DetailPanelProps {
   onEdit: () => void;
   onSettle: () => void;
   onRecordTx: () => void;
+  onAddCredit: () => void;
   onDeactivate: () => void;
   onActivate: () => void;
 }
@@ -894,6 +905,7 @@ function DetailPanel({
   onEdit,
   onSettle,
   onRecordTx,
+  onAddCredit,
   onDeactivate,
   onActivate,
 }: DetailPanelProps) {
@@ -1010,6 +1022,13 @@ function DetailPanel({
             >
               <Plus className="w-3.5 h-3.5" />
               Record Tx
+            </button>
+            <button
+              onClick={onAddCredit}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-amber-100 rounded-lg text-xs font-medium transition-colors"
+            >
+              <Wallet className="w-3.5 h-3.5" />
+              Add Credit / Debt
             </button>
             {partner.is_active === 1 && (
               <button
@@ -1163,74 +1182,6 @@ function DetailPanel({
             )}
           </div>
         </div>
-
-        {/* USDT Balance — only shown once there is any Binance/USDT activity */}
-        {breakdown && breakdown.usdt.total !== 0 && (
-          <div
-            className={`mt-3 rounded-lg border p-3 ${balanceBorderColor(breakdown.usdt.total, 0)}`}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <BalanceIcon usd={breakdown.usdt.total} lbp={0} />
-              <span className="text-xs text-slate-400">USDT Balance</span>
-            </div>
-            <p
-              className={`text-xl font-bold ${balanceColor(breakdown.usdt.total, 0)}`}
-            >
-              {fmtUSDT(breakdown.usdt.total)}
-            </p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {breakdown.usdt.total > 0
-                ? "They owe us"
-                : breakdown.usdt.total < 0
-                  ? "We owe them"
-                  : "Settled"}
-            </p>
-            <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-0.5">
-              {breakdown.usdt.for !== 0 && (
-                <div className="flex justify-between text-[10px]">
-                  <span className="text-violet-400">FOR (our system)</span>
-                  <span
-                    className={
-                      breakdown.usdt.for > 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }
-                  >
-                    {fmtUSDT(breakdown.usdt.for)}
-                  </span>
-                </div>
-              )}
-              {breakdown.usdt.through !== 0 && (
-                <div className="flex justify-between text-[10px]">
-                  <span className="text-sky-400">THROUGH (their system)</span>
-                  <span
-                    className={
-                      breakdown.usdt.through > 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }
-                  >
-                    {fmtUSDT(breakdown.usdt.through)}
-                  </span>
-                </div>
-              )}
-              {breakdown.usdt.other !== 0 && (
-                <div className="flex justify-between text-[10px]">
-                  <span className="text-slate-500">Settlements / Adj.</span>
-                  <span
-                    className={
-                      breakdown.usdt.other > 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }
-                  >
-                    {fmtUSDT(breakdown.usdt.other)}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Ledger Filters */}
@@ -1442,6 +1393,8 @@ export function PartnersPage() {
     useState<PartnerWithBalance | null>(null);
   const [recordingTxPartner, setRecordingTxPartner] =
     useState<PartnerWithBalance | null>(null);
+  const [addingCreditPartner, setAddingCreditPartner] =
+    useState<PartnerWithBalance | null>(null);
   const [deactivatingPartner, setDeactivatingPartner] =
     useState<PartnerWithBalance | null>(null);
   const api = useApi();
@@ -1606,6 +1559,7 @@ export function PartnersPage() {
               onEdit={() => setEditingPartner(selectedPartner)}
               onSettle={() => setSettlingPartner(selectedPartner)}
               onRecordTx={() => setRecordingTxPartner(selectedPartner)}
+              onAddCredit={() => setAddingCreditPartner(selectedPartner)}
               onDeactivate={() => setDeactivatingPartner(selectedPartner)}
               onActivate={async () => {
                 const result = await api.partners.activate(selectedPartner.id);
@@ -1663,6 +1617,14 @@ export function PartnersPage() {
           partner={recordingTxPartner}
           onClose={() => setRecordingTxPartner(null)}
           onRecorded={loadPartners}
+        />
+      )}
+      {addingCreditPartner && (
+        <RecordTxModal
+          partner={addingCreditPartner}
+          onClose={() => setAddingCreditPartner(null)}
+          onRecorded={loadPartners}
+          adjustmentOnly
         />
       )}
       {deactivatingPartner && (

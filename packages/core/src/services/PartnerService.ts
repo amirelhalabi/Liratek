@@ -157,6 +157,11 @@ export class PartnerService {
    * Direction logic:
    * - If current balance (DEBIT - CREDIT) is positive → partner owes us → settlement is CREDIT (reduces what they owe)
    * - If current balance is negative → we owe partner → settlement is DEBIT (reduces what we owe)
+   *
+   * Settlement currency is USD or LBP only — a partner never carries a USDT
+   * balance (Binance partner debt is denominated in USD; the USDT leg lives
+   * only in the drawer, not the partner ledger). See
+   * docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md "VALIDATED FLOW CATALOG".
    */
   settle(data: {
     partnerId: number;
@@ -169,11 +174,7 @@ export class PartnerService {
     try {
       const balance = this.repo.getBalance(data.partnerId);
       const currencyBalance =
-        data.currency === "LBP"
-          ? balance.lbp
-          : data.currency === "USDT"
-            ? balance.usdt
-            : balance.usd;
+        data.currency === "LBP" ? balance.lbp : balance.usd;
 
       // Positive balance = partner owes us → CREDIT to reduce it
       // Negative balance = we owe partner → DEBIT to reduce it
