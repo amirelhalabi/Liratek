@@ -49,8 +49,41 @@
 | ------ | ----- | ------ |
 | **RCP-0** | Logo foundation: Settings upload (base64 → `receipt_logo`), extend `useShopInfo`, shared `printReceipt` util that injects the logo; POS receipts show it | ✅ 2026-07-13 (6e694b4) |
 | **RCP-1** | Walk-in customer: rename on a completed sale + reprint (checkout name-entry already worked) | ✅ 2026-07-13 (8dd83df, lira-111) |
-| **RCP-2** | Generalize the receipt: a shared `buildTransactionReceipt` mapping a service transaction → receipt text (provider/service/amount/fee/client/legs) | ⬜ (T8 — needs content decision) |
-| **RCP-3** | Per-module "Print receipt" button after success + reprint from history: mobile services, recharge, maintenance, custom services, loto | ⬜ (T8) |
+| **RCP-2** | Generalize the receipt: shared `buildServiceReceiptText(txn, legs, shop)` | ✅ builder + unit tests done 2026-07-13 (wiring = RCP-3) |
+| **RCP-3** | Per-module "Print receipt" button after success + reprint from history: mobile services, recharge, maintenance, custom services, loto | ⬜ (T8 — mechanical, see notes) |
+
+**RCP-2 done — decisions locked (owner: detailed; advisor-validated):**
+
+- **Detailed = customer-facing only**: amount, fee/commission, payment-method
+  split + change. NEVER cost/price/profit (margin leak) — guarded by a test.
+- **Card-grid items**: the transaction `note` already reads
+  "category: label (subcategory)"; shown as the item line, title-cased, gated
+  on `item_key`. No structured metadata threading (the "nice simple way").
+- **One source = the persisted transaction** (getById row → parse
+  `metadata_json`, `note`, `client_name`; + customer-facing legs). Print-now
+  and reprint build from the SAME data — no live-form-state split-brain.
+- **RECEIVE / cash-out / loto prize**: builder renders paid-to-customer legs
+  as "Change" (direction-aware), not assumed inflow.
+- Builder: `frontend/src/shared/utils/serviceReceipt.ts` (pure, 6 unit tests:
+  SEND, RECEIVE, card-grid item, split, LBP-only, no-margin-leak).
+
+**RCP-3 remaining (mechanical wiring, per module):**
+
+1. A `printServiceReceiptByTransaction(txnId)` helper: `transactions.getById`
+   → parse `metadata_json` → customer legs (`omt.getPaymentsByTransaction`
+   exists for FS; use `getRecent`'s pre-filtered `payments` or add a general
+   legs-by-txn binding) → `buildServiceReceiptText` → shared `printReceipt`
+   (logo). Locate each module's transaction id from its success result / the
+   history row.
+2. "Print receipt" button on each module's success state + reprint in each
+   history/detail modal: mobile services (FinancialForm/OMT-Whish/Katch),
+   recharge (TelecomForm/PaymentSheet), maintenance, custom services, loto.
+3. **Open decision — multi-item card-grid batch** (Katsh/iPick cart, the
+   "first carries legs" KC convention): ONE receipt listing all items, or one
+   per item? Ask the owner when wiring the batch path; single-item is
+   unblocked. (Advisor point 6.)
+4. Guard: builder is unit-tested; per-module = one integration check each
+   (print paths can't be asserted headless — verify via /verify or manual).
 
 **T5 complete (RCP-0 + RCP-1).** RCP-1 corrected mid-build: a POS sale with a
 typed name auto-creates a client (lira-094), so the rename gate is
