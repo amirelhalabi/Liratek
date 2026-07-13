@@ -51,6 +51,7 @@ export interface PartnerLedgerEntry {
 export interface PartnerBalance {
   usd: number;
   lbp: number;
+  usdt: number;
 }
 
 export interface PartnerBalanceBreakdown {
@@ -456,14 +457,20 @@ export class PartnerRepository extends BaseRepository<Partner> {
             COALESCE(SUM(CASE WHEN currency = 'USD' AND direction = 'DEBIT'  THEN amount ELSE 0 END), 0)
             - COALESCE(SUM(CASE WHEN currency = 'USD' AND direction = 'CREDIT' THEN amount ELSE 0 END), 0) AS usd,
             COALESCE(SUM(CASE WHEN currency = 'LBP' AND direction = 'DEBIT'  THEN amount ELSE 0 END), 0)
-            - COALESCE(SUM(CASE WHEN currency = 'LBP' AND direction = 'CREDIT' THEN amount ELSE 0 END), 0) AS lbp
+            - COALESCE(SUM(CASE WHEN currency = 'LBP' AND direction = 'CREDIT' THEN amount ELSE 0 END), 0) AS lbp,
+            COALESCE(SUM(CASE WHEN currency = 'USDT' AND direction = 'DEBIT'  THEN amount ELSE 0 END), 0)
+            - COALESCE(SUM(CASE WHEN currency = 'USDT' AND direction = 'CREDIT' THEN amount ELSE 0 END), 0) AS usdt
           FROM partner_ledger
           WHERE partner_id = ? AND tenant_id = ?
         `,
         )
-        .get(partnerId, getCurrentTenantId()) as { usd: number; lbp: number };
+        .get(partnerId, getCurrentTenantId()) as {
+        usd: number;
+        lbp: number;
+        usdt: number;
+      };
 
-      return { usd: row.usd, lbp: row.lbp };
+      return { usd: row.usd, lbp: row.lbp, usdt: row.usdt };
     } catch (e) {
       throw new DatabaseError("Failed to get partner balance", { cause: e });
     }
@@ -482,7 +489,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
           COALESCE(SUM(CASE WHEN l.currency = 'USD' AND l.direction = 'DEBIT'  THEN l.amount ELSE 0 END), 0)
           - COALESCE(SUM(CASE WHEN l.currency = 'USD' AND l.direction = 'CREDIT' THEN l.amount ELSE 0 END), 0) AS usd,
           COALESCE(SUM(CASE WHEN l.currency = 'LBP' AND l.direction = 'DEBIT'  THEN l.amount ELSE 0 END), 0)
-          - COALESCE(SUM(CASE WHEN l.currency = 'LBP' AND l.direction = 'CREDIT' THEN l.amount ELSE 0 END), 0) AS lbp
+          - COALESCE(SUM(CASE WHEN l.currency = 'LBP' AND l.direction = 'CREDIT' THEN l.amount ELSE 0 END), 0) AS lbp,
+          COALESCE(SUM(CASE WHEN l.currency = 'USDT' AND l.direction = 'DEBIT'  THEN l.amount ELSE 0 END), 0)
+          - COALESCE(SUM(CASE WHEN l.currency = 'USDT' AND l.direction = 'CREDIT' THEN l.amount ELSE 0 END), 0) AS usdt
         FROM partners p
         LEFT JOIN partner_ledger l ON l.partner_id = p.id AND l.tenant_id = p.tenant_id
         WHERE ${filter}

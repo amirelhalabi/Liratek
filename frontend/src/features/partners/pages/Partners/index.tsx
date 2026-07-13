@@ -61,6 +61,15 @@ function fmtLBP(n: number) {
   }).format(n);
 }
 
+// Intl.NumberFormat has no "USDT" ISO currency code, so format as a plain
+// decimal with a trailing unit label instead of style: "currency".
+function fmtUSDT(n: number) {
+  return `${n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} USDT`;
+}
+
 function fmtDate(iso: string) {
   return parseDbDate(iso).toLocaleString("en-US", {
     month: "short",
@@ -330,7 +339,7 @@ interface SettleModalProps {
 
 function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
+  const [currency, setCurrency] = useState<"USD" | "LBP" | "USDT">("USD");
   const [method, setMethod] = useState("CASH");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -392,6 +401,14 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               {fmtLBP(partner.lbp)}
             </span>
           </div>
+          <div>
+            <span className="text-slate-400 text-xs block">Balance USDT</span>
+            <span
+              className={`font-semibold ${balanceColor(partner.usdt, 0)}`}
+            >
+              {fmtUSDT(partner.usdt)}
+            </span>
+          </div>
         </div>
 
         <div className="flex gap-3">
@@ -411,10 +428,11 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
             </label>
             <Select
               value={currency}
-              onChange={(v) => setCurrency(v as "USD" | "LBP")}
+              onChange={(v) => setCurrency(v as "USD" | "LBP" | "USDT")}
               options={[
                 { value: "USD", label: "USD" },
                 { value: "LBP", label: "LBP" },
+                { value: "USDT", label: "USDT" },
               ]}
               buttonClassName="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
             />
@@ -883,6 +901,7 @@ function DetailPanel({
   const [balance, setBalance] = useState<PartnerBalance>({
     usd: partner.usd,
     lbp: partner.lbp,
+    usdt: partner.usdt,
   });
   const [breakdown, setBreakdown] = useState<PartnerBalanceBreakdown | null>(
     null,
@@ -1144,6 +1163,74 @@ function DetailPanel({
             )}
           </div>
         </div>
+
+        {/* USDT Balance — only shown once there is any Binance/USDT activity */}
+        {breakdown && breakdown.usdt.total !== 0 && (
+          <div
+            className={`mt-3 rounded-lg border p-3 ${balanceBorderColor(breakdown.usdt.total, 0)}`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <BalanceIcon usd={breakdown.usdt.total} lbp={0} />
+              <span className="text-xs text-slate-400">USDT Balance</span>
+            </div>
+            <p
+              className={`text-xl font-bold ${balanceColor(breakdown.usdt.total, 0)}`}
+            >
+              {fmtUSDT(breakdown.usdt.total)}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {breakdown.usdt.total > 0
+                ? "They owe us"
+                : breakdown.usdt.total < 0
+                  ? "We owe them"
+                  : "Settled"}
+            </p>
+            <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-0.5">
+              {breakdown.usdt.for !== 0 && (
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-violet-400">FOR (our system)</span>
+                  <span
+                    className={
+                      breakdown.usdt.for > 0
+                        ? "text-emerald-400"
+                        : "text-red-400"
+                    }
+                  >
+                    {fmtUSDT(breakdown.usdt.for)}
+                  </span>
+                </div>
+              )}
+              {breakdown.usdt.through !== 0 && (
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-sky-400">THROUGH (their system)</span>
+                  <span
+                    className={
+                      breakdown.usdt.through > 0
+                        ? "text-emerald-400"
+                        : "text-red-400"
+                    }
+                  >
+                    {fmtUSDT(breakdown.usdt.through)}
+                  </span>
+                </div>
+              )}
+              {breakdown.usdt.other !== 0 && (
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-slate-500">Settlements / Adj.</span>
+                  <span
+                    className={
+                      breakdown.usdt.other > 0
+                        ? "text-emerald-400"
+                        : "text-red-400"
+                    }
+                  >
+                    {fmtUSDT(breakdown.usdt.other)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Ledger Filters */}

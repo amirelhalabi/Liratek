@@ -170,7 +170,19 @@ export type PartnerTransactionType =
   | "FOR_OMT_RECEIVE"
   | "FOR_WHISH_SEND"
   | "FOR_WHISH_RECEIVE"
+  | "FOR_POS"
+  | "FOR_RECHARGE"
+  | "FOR_KATSH"
+  | "FOR_IPICK"
+  | "FOR_OMT_APP_SEND"
+  | "FOR_OMT_APP_RECEIVE"
+  | "FOR_WHISH_APP_SEND"
+  | "FOR_WHISH_APP_RECEIVE"
+  | "FOR_BINANCE_SEND"
+  | "FOR_BINANCE_RECEIVE"
+  | "FOR_LOTO"
   | "CUSTOM_SERVICE"
+  | "WHISH_TOPUP"
   | "SETTLEMENT"
   | "ADJUSTMENT";
 
@@ -201,11 +213,13 @@ export interface PartnerLedgerEntry {
 export interface PartnerBalance {
   usd: number;
   lbp: number;
+  usdt: number;
 }
 
 export interface PartnerBalanceBreakdown {
   usd: { for: number; through: number; other: number; total: number };
   lbp: { for: number; through: number; other: number; total: number };
+  usdt: { for: number; through: number; other: number; total: number };
 }
 
 export interface LedgerFilters {

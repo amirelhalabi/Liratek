@@ -284,6 +284,7 @@ describe("PartnerRepository", () => {
       const bal = repo.getBalance(p.id);
       expect(bal.usd).toBe(0);
       expect(bal.lbp).toBe(0);
+      expect(bal.usdt).toBe(0);
     });
 
     it("calculates USD as DEBIT minus CREDIT", () => {
@@ -332,6 +333,49 @@ describe("PartnerRepository", () => {
       });
       expect(repo.getBalance(p.id).usd).toBeCloseTo(-300, 2);
     });
+
+    it("calculates USDT as DEBIT minus CREDIT", () => {
+      const p = repo.create({ name: "USDTBalance" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        amount: 500,
+        currency: "USDT",
+        direction: "DEBIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        amount: 120,
+        currency: "USDT",
+        direction: "CREDIT",
+      });
+      expect(repo.getBalance(p.id).usdt).toBeCloseTo(380, 2);
+    });
+
+    it("tracks USDT independently from USD and LBP", () => {
+      const p = repo.create({ name: "TriCurrency" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        amount: 500000,
+        currency: "LBP",
+        direction: "CREDIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        amount: 50,
+        currency: "USDT",
+        direction: "DEBIT",
+      });
+      const bal = repo.getBalance(p.id);
+      expect(bal.usd).toBeCloseTo(100, 2);
+      expect(bal.lbp).toBeCloseTo(-500000, 2);
+      expect(bal.usdt).toBeCloseTo(50, 2);
+    });
   });
 
   describe("getAllBalances()", () => {
@@ -377,6 +421,19 @@ describe("PartnerRepository", () => {
       const p2 = repo.create({ name: "Inactive" });
       repo.deactivate(p2.id);
       expect(repo.getAllBalances(true)).toHaveLength(2);
+    });
+
+    it("includes computed usdt balances (not just usd/lbp)", () => {
+      const p1 = repo.create({ name: "USDTGroup" });
+      repo.addLedgerEntry({
+        partner_id: p1.id,
+        amount: 75,
+        currency: "USDT",
+        direction: "DEBIT",
+      });
+      const results = repo.getAllBalances();
+      const a = results.find((r) => r.name === "USDTGroup")!;
+      expect(a.usdt).toBeCloseTo(75, 2);
     });
   });
 

@@ -169,7 +169,11 @@ export class PartnerService {
     try {
       const balance = this.repo.getBalance(data.partnerId);
       const currencyBalance =
-        data.currency === "LBP" ? balance.lbp : balance.usd;
+        data.currency === "LBP"
+          ? balance.lbp
+          : data.currency === "USDT"
+            ? balance.usdt
+            : balance.usd;
 
       // Positive balance = partner owes us → CREDIT to reduce it
       // Negative balance = we owe partner → DEBIT to reduce it
