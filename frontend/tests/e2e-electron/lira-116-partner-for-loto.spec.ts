@@ -1,28 +1,45 @@
 /**
- * E2E: LIRA-116 (PFT-4) — a Loto ticket sale "for the partner" books its
- * unpaid remainder to partner_ledger (FOR_LOTO DEBIT) instead of a client's
- * debt_ledger. Loto is LBP-denominated, so the remainder is native LBP.
+ * E2E: LIRA-116 (PFT-R) — a Loto ticket sale "for the partner" books the
+ * FULL sale_amount to partner_ledger (FOR_LOTO DEBIT) and takes NO counter
+ * payment at the counter. This is the owner-validated full-amount model
+ * (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md § "VALIDATED FLOW CATALOG"),
+ * which SUPERSEDES the earlier PFT-4 "remainder after customer cash" model
+ * this spec originally guarded (d91785d) — there is no walk-in customer in
+ * a "for partner" transaction, so no counter cash is ever taken; the
+ * partner owes the full amount, settled later on the Partners page.
  *
- * Mirrors LIRA-113 (PFT-2, POS) but for the Loto module. UNLIKE lira-113,
- * there is NO void step: LOTO is in NON_REVERSIBLE_TRANSACTION_TYPES
- * (packages/core/src/constants/transactionTypes.ts), so
- * TransactionRepository.voidTransaction/refundTransaction THROW before ever
- * reaching `_reversePartnerLedger` for a LOTO transaction — there is no loto
- * void path to exercise. The FOR_LOTO row's reversal owner is partner
- * settlement, exactly like the pre-existing non-reversible 'Loto Debt' row
- * (rule 20 is satisfied because the type is already gated non-reversible).
+ * UNLIKE lira-113 (POS), there is NO void step: LOTO is in
+ * NON_REVERSIBLE_TRANSACTION_TYPES (packages/core/src/constants/transactionTypes.ts),
+ * so TransactionRepository.voidTransaction/refundTransaction THROW before
+ * ever reaching a partner-ledger reversal for a LOTO transaction — there is
+ * no loto void path to exercise. The FOR_LOTO row's reversal owner is
+ * partner settlement, exactly like the pre-existing non-reversible
+ * 'Loto Debt' row (rule 20 is satisfied because the type is already gated
+ * non-reversible).
  *
  * Money invariants under guard (rule 15 — deltas + identity only):
- *   - routing: partner LBP balance rises by exactly the remainder
- *     (500,000 − 200,000 = 300,000 LBP) — booked as FOR_LOTO DEBIT.
- *   - the General LBP drawer still takes the 200,000 LBP cash paid.
+ *   - Happy path: a partner ticket with NO payment legs books the FULL
+ *     500,000 LBP sale_amount to the partner (FOR_LOTO DEBIT); the General
+ *     LBP drawer is untouched (delta 0) — no counter cash at all.
+ *   - Rejection: a partner ticket that ALSO carries a 200,000 LBP CASH leg
+ *     is rejected outright (result.ok === false) and moves nothing — a
+ *     partner ticket takes no counter payment, full stop.
  *
- * Rule 17 (failing-first): pre-fix, lotoSellSchema strips partnerId/
- * partnerMode (not in the schema) before they ever reach the repository, so
- * LotoService.sellTicket's rebuilt ticketData object also never carries them
- * (the field-pick bug named in the task). No FOR branch runs, no partner
- * ledger entry is written, and the 300,000 LBP remainder lands nowhere — the
- * `partnerLbpDelta ≈ 300000` assertion below fails (observed delta 0).
+ * Rule 17 (failing-first): BOTH tests fail on the currently-committed code
+ * (the PFT-4 "remainder" model), for two different reasons:
+ *   - The rejection test fails outright: committed code computes
+ *     remainderLbp = sale_amount − paidLbp = 500,000 − 200,000 = 300,000 LBP
+ *     and happily books that remainder to the partner while letting the
+ *     200,000 LBP CASH leg post to the General drawer — `res.success` comes
+ *     back `true`, not the `false` this spec requires (the canonical
+ *     failing assertion: `expect(result.ok).toBe(false)`).
+ *   - The happy-path (no-legs) test ALSO fails pre-fix, for an unrelated
+ *     reason: with no `payments` array and no explicit `payment_method`,
+ *     committed code's legacy fallback defaults `paymentMethod` to "CASH"
+ *     and posts the FULL 500,000 LBP to the General drawer (a pre-existing
+ *     partner-mode double-booking this fix also closes) while ALSO booking
+ *     the 500,000 LBP remainder to the partner — so the drawer-delta-0
+ *     assertion fails pre-fix too (observed drawer delta 500,000, not 0).
  */
 
 import { test, expect } from "./fixtures";
@@ -63,40 +80,80 @@ async function generalLbp(page: Page): Promise<number> {
   });
 }
 
-test.describe("LIRA-116 — Loto ticket for a partner books the remainder to partner_ledger", () => {
-  test("remainder → partner FOR_LOTO DEBIT; cash to drawer", async ({
+async function createPartner(page: Page, tag: string): Promise<number> {
+  return page.evaluate(async ({ tag }) => {
+    const w = window as unknown as Api;
+    const created = await w.api.partners.create({
+      name: `${tag} ${Date.now()}`,
+      phone: `${tag}${Date.now()}`,
+    });
+    if (!created.success || !created.data) {
+      throw new Error(created.error ?? "partner create failed");
+    }
+    return created.data.id;
+  }, { tag });
+}
+
+async function partnerLbp(page: Page, partnerId: number): Promise<number> {
+  return page.evaluate(async ({ partnerId }) => {
+    const w = window as unknown as Api;
+    return (await w.api.partners.getBalance(partnerId)).lbp;
+  }, { partnerId });
+}
+
+test.describe("LIRA-116 — Loto ticket for a partner (full-amount model, no counter cash)", () => {
+  test("no payment legs: FULL sale_amount → partner FOR_LOTO DEBIT; drawer untouched", async ({
     appPage,
   }) => {
-    const ts = Date.now();
-    const NOTE = `L116 ${ts}`;
+    const NOTE = `L116a ${Date.now()}`;
 
+    const partnerId = await createPartner(appPage, "L116a-Partner");
+    const partnerBefore = await partnerLbp(appPage, partnerId);
     const drawerBefore = await generalLbp(appPage);
 
     const result = await appPage.evaluate(
-      async ({ note }) => {
+      async ({ partnerId, note }) => {
         const w = window as unknown as Api;
-
-        const created = await w.api.partners.create({
-          name: `L116 Partner ${Date.now()}`,
-          phone: `L116${Date.now()}`.slice(0, 12),
+        // 500,000 LBP ticket, "for" the partner — NO payment legs at all:
+        // there is no walk-in customer, so no counter cash is taken.
+        const res = await w.api.loto.sell({
+          sale_amount: 500000,
+          partnerId,
+          partnerMode: "FOR",
+          exchange_rate: 100000,
+          note,
         });
-        if (!created.success || !created.data) {
-          return {
-            ok: false,
-            error: created.error ?? "partner create failed",
-            partnerId: 0,
-            partnerBalBefore: 0,
-            partnerBalAfterSale: 0,
-          };
-        }
-        const partnerId = created.data.id;
-        const balLbp = async () =>
-          (await w.api.partners.getBalance(partnerId)).lbp;
+        return { ok: res.success, error: res.error ?? null };
+      },
+      { partnerId, note: NOTE },
+    );
 
-        const partnerBalBefore = await balLbp();
+    expect(result.error).toBeNull();
+    expect(result.ok).toBe(true);
 
-        // 500,000 LBP ticket, customer pays 200,000 LBP cash now → partner
-        // owes the 300,000 LBP remainder on their account.
+    const partnerAfter = await partnerLbp(appPage, partnerId);
+    const drawerAfter = await generalLbp(appPage);
+
+    // Full amount, no counter cash: the partner owes the entire 500,000 LBP
+    // ticket; the General LBP drawer never moves.
+    expect(partnerAfter - partnerBefore).toBeCloseTo(500000, 0);
+    expect(drawerAfter - drawerBefore).toBeCloseTo(0, 0);
+  });
+
+  test("a counter-payment leg in partner mode is rejected outright (no partial booking)", async ({
+    appPage,
+  }) => {
+    const NOTE = `L116b ${Date.now()}`;
+
+    const partnerId = await createPartner(appPage, "L116b-Partner");
+    const partnerBefore = await partnerLbp(appPage, partnerId);
+    const drawerBefore = await generalLbp(appPage);
+
+    const result = await appPage.evaluate(
+      async ({ partnerId, note }) => {
+        const w = window as unknown as Api;
+        // Same 500,000 LBP partner ticket, but this time a 200,000 LBP CASH
+        // leg tries to pay part of it at the counter — must be rejected.
         const res = await w.api.loto.sell({
           sale_amount: 500000,
           partnerId,
@@ -112,32 +169,23 @@ test.describe("LIRA-116 — Loto ticket for a partner books the remainder to par
           exchange_rate: 100000,
           note,
         });
-
-        return {
-          ok: res.success,
-          error: res.error ?? null,
-          partnerId,
-          partnerBalBefore,
-          partnerBalAfterSale: await balLbp(),
-        };
+        return { ok: res.success, error: res.error ?? null };
       },
-      { note: NOTE },
+      { partnerId, note: NOTE },
     );
 
-    expect(result.error).toBeNull();
-    expect(result.ok).toBe(true);
+    // The failing-first assertion (rule 17): on the committed PFT-4
+    // "remainder" code this call SUCCEEDS (books the 300,000 LBP remainder
+    // to the partner and lets the 200,000 LBP CASH leg hit the drawer).
+    // Post-fix, a partner ticket takes no counter payment at all.
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/no counter payment/i);
 
-    // Routing (the failing-first assertion): the partner now owes the
-    // 300,000 LBP remainder — booked as FOR_LOTO DEBIT (positive balance =
-    // partner owes the shop). Pre-PFT-4, partnerId/partnerMode never reach
-    // the repository (schema strip + service field-pick), so no FOR branch
-    // runs and this delta is 0.
-    expect(
-      result.partnerBalAfterSale - result.partnerBalBefore,
-    ).toBeCloseTo(300000, 0);
-
-    // The General drawer still takes the 200,000 LBP cash the customer paid.
-    const drawerAfterSale = await generalLbp(appPage);
-    expect(drawerAfterSale - drawerBefore).toBeCloseTo(200000, 0);
+    // Rejected atomically inside the DB transaction: neither the partner
+    // tab nor the drawer moved at all.
+    const partnerAfter = await partnerLbp(appPage, partnerId);
+    const drawerAfter = await generalLbp(appPage);
+    expect(partnerAfter - partnerBefore).toBeCloseTo(0, 0);
+    expect(drawerAfter - drawerBefore).toBeCloseTo(0, 0);
   });
 });

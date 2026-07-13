@@ -74,11 +74,12 @@ export interface RechargeData {
    */
   deferPayment?: boolean;
   /**
-   * PFT-3a (Partner FOR-Transactions): when set together with
-   * `partnerMode === "FOR"`, the unpaid remainder books to `partner_ledger`
-   * (FOR_RECHARGE DEBIT) against this partner instead of a client's
-   * `debt_ledger`. Everything else about the recharge (stock, drawers,
-   * profit) stays normal.
+   * PFT-R (Partner FOR-Transactions, full-amount model): when set together
+   * with `partnerMode === "FOR"`, this is NOT a walk-in customer sale — no
+   * counter cash is taken at all. The FULL `price` books to `partner_ledger`
+   * (FOR_RECHARGE DEBIT) against this partner, settled later on the Partners
+   * page. The normal provider drawer consumption, stock, and SMS-cost flow
+   * are unchanged; only the customer-payment step is replaced.
    */
   partnerId?: number;
   /** Only "FOR" is valid for recharges — the partner analog of CUSTOMER_ACCOUNT. */
@@ -817,14 +818,33 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             ),
         };
 
+        // PFT-R (Partner FOR-Transactions, full-amount model): a "for
+        // partner" recharge has NO walk-in customer and takes NO counter
+        // cash — the partner owes the FULL price, settled later on the
+        // Partners page. Computed before touching any payment legs so the
+        // customer-cash step below can be skipped entirely in partner mode.
+        const isForPartner = data.partnerMode === "FOR";
+        if (isForPartner && !data.partnerId) {
+          throw new Error('partnerId is required when partnerMode is "FOR"');
+        }
+
         // Customer payment (cash-like inflow). Split returned-change (OUT) legs
         // out so the inflow loop and debt calc only see customer-paid (IN) legs.
         const { inLegs: inPayments, outLegs: returnLegs } = partitionLegs(
           data.payments,
         );
+        if (isForPartner && inPayments.length > 0) {
+          throw new Error(
+            "A partner recharge takes no counter payment — the full amount goes on the partner's tab",
+          );
+        }
         const deferPayment = data.deferPayment === true;
         let hasDebt = false;
-        if (deferPayment) {
+        if (isForPartner) {
+          // No customer cash and no debt — the FULL price is booked to the
+          // partner below (after the stock/SMS legs), replacing both the
+          // cash step and the client debt_ledger step for this transaction.
+        } else if (deferPayment) {
           // Session basket owns the customer-cash inflow + debt + change.
           // Only the telecom stock leg (below) is recorded on this transaction.
         } else if (inPayments.length > 0) {
@@ -905,55 +925,22 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           upsertBalanceDelta.run(providerDrawerName, "USD", -smsCostUsd);
         }
 
-        // PFT-3a (Partner FOR-Transactions): routing is mutually exclusive.
-        // When data.partnerMode === "FOR", the unpaid remainder books to
-        // partner_ledger against data.partnerId instead of the client's
-        // debt_ledger — never both on one transaction.
-        const isForPartner = data.partnerMode === "FOR";
-
+        // PFT-R (Partner FOR-Transactions, full-amount model): routing is
+        // mutually exclusive. In partner mode the FULL price books to
+        // partner_ledger (FOR_RECHARGE DEBIT) against data.partnerId — never
+        // a remainder, and never the client's debt_ledger.
         if (isForPartner) {
-          if (!data.partnerId) {
-            throw new Error('partnerId is required when partnerMode is "FOR"');
-          }
-          if (!data.payments || data.payments.length === 0) {
-            throw new Error(
-              "A partner FOR-recharge requires explicit payment legs",
-            );
-          }
-          // Reject any account/debt leg or cross-currency IN leg — the
-          // remainder routes only to the partner, in the recharge's own
-          // currency. Requiring explicit payments also closes the legacy
-          // single-payment paid_by_method fallback that would otherwise
-          // mis-book (it isn't partner-aware).
-          if (
-            inPayments.some(
-              (p) =>
-                !isDrawerAffectingMethod(p.method) ||
-                p.currencyCode !== currency,
-            )
-          ) {
-            throw new Error(
-              "Cannot combine a partner FOR-recharge with an account/debt leg or a cross-currency leg",
-            );
-          }
-          const paidNow = inPayments.reduce(
-            (sum, p) => sum + Math.abs(p.amount),
-            0,
-          );
-          const remainder = Math.abs(data.price) - paidNow;
-          if (remainder > 0.005) {
-            getPartnerRepository().addLedgerEntry({
-              partner_id: data.partnerId as number,
-              transaction_type: "FOR_RECHARGE",
-              reference_table: "recharges",
-              reference_id: rechargeId,
-              amount: remainder,
-              currency,
-              direction: "DEBIT",
-              user_id: createdBy,
-              notes: note,
-            });
-          }
+          getPartnerRepository().addLedgerEntry({
+            partner_id: data.partnerId as number,
+            transaction_type: "FOR_RECHARGE",
+            reference_table: "recharges",
+            reference_id: rechargeId,
+            amount: Math.abs(data.price),
+            currency,
+            direction: "DEBIT",
+            user_id: createdBy,
+            notes: note,
+          });
         } else if (hasDebt) {
           // Debt: create ledger entry when paid by DEBT
           if (!data.clientId) {
@@ -986,7 +973,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Return (OUT) legs: change handed back via a chosen method or kept as
         // store credit. Debits the method's drawer, or deposits client credit.
         // Deferred (session basket): change is owned by the basket recorder.
-        for (const r of deferPayment ? [] : returnLegs) {
+        // Partner mode: no counter cash was ever taken, so there is no
+        // change to return either.
+        for (const r of deferPayment || isForPartner ? [] : returnLegs) {
           const amt = Math.abs(r.amount);
           if (amt <= 0) continue;
           if (r.method === "CUSTOMER_ACCOUNT") {

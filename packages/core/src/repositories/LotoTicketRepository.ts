@@ -83,11 +83,14 @@ export interface LotoTicketCreate {
   /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
   exchange_rate?: number;
   /**
-   * PFT-4 (Partner FOR-Transactions): when set together with
-   * `partnerMode === "FOR"`, the unpaid remainder books to `partner_ledger`
-   * (FOR_LOTO DEBIT) against this partner instead of a client's
-   * `debt_ledger`. Loto is LBP-denominated, so the remainder is computed and
-   * booked in LBP.
+   * PFT-R (Partner FOR-Transactions, full-amount model): when set together
+   * with `partnerMode === "FOR"`, this is a "for partner" ticket — there is
+   * NO walk-in customer and NO counter cash. The FULL `sale_amount` books to
+   * `partner_ledger` (FOR_LOTO DEBIT) against this partner instead of a
+   * client's `debt_ledger`. Loto is LBP-denominated, so the amount is booked
+   * natively in LBP. Any drawer-affecting payment leg or CUSTOMER_ACCOUNT
+   * leg sent alongside partner mode is rejected — this supersedes the
+   * earlier PFT-4 "remainder after customer cash" model.
    */
   partnerId?: number;
   /** Only "FOR" is valid for Loto — the partner analog of CUSTOMER_ACCOUNT. */
@@ -149,6 +152,15 @@ export class LotoTicketRepository {
       const paymentMethod = data.payment_method || "CASH";
       const ticketLabel = data.ticket_number || `#${ticketId}`;
       const txnSummary = `Loto ticket sale: ${ticketLabel} ${fmtPaymentMethod(paymentMethod)}`;
+
+      // PFT-R (Partner FOR-Transactions, full-amount model — supersedes the
+      // PFT-4 "remainder" model): a "for partner" loto ticket takes NO
+      // counter payment at all — the partner owes the FULL sale_amount,
+      // settled later on the Partners page. Computed early so the legacy
+      // single-field payment branches below (2 & 3) can be gated off in
+      // partner mode instead of silently defaulting to a phantom CASH
+      // payment for the full amount when no payment info is sent.
+      const isForPartner = !data.deferPayment && data.partnerMode === "FOR";
 
       // 2. Create unified transaction record
       const txnRepo = getTransactionRepository();
@@ -229,11 +241,19 @@ export class LotoTicketRepository {
           );
           upsertBalanceLeg.run(tenantId, legDrawer, leg.currencyCode, signed);
         }
-      } else if (!data.deferPayment && paymentMethod === "CUSTOMER_ACCOUNT") {
+      } else if (
+        !data.deferPayment &&
+        !isForPartner &&
+        paymentMethod === "CUSTOMER_ACCOUNT"
+      ) {
         // Legacy single-payment on account: the full ticket value is debt.
         if ((data.currency || "LBP") === "USD") debtUsd += data.sale_amount;
         else debtLbp += data.sale_amount;
-      } else if (!data.deferPayment && isDrawerAffectingMethod(paymentMethod)) {
+      } else if (
+        !data.deferPayment &&
+        !isForPartner &&
+        isDrawerAffectingMethod(paymentMethod)
+      ) {
         // Legacy fallback (no legs provided): single payment at the ticket's
         // denominated currency.
         const drawerName = paymentMethodToDrawerName(paymentMethod);
@@ -262,55 +282,58 @@ export class LotoTicketRepository {
         upsertBalance.run(tenantId, drawerName, currency, data.sale_amount);
       }
 
-      // 3b. PFT-4 (Partner FOR-Transactions): routing is mutually exclusive.
-      // When data.partnerMode === "FOR", the unpaid remainder books to
-      // partner_ledger against data.partnerId instead of the client's
-      // debt_ledger — never both on one transaction.
-      const isForPartner = !data.deferPayment && data.partnerMode === "FOR";
-
+      // 3b. PFT-R (Partner FOR-Transactions, full-amount model): routing is
+      // mutually exclusive. When data.partnerMode === "FOR" the shop acts
+      // for the partner — there is NO walk-in customer and NO counter cash.
+      // The FULL sale_amount books to partner_ledger against data.partnerId
+      // instead of a client's debt_ledger; the normal supplier-float/ticket
+      // flow above (steps 1, 2, 4) is unchanged.
       if (isForPartner) {
-        // A CUSTOMER_ACCOUNT leg is the client-debt deferred-payment
-        // destination — contradictory with routing the remainder to the
-        // partner instead. Reject rather than silently pick one.
-        if (debtUsd > 0 || debtLbp > 0) {
-          throw new Error(
-            "Cannot combine a partner FOR-loto ticket with a CUSTOMER_ACCOUNT payment leg",
-          );
-        }
         if (!data.partnerId) {
           throw new Error('partnerId is required when partnerMode is "FOR"');
         }
 
-        // Remainder is native to the ticket's own currency (Loto is always
-        // LBP-denominated) — never a converted figure.
-        const rate = data.exchange_rate ?? 100000;
-        const paidLbp = (data.payments ?? [])
-          .filter(
-            (l) => l.direction !== "OUT" && isDrawerAffectingMethod(l.method),
-          )
-          .reduce(
-            (sum, l) =>
-              sum +
-              (l.currencyCode === "USD"
-                ? Math.abs(l.amount) * rate
-                : Math.abs(l.amount)),
-            0,
-          );
-        const remainderLbp = data.sale_amount - paidLbp;
+        // A partner ticket takes no counter payment at all — any
+        // drawer-affecting IN leg, CUSTOMER_ACCOUNT leg (structured or
+        // legacy single-field), or client-debt accumulation means the
+        // caller tried to take a payment at the counter. Reject rather than
+        // silently splitting the amount between drawer/client debt and the
+        // partner (the superseded PFT-4 "remainder" behavior).
+        const hasCounterPaymentLeg = (data.payments ?? []).some(
+          (l) => l.direction !== "OUT" && isDrawerAffectingMethod(l.method),
+        );
+        const hasLegacyCounterPayment =
+          data.payment_method !== undefined &&
+          data.payment_method !== "CUSTOMER_ACCOUNT" &&
+          isDrawerAffectingMethod(data.payment_method);
+        const hasLegacyCustomerAccount =
+          data.payment_method === "CUSTOMER_ACCOUNT";
 
-        if (remainderLbp > 1) {
-          getPartnerRepository().addLedgerEntry({
-            partner_id: data.partnerId as number,
-            transaction_type: "FOR_LOTO",
-            reference_table: "loto_tickets",
-            reference_id: ticketId,
-            amount: remainderLbp,
-            currency: "LBP",
-            direction: "DEBIT",
-            user_id: data.userId,
-            notes: txnSummary,
-          });
+        if (
+          hasCounterPaymentLeg ||
+          hasLegacyCounterPayment ||
+          hasLegacyCustomerAccount ||
+          debtUsd > 0 ||
+          debtLbp > 0
+        ) {
+          throw new Error(
+            "A partner loto ticket takes no counter payment — the full amount goes on the partner's tab",
+          );
         }
+
+        // Book the FULL sale amount to the partner's tab. Loto is always
+        // LBP-denominated — never a converted figure.
+        getPartnerRepository().addLedgerEntry({
+          partner_id: data.partnerId as number,
+          transaction_type: "FOR_LOTO",
+          reference_table: "loto_tickets",
+          reference_id: ticketId,
+          amount: data.sale_amount,
+          currency: "LBP",
+          direction: "DEBIT",
+          user_id: data.userId,
+          notes: txnSummary,
+        });
       } else if (debtUsd > 0 || debtLbp > 0) {
         // Book the on-account portion as client debt (open-debt model, same
         // as POS/custom services — 'Loto Debt'). Requires a real client row.

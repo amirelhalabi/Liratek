@@ -1,26 +1,35 @@
 /**
- * E2E: LIRA-114 (PFT-2b) — the POS checkout's "For Partner" control drives
- * the FOR-partner sale path (built in PFT-2 / ddae06f, proven core-side by
- * lira-113) end to end through the REAL UI: toggle the control on, pick a
- * partner from the dropdown, pay part of the total in cash, complete — the
- * unpaid remainder must land on the PARTNER's ledger (never a client's
- * debt_ledger, and never CUSTOMER_ACCOUNT), and voiding the sale must net the
- * partner back to exactly 0.
+ * E2E: LIRA-114 (PFT-R, revising PFT-2b/dc829f2) — the POS checkout's "For
+ * Partner" control drives the FULL-amount, no-counter-payment FOR-partner
+ * sale end to end through the REAL UI: toggle the control on, pick a partner
+ * from the dropdown, confirm NO payment/amount field is shown at all,
+ * complete — the FULL sale amount must land on the PARTNER's ledger (never a
+ * client's debt_ledger, never CUSTOMER_ACCOUNT, and never a "remainder after
+ * cash" figure), with the General drawer untouched. Voiding the sale must
+ * net the partner back to exactly 0.
  *
- * Unlike lira-113 (which calls window.api.sales.process directly to prove the
- * CORE routing), this spec proves the FRONTEND control itself threads
- * partnerId/partnerMode from the modal into that same payload. The intended
- * rule-17 revert target is CheckoutModal.tsx's getPaymentData() spread
- * (`...(forPartner && selectedPartnerId ? { partnerId, partnerMode: "FOR" }
- * : {})`) — drop ONLY that spread and the toggle/selector stay fully
- * clickable, but the payload silently omits partnerId/partnerMode. The sale
- * then falls into the client-debt branch with client_id === null and
- * SalesRepository throws "Cannot create debt for anonymous client" — the
- * sale never commits, so the partner-balance-delta assertion below reads 0
- * instead of 60 (THE failing-first assertion; proof recorded in the plan by
- * whoever verifies this change).
+ * Owner-validated flow catalog (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
+ * "⭐ VALIDATED FLOW CATALOG"): a FOR-partner transaction has NO walk-in
+ * customer in between — no cash is taken at the counter at all.
  *
- * ≥2 active partners are seeded on purpose: PartnerSelector renders a real
+ * Unlike lira-113 (which calls window.api.sales.process directly to prove
+ * the CORE routing), this spec proves the FRONTEND control itself: (a) hides
+ * the payment/amount section entirely once "For Partner" is toggled on, and
+ * (b) threads partnerId/partnerMode + a payment-less payload into the same
+ * sales.process call.
+ *
+ * Rule 17 (failing-first): on the COMMITTED frontend (CheckoutModal.tsx
+ * before this revision), MultiPaymentInput ALWAYS renders regardless of
+ * `forPartner` — toggling "For Partner" on does not hide it. So the
+ * discriminating assertion is `expect(paymentAmountInputs).toHaveCount(0)`
+ * right after the toggle: on committed code this reads 1 (the default CASH
+ * line MultiPaymentInput seeds), not 0 — THE failing-first assertion. (The
+ * partner-balance-delta-100 assertion alone would NOT discriminate: the
+ * committed backend, given a no-legs payload, already computes
+ * remainder = final_amount − 0 = 100 and books 100 — same number, wrong
+ * code path — so it is asserted here as a secondary check, not the proof.)
+ *
+ * >=2 active partners are seeded on purpose: PartnerSelector renders a real
  * dropdown only when there are 2+ partners in the list — with exactly one it
  * collapses to an inert "Partner: <name>" label with no click target, which
  * would leave selectedPartnerId permanently null and block completion in
@@ -70,8 +79,8 @@ async function partnerUsd(page: Page, partnerId: number): Promise<number> {
   }, partnerId);
 }
 
-test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FOR-partner sale end to end", () => {
-  test("toggle on, pick partner via UI, pay $40 of $100 in cash — $60 remainder books to the partner; void nets it to 0", async ({
+test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FULL-amount, no-counter-payment sale end to end", () => {
+  test("toggle on, pick partner via UI, no payment field shown — full $100 books to the partner; void nets it to 0", async ({
     appPage,
   }) => {
     const ts = Date.now();
@@ -79,7 +88,7 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FOR-pa
     const PARTNER_NAME = `L114 Target Partner ${ts}`;
     const DECOY_NAME = `L114 Decoy Partner ${ts}`;
 
-    // cost 60, sell 100; paying $40 cash leaves the shop's $60 unpaid.
+    // cost 60, sell 100 — the partner owes the full $100, no cash collected.
     await seedProduct(appPage, {
       name: PRODUCT_NAME,
       cost_price: 60,
@@ -87,7 +96,7 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FOR-pa
       quantity: 5,
     });
 
-    // ≥2 active partners — see file header for why exactly-one breaks the UI.
+    // >=2 active partners — see file header for why exactly-one breaks the UI.
     const setup = await appPage.evaluate(
       async ({ partnerName, decoyName }) => {
         const w = window as unknown as Api;
@@ -129,12 +138,29 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FOR-pa
     const modal = appPage.locator('[data-testid="checkout-modal"]');
     await expect(modal).toBeVisible({ timeout: 5_000 });
 
+    // Before toggling "For Partner" on, the normal payment section is
+    // present (sanity check that the hide is toggle-driven, not always-off).
+    await expect(
+      modal.locator('[data-testid^="payment-amount-"]').first(),
+    ).toBeVisible({ timeout: 5_000 });
+
     // Toggle "For Partner" on.
     const partnerToggle = modal.locator(
       '[data-testid="checkout-for-partner-toggle"]',
     );
     await expect(partnerToggle).toBeVisible({ timeout: 5_000 });
     await partnerToggle.click();
+
+    // THE failing-first assertion (rule 17) — see file header. On committed
+    // code MultiPaymentInput keeps rendering regardless of the toggle, so
+    // this count reads 1, not 0.
+    await expect(
+      modal.locator('[data-testid^="payment-amount-"]'),
+    ).toHaveCount(0);
+    // The no-payment notice takes its place.
+    await expect(
+      modal.locator('[data-testid="checkout-partner-no-payment-notice"]'),
+    ).toBeVisible({ timeout: 5_000 });
 
     // Pick the target partner from the dropdown (2+ partners → the real
     // Select renders, not the single-partner inline label).
@@ -145,16 +171,8 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FOR-pa
       .getByRole("option", { name: PARTNER_NAME, exact: true })
       .click();
 
-    // Pay $40 cash — MultiPaymentInput defaults to a single CASH/USD line
-    // pre-filled with the full $100; overwrite it to leave the $60 remainder.
-    const amountInput = modal
-      .locator('[data-testid^="payment-amount-"]')
-      .first();
-    await amountInput.click();
-    await amountInput.fill("40");
-
-    // No customer entered — the remainder must never try to become a client
-    // debt; it must route to the partner selected above.
+    // No customer entered, no payment entered — nothing to fill in; complete
+    // directly. The full amount must route to the partner selected above.
     await modal.locator('[data-testid="checkout-complete-btn"]').click();
 
     // Success closes the modal; a pre-fix failure leaves it open with an
@@ -165,10 +183,11 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FOR-pa
     const partnerBalAfter = await partnerUsd(appPage, partnerId);
     const drawerAfterSale = await generalUsd(appPage);
 
-    // THE failing-first assertion (rule 17) — see file header.
-    expect(partnerBalAfter - partnerBalBefore).toBeCloseTo(60, 2);
-    // The drawer still takes the $40 cash the customer paid.
-    expect(drawerAfterSale - drawerBefore).toBeCloseTo(40, 2);
+    // Full $100 on the partner (never a "remainder after cash" figure —
+    // there was no cash at all).
+    expect(partnerBalAfter - partnerBalBefore).toBeCloseTo(100, 2);
+    // No counter cash was taken — the General drawer is untouched.
+    expect(drawerAfterSale - drawerBefore).toBeCloseTo(0, 2);
 
     // Reversal symmetry (rule 20, generically guarded by lira-113): voiding
     // the SALE must net the partner back to exactly 0.
@@ -195,7 +214,7 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FOR-pa
     expect(netted.ok).toBe(true);
     expect(netted.netPartnerDelta).toBeCloseTo(0, 2);
 
-    // And the drawer gives the $40 cash back on void.
+    // The drawer stays untouched through the void too.
     const drawerAfterVoid = await generalUsd(appPage);
     expect(drawerAfterVoid - drawerBefore).toBeCloseTo(0, 2);
   });

@@ -1,34 +1,46 @@
 /**
- * E2E: LIRA-115 (PFT-3a) — a mobile RECHARGE (MTC/Alfa) "for the partner"
- * books its unpaid remainder to partner_ledger (FOR_RECHARGE DEBIT) instead
- * of a client's debt_ledger, and voiding the recharge reverses that partner
- * row to net 0.
+ * E2E: LIRA-115 (PFT-R) — a mobile RECHARGE (MTC/Alfa) "for the partner"
+ * books the FULL price to partner_ledger (FOR_RECHARGE DEBIT), with NO
+ * counter cash taken from any customer, and voiding the recharge reverses
+ * that partner row to net 0.
  *
- * Mirrors lira-113-partner-for-pos.spec.ts (PFT-2, the POS template) for the
- * mobile RECHARGE family. A FOR-partner recharge is a normal recharge (stock
- * consumed, cash collected to the drawer as usual) except the remainder the
- * customer did NOT pay lands on the selected partner's account, not a
- * client's — no partner is a client here (clientId is never set), so
- * pre-PFT-3a the remainder had nowhere to go but debt_ledger, which throws
- * for a missing client.
+ * Supersedes the original PFT-3a "remainder" model (owner-validated revision,
+ * docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md, "VALIDATED FLOW CATALOG"): a
+ * "for partner" transaction has NO walk-in customer in between — the shop
+ * acts for the partner, who owes the shop the FULL amount, settled later on
+ * the Partners page. No cash is taken at the counter, so partner mode must
+ * now REJECT any counter payment leg outright instead of booking a
+ * remainder.
  *
  * Money invariants under guard (rule 15 — deltas + identity only):
- *   - routing: partner USD balance rises by exactly the remainder ($97 on a
- *     $137 recharge paid $40 cash).
- *   - the drawer still takes the $40 cash the customer paid.
- *   - reversal (rule 20, type-agnostic in TransactionRepository): voiding the
- *     RECHARGE transaction writes the negating partner_ledger CREDIT so the
- *     partner balance nets back to exactly 0, and the drawer nets back to 0.
+ *   - routing: partner USD balance rises by exactly the FULL price ($137 on
+ *     a $137 recharge with zero payment legs) — no counter cash at all.
+ *   - the General drawer does NOT move (no customer cash step in partner
+ *     mode).
+ *   - reversal (rule 20, type-agnostic in TransactionRepository): voiding
+ *     the RECHARGE transaction writes the negating partner_ledger CREDIT so
+ *     the partner balance nets back to exactly 0; the drawer stays at 0.
+ *   - a counter payment leg sent alongside partnerMode "FOR" is rejected
+ *     outright (result.success === false) — there is no walk-in customer to
+ *     collect cash from in this model.
  *
- * Rule 17 (failing-first): pre-PFT-3a, RechargeRepository.processRecharge has
- * no partnerMode branch — `data.partnerId`/`data.partnerMode` are inert, the
- * unpaid $97 falls into the `hasDebt` path with no clientId, and
- * `data.payments` containing only a drawer-affecting CASH leg means
- * `hasDebt` never even gets set, so process() returns `{ success: true }`
- * with the $97 silently unrouted (no partner_ledger row is written at all).
- * The `result.ok === true` assertion still passes, but the very next
- * assertion — `partnerBalAfterRecharge - partnerBalBefore ≈ 97` — fails
- * (delta is 0, not 97). That is the failing-first assertion.
+ * Rule 17 (failing-first): the currently-committed RechargeRepository
+ * (6a8dc06) implements the superseded remainder model — it REQUIRES
+ * `data.payments` to be non-empty in partner mode ("A partner FOR-recharge
+ * requires explicit payment legs") and, when a drawer-affecting same-currency
+ * IN leg is supplied, happily accepts it and books only the unpaid remainder
+ * (price − paidNow) to the partner. Concretely, sending the $40 CASH leg
+ * below in partner mode on committed code does NOT get rejected — it
+ * succeeds (`result.success === true`) and books a $97 remainder, not the
+ * full $137. The failing-first assertion is
+ * `expect(rejected.ok).toBe(false)` in the second sub-test: on committed
+ * code `rejected.ok` is `true` (the leg is accepted), so that assertion
+ * fails. (The first sub-test — no payment legs at all — also fails on
+ * committed code, but for a different reason: committed code throws "A
+ * partner FOR-recharge requires explicit payment legs" and returns
+ * `success: false`, so `expect(result.ok).toBe(true)` fails too. Both
+ * confirm the revision; the task calls out the leg-rejection case
+ * specifically.)
  */
 
 import { test, expect } from "./fixtures";
@@ -71,38 +83,41 @@ async function generalUsd(page: Page): Promise<number> {
   });
 }
 
-test.describe("LIRA-115 — mobile RECHARGE for a partner books the remainder to partner_ledger", () => {
-  test("remainder → partner FOR_RECHARGE DEBIT (not client debt); cash to drawer; void nets partner to 0", async ({
+async function createPartner(page: Page, label: string): Promise<number> {
+  const ts = Date.now();
+  return page.evaluate(async ({ label, ts }) => {
+    const w = window as unknown as Api;
+    const created = await w.api.partners.create({
+      name: `${label} ${ts}`,
+      // Keep the label's letters in the phone (not just the timestamp) so
+      // the two partners in this file never collide even if both tests
+      // happened to run within the same millisecond.
+      phone: `${label}${ts}`.slice(0, 12),
+    });
+    if (!created.success || !created.data) {
+      throw new Error(created.error ?? "partner create failed");
+    }
+    return created.data.id;
+  }, { label, ts });
+}
+
+test.describe("LIRA-115 — mobile RECHARGE for a partner books the FULL amount, no counter cash", () => {
+  test("no payment legs → partner FOR_RECHARGE DEBIT for the full $137; drawer untouched; void nets partner and drawer to 0", async ({
     appPage,
   }) => {
     const ts = Date.now();
+    const partnerId = await createPartner(appPage, "L115FullA");
 
     const drawerBefore = await generalUsd(appPage);
+    const partnerBalBefore = (await appPage.evaluate(
+      async (id) => (window as unknown as Api).api.partners.getBalance(id),
+      partnerId,
+    )).usd;
 
-    const result = await appPage.evaluate(async ({ ts }) => {
+    const result = await appPage.evaluate(async ({ partnerId, ts }) => {
       const w = window as unknown as Api;
-
-      const created = await w.api.partners.create({
-        name: `L115 Partner ${ts}`,
-        phone: `L115${ts}`.slice(0, 12),
-      });
-      if (!created.success || !created.data) {
-        return {
-          ok: false,
-          error: created.error ?? "partner create failed",
-          partnerId: 0,
-          partnerBalBefore: 0,
-          partnerBalAfterRecharge: 0,
-        };
-      }
-      const partnerId = created.data.id;
-      const balUsd = async () =>
-        (await w.api.partners.getBalance(partnerId)).usd;
-
-      const partnerBalBefore = await balUsd();
-
-      // cost 0, price 137 (VOUCHER); customer pays $40 CASH now → partner
-      // owes the $97 remainder on their account.
+      // Partner mode: no walk-in customer, no counter cash — the full price
+      // goes straight on the partner's tab. No `payments` array at all.
       const res = await w.api.recharge.process({
         provider: "MTC",
         type: "VOUCHER",
@@ -112,64 +127,107 @@ test.describe("LIRA-115 — mobile RECHARGE for a partner books the remainder to
         currency: "USD",
         partnerId,
         partnerMode: "FOR",
-        payments: [
-          { method: "CASH", currencyCode: "USD", amount: 40, direction: "IN" },
-        ],
-        note: `L115 ${ts}`,
+        note: `L115 full ${ts}`,
       });
+      return { ok: res.success, error: res.error ?? null };
+    }, { partnerId, ts });
 
-      return {
-        ok: res.success,
-        error: res.error ?? null,
-        partnerId,
-        partnerBalBefore,
-        partnerBalAfterRecharge: await balUsd(),
-      };
-    }, { ts });
-
+    // Failing-first (see file header): committed code throws "A partner
+    // FOR-recharge requires explicit payment legs" here → ok would be false.
     expect(result.error).toBeNull();
     expect(result.ok).toBe(true);
 
-    // Routing: the partner now owes the $97 remainder — booked as
-    // FOR_RECHARGE DEBIT (positive balance = partner owes the shop). This is
-    // the failing-first assertion: pre-PFT-3a the $97 is unrouted (delta 0).
-    expect(
-      result.partnerBalAfterRecharge - result.partnerBalBefore,
-    ).toBeCloseTo(97, 2);
+    const partnerBalAfter = (await appPage.evaluate(
+      async (id) => (window as unknown as Api).api.partners.getBalance(id),
+      partnerId,
+    )).usd;
 
-    // The drawer still takes the $40 cash the customer paid.
+    // Routing: the partner owes the FULL $137 — no remainder math, no
+    // counter cash collected first.
+    expect(partnerBalAfter - partnerBalBefore).toBeCloseTo(137, 2);
+
+    // No customer cash step in partner mode → the General drawer must not
+    // move at all.
     const drawerAfterRecharge = await generalUsd(appPage);
-    expect(drawerAfterRecharge - drawerBefore).toBeCloseTo(40, 2);
+    expect(drawerAfterRecharge - drawerBefore).toBeCloseTo(0, 2);
 
     // Reversal symmetry (rule 20): voiding the RECHARGE writes the negating
     // partner_ledger CREDIT → partner balance nets back to exactly 0.
     // Match by identity (type + summary containing the distinctive $137
     // price — kept under 1000 so toLocaleString() emits no thousands comma).
-    const netted = await appPage.evaluate(
-      async ({ partnerId, partnerBalBefore }) => {
-        const w = window as unknown as Api;
-        const row = (await w.api.transactions.getRecent(100)).find(
-          (t) => t.type === "RECHARGE" && (t.summary ?? "").includes("137"),
-        );
-        const voided = row
-          ? await w.api.transactions.void(row.id)
-          : { success: false, error: "recharge txn not found" };
-        const after = (await w.api.partners.getBalance(partnerId)).usd;
-        return {
-          ok: voided.success,
-          error: voided.error ?? null,
-          netPartnerDelta: after - partnerBalBefore,
-        };
-      },
-      { partnerId: result.partnerId, partnerBalBefore: result.partnerBalBefore },
-    );
+    const netted = await appPage.evaluate(async (partnerId) => {
+      const w = window as unknown as Api;
+      const row = (await w.api.transactions.getRecent(100)).find(
+        (t) => t.type === "RECHARGE" && (t.summary ?? "").includes("137"),
+      );
+      const voided = row
+        ? await w.api.transactions.void(row.id)
+        : { success: false, error: "recharge txn not found" };
+      const after = (await w.api.partners.getBalance(partnerId)).usd;
+      return { ok: voided.success, error: voided.error ?? null, after };
+    }, partnerId);
 
     expect(netted.error).toBeNull();
     expect(netted.ok).toBe(true);
-    expect(netted.netPartnerDelta).toBeCloseTo(0, 2);
+    expect(netted.after - partnerBalBefore).toBeCloseTo(0, 2);
 
-    // And the drawer gives the $40 cash back on void.
+    // And the drawer, which never moved, stays at 0 delta after void too.
     const drawerAfterVoid = await generalUsd(appPage);
     expect(drawerAfterVoid - drawerBefore).toBeCloseTo(0, 2);
+  });
+
+  test("a counter payment leg in partner mode is rejected outright — there is no walk-in customer to collect cash from", async ({
+    appPage,
+  }) => {
+    const ts = Date.now();
+    const partnerId = await createPartner(appPage, "L115Reject");
+
+    const drawerBefore = await generalUsd(appPage);
+    const partnerBalBefore = (await appPage.evaluate(
+      async (id) => (window as unknown as Api).api.partners.getBalance(id),
+      partnerId,
+    )).usd;
+
+    const rejected = await appPage.evaluate(async ({ partnerId, ts }) => {
+      const w = window as unknown as Api;
+      const res = await w.api.recharge.process({
+        provider: "MTC",
+        type: "VOUCHER",
+        amount: 137,
+        cost: 0,
+        price: 137,
+        currency: "USD",
+        partnerId,
+        partnerMode: "FOR",
+        // Gotcha: payment legs use currencyCode (camelCase), not
+        // currency_code.
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 40, direction: "IN" },
+        ],
+        note: `L115 reject ${ts}`,
+      });
+      return { ok: res.success, error: res.error ?? null };
+    }, { partnerId, ts });
+
+    // Failing-first (see file header): on committed code this leg is
+    // ACCEPTED (drawer-affecting, same currency) and only the $97 remainder
+    // (137 − 40) books to the partner — `rejected.ok` is `true` there, not
+    // `false`. This is the assertion the task calls out explicitly. (On new
+    // code this call throws and its whole db.transaction() rolls back before
+    // any recharge/transaction row is written, so it can never collide with
+    // the $137-priced recharge created — and voided — in the first sub-test.)
+    expect(rejected.ok).toBe(false);
+    expect(rejected.error).toContain("no counter payment");
+
+    // Nothing should have moved — the whole attempt rolled back inside the
+    // repository's db.transaction() on throw.
+    const partnerBalAfter = (await appPage.evaluate(
+      async (id) => (window as unknown as Api).api.partners.getBalance(id),
+      partnerId,
+    )).usd;
+    expect(partnerBalAfter - partnerBalBefore).toBeCloseTo(0, 2);
+
+    const drawerAfter = await generalUsd(appPage);
+    expect(drawerAfter - drawerBefore).toBeCloseTo(0, 2);
   });
 });

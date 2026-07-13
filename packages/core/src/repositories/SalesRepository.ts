@@ -133,10 +133,12 @@ export interface SaleRequest {
    */
   deferPayment?: boolean;
   /**
-   * PFT-2 (Partner FOR-Transactions): when set together with
-   * `partnerMode === "FOR"`, the unpaid remainder books to `partner_ledger`
-   * (FOR_POS DEBIT) against this partner instead of a client's `debt_ledger`.
-   * Everything else about the sale (stock, drawers, profit) stays normal.
+   * PFT-R (Partner FOR-Transactions, validated flow catalog): when set
+   * together with `partnerMode === "FOR"`, there is NO walk-in customer —
+   * no counter cash/wallet payment leg is accepted (rejected), and the FULL
+   * `final_amount` books to `partner_ledger` (FOR_POS DEBIT) against this
+   * partner instead of a client's `debt_ledger`. Stock decrement and profit
+   * stamping stay normal.
    */
   partnerId?: number;
   /** Only "FOR" is valid for POS — the partner analog of CUSTOMER_ACCOUNT. */
@@ -721,16 +723,19 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // for the whole basket and back-fills this sale's paid state, so skip the
         // per-sale debt here (it would double-count and mis-attribute).
         //
-        // PFT-2 (Partner FOR-Transactions): routing is mutually exclusive.
-        // When sale.partnerMode === "FOR", the unpaid remainder books to
-        // partner_ledger against sale.partnerId instead of the client's
-        // debt_ledger — never both on one transaction.
+        // PFT-R (Partner FOR-Transactions, validated flow catalog — supersedes
+        // the PFT-2 "walk-in pays cash, remainder to partner" model): a
+        // FOR-partner sale has NO walk-in customer in between. No counter
+        // cash/wallet payment is taken at all — the partner owes the FULL
+        // sale amount, settled later on the Partners page. Routing is
+        // mutually exclusive with client debt_ledger — never both on one
+        // transaction.
         if (status === "completed" && !deferPayment) {
           const isForPartner = sale.partnerMode === "FOR";
 
           if (isForPartner) {
             // A CUSTOMER_ACCOUNT leg is the client-debt deferred-payment
-            // destination — contradictory with routing the remainder to the
+            // destination — contradictory with routing the amount to the
             // partner instead. Reject rather than silently pick one.
             const hasCustomerAccountLeg = inLegs.some(
               (p) => p.method === "CUSTOMER_ACCOUNT",
@@ -740,33 +745,43 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg — the remainder can only route to one deferred-payment destination",
               );
             }
+            // PFT-R: a partner sale takes no counter payment at all — any
+            // customer-paid IN leg (cash, wallet, gift card, ...) means a
+            // walk-in customer is in the loop, which contradicts the
+            // validated FOR-partner model (full amount, no counter cash).
+            if (inLegs.length > 0) {
+              throw new Error(
+                "A partner sale takes no counter payment — the full amount goes on the partner's tab",
+              );
+            }
             if (!sale.partnerId) {
               throw new Error(
                 'partnerId is required when partnerMode is "FOR"',
               );
             }
-          }
 
-          // Use derived payment totals (accounts for new payment lines structure)
-          const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
-          if (sale.final_amount - totalPaidUSD > 0.05) {
-            const remainder = sale.final_amount - totalPaidUSD;
+            // PFT-R: the partner owes the FULL sale amount unconditionally —
+            // never a "remainder after cash" figure, and never gated on the
+            // sale.final_amount vs. paid-now threshold below (there is no
+            // paid-now leg in partner mode). Native to the sale's currency
+            // (POS sales are always USD-priced).
+            getPartnerRepository().addLedgerEntry({
+              partner_id: sale.partnerId as number,
+              transaction_type: "FOR_POS",
+              reference_table: "sales",
+              reference_id: saleId,
+              amount: sale.final_amount,
+              currency: "USD",
+              direction: "DEBIT",
+              user_id: createdBy,
+              notes: saleLabel,
+            });
+          } else {
+            // Use derived payment totals (accounts for new payment lines structure)
+            const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
+            if (sale.final_amount - totalPaidUSD > 0.05) {
+              const remainder = sale.final_amount - totalPaidUSD;
 
-            if (isForPartner) {
-              // Remainder is native to the sale's currency (POS sales are
-              // always USD-priced) — never a converted figure.
-              getPartnerRepository().addLedgerEntry({
-                partner_id: sale.partnerId as number,
-                transaction_type: "FOR_POS",
-                reference_table: "sales",
-                reference_id: saleId,
-                amount: remainder,
-                currency: "USD",
-                direction: "DEBIT",
-                user_id: createdBy,
-                notes: saleLabel,
-              });
-            } else {
               if (!finalClientId) {
                 throw new Error("Cannot create debt for anonymous client");
               }

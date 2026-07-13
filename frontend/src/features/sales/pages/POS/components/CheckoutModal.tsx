@@ -399,24 +399,31 @@ export default function CheckoutModal({
       final_amount: finalAmount,
       // Currency that total_amount/discount/final_amount are expressed in.
       currency: totalCurrency,
-      payment_usd: paidUSD,
-      payment_lbp: paidLBP,
+      // PFT-R: a FOR-partner sale takes NO counter payment at all — the
+      // payment/amount section isn't even rendered in that mode (see below),
+      // so send zero/empty payment fields explicitly rather than whatever is
+      // left over in paymentLines state from before the toggle was flipped.
+      // The backend rejects a non-empty `payments` array in partner mode
+      // outright, so this must actually be empty, not just zeroed totals.
+      payment_usd: forPartner ? 0 : paidUSD,
+      payment_lbp: forPartner ? 0 : paidLBP,
       // IN legs only — cashOnlyReturn={true} on MultiPaymentInput means
       // change never needs an OUT leg here (see change_given_* below), and
       // saveMaintenanceJob (Maintenance also renders this modal) has no
       // OUT-leg handling, so this payload must stay IN-only for both.
-      payments: toSnakeLegs(paymentLines),
-      change_given_usd: cashReturnUSD,
-      change_given_lbp: cashReturnLBP,
+      payments: forPartner ? [] : toSnakeLegs(paymentLines),
+      change_given_usd: forPartner ? 0 : cashReturnUSD,
+      change_given_lbp: forPartner ? 0 : cashReturnLBP,
       // T3 keep-change: when the operator keeps the change, no OUT legs (and
       // change_given_* is 0 above); these amounts join the profit stamp.
-      ...(keptChange
+      // Never applicable in partner mode (no counter cash to keep).
+      ...(keptChange && !forPartner
         ? {
             kept_change_usd: keptChange.usd,
             kept_change_lbp: keptChange.lbp,
           }
         : {}),
-      // PFT-2b: routes the unpaid remainder to the selected partner's ledger
+      // PFT-R: routes the FULL sale amount to the selected partner's ledger
       // (FOR_POS DEBIT) instead of the client's debt_ledger — mutually
       // exclusive with CUSTOMER_ACCOUNT (see effectivePaymentMethods above).
       ...(forPartner && selectedPartnerId
@@ -926,55 +933,84 @@ export default function CheckoutModal({
             </div>
 
             <div className="space-y-6 flex-1 overflow-y-auto">
-              <MultiPaymentInput
-                key={`payment-${paymentInputKey}`}
-                totals={[{ amount: finalAmount, currency: totalCurrency }]}
-                currency={totalCurrency}
-                totalAmountCurrency={totalCurrency}
-                {...(draftInitialLines
-                  ? { initialLines: draftInitialLines }
-                  : {})}
-                onChange={setPaymentLines}
-                onReturnChange={setReturnLines}
-                {...(allowKeepChange ? { onKeptChange: setKeptChange } : {})}
-                requiresClientForDebt={true}
-                hasClient={canCreateDebt}
-                paymentMethods={effectivePaymentMethods}
-                currencies={[
-                  { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "LBP" },
-                ]}
-                exchangeRate={exchangeRate}
-                onRateChange={handleRateChange}
-                showDiscount={false}
-                smartSplitOverpay={!isLbpTotal}
-                cashOnlyReturn={true}
-                onWaiveRemaining={(amt) => setDiscount((d) => (d ?? 0) + amt)}
-                label="Payment"
-                {...(initialMethod ? { initialMethod } : {})}
-                clientId={selectedClient?.id ?? null}
-                fetchClientVouchers={fetchClientVouchers}
-              />
+              {/* PFT-R: a FOR-partner sale takes NO counter payment — the
+                  entire payment/amount section is hidden (no
+                  MultiPaymentInput, no debt-disabled warning). The full
+                  amount goes on the partner's tab, settled later on the
+                  Partners page. */}
+              {forPartner ? (
+                <div
+                  data-testid="checkout-partner-no-payment-notice"
+                  className="text-sm text-violet-200 bg-violet-500/10 border border-violet-500/30 rounded-xl px-4 py-4"
+                >
+                  No payment is collected for a partner sale. The full{" "}
+                  <span className="font-bold">{fmtTotal(finalAmount)}</span>{" "}
+                  goes on the selected partner&apos;s account, settled later
+                  on the Partners page.
+                </div>
+              ) : (
+                <>
+                  <MultiPaymentInput
+                    key={`payment-${paymentInputKey}`}
+                    totals={[{ amount: finalAmount, currency: totalCurrency }]}
+                    currency={totalCurrency}
+                    totalAmountCurrency={totalCurrency}
+                    {...(draftInitialLines
+                      ? { initialLines: draftInitialLines }
+                      : {})}
+                    onChange={setPaymentLines}
+                    onReturnChange={setReturnLines}
+                    {...(allowKeepChange
+                      ? { onKeptChange: setKeptChange }
+                      : {})}
+                    requiresClientForDebt={true}
+                    hasClient={canCreateDebt}
+                    paymentMethods={effectivePaymentMethods}
+                    currencies={[
+                      { code: "USD", symbol: "$" },
+                      { code: "LBP", symbol: "LBP" },
+                    ]}
+                    exchangeRate={exchangeRate}
+                    onRateChange={handleRateChange}
+                    showDiscount={false}
+                    smartSplitOverpay={!isLbpTotal}
+                    cashOnlyReturn={true}
+                    onWaiveRemaining={(amt) =>
+                      setDiscount((d) => (d ?? 0) + amt)
+                    }
+                    label="Payment"
+                    {...(initialMethod ? { initialMethod } : {})}
+                    clientId={selectedClient?.id ?? null}
+                    fetchClientVouchers={fetchClientVouchers}
+                  />
 
-              {!debtPaymentEnabled &&
-                !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) && (
-                  <div className="text-xs text-orange-400 bg-orange-500/10 rounded px-3 py-2">
-                    Debt is disabled. Full payment required to complete this
-                    sale.
-                  </div>
-                )}
+                  {!debtPaymentEnabled &&
+                    !isPaymentComplete(
+                      totalPaidInTotalCurrency,
+                      finalAmount,
+                    ) && (
+                      <div className="text-xs text-orange-400 bg-orange-500/10 rounded px-3 py-2">
+                        Debt is disabled. Full payment required to complete
+                        this sale.
+                      </div>
+                    )}
+                </>
+              )}
             </div>
 
-            {/* Drawer Info */}
-            <div className="py-3 bg-slate-800/50 border-t border-slate-700 rounded-lg flex items-center gap-2 text-sm px-4 mt-4">
-              <Inbox size={16} className="text-blue-400" />
-              <span className="text-slate-300">
-                This sale will be recorded in:{" "}
-                <span className="font-bold text-blue-300">
-                  {drawerNameDisplay}
+            {/* Drawer Info — no drawer moves on a FOR-partner sale (no
+                counter cash is taken), so hide this entirely in that mode. */}
+            {!forPartner && (
+              <div className="py-3 bg-slate-800/50 border-t border-slate-700 rounded-lg flex items-center gap-2 text-sm px-4 mt-4">
+                <Inbox size={16} className="text-blue-400" />
+                <span className="text-slate-300">
+                  This sale will be recorded in:{" "}
+                  <span className="font-bold text-blue-300">
+                    {drawerNameDisplay}
+                  </span>
                 </span>
-              </span>
-            </div>
+              </div>
+            )}
 
             <div className="mt-4">
               <TransactionTimeOverride

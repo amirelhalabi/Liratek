@@ -1,26 +1,35 @@
 /**
- * E2E: LIRA-113 (PFT-2) — a POS sale "for the partner" books its unpaid
- * remainder to partner_ledger (FOR_POS DEBIT) instead of a client's
- * debt_ledger, and voiding the sale reverses that partner row to net 0.
+ * E2E: LIRA-113 (PFT-R, revising PFT-2/ddae06f) — a POS sale "for the
+ * partner" books the FULL sale amount to partner_ledger (FOR_POS DEBIT), not
+ * a "remainder after cash" figure, and takes NO counter payment at all.
+ * Voiding the sale reverses that partner row to net 0.
  *
- * Owner ask (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md, PFT-2): a
- * FOR-partner transaction is a normal sale — same stock, same sell-price, cash
- * collected to the drawer as usual — with ONE difference: the remainder the
- * customer did NOT pay lands on the selected partner's account, not a client's.
- * No partner is a client here (client_id === null), so pre-PFT-2 the remainder
- * had nowhere to go but debt_ledger, which throws for an anonymous client.
+ * Owner-validated flow catalog (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
+ * "⭐ VALIDATED FLOW CATALOG" — supersedes the PFT-2 walk-in/remainder model):
+ * a FOR-partner transaction has NO walk-in customer in between. No cash or
+ * wallet payment is taken at the counter; the partner owes the FULL
+ * transaction amount, settled later on the Partners page. A partner is never
+ * a client here (client_id === null).
  *
  * Money invariants under guard (rule 15 — deltas + identity only):
- *   - routing: partner balance (USD) rises by exactly the remainder ($60 on a
- *     $100 sale paid $40 cash); the drawer still takes the $40 cash.
+ *   - routing: partner balance (USD) rises by exactly the FULL sale amount
+ *     ($100 on a $100 sale, no legs at all); the General drawer is untouched.
+ *   - counter-payment rejection: submitting ANY customer-paid IN leg (e.g. a
+ *     $40 CASH leg) in partner mode is rejected outright — the sale never
+ *     commits, so it must NOT be reachable via a "book the remainder instead"
+ *     fallback.
  *   - reversal (rule 20): voiding the SALE transaction writes the negating
  *     partner_ledger CREDIT so the partner balance nets back to exactly 0.
  *
- * Rule 17 (failing-first): with the PFT-2 core files stash-reverted, the
- * validator strips partnerId/partnerMode, the sale takes the client-debt branch
- * with a null client_id, and process() fails with "Cannot create debt for
- * anonymous client" — the `result.ok === true` assertion below fails. Proof run
- * recorded in the plan.
+ * Rule 17 (failing-first): the happy-path (no-legs, full-100) assertions do
+ * NOT discriminate old vs. new code — on the committed remainder-model code,
+ * a no-legs partner sale ALSO computes remainder = final_amount − 0 = 100 and
+ * books 100 with the drawer untouched (same numbers, different code path).
+ * The ONLY assertion that actually fails on the committed code is the
+ * CASH-leg-rejection sub-case: committed code happily accepts a $40 CASH IN
+ * leg, books the $60 remainder, and returns `result.ok === true`; the
+ * revised code must reject it (`result.ok === false`, error mentioning "no
+ * counter payment"). That is THE failing-first assertion for this spec.
  */
 
 import { test, expect, seedProduct } from "./fixtures";
@@ -65,14 +74,13 @@ async function generalUsd(page: Page): Promise<number> {
   });
 }
 
-test.describe("LIRA-113 — POS sale for a partner books the remainder to partner_ledger", () => {
-  test("remainder → partner FOR_POS DEBIT (not client debt); cash to drawer; void nets partner to 0", async ({
+test.describe("LIRA-113 — POS sale for a partner books the FULL amount, no counter payment", () => {
+  test("no-legs partner sale books full $100 to partner, drawer untouched; a CASH leg is REJECTED; void nets partner to 0", async ({
     appPage,
   }) => {
     const ts = Date.now();
     const NAME = `L113 PartnerPOS ${ts}`;
-    // cost 60, sell 100; customer pays $40 CASH now → partner owes the $60
-    // remainder on their account.
+    // cost 60, sell 100 — the partner owes the full $100, no cash collected.
     const productId = await seedProduct(appPage, {
       name: NAME,
       cost_price: 60,
@@ -97,6 +105,10 @@ test.describe("LIRA-113 — POS sale for a partner books the remainder to partne
             partnerId: 0,
             partnerBalBefore: 0,
             partnerBalAfterSale: 0,
+            // Rejection sub-case results (populated below).
+            rejectOk: false,
+            rejectError: null as string | null,
+            partnerBalAfterReject: 0,
           };
         }
         const partnerId = created.data.id;
@@ -105,7 +117,13 @@ test.describe("LIRA-113 — POS sale for a partner books the remainder to partne
 
         const partnerBalBefore = await balUsd();
 
-        const res = await w.api.sales.process({
+        // THE failing-first sub-case (rule 17): a partner sale carrying a
+        // counter-cash IN leg must be REJECTED outright. On the committed
+        // (remainder-model) code this is ACCEPTED and books the $60
+        // remainder instead of the full $100 — `rejectOk` would read `true`
+        // there. A valid partnerId is passed so the throw hit is the
+        // counter-payment guard, not the "partnerId is required" guard.
+        const rejected = await w.api.sales.process({
           client_id: null,
           partnerId,
           partnerMode: "FOR",
@@ -123,31 +141,67 @@ test.describe("LIRA-113 — POS sale for a partner books the remainder to partne
           exchange_rate: 90000,
         });
 
+        // The rejected attempt must not have moved the partner balance at all.
+        const partnerBalAfterReject = await balUsd();
+
+        // Now the real (accepted) FOR-partner sale: NO payment legs at all —
+        // the full $100 goes on the partner's tab.
+        const res = await w.api.sales.process({
+          client_id: null,
+          partnerId,
+          partnerMode: "FOR",
+          items: [{ product_id: productId, quantity: 1, price: 100 }],
+          total_amount: 100,
+          discount: 0,
+          final_amount: 100,
+          payment_usd: 0,
+          payment_lbp: 0,
+          payments: [],
+          change_given_usd: 0,
+          change_given_lbp: 0,
+          exchange_rate: 90000,
+        });
+
         return {
           ok: res.success,
           error: res.error ?? null,
           partnerId,
           partnerBalBefore,
           partnerBalAfterSale: await balUsd(),
+          rejectOk: rejected.success,
+          rejectError: rejected.error ?? null,
+          partnerBalAfterReject,
         };
       },
       { productId, name: NAME },
     );
 
-    expect(result.error).toBeNull();
-    expect(result.ok).toBe(true);
-
-    // Routing: the partner now owes the $60 remainder — booked as FOR_POS
-    // DEBIT (positive balance = partner owes the shop). Pre-PFT-2 this path
-    // throws for the anonymous client, so process() never reaches here.
-    expect(result.partnerBalAfterSale - result.partnerBalBefore).toBeCloseTo(
-      60,
+    // THE failing-first assertion (rule 17): the CASH-leg submission in
+    // partner mode must be rejected. On committed code this is `true` and
+    // the remainder ($60) is booked — that is the exact bug this spec guards.
+    expect(result.rejectOk).toBe(false);
+    expect(result.rejectError ?? "").toContain("no counter payment");
+    // The rejected attempt is a no-op — the partner balance must not have
+    // moved at all as a side effect of the rejected call.
+    expect(result.partnerBalAfterReject - result.partnerBalBefore).toBeCloseTo(
+      0,
       2,
     );
 
-    // The drawer still takes the $40 cash the customer paid.
+    expect(result.error).toBeNull();
+    expect(result.ok).toBe(true);
+
+    // Routing: the partner now owes the FULL $100 (never a "remainder after
+    // cash" figure) — booked as FOR_POS DEBIT (positive balance = partner
+    // owes the shop).
+    expect(result.partnerBalAfterSale - result.partnerBalBefore).toBeCloseTo(
+      100,
+      2,
+    );
+
+    // No counter cash was taken — the General drawer is untouched.
     const drawerAfterSale = await generalUsd(appPage);
-    expect(drawerAfterSale - drawerBefore).toBeCloseTo(40, 2);
+    expect(drawerAfterSale - drawerBefore).toBeCloseTo(0, 2);
 
     // Reversal symmetry (rule 20): voiding the SALE writes the negating
     // partner_ledger CREDIT → partner balance nets back to exactly 0.
@@ -178,7 +232,8 @@ test.describe("LIRA-113 — POS sale for a partner books the remainder to partne
     expect(netted.ok).toBe(true);
     expect(netted.netPartnerDelta).toBeCloseTo(0, 2);
 
-    // And the drawer gives the $40 cash back on void.
+    // The drawer stays untouched through the void too (nothing was ever
+    // taken from it).
     const drawerAfterVoid = await generalUsd(appPage);
     expect(drawerAfterVoid - drawerBefore).toBeCloseTo(0, 2);
   });
