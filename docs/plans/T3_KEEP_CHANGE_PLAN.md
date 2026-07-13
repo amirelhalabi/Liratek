@@ -141,7 +141,24 @@ would strip.
 - Financial-services family (FinancialForm, OMT/Whish app transfers, Katch
   bills, crypto) deliberately NOT wired yet — their PaymentSheet callers show
   no button (opt-in) until KC-4 lands their schemas/stamps.
-| **KC-4** | Sessions: button in SessionCheckoutModal; kept change carried on the pooled-payment carrier row; web-parity run + docs | 🟡 partial (2026-07-13) — financial family landed; sessions + 3 catalog forms deferred, see notes |
+| **KC-4** | Sessions + financial family + catalog forms | ✅ 2026-07-13 (complete — lira-108 x5, lira-109) |
+
+**KC-4 completion (2026-07-13, owner decisions):**
+
+- **Catalog forms** (FinancialForm, KatchForm, CryptoForm): kept change rides
+  the LEGS-CARRYING transaction (lira-095 first-carrier convention — items
+  txn when present, else first bill; first unit for FinancialForm's loop) —
+  voiding the carrier reverses kept with the money; other item voids leave it.
+- **Sessions**: owner chose the standalone stamp — a NEW `KEPT_CHANGE`
+  transaction type: profit-only row (amount 0 — tender lives in the basket's
+  payment legs), session-linked via session_transactions, client-stamped,
+  NON_REVERSIBLE (documented rule-20 owner: none needed, the cash physically
+  stays in the drawer; a standalone void would desync profit from money).
+  Aggregated by the "Other / kept change" profits bucket (query extended to
+  `OR t.type='KEPT_CHANGE'`), counted in gross profit. Failing-first via
+  lira-109 (bucket delta 0 pre-fix vs 7).
+- Polish note: the transactions table shows the raw `KEPT_CHANGE` type badge
+  (no label mapping yet); the row summary is self-explanatory.
 
 **KC-4 outcome (2026-07-13):**
 

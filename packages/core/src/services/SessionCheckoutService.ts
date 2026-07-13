@@ -57,6 +57,9 @@ export interface CheckoutRequest {
   exchangeRate?: number;
   clientId?: number;
   clientName?: string;
+  /** T3 keep-change: kept change per currency → standalone KEPT_CHANGE row. */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
   userId: number;
 }
 
@@ -312,7 +315,15 @@ export class SessionCheckoutService {
     ctx: { username: string },
   ): Promise<CheckoutResult> {
     try {
-      const { sessionId, cartItems, payments, exchangeRate, userId } = request;
+      const {
+        sessionId,
+        cartItems,
+        payments,
+        exchangeRate,
+        userId,
+        kept_change_usd,
+        kept_change_lbp,
+      } = request;
 
       if (!cartItems || cartItems.length === 0) {
         return { success: false, error: "Cart is empty" };
@@ -517,6 +528,45 @@ export class SessionCheckoutService {
             userId,
             clientId: sessionClientId ?? null,
           });
+        }
+
+        // T3 keep-change (owner decision 2026-07-13): a standalone profit-only
+        // KEPT_CHANGE row, session-linked, NOT attached to any item — amount 0
+        // because the tender is already booked by the basket's payment legs.
+        // Non-reversible (see transactionTypes.ts); aggregated by the
+        // "Other / kept change" profits bucket alongside debt repayments.
+        const keptUsd = kept_change_usd ?? 0;
+        const keptLbp = kept_change_lbp ?? 0;
+        if (keptUsd > 0 || keptLbp > 0) {
+          const keptTxnId = getTransactionRepository().createTransaction({
+            type: "KEPT_CHANGE",
+            source_table: "customer_sessions",
+            source_id: sessionId,
+            user_id: userId,
+            amount_usd: 0,
+            amount_lbp: 0,
+            profit_usd: keptUsd,
+            profit_lbp: keptLbp,
+            client_id: sessionClientId ?? null,
+            summary: `Kept change (session checkout): ${[
+              keptUsd > 0 ? `$${keptUsd}` : null,
+              keptLbp > 0 ? `${keptLbp.toLocaleString()} LBP` : null,
+            ]
+              .filter(Boolean)
+              .join(" + ")}`,
+          });
+          // Sessions link via session_transactions (no session_id column on
+          // transactions) — link so the session sweep/detail sees the row.
+          repo.linkTransaction(
+            sessionId,
+            "kept_change",
+            keptTxnId,
+            0,
+            0,
+            keptUsd,
+            keptLbp,
+            keptTxnId,
+          );
         }
 
         repo.recordCheckoutClose(sessionId, {

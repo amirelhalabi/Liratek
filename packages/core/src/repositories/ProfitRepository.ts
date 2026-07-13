@@ -368,13 +368,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         `SELECT
           COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
           COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
-          COALESCE(SUM(CASE WHEN t.type = 'DEBT_REPAYMENT'
+          COALESCE(SUM(CASE WHEN t.type IN ('DEBT_REPAYMENT', 'KEPT_CHANGE')
                              AND (t.profit_usd != 0 OR t.profit_lbp != 0)
                             THEN 1 ELSE 0 END), 0) AS count
         FROM transactions t
         WHERE t.status = 'ACTIVE'
-          AND t.source_table = 'debt_ledger'
-          AND t.type IN ('DEBT_REPAYMENT', 'REFUND')
+          AND (
+            (t.source_table = 'debt_ledger'
+              AND t.type IN ('DEBT_REPAYMENT', 'REFUND'))
+            OR t.type = 'KEPT_CHANGE'
+          )
           AND ${dateRange("t.created_at")}
           AND t.tenant_id = ?`,
       )

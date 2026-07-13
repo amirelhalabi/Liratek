@@ -43,6 +43,9 @@ export const TRANSACTION_TYPES = {
   // DEBT_CASH_OUT — shop gives the customer cash as an advance/loan (drawer OUT).
   CREDIT_CASH_IN: "CREDIT_CASH_IN",
   DEBT_CASH_OUT: "DEBT_CASH_OUT",
+  /** T3 keep-change on a session basket: a standalone profit-only row
+   *  (amount 0 — the tender is booked by the basket's payment legs). */
+  KEPT_CHANGE: "KEPT_CHANGE",
   SUPPLIER_PAYMENT: "SUPPLIER_PAYMENT",
   SUPPLIER_SETTLEMENT: "SUPPLIER_SETTLEMENT",
 
@@ -93,7 +96,35 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     TRANSACTION_TYPES.CREDIT_CASH_OUT,
     TRANSACTION_TYPES.CREDIT_CASH_IN,
     TRANSACTION_TYPES.DEBT_CASH_OUT,
+    // KEPT_CHANGE (T3): profit-only row with no money movement of its own —
+    // the tender lives in the basket's payment legs on the item rows, so a
+    // standalone void would desync profit from money. Rule-20 reversal owner:
+    // none needed (the kept cash physically stays in the drawer regardless).
+    TRANSACTION_TYPES.KEPT_CHANGE,
   ]);
+
+/**
+ * debt_ledger.transaction_type values that book a MODULE CHARGE against a
+ * client's account (CUSTOMER_ACCOUNT / partial-payment shortfall), linked to
+ * the unified transaction via debt_ledger.transaction_id = transactions.id.
+ *
+ * This is the exact set the generic void/refund path must reverse
+ * (TransactionRepository._cancelDebt) — and nothing else. It must stay a
+ * whitelist: 'Repayment' rows also carry a transaction_id (back-linked to
+ * their DEBT_REPAYMENT transaction) and negating one would un-pay a debt;
+ * 'CREDIT_DEPOSIT'/'CREDIT_USED'/'Manual Debt' rows are manual-ledger entries
+ * with no transaction linkage. 'Session Debt' is deliberately absent: it
+ * links via session_id (transaction_id NULL) and is reversed by the session
+ * flow, not the generic path.
+ */
+export const MODULE_DEBT_TRANSACTION_TYPES: readonly string[] = [
+  "Sale Debt",
+  "Recharge Debt",
+  "Service Debt",
+  "Custom Service Debt",
+  "Loto Debt",
+  "Maintenance Debt",
+];
 
 export const TRANSACTION_STATUS = {
   ACTIVE: "ACTIVE",

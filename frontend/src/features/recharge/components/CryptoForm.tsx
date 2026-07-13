@@ -44,6 +44,8 @@ interface CryptoFormProps {
   paymentMethods: Array<{ code: string; label: string; drawer_name?: string }>;
   onPaymentLinesChange: (lines: PaymentLine[]) => void;
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
+  /** T3 keep-change opt-in (plumbed to PaymentSheet → MultiPaymentInput). */
+  onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
   onDiscountChange?: (discount: number) => void;
   exchangeRate: number;
   onTransactionTimeChange?: (time: string | undefined) => void;
@@ -76,6 +78,7 @@ export function CryptoForm({
   paymentMethods,
   onPaymentLinesChange,
   onReturnChange,
+  onKeptChange,
   onDiscountChange,
   exchangeRate,
   onTransactionTimeChange,
@@ -473,6 +476,7 @@ export function CryptoForm({
         initialPaymentMethod={initialPaymentMethod}
         onPaymentChange={onPaymentLinesChange}
         {...(onReturnChange ? { onReturnChange } : {})}
+        {...(onKeptChange ? { onKeptChange } : {})}
       >
         {cryptoClientName.trim() &&
           cryptoClientPhone.trim() &&

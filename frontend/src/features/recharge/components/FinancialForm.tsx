@@ -109,6 +109,12 @@ export function FinancialForm({
     new Set(),
   );
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
+  // T3 keep-change: kept change → profit stamp on the legs-carrying txn.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const isSplitPayment = paymentLines.length > 1;
   const [localSubmitting, setLocalSubmitting] = useState(false);
@@ -338,6 +344,7 @@ export function FinancialForm({
 
       // Reset form
       setCart(new Map());
+      setKeptChange(null);
       setClientName("");
       setClientPhone("");
       setClientId(null);
@@ -372,6 +379,12 @@ export function FinancialForm({
       return sum + (line.item.catalogSellPrice ?? 0) * line.quantity;
     }, 0);
 
+    // Kept change attaches to the FIRST transaction only (the lira-095
+    // legs-carrying convention) — voiding that txn reverses it with the legs.
+    let keptPending =
+      keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+        ? { ...keptChange }
+        : null;
     for (const line of cartItems) {
       const sellPrice = line.item.catalogSellPrice ?? 0;
       const cost = line.item.catalogCost ?? 0;
@@ -394,6 +407,16 @@ export function FinancialForm({
             commission: Math.max(0, commission),
             paidByMethod: finalPaymentMethod,
             payments: paymentsPayload,
+            ...(keptPending
+              ? (() => {
+                  const k = keptPending;
+                  keptPending = null;
+                  return {
+                    kept_change_usd: k.usd,
+                    kept_change_lbp: k.lbp,
+                  };
+                })()
+              : {}),
             clientId: resolvedClientId || undefined,
             clientName: clientName || undefined,
             itemKey: line.item.key,
@@ -436,6 +459,7 @@ export function FinancialForm({
 
     if (allSucceeded) {
       setCart(new Map());
+      setKeptChange(null);
       setClientName("");
       setClientPhone("");
       setClientId(null);
@@ -869,6 +893,7 @@ export function FinancialForm({
                 : "bg-violet-600 hover:bg-violet-500 text-white"
           }
           totalAmount={totalPrice}
+          onKeptChange={setKeptChange}
           totalAmountCurrency="LBP"
           currency="LBP"
           paymentMethods={methods}

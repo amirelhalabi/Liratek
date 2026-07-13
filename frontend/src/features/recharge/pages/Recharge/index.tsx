@@ -129,6 +129,11 @@ export default function MobileRecharge() {
     [],
   );
   const [cryptoReturnLegs, setCryptoReturnLegs] = useState<PaymentLine[]>([]);
+  // T3 keep-change (crypto flow): kept change → profit stamp.
+  const [cryptoKeptChange, setCryptoKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
   const [cryptoTransactionTime, setCryptoTransactionTime] = useState<
     string | undefined
@@ -970,6 +975,7 @@ export default function MobileRecharge() {
       setCryptoFeeIncluded(false);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
+      setCryptoKeptChange(null);
       return;
     }
 
@@ -990,6 +996,14 @@ export default function MobileRecharge() {
           : undefined,
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
           ? { cashoutMethod: derivedCashoutMethod }
+          : {}),
+        // T3 keep-change: kept amounts join the profit stamp.
+        ...(cryptoKeptChange &&
+        (cryptoKeptChange.usd > 0 || cryptoKeptChange.lbp > 0)
+          ? {
+              kept_change_usd: cryptoKeptChange.usd,
+              kept_change_lbp: cryptoKeptChange.lbp,
+            }
           : {}),
         transaction_time: cryptoTransactionTime,
       });
@@ -1021,6 +1035,7 @@ export default function MobileRecharge() {
       setCryptoFeeIncluded(false);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
+      setCryptoKeptChange(null);
       setCryptoTransactionTime(undefined);
       loadBinanceData();
       loadDrawerBalances();
@@ -1386,6 +1401,7 @@ export default function MobileRecharge() {
             feeIncluded={cryptoFeeIncluded}
             setFeeIncluded={setCryptoFeeIncluded}
             handleCryptoSubmit={handleCryptoSubmit}
+            onKeptChange={setCryptoKeptChange}
             isSubmitting={isSubmitting}
             binanceTransactions={binanceTransactions}
             loadCryptoData={loadBinanceData}

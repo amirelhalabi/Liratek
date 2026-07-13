@@ -337,6 +337,12 @@ function KatchFormInner({
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  // T3 keep-change: kept change → profit stamp on the legs-carrying txn.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
+
   const isSplitPayment = paymentLines.length > 1;
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
@@ -770,6 +776,7 @@ function KatchFormInner({
       setClientId(null);
       setExpandedKeys(new Set());
       setReturnLegs([]);
+      setKeptChange(null);
       return;
     }
 
@@ -837,6 +844,13 @@ function KatchFormInner({
           commission: aggregatedCommission,
           paidByMethod: finalPaymentMethod,
           payments: paymentsPayload,
+          // Kept change rides the legs-carrying items txn (lira-095 convention).
+          ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+            ? {
+                kept_change_usd: keptChange.usd,
+                kept_change_lbp: keptChange.lbp,
+              }
+            : {}),
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
           note,
@@ -891,6 +905,13 @@ function KatchFormInner({
             commission: 0,
             paidByMethod: finalPaymentMethod,
             payments: isCarrier ? paymentsPayload : undefined,
+            // Kept change rides the legs-carrying first bill (no items case).
+            ...(isCarrier && keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+              ? {
+                  kept_change_usd: keptChange.usd,
+                  kept_change_lbp: keptChange.lbp,
+                }
+              : {}),
             deferPayment: isCarrier ? undefined : true,
             clientId: resolvedClientId || undefined,
             clientName: clientName || undefined,
@@ -923,6 +944,7 @@ function KatchFormInner({
       setClientId(null);
       setExpandedKeys(new Set());
       setReturnLegs([]);
+      setKeptChange(null);
       setTransactionTime(undefined);
       const hasDebtPayment =
         paymentMethod === "CUSTOMER_ACCOUNT" ||
@@ -1362,6 +1384,7 @@ function KatchFormInner({
           }
         }}
         onReturnChange={setReturnLegs}
+        onKeptChange={setKeptChange}
       >
         <div className="space-y-2">
           <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">

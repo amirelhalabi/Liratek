@@ -200,6 +200,7 @@ export function SessionCheckoutModal({
     if (isOpen) {
       setItemDiscounts({});
       setRateEdited(false);
+      setKeptChange(null);
     }
   }, [isOpen]);
 
@@ -238,6 +239,11 @@ export function SessionCheckoutModal({
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   // Return/change (OUT) legs emitted by MultiPaymentInput
   const [returnLines, setReturnLines] = useState<PaymentLine[]>([]);
+  // T3 keep-change: kept change → standalone KEPT_CHANGE profit row.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
 
   // Key used to force-remount MultiPaymentInput when client context changes
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -500,6 +506,13 @@ export function SessionCheckoutModal({
         paidByMethod: primaryMethod,
         payments: allPaymentLegs,
         exchangeRate,
+        // T3 keep-change: standalone profit-only row, not linked to any item.
+        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+          ? {
+              kept_change_usd: keptChange.usd,
+              kept_change_lbp: keptChange.lbp,
+            }
+          : {}),
         userId: user.id,
       });
 
@@ -692,6 +705,7 @@ export function SessionCheckoutModal({
                 initialLines={paymentInitialLines}
                 onChange={setPaymentLines}
                 onReturnChange={setReturnLines}
+                onKeptChange={setKeptChange}
                 requiresClientForDebt={true}
                 hasClient={hasClient}
                 paymentMethods={paymentMethodOptions}
