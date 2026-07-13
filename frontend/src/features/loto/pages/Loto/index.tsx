@@ -24,6 +24,7 @@ import { SettlementVerification } from "../../components/SettlementVerification"
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 
 interface LotoSettings {
   commission_rate: string;
@@ -59,6 +60,14 @@ export function LotoPage() {
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] =
     useState<string>("CASH");
+  // PFT-R "For Partner": this ticket is sold on a partner's behalf — no
+  // walk-in customer, no counter cash. The partner owes the full sale_amount,
+  // settled later on the Partners page (loto:sell already enforces this
+  // server-side: any counter-payment leg in partner mode is rejected).
+  const [forPartner, setForPartner] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
 
   // Cash prize form state
   const [cashPrizeTicketNumber, setCashPrizeTicketNumber] = useState("");
@@ -201,12 +210,22 @@ export function LotoPage() {
       return;
     }
 
+    // PFT-R "For Partner": block + notify if no partner is selected — the
+    // backend requires partnerId whenever partnerMode is "FOR".
+    if (forPartner && !selectedPartnerId) {
+      alert("Please select a partner for this ticket");
+      return;
+    }
+
     // Resolve client (creates one on-the-fly if name+phone entered without existing clientId)
     const clientResult = await ensureRechargeClient({
       clientId,
       name: clientName,
       phone: clientPhone,
-      paymentLines,
+      // A partner ticket sends no payment legs at all (see `payments` below),
+      // so evaluate the CUSTOMER_ACCOUNT requirement against what's actually
+      // submitted — not against stale lines left over from before the toggle.
+      paymentLines: forPartner ? [] : paymentLines,
     });
     if (!clientResult.ok) {
       alert(clientResult.error);
@@ -223,30 +242,45 @@ export function LotoPage() {
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
       sale_date: localDay(),
-      payment_method:
-        paymentLines.length > 1 ? "SPLIT" : paymentLines[0]?.method || "CASH",
+      // PFT-R: omit entirely in partner mode — the backend rejects the
+      // ticket if payment_method resolves to ANY drawer-affecting value
+      // (including an unrecognized code, which defaults drawer-affecting),
+      // so this key must not be present at all, not just falsy.
+      ...(forPartner
+        ? {}
+        : {
+            payment_method:
+              paymentLines.length > 1
+                ? "SPLIT"
+                : paymentLines[0]?.method || "CASH",
+          }),
       currency: "LBP",
       // What the customer ACTUALLY handed over, per currency — the backend
       // books these legs into the drawers (a 500,000 LBP ticket paid with $5
       // must credit General +$5, not +500,000 LBP).
-      payments: [
-        ...paymentLines.map((l) => ({
-          method: l.method,
-          currencyCode: l.currencyCode,
-          amount: l.amount,
-          ...(l.direction ? { direction: l.direction } : {}),
-        })),
-        // Change handed back to the customer — booked negative by the repo.
-        ...returnLegs.map((l) => ({
-          method: l.method,
-          currencyCode: l.currencyCode,
-          amount: l.amount,
-          direction: "OUT" as const,
-        })),
-      ],
+      // PFT-R: a for-partner ticket collects NO counter cash at all — the
+      // backend rejects any leg here when partnerMode is "FOR".
+      payments: forPartner
+        ? []
+        : [
+            ...paymentLines.map((l) => ({
+              method: l.method,
+              currencyCode: l.currencyCode,
+              amount: l.amount,
+              ...(l.direction ? { direction: l.direction } : {}),
+            })),
+            // Change handed back to the customer — booked negative by the repo.
+            ...returnLegs.map((l) => ({
+              method: l.method,
+              currencyCode: l.currencyCode,
+              amount: l.amount,
+              direction: "OUT" as const,
+            })),
+          ],
       transaction_time: transactionTime,
-      // T3 keep-change: kept amounts join the ticket's profit stamp.
-      ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+      // T3 keep-change: kept amounts join the ticket's profit stamp. Never
+      // applicable in partner mode (no counter cash to keep).
+      ...(keptChange && !forPartner && (keptChange.usd > 0 || keptChange.lbp > 0)
         ? {
             kept_change_usd: keptChange.usd,
             kept_change_lbp: keptChange.lbp,
@@ -254,10 +288,20 @@ export function LotoPage() {
         : {}),
       clientId: resolvedClientId,
       clientName: resolvedClientName,
+      // PFT-R: routes the FULL sale amount to the selected partner's ledger
+      // (FOR_LOTO DEBIT) instead of a client's debt_ledger.
+      ...(forPartner && selectedPartnerId
+        ? { partnerId: selectedPartnerId, partnerMode: "FOR" as const }
+        : {}),
     };
 
-    // If session is active, add to cart instead of submitting
-    if (activeSession) {
+    // If session is active, add to cart instead of submitting — EXCEPT a
+    // partner ticket, which never joins a walk-in customer's basket: the
+    // session-basket replay forces deferPayment:true on every cart item
+    // (SessionCheckoutService), which would silently skip the partner_ledger
+    // write (isForPartner requires !deferPayment). A partner ticket always
+    // submits directly below so the partner is charged immediately.
+    if (activeSession && !forPartner) {
       addToSessionCart({
         module: "loto_ticket",
         label: `Loto Ticket - ${parseFloat(saleAmount).toLocaleString()} LBP`,
@@ -276,6 +320,8 @@ export function LotoPage() {
       setClientPhone("");
       setInitialPaymentMethod("CASH");
       setPaymentInputKey((k) => k + 1);
+      setForPartner(false);
+      setSelectedPartnerId(null);
       return;
     }
 
@@ -295,6 +341,8 @@ export function LotoPage() {
         setInitialPaymentMethod("CASH");
         setPaymentInputKey((k) => k + 1);
         setTransactionTime(undefined);
+        setForPartner(false);
+        setSelectedPartnerId(null);
         loadTodayStats();
       } else {
         alert("Failed to sell ticket: " + result.error);
@@ -495,35 +543,82 @@ export function LotoPage() {
                   )}
                 </div>
 
-                {/* Payment Method */}
-                <div>
-                  <MultiPaymentInput
-                    key={paymentInputKey}
-                    totals={[
-                      {
-                        amount: saleAmount ? parseFloat(saleAmount) : 0,
-                        currency: "LBP",
-                      },
-                    ]}
-                    totalAmountCurrency="LBP"
-                    currency="LBP"
-                    onChange={setPaymentLines}
-                    onReturnChange={setReturnLegs}
-                    onKeptChange={setKeptChange}
-                    showPmFee={false}
-                    paymentMethods={methods}
-                    currencies={[
-                      { code: "USD", symbol: "$" },
-                      { code: "LBP", symbol: "LBP" },
-                    ]}
-                    exchangeRate={exchangeRate}
-                    initialMethod={initialPaymentMethod}
-                    hasClient={
-                      !!clientId ||
-                      (!!clientName.trim() && !!clientPhone.trim())
-                    }
-                  />
+                {/* For Partner — sells this ticket on a partner's behalf.
+                    No counter cash is collected; the partner owes the full
+                    sale amount, settled later on the Partners page. */}
+                <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      data-testid="loto-for-partner-toggle"
+                      checked={forPartner}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setForPartner(checked);
+                        if (!checked) setSelectedPartnerId(null);
+                      }}
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                    />
+                    <span className="text-sm font-medium text-slate-300">
+                      For Partner
+                    </span>
+                  </label>
+                  {forPartner && (
+                    <PartnerSelector
+                      required
+                      selectedPartnerId={selectedPartnerId}
+                      onSelect={setSelectedPartnerId}
+                      className="mt-2"
+                    />
+                  )}
                 </div>
+
+                {/* Payment Method — hidden for a partner ticket: no counter
+                    cash is collected, the full sale amount goes on the
+                    selected partner's tab instead. */}
+                {forPartner ? (
+                  <div
+                    data-testid="loto-partner-no-payment-notice"
+                    className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3"
+                  >
+                    No payment is collected for a partner ticket. The full{" "}
+                    <span className="font-bold">
+                      {saleAmount ? parseFloat(saleAmount).toLocaleString() : 0}{" "}
+                      LBP
+                    </span>{" "}
+                    goes on the selected partner&apos;s account, settled later
+                    on the Partners page.
+                  </div>
+                ) : (
+                  <div>
+                    <MultiPaymentInput
+                      key={paymentInputKey}
+                      totals={[
+                        {
+                          amount: saleAmount ? parseFloat(saleAmount) : 0,
+                          currency: "LBP",
+                        },
+                      ]}
+                      totalAmountCurrency="LBP"
+                      currency="LBP"
+                      onChange={setPaymentLines}
+                      onReturnChange={setReturnLegs}
+                      onKeptChange={setKeptChange}
+                      showPmFee={false}
+                      paymentMethods={methods}
+                      currencies={[
+                        { code: "USD", symbol: "$" },
+                        { code: "LBP", symbol: "LBP" },
+                      ]}
+                      exchangeRate={exchangeRate}
+                      initialMethod={initialPaymentMethod}
+                      hasClient={
+                        !!clientId ||
+                        (!!clientName.trim() && !!clientPhone.trim())
+                      }
+                    />
+                  </div>
+                )}
 
                 <TransactionTimeOverride
                   value={transactionTime}

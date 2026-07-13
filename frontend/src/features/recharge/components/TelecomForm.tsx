@@ -8,6 +8,7 @@ import {
   hasNewClientInfo,
   type PaymentLine,
   Select,
+  appEvents,
 } from "@liratek/ui";
 import type {
   FinancialTransaction,
@@ -23,6 +24,7 @@ import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { convertLBPToUSD } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 
 interface TelecomFormProps {
   isMTC: boolean;
@@ -161,6 +163,19 @@ export function TelecomForm({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
+  // PFT-3a (Partner FOR-Transactions, full-amount model): a "for partner"
+  // recharge has NO walk-in customer and takes NO counter cash — the
+  // partner owes the FULL price, settled later on the Partners page. The
+  // PaymentSheet (and the client picker nested inside it) is skipped
+  // entirely below; submission bypasses handleTelecomSubmit/PaymentSheet and
+  // calls the recharge process directly with partnerId + partnerMode:"FOR"
+  // and no payment legs (mirrors CheckoutModal's forPartner path).
+  const [forPartner, setForPartner] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
+  const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
+
   // Fetch the Alfa credit cost rate on mount (the USD→LBP rate now comes from
   // the shared useSellRate hook above).
   useEffect(() => {
@@ -253,6 +268,79 @@ export function TelecomForm({
   const handleCardPaymentChange = (lines: PaymentLine[]) => {
     setPaymentLines(lines);
     if (lines.length === 1) setPaidBy(lines[0].method);
+  };
+
+  // PFT-3a: direct submission for a "for partner" recharge — bypasses
+  // handleTelecomSubmit (the parent's normal path, which builds a payload
+  // from paymentLines/clientId and is out of scope to touch) and the
+  // PaymentSheet entirely, calling the recharge process straight from here
+  // with the full price + partner fields and payments: [] (no legs). The
+  // backend books the full price to the partner's ledger and rejects any
+  // counter-payment leg in partner mode.
+  const handleForPartnerSubmit = async () => {
+    if (!telecomAmount || !telecomPrice) return;
+    if (rechargeType === "DAYS" && !(parseFloat(telecomDaysCostUsd) > 0))
+      return;
+    if (!selectedPartnerId) {
+      appEvents.emit(
+        "notification:show",
+        "Select a partner for this recharge.",
+        "warning",
+      );
+      return;
+    }
+
+    const amount = parseFloat(telecomAmount);
+    const price = parseFloat(telecomPrice) || 0;
+    const cost =
+      rechargeType === "DAYS"
+        ? parseFloat(telecomDaysCostUsd) * (alfaCreditCostRate || 85000)
+        : amount * (alfaCreditCostRate || 85000);
+
+    setIsSubmittingPartner(true);
+    try {
+      const result = await api.processRecharge({
+        provider: isMTC ? "MTC" : "Alfa",
+        type: rechargeType,
+        phoneNumber:
+          rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
+        amount,
+        cost,
+        price,
+        currency: "LBP",
+        // No counter payment at all in partner mode — the backend rejects
+        // any leg here (payment-leg-contract: IN legs only, and partner mode
+        // must have none).
+        payments: [],
+        partnerId: selectedPartnerId,
+        partnerMode: "FOR" as const,
+      });
+      if (result && !result.success) {
+        appEvents.emit(
+          "notification:show",
+          result.error || "Failed to process partner recharge",
+          "error",
+        );
+        return;
+      }
+
+      _setTelecomAmount("");
+      setTelecomPrice("");
+      setTelecomDaysCostUsd("");
+      setPhoneNumber("");
+      onRefreshHistory?.();
+    } catch (err) {
+      logger.error("Failed to submit partner recharge:", err);
+      appEvents.emit(
+        "notification:show",
+        err instanceof Error
+          ? err.message
+          : "Failed to process partner recharge",
+        "error",
+      );
+    } finally {
+      setIsSubmittingPartner(false);
+    }
   };
 
   return (
@@ -590,27 +678,77 @@ export function TelecomForm({
                   </div>
                 )}
 
-              {/* Payment method dropdown — quick inline selection */}
+              {/* PFT-3a: "For Partner" opt-in — routes the FULL price to a
+                  selected partner's ledger instead of collecting counter
+                  cash. Hides the Payment Method dropdown and the Payment
+                  Sheet below (no walk-in customer, no cash taken). */}
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider">
-                  Payment Method
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    data-testid="recharge-for-partner-toggle"
+                    checked={forPartner}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setForPartner(checked);
+                      if (!checked) setSelectedPartnerId(null);
+                    }}
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  />
+                  <span className="text-xs text-slate-400">For Partner</span>
                 </label>
-                <Select
-                  value={initialPaymentMethod}
-                  onChange={(v) => {
-                    setInitialPaymentMethod(v);
-                    setPaymentInputKey((k) => k + 1);
-                    setPaidBy(v);
-                  }}
-                  options={methods.map((m) => ({
-                    value: m.code,
-                    label: m.label,
-                  }))}
-                  buttonClassName={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-4 pr-10 py-3 text-white font-medium focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all cursor-pointer`}
-                />
+                {forPartner && (
+                  <PartnerSelector
+                    required
+                    autoSelectSingle
+                    selectedPartnerId={selectedPartnerId}
+                    onSelect={setSelectedPartnerId}
+                    className="mt-2"
+                  />
+                )}
               </div>
 
-              {/* Payment Sheet */}
+              {/* Payment method dropdown — quick inline selection */}
+              {!forPartner && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider">
+                    Payment Method
+                  </label>
+                  <Select
+                    value={initialPaymentMethod}
+                    onChange={(v) => {
+                      setInitialPaymentMethod(v);
+                      setPaymentInputKey((k) => k + 1);
+                      setPaidBy(v);
+                    }}
+                    options={methods.map((m) => ({
+                      value: m.code,
+                      label: m.label,
+                    }))}
+                    buttonClassName={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-4 pr-10 py-3 text-white font-medium focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all cursor-pointer`}
+                  />
+                </div>
+              )}
+
+              {/* Payment Sheet — skipped entirely for a partner recharge:
+                  it collects no cash, so show a short notice instead. */}
+              {forPartner ? (
+                <div
+                  data-testid="recharge-partner-no-payment-notice"
+                  className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
+                >
+                  No payment is collected for a partner recharge. The full{" "}
+                  <span className="font-bold">
+                    {(telecomPrice
+                      ? parseFloat(telecomPrice)
+                      : 0
+                    ).toLocaleString()}{" "}
+                    LBP
+                  </span>{" "}
+                  goes on the selected partner&apos;s account, settled later
+                  on the Partners page.
+                </div>
+              ) : (
               <PaymentSheet
                 open={sheetOpen}
                 onClose={() => setSheetOpen(false)}
@@ -793,6 +931,7 @@ export function TelecomForm({
                   }}
                 />
               </PaymentSheet>
+              )}
             </div>
           </div>
 
@@ -826,6 +965,14 @@ export function TelecomForm({
             )}
             <button
               onClick={() => {
+                // PFT-3a: a partner recharge bypasses the PaymentSheet AND
+                // handleTelecomSubmit entirely — no walk-in customer, no
+                // counter cash, so it never opens the sheet or adds to the
+                // active session's cart either.
+                if (forPartner) {
+                  handleForPartnerSubmit();
+                  return;
+                }
                 // Session mode: add to cart directly (basket owns the payment),
                 // skipping the PaymentSheet. Non-session: open the PaymentSheet.
                 if (activeSession) {
@@ -836,21 +983,29 @@ export function TelecomForm({
               }}
               disabled={
                 isSubmitting ||
+                isSubmittingPartner ||
                 !telecomAmount ||
                 (rechargeType === "DAYS" &&
-                  (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice))
+                  (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)) ||
+                (forPartner && (!telecomPrice || !selectedPartnerId))
               }
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap flex items-center gap-1.5 ${
                 isSubmitting ||
+                isSubmittingPartner ||
                 !telecomAmount ||
                 (rechargeType === "DAYS" &&
-                  (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice))
+                  (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)) ||
+                (forPartner && (!telecomPrice || !selectedPartnerId))
                   ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                   : `bg-${accent}-600 hover:bg-${accent}-500 text-white shadow-lg shadow-${accent}-500/20`
               }`}
             >
               <CreditCard size={15} />
-              {activeSession ? "Add to Cart" : "Proceed to Pay"}
+              {forPartner
+                ? "Submit to Partner"
+                : activeSession
+                  ? "Add to Cart"
+                  : "Proceed to Pay"}
             </button>
           </div>
         </div>
