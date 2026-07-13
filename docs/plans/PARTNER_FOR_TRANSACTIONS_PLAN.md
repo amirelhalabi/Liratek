@@ -151,3 +151,84 @@ Verified in code (2026-07-13): `getSalesProfit`, `getByUser`, `getByClient`,
 Until resolved, a FOR-partner POS sale's margin sits in **pending profit**
 (`getPendingSaleProfit`) — visible, not lost, but not in realized totals. Flag
 to owner before PFT-3/4 (recharge/loto have the same fully-paid-gate shape).
+
+---
+
+# ⭐ VALIDATED FLOW CATALOG (owner-validated 2026-07-13) — SOURCE OF TRUTH
+
+**This supersedes the "customer pays cash, remainder to partner" (walk-in)
+model used everywhere above.** After a detailed owner interview, the model is:
+
+## Governing principle
+A "for partner" transaction has **NO walk-in customer in between** — the shop
+acts for the partner, who **owes** the shop (SEND) or **is owed** by the shop
+(RECEIVE) the **FULL amount**. **No cash is taken at the counter** for the
+customer side. Everything is squared up later on the **Partners page
+settlement**. The partner is selected via a **"For Partner" checkbox + partner
+div** (the OMT-system pattern) on every applicable form.
+
+## Profit timing
+- **Immediate** (stamped + realized at the transaction): **iPick / Katsh only.**
+- **Deferred until the partner settles**: everything else — POS margin, recharge
+  markup, loto commission, and ALL OMT / OMT App / Whish App / Binance
+  fees/commissions (SEND and RECEIVE). (Owner retracted the earlier
+  "fee is immediate" — FS fee/commission is real only on settlement.)
+
+## SEND — partner OWES the shop (partner_ledger DEBIT)
+| Service | Drawer effect (normal flow kept) | Partner owes | Profit |
+| --- | --- | --- | --- |
+| **POS** | stock −qty; **NO cash drawer** | full sale price (USD) | margin — deferred |
+| **Recharge MTC/Alfa** | MTC/Alfa provider drawer −amount | full price (USD/LBP) | markup — deferred |
+| **Loto** | supplier float (normal) | full ticket value (LBP) | commission — deferred |
+| **OMT system / OMT App / Whish App** | **existing OUT-payment form, any method (drawer follows method: cash→General, etc.); fee already in the form** | **full amount paid** | commission — deferred |
+| **Binance** | **Binance/USDT drawer −(USDT sent)** | **full amount in USD** | margin — deferred |
+| **iPick / Katsh / MTC-Alfa bill / Whish App bill** | cost/provider (normal) | **selling price** | margin — **IMMEDIATE** |
+
+## RECEIVE — shop OWES the partner (partner_ledger CREDIT)
+| Service | Drawer effect | Shop owes partner | Fee |
+| --- | --- | --- | --- |
+| **OMT system** | OMT drawer +amount | full amount | **no fee** |
+| **OMT App** | OMT App drawer +amount | amount − fee (if fee) | optional — deferred |
+| **Whish App** | Whish App drawer +amount | amount − fee (if fee) | optional — deferred |
+| **Binance** | **Binance/USDT drawer +amount** | amount − fee (if fee), **in USD** | optional — deferred |
+
+- No immediate payout on RECEIVE — the shop pays the partner **at settlement**
+  (any method). The service drawer just increases by the received amount.
+
+## Currency
+- **Binance partner debt is USD both ways** (the drawer moves in USDT, but the
+  partner owes/is-owed **USD**). → A partner **never carries a USDT balance**.
+  **Remove USDT from the settle-currency options** and the USDT partner balance
+  card (PFT-5 built these under the obsolete "track in USDT" answer). The
+  Binance/USDT **drawer** is still real (currency_drawers), only the partner
+  *ledger* is USD/LBP. (PFT-1's usdt bucket in `getBalanceBreakdown` becomes dead
+  but harmless — leave it.)
+
+## Partners page
+- **Settlement** nets balances per currency (USD/LBP); paying down a DEBIT /
+  paying out a CREDIT is **when the deferred profit is recognized** (PFT-6).
+- **KEEP the "Add credit / debt" button** (owner wants it) — a general manual
+  partner-ledger adjustment tool, like the Accounts page.
+
+## UI
+- All SEND/RECEIVE financial-service forms (OMT system, OMT App, Whish App,
+  Binance) get the **OMT-system "For Partner" checkbox + partner div**. The OMT
+  App / Whish App / Binance forms currently **auto-select the single partner** —
+  that is the bug to fix (make it opt-in via the checkbox).
+
+## Impact on already-shipped Wave-1 work (must be REVISED)
+- **PFT-2 (POS), PFT-3a (recharge), PFT-4 (loto)** shipped on the walk-in
+  remainder model → **revise to full-amount, no counter-cash step in partner
+  mode**; update lira-113/114/115/116 to assert the full amount + no drawer cash.
+- **PFT-5 (partners)** → **remove the USDT settle-currency option + USDT balance
+  card**; lira-117 (USDT settle) becomes obsolete (remove/repurpose). Keep the
+  getBalance/getAllBalances plumbing (harmless).
+
+## Re-scoped remaining tickets
+| Ticket | Scope | Status |
+| --- | --- | --- |
+| **PFT-R** | Revise POS/recharge/loto (PFT-2/3a/4) walk-in→full-amount; hide counter-cash in partner mode; update their e2es | ⬜ |
+| **PFT-R5** | Remove USDT settle option + card (Binance debt is USD); obsolete lira-117 | ⬜ |
+| **PFT-3b** | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select. | ⬜ |
+| **PFT-7** | Partners page **"Add credit / debt"** manual-adjustment button (dual-transport) | ⬜ |
+| **PFT-6** | Settlement→profit recognition (now covers FS commissions too; all deferred except iPick/Katsh) | ⬜ |
