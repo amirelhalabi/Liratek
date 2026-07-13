@@ -271,8 +271,9 @@ General drawer does not change (pre-existing; also true for THROUGH
 settlements). Under the full-amount model this is now a visible gap. Proposed
 PFT-6b: settlement writes a unified txn + a payment leg per
 `settlement_method` (CASH→General, etc.), with a named reversal owner (rule
-20). Needs owner confirmation because it changes long-standing Partners-page
-drawer behavior.
+20). **OWNER APPROVED 2026-07-14: yes — settlement moves the drawer** (cash
+settlement hits General; method-specific drawers otherwise; voidable/audited
+like other transactions).
 
 ### ⚠️ PFT-6 re-scope (found 2026-07-13, advisor)
 The owner-decided defer-to-settlement is **only partially true in code today**:
