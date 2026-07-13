@@ -160,6 +160,13 @@ export default function CheckoutModal({
   // fetchClientVouchers/clientId/cashOnlyReturn props on the element below).
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLines, setReturnLines] = useState<PaymentLine[]>([]);
+  // T3 keep-change: per-currency change the operator chose to KEEP as profit
+  // (null = returning change normally). While set, returnLines is [] — the
+  // drawer keeps the full tender and the repo stamps these onto profit.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   // Bumped whenever a draft is (re)restored so MultiPaymentInput remounts and
   // re-reads initialLines (its own contract: read once on mount).
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -415,6 +422,14 @@ export default function CheckoutModal({
       payments: toSnakeLegs(paymentLines),
       change_given_usd: cashReturnUSD,
       change_given_lbp: cashReturnLBP,
+      // T3 keep-change: when the operator keeps the change, no OUT legs (and
+      // change_given_* is 0 above); these amounts join the profit stamp.
+      ...(keptChange
+        ? {
+            kept_change_usd: keptChange.usd,
+            kept_change_lbp: keptChange.lbp,
+          }
+        : {}),
       exchange_rate: effectiveExchangeRate,
       drawer_name: DRAWER_B, // legacy field (kept for backward compatibility)
       ...(transactionTime ? { transaction_time: transactionTime } : {}),
@@ -877,6 +892,7 @@ export default function CheckoutModal({
                   : {})}
                 onChange={setPaymentLines}
                 onReturnChange={setReturnLines}
+                onKeptChange={setKeptChange}
                 requiresClientForDebt={true}
                 hasClient={canCreateDebt}
                 paymentMethods={paymentMethodOptions}

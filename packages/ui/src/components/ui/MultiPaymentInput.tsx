@@ -71,6 +71,13 @@ export interface MultiPaymentInputProps {
    *  (direction "OUT"), empty when balanced/underpaid.
    *  Consumers append these to the `payments` array sent to the backend. */
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
+  /** T3 "keep change" (docs/plans/T3_KEEP_CHANGE_PLAN.md): fires with the
+   *  per-currency amounts the shop KEEPS instead of returning ({usd, lbp})
+   *  when the operator activates the keep-change toggle, and with null when
+   *  deactivated (or no longer overpaid). While active, onReturnChange
+   *  emits [] — no OUT legs; the caller stamps the kept amounts as profit
+   *  (profit_usd/profit_lbp) on the transaction it creates. */
+  onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
   onExchangeRateChange?: (rate: number) => void;
@@ -164,6 +171,7 @@ export default function MultiPaymentInput({
   side = "buy",
   onChange,
   onReturnChange,
+  onKeptChange,
   requiresClientForDebt = true,
   hasClient = false,
   onExchangeRateChange,
@@ -750,12 +758,18 @@ export default function MultiPaymentInput({
     cashOnlyReturn || paymentMethods.every((pm) => pm.code === "CASH");
   const effectiveReturnMethod = isCashOnlyPayment ? "CASH" : returnMethod;
 
+  // T3 "keep change": while active, no OUT legs are emitted (the drawer keeps
+  // the full tender) and the suggested-change split is reported to the parent
+  // for the per-currency profit stamp. Resets whenever the overpay clears.
+  const [keepChange, setKeepChange] = useState(false);
+
   // Auto-init / reset CASH return fields whenever the overpaid amount changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isOverpaid) {
       setReturnAmountUSD("");
       setReturnAmountLBP("");
+      setKeepChange(false);
       return;
     }
     if (totalAmountCurrency === "USD") {
@@ -828,7 +842,7 @@ export default function MultiPaymentInput({
   const parsedReturnLBP = parseNum(returnAmountLBP);
 
   // Array of shop→customer change legs (up to 2 for CASH, 0-1 for non-CASH).
-  const returnLegsValue: PaymentLine[] = (() => {
+  const suggestedReturnLegs: PaymentLine[] = (() => {
     if (!isOverpaid) return [];
     if (effectiveReturnMethod === "CASH") {
       const legs: PaymentLine[] = [];
@@ -867,6 +881,10 @@ export default function MultiPaymentInput({
     return [];
   })();
 
+  // Keep-change gates the OUT legs entirely: the drawer keeps the tender and
+  // the suggested split becomes the kept amounts (reported below).
+  const returnLegsValue: PaymentLine[] = keepChange ? [] : suggestedReturnLegs;
+
   // Emit return legs whenever they change.
   const returnLegsKey = returnLegsValue
     .map((l) => `${l.method}:${l.currencyCode}:${l.amount}`)
@@ -875,6 +893,20 @@ export default function MultiPaymentInput({
     onReturnChange?.(returnLegsValue);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returnLegsKey]);
+
+  // Report the kept split (WYSIWYB: the exact amounts the fields showed) —
+  // tracks live edits to the payment while keep-change stays active.
+  const keptUsd = suggestedReturnLegs
+    .filter((l) => l.currencyCode === "USD")
+    .reduce((s, l) => s + l.amount, 0);
+  const keptLbp = suggestedReturnLegs
+    .filter((l) => l.currencyCode === "LBP")
+    .reduce((s, l) => s + l.amount, 0);
+  const keptKey = keepChange ? `${keptUsd}:${keptLbp}` : "off";
+  useEffect(() => {
+    onKeptChange?.(keepChange ? { usd: keptUsd, lbp: keptLbp } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keptKey]);
 
   // Summary formatting helpers — in single mode, display in the line's currency
   const displayCurrency =
@@ -1411,23 +1443,48 @@ export default function MultiPaymentInput({
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-amber-400 font-medium whitespace-nowrap">
-                {isCashOnlyPayment ? "Change to return" : "Return / Change"}
+                {keepChange
+                  ? "Change kept (profit)"
+                  : isCashOnlyPayment
+                    ? "Change to return"
+                    : "Return / Change"}
               </span>
-              {/* Method selector — only when non-cash methods are available */}
-              {!isCashOnlyPayment && (
-                <select
-                  data-testid="return-method"
-                  value={returnMethod}
-                  onChange={(e) => setReturnMethod(e.target.value)}
-                  className="bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
+              <div className="flex items-center gap-1.5">
+                {/* T3 keep-change toggle: return nothing, book the extra as
+                    profit (docs/plans/T3_KEEP_CHANGE_PLAN.md). */}
+                <button
+                  type="button"
+                  data-testid="keep-change"
+                  onClick={() => setKeepChange((k) => !k)}
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
+                    keepChange
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      : "bg-slate-900 text-amber-300 border-amber-700/40 hover:border-amber-500"
+                  }`}
+                  title={
+                    keepChange
+                      ? "Keeping the change as profit — tap to return it"
+                      : "Return nothing — keep the change as profit"
+                  }
                 >
-                  {paymentMethods.map((pm) => (
-                    <option key={pm.code} value={pm.code}>
-                      {pm.label}
-                    </option>
-                  ))}
-                </select>
-              )}
+                  {keepChange ? "Keeping ✓" : "Keep change"}
+                </button>
+                {/* Method selector — only when non-cash methods are available */}
+                {!isCashOnlyPayment && !keepChange && (
+                  <select
+                    data-testid="return-method"
+                    value={returnMethod}
+                    onChange={(e) => setReturnMethod(e.target.value)}
+                    className="bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
+                  >
+                    {paymentMethods.map((pm) => (
+                      <option key={pm.code} value={pm.code}>
+                        {pm.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
 
             {/* CASH: dual USD + LBP editable fields */}
@@ -1443,8 +1500,11 @@ export default function MultiPaymentInput({
                     inputMode="decimal"
                     value={returnAmountUSD}
                     onChange={(e) => handleReturnUSDChange(e.target.value)}
+                    disabled={keepChange}
                     placeholder="0.00"
-                    className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                    className={`w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500 ${
+                      keepChange ? "opacity-60 line-through" : ""
+                    }`}
                   />
                 </div>
                 <div className="flex-1 relative">
@@ -1454,8 +1514,11 @@ export default function MultiPaymentInput({
                     inputMode="numeric"
                     value={returnAmountLBP}
                     onChange={(e) => handleReturnLBPChange(e.target.value)}
+                    disabled={keepChange}
                     placeholder="0"
-                    className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                    className={`w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500 ${
+                      keepChange ? "opacity-60 line-through" : ""
+                    }`}
                   />
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
                     LBP

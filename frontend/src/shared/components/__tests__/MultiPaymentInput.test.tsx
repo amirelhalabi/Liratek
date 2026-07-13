@@ -663,6 +663,96 @@ describe("MultiPaymentInput", () => {
     });
   });
 
+  describe("keep change (T3 — return nothing, book the extra as profit)", () => {
+    // docs/plans/T3_KEEP_CHANGE_PLAN.md KC-0. Failing-first (rule 17): before
+    // the feature, the two CASH return fields auto-balance each other, so
+    // returning nothing is structurally impossible and no keep-change control
+    // exists.
+    function renderOverpaid(opts: {
+      onKeptChange: jest.Mock;
+      onReturnChange: jest.Mock;
+      smartSplitOverpay?: boolean;
+    }) {
+      render(
+        <MultiPaymentInput
+          totals={[{ amount: 100, currency: "USD" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={jest.fn()}
+          onReturnChange={
+            opts.onReturnChange as unknown as (legs: PaymentLine[]) => void
+          }
+          onKeptChange={
+            opts.onKeptChange as unknown as (
+              kept: { usd: number; lbp: number } | null,
+            ) => void
+          }
+          cashOnlyReturn={true}
+          {...(opts.smartSplitOverpay ? { smartSplitOverpay: true } : {})}
+        />,
+      );
+    }
+
+    it("renders no keep-change control until the customer overpays", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      renderOverpaid({ onKeptChange, onReturnChange });
+
+      // Exact payment (auto-filled) → no return block, no keep button.
+      expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
+    });
+
+    it("activating keep-change drops the return legs and reports the kept amounts; deactivating restores", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      renderOverpaid({ onKeptChange, onReturnChange });
+
+      // Overpay $150 on a $100 total → $50 suggested change.
+      fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+      expect(screen.getByTestId("return-usd")).toHaveValue("50.00");
+
+      fireEvent.click(screen.getByTestId("keep-change"));
+
+      // No OUT legs — the drawer keeps the full tender…
+      const lastLegs = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLegs).toEqual([]);
+      // …and the kept split is reported for the profit stamp.
+      expect(onKeptChange).toHaveBeenLastCalledWith({ usd: 50, lbp: 0 });
+
+      // Toggle off: suggested change comes back as OUT legs, kept cleared.
+      fireEvent.click(screen.getByTestId("keep-change"));
+      expect(onKeptChange).toHaveBeenLastCalledWith(null);
+      const restored = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(restored.some((l) => l.direction === "OUT" && l.amount === 50)).toBe(
+        true,
+      );
+    });
+
+    it("reports the smart-split kept amounts per currency (USD notes + LBP remainder)", () => {
+      const onKeptChange = jest.fn();
+      const onReturnChange = jest.fn();
+      renderOverpaid({ onKeptChange, onReturnChange, smartSplitOverpay: true });
+
+      // Overpay $104.73 on $100 → suggested 4 USD + 70,000 LBP (rounded).
+      fireEvent.change(firstAmountInput(), { target: { value: "104.73" } });
+      expect(screen.getByTestId("return-usd")).toHaveValue("4");
+      expect(screen.getByTestId("return-lbp")).toHaveValue("70000");
+
+      fireEvent.click(screen.getByTestId("keep-change"));
+
+      expect(onKeptChange).toHaveBeenLastCalledWith({ usd: 4, lbp: 70_000 });
+      expect(
+        (onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[]),
+      ).toEqual([]);
+    });
+  });
+
   describe("EUR-readiness (MCP-5 acceptance)", () => {
     // The design's acceptance test: adding a currency is DATA — a registry/
     // rate-table entry — with zero component changes. A EUR total prefill is

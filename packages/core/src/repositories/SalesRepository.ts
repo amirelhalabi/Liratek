@@ -110,6 +110,13 @@ export interface SaleRequest {
   payments?: PaymentLine[];
   change_given_usd?: number;
   change_given_lbp?: number;
+  /** T3 keep-change: per-currency amounts the shop keeps instead of returning
+   *  as change (no OUT legs accompany them). Added to the sale transaction's
+   *  profit stamp — the generic full void negates the stamp, so the kept
+   *  amounts reverse with it; per-item refunds deliberately keep it (a
+   *  partial return does not hand the kept change back). */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
   exchange_rate: number;
   drawer_name?: string;
   id?: number;
@@ -450,7 +457,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           // audit view and inflated revenue_lbp in profit/session reports.
           amount_usd: sale.final_amount,
           amount_lbp: 0,
-          profit_usd: saleProfitUsd,
+          // Item margins − discount, plus any change the operator kept as
+          // profit (T3 keep-change) — stamped per currency at create time so
+          // the generic void's stamp negation reverses it symmetrically.
+          profit_usd: saleProfitUsd + (sale.kept_change_usd || 0),
+          profit_lbp: sale.kept_change_lbp || 0,
           exchange_rate: sale.exchange_rate,
           client_id: finalClientId ?? null,
           // Rule 11: keep the walk-in name/phone on the unified row even when
