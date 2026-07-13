@@ -6318,6 +6318,38 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v128 — partner_ledger.covered_amount (PFT-6 settlement→profit recognition)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 128,
+    name: "add_partner_ledger_covered_amount",
+    description:
+      "Add covered_amount (REAL, default 0) to partner_ledger. Settlements/manual adjustments apply FIFO coverage to the partner's opposite-direction FOR_% rows; profit queries treat a source transaction as realized only when its FOR_% rows are fully covered (owner decision: for-partner profit is real when the partner settles). Plain constant default — safe on live DBs; fresh installs get the column from create_db.sql.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db
+        .prepare(`PRAGMA table_info(partner_ledger)`)
+        .all() as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === "covered_amount")) {
+        db.exec(
+          `ALTER TABLE partner_ledger ADD COLUMN covered_amount REAL NOT NULL DEFAULT 0`,
+        );
+      }
+      console.log("Migration v128: partner_ledger.covered_amount added");
+    },
+    down(db: Database.Database) {
+      const cols = db
+        .prepare(`PRAGMA table_info(partner_ledger)`)
+        .all() as Array<{ name: string }>;
+      if (cols.some((c) => c.name === "covered_amount")) {
+        db.exec(`ALTER TABLE partner_ledger DROP COLUMN covered_amount`);
+      }
+      console.log(
+        "Migration v128 rolled back: partner_ledger.covered_amount dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

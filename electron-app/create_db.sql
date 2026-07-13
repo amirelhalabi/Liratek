@@ -630,7 +630,9 @@ CREATE TABLE IF NOT EXISTS partner_ledger (
     notes TEXT,
     user_id INTEGER REFERENCES users(id),
     settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    -- PFT-6: settlement coverage applied FIFO to FOR_% rows (v128)
+    covered_amount REAL NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);
@@ -1437,4 +1439,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (124, 'name_home_tenant_from_shop'),
     (125, 'add_allow_out_of_stock_sales_setting'),
     (126, 'zero_sale_txn_amount_lbp_tender_dup'),
-    (127, 'drop_partner_ledger_type_check');
+    (127, 'drop_partner_ledger_type_check'),
+    (128, 'add_partner_ledger_covered_amount');

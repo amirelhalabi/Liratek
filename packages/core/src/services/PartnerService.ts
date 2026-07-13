@@ -193,6 +193,15 @@ export class PartnerService {
           data.settlementMethod as CreateLedgerEntryData["settlement_method"],
       });
 
+      // PFT-6b (owner-approved 2026-07-14): a settlement moves REAL money —
+      // the method's drawer is credited when the partner pays the shop and
+      // debited when the shop pays the partner, with a unified
+      // PARTNER_SETTLEMENT transaction for audit. CLIENT_ACCOUNT settlements
+      // stay bookkeeping-only (no drawer involved).
+      if (data.settlementMethod !== "CLIENT_ACCOUNT") {
+        this.repo.recordSettlementMoneyMovement(entry, data.userId);
+      }
+
       partnerLogger.info(
         {
           partnerId: data.partnerId,

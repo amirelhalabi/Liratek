@@ -8,6 +8,9 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { paymentMethodToDrawerName } from "../utils/payments.js";
 
 // =============================================================================
 // Entity Types
@@ -293,6 +296,20 @@ export class PartnerRepository extends BaseRepository<Partner> {
         tenantId,
       );
       const id = Number(result.lastInsertRowid);
+
+      // PFT-6: a SETTLEMENT pays the partner's FOR_% obligations down — apply
+      // it FIFO so profit recognition (ProfitRepository partner gates) can
+      // tell which source transactions the partner has actually settled.
+      if (data.transaction_type === "SETTLEMENT") {
+        this.applySettlementCoverage(
+          data.partner_id,
+          data.currency,
+          data.direction,
+          data.amount,
+          tenantId,
+        );
+      }
+
       const entry = this.db
         .prepare(
           `SELECT id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at FROM partner_ledger WHERE id = ? AND tenant_id = ?`,
@@ -307,6 +324,137 @@ export class PartnerRepository extends BaseRepository<Partner> {
         cause: e,
       });
     }
+  }
+
+  /**
+   * PFT-6 — settlement→profit recognition (owner decision, Model A: for-
+   * partner profit is real only once the partner settles).
+   *
+   * A SETTLEMENT row of direction D covers the partner's OPPOSITE-direction
+   * FOR_% rows in the SAME currency, oldest first (FIFO), by bumping each
+   * row's covered_amount (v128). ProfitRepository treats a source transaction
+   * as realized only when its FOR_% rows are fully covered.
+   *
+   * Only SETTLEMENT rows apply coverage: FOR_%/THROUGH_% rows must never act
+   * as coverage (a void's negating FOR row would otherwise "settle" its own
+   * original), and manual ADJUSTMENT rows stay conservative bookkeeping (they
+   * move the balance but do not realize profit).
+   */
+  private applySettlementCoverage(
+    partnerId: number,
+    currency: string,
+    direction: "DEBIT" | "CREDIT",
+    amount: number,
+    tenantId: number,
+  ): void {
+    let remaining = Math.abs(amount);
+    if (remaining <= 0.005) return;
+    const targetDirection = direction === "CREDIT" ? "DEBIT" : "CREDIT";
+    const open = this.db
+      .prepare(
+        `SELECT id, amount, covered_amount FROM partner_ledger
+         WHERE partner_id = ? AND tenant_id = ? AND currency = ?
+           AND direction = ?
+           AND transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+           AND covered_amount < amount - 0.005
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(partnerId, tenantId, currency, targetDirection) as Array<{
+      id: number;
+      amount: number;
+      covered_amount: number;
+    }>;
+    const upd = this.db.prepare(
+      `UPDATE partner_ledger SET covered_amount = ? WHERE id = ? AND tenant_id = ?`,
+    );
+    for (const row of open) {
+      if (remaining <= 0.005) break;
+      const take = Math.min(remaining, row.amount - row.covered_amount);
+      upd.run(row.covered_amount + take, row.id, tenantId);
+      remaining -= take;
+    }
+  }
+
+  /**
+   * PFT-6b (owner-approved 2026-07-14) — a settlement MOVES REAL MONEY: the
+   * drawer follows the settlement method (CASH→General, BINANCE→Binance, …),
+   * credited when the partner pays the shop (settlement CREDIT) and debited
+   * when the shop pays the partner (settlement DEBIT). Writes the unified
+   * PARTNER_SETTLEMENT transaction + a real payments row so the Transactions
+   * viewer and checkpoints see it. PARTNER_SETTLEMENT is non-reversible
+   * (rule 20 option b — the FIFO coverage stamps cannot be un-applied);
+   * corrections are made with an opposite settlement.
+   *
+   * BINANCE settlements move the Binance drawer in USDT at the settled USD
+   * figure (the same 1:1 numeric convention the Binance FOR flows use —
+   * the partner ledger is always USD).
+   */
+  recordSettlementMoneyMovement(
+    entry: PartnerLedgerEntry,
+    userId: number,
+  ): number {
+    const tenantId = getCurrentTenantId();
+    const method = entry.settlement_method ?? "CASH";
+    const drawerName = paymentMethodToDrawerName(method);
+    const drawerCurrency = method === "BINANCE" ? "USDT" : entry.currency;
+    // CREDIT settlement = partner pays the shop → money IN (+drawer).
+    // DEBIT settlement = shop pays the partner → money OUT (−drawer).
+    const signed =
+      entry.direction === "CREDIT"
+        ? Math.abs(entry.amount)
+        : -Math.abs(entry.amount);
+
+    const partner = this.getById(entry.partner_id);
+    const label = partner?.name ?? `partner #${entry.partner_id}`;
+
+    const txn = this.db.transaction(() => {
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.PARTNER_SETTLEMENT,
+        source_table: "partner_ledger",
+        source_id: entry.id,
+        user_id: userId,
+        amount_usd: entry.currency === "USD" ? signed : 0,
+        amount_lbp: entry.currency === "LBP" ? signed : 0,
+        profit_usd: 0,
+        profit_lbp: 0,
+        client_id: null,
+        summary: `Partner settlement: ${
+          entry.direction === "CREDIT" ? "received from" : "paid to"
+        } ${label} — ${Math.abs(entry.amount)} ${entry.currency} via ${method}`,
+        metadata_json: {
+          partner_id: entry.partner_id,
+          settlement_method: method,
+          direction: entry.direction,
+        },
+      });
+      this.db
+        .prepare(
+          `INSERT INTO payments (
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          txnId,
+          method,
+          drawerName,
+          drawerCurrency,
+          signed,
+          `Partner settlement (${label})`,
+          userId,
+          tenantId,
+        );
+      this.db
+        .prepare(
+          `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
+             balance = drawer_balances.balance + excluded.balance,
+             updated_at = CURRENT_TIMESTAMP`,
+        )
+        .run(drawerName, drawerCurrency, signed, tenantId);
+      return txnId;
+    });
+    return txn();
   }
 
   getLedgerEntries(

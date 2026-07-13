@@ -48,6 +48,9 @@ export const TRANSACTION_TYPES = {
   KEPT_CHANGE: "KEPT_CHANGE",
   SUPPLIER_PAYMENT: "SUPPLIER_PAYMENT",
   SUPPLIER_SETTLEMENT: "SUPPLIER_SETTLEMENT",
+  /** PFT-6b: a Partners-page settlement's money movement — the drawer leg
+   *  (CASH→General etc.) that squares the partner's balance. */
+  PARTNER_SETTLEMENT: "PARTNER_SETTLEMENT",
 
   // Closing / Checkpoint
   CHECKPOINT: "CHECKPOINT",
@@ -101,6 +104,13 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // standalone void would desync profit from money. Rule-20 reversal owner:
     // none needed (the kept cash physically stays in the drawer regardless).
     TRANSACTION_TYPES.KEPT_CHANGE,
+    // PARTNER_SETTLEMENT (PFT-6b): the generic reversal would restore the
+    // drawer + partner_ledger rows but NOT the FIFO covered_amount stamps the
+    // settlement applied to FOR_% rows (profit recognition would stay
+    // realized on a voided settlement). Rule-20 owner: correct a
+    // mis-settlement with an opposite manual settlement/adjustment on the
+    // Partners page.
+    TRANSACTION_TYPES.PARTNER_SETTLEMENT,
   ]);
 
 /**

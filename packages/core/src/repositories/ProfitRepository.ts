@@ -222,6 +222,41 @@ function saleNotFullyPaid(alias: string): string {
 }
 
 /**
+ * PFT-6 — for-partner profit is realized only when the partner settles
+ * (owner decision, Model A). A source row is "partner-pending" while any of
+ * its FOR_% partner_ledger rows is not fully covered by settlement FIFO
+ * coverage (v128 covered_amount; PartnerRepository.applySettlementCoverage).
+ * iPick/Katsh margins are immediate (owner exception) so their FOR types are
+ * excluded from the scan. Non-partner rows have no FOR_% rows and pass
+ * unchanged. reference_table + reference_id identify the source row globally
+ * (one AUTOINCREMENT per table), so no tenant correlation is needed.
+ */
+function notPartnerPending(refTable: string, idExpr: string): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM partner_ledger plp
+    WHERE plp.reference_table = '${refTable}'
+      AND plp.reference_id = ${idExpr}
+      AND plp.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+      AND plp.transaction_type NOT IN ('FOR_IPICK', 'FOR_KATSH')
+      AND plp.covered_amount < plp.amount - 0.005
+  )`;
+}
+
+/**
+ * SALE realized gate (PFT-6): fully paid by the customer OR a for-partner
+ * sale (has a FOR_% row) whose partner has fully settled it. A for-partner
+ * sale carries paid_usd = 0 (no counter cash), so without the OR-arm it
+ * would stay pending forever even after the partner paid.
+ */
+function salePaidOrPartnerSettled(alias: string): string {
+  return `(${saleFullyPaid(alias)} OR (EXISTS (
+    SELECT 1 FROM partner_ledger plf
+    WHERE plf.reference_table = 'sales' AND plf.reference_id = ${alias}.id
+      AND plf.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+  ) AND ${notPartnerPending("sales", `${alias}.id`)}))`;
+}
+
+/**
  * Module-source row not refunded/voided. Void and refund both set
  * `is_refunded = 1` on the source row (see TransactionRepository
  * `_markSourceRefunded`) — without this gate a refunded service keeps its full
@@ -316,7 +351,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN sales s ON si.sale_id = s.id
         WHERE s.status = 'completed'
           AND si.is_refunded = 0
-          AND ${saleFullyPaid("s")}
+          AND ${salePaidOrPartnerSettled("s")}
           AND ${dateRange("s.created_at")}
           AND si.tenant_id = ? AND s.tenant_id = ?`,
       )
@@ -346,7 +381,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.source_table = 'sales'
           AND t.type IN ('SALE', 'REFUND')
           AND s.status IN ('completed', 'refunded')
-          AND ${saleFullyPaid("s")}
+          AND ${salePaidOrPartnerSettled("s")}
           AND ${dateRange("s.created_at")}
           AND t.tenant_id = ? AND s.tenant_id = ?`,
       )
@@ -412,6 +447,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND fs.provider IN (${COMMISSION_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
+          AND ${notPartnerPending("financial_services", "fs.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
@@ -498,6 +534,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("r")}
+          AND ${notPartnerPending("recharges", "r.id")}
           AND ${dateRange("r.created_at")}
           AND r.tenant_id = ? AND t.tenant_id = ?
         GROUP BY r.currency_code`,
@@ -586,6 +623,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("lt")}
+          AND ${notPartnerPending("loto_tickets", "lt.id")}
           AND ${dateRange("lt.created_at")}
           AND lt.tenant_id = ? AND t.tenant_id = ?`,
       )
@@ -683,6 +721,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE fs.is_settled = 1
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
+          AND ${notPartnerPending("financial_services", "fs.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.provider`,
@@ -712,6 +751,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("r")}
+          AND ${notPartnerPending("recharges", "r.id")}
           AND ${dateRange("r.created_at")}
           AND r.tenant_id = ? AND t.tenant_id = ?
         GROUP BY r.carrier`,
@@ -756,7 +796,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           JOIN sales s ON si.sale_id = s.id
           WHERE s.status = 'completed'
             AND si.is_refunded = 0
-            AND ${saleFullyPaid("s")}
+            AND ${salePaidOrPartnerSettled("s")}
             AND ${dateRange("s.created_at")}
             AND si.tenant_id = ? AND s.tenant_id = ?
           GROUP BY DATE(s.created_at, 'localtime')
@@ -775,7 +815,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND t.source_table = 'sales'
             AND t.type IN ('SALE', 'REFUND')
             AND s.status IN ('completed', 'refunded')
-            AND ${saleFullyPaid("s")}
+            AND ${salePaidOrPartnerSettled("s")}
             AND ${dateRange("s.created_at")}
             AND t.tenant_id = ? AND s.tenant_id = ?
           GROUP BY DATE(s.created_at, 'localtime')
@@ -792,6 +832,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE fs.is_settled = 1
             AND t.status = 'ACTIVE'
             AND ${notRefunded("fs")}
+            AND ${notPartnerPending("financial_services", "fs.id")}
             AND ${dateRange("fs.created_at")}
             AND fs.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(fs.created_at, 'localtime')
@@ -809,6 +850,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           JOIN transactions t ON t.source_table = 'recharges' AND t.source_id = r.id AND t.type = 'RECHARGE'
           WHERE t.status = 'ACTIVE'
             AND ${notRefunded("r")}
+            AND ${notPartnerPending("recharges", "r.id")}
             AND ${dateRange("r.created_at")}
             AND r.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(r.created_at, 'localtime')
@@ -858,6 +900,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           JOIN transactions t ON t.source_table = 'loto_tickets' AND t.source_id = lt.id AND t.type = 'LOTO'
           WHERE t.status = 'ACTIVE'
             AND ${notRefunded("lt")}
+            AND ${notPartnerPending("loto_tickets", "lt.id")}
             AND ${dateRange("lt.created_at")}
             AND lt.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(lt.created_at, 'localtime')
