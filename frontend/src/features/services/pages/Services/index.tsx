@@ -872,6 +872,30 @@ export default function Services() {
                 paymentMethodFeeRate: PM_FEE_DEFAULT_RATE,
               }
             : {}),
+        // PFT-3b FOR-partner contract (LAST payments/pm-fee spread on purpose
+        // — it must override the walk-in payments AND the PM fee above): a
+        // for-partner SEND carries the SHOP'S DISBURSEMENT as OUT legs (the
+        // drawer follows the method; the partner owes exactly this total) and
+        // never a customer IN leg or PM fee — the repository rejects both. A
+        // for-partner RECEIVE sends no legs at all (the service drawer is
+        // credited server-side; the shop owes the partner amount − fee).
+        ...(forPartner && forPartnerId
+          ? serviceType === "SEND"
+            ? {
+                payments: [
+                  {
+                    method: paidByMethod,
+                    currencyCode: currency,
+                    amount: includingFees
+                      ? amtVal
+                      : amtVal + (resolvedOmtFee ?? resolvedWhishFee ?? 0),
+                    direction: "OUT" as const,
+                  },
+                ],
+                paymentMethodFee: 0,
+              }
+            : { payments: [], paymentMethodFee: 0 }
+          : {}),
         note: note || `${provider} - ${serviceType}`,
         ...(selectedPartnerId
           ? { partnerId: selectedPartnerId, partnerMode: "THROUGH" as const }

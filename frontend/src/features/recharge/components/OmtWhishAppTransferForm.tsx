@@ -5,6 +5,7 @@ import {
   ServiceTypeTabs,
   DecimalInput,
   hasNewClientInfo,
+  Select,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -52,7 +53,8 @@ function OmtWhishAppTransferFormInner({
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
-  const { methods: allPaymentMethods } = usePaymentMethods();
+  const { methods: allPaymentMethods, drawerAffectingMethods } =
+    usePaymentMethods();
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
@@ -85,10 +87,22 @@ function OmtWhishAppTransferFormInner({
   const [manualFee, setManualFee] = useState("");
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
-  const [partnerId, setPartnerId] = useState<number | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
+
+  // PFT-3b: "for partner" transfer — no walk-in customer, no counter cash.
+  // SEND fronts the disbursement via an OUT payment leg (the partner owes
+  // exactly what the shop paid out); RECEIVE takes no payment leg at all
+  // (the backend credits the app drawer and books the partner CREDIT). This
+  // bypasses handleSubmit/PaymentSheet entirely — mirrors TelecomForm's
+  // handleForPartnerSubmit (PFT-3a).
+  const [forPartner, setForPartner] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
+  const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
+  const [partnerPayFromMethod, setPartnerPayFromMethod] = useState("CASH");
 
   // Auto-promote CUSTOMER_ACCOUNT when name+phone are present for a new client
   const activeClientName = serviceType === "SEND" ? senderName : receiverName;
@@ -259,7 +273,6 @@ function OmtWhishAppTransferFormInner({
           ? toCamelLegs(paymentLines, returnLegs)
           : undefined,
         includingFees,
-        partnerId: partnerId || undefined,
         // T3 keep-change: kept amounts join the profit stamp.
         ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
@@ -314,6 +327,65 @@ function OmtWhishAppTransferFormInner({
     }
   };
 
+  // PFT-3b: direct submission for a "for partner" transfer — bypasses
+  // handleSubmit (client resolution / save-as-client / session cart) and the
+  // PaymentSheet entirely. SEND fronts the disbursement as a single OUT leg
+  // (totalAmount = walletAmount + full fee, since includingFees never
+  // applies to SEND); RECEIVE sends no payment legs at all — the backend
+  // credits the app drawer and books the partner CREDIT (amount − fee).
+  const handleForPartnerSubmit = async () => {
+    if (!amount || parsedAmount <= 0) return;
+    if (!selectedPartnerId) {
+      alert("Select a partner for this transfer.");
+      return;
+    }
+
+    const providerLabel =
+      activeProvider === "OMT_APP" ? "OMT App" : "Whish App";
+
+    setIsSubmittingPartner(true);
+    try {
+      const result = await api.addOMTTransaction({
+        provider: activeProvider,
+        serviceType,
+        amount: walletAmount,
+        currency,
+        commission: shopProfit,
+        ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
+        ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
+        partnerId: selectedPartnerId,
+        partnerMode: "FOR" as const,
+        payments:
+          serviceType === "SEND"
+            ? [
+                {
+                  method: partnerPayFromMethod,
+                  currencyCode: currency,
+                  amount: totalAmount,
+                  direction: "OUT" as const,
+                },
+              ]
+            : [],
+        note: `${serviceType} transfer via ${providerLabel}`,
+        transaction_time: transactionTime,
+      });
+
+      if (!result.success) {
+        alert(result.error || "Failed to process partner transfer");
+        return;
+      }
+
+      setAmount("");
+      setManualFee("");
+      loadFinancialData();
+    } catch (error) {
+      logger.error("Partner transfer failed:", error);
+      alert("Failed to process partner transfer");
+    } finally {
+      setIsSubmittingPartner(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
       {/* Header with SEND/RECEIVE Tabs */}
@@ -335,10 +407,37 @@ function OmtWhishAppTransferFormInner({
             ? "Sending transfer from shop to customer"
             : "Shop receiving transfer from customer"}
         </p>
-        <PartnerSelector
-          selectedPartnerId={partnerId}
-          onSelect={setPartnerId}
-        />
+      </div>
+
+      {/* PFT-3b: "For Partner" opt-in — routes the transfer to a selected
+          partner's ledger instead of collecting counter cash. Gated behind
+          the checkbox (never auto-selected on the page) to avoid the
+          previous unconditional-header bug where a single-partner shop
+          silently painted "Partner: <name>" on every transaction. */}
+      <div>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="omt-whish-transfer-for-partner-toggle"
+            checked={forPartner}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setForPartner(checked);
+              if (!checked) setSelectedPartnerId(null);
+            }}
+            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+          />
+          <span className="text-xs text-slate-400">For Partner</span>
+        </label>
+        {forPartner && (
+          <PartnerSelector
+            required
+            autoSelectSingle
+            selectedPartnerId={selectedPartnerId}
+            onSelect={setSelectedPartnerId}
+            className="mt-2"
+          />
+        )}
       </div>
 
       {/* Amount Input */}
@@ -500,137 +599,185 @@ function OmtWhishAppTransferFormInner({
           </div>
         )}
 
-      {/* Sender / Receiver Info — only the mode's own party (A2):
-          SEND collects the sender, RECEIVE collects the receiver. */}
-      <div className="grid grid-cols-2 gap-3">
-        {serviceType === "SEND" && (
-          <>
+      {/* PFT-3b: a partner transfer has no walk-in customer — the sender/
+          receiver capture + save-as-client UI is replaced by a short notice
+          (+ a "Paid from" method picker for SEND, which needs an OUT leg). */}
+      {forPartner ? (
+        <div className="space-y-3">
+          {serviceType === "SEND" && (
             <div>
-              <label
-                htmlFor="sender-name"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-              >
-                <User size={12} /> Sender Name{" "}
-                {activeSession && serviceType === "SEND" && "• Session"}
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                Paid From
               </label>
-              <ClientAutocompleteInput
-                id="sender-name"
-                type="text"
-                value={senderName}
-                onChange={(v) => {
-                  setSenderName(v);
-                  if (serviceType === "SEND") setClientId(null);
-                }}
-                onClientSelect={(c) => {
-                  setSenderPhone(c.phone_number || "");
-                  if (serviceType === "SEND") {
-                    setClientId(c.id);
-                    setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                    setPaymentInputKey((k) => k + 1);
-                  }
-                }}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                placeholder="Sender name"
+              <Select
+                value={partnerPayFromMethod}
+                onChange={setPartnerPayFromMethod}
+                options={drawerAffectingMethods.map((m) => ({
+                  value: m.code,
+                  label: m.label,
+                }))}
+                buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500"
               />
             </div>
-            <div>
-              <label
-                htmlFor="sender-phone"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-              >
-                <Phone size={12} /> Sender Phone{" "}
-                {activeSession && serviceType === "SEND" && "• Session"}
-              </label>
-              <ClientAutocompleteInput
-                id="sender-phone"
-                type="tel"
-                value={senderPhone}
-                onChange={(v) => {
-                  setSenderPhone(v);
-                  if (serviceType === "SEND") setClientId(null);
-                }}
-                onClientSelect={(c) => {
-                  setSenderName(c.full_name);
-                  if (serviceType === "SEND") {
-                    setClientId(c.id);
-                    setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                    setPaymentInputKey((k) => k + 1);
-                  }
-                }}
-                searchByPhone
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                placeholder="Sender phone"
-              />
-            </div>
-          </>
-        )}
-        {serviceType === "RECEIVE" && (
-          <>
-            <div>
-              <label
-                htmlFor="receiver-name"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-              >
-                <User size={12} /> Receiver Name{" "}
-                {activeSession && serviceType === "RECEIVE" && "• Session"}
-              </label>
-              <ClientAutocompleteInput
-                id="receiver-name"
-                type="text"
-                value={receiverName}
-                onChange={(v) => {
-                  setReceiverName(v);
-                  if (serviceType === "RECEIVE") setClientId(null);
-                }}
-                onClientSelect={(c) => {
-                  setReceiverPhone(c.phone_number || "");
-                  if (serviceType === "RECEIVE") {
-                    setClientId(c.id);
-                    setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                    setPaymentInputKey((k) => k + 1);
-                  }
-                }}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                placeholder="Receiver name"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="receiver-phone"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-              >
-                <Phone size={12} /> Receiver Phone{" "}
-                {activeSession && serviceType === "RECEIVE" && "• Session"}
-              </label>
-              <ClientAutocompleteInput
-                id="receiver-phone"
-                type="tel"
-                value={receiverPhone}
-                onChange={(v) => {
-                  setReceiverPhone(v);
-                  if (serviceType === "RECEIVE") setClientId(null);
-                }}
-                onClientSelect={(c) => {
-                  setReceiverName(c.full_name);
-                  if (serviceType === "RECEIVE") {
-                    setClientId(c.id);
-                    setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                    setPaymentInputKey((k) => k + 1);
-                  }
-                }}
-                searchByPhone
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                placeholder="Receiver phone"
-              />
-            </div>
-          </>
-        )}
-      </div>
-      <SaveAsClientCheckbox
-        checked={saveAsClient}
-        onChange={setSaveAsClient}
-        hidden={!showSaveAsClient}
-      />
+          )}
+          <div
+            data-testid="omt-whish-transfer-partner-no-payment-notice"
+            className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
+          >
+            {serviceType === "SEND" ? (
+              <>
+                No counter payment is collected for a partner transfer. The
+                shop disburses{" "}
+                <span className="font-bold">${totalAmount.toFixed(2)}</span>{" "}
+                via the method above; the partner is billed for the full
+                amount, settled later on the Partners page.
+              </>
+            ) : (
+              <>
+                No payout is made to a walk-in customer. The wallet is
+                credited{" "}
+                <span className="font-bold">${walletAmount.toFixed(2)}</span>,
+                and the partner&apos;s account is credited accordingly,
+                settled later on the Partners page.
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+        {/* Sender / Receiver Info — only the mode's own party (A2):
+            SEND collects the sender, RECEIVE collects the receiver. */}
+        <div className="grid grid-cols-2 gap-3">
+          {serviceType === "SEND" && (
+            <>
+              <div>
+                <label
+                  htmlFor="sender-name"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
+                  <User size={12} /> Sender Name{" "}
+                  {activeSession && serviceType === "SEND" && "• Session"}
+                </label>
+                <ClientAutocompleteInput
+                  id="sender-name"
+                  type="text"
+                  value={senderName}
+                  onChange={(v) => {
+                    setSenderName(v);
+                    if (serviceType === "SEND") setClientId(null);
+                  }}
+                  onClientSelect={(c) => {
+                    setSenderPhone(c.phone_number || "");
+                    if (serviceType === "SEND") {
+                      setClientId(c.id);
+                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                      setPaymentInputKey((k) => k + 1);
+                    }
+                  }}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                  placeholder="Sender name"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="sender-phone"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
+                  <Phone size={12} /> Sender Phone{" "}
+                  {activeSession && serviceType === "SEND" && "• Session"}
+                </label>
+                <ClientAutocompleteInput
+                  id="sender-phone"
+                  type="tel"
+                  value={senderPhone}
+                  onChange={(v) => {
+                    setSenderPhone(v);
+                    if (serviceType === "SEND") setClientId(null);
+                  }}
+                  onClientSelect={(c) => {
+                    setSenderName(c.full_name);
+                    if (serviceType === "SEND") {
+                      setClientId(c.id);
+                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                      setPaymentInputKey((k) => k + 1);
+                    }
+                  }}
+                  searchByPhone
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                  placeholder="Sender phone"
+                />
+              </div>
+            </>
+          )}
+          {serviceType === "RECEIVE" && (
+            <>
+              <div>
+                <label
+                  htmlFor="receiver-name"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
+                  <User size={12} /> Receiver Name{" "}
+                  {activeSession && serviceType === "RECEIVE" && "• Session"}
+                </label>
+                <ClientAutocompleteInput
+                  id="receiver-name"
+                  type="text"
+                  value={receiverName}
+                  onChange={(v) => {
+                    setReceiverName(v);
+                    if (serviceType === "RECEIVE") setClientId(null);
+                  }}
+                  onClientSelect={(c) => {
+                    setReceiverPhone(c.phone_number || "");
+                    if (serviceType === "RECEIVE") {
+                      setClientId(c.id);
+                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                      setPaymentInputKey((k) => k + 1);
+                    }
+                  }}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                  placeholder="Receiver name"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="receiver-phone"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
+                  <Phone size={12} /> Receiver Phone{" "}
+                  {activeSession && serviceType === "RECEIVE" && "• Session"}
+                </label>
+                <ClientAutocompleteInput
+                  id="receiver-phone"
+                  type="tel"
+                  value={receiverPhone}
+                  onChange={(v) => {
+                    setReceiverPhone(v);
+                    if (serviceType === "RECEIVE") setClientId(null);
+                  }}
+                  onClientSelect={(c) => {
+                    setReceiverName(c.full_name);
+                    if (serviceType === "RECEIVE") {
+                      setClientId(c.id);
+                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                      setPaymentInputKey((k) => k + 1);
+                    }
+                  }}
+                  searchByPhone
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                  placeholder="Receiver phone"
+                />
+              </div>
+            </>
+          )}
+        </div>
+        <SaveAsClientCheckbox
+          checked={saveAsClient}
+          onChange={setSaveAsClient}
+          hidden={!showSaveAsClient}
+        />
+        </>
+      )}
 
       <TransactionTimeOverride
         value={transactionTime}
@@ -661,6 +808,13 @@ function OmtWhishAppTransferFormInner({
                 alert("Please enter a valid amount");
                 return;
               }
+              // PFT-3b: a partner transfer bypasses handleSubmit/PaymentSheet
+              // and the active session's cart entirely — no walk-in
+              // customer, no counter cash.
+              if (forPartner) {
+                handleForPartnerSubmit();
+                return;
+              }
               // Session mode: add to cart directly (basket owns the payment),
               // skipping the PaymentSheet. Non-session: open the PaymentSheet.
               if (activeSession) {
@@ -669,127 +823,143 @@ function OmtWhishAppTransferFormInner({
                 setShowPaymentSheet(true);
               }
             }}
-            disabled={!amount || parseFloat(amount) <= 0}
+            disabled={
+              !amount ||
+              parseFloat(amount) <= 0 ||
+              isSubmittingPartner ||
+              (forPartner && !selectedPartnerId)
+            }
             className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
-              !amount || parseFloat(amount) <= 0
+              !amount ||
+              parseFloat(amount) <= 0 ||
+              isSubmittingPartner ||
+              (forPartner && !selectedPartnerId)
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                 : activeProvider === "OMT_APP"
                   ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
                   : "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
             }`}
           >
-            {activeSession ? "Add to Cart" : "Proceed to Pay"}
+            {forPartner
+              ? "Submit to Partner"
+              : activeSession
+                ? "Add to Cart"
+                : "Proceed to Pay"}
           </button>
         </div>
       </div>
 
-      {/* Payment Sheet (Right Drawer) */}
-      <PaymentSheet
-        open={showPaymentSheet}
-        onClose={() => setShowPaymentSheet(false)}
-        onConfirm={handleSubmit}
-        isSubmitting={isSubmitting}
-        title={activeSession ? "Add to Cart" : "Confirm Payment"}
-        subtitle={`${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"} ${serviceType === "SEND" ? "Send" : "Receive"} — $${parsedAmount.toFixed(2)}`}
-        accentColor={
-          activeProvider === "OMT_APP"
-            ? "bg-[#ffde00] hover:bg-[#ffde00]/90 text-black"
-            : "bg-[#ff0a46] hover:bg-[#ff0a46]/90 text-white"
-        }
-        confirmLabel={
-          activeSession ? "Add to Cart" : `Pay $${totalAmount.toFixed(2)}`
-        }
-        summary={[
-          // Client details in the confirm step (A3)
-          ...(activeClientName.trim()
-            ? [
-                {
-                  label: serviceType === "SEND" ? "Sender" : "Receiver",
-                  value: activeClientName.trim(),
-                },
-              ]
-            : []),
-          ...(activeClientPhone.trim()
-            ? [{ label: "Phone", value: activeClientPhone.trim() }]
-            : []),
-          isAppWalletReceive
-            ? {
-                label: "Received into Wallet",
-                value: `$${walletAmount.toFixed(2)}`,
-              }
-            : { label: "Transfer Amount", value: `$${parsedAmount.toFixed(2)}` },
-          ...(providerFee > 0
-            ? [
-                {
-                  label: isAppWalletReceive ? "Fee" : "Provider Fee",
-                  value: `$${providerFee.toFixed(2)}`,
-                  color: "text-amber-400",
-                },
-              ]
-            : []),
-          ...(shopProfit > 0
-            ? [
-                {
-                  label: "Shop Profit",
-                  value: `$${shopProfit.toFixed(2)}`,
-                  color: "text-emerald-400",
-                },
-              ]
-            : []),
-          {
-            label: isAppWalletReceive ? "Customer Receives" : "Total",
-            value: `$${totalAmount.toFixed(2)}`,
-            ...(isAppWalletReceive ? { color: "text-emerald-400" } : {}),
-          },
-        ]}
-        totalAmount={totalAmount}
-        currency="USD"
-        paymentMethods={allPaymentMethods}
-        exchangeRate={exchangeRate}
-        showDiscount={true}
-        maxDiscount={shopProfit}
-        onDiscountChange={setDiscount}
-        requiresClientForDebt={true}
-        hasClient={
-          !!clientId ||
-          (!!activeClientName.trim() && !!activeClientPhone.trim())
-        }
-        paymentInputKey={paymentInputKey}
-        initialPaymentMethod={initialPaymentMethod}
-        onPaymentChange={(lines) => {
-          setPaymentLines(lines);
-          if (lines.length === 1) {
-            setPaidByMethod(lines[0].method);
+      {/* Payment Sheet (Right Drawer) — skipped entirely for a partner
+          transfer (PFT-3b): it collects no cash, so the notice above stands
+          in for it. */}
+      {!forPartner && (
+        <PaymentSheet
+          open={showPaymentSheet}
+          onClose={() => setShowPaymentSheet(false)}
+          onConfirm={handleSubmit}
+          isSubmitting={isSubmitting}
+          title={activeSession ? "Add to Cart" : "Confirm Payment"}
+          subtitle={`${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"} ${serviceType === "SEND" ? "Send" : "Receive"} — $${parsedAmount.toFixed(2)}`}
+          accentColor={
+            activeProvider === "OMT_APP"
+              ? "bg-[#ffde00] hover:bg-[#ffde00]/90 text-black"
+              : "bg-[#ff0a46] hover:bg-[#ff0a46]/90 text-white"
           }
-        }}
-        onReturnChange={setReturnLegs}
-        onKeptChange={setKeptChange}
-      >
-        {(activeClientName.trim() || activeClientPhone.trim()) && (
-          <div className="rounded-lg bg-slate-800/60 border border-slate-700/40 p-3 space-y-1">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              {serviceType === "SEND" ? "Sender" : "Receiver"} (linked client)
-            </div>
-            {activeClientName.trim() && (
-              <div className="text-sm text-white truncate">
-                {activeClientName}
+          confirmLabel={
+            activeSession ? "Add to Cart" : `Pay $${totalAmount.toFixed(2)}`
+          }
+          summary={[
+            // Client details in the confirm step (A3)
+            ...(activeClientName.trim()
+              ? [
+                  {
+                    label: serviceType === "SEND" ? "Sender" : "Receiver",
+                    value: activeClientName.trim(),
+                  },
+                ]
+              : []),
+            ...(activeClientPhone.trim()
+              ? [{ label: "Phone", value: activeClientPhone.trim() }]
+              : []),
+            isAppWalletReceive
+              ? {
+                  label: "Received into Wallet",
+                  value: `$${walletAmount.toFixed(2)}`,
+                }
+              : { label: "Transfer Amount", value: `$${parsedAmount.toFixed(2)}` },
+            ...(providerFee > 0
+              ? [
+                  {
+                    label: isAppWalletReceive ? "Fee" : "Provider Fee",
+                    value: `$${providerFee.toFixed(2)}`,
+                    color: "text-amber-400",
+                  },
+                ]
+              : []),
+            ...(shopProfit > 0
+              ? [
+                  {
+                    label: "Shop Profit",
+                    value: `$${shopProfit.toFixed(2)}`,
+                    color: "text-emerald-400",
+                  },
+                ]
+              : []),
+            {
+              label: isAppWalletReceive ? "Customer Receives" : "Total",
+              value: `$${totalAmount.toFixed(2)}`,
+              ...(isAppWalletReceive ? { color: "text-emerald-400" } : {}),
+            },
+          ]}
+          totalAmount={totalAmount}
+          currency="USD"
+          paymentMethods={allPaymentMethods}
+          exchangeRate={exchangeRate}
+          showDiscount={true}
+          maxDiscount={shopProfit}
+          onDiscountChange={setDiscount}
+          requiresClientForDebt={true}
+          hasClient={
+            !!clientId ||
+            (!!activeClientName.trim() && !!activeClientPhone.trim())
+          }
+          paymentInputKey={paymentInputKey}
+          initialPaymentMethod={initialPaymentMethod}
+          onPaymentChange={(lines) => {
+            setPaymentLines(lines);
+            if (lines.length === 1) {
+              setPaidByMethod(lines[0].method);
+            }
+          }}
+          onReturnChange={setReturnLegs}
+          onKeptChange={setKeptChange}
+        >
+          {(activeClientName.trim() || activeClientPhone.trim()) && (
+            <div className="rounded-lg bg-slate-800/60 border border-slate-700/40 p-3 space-y-1">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                {serviceType === "SEND" ? "Sender" : "Receiver"} (linked client)
               </div>
-            )}
-            {activeClientPhone.trim() && (
-              <div className="text-xs font-mono text-slate-300 truncate">
-                {activeClientPhone}
-              </div>
-            )}
-            {activeClientName.trim() &&
-              activeClientPhone.trim() &&
-              !clientId && (
-                <p className="text-xs text-orange-300/80">
-                  New client will be created on confirm.
-                </p>
+              {activeClientName.trim() && (
+                <div className="text-sm text-white truncate">
+                  {activeClientName}
+                </div>
               )}
-          </div>
-        )}
-      </PaymentSheet>
+              {activeClientPhone.trim() && (
+                <div className="text-xs font-mono text-slate-300 truncate">
+                  {activeClientPhone}
+                </div>
+              )}
+              {activeClientName.trim() &&
+                activeClientPhone.trim() &&
+                !clientId && (
+                  <p className="text-xs text-orange-300/80">
+                    New client will be created on confirm.
+                  </p>
+                )}
+            </div>
+          )}
+        </PaymentSheet>
+      )}
 
       {/* History Modal */}
       {showHistory && (

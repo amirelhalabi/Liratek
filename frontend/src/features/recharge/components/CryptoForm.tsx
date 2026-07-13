@@ -4,6 +4,8 @@ import {
   ServiceTypeTabs,
   DecimalInput,
   hasNewClientInfo,
+  useApi,
+  appEvents,
   type PaymentLine,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
@@ -16,6 +18,8 @@ import type {
 import { HistoryModal } from "./HistoryModal";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import logger from "@/utils/logger";
 
 interface CryptoFormProps {
   activeConfig: ProviderConfig | undefined;
@@ -88,6 +92,17 @@ export function CryptoForm({
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
   const { activeSession } = useSession();
+  const api = useApi();
+
+  // PFT-3b: a "for partner" Binance transaction has NO walk-in customer —
+  // it never opens the PaymentSheet and takes no counter payment. The
+  // partner owes (SEND) or is owed (RECEIVE) on their ledger, settled later
+  // on the Partners page.
+  const [forPartner, setForPartner] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
+  const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
 
   // Auto-promote CUSTOMER_ACCOUNT once name+phone are filled for a new client
   useEffect(() => {
@@ -123,6 +138,71 @@ export function CryptoForm({
   const sendTotal = feeIncluded ? parsedAmount : parsedAmount + fee;
   const payout = feeIncluded ? parsedAmount - fee : parsedAmount;
   const receiveUsdt = feeIncluded ? parsedAmount : parsedAmount + fee;
+
+  // PFT-3b direct submission for a "for partner" Binance transaction —
+  // bypasses handleCryptoSubmit (the parent's normal path) and the
+  // PaymentSheet entirely. payments is always [] here: the backend moves
+  // the Binance/USDT drawer itself and books the partner's USD debt
+  // (SEND: amount+fee) or credit (RECEIVE: amount-fee) — see
+  // FinancialServiceRepository's isForPartner BINANCE branch.
+  const handleForPartnerSubmit = async () => {
+    if (!cryptoAmount || parsedAmount <= 0) return;
+    if (!selectedPartnerId) {
+      appEvents.emit(
+        "notification:show",
+        "Select a partner for this transaction.",
+        "warning",
+      );
+      return;
+    }
+
+    setIsSubmittingPartner(true);
+    try {
+      const result = await api.addOMTTransaction({
+        provider: "BINANCE",
+        serviceType: cryptoType,
+        amount: cryptoType === "RECEIVE" ? receiveUsdt : sendUsdt,
+        currency: "USDT",
+        commission: fee,
+        payments: [],
+        partnerId: selectedPartnerId,
+        partnerMode: "FOR" as const,
+        note: cryptoDescription || undefined,
+        transaction_time: transactionTime,
+      });
+
+      if (!result?.success) {
+        appEvents.emit(
+          "notification:show",
+          result?.error || "Failed to process partner transaction",
+          "error",
+        );
+        return;
+      }
+
+      setCryptoAmount("");
+      setCryptoFee("");
+      setCryptoDescription("");
+      loadCryptoData();
+    } catch (err) {
+      logger.error("Failed to submit partner crypto transaction:", err);
+      appEvents.emit(
+        "notification:show",
+        err instanceof Error
+          ? err.message
+          : "Failed to process partner transaction",
+        "error",
+      );
+    } finally {
+      setIsSubmittingPartner(false);
+    }
+  };
+
+  const submitDisabled =
+    !cryptoAmount ||
+    parsedAmount <= 0 ||
+    isSubmittingPartner ||
+    (forPartner && !selectedPartnerId);
 
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
@@ -256,62 +336,100 @@ export function CryptoForm({
         )}
       </div>
 
-      {/* Client Name + Phone + Description */}
-      <div className="grid grid-cols-3 gap-2">
-        <div>
-          <label
-            htmlFor="crypto-client"
-            className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-          >
-            <User size={12} /> Client Name {activeSession && "• Session"}
-          </label>
-          <ClientAutocompleteInput
-            id="crypto-client"
-            type="text"
-            value={cryptoClientName}
-            onChange={(v) => {
-              setCryptoClientName(v);
-              if (!v) {
-                setCryptoClientId(null);
-                setCryptoClientPhone("");
-              }
+      {/* For Partner opt-in — routes this Binance transaction to a
+          partner's ledger instead of a walk-in customer. No counter
+          payment is ever collected in this mode (backend rejects any IN
+          leg); the PaymentSheet below is replaced with a notice. */}
+      <div>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="crypto-for-partner-toggle"
+            checked={forPartner}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setForPartner(checked);
+              if (!checked) setSelectedPartnerId(null);
             }}
-            onClientSelect={(c) => {
-              setCryptoClientId(c.id);
-              setCryptoClientPhone(c.phone_number || "");
-              setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-              setPaymentInputKey((k) => k + 1);
-            }}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
-            placeholder="Optional"
+            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
           />
-        </div>
-        <div>
-          <label
-            htmlFor="crypto-client-phone"
-            className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-          >
-            <Phone size={12} /> Phone
-          </label>
-          <ClientAutocompleteInput
-            id="crypto-client-phone"
-            type="tel"
-            value={cryptoClientPhone}
-            onChange={(v) => {
-              setCryptoClientPhone(v);
-              if (!v) setCryptoClientId(null);
-            }}
-            onClientSelect={(c) => {
-              setCryptoClientId(c.id);
-              setCryptoClientName(c.full_name);
-              setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-              setPaymentInputKey((k) => k + 1);
-            }}
-            searchByPhone
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-amber-500 transition-all"
-            placeholder="Registers new client"
+          <span className="text-xs text-slate-400">For Partner</span>
+        </label>
+        {forPartner && (
+          <PartnerSelector
+            required
+            autoSelectSingle
+            selectedPartnerId={selectedPartnerId}
+            onSelect={setSelectedPartnerId}
+            className="mt-2"
           />
-        </div>
+        )}
+      </div>
+
+      {/* Client Name + Phone + Description — Client Name/Phone are hidden
+          in partner mode (the backend rejects clientId/clientName once
+          partnerMode is "FOR"); Notes stays available for a wallet/ref note. */}
+      <div
+        className={`grid gap-2 ${forPartner ? "grid-cols-1" : "grid-cols-3"}`}
+      >
+        {!forPartner && (
+          <>
+            <div>
+              <label
+                htmlFor="crypto-client"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+              >
+                <User size={12} /> Client Name {activeSession && "• Session"}
+              </label>
+              <ClientAutocompleteInput
+                id="crypto-client"
+                type="text"
+                value={cryptoClientName}
+                onChange={(v) => {
+                  setCryptoClientName(v);
+                  if (!v) {
+                    setCryptoClientId(null);
+                    setCryptoClientPhone("");
+                  }
+                }}
+                onClientSelect={(c) => {
+                  setCryptoClientId(c.id);
+                  setCryptoClientPhone(c.phone_number || "");
+                  setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                  setPaymentInputKey((k) => k + 1);
+                }}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
+                placeholder="Optional"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="crypto-client-phone"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+              >
+                <Phone size={12} /> Phone
+              </label>
+              <ClientAutocompleteInput
+                id="crypto-client-phone"
+                type="tel"
+                value={cryptoClientPhone}
+                onChange={(v) => {
+                  setCryptoClientPhone(v);
+                  if (!v) setCryptoClientId(null);
+                }}
+                onClientSelect={(c) => {
+                  setCryptoClientId(c.id);
+                  setCryptoClientName(c.full_name);
+                  setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                  setPaymentInputKey((k) => k + 1);
+                }}
+                searchByPhone
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-amber-500 transition-all"
+                placeholder="Registers new client"
+              />
+            </div>
+          </>
+        )}
         <div>
           <label
             htmlFor="crypto-description"
@@ -368,6 +486,14 @@ export function CryptoForm({
             <button
               type="button"
               onClick={() => {
+                // PFT-3b: a partner transaction bypasses the PaymentSheet AND
+                // handleCryptoSubmit entirely — no walk-in customer, no
+                // counter cash, so it never opens the sheet or adds to the
+                // active session's cart either.
+                if (forPartner) {
+                  handleForPartnerSubmit();
+                  return;
+                }
                 // Session mode: add to cart directly (basket owns the payment),
                 // skipping the PaymentSheet. Non-session: open the PaymentSheet.
                 if (activeSession) {
@@ -376,116 +502,136 @@ export function CryptoForm({
                   setShowPaymentSheet(true);
                 }
               }}
-              disabled={!cryptoAmount || parsedAmount <= 0}
+              disabled={submitDisabled}
               className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
-                !cryptoAmount || parsedAmount <= 0
+                submitDisabled
                   ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                   : "bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-500/20"
               }`}
             >
-              {cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Proceed to Pay"}
+              {forPartner
+                ? "Submit to Partner"
+                : cryptoType === "RECEIVE"
+                  ? "Confirm Cash Out"
+                  : "Proceed to Pay"}
             </button>
           </div>
         </div>
       </div>
 
-      <PaymentSheet
-        open={showPaymentSheet}
-        onClose={() => setShowPaymentSheet(false)}
-        onConfirm={handleCryptoSubmit}
-        isSubmitting={isSubmitting}
-        title={
-          cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Confirm Payment"
-        }
-        subtitle={
-          cryptoType === "RECEIVE"
-            ? `Cash Out — Payout $${payout.toFixed(2)}`
-            : `Crypto — $${sendTotal.toFixed(2)}`
-        }
-        accentColor="bg-amber-600 hover:bg-amber-500 text-white"
-        confirmLabel={
-          cryptoType === "RECEIVE"
-            ? `Confirm Cash Out $${payout.toFixed(2)}`
-            : `Pay $${sendTotal.toFixed(2)}`
-        }
-        summary={
-          cryptoType === "RECEIVE"
-            ? [
-                ...(cryptoClientName.trim()
-                  ? [{ label: "Client", value: cryptoClientName.trim() }]
-                  : []),
-                ...(cryptoClientPhone.trim()
-                  ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
-                  : []),
-                {
-                  label: "USDT Received",
-                  value: `${receiveUsdt.toFixed(2)} USDT`,
-                },
-                ...(fee > 0
-                  ? [
-                      {
-                        label: "Shop Fee",
-                        value: `−$${fee.toFixed(2)}`,
-                        color: "text-emerald-400",
-                      },
-                    ]
-                  : []),
-                {
-                  label: "Customer Payout",
-                  value: `$${payout.toFixed(2)}`,
-                },
-              ]
-            : [
-                ...(cryptoClientName.trim()
-                  ? [{ label: "Client", value: cryptoClientName.trim() }]
-                  : []),
-                ...(cryptoClientPhone.trim()
-                  ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
-                  : []),
-                { label: "USDT Sent", value: `${sendUsdt.toFixed(2)} USDT` },
-                ...(fee > 0
-                  ? [
-                      {
-                        label: "Fee",
-                        value: `$${fee.toFixed(2)}`,
-                        color: "text-amber-400",
-                      },
-                    ]
-                  : []),
-                {
-                  label: "Customer Pays",
-                  value: `$${sendTotal.toFixed(2)}`,
-                },
-              ]
-        }
-        totalAmount={cryptoType === "RECEIVE" ? payout : sendTotal}
-        currency="USD"
-        paymentMethods={paymentMethods}
-        exchangeRate={exchangeRate}
-        showDiscount={true}
-        maxDiscount={fee}
-        onDiscountChange={(d) => {
-          onDiscountChange?.(d);
-        }}
-        requiresClientForDebt={true}
-        hasClient={
-          !!cryptoClientId ||
-          (!!cryptoClientName.trim() && !!cryptoClientPhone.trim())
-        }
-        paymentInputKey={paymentInputKey}
-        initialPaymentMethod={initialPaymentMethod}
-        onPaymentChange={onPaymentLinesChange}
-        {...(onReturnChange ? { onReturnChange } : {})}
-        {...(onKeptChange ? { onKeptChange } : {})}
-      >
-        {cryptoClientName.trim() &&
-          cryptoClientPhone.trim() &&
-          !cryptoClientId && (
-            <p className="text-xs text-orange-300/80 px-1">
-              New client will be created on confirm.
-            </p>
-          )}
-      </PaymentSheet>
+      {/* PaymentSheet is skipped entirely for a partner transaction: it
+          collects no cash, so show a short notice instead. */}
+      {forPartner ? (
+        <div
+          data-testid="crypto-partner-no-payment-notice"
+          className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
+        >
+          No payment is collected for a partner transaction. The partner
+          will {cryptoType === "RECEIVE" ? "be credited" : "owe"}{" "}
+          <span className="font-bold">
+            ${(cryptoType === "RECEIVE" ? payout : sendTotal).toFixed(2)}
+          </span>{" "}
+          on their ledger, settled later on the Partners page.
+        </div>
+      ) : (
+        <PaymentSheet
+          open={showPaymentSheet}
+          onClose={() => setShowPaymentSheet(false)}
+          onConfirm={handleCryptoSubmit}
+          isSubmitting={isSubmitting}
+          title={
+            cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Confirm Payment"
+          }
+          subtitle={
+            cryptoType === "RECEIVE"
+              ? `Cash Out — Payout $${payout.toFixed(2)}`
+              : `Crypto — $${sendTotal.toFixed(2)}`
+          }
+          accentColor="bg-amber-600 hover:bg-amber-500 text-white"
+          confirmLabel={
+            cryptoType === "RECEIVE"
+              ? `Confirm Cash Out $${payout.toFixed(2)}`
+              : `Pay $${sendTotal.toFixed(2)}`
+          }
+          summary={
+            cryptoType === "RECEIVE"
+              ? [
+                  ...(cryptoClientName.trim()
+                    ? [{ label: "Client", value: cryptoClientName.trim() }]
+                    : []),
+                  ...(cryptoClientPhone.trim()
+                    ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
+                    : []),
+                  {
+                    label: "USDT Received",
+                    value: `${receiveUsdt.toFixed(2)} USDT`,
+                  },
+                  ...(fee > 0
+                    ? [
+                        {
+                          label: "Shop Fee",
+                          value: `−$${fee.toFixed(2)}`,
+                          color: "text-emerald-400",
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Customer Payout",
+                    value: `$${payout.toFixed(2)}`,
+                  },
+                ]
+              : [
+                  ...(cryptoClientName.trim()
+                    ? [{ label: "Client", value: cryptoClientName.trim() }]
+                    : []),
+                  ...(cryptoClientPhone.trim()
+                    ? [{ label: "Phone", value: cryptoClientPhone.trim() }]
+                    : []),
+                  { label: "USDT Sent", value: `${sendUsdt.toFixed(2)} USDT` },
+                  ...(fee > 0
+                    ? [
+                        {
+                          label: "Fee",
+                          value: `$${fee.toFixed(2)}`,
+                          color: "text-amber-400",
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Customer Pays",
+                    value: `$${sendTotal.toFixed(2)}`,
+                  },
+                ]
+          }
+          totalAmount={cryptoType === "RECEIVE" ? payout : sendTotal}
+          currency="USD"
+          paymentMethods={paymentMethods}
+          exchangeRate={exchangeRate}
+          showDiscount={true}
+          maxDiscount={fee}
+          onDiscountChange={(d) => {
+            onDiscountChange?.(d);
+          }}
+          requiresClientForDebt={true}
+          hasClient={
+            !!cryptoClientId ||
+            (!!cryptoClientName.trim() && !!cryptoClientPhone.trim())
+          }
+          paymentInputKey={paymentInputKey}
+          initialPaymentMethod={initialPaymentMethod}
+          onPaymentChange={onPaymentLinesChange}
+          {...(onReturnChange ? { onReturnChange } : {})}
+          {...(onKeptChange ? { onKeptChange } : {})}
+        >
+          {cryptoClientName.trim() &&
+            cryptoClientPhone.trim() &&
+            !cryptoClientId && (
+              <p className="text-xs text-orange-300/80 px-1">
+                New client will be created on confirm.
+              </p>
+            )}
+        </PaymentSheet>
+      )}
 
       {/* History Modal */}
       {showHistory && (

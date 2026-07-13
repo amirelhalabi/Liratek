@@ -10,10 +10,12 @@ import {
   useApi,
   DecimalInput,
   hasNewClientInfo,
+  appEvents,
 } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import type { ProviderConfig, FinancialTransaction } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
@@ -312,6 +314,17 @@ function KatchFormInner({
   const [localSubmitting, setLocalSubmitting] = useState(false);
   const [newItemForm, setNewItemForm] = useState<NewItemForm | null>(null);
   const [addItemError, setAddItemError] = useState("");
+
+  // PFT-3b (Partner FOR-Transactions, financial-service dispatch): a partner
+  // Katsh/iPick checkout has NO walk-in customer and takes NO counter cash —
+  // the partner owes exactly the selling price (backend books provider
+  // drawer −cost + partner owes price, payments: []). Kept separate from
+  // localSubmitting so the normal PaymentSheet path stays untouched.
+  const [forPartner, setForPartner] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
+  const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
 
   // Autofill client name + phone from active customer session
   useSessionAutoFill([
@@ -650,7 +663,10 @@ function KatchFormInner({
         ? `${Math.round(parsed).toLocaleString()} LBP`
         : `$${parsed.toFixed(2)}`;
 
-    if (activeSession) {
+    // A partner bill never enters the session basket (mirrors the Proceed
+    // button's forPartner early-return below) — it stages as a pendingBill
+    // and submits through handleForPartnerSubmit regardless of session state.
+    if (activeSession && !forPartner) {
       addToSessionCart({
         module: activeProvider === "Katsh" ? "katsh" : "ipick",
         label: `${providerLabel} BILL — ${display}`,
@@ -669,9 +685,14 @@ function KatchFormInner({
         },
       });
       setBillAmount("");
-    } else {
-      // A USD bill needs a rate: as soon as an LBP bill joins it, the sheet
-      // total converts to LBP — with no rate the USD amount would count as 0.
+      return;
+    }
+
+    // A USD bill needs a rate in the walk-in aggregation only — the
+    // PaymentSheet converts every leg to one cross-currency total. A partner
+    // bill books in its OWN currency alone (no PaymentSheet, no total), so
+    // the rate guard doesn't apply to it.
+    if (!forPartner) {
       const involvesUsd =
         billCurrency === "USD" ||
         pendingBills.some((b) => b.currency === "USD");
@@ -681,12 +702,157 @@ function KatchFormInner({
         );
         return;
       }
-      setPendingBills((prev) => [
-        ...prev,
-        { amount: parsed, currency: billCurrency },
-      ]);
-      setBillAmount("");
     }
+    setPendingBills((prev) => [
+      ...prev,
+      { amount: parsed, currency: billCurrency },
+    ]);
+    setBillAmount("");
+  };
+
+  // PFT-3b: direct submission for a "for partner" Katsh/iPick checkout —
+  // bypasses the session basket, the PaymentSheet, and the client/discount/
+  // kept-change/bill-carrier machinery entirely (those exist only to
+  // coordinate ONE customer payment across several transactions — there is
+  // no payment here). Reuses the same cart-aggregation + pending-bills
+  // iteration as handleSubmit, simplified: every unit/bill goes out with
+  // partnerId, partnerMode: "FOR", payments: [] — the backend books the
+  // provider drawer −cost and the partner owes exactly the selling price.
+  const handleForPartnerSubmit = async () => {
+    if (
+      (cart.size === 0 && pendingBills.length === 0) ||
+      isSubmittingPartner
+    )
+      return;
+    if (!selectedPartnerId) {
+      appEvents.emit(
+        "notification:show",
+        "Select a partner for this transaction.",
+        "warning",
+      );
+      return;
+    }
+
+    setIsSubmittingPartner(true);
+
+    // true when there are no catalog items to process (bill-only checkout)
+    let allSucceeded = cart.size === 0;
+
+    if (cart.size > 0) {
+      const cartItems = Array.from(cart.values());
+
+      const totalSellPrice = cartItems.reduce((sum, line) => {
+        return (
+          sum +
+          calcPrice(
+            line.item,
+            line.onlyDays,
+            line.returnedCreditsUsd,
+            alfaCreditSellRate,
+          ) *
+            line.quantity
+        );
+      }, 0);
+
+      const aggregatedCost = cartItems.reduce((sum, line) => {
+        return (
+          sum +
+          calcCost(
+            line.item,
+            line.onlyDays,
+            line.returnedCreditsUsd,
+            alfaCreditCostRate,
+          ) *
+            line.quantity
+        );
+      }, 0);
+
+      const aggregatedCommission = Math.max(
+        0,
+        totalSellPrice - aggregatedCost,
+      );
+
+      const noteLines = cartItems.map((line) => {
+        const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
+        const onlyDays = line.onlyDays ? " [Only Days]" : "";
+        return `${formatCatalogItemName(line.item)}${qty}${onlyDays}`;
+      });
+      const note = noteLines.join(", ");
+
+      try {
+        const result = await api.addOMTTransaction({
+          provider: activeProvider,
+          serviceType: "SEND",
+          amount: totalSellPrice,
+          cost: aggregatedCost,
+          currency: "LBP",
+          commission: aggregatedCommission,
+          payments: [],
+          partnerId: selectedPartnerId,
+          partnerMode: "FOR" as const,
+          note,
+          transaction_time: transactionTime,
+        });
+
+        if (result?.success) {
+          allSucceeded = true;
+        } else {
+          logger.error("Katch partner submit failed:", result?.error);
+          alert(result?.error || "Failed to process partner transaction");
+        }
+      } catch (err) {
+        logger.error("Katch partner submit error:", err);
+        alert("Failed to process partner transaction");
+      }
+    }
+
+    // Each pending bill is its own BILL transaction, same as the normal
+    // path — but with no legs to carry across bills, every bill submits
+    // independently (no isCarrier/deferPayment distinction needed).
+    if (pendingBills.length > 0 && allSucceeded) {
+      for (let i = 0; i < pendingBills.length; i++) {
+        const bill = pendingBills[i];
+        try {
+          const billResult = await api.addOMTTransaction({
+            provider: activeProvider,
+            serviceType: "BILL",
+            amount: bill.amount,
+            cost: bill.amount,
+            price: bill.amount,
+            currency: bill.currency,
+            commission: 0,
+            payments: [],
+            partnerId: selectedPartnerId,
+            partnerMode: "FOR" as const,
+            transaction_time: transactionTime,
+          });
+          if (!billResult?.success) {
+            allSucceeded = false;
+            setPendingBills(pendingBills.slice(i));
+            logger.error("Partner bill submit failed:", billResult?.error);
+            alert(billResult?.error || "Failed to process bill");
+            break;
+          }
+        } catch (err) {
+          allSucceeded = false;
+          setPendingBills(pendingBills.slice(i));
+          logger.error("Partner bill submit error:", err);
+          alert("Failed to process bill");
+          break;
+        }
+      }
+      if (allSucceeded) {
+        setPendingBills([]);
+      }
+    }
+
+    if (allSucceeded) {
+      setCart(new Map());
+      setExpandedKeys(new Set());
+      setTransactionTime(undefined);
+    }
+    loadFinancialData();
+    setIsSubmittingPartner(false);
   };
 
   const handleSubmit = async () => {
@@ -1022,7 +1188,7 @@ function KatchFormInner({
               )}
             </div>
           )}
-          {pendingBills.length > 0 && !activeSession && (
+          {pendingBills.length > 0 && (!activeSession || forPartner) && (
             <div className="text-right leading-tight">
               <div className={`text-xs font-bold ${billAccent.pendingLabel}`}>
                 {pendingBills.length > 1
@@ -1039,6 +1205,13 @@ function KatchFormInner({
           <button
             type="button"
             onClick={() => {
+              // PFT-3b: a partner checkout bypasses the session basket AND
+              // the PaymentSheet entirely — no walk-in customer, no counter
+              // cash, so it never adds to the active session's cart either.
+              if (forPartner) {
+                handleForPartnerSubmit();
+                return;
+              }
               // Session mode: add to cart directly (basket owns the payment),
               // skipping the PaymentSheet. Non-session: open the PaymentSheet.
               if (activeSession) {
@@ -1047,16 +1220,64 @@ function KatchFormInner({
                 setShowPaymentSheet(true);
               }
             }}
-            disabled={totalItems === 0 && pendingBills.length === 0}
+            disabled={
+              (totalItems === 0 && pendingBills.length === 0) ||
+              (forPartner && (!selectedPartnerId || isSubmittingPartner))
+            }
             className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
-              totalItems === 0 && pendingBills.length === 0
+              (totalItems === 0 && pendingBills.length === 0) ||
+              (forPartner && (!selectedPartnerId || isSubmittingPartner))
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                 : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
             }`}
           >
-            {activeSession ? "Add to Cart" : "Proceed to Pay"}
+            {forPartner
+              ? isSubmittingPartner
+                ? "Submitting..."
+                : "Submit to Partner"
+              : activeSession
+                ? "Add to Cart"
+                : "Proceed to Pay"}
           </button>
         </div>
+      </div>
+
+      {/* For Partner — PFT-3b: a partner checkout has NO walk-in customer
+          and takes NO counter cash; the full selling price goes on the
+          selected partner's tab, settled later on the Partners page. */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="katch-for-partner-toggle"
+            checked={forPartner}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setForPartner(checked);
+              if (!checked) setSelectedPartnerId(null);
+            }}
+            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+          />
+          <span className="text-xs text-slate-400">For Partner</span>
+        </label>
+        {forPartner && (
+          <PartnerSelector
+            required
+            autoSelectSingle
+            selectedPartnerId={selectedPartnerId}
+            onSelect={setSelectedPartnerId}
+          />
+        )}
+        {forPartner && (
+          <div
+            data-testid="katch-partner-no-payment-notice"
+            className="w-full text-xs text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2"
+          >
+            No payment is collected for a partner transaction. The full
+            selling price goes on the selected partner&apos;s account,
+            settled later on the Partners page.
+          </div>
+        )}
       </div>
 
       {/* Card Grid */}
@@ -1120,10 +1341,10 @@ function KatchFormInner({
                   }
                   className={`w-1/2 py-2 ${billAccent.button} disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors`}
                 >
-                  {activeSession ? "Add Bill to Cart" : "Add Bill"}
+                  {activeSession && !forPartner ? "Add Bill to Cart" : "Add Bill"}
                 </button>
               </div>
-              {pendingBills.length > 0 && !activeSession && (
+              {pendingBills.length > 0 && (!activeSession || forPartner) && (
                 <div className="mt-2 flex flex-col items-center gap-1">
                   {pendingBills.map((bill, idx) => (
                     <div

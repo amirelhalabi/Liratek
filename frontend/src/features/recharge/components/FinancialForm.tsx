@@ -124,6 +124,17 @@ export function FinancialForm({
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [partnerId, setPartnerId] = useState<number | null>(null);
+  // PFT-3b (Partner FOR-Transactions): a "for partner" order has NO walk-in
+  // customer and collects NO counter cash — every cart unit is booked
+  // straight to the selected partner's ledger (partnerMode: "FOR"), settled
+  // later on the Partners page. Replaces the old always-on header
+  // PartnerSelector (which implicitly meant partnerMode "THROUGH" and, with
+  // exactly one partner in the system, mis-painted "Partner: <name>" on
+  // every walk-in transaction — the reused `partnerId` state above is now
+  // ONLY ever set while this checkbox is on).
+  const [forPartner, setForPartner] = useState(false);
+  const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
+  const [partnerPaidFromMethod, setPartnerPaidFromMethod] = useState("CASH");
   const [clientId, setClientId] = useState<number | null>(null);
   const [clientPhone, setClientPhone] = useState("");
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -222,6 +233,17 @@ export function FinancialForm({
 
   // Max discount = total commission (sell - cost), discount cannot exceed profit
   const maxDiscount = Math.max(0, totalPrice - totalCost);
+
+  // A cost=0 unit (no catalog item currently seeds one — OMT_APP has no
+  // items yet) is a straight system transfer, not a priced bill/card: on
+  // SEND, the shop fronts the disbursement and partner mode needs a "Paid
+  // from" drawer-method Select. On RECEIVE the backend credits the service
+  // drawer itself (no OUT leg), so the Select never applies there.
+  const hasTransferUnit =
+    (serviceType || "SEND") === "SEND" &&
+    Array.from(cart.values()).some(
+      (line) => (line.item.catalogCost ?? 0) === 0,
+    );
 
   const totalItems = Array.from(cart.values()).reduce(
     (sum, line) => sum + line.quantity,
@@ -477,6 +499,95 @@ export function FinancialForm({
     setLocalSubmitting(false);
   };
 
+  // PFT-3b: direct submission for a "for partner" order — bypasses
+  // handleSubmit (walk-in path: client, discount, kept-change, session
+  // basket), the active session's cart, and the PaymentSheet entirely,
+  // calling addOMTTransaction straight from here per cart unit with
+  // partnerId + partnerMode:"FOR" (mirrors TelecomForm's
+  // handleForPartnerSubmit). A partner order never enters the session
+  // basket even when one is active.
+  //
+  // Per unit, mirrors the backend's own dispatch
+  // (FinancialServiceRepository: useCostPriceFlow = cost > 0):
+  //   - cost > 0 (every real catalog item today — iPick/Katsh/Whish App
+  //     bills): the cost/price arm books provider drawer −cost and the
+  //     partner owes the selling price directly. payments: [] — no legs.
+  //   - cost === 0 on a SEND (no catalog item seeds this today — OMT_APP has
+  //     no items; only reachable if an admin adds a zero-cost "system
+  //     transfer" item): the legacy/transfer arm needs the shop's
+  //     disbursement as ONE OUT leg so the partner owes exactly that total.
+  //     On RECEIVE the backend credits its own drawer — no leg needed.
+  const handleForPartnerSubmit = async () => {
+    if (cart.size === 0 || isSubmittingPartner) return;
+    if (!partnerId) {
+      alert("Select a partner for this order.");
+      return;
+    }
+
+    setIsSubmittingPartner(true);
+    const cartItems = Array.from(cart.values());
+    const svcType = serviceType || "SEND";
+    let allSucceeded = true;
+
+    for (const line of cartItems) {
+      const sellPrice = line.item.catalogSellPrice ?? 0;
+      const cost = line.item.catalogCost ?? 0;
+      const commission = cost > 0 ? Math.max(0, sellPrice - cost) : 0;
+      const isTransferOutLeg = cost === 0 && svcType === "SEND";
+
+      for (let i = 0; i < line.quantity; i++) {
+        try {
+          const result = await api.addOMTTransaction({
+            provider: activeProvider,
+            serviceType: svcType,
+            amount: sellPrice,
+            cost,
+            currency: "LBP",
+            commission,
+            payments: isTransferOutLeg
+              ? [
+                  {
+                    method: partnerPaidFromMethod,
+                    currencyCode: "LBP",
+                    amount: sellPrice,
+                    direction: "OUT" as const,
+                  },
+                ]
+              : [],
+            itemKey: line.item.key,
+            itemCategory: line.item.category,
+            note: `${formatCatalogItemName(line.item)}`,
+            partnerId,
+            partnerMode: "FOR" as const,
+            transaction_time: transactionTime,
+          });
+
+          if (!result?.success) {
+            logger.error("Partner financial submit failed:", result?.error);
+            alert(result?.error || "Failed to process item");
+            allSucceeded = false;
+            break;
+          }
+        } catch (err) {
+          logger.error("Partner financial submit error:", err);
+          alert("Failed to process item");
+          allSucceeded = false;
+          break;
+        }
+      }
+      if (!allSucceeded) break;
+    }
+
+    if (allSucceeded) {
+      setCart(new Map());
+      setExpandedKeys(new Set());
+      setSearchQuery("");
+      setTransactionTime(undefined);
+    }
+    loadFinancialData();
+    setIsSubmittingPartner(false);
+  };
+
   // Filter items by search query
   const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
     if (!searchQuery.trim()) return items;
@@ -517,10 +628,6 @@ export function FinancialForm({
                 size="sm"
               />
             </div>
-            <PartnerSelector
-              selectedPartnerId={partnerId}
-              onSelect={setPartnerId}
-            />
           </div>
         )}
 
@@ -566,19 +673,57 @@ export function FinancialForm({
                 )}
               </div>
             )}
-            {/* Payment method quick-select */}
-            <Select
-              value={initialPaymentMethod}
-              onChange={(v) => {
-                setInitialPaymentMethod(v);
-                setPaymentInputKey((k) => k + 1);
-              }}
-              options={methods.map((m) => ({ value: m.code, label: m.label }))}
-              buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-500 transition-all cursor-pointer"
-            />
+            {/* "For Partner" opt-in — routes every cart unit to a selected
+                partner's ledger instead of collecting counter cash. Hides
+                the payment-method quick-select and skips the PaymentSheet
+                entirely (see handleForPartnerSubmit). Renders for EVERY
+                provider this form serves, unlike the old always-on header
+                PartnerSelector it replaces. */}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-slate-400 shrink-0">
+              <input
+                type="checkbox"
+                data-testid="financial-for-partner-toggle"
+                checked={forPartner}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setForPartner(checked);
+                  if (!checked) setPartnerId(null);
+                }}
+                className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+              />
+              For Partner
+            </label>
+            {forPartner && (
+              <PartnerSelector
+                required
+                autoSelectSingle
+                selectedPartnerId={partnerId}
+                onSelect={setPartnerId}
+              />
+            )}
+            {/* Payment method quick-select — hidden in partner mode (no
+                counter cash is collected from a customer). */}
+            {!forPartner && (
+              <Select
+                value={initialPaymentMethod}
+                onChange={(v) => {
+                  setInitialPaymentMethod(v);
+                  setPaymentInputKey((k) => k + 1);
+                }}
+                options={methods.map((m) => ({ value: m.code, label: m.label }))}
+                buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-500 transition-all cursor-pointer"
+              />
+            )}
             <button
               type="button"
               onClick={() => {
+                // Partner mode bypasses the PaymentSheet AND the session
+                // basket entirely — a partner order has no walk-in customer,
+                // so it never enters the active session's cart either.
+                if (forPartner) {
+                  handleForPartnerSubmit();
+                  return;
+                }
                 // Session mode: add to cart directly (basket owns the payment),
                 // skipping the PaymentSheet. Non-session: open the PaymentSheet.
                 if (activeSession) {
@@ -587,9 +732,13 @@ export function FinancialForm({
                   setShowPaymentSheet(true);
                 }
               }}
-              disabled={totalItems === 0}
+              disabled={
+                totalItems === 0 ||
+                (forPartner && (isSubmittingPartner || !partnerId))
+              }
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
-                totalItems === 0
+                totalItems === 0 ||
+                (forPartner && (isSubmittingPartner || !partnerId))
                   ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                   : activeProvider === "WHISH_APP"
                     ? "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
@@ -598,10 +747,51 @@ export function FinancialForm({
                       : "bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20"
               }`}
             >
-              {activeSession ? "Add to Cart" : "Proceed to Pay"}
+              {forPartner
+                ? "Submit to Partner"
+                : activeSession
+                  ? "Add to Cart"
+                  : "Proceed to Pay"}
             </button>
           </div>
         </div>
+
+        {/* Partner-mode notice — replaces the payment UI entirely; no
+            counter cash is collected. When the cart contains a cost=0
+            transfer unit, also surface the "Paid from" drawer method used
+            for the OUT-leg disbursement (see handleForPartnerSubmit). */}
+        {forPartner && (
+          <div
+            data-testid="financial-partner-no-payment-notice"
+            className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
+          >
+            <span>
+              No payment is collected from a customer for a partner order.
+              The full{" "}
+              <span className="font-bold">
+                {totalPrice.toLocaleString()} LBP
+              </span>{" "}
+              goes on the selected partner&apos;s account, settled later on
+              the Partners page.
+            </span>
+            {hasTransferUnit && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-orange-300/80 uppercase tracking-wider">
+                  Paid from
+                </span>
+                <Select
+                  value={partnerPaidFromMethod}
+                  onChange={setPartnerPaidFromMethod}
+                  options={methods.map((m) => ({
+                    value: m.code,
+                    label: m.label,
+                  }))}
+                  buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-orange-500 transition-all cursor-pointer"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Card Grid - hidden for OMT_APP (no items) */}
         {activeProvider !== "OMT_APP" && (
