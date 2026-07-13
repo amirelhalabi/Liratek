@@ -78,6 +78,16 @@ export interface SellTicketData {
   deferPayment?: boolean;
   /** Operator-edited USD↔LBP rate of record, threaded by the session checkout. */
   exchange_rate?: number;
+  /**
+   * PFT-4 (Partner FOR-Transactions): when set together with
+   * `partnerMode === "FOR"`, the unpaid remainder books to `partner_ledger`
+   * (FOR_LOTO DEBIT) against this partner instead of a client's `debt_ledger`.
+   * Everything else about the ticket (stock-free, supplier ledger, drawers)
+   * stays normal.
+   */
+  partnerId?: number;
+  /** Only "FOR" is valid for Loto — the partner analog of CUSTOMER_ACCOUNT. */
+  partnerMode?: "FOR";
 }
 
 export interface SettlementData {
@@ -166,6 +176,8 @@ export class LotoService {
         exchange_rate: data.exchange_rate,
         kept_change_usd: data.kept_change_usd,
         kept_change_lbp: data.kept_change_lbp,
+        partnerId: data.partnerId,
+        partnerMode: data.partnerMode,
       };
 
       const ticket = this.ticketRepo.createTicket(ticketData);

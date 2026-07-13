@@ -8,6 +8,7 @@ import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getPartnerRepository } from "./PartnerRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   isDrawerAffectingMethod,
@@ -81,6 +82,16 @@ export interface LotoTicketCreate {
   deferPayment?: boolean;
   /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
   exchange_rate?: number;
+  /**
+   * PFT-4 (Partner FOR-Transactions): when set together with
+   * `partnerMode === "FOR"`, the unpaid remainder books to `partner_ledger`
+   * (FOR_LOTO DEBIT) against this partner instead of a client's
+   * `debt_ledger`. Loto is LBP-denominated, so the remainder is computed and
+   * booked in LBP.
+   */
+  partnerId?: number;
+  /** Only "FOR" is valid for Loto — the partner analog of CUSTOMER_ACCOUNT. */
+  partnerMode?: "FOR";
 }
 
 export interface LotoTicketUpdate {
@@ -251,9 +262,58 @@ export class LotoTicketRepository {
         upsertBalance.run(tenantId, drawerName, currency, data.sale_amount);
       }
 
-      // 3b. Book the on-account portion as client debt (open-debt model, same
-      // as POS/custom services — 'Loto Debt'). Requires a real client row.
-      if (debtUsd > 0 || debtLbp > 0) {
+      // 3b. PFT-4 (Partner FOR-Transactions): routing is mutually exclusive.
+      // When data.partnerMode === "FOR", the unpaid remainder books to
+      // partner_ledger against data.partnerId instead of the client's
+      // debt_ledger — never both on one transaction.
+      const isForPartner = !data.deferPayment && data.partnerMode === "FOR";
+
+      if (isForPartner) {
+        // A CUSTOMER_ACCOUNT leg is the client-debt deferred-payment
+        // destination — contradictory with routing the remainder to the
+        // partner instead. Reject rather than silently pick one.
+        if (debtUsd > 0 || debtLbp > 0) {
+          throw new Error(
+            "Cannot combine a partner FOR-loto ticket with a CUSTOMER_ACCOUNT payment leg",
+          );
+        }
+        if (!data.partnerId) {
+          throw new Error('partnerId is required when partnerMode is "FOR"');
+        }
+
+        // Remainder is native to the ticket's own currency (Loto is always
+        // LBP-denominated) — never a converted figure.
+        const rate = data.exchange_rate ?? 100000;
+        const paidLbp = (data.payments ?? [])
+          .filter(
+            (l) => l.direction !== "OUT" && isDrawerAffectingMethod(l.method),
+          )
+          .reduce(
+            (sum, l) =>
+              sum +
+              (l.currencyCode === "USD"
+                ? Math.abs(l.amount) * rate
+                : Math.abs(l.amount)),
+            0,
+          );
+        const remainderLbp = data.sale_amount - paidLbp;
+
+        if (remainderLbp > 1) {
+          getPartnerRepository().addLedgerEntry({
+            partner_id: data.partnerId as number,
+            transaction_type: "FOR_LOTO",
+            reference_table: "loto_tickets",
+            reference_id: ticketId,
+            amount: remainderLbp,
+            currency: "LBP",
+            direction: "DEBIT",
+            user_id: data.userId,
+            notes: txnSummary,
+          });
+        }
+      } else if (debtUsd > 0 || debtLbp > 0) {
+        // Book the on-account portion as client debt (open-debt model, same
+        // as POS/custom services — 'Loto Debt'). Requires a real client row.
         if (!data.clientId) {
           throw new Error("Cannot create debt without a client");
         }

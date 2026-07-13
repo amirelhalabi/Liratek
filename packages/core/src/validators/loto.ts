@@ -41,6 +41,11 @@ export const lotoSellSchema = z.object({
   kept_change_lbp: z.number().nonnegative().optional(),
   clientId: z.number().int().positive().nullable().optional(),
   clientName: z.string().optional(),
+  // PFT-4 (Partner FOR-Transactions): the unpaid remainder routes to
+  // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
+  // is valid for Loto (the partner analog of CUSTOMER_ACCOUNT).
+  partnerId: z.number().int().positive().optional(),
+  partnerMode: z.enum(["FOR"]).optional(),
 });
 
 export const lotoCashPrizeSchema = z.object({
