@@ -31,6 +31,7 @@ import {
   toSnakeLegs,
 } from "@/utils/paymentUtils";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -43,6 +44,12 @@ interface CheckoutModalProps {
    *  modal) the fields would be stripped at validation and the change
    *  silently neither returned nor stamped. Default false. */
   allowKeepChange?: boolean;
+  /** PFT-2b "For Partner" opt-in: only flows whose backend accepts
+   *  partnerId/partnerMode (POS sales) may show the toggle — on others
+   *  (Maintenance/Session share this modal) the fields would be stripped at
+   *  validation and the remainder would silently fall through to the
+   *  client-debt branch instead of the partner's ledger. Default false. */
+  allowForPartner?: boolean;
   totalAmount: number;
   /**
    * Currency the total/discount/net are expressed in. Defaults to "USD".
@@ -80,6 +87,7 @@ const generateReceiptNumber = () => `${RECEIPT_NUMBER_PREFIX}${Date.now()}`;
 export default function CheckoutModal({
   items,
   allowKeepChange = false,
+  allowForPartner = false,
   totalAmount,
   currency,
   onClose,
@@ -108,11 +116,25 @@ export default function CheckoutModal({
   const [clientSearch, setClientSearch] = useState("");
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
 
+  // PFT-2b: "For Partner" toggle — when true, the sale's unpaid remainder
+  // routes to the selected partner's ledger (FOR_POS DEBIT) instead of a
+  // client's debt_ledger. Gated behind allowForPartner (see prop above).
+  const [forPartner, setForPartner] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
+
   // Payment State
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   const { allMethods: paymentMethodOptions } = usePaymentMethods();
+  // FOR-partner sales never combine with CUSTOMER_ACCOUNT — routing is
+  // mutually exclusive (mirrors SalesRepository's reject-CUSTOMER_ACCOUNT-leg
+  // guard for a FOR-partner sale). Hide it from the picker while active.
+  const effectivePaymentMethods = forPartner
+    ? paymentMethodOptions.filter((pm) => pm.code !== "CUSTOMER_ACCOUNT")
+    : paymentMethodOptions;
   const shopInfo = useShopInfo();
 
   // ── MultiPaymentInput state ──────────────────────────────────────────────
@@ -337,13 +359,16 @@ export default function CheckoutModal({
     .map((pm) => pm.code)
     .join(",");
   const initialMethod = useMemo(() => {
+    // PFT-2b: never auto-select CUSTOMER_ACCOUNT for a FOR-partner sale — the
+    // remainder routes to the partner's ledger, not a client's debt.
+    if (forPartner) return undefined;
     if (!selectedClient || !canCreateDebt) return undefined;
     const hasCA = paymentMethodOptions.some(
       (pm) => pm.code === "CUSTOMER_ACCOUNT",
     );
     return hasCA ? "CUSTOMER_ACCOUNT" : undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClient, canCreateDebt, paymentMethodCodesKey]);
+  }, [selectedClient, canCreateDebt, paymentMethodCodesKey, forPartner]);
 
   const getPaymentData = () => {
     // Determine effective client details
@@ -391,6 +416,12 @@ export default function CheckoutModal({
             kept_change_lbp: keptChange.lbp,
           }
         : {}),
+      // PFT-2b: routes the unpaid remainder to the selected partner's ledger
+      // (FOR_POS DEBIT) instead of the client's debt_ledger — mutually
+      // exclusive with CUSTOMER_ACCOUNT (see effectivePaymentMethods above).
+      ...(forPartner && selectedPartnerId
+        ? { partnerId: selectedPartnerId, partnerMode: "FOR" as const }
+        : {}),
       exchange_rate: effectiveExchangeRate,
       drawer_name: DRAWER_B, // legacy field (kept for backward compatibility)
       ...(transactionTime ? { transaction_time: transactionTime } : {}),
@@ -398,27 +429,41 @@ export default function CheckoutModal({
   };
 
   const handleComplete = async () => {
-    // Block debt creation when DEBT payment method is disabled
-    if (
-      !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
-      !debtPaymentEnabled
-    ) {
-      appEvents.emit(
-        "notification:show",
-        "Debt payment method is disabled. The full amount must be paid before completing the sale.",
-        "warning",
-      );
-      return;
+    // PFT-2b: a FOR-partner sale never creates a client debt — the remainder
+    // routes to the partner's ledger instead — so the two client-debt guards
+    // below don't apply to it.
+    if (!forPartner) {
+      // Block debt creation when DEBT payment method is disabled
+      if (
+        !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
+        !debtPaymentEnabled
+      ) {
+        appEvents.emit(
+          "notification:show",
+          "Debt payment method is disabled. The full amount must be paid before completing the sale.",
+          "warning",
+        );
+        return;
+      }
+
+      // Validation: Debt requires a complete profile for new debts
+      if (
+        !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
+        !canCreateDebt
+      ) {
+        appEvents.emit(
+          "notification:show",
+          "To create or leave a debt, please ensure the client has a phone number (existing client) or provide both name and phone (new client).",
+          "warning",
+        );
+        return;
+      }
     }
 
-    // Validation: Debt requires a complete profile for new debts
-    if (
-      !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
-      !canCreateDebt
-    ) {
+    if (forPartner && !selectedPartnerId) {
       appEvents.emit(
         "notification:show",
-        "To create or leave a debt, please ensure the client has a phone number (existing client) or provide both name and phone (new client).",
+        "Select a partner for this sale.",
         "warning",
       );
       return;
@@ -717,6 +762,36 @@ export default function CheckoutModal({
                       )}
                   </div>
                 )}
+
+              {/* PFT-2b: "For Partner" opt-in — routes the unpaid remainder
+                  to a partner's ledger instead of a client's debt. Gated on
+                  allowForPartner so other hosts of this modal are unaffected. */}
+              {allowForPartner && (
+                <div className="mb-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      data-testid="checkout-for-partner-toggle"
+                      checked={forPartner}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setForPartner(checked);
+                        if (!checked) setSelectedPartnerId(null);
+                      }}
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                    />
+                    <span className="text-xs text-slate-400">For Partner</span>
+                  </label>
+                  {forPartner && (
+                    <PartnerSelector
+                      required
+                      selectedPartnerId={selectedPartnerId}
+                      onSelect={setSelectedPartnerId}
+                      className="mt-2"
+                    />
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ── Cart Items List (fills available space, scrolls when needed) ── */}
@@ -864,7 +939,7 @@ export default function CheckoutModal({
                 {...(allowKeepChange ? { onKeptChange: setKeptChange } : {})}
                 requiresClientForDebt={true}
                 hasClient={canCreateDebt}
-                paymentMethods={paymentMethodOptions}
+                paymentMethods={effectivePaymentMethods}
                 currencies={[
                   { code: "USD", symbol: "$" },
                   { code: "LBP", symbol: "LBP" },
