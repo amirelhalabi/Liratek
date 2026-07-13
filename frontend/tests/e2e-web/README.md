@@ -35,7 +35,7 @@ checkout only because `better-sqlite3` is compiled for one ABI at a time.
 - Login helper: `loginAsAdmin(page)` (admin / admin123, seeded by
   `global-setup.ts`).
 - Only test pages that work in web mode. The broken-page backlog lives in
-  `docs/plans/WEBAPP_MULTI_TENANT_PLAN.md` Appendix A — extend
+  `docs/plans/done_plans/WEBAPP_MULTI_TENANT_PLAN.md` Appendix A — extend
   `CLEAN_ROUTES` in `lira-web-001` as pages get fixed.
 
 ## Reusing desktop specs (the `web-shared` project)

@@ -688,7 +688,7 @@ export function SessionCheckoutModal({
                 // charges keep their native composition, so an LBP-only
                 // basket's prefill is rate-invariant — editing the modal rate
                 // no longer re-derives it through a USD scalar (the T2 bug,
-                // docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md MCP-4).
+                // docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md MCP-4).
                 totals={[
                   ...(chargeUsd > 0
                     ? [{ amount: chargeUsd, currency: "USD" }]

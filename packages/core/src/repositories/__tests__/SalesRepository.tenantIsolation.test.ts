@@ -2,7 +2,7 @@
  * SalesRepository — cross-tenant isolation (multi-tenant retrofit, WP3a).
  *
  * Two tenants (1, 2) share the SAME physical `sales`/`sale_items`/`products`
- * tables (single-DB multi-tenancy per docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md
+ * tables (single-DB multi-tenancy per docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md
  * §6). Every row is tagged `tenant_id`; the repository must never let tenant 1's
  * context see tenant 2's rows — not in a get-by-id, not in a list, not in an
  * aggregate SUM. Mirrored rows are seeded for both tenants with DISTINCT

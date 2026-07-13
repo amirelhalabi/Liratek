@@ -5,7 +5,7 @@
  * that partner row to net 0.
  *
  * Supersedes the original PFT-3a "remainder" model (owner-validated revision,
- * docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md, "VALIDATED FLOW CATALOG"): a
+ * docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md, "VALIDATED FLOW CATALOG"): a
  * "for partner" transaction has NO walk-in customer in between — the shop
  * acts for the partner, who owes the shop the FULL amount, settled later on
  * the Partners page. No cash is taken at the counter, so partner mode must

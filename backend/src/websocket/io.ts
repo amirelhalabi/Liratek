@@ -81,7 +81,7 @@ function extractHandshakeToken(socket: LiratekSocket): string | null {
 
 /**
  * Socket.IO handshake auth (multi-tenant plan §WP8 — see
- * `docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md`).
+ * `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md`).
  *
  * Verifies the JWT the same way the HTTP path does (`verifyJwt`,
  * `middleware/auth.ts` — same secret, same v2 payload shape) and rejects

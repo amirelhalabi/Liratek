@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 /**
  * Unit tests for the shared receipt HTML builder (RCP-0,
- * docs/plans/RECEIPTS_PLAN.md). The logo is presentation — injected as an
+ * docs/plans/done_plans/RECEIPTS_PLAN.md). The logo is presentation — injected as an
  * <img> above the monospace <pre>, never mangled into the text body.
  */
 

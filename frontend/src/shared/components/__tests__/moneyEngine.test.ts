@@ -1,6 +1,6 @@
 /**
  * Unit tests for the multi-currency payment engine
- * (packages/ui/src/money/*, docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md §4).
+ * (packages/ui/src/money/*, docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md §4).
  *
  * Lives in the frontend workspace beside MultiPaymentInput.test.tsx because
  * @liratek/ui has no jest infrastructure; jest.config maps "@liratek/ui" to

@@ -73,7 +73,7 @@ value was stored as the misspelled `WISH_APP`. Renamed everywhere:
   entry. Now covered by `lira-061` ("Whish App SEND books SALE_COST (WISH_APP→WHISH_APP fix)").
 
 **2. Sprint-2 e2e coverage enforced — 6 specs, all green** (per the banner note "add a test … for
-each ticket implemented"). Plan: `docs/plans/sprint2-e2e-coverage.md`. Each is IPC-driven
+each ticket implemented"). Plan: `docs/plans/done_plans/sprint2-e2e-coverage.md`. Each is IPC-driven
 (`appPage.evaluate(() => window.api.*)`) over the shared per-worker DB and asserts **deltas matched by
 identity** (never "newest row"):
 
@@ -909,7 +909,7 @@ Beyond the directional arrow badges (LIRA-054), surface the actual **payment leg
 | LIRA-064 | Transactions — structured in/out breakdown             | Medium   | DONE            |
 
 > **E2E coverage (2026-06-20):** every DONE Sprint-2 ticket now has a dedicated money-invariant e2e —
-> `lira-056/057/059/061/063/064` (plan: `docs/plans/sprint2-e2e-coverage.md`). Details in the
+> `lira-056/057/059/061/063/064` (plan: `docs/plans/done_plans/sprint2-e2e-coverage.md`). Details in the
 > **POST-REVIEW FOLLOW-UPS (2026-06-20)** section near the top.
 
 ---

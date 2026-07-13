@@ -3,7 +3,7 @@
  * modules: custom services, maintenance, loto tickets, telecom recharges.
  *
  * Each module's create accepts kept_change_usd/lbp (tender-native, per
- * docs/plans/T3_KEEP_CHANGE_PLAN.md) and adds them to the transaction's
+ * docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md) and adds them to the transaction's
  * per-currency profit stamp, visible as the module's profit delta in
  * profits.summary (rule 15: wide-range delta assertions, IPC-driven).
  *

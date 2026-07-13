@@ -1,4 +1,4 @@
-// Multi-currency payment engine (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md).
+// Multi-currency payment engine (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md).
 // Pure TS, no React. Lives in @liratek/ui because every consumer today is a
 // frontend form; graduates to its own package the FIRST time packages/core or
 // backend needs it (decision D2 — never copy it).

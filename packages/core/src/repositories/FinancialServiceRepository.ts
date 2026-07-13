@@ -956,7 +956,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // ═══════════════════════════════════════════════════════════════════════
       // PFT-3b — FOR-PARTNER DISPATCH (early return)
       // ═══════════════════════════════════════════════════════════════════════
-      // Owner-validated catalog (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
+      // Owner-validated catalog (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
       // "⭐ VALIDATED FLOW CATALOG"): a for-partner financial service has NO
       // walk-in customer — no customer cash-in, no payout, no client debt, no
       // pm-fee row, no supplier auto-record, no commission cash inflow. The

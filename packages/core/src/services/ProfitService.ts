@@ -145,7 +145,7 @@ export interface ProfitSummary {
   };
   /** T3 keep-change on debt repayments — kept change stamped on
    *  DEBT_REPAYMENT transactions ("Other / kept change" line; owner decision
-   *  2026-07-13, docs/plans/T3_KEEP_CHANGE_PLAN.md KC-2). */
+   *  2026-07-13, docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-2). */
   debt_repayments: {
     profit_usd: number;
     profit_lbp: number;

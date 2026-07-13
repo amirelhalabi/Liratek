@@ -42,7 +42,7 @@ export const saveMaintenanceJobSchema = z.object({
   payments: z.array(paymentLineSchema).optional(),
   change_given_usd: z.number().min(0).optional(),
   change_given_lbp: z.number().min(0).optional(),
-  // T3 keep-change (docs/plans/T3_KEEP_CHANGE_PLAN.md KC-3): kept (not
+  // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-3): kept (not
   // returned) change per currency → added to the transaction's profit stamp.
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),

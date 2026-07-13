@@ -4,7 +4,7 @@
  * a "remainder after cash" figure, and takes NO counter payment at all.
  * Voiding the sale reverses that partner row to net 0.
  *
- * Owner-validated flow catalog (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
+ * Owner-validated flow catalog (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
  * "⭐ VALIDATED FLOW CATALOG" — supersedes the PFT-2 walk-in/remainder model):
  * a FOR-partner transaction has NO walk-in customer in between. No cash or
  * wallet payment is taken at the counter; the partner owes the FULL

@@ -1,5 +1,5 @@
 /**
- * Shared receipt print path (RCP-0, docs/plans/RECEIPTS_PLAN.md).
+ * Shared receipt print path (RCP-0, docs/plans/done_plans/RECEIPTS_PLAN.md).
  *
  * ONE place every module prints through, so the logo, CSS, and
  * silent-vs-fallback logic stay identical across POS, services, recharge,

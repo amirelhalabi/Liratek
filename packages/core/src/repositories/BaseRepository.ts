@@ -75,7 +75,7 @@ export abstract class BaseRepository<T extends BaseEntity> {
    * table gets it for free. Set to `false` in the constructor for repos
    * whose table is NOT tenant-owned (e.g. `schema_migrations`, `sync_queue`,
    * `sync_errors` — control-plane/global tables). See
-   * docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §6.
+   * docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §6.
    */
   protected readonly tenantScoped: boolean;
 

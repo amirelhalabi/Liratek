@@ -7,7 +7,7 @@
  * the SAME partner's balance through every one of them in sequence, then
  * proves settlement zeroes it out per currency.
  *
- * Source of truth: docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md, "⭐ VALIDATED
+ * Source of truth: docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md, "⭐ VALIDATED
  * FLOW CATALOG" — a FOR-partner transaction has NO walk-in customer and
  * takes NO counter cash; the partner owes (or is owed) the FULL amount,
  * tracked on the Partners page (window.api.partners.getBalance) and settled

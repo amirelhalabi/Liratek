@@ -20,7 +20,7 @@
 - Green: core 593, backend 444 (2 pre-existing failures only), frontend 321, typecheck + lint clean.
 
 **5. Docs/memory**
-- Plan: `docs/plans/LOCAL_BUSINESS_DAY_PLAN.md`; updated e2e README; recorded the `parseDbDate` convention + e2e webServer-race lesson in memory.
+- Plan: `docs/plans/done_plans/LOCAL_BUSINESS_DAY_PLAN.md`; updated e2e README; recorded the `parseDbDate` convention + e2e webServer-race lesson in memory.
 
 **Follow-ups (not code):**
 - Update the client to >= v1.27.3.
@@ -62,7 +62,7 @@
 - Green: core 594, backend 445 (2 pre-existing failures only, confirmed unrelated), frontend 325, typecheck + lint clean, all 6 E2E passing.
 
 **4. Docs/memory**
-- Plan: `docs/plans/WHISH_APP_RECEIVE_FEE_FIX_PLAN.md`; updated the E2E README index; recorded the ABI-diagnostic trap and the OMT App fix in memory.
+- Plan: `docs/plans/done_plans/WHISH_APP_RECEIVE_FEE_FIX_PLAN.md`; updated the E2E README index; recorded the ABI-diagnostic trap and the OMT App fix in memory.
 
 **Follow-ups (not code):**
 - The original 15:00 Whish App transaction (the reported bug) needs to be voided and re-entered by the shop owner (as "fee included") — not auto-migrated.
@@ -86,7 +86,7 @@
 
 **3. Docs/rules**
 - Added **CLAUDE.md Rule 19 + a "Dual-Transport Architecture" section**: every feature must work on both desktop (IPC) and web (REST) off one codebase; the pattern + the gotchas (isElectron===!!window.api, requireRole-needs-requireAuth, better-sqlite3 ABI, envelope parity, field translation).
-- Kept `docs/plans/WEB_PARITY_ROADMAP.md` current with per-spec status + learnings (most namespaces already have REST → shim-mapping not building; full-suite flakiness + env-reset discipline).
+- Kept `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` current with per-spec status + learnings (most namespaces already have REST → shim-mapping not building; full-suite flakiness + env-reset discipline).
 
 **4. Tests**
 - 11 dedicated web specs (`lira-web-001…011`) + 7 desktop specs over the shim; **web suite 41/41 green**. Each new route verified against pre-route state (404 → spec can't pass without it — rule 17).

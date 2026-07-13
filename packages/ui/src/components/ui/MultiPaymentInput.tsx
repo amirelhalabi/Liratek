@@ -54,7 +54,7 @@ export interface MultiPaymentInputProps {
    *  e.g. Whish/iPick/KATCH pass "LBP", POS sale passes "USD". */
   totalAmountCurrency?: string;
   /** Per-currency totals — the multi-currency engine contract
-   *  (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md). Each entry is what is owed
+   *  (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md). Each entry is what is owed
    *  in that currency NATIVELY; a rate is only ever consulted when a payment
    *  crosses currencies, so e.g. an LBP debt paid in LBP is rate-invariant.
    *  Defaults to [] (nothing owed). */
@@ -71,7 +71,7 @@ export interface MultiPaymentInputProps {
    *  (direction "OUT"), empty when balanced/underpaid.
    *  Consumers append these to the `payments` array sent to the backend. */
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
-  /** T3 "keep change" (docs/plans/T3_KEEP_CHANGE_PLAN.md): fires with the
+  /** T3 "keep change" (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md): fires with the
    *  per-currency amounts the shop KEEPS instead of returning ({usd, lbp})
    *  when the operator activates the keep-change toggle, and with null when
    *  deactivated (or no longer overpaid). While active, onReturnChange
@@ -263,7 +263,7 @@ export default function MultiPaymentInput({
 
   const effectiveRate = parseFloat(customExchangeRate) || safeExchangeRate;
 
-  // ── Multi-currency engine model (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md) ──
+  // ── Multi-currency engine model (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md) ──
   // Every conversion in this component goes through this table. The header
   // rate field ("1 USD = X LBP") overrides the USD↔LBP pair — other pairs of
   // a provided table (e.g. EUR) pass through untouched.
@@ -1467,7 +1467,7 @@ export default function MultiPaymentInput({
               </span>
               <div className="flex items-center gap-1.5">
                 {/* T3 keep-change toggle: return nothing, book the extra as
-                    profit (docs/plans/T3_KEEP_CHANGE_PLAN.md). OPT-IN: renders
+                    profit (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md). OPT-IN: renders
                     only when the parent wired onKeptChange — on a consumer
                     whose backend doesn't accept the kept amounts yet, the
                     button would suppress the return without stamping profit

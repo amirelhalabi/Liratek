@@ -4,7 +4,7 @@
  * Guards the web milestone established 2026-07-10: UI login over HTTP+JWT
  * works, and the pages known to be web-clean render without tripping the
  * app ErrorBoundary. Pages still broken in web mode are tracked in
- * docs/plans/WEBAPP_MULTI_TENANT_PLAN.md (Appendix A) — add them here as
+ * docs/plans/done_plans/WEBAPP_MULTI_TENANT_PLAN.md (Appendix A) — add them here as
  * they get fixed.
  */
 import { test, expect, loginAsAdmin } from "./fixtures";

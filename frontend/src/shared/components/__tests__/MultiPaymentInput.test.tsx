@@ -545,7 +545,7 @@ describe("MultiPaymentInput", () => {
 
   describe("characterization — rate-driven conversion (current contract)", () => {
     // These pin the CURRENT cross-currency math so the engine rewire (MCP-2,
-    // docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md) can prove zero behavior
+    // docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md) can prove zero behavior
     // change. For a genuinely single-currency total (e.g. a POS sale
     // denominated in USD), re-deriving the other currency's amount from the
     // rate IS correct — these tests must stay green through every phase.
@@ -609,7 +609,7 @@ describe("MultiPaymentInput", () => {
     // a 600,000 LBP debt opened at rate 89,000 showed 606,742 after editing
     // the rate to 90,000 — the native-LBP amount was re-derived from the USD
     // scalar (600000/89000 × 90000). Fixed in MCP-3 by feeding per-currency
-    // `totals` (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md). The rule-17
+    // `totals` (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md). The rule-17
     // failing-first proof lived here as an `it.failing` against the scalar
     // `totalAmount` prop until MCP-5 deleted that prop (its documented death;
     // see the plan for the recorded 600,000 → 606,742 failure output).
@@ -664,7 +664,7 @@ describe("MultiPaymentInput", () => {
   });
 
   describe("keep change (T3 — return nothing, book the extra as profit)", () => {
-    // docs/plans/T3_KEEP_CHANGE_PLAN.md KC-0. Failing-first (rule 17): before
+    // docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-0. Failing-first (rule 17): before
     // the feature, the two CASH return fields auto-balance each other, so
     // returning nothing is structurally impossible and no keep-change control
     // exists.

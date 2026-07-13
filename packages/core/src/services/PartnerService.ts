@@ -177,7 +177,7 @@ export class PartnerService {
    * Settlement currency is USD or LBP only — a partner never carries a USDT
    * balance (Binance partner debt is denominated in USD; the USDT leg lives
    * only in the drawer, not the partner ledger). See
-   * docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md "VALIDATED FLOW CATALOG".
+   * docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md "VALIDATED FLOW CATALOG".
    */
   settle(data: {
     partnerId: number;

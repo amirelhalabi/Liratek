@@ -9,7 +9,7 @@
  * figure from it at the edited rate (600000/89000 × 90000). Cashiers trusting
  * the prefill over-collected the difference.
  *
- * Fix under guard (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md, MCP-3): the
+ * Fix under guard (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md, MCP-3): the
  * Debts modal feeds MultiPaymentInput per-currency `totals`, and the
  * component's engine only converts at a currency boundary — an LBP debt paid
  * in LBP never touches the rate. Rule 17: reverting the modal to the scalar

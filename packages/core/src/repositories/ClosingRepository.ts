@@ -23,7 +23,7 @@ const RECONCILE_EPSILON = 0.0001;
  * Takes NO bind params — the whole comparison is evaluated in SQLite's local
  * timezone, so it never mismatches a UTC-day param near midnight. `'localtime'`
  * follows the machine TZ (Beirut on desktop; pin `TZ=Asia/Beirut` on the web
- * server — see docs/plans/LOCAL_BUSINESS_DAY_PLAN.md).
+ * server — see docs/plans/done_plans/LOCAL_BUSINESS_DAY_PLAN.md).
  */
 const todayLocal = (col: string): string =>
   `DATE(${col}, 'localtime') = DATE('now', 'localtime')`;

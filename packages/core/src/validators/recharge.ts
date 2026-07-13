@@ -20,7 +20,7 @@ export const createRechargeSchema = z.object({
   paid_by_method: z.string().min(1).default("CASH"),
   clientId: z.number().int().positive().optional(),
   note: z.string().max(500).optional(),
-  // T3 keep-change (docs/plans/T3_KEEP_CHANGE_PLAN.md KC-3): kept (not
+  // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-3): kept (not
   // returned) change per currency → added to the transaction's profit stamp.
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),

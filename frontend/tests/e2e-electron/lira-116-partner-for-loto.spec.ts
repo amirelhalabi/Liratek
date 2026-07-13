@@ -2,7 +2,7 @@
  * E2E: LIRA-116 (PFT-R) — a Loto ticket sale "for the partner" books the
  * FULL sale_amount to partner_ledger (FOR_LOTO DEBIT) and takes NO counter
  * payment at the counter. This is the owner-validated full-amount model
- * (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md § "VALIDATED FLOW CATALOG"),
+ * (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md § "VALIDATED FLOW CATALOG"),
  * which SUPERSEDES the earlier PFT-4 "remainder after customer cash" model
  * this spec originally guarded (d91785d) — there is no walk-in customer in
  * a "for partner" transaction, so no counter cash is ever taken; the

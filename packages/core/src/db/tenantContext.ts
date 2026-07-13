@@ -2,7 +2,7 @@
  * Tenant context — AsyncLocalStorage-based, fail-closed.
  *
  * This is the backbone of the multi-tenant retrofit (see
- * docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §3/§6): every repository
+ * docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §3/§6): every repository
  * read/write that touches a tenant-owned table resolves "which tenant am I
  * running for" through `getCurrentTenantId()`. There is NO default tenant —
  * a call with neither an active `runWithTenant()` scope nor a fixed fallback

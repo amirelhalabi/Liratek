@@ -35,7 +35,7 @@ process.env.E2E_WEB_BASE_URL = `http://localhost:${WEB_PORT}`;
 process.env.E2E_WEB_BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
 // Desktop specs enabled in web mode. Extend this list as pages get fixed —
-// the broken-page backlog is docs/plans/WEBAPP_MULTI_TENANT_PLAN.md Appendix A.
+// the broken-page backlog is docs/plans/done_plans/WEBAPP_MULTI_TENANT_PLAN.md Appendix A.
 //
 // Ad-hoc override — try ANY desktop spec file(s) in web mode without editing
 // this file (comma-separated; globs work; disables the sub-test grep):

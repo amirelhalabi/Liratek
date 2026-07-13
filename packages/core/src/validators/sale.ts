@@ -59,7 +59,7 @@ export const saleProcessSchema = z.object({
   payments: z.array(salePaymentLegSchema).optional(),
   change_given_usd: z.number().optional(),
   change_given_lbp: z.number().optional(),
-  // T3 keep-change (docs/plans/T3_KEEP_CHANGE_PLAN.md): per-currency amounts
+  // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md): per-currency amounts
   // the shop KEEPS instead of returning as change. No OUT legs accompany
   // them; the repository adds them to the sale transaction's profit stamp.
   // Explicit amounts (not a flag) so what the operator saw is what books.

@@ -30,7 +30,7 @@ export const sessionCheckoutSchema = z
     clientId: z.number().int().positive().optional(),
     clientName: z.string().optional(),
     // T3 keep-change: kept (not returned) change per currency → a standalone
-    // KEPT_CHANGE profit row (docs/plans/T3_KEEP_CHANGE_PLAN.md KC-4).
+    // KEPT_CHANGE profit row (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-4).
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
     userId: z.number().int(),

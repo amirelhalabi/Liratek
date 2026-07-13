@@ -1,6 +1,6 @@
 /**
  * Unit tests for the service-transaction receipt builder (RCP-2,
- * docs/plans/RECEIPTS_PLAN.md). Pure function → tested directly across the
+ * docs/plans/done_plans/RECEIPTS_PLAN.md). Pure function → tested directly across the
  * shapes the advisor flagged: SEND, RECEIVE/cash-out, card-grid item, split
  * payment, LBP-only. Guards the two rules that matter most: it prints
  * customer-facing detail (fee/legs/change) and NEVER cost/price/profit.

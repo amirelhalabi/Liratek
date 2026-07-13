@@ -25,7 +25,7 @@ export const addRepaymentSchema = z
     userId: idSchema.optional(),
     paidByMethod: z.string().min(1).optional(),
     payments: z.array(repaymentPaymentLineSchema).optional(),
-    // T3 keep-change (docs/plans/T3_KEEP_CHANGE_PLAN.md KC-2): per-currency
+    // T3 keep-change (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md KC-2): per-currency
     // change the shop keeps instead of returning. Excluded from the debt
     // reduction by the caller; stamped as profit on the DEBT_REPAYMENT
     // transaction ("Other / kept change" profits line).

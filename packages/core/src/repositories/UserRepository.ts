@@ -72,7 +72,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
    * Find a user by username (for login).
    *
    * Deliberately GLOBAL (not tenant-scoped): usernames are globally unique —
-   * committed decision, see docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §1.
+   * committed decision, see docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §1.
    * Login has no tenant hint (no subdomain routing yet), so
    * `username → user → tenant_id` is how the tenant is resolved in the first
    * place.

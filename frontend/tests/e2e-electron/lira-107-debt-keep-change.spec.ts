@@ -1,7 +1,7 @@
 /**
  * E2E: LIRA-107 (T3, KC-2) — "Keep change" on a debt repayment.
  *
- * The debts flow is the special case (docs/plans/T3_KEEP_CHANGE_PLAN.md):
+ * The debts flow is the special case (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md):
  * an unreturned overpayment normally becomes EXTRA debt reduction / client
  * credit. With keep-change active the kept extra must instead:
  *   - NOT reduce the debt (600,000 LBP debt paid 700,000 → debt exactly 0,

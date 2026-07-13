@@ -4,7 +4,7 @@
  *
  * Two tenants' checkpoints/tickets/settlements are seeded into the SAME
  * physical tables (shared-DB multi-tenancy — see
- * docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §6), deliberately mirrored
+ * docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §6), deliberately mirrored
  * on the same dates/amounts-shape so a query that forgot `tenant_id` would
  * still "look right" by date/status filtering alone. This proves every
  * read/aggregate method on both repos scopes by tenant_id:

@@ -2,7 +2,7 @@
  * E2E: LIRA-120 (PFT-6 + PFT-6b) — for-partner profit is recognized when the
  * partner SETTLES, and a settlement MOVES REAL MONEY into the drawer.
  *
- * Owner decisions (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md):
+ * Owner decisions (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md):
  *   - Model A (2026-07-13): for-partner margin/markup/commission is real only
  *     once the partner pays — EXCEPT iPick/Katsh (immediate).
  *   - PFT-6b (2026-07-14): a settlement credits/debits the method's drawer

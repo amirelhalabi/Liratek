@@ -1,7 +1,7 @@
 /**
  * Money domain types — the vocabulary of the multi-currency payment engine.
  *
- * Design (docs/plans/MULTI_CURRENCY_PAYMENT_PLAN.md):
+ * Design (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md):
  *  - No bare money numbers: every amount carries its currency (`Money`).
  *  - Rates are a table quoted against ONE base currency, so any-to-any
  *    conversion (EUR→LBP) goes through the base without new code paths.

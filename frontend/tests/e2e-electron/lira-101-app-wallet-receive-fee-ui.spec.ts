@@ -6,7 +6,7 @@
  * FULL fee as profit (`LEFT_TO_DO.md` §"C4/C5 app-transfer fee split",
  * decided 2026-07-04: "the fee is fully the shop's, OMT App + Whish App").
  * Whish App RECEIVE was fixed first (lira-100 —
- * `docs/plans/WHISH_APP_RECEIVE_FEE_FIX_PLAN.md`); OMT App RECEIVE was fixed
+ * `docs/plans/done_plans/WHISH_APP_RECEIVE_FEE_FIX_PLAN.md`); OMT App RECEIVE was fixed
  * in this cluster by extending `calculateOmtWhishAppFees`'s
  * `isAppWalletReceive` gate to both providers. OMT App has no auto-fee and no
  * "fee included in amount" toggle (that checkbox is Whish-App-only), so its

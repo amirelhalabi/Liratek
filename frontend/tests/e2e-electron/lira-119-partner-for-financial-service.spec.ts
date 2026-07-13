@@ -3,7 +3,7 @@
  * provider × direction books the partner ledger + drawers per the
  * owner-validated catalog, and void nets everything to 0.
  *
- * Model (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md, "⭐ VALIDATED FLOW
+ * Model (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md, "⭐ VALIDATED FLOW
  * CATALOG"): a FOR-partner financial service has NO walk-in customer — no
  * counter cash-in, no payout, no client debt, no supplier auto-record.
  *   SEND  → partner OWES the shop (partner_ledger DEBIT):

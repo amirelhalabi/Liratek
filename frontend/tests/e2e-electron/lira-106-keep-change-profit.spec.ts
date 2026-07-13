@@ -2,7 +2,7 @@
  * E2E: LIRA-106 (T3, KC-1) — "Keep change": the shop returns nothing and the
  * kept change books as PROFIT on the sale transaction.
  *
- * Owner ask (docs/plans/T3_KEEP_CHANGE_PLAN.md): when a customer overpays,
+ * Owner ask (docs/plans/done_plans/T3_KEEP_CHANGE_PLAN.md): when a customer overpays,
  * the operator can keep the extra — the drawer keeps the FULL tender (no OUT
  * legs) and the kept amounts join the per-currency profit stamp
  * (transactions.profit_usd / profit_lbp).

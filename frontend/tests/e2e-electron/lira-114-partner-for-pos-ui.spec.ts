@@ -8,7 +8,7 @@
  * cash" figure), with the General drawer untouched. Voiding the sale must
  * net the partner back to exactly 0.
  *
- * Owner-validated flow catalog (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
+ * Owner-validated flow catalog (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
  * "⭐ VALIDATED FLOW CATALOG"): a FOR-partner transaction has NO walk-in
  * customer in between — no cash is taken at the counter at all.
  *

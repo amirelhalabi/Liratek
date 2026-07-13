@@ -11,7 +11,7 @@
  *
  * On the desktop app the machine is the shop's PC (Beirut). On the web backend
  * the machine is the server — pin `TZ=Asia/Beirut` there (see
- * docs/plans/LOCAL_BUSINESS_DAY_PLAN.md).
+ * docs/plans/done_plans/LOCAL_BUSINESS_DAY_PLAN.md).
  */
 
 const pad = (n: number): string => n.toString().padStart(2, "0");

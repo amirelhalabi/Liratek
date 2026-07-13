@@ -8,7 +8,7 @@
  *   - `TenantProvisioningService.provisionTenant()` — defense in depth, in
  *     case a future caller bypasses the Zod layer (e.g. a script, a test).
  *
- * docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §5.
+ * docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §5.
  */
 
 import { ValidationError } from "./errors.js";

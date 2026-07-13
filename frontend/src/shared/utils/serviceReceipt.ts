@@ -1,5 +1,5 @@
 /**
- * Service-transaction receipt builder (RCP-2, docs/plans/RECEIPTS_PLAN.md).
+ * Service-transaction receipt builder (RCP-2, docs/plans/done_plans/RECEIPTS_PLAN.md).
  *
  * ONE builder for every non-sale module (mobile services, recharge,
  * maintenance, custom services, loto). Sourced entirely from the PERSISTED

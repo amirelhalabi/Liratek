@@ -9,7 +9,7 @@
  *   - updatePassword() / softDeleteById() / restore() cannot reach another
  *     tenant's user row by id.
  *   - findByUsername() is the INTENDED exception: usernames are globally
- *     unique (docs/plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §1), so it
+ *     unique (docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md §1), so it
  *     resolves a user of ANY tenant regardless of which tenant's context is
  *     currently active — this is asserted explicitly, not just left
  *     untested, per the WP3f prompt.
