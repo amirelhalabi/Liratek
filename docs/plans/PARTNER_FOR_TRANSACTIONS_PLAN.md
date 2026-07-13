@@ -231,4 +231,20 @@ div** (the OMT-system pattern) on every applicable form.
 | **PFT-R5** | Remove USDT settle option + card (Binance debt is USD); obsolete lira-117 | ✅ 2026-07-13 (9fb33ad) |
 | **PFT-7** | Partners page **"Add credit / debt"** manual-adjustment button (dual-transport) | ✅ 2026-07-13 (9fb33ad) |
 | **PFT-3b** | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select. | ⬜ BLOCKED (other session owns FinancialServiceRepository) |
-| **PFT-6** | Settlement→profit recognition (now covers FS commissions too; all deferred except iPick/Katsh) | ⬜ |
+| **PFT-6** | Settlement→profit recognition — **BIGGER than first planned** (see note) | ⬜ |
+
+### ⚠️ PFT-6 re-scope (found 2026-07-13, advisor)
+The owner-decided defer-to-settlement is **only partially true in code today**:
+- **POS** defers *naturally* — a for-partner sale has `paid_usd = 0`, so
+  `saleFullyPaid` is false and its margin is already excluded from realized
+  profit. PFT-6's "FIFO settlement → bump `paid_usd` → open the gate" fixes POS.
+- **Recharge / loto / FS have NO payment gate** — `getRechargesByCurrency`,
+  `getLotoTotals`, and the FS commission queries count profit as soon as the row
+  exists. So a for-partner recharge/loto/FS **counts its markup/commission
+  immediately** (live as of `a65d70f`), contradicting the owner's decision. The
+  Wave-1/PFT-R e2es assert partner-balance deltas only, never profit — so this
+  was not caught.
+- **Therefore PFT-6 must add a per-module "recognized only when the partner has
+  settled" gate** in `ProfitRepository` (the other session's file) for
+  recharge/loto/FS, not just the sales `paid_usd` bump. iPick/Katsh stay
+  immediate. This enlarges PFT-6 and couples it to `ProfitRepository`.
