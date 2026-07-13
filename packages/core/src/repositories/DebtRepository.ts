@@ -90,6 +90,11 @@ export interface CreateRepaymentData {
    *  drawer routing. Each leg is processed independently with per-leg RESERVE
    *  routing for Service Debt (e.g. WHISH leg → Whish_App → Whish_System). */
   payments?: RepaymentPaymentLine[];
+  /** T3 keep-change: kept (not returned) change per currency. Stamped as
+   *  profit on the DEBT_REPAYMENT transaction (the generic void negates the
+   *  stamp); the caller already excluded these from amount_usd/amount_lbp. */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
   transaction_time?: string;
 }
 
@@ -282,6 +287,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         user_id: data.created_by,
         amount_usd: data.amount_usd,
         amount_lbp: data.amount_lbp,
+        // T3 keep-change: the kept extra is the ONLY profit a repayment books
+        // ("Other / kept change" profits line). Stamped at create time so the
+        // generic void's stamp negation reverses it symmetrically.
+        profit_usd: data.kept_change_usd || 0,
+        profit_lbp: data.kept_change_lbp || 0,
         client_id: data.client_id,
         summary: `Debt Repayment: $${data.amount_usd} + ${data.amount_lbp} LBP`,
         metadata_json: {
@@ -325,6 +335,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       //     the service was repaid — into the provider drawer, for the FULL
       //     leg. Outstanding = SUM(Service Debt in ccy) − SUM(already routed
       //     to that provider's system drawer in ccy), over ACTIVE rows only.
+      //     'Refund Reversal' rows are summed in too: a REFUND leaves the
+      //     original FINANCIAL_SERVICE txn ACTIVE and books a negative
+      //     reversal against the same transaction_id, so without it a
+      //     refunded service debt would keep routing repayments forever.
+      //     (The financial_services JOIN keeps sale/recharge reversals out.)
       //   - Kept strictly per-currency (a USD service debt routes only USD
       //     legs, LBP only LBP): converting through the sell rate reopened
       //     already-settled debts whenever the rate moved and booked
@@ -346,7 +361,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
            JOIN financial_services fs ON fs.id = t.source_id
              AND fs.tenant_id = dl.tenant_id
            WHERE dl.client_id = ?
-             AND dl.transaction_type = 'Service Debt'
+             AND dl.transaction_type IN ('Service Debt', 'Refund Reversal')
              AND fs.provider IN ('OMT', 'WHISH')
              AND dl.tenant_id = ?
            GROUP BY fs.provider

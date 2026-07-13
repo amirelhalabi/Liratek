@@ -169,6 +169,13 @@ export default function Debts() {
   // header). LBP legs MUST convert at this rate — using a different one books
   // a reduction the operator never saw.
   const [repayModalRate, setRepayModalRate] = useState<number | null>(null);
+  // T3 keep-change: change the operator chose to KEEP as shop profit rather
+  // than return. Excluded from the debt reduction (it is NOT the client's
+  // credit) and stamped on the DEBT_REPAYMENT transaction as profit.
+  const [repayKeptChange, setRepayKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   const [repayNote, setRepayNote] = useState("");
   const [repayTransactionTime, setRepayTransactionTime] = useState<
     string | undefined
@@ -568,6 +575,7 @@ export default function Debts() {
           alert("Cash out processed!");
           setShowRepaymentModal(false);
           setRepayPaymentLines([]);
+          setRepayKeptChange(null);
           setRepayReturnLegs([]);
           setRepayNote("");
           setRepayTransactionTime(undefined);
@@ -605,12 +613,19 @@ export default function Debts() {
     // Change handed back to the customer (OUT/return legs) per currency. Netted
     // out of the debt reduction so an overpayment is not counted twice —
     // returned as change AND cleared from the debt (see repaymentReduction.ts).
-    const returnedUsd = repayReturnLegs
-      .filter((l) => l.currencyCode === "USD")
-      .reduce((s, l) => s + l.amount, 0);
-    const returnedLbp = repayReturnLegs
-      .filter((l) => l.currencyCode === "LBP")
-      .reduce((s, l) => s + l.amount, 0);
+    // Kept change (T3) behaves like a return for the REDUCTION math — the
+    // kept extra must not shrink the debt (it is shop profit, not client
+    // credit) — but no OUT legs exist, so the drawer keeps it.
+    const keptUsd = repayKeptChange?.usd ?? 0;
+    const keptLbp = repayKeptChange?.lbp ?? 0;
+    const returnedUsd =
+      repayReturnLegs
+        .filter((l) => l.currencyCode === "USD")
+        .reduce((s, l) => s + l.amount, 0) + keptUsd;
+    const returnedLbp =
+      repayReturnLegs
+        .filter((l) => l.currencyCode === "LBP")
+        .reduce((s, l) => s + l.amount, 0) + keptLbp;
     const { reduceUsd, reduceLbp } = computeRepaymentReduction({
       paidUsd: paidUSD,
       paidLbp: paidLBP,
@@ -629,6 +644,10 @@ export default function Debts() {
     }
 
     try {
+      const keptFields =
+        keptUsd > 0 || keptLbp > 0
+          ? { keptChangeUSD: keptUsd, keptChangeLBP: keptLbp }
+          : {};
       const result = window.api
         ? await window.api.debt.addRepayment({
             clientId: selectedClient.id,
@@ -636,6 +655,7 @@ export default function Debts() {
             amountLBP: reduceLbp,
             payments: paymentLegs,
             note: repayNote,
+            ...keptFields,
             ...(repayTransactionTime
               ? { transaction_time: repayTransactionTime }
               : {}),
@@ -647,6 +667,7 @@ export default function Debts() {
             amount_lbp: reduceLbp,
             payments: paymentLegs,
             note: repayNote,
+            ...keptFields,
             ...(repayTransactionTime
               ? { transaction_time: repayTransactionTime }
               : {}),
@@ -657,6 +678,7 @@ export default function Debts() {
         alert("Repayment processed!");
         setShowRepaymentModal(false);
         setRepayPaymentLines([]);
+          setRepayKeptChange(null);
         setRepayReturnLegs([]);
         setRepayNote("");
         setRepayTransactionTime(undefined);
@@ -1248,6 +1270,7 @@ export default function Debts() {
                         onClick={() => {
                           setRepayMode("repay");
                           setRepayPaymentLines([]);
+          setRepayKeptChange(null);
                           setRepayReturnLegs([]);
                           setShowRepaymentModal(true);
                         }}
@@ -1262,6 +1285,7 @@ export default function Debts() {
                         onClick={() => {
                           setRepayMode("cashout");
                           setRepayPaymentLines([]);
+          setRepayKeptChange(null);
                           setRepayReturnLegs([]);
                           setShowRepaymentModal(true);
                         }}
@@ -1927,6 +1951,12 @@ export default function Debts() {
                   ]}
                   exchangeRate={EXCHANGE_RATE}
                   onExchangeRateChange={setRepayModalRate}
+                  // T3 keep-change — REPAY mode only: keeping "change" on a
+                  // cash-out (shop pays the client) has no defined booking
+                  // semantics, so the button stays hidden there (opt-in).
+                  {...(repayMode === "repay"
+                    ? { onKeptChange: setRepayKeptChange }
+                    : {})}
                 />
 
                 <div>

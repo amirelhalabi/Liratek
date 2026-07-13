@@ -894,14 +894,30 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returnLegsKey]);
 
-  // Report the kept split (WYSIWYB: the exact amounts the fields showed) —
-  // tracks live edits to the payment while keep-change stays active.
-  const keptUsd = suggestedReturnLegs
-    .filter((l) => l.currencyCode === "USD")
-    .reduce((s, l) => s + l.amount, 0);
-  const keptLbp = suggestedReturnLegs
-    .filter((l) => l.currencyCode === "LBP")
-    .reduce((s, l) => s + l.amount, 0);
+  // Report the kept split in the TENDER currency — the engine's change
+  // output (excess per currency the customer actually handed over), NOT the
+  // return-field suggestion. The suggestion is denominated for returning
+  // (e.g. a USD figure against an LBP tender); keeping is physical: the
+  // drawer holds the excess tender itself, and cross-denominated kept
+  // amounts corrupt per-currency netting downstream (caught by lira-107's
+  // failing-first run: a kept 100,000 LBP reported as $1.12 became a phantom
+  // client credit).
+  const { keptUsd, keptLbp } = (() => {
+    if (!keepChange) return { keptUsd: 0, keptLbp: 0 };
+    const { change } = allocatePayments({
+      totals: effectiveTotals,
+      payments: paymentLines.map((l) => ({
+        amount: Math.max(0, l.amount || 0),
+        currency: l.currencyCode,
+      })),
+      rates: internalRates,
+      side,
+    });
+    return {
+      keptUsd: change.find((m) => m.currency === "USD")?.amount ?? 0,
+      keptLbp: change.find((m) => m.currency === "LBP")?.amount ?? 0,
+    };
+  })();
   const keptKey = keepChange ? `${keptUsd}:${keptLbp}` : "off";
   useEffect(() => {
     onKeptChange?.(keepChange ? { usd: keptUsd, lbp: keptLbp } : null);
@@ -1451,7 +1467,12 @@ export default function MultiPaymentInput({
               </span>
               <div className="flex items-center gap-1.5">
                 {/* T3 keep-change toggle: return nothing, book the extra as
-                    profit (docs/plans/T3_KEEP_CHANGE_PLAN.md). */}
+                    profit (docs/plans/T3_KEEP_CHANGE_PLAN.md). OPT-IN: renders
+                    only when the parent wired onKeptChange — on a consumer
+                    whose backend doesn't accept the kept amounts yet, the
+                    button would suppress the return without stamping profit
+                    (silent money hole). */}
+                {onKeptChange && (
                 <button
                   type="button"
                   data-testid="keep-change"
@@ -1469,6 +1490,7 @@ export default function MultiPaymentInput({
                 >
                   {keepChange ? "Keeping ✓" : "Keep change"}
                 </button>
+                )}
                 {/* Method selector — only when non-cash methods are available */}
                 {!isCashOnlyPayment && !keepChange && (
                   <select

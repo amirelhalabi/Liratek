@@ -432,6 +432,14 @@ export const DebtRepaymentSchema = z.object({
   note: z.string().optional(),
   paidByMethod: z.string().optional(),
   payments: z.array(RepaymentPaymentLegSchema).optional(),
+  // T3 keep-change (KC-2): kept (not returned) change per currency → profit
+  // stamp on the DEBT_REPAYMENT transaction. Same stripping trap as
+  // transaction_time below: this schema is a LOCAL duplicate of core's
+  // addRepaymentSchema (rule-14 debt — the REST route validates the core one;
+  // lift/consolidate like DebtCashOutSchema when next touched), so new fields
+  // must be added in BOTH places or the desktop path silently drops them.
+  keptChangeUSD: z.number().nonnegative().optional(),
+  keptChangeLBP: z.number().nonnegative().optional(),
   // Operator time-override — without this Zod stripped it and the repayment
   // "Set custom time" silently did nothing.
   transaction_time: z.string().optional(),

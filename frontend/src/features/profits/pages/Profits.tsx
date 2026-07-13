@@ -99,6 +99,13 @@ interface ProfitSummary {
     profit_usd: number;
     count: number;
   };
+  /** T3 keep-change on debt repayments ("Other / kept change"). Optional so
+   *  an older backend summary shape doesn't crash the page. */
+  debt_repayments?: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
@@ -890,6 +897,47 @@ export default function Profits() {
                   </div>
                 </div>
               )}
+
+              {/* Other / kept change (T3): change the operator kept instead of
+                  returning, stamped on debt repayments. Owner decision
+                  2026-07-13 — visible as its own line, per currency. */}
+              {summary.debt_repayments &&
+                summary.debt_repayments.count > 0 && (
+                  <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        Other / Kept Change
+                      </span>
+                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                        {summary.debt_repayments.count} repayments
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.debt_repayments.profit_usd > 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Kept (USD)</span>
+                          <span className="text-emerald-400 font-semibold">
+                            {formatAmount(
+                              summary.debt_repayments.profit_usd,
+                              "USD",
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {summary.debt_repayments.profit_lbp > 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Kept (LBP)</span>
+                          <span className="text-emerald-400 font-semibold">
+                            {formatAmount(
+                              summary.debt_repayments.profit_lbp,
+                              "LBP",
+                            )}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
             </div>
 
             {/* Expense breakdown */}

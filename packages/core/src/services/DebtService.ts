@@ -38,6 +38,10 @@ export interface RepaymentData {
   userId: number;
   paidByMethod?: string;
   payments?: RepaymentPaymentLine[];
+  /** T3 keep-change: kept (not returned) change per currency — profit stamp
+   *  on the repayment transaction, never part of the debt reduction. */
+  keptChangeUSD?: number;
+  keptChangeLBP?: number;
   transaction_time?: string;
 }
 
@@ -99,6 +103,8 @@ export class DebtService {
       userId,
       paidByMethod,
       payments,
+      keptChangeUSD,
+      keptChangeLBP,
       transaction_time,
     } = data;
 
@@ -157,6 +163,8 @@ export class DebtService {
         created_by: userId,
         paid_by_method: paidByMethod,
         payments,
+        kept_change_usd: keptChangeUSD,
+        kept_change_lbp: keptChangeLBP,
         transaction_time,
       });
 

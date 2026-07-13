@@ -89,7 +89,41 @@ become misleading.
 - Unmigrated modules receiving the fields (e.g. Maintenance shares
   CheckoutModal) safely STRIP them at validation (Zod default) until their
   KC-3 schema lands — no breakage, just ignored.
-| **KC-2** | Debts: reduction excludes kept amounts; DEBT_REPAYMENT profit stamp; e2e | ⬜ |
+| **KC-2** | Debts: reduction excludes kept amounts; DEBT_REPAYMENT profit stamp; e2e | ✅ 2026-07-13 (lira-107; "Other / kept change" profits bucket + page line) |
+
+**KC-2 implementation notes (2026-07-13):**
+
+- Owner decision: new **"Other / kept change"** Profits line (bucket
+  `debt_repayments` in ProfitSummary; `getDebtRepaymentProfit` mirrors the
+  SALE+REFUND pattern over `source_table='debt_ledger'` so a voided
+  repayment's negated stamp nets out). Counts in gross-profit totals.
+- **Kept split is TENDER-native** (engine `change` output), NOT the
+  return-field suggestion: lira-107's failing-first run caught a kept
+  100,000 LBP reported as the $1.12 return suggestion, which the per-currency
+  netting clamped away and cross-converted into a phantom client credit.
+  The smart-split return suggestion (USD notes + LBP remainder) likewise does
+  not apply to KEEPING — the drawer physically holds the excess tender.
+- **Two failing-first proofs** en route (profit delta 0 vs 100,000; balance
+  ±1.12 vs 0) — the second found the tender-native design requirement.
+- **Rule-14 debt found**: `DebtRepaymentSchema` in electron-app/schemas is a
+  LOCAL duplicate of core's `addRepaymentSchema` (REST validates core, IPC
+  validates the local copy) — kept fields silently stripped on desktop until
+  added to BOTH. Documented at both sites; consolidate like DebtCashOutSchema
+  when next touched.
+- Keep-change is wired for REPAY mode only; cash-out mode has no defined
+  "kept change" semantics and shows no button (opt-in).
+
+**KC-2 finding (2026-07-13):** `ProfitRepository`'s summary joins specific
+transaction types per module — DEBT_REPAYMENT is aggregated NOWHERE, so a
+kept-change profit stamp on a repayment books in the data but is INVISIBLE on
+the Profits page. KC-2 therefore needs either (a) a new summary bucket (e.g.
+"Debt repayments / kept change") + Profits page line, or (b) owner accepts
+keep-change on debts NOT appearing in profit reports (stamp only). Owner
+decision pending. Meanwhile the keep-change button was made OPT-IN per
+consumer (`onKeptChange` wired = shown): unmigrated forms (debts, maintenance,
+recharge, loto, custom services, sessions) show NO button, closing the
+silent-money-hole hazard of suppressing returns whose kept amounts the backend
+would strip.
 | **KC-3** | Remaining modules (recharge/financial, loto, custom services, maintenance): mechanical replication + combined delta e2e | ⬜ |
 | **KC-4** | Sessions: button in SessionCheckoutModal; kept change carried on the pooled-payment carrier row; web-parity run + docs | ⬜ |
 

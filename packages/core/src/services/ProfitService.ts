@@ -143,6 +143,14 @@ export interface ProfitSummary {
     profit_usd: number;
     count: number;
   };
+  /** T3 keep-change on debt repayments — kept change stamped on
+   *  DEBT_REPAYMENT transactions ("Other / kept change" line; owner decision
+   *  2026-07-13, docs/plans/T3_KEEP_CHANGE_PLAN.md KC-2). */
+  debt_repayments: {
+    profit_usd: number;
+    profit_lbp: number;
+    count: number;
+  };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
@@ -332,6 +340,10 @@ export class ProfitService {
       // 6. Exchange profit (v30+: sum leg profits).
       const exchange = this.repo.getExchangeTotals(fromDt, toDt);
 
+      // Kept change stamped on debt repayments (T3 KC-2) — the only profit
+      // source on DEBT_REPAYMENT rows; REFUND rows net a voided repayment out.
+      const debtRepayments = this.repo.getDebtRepaymentProfit(fromDt, toDt);
+
       // 7. Expenses.
       const expenses = this.repo.getExpenseTotals(fromDt, toDt);
 
@@ -370,7 +382,8 @@ export class ProfitService {
         custom.profit_usd +
         maint.profit_usd +
         exchange.profit_usd +
-        mobileSvc.profit_usd;
+        mobileSvc.profit_usd +
+        debtRepayments.profit_usd;
       const grossProfitLbp =
         finSvc.commission_lbp +
         finSvc.pm_fee_lbp +
@@ -378,7 +391,8 @@ export class ProfitService {
         custom.profit_lbp +
         maint.profit_lbp +
         loto.profit_lbp +
-        mobileSvc.profit_lbp;
+        mobileSvc.profit_lbp +
+        debtRepayments.profit_lbp;
 
       return {
         period: `${from} to ${to}`,
@@ -390,6 +404,7 @@ export class ProfitService {
         maintenance: maint,
         loto,
         exchange,
+        debt_repayments: debtRepayments,
         expenses,
         totals: {
           gross_revenue_usd: grossRevenueUsd,

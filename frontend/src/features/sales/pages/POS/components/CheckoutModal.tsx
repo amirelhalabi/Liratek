@@ -37,6 +37,11 @@ export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
 
 interface CheckoutModalProps {
   items?: CartItem[];
+  /** T3 keep-change opt-in: only flows whose backend accepts kept_change_*
+   *  (POS sales) may show the button — on others (Maintenance shares this
+   *  modal) the fields would be stripped at validation and the change
+   *  silently neither returned nor stamped. Default false. */
+  allowKeepChange?: boolean;
   totalAmount: number;
   /**
    * Currency the total/discount/net are expressed in. Defaults to "USD".
@@ -119,6 +124,7 @@ const printReceiptContent = async (content: string, targetPrinter?: string) => {
 
 export default function CheckoutModal({
   items,
+  allowKeepChange = false,
   totalAmount,
   currency,
   onClose,
@@ -892,7 +898,7 @@ export default function CheckoutModal({
                   : {})}
                 onChange={setPaymentLines}
                 onReturnChange={setReturnLines}
-                onKeptChange={setKeptChange}
+                {...(allowKeepChange ? { onKeptChange: setKeptChange } : {})}
                 requiresClientForDebt={true}
                 hasClient={canCreateDebt}
                 paymentMethods={paymentMethodOptions}

@@ -708,6 +708,17 @@ describe("MultiPaymentInput", () => {
       expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
     });
 
+    it("OPT-IN: renders no keep-change button when the parent did not wire onKeptChange", () => {
+      // Consumers whose backend doesn't accept kept_change_* yet must not
+      // show the button — it would suppress the return legs while validation
+      // strips the kept amounts (change neither returned nor stamped).
+      renderMpi({ totalAmount: 100 });
+      fireEvent.change(firstAmountInput(), { target: { value: "150" } });
+
+      expect(screen.getByTestId("payment-summary")).toBeInTheDocument();
+      expect(screen.queryByTestId("keep-change")).not.toBeInTheDocument();
+    });
+
     it("activating keep-change drops the return legs and reports the kept amounts; deactivating restores", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
@@ -734,19 +745,23 @@ describe("MultiPaymentInput", () => {
       );
     });
 
-    it("reports the smart-split kept amounts per currency (USD notes + LBP remainder)", () => {
+    it("reports the kept amounts in the TENDER currency, not the smart-split return suggestion", () => {
       const onKeptChange = jest.fn();
       const onReturnChange = jest.fn();
       renderOverpaid({ onKeptChange, onReturnChange, smartSplitOverpay: true });
 
-      // Overpay $104.73 on $100 → suggested 4 USD + 70,000 LBP (rounded).
+      // Overpay $104.73 on $100 → the RETURN suggestion smart-splits into
+      // 4 USD notes + 70,000 LBP (drawer convenience)…
       fireEvent.change(firstAmountInput(), { target: { value: "104.73" } });
       expect(screen.getByTestId("return-usd")).toHaveValue("4");
       expect(screen.getByTestId("return-lbp")).toHaveValue("70000");
 
       fireEvent.click(screen.getByTestId("keep-change"));
 
-      expect(onKeptChange).toHaveBeenLastCalledWith({ usd: 4, lbp: 70_000 });
+      // …but KEEPING is physical: the drawer holds the excess tender itself —
+      // $4.73 USD (what the customer overpaid in), no LBP involved. A
+      // cross-denominated kept split corrupts per-currency netting (lira-107).
+      expect(onKeptChange).toHaveBeenLastCalledWith({ usd: 4.73, lbp: 0 });
       expect(
         (onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[]),
       ).toEqual([]);

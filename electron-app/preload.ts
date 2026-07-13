@@ -162,6 +162,8 @@ contextBridge.exposeInMainWorld("api", {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
+      keptChangeUSD?: number;
+      keptChangeLBP?: number;
       transaction_time?: string;
     }) => ipcRenderer.invoke("debt:add-repayment", data),
     cashOut: (data: {

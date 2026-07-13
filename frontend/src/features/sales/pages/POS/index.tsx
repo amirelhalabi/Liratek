@@ -615,6 +615,7 @@ export default function POS() {
       {isCheckoutOpen && (
         <CheckoutModal
           items={cartItems}
+          allowKeepChange={true}
           totalAmount={cartItems.reduce(
             (acc, item) => acc + item.retail_price * item.quantity,
             0,

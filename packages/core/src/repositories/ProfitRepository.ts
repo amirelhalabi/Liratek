@@ -352,6 +352,39 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       ) as SalesProfitRow;
   }
 
+  /**
+   * Kept change stamped on debt repayments (T3 KC-2). DEBT_REPAYMENT rows
+   * carry profit ONLY from keep-change; a voided repayment's REFUND row (same
+   * source_table) carries the negated stamp, so summing the pair nets it out —
+   * the same SALE+REFUND pattern getSalesProfit uses. Count counts only the
+   * repayments themselves, not their refund rows.
+   */
+  getDebtRepaymentProfit(
+    fromDt: string,
+    toDt: string,
+  ): { profit_usd: number; profit_lbp: number; count: number } {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp,
+          COALESCE(SUM(CASE WHEN t.type = 'DEBT_REPAYMENT'
+                             AND (t.profit_usd != 0 OR t.profit_lbp != 0)
+                            THEN 1 ELSE 0 END), 0) AS count
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND t.source_table = 'debt_ledger'
+          AND t.type IN ('DEBT_REPAYMENT', 'REFUND')
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as {
+      profit_usd: number;
+      profit_lbp: number;
+      count: number;
+    };
+  }
+
   /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */
   getFinancialSettledByCurrency(
     fromDt: string,
