@@ -260,8 +260,14 @@ const EXCHANGE_LEG_PROFIT =
 const COMMISSION_PROVIDERS =
   "'OMT', 'WHISH', 'OMT_APP', 'WHISH_APP', 'BINANCE'";
 
-/** Providers that represent cost/price mobile services. */
-const MOBILE_PROVIDERS = "'iPick', 'KATCH', 'BOB'";
+/**
+ * Providers that represent cost/price mobile services. Spellings must match the
+ * stored `financial_services.provider` values exactly — the schema CHECK
+ * constraint allows 'Katsh' (not 'KATCH'), and SQLite's IN is case-sensitive:
+ * a 'KATCH' entry here silently matched zero rows, hiding every Katsh sale's
+ * profit from the overview. Guarded by ProfitService.transactionBased test (e).
+ */
+const MOBILE_PROVIDERS = "'iPick', 'Katsh', 'BOB'";
 
 /** Internal/system payment flows excluded from the per-method profit view. */
 const INTERNAL_PAYMENT_METHODS =
@@ -448,7 +454,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       ) as FinCurrencyRow[];
   }
 
-  /** Mobile services (iPick/KATCH/BOB) revenue/cost/profit grouped by currency. */
+  /** Mobile services (iPick/Katsh/BOB) revenue/cost/profit grouped by currency. */
   getMobileServicesByCurrency(
     fromDt: string,
     toDt: string,

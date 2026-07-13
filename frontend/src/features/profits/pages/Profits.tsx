@@ -653,6 +653,8 @@ export default function Profits() {
                         summary.financial_services.commission_usd,
                         "USD",
                       )}
+                      {summary.financial_services.commission_lbp !== 0 &&
+                        ` + ${formatAmount(summary.financial_services.commission_lbp, "LBP")}`}
                     </span>
                   </div>
                   {(summary.financial_services.pending_commission_usd > 0 ||
@@ -664,6 +666,9 @@ export default function Profits() {
                           summary.financial_services.pending_commission_usd,
                           "USD",
                         )}
+                        {summary.financial_services.pending_commission_lbp !==
+                          0 &&
+                          ` + ${formatAmount(summary.financial_services.pending_commission_lbp, "LBP")}`}
                       </span>
                     </div>
                   )}
@@ -684,7 +689,7 @@ export default function Profits() {
                 </div>
               </div>
 
-              {/* Mobile Services (iPick, KATCH, BOB) */}
+              {/* Mobile Services (iPick, Katsh, BOB) */}
               {summary.mobile_services && (
                 <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                   <div className="flex items-center justify-between">

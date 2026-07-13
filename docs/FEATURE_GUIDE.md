@@ -26,8 +26,8 @@ Companion docs: [CLAUDE.md](../CLAUDE.md) (non-negotiable rules 11–17),
 | Custom services               | `custom_services`                               | includes Hold Money (HOLD_MONEY / HOLD_MONEY_COLLECT)                                                                          |
 | Recharge — MTC                | provider `MTC`                                  | credits (CREDIT_TRANSFER), days                                                                                                |
 | Recharge — Alfa               | provider `ALFA`                                 | credits, days, **Alfa Gift** (ALFA_GIFT — payload `{type, amount, cost, price}`)                                               |
-| Recharge — iPick              | provider `IPICK`                                | bills + catalog items                                                                                                          |
-| Recharge — Katsh              | provider `Katsh`                                | bills + catalog items                                                                                                          |
+| Recharge — iPick              | provider `iPick`                                | bills + catalog items                                                                                                          |
+| Recharge — Katsh              | provider `Katsh`                                | bills + catalog items. Casing is load-bearing: the schema CHECK allows only `Katsh`/`iPick`, and SQLite compares case-sensitively — a `'KATCH'` filter in ProfitRepository once hid every Katsh sale's profit |
 | Whish App                     | provider `WHISH_APP` (drawer `Whish_App`)       | transfers (send/receive) + bills/items section. Spelling is always `WHISH_APP` — the `WISH_APP` typo was migrated away in v105 |
 | OMT App                       | provider `OMT_APP` (drawer `OMT_App`)           | transfers (send/receive)                                                                                                       |
 | Binance                       | provider `BINANCE`                              | send + cashout (USDT wallet)                                                                                                   |
@@ -227,10 +227,30 @@ by cashPaid with no partner row (the margin exists only as a drawer delta) — l
   or listed as non-reversible.
 - Refund reverses profit — a refunded transaction's profit nets to 0; per-item refunds
   pro-rate the sale's discount (lira-090).
+- **Reversal symmetry (CLAUDE.md rule 20)**: every ledger row a flow writes must have a
+  named reversal owner — the generic path reverses drawers (`_reversePayments`),
+  module-charge debt (`_cancelDebt` over `MODULE_DEBT_TRANSACTION_TYPES`, BOTH
+  currencies, on EVERY void/refund), profit, sale stock, and the supplier soft-void.
+  A new side-effect row (new debt `transaction_type`, new ledger, auto sibling) must in
+  the same change either join the generic reversal or gate its type non-reversible —
+  and prove create+reverse nets to 0 across every ledger, per currency, failing-first.
+  **Extending a capability to more modules re-triggers this** (the lira-093
+  "CUSTOMER_ACCOUNT everywhere" sweep never revisited refunds → account-charged
+  recharge/service refunds kept the customer's debt, owner-reported 2026-07-12;
+  lira-104 + lira-web-012). An account-charged leg took NO cash, so its reversal is
+  ledger-only — never a cash payout. Charge types are named `'<Module> Debt'`;
+  the `moduleDebtTypes.guard.test.ts` jest guard forces classification of any new one.
+  Corollary the same fix covered: refunding a `'Service Debt'` must also stop the
+  provider routing — the outstanding computation nets `'Refund Reversal'` rows
+  (DebtRepository.serviceDebtRouting.test.ts).
 - Maintenance: an unpaid draft deletes cleanly (status change, no reversal row); a paid
   job's delete is **blocked** — go through refund/void (lira-081).
-- **Known open gap** (LEFT_TO_DO): voiding a FINANCIAL_SERVICE/RECHARGE row leaves its
-  auto SUPPLIER_PAYMENT sibling standing. Account for the sibling when touching voids.
+- **Known open gaps** (LEFT_TO_DO): voiding a FINANCIAL_SERVICE/RECHARGE row leaves its
+  auto SUPPLIER_PAYMENT sibling standing — account for the sibling when touching voids.
+  Refunding a DEBT_REPAYMENT reverses the cash but not the `'Repayment'` ledger row
+  (rule-20 violation: either whitelist `'Repayment'` after a routing analysis, or gate
+  DEBT_REPAYMENT non-reversible like CREDIT_CASH_OUT). Aging/overdue views are
+  charge-only and keep showing reversed charges until due_date passes.
 
 ---
 

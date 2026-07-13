@@ -86,6 +86,23 @@ function createTestDb(): Database.Database {
       refunded_at TEXT,
       tenant_id   INTEGER NOT NULL DEFAULT 1
     );
+
+    -- _cancelDebt runs unconditionally on every void/refund (module-debt
+    -- reversal fix, 2026-07-12) — the fixture needs the table it scans.
+    CREATE TABLE debt_ledger (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id        INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      amount_usd       REAL NOT NULL DEFAULT 0,
+      amount_lbp       REAL NOT NULL DEFAULT 0,
+      transaction_id   INTEGER,
+      session_id       INTEGER,
+      note             TEXT,
+      due_date         TEXT,
+      created_by       INTEGER,
+      tenant_id        INTEGER DEFAULT 1,
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   db.prepare(`INSERT INTO users (id, username) VALUES (1, 'cashier')`).run();
   return db;

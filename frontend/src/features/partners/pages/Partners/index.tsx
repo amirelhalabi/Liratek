@@ -154,7 +154,7 @@ function Modal({
 }) {
   useModalFocusFix(true);
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
       <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
           <h2 className="text-white font-semibold text-base">{title}</h2>

@@ -69,7 +69,11 @@ describe("SalesService", () => {
 
       const result = service.processSale(saleRequest, 1);
 
-      expect(mockRepo.processSale).toHaveBeenCalledWith(saleRequest, 1);
+      // Third arg: SalesService derives allowOutOfStock from the
+      // 'allow_out_of_stock_sales' setting (unset here → false).
+      expect(mockRepo.processSale).toHaveBeenCalledWith(saleRequest, 1, {
+        allowOutOfStock: false,
+      });
       expect(result).toEqual({ success: true, id: 123 });
     });
 

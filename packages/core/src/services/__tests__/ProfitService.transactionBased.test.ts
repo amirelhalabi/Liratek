@@ -14,6 +14,11 @@
  *       is_settled = 0 shows as pending (not realized)
  *   (d) recharge / custom / maintenance profit equals what is stamped on the
  *       transaction (price − cost), sourced from transactions.profit_usd/lbp
+ *   (e) cost/price grid-item sales (iPick/Katsh mobile services, WHISH_APP
+ *       items) are counted in the summary buckets — guards the 'KATCH' vs
+ *       'Katsh' provider-string mismatch that made every Katsh sale's profit
+ *       invisible on the Profits overview (the DB CHECK constraint only ever
+ *       stores 'Katsh'; SQLite IN is case-sensitive)
  */
 
 import Database from "better-sqlite3";
@@ -968,5 +973,72 @@ describe("(i) getByUser / getByClient corrections", () => {
     expect(seller?.profit_usd).toBe(0);
     // The refunder is unaffected (was −40 pre-fix).
     expect(refunder?.profit_usd ?? 0).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (e) Cost/price grid-item sales: mobile bucket (iPick/Katsh) + WHISH_APP items
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("(e) grid-item (cost/price) profit visibility in the summary", () => {
+  /**
+   * A grid-item sale as FinancialServiceRepository writes it: LBP cost/price
+   * row born is_settled = 1, commission = price − cost, and the same margin
+   * stamped as profit_lbp on the FINANCIAL_SERVICE transaction.
+   */
+  function insertGridItem(opts: {
+    id: number;
+    provider: string;
+    price: number;
+    cost: number;
+  }): void {
+    db.prepare(
+      `INSERT INTO financial_services (id, provider, currency, amount, price, cost, commission, is_settled, created_at)
+       VALUES (?, ?, 'LBP', ?, ?, ?, ?, 1, ?)`,
+    ).run(
+      opts.id,
+      opts.provider,
+      opts.price,
+      opts.price,
+      opts.cost,
+      opts.price - opts.cost,
+      TS,
+    );
+    insertTxn({
+      type: "FINANCIAL_SERVICE",
+      sourceTable: "financial_services",
+      sourceId: opts.id,
+      profitLbp: opts.price - opts.cost,
+    });
+  }
+
+  it("counts Katsh AND iPick grid profit in mobile_services and the LBP totals", () => {
+    insertGridItem({ id: 1, provider: "Katsh", price: 900_000, cost: 800_000 });
+    insertGridItem({ id: 2, provider: "iPick", price: 500_000, cost: 450_000 });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.mobile_services.profit_lbp).toBe(150_000);
+    expect(summary.mobile_services.revenue_lbp).toBe(1_400_000);
+    expect(summary.mobile_services.cost_lbp).toBe(1_250_000);
+    expect(summary.mobile_services.count).toBe(2);
+    // Mobile providers must NOT leak into the commission bucket (no double count).
+    expect(summary.financial_services.commission_lbp).toBe(0);
+    expect(summary.totals.gross_profit_lbp).toBe(150_000);
+  });
+
+  it("counts a WHISH_APP grid item as realized LBP commission (not pending, not mobile)", () => {
+    insertGridItem({
+      id: 1,
+      provider: "WHISH_APP",
+      price: 2_000_000,
+      cost: 1_900_000,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.financial_services.commission_lbp).toBe(100_000);
+    expect(summary.financial_services.revenue_lbp).toBe(2_000_000);
+    expect(summary.financial_services.pending_commission_lbp).toBe(0);
+    expect(summary.mobile_services.profit_lbp).toBe(0);
+    expect(summary.totals.gross_profit_lbp).toBe(100_000);
   });
 });

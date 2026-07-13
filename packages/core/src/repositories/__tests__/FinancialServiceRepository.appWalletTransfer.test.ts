@@ -556,3 +556,139 @@ describe("FinancialServiceRepository — app-wallet SEND with a fee (missing-$2 
     expect(debt.note).toBe("Binance SEND — $20 USDT (+$2 fee)");
   });
 });
+
+describe("FinancialServiceRepository — wallet-provider catalog-item sale summary", () => {
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    repo = new FinancialServiceRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  it("WHISH_APP grid-item sale gets an item-style summary, not a transfer line with a fee", () => {
+    // A catalog item (cost/price flow): the customer paid 150,000 total;
+    // the 30,383 margin is INSIDE that price, not a fee on top. The summary
+    // used to read "WHISH_APP SEND: 150000 LBP (+30,383 LBP fee)" — a
+    // transfer line — for what is an item sale.
+    const res = repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "SEND",
+      amount: 150000,
+      currency: "LBP",
+      commission: 30383,
+      cost: 119617,
+      itemKey: "mtc_prepaid_1",
+      note: "MTC Prepaid 1",
+      paidByMethod: "CASH",
+      exchangeRate: 90000,
+    });
+    expect(res.id).toBeGreaterThan(0);
+
+    const txn = db
+      .prepare(
+        `SELECT summary, amount_lbp, profit_lbp FROM transactions ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { summary: string; amount_lbp: number; profit_lbp: number };
+    // Friendly provider label — the raw "WHISH_APP" enum reads like a code
+    // in the audit table while iPick/Katsh item lines read naturally.
+    expect(txn.summary).toBe("Whish App: MTC Prepaid 1 — 150000 LBP");
+    expect(txn.summary).not.toContain("fee");
+    expect(txn.summary).not.toContain("SEND");
+    expect(txn.summary).not.toContain("WHISH_APP");
+    // Margin still stamped as profit and amount still the customer total.
+    expect(txn.amount_lbp).toBeCloseTo(150000, 2);
+    expect(txn.profit_lbp).toBeCloseTo(30383, 2);
+  });
+
+  it("control: a WHISH_APP transfer (no cost) keeps the transfer summary with the fee suffix", () => {
+    const res = repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "SEND",
+      amount: 20,
+      currency: "USD",
+      commission: 2,
+      whishFee: 2,
+      senderName: "amir halabi",
+      paidByMethod: "CASH",
+      exchangeRate: 90000,
+    });
+    expect(res.id).toBeGreaterThan(0);
+
+    const txn = db
+      .prepare(`SELECT summary FROM transactions ORDER BY id DESC LIMIT 1`)
+      .get() as { summary: string };
+    expect(txn.summary).toContain("WHISH_APP SEND:");
+    expect(txn.summary).toContain("(+$2 fee)");
+  });
+});
+
+describe("FinancialServiceRepository — catalog-item on-account debt note", () => {
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    repo = new FinancialServiceRepository();
+    db.prepare(
+      `INSERT INTO clients (id, full_name, phone_number) VALUES (1, 'amir halabi', '81077357')`,
+    ).run();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  function itemSaleOnAccount(provider: "WHISH_APP" | "Katsh"): void {
+    repo.createTransaction({
+      provider,
+      serviceType: "SEND",
+      amount: 150000,
+      currency: "LBP",
+      commission: 30383,
+      cost: 119617,
+      itemKey: "mtc_prepaid_1",
+      note: "MTC Prepaid 1",
+      clientId: 1,
+      paidByMethod: "CUSTOMER_ACCOUNT",
+      exchangeRate: 90000,
+    });
+  }
+
+  function lastServiceDebt(): { note: string; amount_lbp: number } {
+    return db
+      .prepare(
+        `SELECT note, amount_lbp FROM debt_ledger WHERE transaction_type = 'Service Debt' ORDER BY id DESC LIMIT 1`,
+      )
+      .get() as { note: string; amount_lbp: number };
+  }
+
+  it("WHISH_APP item debt note matches the iPick/Katsh item format (friendly label)", () => {
+    itemSaleOnAccount("WHISH_APP");
+    const debt = lastServiceDebt();
+    expect(debt.note).toBe("Whish App service: MTC Prepaid 1");
+    expect(debt.note).not.toContain("WHISH_APP");
+    expect(debt.amount_lbp).toBeCloseTo(150000, 2);
+  });
+
+  it("control: Katsh item debt note keeps its existing format", () => {
+    itemSaleOnAccount("Katsh");
+    const debt = lastServiceDebt();
+    expect(debt.note).toBe("Katsh service: MTC Prepaid 1");
+    expect(debt.amount_lbp).toBeCloseTo(150000, 2);
+  });
+});

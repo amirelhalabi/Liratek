@@ -22,7 +22,10 @@
 
 import Database from "better-sqlite3";
 import { DebtRepository } from "../DebtRepository";
-import { resetTransactionRepository } from "../TransactionRepository";
+import {
+  TransactionRepository,
+  resetTransactionRepository,
+} from "../TransactionRepository";
 
 jest.mock("../../db/connection", () => {
   let _db: Database.Database | null = null;
@@ -60,6 +63,8 @@ function createTestDb(): Database.Database {
       provider TEXT NOT NULL,
       service_type TEXT DEFAULT 'SEND',
       amount REAL DEFAULT 0,
+      is_refunded INTEGER DEFAULT 0,
+      refunded_at DATETIME,
       tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -190,7 +195,7 @@ function seedServiceDebt(
   provider: "OMT" | "WHISH",
   amountUsd: number,
   amountLbp = 0,
-): void {
+): number {
   const fs = db
     .prepare(`INSERT INTO financial_services (provider, amount) VALUES (?, ?)`)
     .run(provider, amountUsd || amountLbp);
@@ -204,6 +209,7 @@ function seedServiceDebt(
     `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, created_by)
      VALUES (?, 'Service Debt', ?, ?, ?, 1)`,
   ).run(clientId, amountUsd, amountLbp, txn.lastInsertRowid);
+  return Number(txn.lastInsertRowid);
 }
 
 describe("DebtRepository — Service-Debt provider routing (outstanding-capped)", () => {
@@ -371,6 +377,36 @@ describe("DebtRepository — Service-Debt provider routing (outstanding-capped)"
     expect(drawerBalance(db, "OMT_System", "LBP")).toBeCloseTo(0, 2);
     expect(drawerBalance(db, "General", "LBP")).toBeCloseTo(
       generalLbpBefore + 900_000,
+      2,
+    );
+  });
+
+  it("a REFUNDED service debt does not route a later repayment into the provider drawer (pre-fix: over-routed)", () => {
+    // $50 OMT service debt on account, then refunded from the Transactions
+    // table. The refund leaves the original FINANCIAL_SERVICE txn ACTIVE and
+    // books a 'Refund Reversal' −$50 against the same transaction_id — the
+    // outstanding computation must net the pair to 0, or the client's next
+    // (unrelated) repayment silently moves cash into OMT_System.
+    const txnId = seedServiceDebt(db, 7, "OMT", 50);
+    new TransactionRepository().refundTransaction(txnId, 1);
+
+    // Unrelated sale debt, repaid in USD.
+    db.prepare(
+      `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, created_by)
+       VALUES (7, 'Sale Debt', 50, 1)`,
+    ).run();
+    const generalBefore = drawerBalance(db, "General", "USD");
+
+    repo.addRepayment({
+      client_id: 7,
+      amount_usd: 50,
+      amount_lbp: 0,
+      created_by: 1,
+    });
+
+    expect(drawerBalance(db, "OMT_System", "USD")).toBeCloseTo(0, 2);
+    expect(drawerBalance(db, "General", "USD")).toBeCloseTo(
+      generalBefore + 50,
       2,
     );
   });

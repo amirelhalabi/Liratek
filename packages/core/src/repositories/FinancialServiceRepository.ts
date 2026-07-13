@@ -39,7 +39,7 @@ export interface FinancialServiceEntity {
     | "BOB"
     | "OTHER"
     | "iPick"
-    | "KATCH"
+    | "Katsh"
     | "WHISH_APP"
     | "OMT_APP"
     | "BINANCE";
@@ -241,13 +241,33 @@ export interface FinancialServiceAnalytics {
 }
 
 /**
+ * Operator-facing provider label for item/bill summaries and Service Debt
+ * notes — the raw "WHISH_APP"/"OMT_APP" enums read like codes next to
+ * iPick/Katsh. Transfer summaries and ledger matching keep the raw enum
+ * (e2e specs and existing rows match on "WHISH_APP SEND: …").
+ */
+function providerDisplayLabel(
+  provider: CreateFinancialServiceData["provider"],
+): string {
+  switch (provider) {
+    case "WHISH_APP":
+      return "Whish App";
+    case "OMT_APP":
+      return "OMT App";
+    default:
+      return provider;
+  }
+}
+
+/**
  * Debt-ledger note for a Service Debt (cost/price flow) entry. Prefers the
  * operator-facing `note` (e.g. selected iPick/Katsh items) over the raw
  * `item_key`, which is only ever set on the session per-item booking path.
  */
 function serviceDebtNote(data: CreateFinancialServiceData): string {
-  if (data.note) return `${data.provider} service: ${data.note}`;
-  return `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`;
+  const label = providerDisplayLabel(data.provider);
+  if (data.note) return `${label} service: ${data.note}`;
+  return `${label} service${data.itemKey ? ` [${data.itemKey}]` : ""}`;
 }
 
 /**
@@ -727,21 +747,33 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // explicitly, instead of the generic provider+amount line below.
           const isKatchLike =
             data.provider === "iPick" || data.provider === "Katsh";
+          // Wallet-provider catalog items (Whish App / OMT App grid sales)
+          // are cost/price rows, not transfers — they get the same item-style
+          // line. Real transfers never send cost > 0 (OmtWhishAppTransferForm),
+          // so useCostPriceFlow cleanly separates the two; without this a
+          // Whish App item sale read "WHISH_APP SEND: 150000 LBP (+30,383 LBP
+          // fee)" — a transfer line whose "fee" was actually the item margin.
+          const isItemSale = useCostPriceFlow && !!note;
+          // Friendly provider label for the item/bill lines only; the generic
+          // transfer line below keeps the raw enum (see providerDisplayLabel).
+          const providerLabel = providerDisplayLabel(data.provider);
           let head =
             isKatchLike && data.serviceType === "BILL"
-              ? `${data.provider} Bill: ${data.amount} ${currency}`
-              : isKatchLike && note
-                ? `${data.provider}: ${note} — ${data.amount} ${currency}`
+              ? `${providerLabel} Bill: ${data.amount} ${currency}`
+              : (isKatchLike || isItemSale) && note
+                ? `${providerLabel}: ${note} — ${data.amount} ${currency}`
                 : `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`;
           // Wallet transfers (Binance / OMT App / Whish App): the fee the shop
           // charges on top is the commission — surface it, otherwise the audit
           // row reads "20 USD" while the customer was charged 22 and the fee
-          // is invisible anywhere in the table.
+          // is invisible anywhere in the table. Cost/price rows are excluded:
+          // there the commission is the price − cost margin already inside the
+          // amount the customer paid, not a fee on top.
           const isWalletProvider =
             data.provider === "BINANCE" ||
             data.provider === "OMT_APP" ||
             data.provider === "WHISH_APP";
-          if (isWalletProvider && commission > 0) {
+          if (isWalletProvider && !useCostPriceFlow && commission > 0) {
             const fmtFee =
               currency === "LBP"
                 ? `${Math.round(commission).toLocaleString()} LBP`
