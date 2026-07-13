@@ -744,7 +744,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             (currency === "LBP" ? netRechargeCommission : 0) +
             (data.kept_change_lbp ?? 0),
           client_id: data.clientId ?? null,
-          client_name: clientName ?? null,
+          // For-partner recharges label the row with the partner (owner ask:
+          // the transactions table shows "<partner> [partner]").
+          client_name:
+            data.partnerMode === "FOR" && data.partnerId
+              ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
+              : (clientName ?? null),
           summary: `Recharge: ${data.provider} ${detail} — ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}`,
           metadata_json: {
             provider: data.provider,

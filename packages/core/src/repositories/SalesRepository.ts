@@ -477,8 +477,13 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           exchange_rate: sale.exchange_rate,
           client_id: finalClientId ?? null,
           // Rule 11: keep the walk-in name/phone on the unified row even when
-          // no clients row could be resolved (lira-094).
-          client_name: sale.client_name ?? null,
+          // no clients row could be resolved (lira-094). For-partner sales
+          // label the row with the partner instead (owner ask: the
+          // transactions table shows "<partner> [partner]").
+          client_name:
+            sale.partnerMode === "FOR" && sale.partnerId
+              ? `${getPartnerRepository().getById(sale.partnerId)?.name ?? `#${sale.partnerId}`} [partner]`
+              : (sale.client_name ?? null),
           client_phone: sale.client_phone ?? null,
           summary: saleLabel,
           metadata_json: {

@@ -176,7 +176,12 @@ export class LotoTicketRepository {
         profit_lbp: data.commission_amount + (data.kept_change_lbp ?? 0),
         exchange_rate: data.exchange_rate ?? 100000, // operator rate (session) else default
         client_id: data.clientId ?? null,
-        client_name: data.clientName ?? null,
+        // For-partner tickets label the row with the partner (owner ask: the
+        // transactions table shows "<partner> [partner]").
+        client_name:
+          isForPartner && data.partnerId
+            ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
+            : (data.clientName ?? null),
         summary: txnSummary,
         metadata_json: {
           commission_amount: data.commission_amount,

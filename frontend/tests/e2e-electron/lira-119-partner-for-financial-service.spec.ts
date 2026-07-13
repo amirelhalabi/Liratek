@@ -49,6 +49,7 @@ type LedgerEntry = {
   amount: number;
   currency: string;
   direction: "DEBIT" | "CREDIT";
+  notes: string | null;
 };
 
 type Api = {
@@ -79,7 +80,14 @@ type Api = {
     transactions: {
       getRecent: (
         n: number,
-      ) => Promise<Array<{ id: number; type: string; summary: string | null }>>;
+      ) => Promise<
+        Array<{
+          id: number;
+          type: string;
+          summary: string | null;
+          client_name: string | null;
+        }>
+      >;
       void: (id: number) => Promise<{ success: boolean; error?: string }>;
     };
   };
@@ -349,6 +357,9 @@ const CASES: Case[] = [
       currency: "USD",
       cost: 90,
       price: 100.66,
+      // Owner ask 2026-07-14: the item detail must reach the partner ledger
+      // notes (the Partners page Notes column showed "—" before).
+      note: "alfa: 7.58 (Prepaid)",
     },
     match: "100.66",
     type: "FOR_IPICK",
@@ -412,6 +423,12 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
       expect(res.entries).toHaveLength(1);
       expect(res.entries[0].transaction_type).toBe(c.type);
       expect(res.entries[0].direction).toBe(c.direction);
+      // Owner ask 2026-07-14: the ledger row carries human detail — the item
+      // label when the form sent one, else provider + direction.
+      const expectedNote =
+        (c.payload.note as string | undefined) ??
+        `${c.payload.provider} ${c.payload.serviceType}`;
+      expect(res.entries[0].notes ?? "").toContain(expectedNote);
 
       const afterCreate = await snapshot(appPage, partnerId);
       expect(afterCreate.bal.usd - before.bal.usd).toBeCloseTo(
@@ -431,6 +448,8 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
       }
 
       // Void (rule 20): partner ledger AND every touched drawer net to 0.
+      // Also assert the owner-asked client label: the transactions table
+      // shows the partner as "<name> [partner]" in the client column.
       const voided = await appPage.evaluate(async (match) => {
         const w = window as unknown as Api;
         const row = (await w.api.transactions.getRecent(100)).find(
@@ -441,10 +460,15 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
         const r = row
           ? await w.api.transactions.void(row.id)
           : { success: false, error: "txn not found" };
-        return { ok: r.success, error: r.error ?? null };
+        return {
+          ok: r.success,
+          error: r.error ?? null,
+          clientName: row?.client_name ?? null,
+        };
       }, c.match);
       expect(voided.error).toBeNull();
       expect(voided.ok).toBe(true);
+      expect(voided.clientName ?? "").toMatch(/ \[partner\]$/);
 
       const afterVoid = await snapshot(appPage, partnerId);
       expect(afterVoid.bal.usd - before.bal.usd).toBeCloseTo(0, 2);

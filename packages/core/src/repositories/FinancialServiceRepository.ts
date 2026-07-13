@@ -740,6 +740,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         profit_lbp:
           (currency === "LBP" ? commission : 0) + (data.kept_change_lbp ?? 0),
         client_id: resolvedPrimaryClientId ?? null,
+        // For-partner services label the row with the partner (owner ask: the
+        // transactions table shows "<partner> [partner]" in the client column).
+        client_name: isForPartner
+          ? `${
+              (
+                this.db
+                  .prepare(
+                    `SELECT name FROM partners WHERE id = ? AND tenant_id = ?`,
+                  )
+                  .get(data.partnerId, tenantId) as
+                  | { name?: string }
+                  | undefined
+              )?.name ?? `#${data.partnerId}`
+            } [partner]`
+          : null,
         summary: (() => {
           // iPick/Katsh: a catalog item purchase or bill payment, not a
           // sender/receiver transfer — surface the selected item(s)
@@ -976,6 +991,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           );
         }
 
+        // Ledger notes carry the human detail the Partners page shows: the
+        // catalog item label for cost/price rows (e.g. "alfa: 7.58 (Prepaid)")
+        // or the provider + direction for transfers (owner ask 2026-07-14).
+        const ledgerNotes = note ?? `${data.provider} ${data.serviceType}`;
         const insertPartnerLedger = (
           transactionType: string,
           ledgerAmount: number,
@@ -984,8 +1003,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         ) => {
           this.db
             .prepare(
-              `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, tenant_id, created_at)
-               VALUES (?, ?, 'financial_services', ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+              `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, tenant_id, created_at)
+               VALUES (?, ?, 'financial_services', ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
             )
             .run(
               partnerId,
@@ -994,6 +1013,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               ledgerAmount,
               ledgerCurrency,
               direction,
+              ledgerNotes,
               createdBy,
               tenantId,
               data.transaction_time ?? null,
