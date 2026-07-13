@@ -89,11 +89,13 @@ a client.
 
 | Ticket | Scope | Status |
 | ------ | ----- | ------ |
-| **PFT-1** | Schema: DROP `partner_ledger.transaction_type` CHECK → free-form (migration table-rebuild + create_db.sql); add USDT bucket to `getBalanceBreakdown`. Replay on a prod DB copy. | ⬜ |
+| **PFT-1** | Schema: DROP `partner_ledger.transaction_type` CHECK → free-form (migration table-rebuild + create_db.sql); add USDT bucket to `getBalanceBreakdown`. Replay on a prod DB copy. | ✅ 2026-07-13 (6cc3672) |
 | **PFT-2** | PARTNER_ACCOUNT routing + **POS** reference + **type-agnostic partner_ledger reversal in voidTransaction/refundTransaction** (fixes the pre-existing FOR_OMT gap too). Failing-first: create+void nets partner ledger to 0; drawer deltas normal. | ✅ 2026-07-13 (lira-113) |
-| **PFT-3** | Recharge family: MTC/Alfa, Katsh/iPick, OMT App/Whish App, Binance (FOR_* each; Binance = USDT). | ⬜ |
-| **PFT-4** | Loto (FOR_LOTO) + refine existing FOR_OMT "skip General" → conditional so cash paid now is collected (preserving the system-commission profit). | ⬜ |
-| **PFT-5** | Partners page: verify the new `FOR_*` rows + USDT balance render/settle. | ⬜ |
+| **PFT-2b** | Frontend: POS checkout "For Partner" toggle + partner picker (dual-transport). | ✅ 2026-07-13 (dc829f2, lira-114 + lira-web-013) |
+| **PFT-3a** | Recharge family MTC/Alfa → `FOR_RECHARGE` routing. | ✅ 2026-07-13 (6a8dc06, lira-115) |
+| **PFT-3b** | Financial-service family: Katsh/iPick, OMT App/Whish App, Binance (`FOR_*` each; Binance = USDT) + refine existing FOR_OMT "skip General" → conditional cash-at-time. **Open forks: Binance remainder currency (USDT vs cash), RECEIVE direction.** | ⬜ (Wave 2, serial) |
+| **PFT-4** | Loto → `FOR_LOTO` routing (LBP; non-reversible, settlement-owned reversal). | ✅ 2026-07-13 (d91785d, lira-116) |
+| **PFT-5** | Partners page: `FOR_*` rows render (prefix parser) + USDT balance card/settle. **Also fixed a real bug: USDT settle direction was keyed off the USD balance sign.** | ✅ 2026-07-13 (a019798, lira-117) |
 | **PFT-6** | Profit recognition on partner settlement (Model A, owner-decided): FIFO settlement→source linkage bumps the source paid state so `saleFullyPaid` opens. Cross-cutting; built once after routing. | ⬜ |
 
 ## PFT-6 — profit recognition on partner settlement (OWNER DECIDED: Model A)
