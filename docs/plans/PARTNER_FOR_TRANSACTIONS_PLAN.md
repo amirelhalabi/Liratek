@@ -94,10 +94,28 @@ a client.
 | **PFT-3** | Recharge family: MTC/Alfa, Katsh/iPick, OMT App/Whish App, Binance (FOR_* each; Binance = USDT). | ⬜ |
 | **PFT-4** | Loto (FOR_LOTO) + refine existing FOR_OMT "skip General" → conditional so cash paid now is collected (preserving the system-commission profit). | ⬜ |
 | **PFT-5** | Partners page: verify the new `FOR_*` rows + USDT balance render/settle. | ⬜ |
+| **PFT-6** | Profit recognition on partner settlement (Model A, owner-decided): FIFO settlement→source linkage bumps the source paid state so `saleFullyPaid` opens. Cross-cutting; built once after routing. | ⬜ |
 
-## Open decision — profit recognition on partner settlement (owner input needed)
+## PFT-6 — profit recognition on partner settlement (OWNER DECIDED: Model A)
 
-**Surfaced during PFT-2 (advisor-flagged); NOT resolved. Does not block routing/reversal.**
+**Owner decision 2026-07-13: recognize profit WHEN THE PARTNER SETTLES**
+(defer like client debt — Model A below). Rationale: matches the shop's real
+cash and the existing on-account treatment; a normal credit sale already defers
+profit until repayment. Does not block PFT-2/3/4 routing (routing is
+model-independent); PFT-6 is the cross-cutting recognition mechanism, built once.
+
+**PFT-6 to build:** partner FOR_* settlement must link back to the source
+transaction(s) and open the fully-paid gate — mirror the supplier FIFO coverage
+pattern (`TransactionRepository._unapplySupplierPurchaseCoverage` /
+`_applySupplierPurchaseCoverage` already do FIFO settlement→purchase linkage).
+On a partner settlement, apply the paid amount FIFO across that partner's open
+FOR_* DEBIT rows, and for each source sale/service now covered, bump its paid
+state (`sales.paid_usd` etc.) so `saleFullyPaid` opens and the stamped margin
+enters realized profit. Prove failing-first: a FOR-partner sale's margin is
+pending before settlement, realized after (rule 17), and nets to 0 on void of
+either the sale or the settlement (rule 20).
+
+**Surfaced during PFT-2 (advisor-flagged).**
 
 A FOR-partner POS sale paid partly in cash leaves the remainder on the
 partner's account (e.g. $40 cash of a $100 sale → `sales.paid_usd = 40`, $60 →
