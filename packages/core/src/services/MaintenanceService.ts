@@ -33,6 +33,9 @@ export interface SaveJobParams {
   payments?: MaintenancePaymentLine[];
   change_given_usd?: number;
   change_given_lbp?: number;
+  /** T3 keep-change (KC-3): kept change per currency → profit stamp. */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
   transaction_time?: string;
   /**
    * Session-basket deferred payment mode. When true, the job + its unified
@@ -151,6 +154,8 @@ export class MaintenanceService {
               clientId: clientId,
               changeUsd: params.change_given_usd,
               changeLbp: params.change_given_lbp,
+              keptChangeUsd: params.kept_change_usd,
+              keptChangeLbp: params.kept_change_lbp,
               note: params.note,
               defer,
             });
@@ -185,6 +190,8 @@ export class MaintenanceService {
               clientId: clientId,
               changeUsd: params.change_given_usd,
               changeLbp: params.change_given_lbp,
+              keptChangeUsd: params.kept_change_usd,
+              keptChangeLbp: params.kept_change_lbp,
               note: params.note,
               defer,
             });

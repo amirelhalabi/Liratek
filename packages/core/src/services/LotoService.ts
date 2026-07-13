@@ -51,6 +51,9 @@ import { lotoLogger } from "../utils/logger.js";
 import { localDay } from "../utils/localDate.js";
 
 export interface SellTicketData {
+  /** T3 keep-change: kept change per currency → profit stamp. */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
   ticket_number?: string;
   sale_amount: number;
   commission_rate?: number;
@@ -161,6 +164,8 @@ export class LotoService {
         payments: data.payments,
         deferPayment: data.deferPayment,
         exchange_rate: data.exchange_rate,
+        kept_change_usd: data.kept_change_usd,
+        kept_change_lbp: data.kept_change_lbp,
       };
 
       const ticket = this.ticketRepo.createTicket(ticketData);

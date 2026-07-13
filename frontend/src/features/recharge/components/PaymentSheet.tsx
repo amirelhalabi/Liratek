@@ -46,6 +46,9 @@ export interface PaymentSheetProps {
   hasClient?: boolean;
   onPaymentChange: (lines: PaymentLine[]) => void;
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
+  /** T3 keep-change opt-in pass-through — only wire on flows whose backend
+   *  accepts kept_change_* (the button hides otherwise). */
+  onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
   onDiscountChange?: (discount: number) => void;
   onPmFeesChange?: (fees: Record<string, number>) => void;
   /** Increment this to remount MultiPaymentInput (e.g. when client is selected) */
@@ -82,6 +85,7 @@ export function PaymentSheet({
   hasClient = false,
   onPaymentChange,
   onReturnChange,
+  onKeptChange,
   onDiscountChange,
   onPmFeesChange,
   paymentInputKey,
@@ -209,6 +213,7 @@ export function PaymentSheet({
                 setLatestLines(lines);
                 onPaymentChange(lines);
               }}
+              {...(onKeptChange ? { onKeptChange } : {})}
               requiresClientForDebt={requiresClientForDebt}
               hasClient={hasClient}
               {...(initialPaymentMethod !== undefined

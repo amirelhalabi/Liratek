@@ -123,6 +123,11 @@ export default function CustomServices() {
   // ─── Payment lines (always multi-payment) ───
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  // T3 keep-change: kept (not returned) change → profit stamp on the service.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
 
   // ─── Item Selector ───
   const [selectedProduct, setSelectedProduct] = useState<{
@@ -278,6 +283,13 @@ export default function CustomServices() {
             ? { voucher_code: voucherLeg.voucherCode }
             : {};
         })(),
+        // T3 keep-change: kept amounts join the service's profit stamp.
+        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+          ? {
+              kept_change_usd: keptChange.usd,
+              kept_change_lbp: keptChange.lbp,
+            }
+          : {}),
       };
       if (finalClientId) payload.client_id = finalClientId;
       if (clientName.trim()) payload.client_name = clientName.trim();
@@ -318,6 +330,7 @@ export default function CustomServices() {
         setCategory("");
         setPaymentLines([]);
         setReturnLegs([]);
+        setKeptChange(null);
         clearProduct();
         clearClient();
         setIsSubmitting(false);
@@ -337,6 +350,7 @@ export default function CustomServices() {
         setCategory("");
         setPaymentLines([]);
         setReturnLegs([]);
+        setKeptChange(null);
         setTransactionTime(undefined);
         clearProduct();
         clearClient();
@@ -863,6 +877,7 @@ export default function CustomServices() {
                     currency="USD"
                     onChange={setPaymentLines}
                     onReturnChange={setReturnLegs}
+                    onKeptChange={setKeptChange}
                     requiresClientForDebt={true}
                     hasClient={!!clientId || !!clientName}
                     paymentMethods={methods}

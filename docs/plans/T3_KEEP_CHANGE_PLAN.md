@@ -124,7 +124,23 @@ consumer (`onKeptChange` wired = shown): unmigrated forms (debts, maintenance,
 recharge, loto, custom services, sessions) show NO button, closing the
 silent-money-hole hazard of suppressing returns whose kept amounts the backend
 would strip.
-| **KC-3** | Remaining modules (recharge/financial, loto, custom services, maintenance): mechanical replication + combined delta e2e | ⬜ |
+| **KC-3** | Remaining modules (recharge/financial, loto, custom services, maintenance): mechanical replication + combined delta e2e | ✅ 2026-07-13 (lira-108) |
+
+**KC-3 implementation notes (2026-07-13):**
+
+- Covered flows: custom services (direct), maintenance (shared CheckoutModal,
+  `allowKeepChange`), loto ticket sale (direct), telecom recharge
+  (Recharge page → TelecomForm → PaymentSheet `onKeptChange` pass-through).
+- More rule-14 LOCAL duplicates found and dual-updated:
+  `RechargeSchema`, `MaintenanceJobSchema`, `CustomServiceCreateSchema`
+  (lotoSellSchema was already a core re-export). Failing-first proof came
+  free: with the pre-KC-3 electron dist the local schemas stripped the kept
+  fields — all four lira-108 deltas failed at their exact pre-fix values.
+- LotoService.sellTicket picks fields explicitly (like DebtService) — kept
+  fields threaded through `SellTicketData` → `LotoTicketCreate`.
+- Financial-services family (FinancialForm, OMT/Whish app transfers, Katch
+  bills, crypto) deliberately NOT wired yet — their PaymentSheet callers show
+  no button (opt-in) until KC-4 lands their schemas/stamps.
 | **KC-4** | Sessions: button in SessionCheckoutModal; kept change carried on the pooled-payment carrier row; web-parity run + docs | ⬜ |
 
 Every phase: rules 17 (failing-first), 15 (delta assertions), 19 (both

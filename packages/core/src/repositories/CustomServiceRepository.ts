@@ -113,8 +113,15 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           user_id: createdBy,
           amount_usd: data.price_usd ?? 0,
           amount_lbp: data.price_lbp ?? 0,
-          profit_usd: (data.price_usd ?? 0) - (data.cost_usd ?? 0),
-          profit_lbp: (data.price_lbp ?? 0) - (data.cost_lbp ?? 0),
+          // Margin plus any change the operator kept as profit (T3 KC-3).
+          profit_usd:
+            (data.price_usd ?? 0) -
+            (data.cost_usd ?? 0) +
+            (data.kept_change_usd ?? 0),
+          profit_lbp:
+            (data.price_lbp ?? 0) -
+            (data.cost_lbp ?? 0) +
+            (data.kept_change_lbp ?? 0),
           exchange_rate: data.exchange_rate,
           client_id: data.client_id ?? null,
           // Rule 11: the name/phone must reach the unified row too — a walk-in
@@ -638,17 +645,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           )
           .run(tenantId, id, tenantId);
 
-        // Reverse debt_ledger if DEBT
-        if (service.paid_by === "CUSTOMER_ACCOUNT" && service.client_id) {
-          this.db
-            .prepare(
-              `DELETE FROM debt_ledger
-               WHERE tenant_id = ? AND transaction_type = 'Custom Service Debt' AND transaction_id IN (
-                 SELECT id FROM transactions WHERE source_table = 'custom_services' AND source_id = ? AND tenant_id = ?
-               )`,
-            )
-            .run(tenantId, id, tenantId);
-        }
+        // Debt reversal is owned by voidTransaction above: its _cancelDebt
+        // books a 'Refund Reversal' row against every 'Custom Service Debt'
+        // charge (journal pattern — never row deletion). A local DELETE here
+        // would remove the +charge while the reversal survives, over-crediting
+        // the client by the full on-account amount.
 
         // Soft-delete: mark as voided instead of removing the record
         this.db

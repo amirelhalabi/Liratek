@@ -193,6 +193,11 @@ export const MaintenanceJobSchema = z.object({
     .optional(),
   change_given_usd: z.number().optional(),
   change_given_lbp: z.number().optional(),
+  // T3 keep-change (KC-3) — LOCAL duplicate of the core schema (rule-14
+  // debt, same trap as DebtRepaymentSchema): fields must exist in BOTH or the
+  // desktop path silently strips them.
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
 });
 
 // =============================================================================
@@ -221,6 +226,11 @@ export const RechargeSchema = z.object({
   clientId: z.number().optional(),
   clientName: z.string().optional(),
   currency: z.string().optional(),
+  // T3 keep-change (KC-3) — LOCAL duplicate of the core schema (rule-14
+  // debt, same trap as DebtRepaymentSchema): fields must exist in BOTH or the
+  // desktop path silently strips them.
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
   default_price_to_client: z.number().nonnegative().optional(),
 });
 
@@ -398,6 +408,11 @@ export const CustomServiceCreateSchema = z.object({
       }),
     )
     .optional(),
+  // T3 keep-change (KC-3) — LOCAL duplicate of the core schema (rule-14
+  // debt, same trap as DebtRepaymentSchema): fields must exist in BOTH or the
+  // desktop path silently strips them.
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
   transaction_time: z.string().optional(),
 });
 

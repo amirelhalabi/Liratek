@@ -79,6 +79,8 @@ interface TelecomFormProps {
   isAdmin?: boolean;
   onDiscountChange?: (discount: number) => void;
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
+  /** T3 keep-change opt-in (plumbed to PaymentSheet → MultiPaymentInput). */
+  onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
   /** Called after a successful metadata edit to reload the history list */
   onRefreshHistory?: () => void;
   onTransactionTimeChange?: (time: string | undefined) => void;
@@ -137,6 +139,7 @@ export function TelecomForm({
   isAdmin = false,
   onDiscountChange,
   onReturnChange,
+  onKeptChange,
   onRefreshHistory,
   onTransactionTimeChange,
 }: TelecomFormProps) {
@@ -645,6 +648,7 @@ export function TelecomForm({
                 }}
                 onDiscountChange={handleDiscountChange}
                 {...(onReturnChange ? { onReturnChange } : {})}
+                {...(onKeptChange ? { onKeptChange } : {})}
                 hasClient={!!telecomClientId}
                 paymentInputKey={paymentInputKey}
                 initialPaymentMethod={initialPaymentMethod}

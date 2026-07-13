@@ -61,6 +61,10 @@ export interface RechargeData {
   clientName?: string;
   userId?: number;
   transaction_time?: string;
+  /** T3 keep-change (KC-3): kept (not returned) change per currency —
+   *  added to the transaction's profit stamp (tender-native amounts). */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
   /**
    * Session-basket deferred payment mode. When true, the customer-cash inflow,
    * its debt, and any returned change are owned by the basket recorder; only the
@@ -720,8 +724,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: createdBy,
           amount_usd: currency === "USD" ? data.price : 0,
           amount_lbp: currency === "LBP" ? data.price : 0,
-          profit_usd: currency === "USD" ? netRechargeCommission : 0,
-          profit_lbp: currency === "LBP" ? netRechargeCommission : 0,
+          // Net commission (sale currency) + kept change (T3, tender-native).
+          profit_usd:
+            (currency === "USD" ? netRechargeCommission : 0) +
+            (data.kept_change_usd ?? 0),
+          profit_lbp:
+            (currency === "LBP" ? netRechargeCommission : 0) +
+            (data.kept_change_lbp ?? 0),
           client_id: data.clientId ?? null,
           client_name: clientName ?? null,
           summary: `Recharge: ${data.provider} ${detail} — ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}`,

@@ -48,6 +48,11 @@ export function LotoPage() {
   const [saleAmount, setSaleAmount] = useState<string>("");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  // T3 keep-change: kept (not returned) change → profit stamp on the ticket.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   const [clientId, setClientId] = useState<number | null>(null);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
@@ -240,6 +245,13 @@ export function LotoPage() {
         })),
       ],
       transaction_time: transactionTime,
+      // T3 keep-change: kept amounts join the ticket's profit stamp.
+      ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+        ? {
+            kept_change_usd: keptChange.usd,
+            kept_change_lbp: keptChange.lbp,
+          }
+        : {}),
       clientId: resolvedClientId,
       clientName: resolvedClientName,
     };
@@ -258,6 +270,7 @@ export function LotoPage() {
       setSaleAmount("");
       setPaymentLines([]);
       setReturnLegs([]);
+      setKeptChange(null);
       setClientId(null);
       setClientName("");
       setClientPhone("");
@@ -496,6 +509,7 @@ export function LotoPage() {
                     currency="LBP"
                     onChange={setPaymentLines}
                     onReturnChange={setReturnLegs}
+                    onKeptChange={setKeptChange}
                     showPmFee={false}
                     paymentMethods={methods}
                     currencies={[

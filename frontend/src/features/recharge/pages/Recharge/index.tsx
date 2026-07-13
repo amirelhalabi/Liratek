@@ -111,6 +111,11 @@ export default function MobileRecharge() {
   const [giftCostLbp, setGiftCostLbp] = useState("");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  // T3 keep-change (telecom flow): kept change → recharge profit stamp.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoFeeIncluded, setCryptoFeeIncluded] = useState(false);
@@ -430,6 +435,7 @@ export default function MobileRecharge() {
       setPhoneNumber("");
       setTelecomClientPhone("");
       setReturnLegs([]);
+      setKeptChange(null);
       return;
     }
 
@@ -452,6 +458,13 @@ export default function MobileRecharge() {
             : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
+        // T3 keep-change: kept amounts join the recharge profit stamp.
+        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+          ? {
+              kept_change_usd: keptChange.usd,
+              kept_change_lbp: keptChange.lbp,
+            }
+          : {}),
         transaction_time: telecomTransactionTime,
       });
       if (result && !result.success) {
@@ -480,6 +493,7 @@ export default function MobileRecharge() {
       setPhoneNumber("");
       setTelecomClientPhone("");
       setReturnLegs([]);
+      setKeptChange(null);
       setTelecomTransactionTime(undefined);
       loadFinancialData();
       loadDrawerBalances();
@@ -1221,6 +1235,7 @@ export default function MobileRecharge() {
             activeProvider={activeProvider}
             activeConfig={activeConfig}
             handleTelecomSubmit={handleTelecomSubmit}
+            onKeptChange={setKeptChange}
             giftTierKey={giftTierKey}
             setGiftTierKey={setGiftTierKey}
             giftAmountUsd={giftAmountUsd}

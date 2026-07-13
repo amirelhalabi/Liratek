@@ -198,6 +198,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       clientId: number | null;
       changeUsd?: number;
       changeLbp?: number;
+      /** T3 keep-change (KC-3): kept change per currency → profit stamp. */
+      keptChangeUsd?: number;
+      keptChangeLbp?: number;
       note?: string | null;
       /**
        * Session-basket deferred payment mode. When true, the unified transaction
@@ -225,8 +228,9 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       user_id: createdBy,
       amount_usd: isLbp ? 0 : opts.finalAmount,
       amount_lbp: isLbp ? opts.finalAmount : 0,
-      profit_usd: isLbp ? 0 : profit,
-      profit_lbp: isLbp ? profit : 0,
+      // Margin (job currency) plus kept change per its own currency (T3).
+      profit_usd: (isLbp ? 0 : profit) + (opts.keptChangeUsd ?? 0),
+      profit_lbp: (isLbp ? profit : 0) + (opts.keptChangeLbp ?? 0),
       client_id: opts.clientId ?? null,
       exchange_rate: opts.exchangeRate,
       summary,

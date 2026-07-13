@@ -716,6 +716,7 @@ export default function Maintenance() {
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-[60]">
           <CheckoutModal
+            allowKeepChange={true}
             totalAmount={parseFloat(price) || 0}
             currency={currency}
             onClose={() => setIsCheckoutOpen(false)}

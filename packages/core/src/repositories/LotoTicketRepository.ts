@@ -53,6 +53,10 @@ export interface LotoTicketCreate {
   note?: string;
   userId: number;
   transaction_time?: string;
+  /** T3 keep-change (KC-3): kept (not returned) change per currency —
+   *  added to the transaction's profit stamp (tender-native amounts). */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
   clientId?: number | null;
   clientName?: string | null;
   /**
@@ -144,7 +148,9 @@ export class LotoTicketRepository {
         user_id: data.userId,
         amount_usd: 0, // Loto is LBP only for now
         amount_lbp: data.sale_amount,
-        profit_lbp: data.commission_amount,
+        // Commission plus kept change (T3 KC-3, tender-native per currency).
+        profit_usd: data.kept_change_usd ?? 0,
+        profit_lbp: data.commission_amount + (data.kept_change_lbp ?? 0),
         exchange_rate: data.exchange_rate ?? 100000, // operator rate (session) else default
         client_id: data.clientId ?? null,
         client_name: data.clientName ?? null,

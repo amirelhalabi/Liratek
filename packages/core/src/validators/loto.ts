@@ -35,6 +35,10 @@ export const lotoSellSchema = z.object({
   currency: z.string().optional(),
   note: z.string().optional(),
   transaction_time: z.string().optional(),
+  // T3 keep-change (docs/plans/T3_KEEP_CHANGE_PLAN.md KC-3): kept (not
+  // returned) change per currency → added to the transaction's profit stamp.
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
   clientId: z.number().int().positive().nullable().optional(),
   clientName: z.string().optional(),
 });

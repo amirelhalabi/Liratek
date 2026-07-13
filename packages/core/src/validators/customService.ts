@@ -20,6 +20,9 @@ export const createCustomServiceSchema = z
     note: z.string().max(1000).optional(),
     category: z.string().max(100).optional(),
     transaction_time: transactionTimeSchema,
+    // T3 keep-change (KC-3): kept change per currency → profit stamp.
+    kept_change_usd: z.coerce.number().min(0).optional(),
+    kept_change_lbp: z.coerce.number().min(0).optional(),
     voucher_code: z.string().optional(),
     // Structured payment legs in the currency the customer ACTUALLY paid
     // (split payments, pay-in-other-currency, and change/return legs). Snake
