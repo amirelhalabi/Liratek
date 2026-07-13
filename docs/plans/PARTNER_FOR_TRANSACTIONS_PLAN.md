@@ -230,8 +230,10 @@ div** (the OMT-system pattern) on every applicable form.
 | **PFT-R** | Revise POS/recharge/loto (PFT-2/3a/4) walk-in→full-amount; hide counter-cash in partner mode; update their e2es | ✅ 2026-07-13 (a65d70f, lira-113/114/115/116) |
 | **PFT-R5** | Remove USDT settle option + card (Binance debt is USD); obsolete lira-117 | ✅ 2026-07-13 (9fb33ad) |
 | **PFT-7** | Partners page **"Add credit / debt"** manual-adjustment button (dual-transport) | ✅ 2026-07-13 (9fb33ad) |
-| **PFT-3b** | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select. | ⬜ BLOCKED (other session owns FinancialServiceRepository) |
-| **PFT-6** | Settlement→profit recognition — **BIGGER than first planned** (see note) | ⬜ |
+| **PFT-3b** | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select. | ✅ 2026-07-14 (backend 3ad8204 + lira-119 13×; frontend 51a562d incl. the Services-page FOR+SEND OUT-leg fix) |
+| **PFT-6** | Settlement→profit recognition (FIFO covered_amount, v128) + **PFT-6b** settlement moves the drawer (PARTNER_SETTLEMENT txn) | ✅ 2026-07-14 (1232759, lira-120; v1 gates = summary/by-date/by-module; by-user/by-client/payment-method views ungated — documented) |
+| **PFT-7b (open)** | Partners "add credit/debt" analog of the Accounts till-moving entries (CREDIT_CASH_IN/DEBT_CASH_OUT): a chosen-direction PARTNER_PAYMENT that moves the drawer (an advance to a partner isn't expressible via settle, whose direction is balance-derived; ADJUSTMENT stays bookkeeping-only). Owner raised 2026-07-14. | ⬜ needs owner scoping |
+| **Follow-up (open)** | notDebtPending analog: service modules (recharge/FS/custom/maintenance) charged to a CLIENT's account count profit immediately — only POS defers via saleFullyPaid. Same shape as the partner gap PFT-6 fixed. Owner raised 2026-07-14; needs a business decision (defer client-account service profit until repayment?). Suppliers already have their gate (fs.is_settled). | ⬜ needs owner decision |
 
 ### PFT-6 design (locked 2026-07-14, pre-build)
 
