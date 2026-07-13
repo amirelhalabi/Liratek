@@ -47,10 +47,17 @@
 
 | Ticket | Scope | Status |
 | ------ | ----- | ------ |
-| **RCP-0** | Logo foundation: Settings upload (base64 → `receipt_logo`), extend `useShopInfo`, shared `printReceipt` util that injects the logo; POS receipts show it | ⬜ |
-| **RCP-1** | Walk-in customer: explicit labeled customer field at POS checkout (prints, no client row); rename customer on a completed sale + reprint (new sale client-update path) | ⬜ |
-| **RCP-2** | Generalize the receipt: a shared `buildTransactionReceipt` mapping a service transaction → receipt text (provider/service/amount/fee/client/legs) | ⬜ |
-| **RCP-3** | Per-module "Print receipt" button after success + reprint from history: mobile services, recharge, maintenance, custom services, loto | ⬜ |
+| **RCP-0** | Logo foundation: Settings upload (base64 → `receipt_logo`), extend `useShopInfo`, shared `printReceipt` util that injects the logo; POS receipts show it | ✅ 2026-07-13 (6e694b4) |
+| **RCP-1** | Walk-in customer: rename on a completed sale + reprint (checkout name-entry already worked) | ✅ 2026-07-13 (8dd83df, lira-111) |
+| **RCP-2** | Generalize the receipt: a shared `buildTransactionReceipt` mapping a service transaction → receipt text (provider/service/amount/fee/client/legs) | ⬜ (T8 — needs content decision) |
+| **RCP-3** | Per-module "Print receipt" button after success + reprint from history: mobile services, recharge, maintenance, custom services, loto | ⬜ (T8) |
+
+**T5 complete (RCP-0 + RCP-1).** RCP-1 corrected mid-build: a POS sale with a
+typed name auto-creates a client (lira-094), so the rename gate is
+`client_id IS NULL` (truly anonymous sales) — a named sale is a client and its
+rename is ignored. The checkout name-entry already flowed to the receipt, so
+no checkout rebuild was needed (optional: relabel the client-search field as
+"Customer name" for clarity — deferred, cosmetic).
 
 ### RCP-0 — Logo foundation
 
