@@ -90,7 +90,44 @@ a client.
 | Ticket | Scope | Status |
 | ------ | ----- | ------ |
 | **PFT-1** | Schema: DROP `partner_ledger.transaction_type` CHECK → free-form (migration table-rebuild + create_db.sql); add USDT bucket to `getBalanceBreakdown`. Replay on a prod DB copy. | ⬜ |
-| **PFT-2** | PARTNER_ACCOUNT routing + **POS** reference + **type-agnostic partner_ledger reversal in voidTransaction** (fixes the pre-existing FOR_OMT gap too). Failing-first: create+void nets partner ledger to 0; drawer/profit deltas normal. | ⬜ |
+| **PFT-2** | PARTNER_ACCOUNT routing + **POS** reference + **type-agnostic partner_ledger reversal in voidTransaction/refundTransaction** (fixes the pre-existing FOR_OMT gap too). Failing-first: create+void nets partner ledger to 0; drawer deltas normal. | ✅ 2026-07-13 (lira-113) |
 | **PFT-3** | Recharge family: MTC/Alfa, Katsh/iPick, OMT App/Whish App, Binance (FOR_* each; Binance = USDT). | ⬜ |
 | **PFT-4** | Loto (FOR_LOTO) + refine existing FOR_OMT "skip General" → conditional so cash paid now is collected (preserving the system-commission profit). | ⬜ |
 | **PFT-5** | Partners page: verify the new `FOR_*` rows + USDT balance render/settle. | ⬜ |
+
+## Open decision — profit recognition on partner settlement (owner input needed)
+
+**Surfaced during PFT-2 (advisor-flagged); NOT resolved. Does not block routing/reversal.**
+
+A FOR-partner POS sale paid partly in cash leaves the remainder on the
+partner's account (e.g. $40 cash of a $100 sale → `sales.paid_usd = 40`, $60 →
+`partner_ledger` FOR_POS DEBIT). The profits summary recognizes SALE profit only
+when the sale is **fully paid** (`ProfitRepository.saleFullyPaid`:
+`paid_usd + paid_lbp/rate >= final_amount − 0.05`). So this sale's $40 margin is
+**stamped on the transaction but excluded from the summary** until fully paid.
+
+For a normal **client**-debt sale the margin is eventually recognized because
+debt repayment **bumps `sales.paid_usd`** → the gate opens. But **partner
+settlement writes only `partner_ledger`** (a bulk balance paydown, not
+per-sale) and never touches `sales.paid_usd` → **the FOR-partner sale never
+flips to fully-paid → its margin is stranded.** This contradicts the owner's
+"keep normal margin".
+
+Verified in code (2026-07-13): `getSalesProfit`, `getByUser`, `getByClient`,
+`getByDate` all gate SALE profit on `saleFullyPaid`; partner settlement
+(`PartnerRepository`/settle) has no link back to the source sale.
+
+**Two defensible models for the owner to choose (PFT-6):**
+
+- **(A) Defer like client debt** — profit realized only when the partner
+  settles. Needs a recognition mechanism: partner FOR_POS settlement must mark
+  the referenced sale(s) paid (hard — a lump settlement doesn't say which sale).
+- **(B) Recognize at sale** — treat the FOR-partner remainder as
+  partner-guaranteed (sale is "covered" $40 cash + $60 partner receivable), so
+  stamp + recognize the full margin immediately; the `partner_ledger` row is a
+  pure receivable decoupled from profit. Simpler; matches "normal margin" on a
+  cash sale, but books unrealized margin before the partner pays.
+
+Until resolved, a FOR-partner POS sale's margin sits in **pending profit**
+(`getPendingSaleProfit`) — visible, not lost, but not in realized totals. Flag
+to owner before PFT-3/4 (recharge/loto have the same fully-paid-gate shape).

@@ -70,6 +70,11 @@ export const saleProcessSchema = z.object({
   id: z.number().int().positive().optional(),
   status: z.enum(["completed", "draft", "cancelled"]).optional(),
   note: z.string().optional(),
+  // PFT-2 (Partner FOR-Transactions): the unpaid remainder routes to
+  // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
+  // is valid for POS.
+  partnerId: z.number().int().positive().optional(),
+  partnerMode: z.enum(["FOR"]).optional(),
 });
 
 export type SaleProcessInput = z.infer<typeof saleProcessSchema>;

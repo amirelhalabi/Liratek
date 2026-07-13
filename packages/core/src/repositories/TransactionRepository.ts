@@ -829,6 +829,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // maintenance), not just sales. No-op when nothing matches.
       this._cancelDebt(id, userId);
 
+      // 5b. Reverse any partner_ledger rows tied to this transaction
+      // (PFT-2, rule 20) — type-agnostic, so this also fixes the
+      // pre-existing FOR_OMT/THROUGH_* void gap uniformly.
+      this._reversePartnerLedger(original, userId, "void");
+
       // 6. If SALE: cancel sale, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
@@ -941,6 +946,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // every account-charged flow (sale, recharge, financial/custom service,
       // maintenance), not just sales. No-op when nothing matches.
       this._cancelDebt(id, userId);
+
+      // 4b. Reverse any partner_ledger rows tied to this transaction
+      // (PFT-2, rule 20) — type-agnostic, so this also fixes the
+      // pre-existing FOR_OMT/THROUGH_* refund gap uniformly.
+      this._reversePartnerLedger(original, userId, "refund");
 
       // 5. If SALE: mark sale & items as refunded, restore stock
       if (original.source_table === "sales" && original.source_id) {
@@ -1235,6 +1245,78 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         -d.amount_usd,
         -d.amount_lbp,
         originalTxnId,
+        userId,
+        tenantId,
+      );
+    }
+  }
+
+  /**
+   * Reverse any `partner_ledger` rows tied to a voided/refunded transaction.
+   *
+   * Type-agnostic (rule 20) and looked up by `reference_table`/`reference_id`
+   * — NOT a `transaction_id` FK like debt_ledger — because partner_ledger has
+   * none. This is what closes a PRE-EXISTING gap: before this method existed,
+   * neither `voidTransaction` nor `refundTransaction` touched partner_ledger
+   * at all, so voiding/refunding ANY partner transaction (FOR_OMT, THROUGH_*,
+   * and now FOR_POS) stranded its ledger row permanently.
+   *
+   * The reversal reuses the SAME `transaction_type` (never a generic
+   * ADJUSTMENT) with the OPPOSITE `direction` — required so the balance nets
+   * to zero within the specific FOR_%/THROUGH_% bucket the original row
+   * counted against, not just the partner's grand total.
+   */
+  private _reversePartnerLedger(
+    original: TransactionEntity,
+    userId: number,
+    reason: "void" | "refund",
+  ): void {
+    if (!original.source_table || original.source_id == null) return;
+    const tenantId = getCurrentTenantId();
+
+    // Only partner (FOR_*/THROUGH_*) transactions have rows to reverse; a void
+    // with nothing to scan is a no-op. Skip cleanly when partner_ledger is
+    // absent (some hand-rolled test DBs omit it) rather than hard-crash.
+    const hasTable = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partner_ledger'`,
+      )
+      .get();
+    if (!hasTable) return;
+
+    const entries = this.query<{
+      partner_id: number;
+      transaction_type: string | null;
+      amount: number;
+      currency: string;
+      direction: "DEBIT" | "CREDIT";
+    }>(
+      `SELECT partner_id, transaction_type, amount, currency, direction
+       FROM partner_ledger
+       WHERE reference_table = ? AND reference_id = ? AND tenant_id = ?`,
+      original.source_table,
+      original.source_id,
+      tenantId,
+    );
+
+    const insertReversal = this.db.prepare(`
+      INSERT INTO partner_ledger (
+        partner_id, transaction_type, reference_table, reference_id,
+        amount, currency, direction, notes, user_id, tenant_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+
+    const verb = reason === "void" ? "voided" : "refunded";
+    for (const e of entries) {
+      insertReversal.run(
+        e.partner_id,
+        e.transaction_type,
+        original.source_table,
+        original.source_id,
+        e.amount,
+        e.currency,
+        e.direction === "DEBIT" ? "CREDIT" : "DEBIT",
+        `Reversal of ${verb} txn #${original.id}`,
         userId,
         tenantId,
       );

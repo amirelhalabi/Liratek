@@ -102,6 +102,7 @@ export interface CreateLedgerEntryData {
     | "FOR_OMT_RECEIVE"
     | "FOR_WHISH_SEND"
     | "FOR_WHISH_RECEIVE"
+    | "FOR_POS"
     | "CUSTOM_SERVICE"
     | "WHISH_TOPUP"
     | "SETTLEMENT"

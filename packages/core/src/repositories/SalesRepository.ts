@@ -75,6 +75,7 @@ import {
 } from "../utils/payments.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
+import { getPartnerRepository } from "./PartnerRepository.js";
 
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
@@ -131,6 +132,15 @@ export interface SaleRequest {
    * Non-session callers leave this falsy → behavior is unchanged.
    */
   deferPayment?: boolean;
+  /**
+   * PFT-2 (Partner FOR-Transactions): when set together with
+   * `partnerMode === "FOR"`, the unpaid remainder books to `partner_ledger`
+   * (FOR_POS DEBIT) against this partner instead of a client's `debt_ledger`.
+   * Everything else about the sale (stock, drawers, profit) stays normal.
+   */
+  partnerId?: number;
+  /** Only "FOR" is valid for POS — the partner analog of CUSTOMER_ACCOUNT. */
+  partnerMode?: "FOR";
 }
 
 export interface DashboardStats {
@@ -710,29 +720,72 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // Deferred (session basket): the basket recorder creates ONE debt entry
         // for the whole basket and back-fills this sale's paid state, so skip the
         // per-sale debt here (it would double-count and mis-attribute).
+        //
+        // PFT-2 (Partner FOR-Transactions): routing is mutually exclusive.
+        // When sale.partnerMode === "FOR", the unpaid remainder books to
+        // partner_ledger against sale.partnerId instead of the client's
+        // debt_ledger — never both on one transaction.
         if (status === "completed" && !deferPayment) {
+          const isForPartner = sale.partnerMode === "FOR";
+
+          if (isForPartner) {
+            // A CUSTOMER_ACCOUNT leg is the client-debt deferred-payment
+            // destination — contradictory with routing the remainder to the
+            // partner instead. Reject rather than silently pick one.
+            const hasCustomerAccountLeg = inLegs.some(
+              (p) => p.method === "CUSTOMER_ACCOUNT",
+            );
+            if (hasCustomerAccountLeg) {
+              throw new Error(
+                "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg — the remainder can only route to one deferred-payment destination",
+              );
+            }
+            if (!sale.partnerId) {
+              throw new Error(
+                'partnerId is required when partnerMode is "FOR"',
+              );
+            }
+          }
+
           // Use derived payment totals (accounts for new payment lines structure)
           const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
           if (sale.final_amount - totalPaidUSD > 0.05) {
-            if (!finalClientId) {
-              throw new Error("Cannot create debt for anonymous client");
-            }
-            const debtAmount = sale.final_amount - totalPaidUSD;
+            const remainder = sale.final_amount - totalPaidUSD;
 
-            const debtStmt = db.prepare(`
-              INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, transaction_id, note, due_date, tenant_id
-              ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'), ?)
-            `);
-            // Use txnId (transactions table FK) per unified transaction architecture
-            debtStmt.run(
-              finalClientId,
-              "Sale Debt",
-              debtAmount,
-              txnId,
-              saleLabel,
-              tenantId,
-            );
+            if (isForPartner) {
+              // Remainder is native to the sale's currency (POS sales are
+              // always USD-priced) — never a converted figure.
+              getPartnerRepository().addLedgerEntry({
+                partner_id: sale.partnerId as number,
+                transaction_type: "FOR_POS",
+                reference_table: "sales",
+                reference_id: saleId,
+                amount: remainder,
+                currency: "USD",
+                direction: "DEBIT",
+                user_id: createdBy,
+                notes: saleLabel,
+              });
+            } else {
+              if (!finalClientId) {
+                throw new Error("Cannot create debt for anonymous client");
+              }
+
+              const debtStmt = db.prepare(`
+                INSERT INTO debt_ledger (
+                  client_id, transaction_type, amount_usd, transaction_id, note, due_date, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'), ?)
+              `);
+              // Use txnId (transactions table FK) per unified transaction architecture
+              debtStmt.run(
+                finalClientId,
+                "Sale Debt",
+                remainder,
+                txnId,
+                saleLabel,
+                tenantId,
+              );
+            }
           }
         }
 
