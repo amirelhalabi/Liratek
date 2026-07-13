@@ -44,6 +44,19 @@ type Api = {
     recharge: {
       process: (d: unknown) => Promise<{ success: boolean; error?: string }>;
     };
+    omt: {
+      addTransaction: (
+        d: unknown,
+      ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    };
+    transactions: {
+      getRecent: (n: number) => Promise<
+        Array<{ id: number; type: string; summary: string | null }>
+      >;
+      getById: (
+        id: number,
+      ) => Promise<{ id: number; profit_usd: number; profit_lbp: number }>;
+    };
   };
 };
 
@@ -150,6 +163,42 @@ test.describe("LIRA-108 — keep-change across modules", () => {
     expect(r.error).toBeNull();
     expect(r.ok).toBe(true);
     expect(r.delta).toBeCloseTo(60_000, 0); // pre-fix: 10,000
+  });
+
+  test("app transfer (financial service): kept $5 joins the commission stamp on the transaction row", async ({
+    appPage,
+  }) => {
+    const r = await appPage.evaluate(async () => {
+      const w = window as unknown as Api;
+      const marker = `L108 app ${Date.now()}`;
+      // OMT App SEND $137.31 (distinctive), commission $2, kept $5 → stamp 7.
+      const res = await w.api.omt.addTransaction({
+        provider: "OMT_APP",
+        serviceType: "SEND",
+        amount: 137.31,
+        currency: "USD",
+        commission: 2,
+        paidByMethod: "CASH",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 142.31, direction: "IN" },
+        ],
+        note: marker,
+        kept_change_usd: 5,
+        kept_change_lbp: 0,
+      });
+      if (!res.success) return { ok: false, error: res.error ?? "failed", profit: null };
+      const row = (await w.api.transactions.getRecent(50)).find(
+        (t) =>
+          t.type === "FINANCIAL_SERVICE" &&
+          (t.summary ?? "").includes("137.31"),
+      );
+      if (!row) return { ok: false, error: "txn row not found", profit: null };
+      const full = await w.api.transactions.getById(row.id);
+      return { ok: true, error: null, profit: full.profit_usd };
+    });
+    expect(r.error).toBeNull();
+    expect(r.ok).toBe(true);
+    expect(r.profit).toBeCloseTo(7, 2); // 2 commission + 5 kept; pre-fix: 2
   });
 
   test("telecom recharge: kept 30,000 LBP joins the commission stamp", async ({

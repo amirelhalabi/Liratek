@@ -166,6 +166,9 @@ export interface CreateFinancialServiceData {
    * minus SMS sending costs (0.16 USD per SMS, max 3 USD per SMS in 0.5 USD increments).
    */
   returnedCreditsUsd?: number;
+  /** T3 keep-change (KC-4): kept change per currency → profit stamp. */
+  kept_change_usd?: number;
+  kept_change_lbp?: number;
   transaction_time?: string;
   /**
    * Cashout method for RECEIVE transactions: how the shop pays the customer.
@@ -711,8 +714,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           : currency === "LBP"
             ? unifiedAmount
             : 0,
-        profit_usd: currency === "USD" ? commission : 0,
-        profit_lbp: currency === "LBP" ? commission : 0,
+        // Commission (service currency) + kept change (T3, tender-native).
+        profit_usd:
+          (currency === "USD" ? commission : 0) + (data.kept_change_usd ?? 0),
+        profit_lbp:
+          (currency === "LBP" ? commission : 0) + (data.kept_change_lbp ?? 0),
         client_id: resolvedPrimaryClientId ?? null,
         summary: (() => {
           // iPick/Katsh: a catalog item purchase or bill payment, not a

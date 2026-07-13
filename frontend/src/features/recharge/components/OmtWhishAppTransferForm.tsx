@@ -70,6 +70,11 @@ function OmtWhishAppTransferFormInner({
   const exchangeRate = serviceType === "RECEIVE" ? buyRate : sellRate;
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
   const [returnLegs, setReturnLegs] = useState<any[]>([]);
+  // T3 keep-change: kept change → financial-service profit stamp.
+  const [keptChange, setKeptChange] = useState<{
+    usd: number;
+    lbp: number;
+  } | null>(null);
   const isSplitPayment = paymentLines.length > 1;
   // Forward structured legs whenever the payment is split OR the customer got
   // change back (a return/OUT leg); otherwise single payment + change drops the
@@ -223,6 +228,7 @@ function OmtWhishAppTransferFormInner({
       setClientId(null);
       setPaymentLines([]);
       setReturnLegs([]);
+      setKeptChange(null);
       setManualFee("");
       resetSaveAsClient();
       return;
@@ -254,6 +260,13 @@ function OmtWhishAppTransferFormInner({
           : undefined,
         includingFees,
         partnerId: partnerId || undefined,
+        // T3 keep-change: kept amounts join the profit stamp.
+        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+          ? {
+              kept_change_usd: keptChange.usd,
+              kept_change_lbp: keptChange.lbp,
+            }
+          : {}),
         transaction_time: transactionTime,
       });
 
@@ -285,6 +298,7 @@ function OmtWhishAppTransferFormInner({
         setClientId(null);
         setPaymentLines([]);
         setReturnLegs([]);
+      setKeptChange(null);
         setManualFee("");
         setTransactionTime(undefined);
         resetSaveAsClient();
@@ -749,6 +763,7 @@ function OmtWhishAppTransferFormInner({
           }
         }}
         onReturnChange={setReturnLegs}
+        onKeptChange={setKeptChange}
       >
         {(activeClientName.trim() || activeClientPhone.trim()) && (
           <div className="rounded-lg bg-slate-800/60 border border-slate-700/40 p-3 space-y-1">

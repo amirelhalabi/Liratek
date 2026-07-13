@@ -141,7 +141,28 @@ would strip.
 - Financial-services family (FinancialForm, OMT/Whish app transfers, Katch
   bills, crypto) deliberately NOT wired yet — their PaymentSheet callers show
   no button (opt-in) until KC-4 lands their schemas/stamps.
-| **KC-4** | Sessions: button in SessionCheckoutModal; kept change carried on the pooled-payment carrier row; web-parity run + docs | ⬜ |
+| **KC-4** | Sessions: button in SessionCheckoutModal; kept change carried on the pooled-payment carrier row; web-parity run + docs | 🟡 partial (2026-07-13) — financial family landed; sessions + 3 catalog forms deferred, see notes |
+
+**KC-4 outcome (2026-07-13):**
+
+- **Financial-services family backend landed**: kept fields on
+  `createFinancialServiceSchema` (core) + the local `FinancialServiceSchema`
+  duplicate; the repo's single unified stamp adds them — covering OMT/WHISH
+  system, OMT/Whish app transfers, Katch/iPick, crypto at the repo level
+  (lira-108's app-transfer case, failing-first at 2 vs 7).
+- **Form wiring**: OmtWhishAppTransferForm wired (single transaction per
+  submit). FinancialForm / KatchForm / CryptoForm deliberately NOT wired —
+  they submit ONE TRANSACTION PER CART ITEM, so basket-level kept change
+  needs the "first item carries it" convention (like lira-095's legs-carrying
+  first bill); their buttons stay hidden (opt-in) until that lands.
+- **Sessions DEFERRED on a design finding**: the plan assumed a
+  "pooled-payment carrier row" — it does not exist. `recordBasketPayment`
+  books drawer aggregates; payment legs attach to ITEM transaction rows.
+  Session kept-change therefore needs one of: (a) stamp on the first item's
+  row (pollutes that module's profit + murky void semantics), (b) a NEW
+  transaction type for basket kept-change (rule-20 chain: reversal owner,
+  non-reversible gating, guard test), or (c) stay unavailable in session
+  checkout (button hidden — current state). Owner decision pending.
 
 Every phase: rules 17 (failing-first), 15 (delta assertions), 19 (both
 transports), 20 (create+reverse nets 0 across drawers/ledgers/profit, per

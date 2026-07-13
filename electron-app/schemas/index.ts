@@ -319,6 +319,11 @@ export const FinancialServiceSchema = z.object({
   partnerId: z.number().optional(),
   partnerMode: z.enum(["THROUGH", "FOR"]).optional(),
   cashoutMethod: z.string().optional(),
+  // T3 keep-change (KC-4) — LOCAL duplicate of core createFinancialServiceSchema
+  // (rule-14 debt): fields must exist in BOTH. Kept (not returned) change per currency → added
+  // to the transaction's profit stamp (tender-native amounts).
+  kept_change_usd: z.number().nonnegative().optional(),
+  kept_change_lbp: z.number().nonnegative().optional(),
   transaction_time: z.string().optional(),
   // Batch member whose customer payment is booked by another transaction in the
   // same checkout (session basket, or the legs-carrying first bill of a

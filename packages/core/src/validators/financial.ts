@@ -86,6 +86,9 @@ export const createFinancialServiceSchema = z
       .enum(["CASH", "CUSTOMER_ACCOUNT", "OMT", "WHISH", "BINANCE"])
       .optional()
       .default("CASH"),
+    // T3 keep-change (KC-4): kept change per currency → profit stamp.
+    kept_change_usd: z.number().nonnegative().optional(),
+    kept_change_lbp: z.number().nonnegative().optional(),
     transaction_time: transactionTimeSchema,
   })
   .refine(
