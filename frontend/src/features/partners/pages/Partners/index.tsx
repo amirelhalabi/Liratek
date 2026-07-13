@@ -496,6 +496,11 @@ function RecordTxModal({
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [direction, setDirection] = useState<"DEBIT" | "CREDIT">("DEBIT");
   const [notes, setNotes] = useState("");
+  // PFT-7b: "cash moved" — the entry records a physical cash event, so the
+  // drawer moves with it (add debt = cash OUT to the partner, add credit =
+  // cash IN), like the Accounts-page cash-in/cash-out buttons. Unticked =
+  // paper-style tab correction (no drawer change).
+  const [moveCash, setMoveCash] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const api = useApi();
 
@@ -516,6 +521,7 @@ function RecordTxModal({
         currency,
         direction,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...(adjustmentOnly && moveCash ? { moveCash: true } : {}),
       });
       if (result.success) {
         appEvents.emit("notification:show", "Transaction recorded.", "success");
@@ -626,6 +632,28 @@ function RecordTxModal({
             </button>
           </div>
         </div>
+
+        {adjustmentOnly && (
+          <label
+            className="flex items-start gap-2 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer"
+            data-testid="partner-cash-moved-toggle"
+          >
+            <input
+              type="checkbox"
+              checked={moveCash}
+              onChange={(e) => setMoveCash(e.target.checked)}
+              className="mt-0.5 accent-violet-500"
+            />
+            <span className="text-xs text-slate-300">
+              <span className="font-medium text-white">Cash moved</span> — this
+              entry records physical cash:{" "}
+              {direction === "DEBIT"
+                ? "cash OUT of the drawer to the partner (advance)"
+                : "cash IN from the partner"}
+              . Leave unticked for a paper-style correction (no drawer change).
+            </span>
+          </label>
+        )}
 
         <div>
           <label className="text-xs text-slate-400 block mb-1">Notes</label>

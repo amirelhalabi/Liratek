@@ -51,6 +51,10 @@ export const TRANSACTION_TYPES = {
   /** PFT-6b: a Partners-page settlement's money movement — the drawer leg
    *  (CASH→General etc.) that squares the partner's balance. */
   PARTNER_SETTLEMENT: "PARTNER_SETTLEMENT",
+  /** PFT-7b: a manual partner Add-credit/debt entry WITH "cash moved" — the
+   *  Accounts-page CREDIT_CASH_IN/DEBT_CASH_OUT analog (add debt = cash OUT
+   *  to the partner, add credit = cash IN from the partner). */
+  PARTNER_PAYMENT: "PARTNER_PAYMENT",
 
   // Closing / Checkpoint
   CHECKPOINT: "CHECKPOINT",
@@ -111,6 +115,9 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // mis-settlement with an opposite manual settlement/adjustment on the
     // Partners page.
     TRANSACTION_TYPES.PARTNER_SETTLEMENT,
+    // PARTNER_PAYMENT (PFT-7b): same rationale — the cash-moved manual entry
+    // applies coverage stamps the generic reversal cannot un-apply.
+    TRANSACTION_TYPES.PARTNER_PAYMENT,
   ]);
 
 /**

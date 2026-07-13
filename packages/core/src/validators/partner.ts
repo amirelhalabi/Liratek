@@ -63,6 +63,9 @@ export const partnerRecordTransactionSchema = z.object({
   currency: z.string().min(1),
   direction: z.enum(["DEBIT", "CREDIT"]),
   notes: z.string().optional(),
+  /** PFT-7b: "cash moved" — the entry is a physical cash event; the drawer
+   *  moves with it (PARTNER_PAYMENT txn) and settlement coverage applies. */
+  moveCash: z.boolean().optional(),
 });
 
 // Settle a partner balance (money — writes a SETTLEMENT partner_ledger entry;

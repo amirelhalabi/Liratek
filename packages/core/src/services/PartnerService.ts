@@ -120,6 +120,13 @@ export class PartnerService {
     direction: "DEBIT" | "CREDIT";
     notes?: string;
     userId: number;
+    /** PFT-7b (owner-decided 2026-07-14): "cash moved" — the entry records a
+     *  PHYSICAL cash event, so the drawer moves with it (add debt = cash OUT
+     *  to the partner, add credit = cash IN), booked as an auditable
+     *  PARTNER_PAYMENT transaction. Cash-moved entries also apply settlement
+     *  FIFO coverage (profit realizes when real money moves); unticked
+     *  entries stay paper-style bookkeeping. */
+    moveCash?: boolean;
   }): PartnerLedgerEntry {
     try {
       const entry = this.repo.addLedgerEntry({
@@ -132,12 +139,21 @@ export class PartnerService {
         direction: data.direction,
         notes: data.notes,
         user_id: data.userId,
+        applyCoverage: data.moveCash === true,
       });
+      if (data.moveCash === true) {
+        this.repo.recordSettlementMoneyMovement(
+          entry,
+          data.userId,
+          "PARTNER_PAYMENT",
+        );
+      }
       partnerLogger.info(
         {
           partnerId: data.partnerId,
           entryId: entry.id,
           direction: data.direction,
+          moveCash: data.moveCash === true,
         },
         "Partner transaction recorded",
       );

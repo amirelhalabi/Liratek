@@ -307,6 +307,26 @@ function buildSchema(db: Database.Database): void {
       covered_amount    REAL NOT NULL DEFAULT 0
     );
 
+    -- Referenced by ProfitRepository's notDebtPending fragment (DBT-1, v129).
+    -- Left empty: the NOT EXISTS gate passes every row unchanged.
+    CREATE TABLE IF NOT EXISTS debt_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      client_id INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      amount_usd REAL DEFAULT 0,
+      amount_lbp REAL DEFAULT 0,
+      transaction_id INTEGER,
+      due_date TEXT,
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_by INTEGER,
+      is_refunded INTEGER DEFAULT 0,
+      session_id INTEGER,
+      covered_usd REAL NOT NULL DEFAULT 0,
+      covered_lbp REAL NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS item_costs (
       tenant_id INTEGER DEFAULT 1,
       id         INTEGER PRIMARY KEY AUTOINCREMENT,

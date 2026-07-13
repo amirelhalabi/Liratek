@@ -129,6 +129,9 @@ export interface CreateLedgerEntryData {
   notes?: string;
   user_id?: number;
   settlement_method?: "CASH" | "OMT" | "WHISH" | "BINANCE" | "CLIENT_ACCOUNT";
+  /** PFT-7b: force settlement FIFO coverage for a non-SETTLEMENT row (a
+   *  cash-moved manual entry) — profit realizes when real money moves. */
+  applyCoverage?: boolean;
 }
 
 // =============================================================================
@@ -300,7 +303,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
       // PFT-6: a SETTLEMENT pays the partner's FOR_% obligations down — apply
       // it FIFO so profit recognition (ProfitRepository partner gates) can
       // tell which source transactions the partner has actually settled.
-      if (data.transaction_type === "SETTLEMENT") {
+      // PFT-7b: cash-moved manual entries (applyCoverage) count too — profit
+      // realizes when real money moves; paper entries never cover.
+      if (data.transaction_type === "SETTLEMENT" || data.applyCoverage === true) {
         this.applySettlementCoverage(
           data.partner_id,
           data.currency,
@@ -392,6 +397,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
   recordSettlementMoneyMovement(
     entry: PartnerLedgerEntry,
     userId: number,
+    txnType:
+      | "PARTNER_SETTLEMENT"
+      | "PARTNER_PAYMENT" = TRANSACTION_TYPES.PARTNER_SETTLEMENT,
   ): number {
     const tenantId = getCurrentTenantId();
     const method = entry.settlement_method ?? "CASH";
@@ -409,7 +417,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
 
     const txn = this.db.transaction(() => {
       const txnId = getTransactionRepository().createTransaction({
-        type: TRANSACTION_TYPES.PARTNER_SETTLEMENT,
+        type: txnType,
         source_table: "partner_ledger",
         source_id: entry.id,
         user_id: userId,
@@ -418,7 +426,11 @@ export class PartnerRepository extends BaseRepository<Partner> {
         profit_usd: 0,
         profit_lbp: 0,
         client_id: null,
-        summary: `Partner settlement: ${
+        summary: `${
+          txnType === TRANSACTION_TYPES.PARTNER_PAYMENT
+            ? "Partner payment"
+            : "Partner settlement"
+        }: ${
           entry.direction === "CREDIT" ? "received from" : "paid to"
         } ${label} — ${Math.abs(entry.amount)} ${entry.currency} via ${method}`,
         metadata_json: {

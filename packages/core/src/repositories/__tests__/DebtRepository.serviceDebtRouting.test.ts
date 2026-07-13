@@ -131,7 +131,11 @@ function createTestDb(): Database.Database {
       edited_at DATETIME,
       session_id INTEGER,
       tenant_id INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_refunded INTEGER DEFAULT 0,
+      -- DBT-1 (v129): repayment FIFO coverage of module-debt charges
+      covered_usd REAL NOT NULL DEFAULT 0,
+      covered_lbp REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE sales (

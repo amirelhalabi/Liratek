@@ -32,6 +32,8 @@ interface RecordTransactionInput {
   currency: string;
   direction: "DEBIT" | "CREDIT";
   notes?: string;
+  /** PFT-7b: "cash moved" — drawer moves with the entry (PARTNER_PAYMENT). */
+  moveCash?: boolean;
 }
 
 interface SettleInput {

@@ -243,6 +243,44 @@ function notPartnerPending(refTable: string, idExpr: string): string {
 }
 
 /**
+ * DBT-1 — client-account SERVICE profit is realized only when the client
+ * repays (owner decision 2026-07-14, consistent with products + partners). A
+ * source transaction is "debt-pending" while its module-debt charge row
+ * (Recharge/Service/Custom Service/Loto/Maintenance Debt, keyed by the
+ * unified transaction id) is not fully covered by repayment FIFO coverage
+ * (v129 covered_usd/covered_lbp; DebtRepository._coverServiceDebtsFIFO).
+ * 'Sale Debt' is excluded — sales recognize via sales.paid_usd. Refunded
+ * charge rows are skipped (their source is excluded via notRefunded anyway).
+ */
+function notDebtPending(txnIdExpr: string): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM debt_ledger dlp
+    WHERE dlp.transaction_id = ${txnIdExpr}
+      AND dlp.transaction_type IN ('Recharge Debt', 'Service Debt', 'Custom Service Debt', 'Loto Debt', 'Maintenance Debt')
+      AND COALESCE(dlp.is_refunded, 0) = 0
+      AND (dlp.covered_usd < COALESCE(dlp.amount_usd, 0) - 0.005
+           OR dlp.covered_lbp < COALESCE(dlp.amount_lbp, 0) - 1)
+  )`;
+}
+
+/**
+ * DBT-2 — transaction-level partner-pending scan for the by-user/by-client
+ * views (their rows are unified transactions, so the partner scan keys on
+ * source_table/source_id instead of a fixed table name). Same semantics as
+ * {@link notPartnerPending}.
+ */
+function txnNotPartnerPending(alias: string): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM partner_ledger plp
+    WHERE plp.reference_table = ${alias}.source_table
+      AND plp.reference_id = ${alias}.source_id
+      AND plp.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+      AND plp.transaction_type NOT IN ('FOR_IPICK', 'FOR_KATSH')
+      AND plp.covered_amount < plp.amount - 0.005
+  )`;
+}
+
+/**
  * SALE realized gate (PFT-6): fully paid by the customer OR a for-partner
  * sale (has a FOR_% row) whose partner has fully settled it. A for-partner
  * sale carries paid_usd = 0 (no counter cash), so without the OR-arm it
@@ -448,6 +486,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${notPartnerPending("financial_services", "fs.id")}
+          AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
@@ -508,6 +547,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE fs.provider IN (${MOBILE_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
+          AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.currency`,
@@ -535,6 +575,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("r")}
           AND ${notPartnerPending("recharges", "r.id")}
+          AND ${notDebtPending("t.id")}
           AND ${dateRange("r.created_at")}
           AND r.tenant_id = ? AND t.tenant_id = ?
         GROUP BY r.currency_code`,
@@ -564,6 +605,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE cs.status = 'completed'
           AND t.status = 'ACTIVE'
           AND ${notRefunded("cs")}
+          AND ${notDebtPending("t.id")}
           AND ${dateRange("cs.created_at")}
           AND cs.tenant_id = ? AND t.tenant_id = ?`,
       )
@@ -596,6 +638,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE ${MAINTENANCE_COMPLETED}
           AND t.status = 'ACTIVE'
           AND ${notRefunded("m")}
+          AND ${notDebtPending("t.id")}
           AND ${dateRange("m.created_at")}
           AND m.tenant_id = ? AND t.tenant_id = ?`,
       )
@@ -624,6 +667,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("lt")}
           AND ${notPartnerPending("loto_tickets", "lt.id")}
+          AND ${notDebtPending("t.id")}
           AND ${dateRange("lt.created_at")}
           AND lt.tenant_id = ? AND t.tenant_id = ?`,
       )
@@ -722,6 +766,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
           AND ${notPartnerPending("financial_services", "fs.id")}
+          AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
         GROUP BY fs.provider`,
@@ -752,6 +797,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE t.status = 'ACTIVE'
           AND ${notRefunded("r")}
           AND ${notPartnerPending("recharges", "r.id")}
+          AND ${notDebtPending("t.id")}
           AND ${dateRange("r.created_at")}
           AND r.tenant_id = ? AND t.tenant_id = ?
         GROUP BY r.carrier`,
@@ -833,6 +879,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             AND t.status = 'ACTIVE'
             AND ${notRefunded("fs")}
             AND ${notPartnerPending("financial_services", "fs.id")}
+          AND ${notDebtPending("t.id")}
             AND ${dateRange("fs.created_at")}
             AND fs.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(fs.created_at, 'localtime')
@@ -851,6 +898,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE t.status = 'ACTIVE'
             AND ${notRefunded("r")}
             AND ${notPartnerPending("recharges", "r.id")}
+          AND ${notDebtPending("t.id")}
             AND ${dateRange("r.created_at")}
             AND r.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(r.created_at, 'localtime')
@@ -869,6 +917,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE cs.status = 'completed'
             AND t.status = 'ACTIVE'
             AND ${notRefunded("cs")}
+          AND ${notDebtPending("t.id")}
             AND ${dateRange("cs.created_at")}
             AND cs.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(cs.created_at, 'localtime')
@@ -887,6 +936,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE ${MAINTENANCE_COMPLETED}
             AND t.status = 'ACTIVE'
             AND ${notRefunded("m")}
+          AND ${notDebtPending("t.id")}
             AND ${dateRange("m.created_at")}
             AND m.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(m.created_at, 'localtime')
@@ -901,6 +951,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE t.status = 'ACTIVE'
             AND ${notRefunded("lt")}
             AND ${notPartnerPending("loto_tickets", "lt.id")}
+          AND ${notDebtPending("t.id")}
             AND ${dateRange("lt.created_at")}
             AND lt.tenant_id = ? AND t.tenant_id = ?
           GROUP BY DATE(lt.created_at, 'localtime')
@@ -1127,6 +1178,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(orig.user_id, t.user_id) AS user_id,
           COALESCE(u.username, 'Unknown') AS username,
           SUM(CASE
+            -- DBT-2: partner/debt-pending transactions contribute 0 until
+            -- settled/repaid, so this view matches the Summary's gates.
+            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               -- Original FINANCIAL_SERVICE and its REFUND both gated by
               -- is_settled; the REFUND negates so a settled FS refund nets to 0
@@ -1139,7 +1193,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
-                WHEN ${saleFullyPaid("s2")}
+                WHEN ${salePaidOrPartnerSettled("s2")}
                 THEN (CASE WHEN t.type = 'SALE'
                            THEN s2.final_amount_usd
                            ELSE t.amount_usd END)
@@ -1150,9 +1204,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           END) AS revenue_usd,
           SUM(t.amount_lbp) AS revenue_lbp,
           SUM(CASE
+            -- DBT-2: partner/debt-pending transactions contribute 0 until
+            -- settled/repaid, so this view matches the Summary's gates.
+            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
-                WHEN ${saleFullyPaid("s2")}
+                WHEN ${salePaidOrPartnerSettled("s2")}
                 THEN t.profit_usd ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
@@ -1167,13 +1224,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             ELSE t.profit_usd
           END) AS profit_usd,
           SUM(CASE
+            -- DBT-2: partner/debt-pending transactions contribute 0 until
+            -- settled/repaid, so this view matches the Summary's gates.
+            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
-                WHEN ${saleFullyPaid("s2")}
+                WHEN ${salePaidOrPartnerSettled("s2")}
                 THEN t.profit_lbp ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
@@ -1239,6 +1299,9 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COALESCE(t.client_name, c.full_name, 'Walk-in') AS client_name,
           COALESCE(t.client_phone, c.phone_number) AS client_phone,
           SUM(CASE
+            -- DBT-2: partner/debt-pending transactions contribute 0 until
+            -- settled/repaid, so this view matches the Summary's gates.
+            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               -- Original FINANCIAL_SERVICE and its REFUND both gated by
               -- is_settled; the REFUND negates so a settled FS refund nets to 0
@@ -1251,7 +1314,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
-                WHEN ${saleFullyPaid("s2")}
+                WHEN ${salePaidOrPartnerSettled("s2")}
                 THEN (CASE WHEN t.type = 'SALE'
                            THEN s2.final_amount_usd
                            ELSE t.amount_usd END)
@@ -1262,9 +1325,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           END) AS revenue_usd,
           SUM(t.amount_lbp) AS revenue_lbp,
           SUM(CASE
+            -- DBT-2: partner/debt-pending transactions contribute 0 until
+            -- settled/repaid, so this view matches the Summary's gates.
+            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
-                WHEN ${saleFullyPaid("s2")}
+                WHEN ${salePaidOrPartnerSettled("s2")}
                 THEN t.profit_usd ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )
@@ -1279,13 +1345,16 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             ELSE t.profit_usd
           END) AS profit_usd,
           SUM(CASE
+            -- DBT-2: partner/debt-pending transactions contribute 0 until
+            -- settled/repaid, so this view matches the Summary's gates.
+            WHEN NOT (${txnNotPartnerPending("t")} AND ${notDebtPending("t.id")}) THEN 0
             WHEN t.source_table = 'financial_services' THEN (
               SELECT CASE WHEN fs.is_settled = 1 THEN t.profit_lbp ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id AND fs.tenant_id = ?
             )
             WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
-                WHEN ${saleFullyPaid("s2")}
+                WHEN ${salePaidOrPartnerSettled("s2")}
                 THEN t.profit_lbp ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id AND s2.tenant_id = ?
             )

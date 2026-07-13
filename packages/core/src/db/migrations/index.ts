@@ -6350,6 +6350,46 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v129 — debt_ledger.covered_usd/covered_lbp (DBT-1 client-account profit)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 129,
+    name: "add_debt_ledger_covered_amounts",
+    description:
+      "Add covered_usd/covered_lbp (REAL, default 0) to debt_ledger. Repayments FIFO-cover the client's module-debt charge rows (Recharge/Service/Custom Service/Loto/Maintenance Debt) with whatever remains after sales absorb via _markSalesPaidFIFO; profit queries treat an account-charged service as realized only when its charge row is fully covered (owner decision 2026-07-14: client-account service profit waits until repaid, like products and partners). Plain constant defaults — safe on live DBs; fresh installs get the columns from create_db.sql.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db
+        .prepare(`PRAGMA table_info(debt_ledger)`)
+        .all() as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === "covered_usd")) {
+        db.exec(
+          `ALTER TABLE debt_ledger ADD COLUMN covered_usd REAL NOT NULL DEFAULT 0`,
+        );
+      }
+      if (!cols.some((c) => c.name === "covered_lbp")) {
+        db.exec(
+          `ALTER TABLE debt_ledger ADD COLUMN covered_lbp REAL NOT NULL DEFAULT 0`,
+        );
+      }
+      console.log("Migration v129: debt_ledger.covered_usd/covered_lbp added");
+    },
+    down(db: Database.Database) {
+      const cols = db
+        .prepare(`PRAGMA table_info(debt_ledger)`)
+        .all() as Array<{ name: string }>;
+      if (cols.some((c) => c.name === "covered_usd")) {
+        db.exec(`ALTER TABLE debt_ledger DROP COLUMN covered_usd`);
+      }
+      if (cols.some((c) => c.name === "covered_lbp")) {
+        db.exec(`ALTER TABLE debt_ledger DROP COLUMN covered_lbp`);
+      }
+      console.log(
+        "Migration v129 rolled back: debt_ledger covered columns dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

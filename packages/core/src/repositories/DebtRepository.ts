@@ -536,7 +536,23 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       //    overstates the net kept (see lira-096). Sale debts are
       //    USD-denominated (SalesRepository), so pure-LBP debts never feed
       //    this path.
-      this._markSalesPaidFIFO(data.client_id, totalUSD || data.amount_usd);
+      const usdRemainder = this._markSalesPaidFIFO(
+        data.client_id,
+        totalUSD || data.amount_usd,
+      );
+
+      // DBT-1 (owner decision 2026-07-14): client-account SERVICE profit is
+      // real only once the client repays. Whatever the repayment did NOT
+      // consume on sales (plus the full LBP side — sale debts are
+      // USD-denominated) FIFO-covers the client's module-debt charge rows;
+      // ProfitRepository's notDebtPending gate reads the coverage. One
+      // repayment budget, applied once: sales first (existing behavior,
+      // unchanged), services with the remainder.
+      this._coverServiceDebtsFIFO(
+        data.client_id,
+        usdRemainder,
+        totalLBP || data.amount_lbp,
+      );
 
       return { id: repaymentId };
     });
@@ -550,9 +566,12 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * When a client repays debt, attribute the USD amount to their oldest unpaid
    * sales (FIFO) by incrementing `sales.paid_usd`. This ensures profit is
    * recognized once a sale is fully paid.
+   *
+   * Returns the UNCONSUMED remainder so `_coverServiceDebtsFIFO` can apply it
+   * to service charge rows (DBT-1) — the same dollars are never applied twice.
    */
-  private _markSalesPaidFIFO(clientId: number, repaymentUsd: number): void {
-    if (repaymentUsd <= 0) return;
+  private _markSalesPaidFIFO(clientId: number, repaymentUsd: number): number {
+    if (repaymentUsd <= 0) return 0;
     const tenantId = getCurrentTenantId();
 
     // Find the client's unpaid sales, oldest first
@@ -590,6 +609,74 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       if (apply > 0.01) {
         updateStmt.run(apply, sale.id, tenantId);
         remaining -= apply;
+      }
+    }
+    return Math.max(0, remaining);
+  }
+
+  /**
+   * DBT-1 — repayment coverage for MODULE-debt charge rows (Recharge/Service/
+   * Custom Service/Loto/Maintenance Debt; 'Sale Debt' is excluded — sales
+   * recognize via `sales.paid_usd` above). FIFO per client, per currency
+   * column, oldest first, bumping covered_usd/covered_lbp (v129).
+   * ProfitRepository's notDebtPending fragment treats the source transaction
+   * as realized only when its charge row is fully covered in BOTH currencies.
+   * Refunded charge rows are skipped (their source is excluded from profit
+   * anyway, and covering them would waste repayment budget).
+   */
+  private _coverServiceDebtsFIFO(
+    clientId: number,
+    repaymentUsd: number,
+    repaymentLbp: number,
+  ): void {
+    let remainingUsd = Math.max(0, repaymentUsd);
+    let remainingLbp = Math.max(0, repaymentLbp);
+    if (remainingUsd <= 0.005 && remainingLbp <= 1) return;
+    const tenantId = getCurrentTenantId();
+
+    const open = this.db
+      .prepare(
+        `SELECT id, COALESCE(amount_usd, 0) AS amount_usd,
+                COALESCE(amount_lbp, 0) AS amount_lbp,
+                covered_usd, covered_lbp
+         FROM debt_ledger
+         WHERE client_id = ? AND tenant_id = ?
+           AND transaction_type IN ('Recharge Debt', 'Service Debt', 'Custom Service Debt', 'Loto Debt', 'Maintenance Debt')
+           AND COALESCE(is_refunded, 0) = 0
+           AND (covered_usd < COALESCE(amount_usd, 0) - 0.005
+                OR covered_lbp < COALESCE(amount_lbp, 0) - 1)
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(clientId, tenantId) as Array<{
+      id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      covered_usd: number;
+      covered_lbp: number;
+    }>;
+
+    const upd = this.db.prepare(
+      `UPDATE debt_ledger SET covered_usd = ?, covered_lbp = ? WHERE id = ? AND tenant_id = ?`,
+    );
+    for (const row of open) {
+      if (remainingUsd <= 0.005 && remainingLbp <= 1) break;
+      const takeUsd = Math.min(
+        remainingUsd,
+        Math.max(0, row.amount_usd - row.covered_usd),
+      );
+      const takeLbp = Math.min(
+        remainingLbp,
+        Math.max(0, row.amount_lbp - row.covered_lbp),
+      );
+      if (takeUsd > 0.005 || takeLbp > 1) {
+        upd.run(
+          row.covered_usd + takeUsd,
+          row.covered_lbp + takeLbp,
+          row.id,
+          tenantId,
+        );
+        remainingUsd -= takeUsd;
+        remainingLbp -= takeLbp;
       }
     }
   }

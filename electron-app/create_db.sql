@@ -331,6 +331,9 @@ CREATE TABLE IF NOT EXISTS debt_ledger (
     is_refunded INTEGER DEFAULT 0,
     refunded_at TEXT DEFAULT NULL,
     session_id INTEGER,
+    -- DBT-1: repayment FIFO coverage of module-debt charges (v129)
+    covered_usd REAL NOT NULL DEFAULT 0,
+    covered_lbp REAL NOT NULL DEFAULT 0,
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id),
     FOREIGN KEY (transaction_id) REFERENCES transactions(id),
@@ -1440,4 +1443,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (125, 'add_allow_out_of_stock_sales_setting'),
     (126, 'zero_sale_txn_amount_lbp_tender_dup'),
     (127, 'drop_partner_ledger_type_check'),
-    (128, 'add_partner_ledger_covered_amount');
+    (128, 'add_partner_ledger_covered_amount'),
+    (129, 'add_debt_ledger_covered_amounts');
