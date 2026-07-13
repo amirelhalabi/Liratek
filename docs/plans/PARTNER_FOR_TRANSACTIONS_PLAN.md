@@ -227,8 +227,8 @@ div** (the OMT-system pattern) on every applicable form.
 ## Re-scoped remaining tickets
 | Ticket | Scope | Status |
 | --- | --- | --- |
-| **PFT-R** | Revise POS/recharge/loto (PFT-2/3a/4) walk-in→full-amount; hide counter-cash in partner mode; update their e2es | ⬜ |
-| **PFT-R5** | Remove USDT settle option + card (Binance debt is USD); obsolete lira-117 | ⬜ |
-| **PFT-3b** | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select. | ⬜ |
-| **PFT-7** | Partners page **"Add credit / debt"** manual-adjustment button (dual-transport) | ⬜ |
+| **PFT-R** | Revise POS/recharge/loto (PFT-2/3a/4) walk-in→full-amount; hide counter-cash in partner mode; update their e2es | ✅ 2026-07-13 (a65d70f, lira-113/114/115/116) |
+| **PFT-R5** | Remove USDT settle option + card (Binance debt is USD); obsolete lira-117 | ✅ 2026-07-13 (9fb33ad) |
+| **PFT-7** | Partners page **"Add credit / debt"** manual-adjustment button (dual-transport) | ✅ 2026-07-13 (9fb33ad) |
+| **PFT-3b** | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select. | ⬜ BLOCKED (other session owns FinancialServiceRepository) |
 | **PFT-6** | Settlement→profit recognition (now covers FS commissions too; all deferred except iPick/Katsh) | ⬜ |
