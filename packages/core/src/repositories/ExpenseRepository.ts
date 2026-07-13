@@ -106,36 +106,42 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         const note = `${data.category}: ${data.description}`;
         const createdBy = userId;
 
-        // USD outflow
-        if (data.amount_usd && data.amount_usd !== 0) {
-          const delta = -Math.abs(data.amount_usd);
+        const postOutflow = (currency: string, amount: number) => {
+          const delta = -Math.abs(amount);
           insertPayment.run(
             tenantId,
             txnId,
             paidBy,
             drawerName,
-            "USD",
+            currency,
             delta,
             note,
             createdBy,
           );
-          upsertBalance.run(tenantId, drawerName, "USD", delta);
-        }
+          upsertBalance.run(tenantId, drawerName, currency, delta);
+        };
 
-        // LBP outflow
-        if (data.amount_lbp && data.amount_lbp !== 0) {
-          const delta = -Math.abs(data.amount_lbp);
-          insertPayment.run(
-            tenantId,
-            txnId,
-            paidBy,
-            drawerName,
-            "LBP",
-            delta,
-            note,
-            createdBy,
-          );
-          upsertBalance.run(tenantId, drawerName, "LBP", delta);
+        // Binance is a USDT-denominated wallet: the shop pays the expense out
+        // of its USDT balance. USDT is tracked 1:1 with USD across the app
+        // (see FinancialServiceRepository wallet path / lira-098), so the
+        // dollar value lives in amount_usd for reporting and the drawer leg
+        // moves that many USDT. The generic void restores by the leg's
+        // currency_code, so the USDT balance nets back on void.
+        const isUsdtWallet = paidBy === "BINANCE";
+
+        if (isUsdtWallet) {
+          if (data.amount_usd && data.amount_usd !== 0) {
+            postOutflow("USDT", data.amount_usd);
+          }
+        } else {
+          // USD outflow
+          if (data.amount_usd && data.amount_usd !== 0) {
+            postOutflow("USD", data.amount_usd);
+          }
+          // LBP outflow
+          if (data.amount_lbp && data.amount_lbp !== 0) {
+            postOutflow("LBP", data.amount_lbp);
+          }
         }
       }
 

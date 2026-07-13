@@ -11,6 +11,7 @@ import {
 import { HistoryModal } from "./components/HistoryModal";
 import { StatsCards } from "../../components/StatsCards";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
 
@@ -36,6 +37,12 @@ export default function Expenses() {
   const api = useApi();
   // Expenses are a Money-OUT flow (shop pays out) — buy rate.
   const { buyRate: exchangeRate } = useSellRate();
+  // An expense is the shop paying out of one of its drawers, so the payment
+  // method picks WHICH drawer the money leaves. Offer every drawer-affecting
+  // method (DB-driven, real labels — no emojis, no phantom "Credit Card").
+  // CUSTOMER_ACCOUNT / GIFT_CARD are excluded by affects_drawer=0: an expense
+  // has no customer, so neither is a source of shop funds (lira-093).
+  const { drawerAffectingMethods } = usePaymentMethods();
   const descriptionRef = useRef<HTMLInputElement>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
@@ -230,13 +237,10 @@ export default function Expenses() {
               currency={paymentLines[0]?.currencyCode || "USD"}
               totalAmountCurrency={paymentLines[0]?.currencyCode || "USD"}
               onChange={setPaymentLines}
-              paymentMethods={[
-                { code: "CASH", label: "💵 Cash" },
-                // CUSTOMER_ACCOUNT removed (lira-093 sweep): the page has no
-                // client field, so an on-account expense could never link to a
-                // client — the option was a dead end.
-                { code: "CREDIT_CARD", label: "💳 Credit Card" },
-              ]}
+              paymentMethods={drawerAffectingMethods.map((m) => ({
+                code: m.code,
+                label: m.label,
+              }))}
               currencies={[
                 { code: "USD", symbol: "$" },
                 { code: "LBP", symbol: "LBP" },
