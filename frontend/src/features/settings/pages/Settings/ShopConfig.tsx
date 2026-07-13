@@ -31,6 +31,8 @@ export default function ShopConfig() {
   const [shopPhone, setShopPhone] = useState("");
   const [shopLocation, setShopLocation] = useState("");
   const [receiptHeaderText, setReceiptHeaderText] = useState("");
+  // Receipt logo as a data URL (base64), "" = none. Printed above the receipt.
+  const [receiptLogo, setReceiptLogo] = useState("");
   const [sessionMgmt, setSessionMgmt] = useState(true);
   const [customerSessions, setCustomerSessions] = useState(true);
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
@@ -108,6 +110,7 @@ export default function ShopConfig() {
       setShopPhone((map.get("shop_phone") as string) || "");
       setShopLocation((map.get("shop_location") as string) || "");
       setReceiptHeaderText((map.get("receipt_header_text") as string) || "");
+      setReceiptLogo((map.get("receipt_logo") as string) || "");
       setSessionMgmt(map.get("feature_session_management") !== "disabled");
       setCustomerSessions(map.get("feature_customer_sessions") !== "disabled");
       setAutoCheckUpdates(map.get("auto_check_updates") !== "0");
@@ -144,6 +147,42 @@ export default function ShopConfig() {
     }
   };
 
+  // Read an uploaded image, downscale it (cap width + re-encode) so the
+  // base64 stored in settings — and injected into every printed receipt —
+  // stays small. Thermal receipts are ~80mm, so a 384px-wide logo is plenty.
+  const handleLogoUpload = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      appEvents.emit(
+        "notification:show",
+        "Please choose an image file for the logo",
+        "warning",
+      );
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      // document.createElement, not `new Image()` — the lucide `Image` icon
+      // is imported in this file and shadows the DOM constructor.
+      const img = document.createElement("img");
+      img.onload = () => {
+        const MAX_W = 384;
+        const scale = Math.min(1, MAX_W / img.width);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, w, h);
+        // PNG preserves logos with transparency / sharp edges best.
+        setReceiptLogo(canvas.toDataURL("image/png"));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   const save = async () => {
     setIsSaving(true);
     try {
@@ -155,6 +194,7 @@ export default function ShopConfig() {
         api.updateSetting("shop_phone", shopPhone),
         api.updateSetting("shop_location", shopLocation),
         api.updateSetting("receipt_header_text", receiptHeaderText),
+        api.updateSetting("receipt_logo", receiptLogo),
         api.updateSetting(
           "feature_session_management",
           sessionMgmt ? "enabled" : "disabled",
@@ -271,6 +311,54 @@ export default function ShopConfig() {
           onChange={(e) => setReceiptHeaderText(e.target.value)}
           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
         />
+      </div>
+
+      {/* Receipt logo (RCP-0): printed above the receipt text on every module. */}
+      <div>
+        <label className="block text-sm text-slate-400 mb-2">
+          Receipt Logo
+        </label>
+        <div className="flex items-center gap-4">
+          {receiptLogo ? (
+            <img
+              src={receiptLogo}
+              alt="Receipt logo preview"
+              className="h-16 max-w-[160px] object-contain bg-white rounded p-1 border border-slate-700"
+            />
+          ) : (
+            <div className="h-16 w-24 flex items-center justify-center rounded border border-dashed border-slate-700 text-xs text-slate-500">
+              No logo
+            </div>
+          )}
+          <div className="flex flex-col gap-2">
+            <label className="cursor-pointer inline-block px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-sm text-white">
+              {receiptLogo ? "Change logo" : "Upload logo"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleLogoUpload(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {receiptLogo && (
+              <button
+                type="button"
+                onClick={() => setReceiptLogo("")}
+                className="px-3 py-1.5 bg-red-900/40 hover:bg-red-900/60 rounded text-sm text-red-300"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          Shown centered at the top of every printed receipt. Auto-resized for
+          the thermal printer.
+        </p>
       </div>
 
       <div className="pt-6 border-t border-slate-700">

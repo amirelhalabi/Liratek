@@ -7,6 +7,9 @@ export interface ShopInfo {
   name: string;
   phone: string;
   location: string;
+  /** Receipt logo as a data URL (base64), or "" when none is set. Printed as
+   *  an <img> above the receipt text (RCP-0). */
+  logo: string;
 }
 
 let cachedInfo: ShopInfo | null = null;
@@ -21,6 +24,7 @@ const defaultInfo: ShopInfo = {
   name: DEFAULT_SHOP_NAME,
   phone: "",
   location: "",
+  logo: "",
 };
 
 /** Load shop info once and share across all consumers */
@@ -50,7 +54,11 @@ export function useShopInfo(): ShopInfo {
             typeof map.get("shop_location") === "string"
               ? (map.get("shop_location") as string).trim()
               : "";
-          notify({ name, phone, location });
+          const logo =
+            typeof map.get("receipt_logo") === "string"
+              ? (map.get("receipt_logo") as string).trim()
+              : "";
+          notify({ name, phone, location, logo });
         })
         .catch(() => {
           notify(defaultInfo);

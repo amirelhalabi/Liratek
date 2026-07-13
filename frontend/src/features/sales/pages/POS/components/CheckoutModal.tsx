@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import logger from "@/utils/logger";
+import { printReceipt } from "@/shared/utils/printReceipt";
 import { X, User, Printer, Inbox, Pencil, Minus } from "lucide-react";
 import {
   canChargeToCustomerAccount,
@@ -75,52 +76,6 @@ export type CheckoutDraftData = {
 
 const generateReceiptNumber = () => `${RECEIPT_NUMBER_PREFIX}${Date.now()}`;
 
-const receiptPrintCSS = `
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { width: 80mm; margin: 0 auto; }
-  pre { font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
-  @media print {
-    @page { size: 80mm auto; margin: 0; }
-    html, body { width: 80mm; margin: 0; padding: 0; }
-  }`;
-
-const printReceiptContent = async (content: string, targetPrinter?: string) => {
-  if (targetPrinter && window.api?.print?.silentPrint) {
-    logger.info(`Sending receipt to silent printer: ${targetPrinter}`);
-    const fullHtml = `<!DOCTYPE html>
-<html>
-<head><title>Receipt</title><style>${receiptPrintCSS}</style></head>
-<body><pre>${content}</pre></body>
-</html>`;
-    const result = await window.api.print.silentPrint(fullHtml, targetPrinter);
-    if (!result?.success) {
-      logger.error(`Silent receipt print failed: ${result?.error}`);
-      appEvents.emit(
-        "notification:show",
-        "Receipt printing failed: " + (result?.error || "Unknown error"),
-        "error",
-      );
-    }
-  } else {
-    // Fallback if not configured or not running in electron
-    const printWindow = window.open("", "", "width=400,height=600");
-    if (printWindow) {
-      printWindow.document.write(`<!DOCTYPE html>
-  <html>
-  <head><title>Receipt</title><style>${receiptPrintCSS}</style></head>
-  <body><pre>${content}</pre></body>
-  </html>`);
-      printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
-      printWindow.close();
-      // Windows focus fix
-      setTimeout(() => {
-        (window as any).api?.display?.fixFocus?.();
-      }, 100);
-    }
-  }
-};
 
 export default function CheckoutModal({
   items,
@@ -545,7 +500,11 @@ export default function CheckoutModal({
       logger.warn("Failed to get printer setting", { error: e });
     }
 
-    await printReceiptContent(formatted, targetPrinter);
+    await printReceipt({
+      text: formatted,
+      logo: shopInfo.logo,
+      printer: targetPrinter,
+    });
   };
 
   const handleDirectPrint = async () => {
@@ -565,7 +524,11 @@ export default function CheckoutModal({
       logger.warn("Failed to get printer setting", { error: e });
     }
 
-    await printReceiptContent(formatted, targetPrinter);
+    await printReceipt({
+      text: formatted,
+      logo: shopInfo.logo,
+      printer: targetPrinter,
+    });
   };
 
   const drawerNameDisplay = String(DRAWER_B).replace(/_/g, " ");

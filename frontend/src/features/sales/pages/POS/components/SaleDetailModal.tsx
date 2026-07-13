@@ -14,6 +14,7 @@ import {
   type ReceiptData,
 } from "@/features/sales/utils/receiptFormatter";
 import { useShopInfo } from "@/hooks/useShopName";
+import { printReceipt } from "@/shared/utils/printReceipt";
 import { ConfirmModal } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -195,23 +196,8 @@ export default function SaleDetailModal({
       timestamp: sale.created_at,
     };
 
-    const receiptCSS = `
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { width: 80mm; margin: 0 auto; }
-  pre { font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
-  @media print {
-    @page { size: 80mm auto; margin: 0; }
-    html, body { width: 80mm; margin: 0; padding: 0; }
-  }`;
-
     const formatted = formatReceipt58mm(receipt);
-    const fullHtml = `<!DOCTYPE html>
-<html>
-<head><title>Receipt</title><style>${receiptCSS}</style></head>
-<body><pre>${formatted}</pre></body>
-</html>`;
 
-    // Try silent print to configured receipt printer
     let targetPrinter = "";
     try {
       const settings = await window.api?.settings?.getAll?.();
@@ -227,31 +213,11 @@ export default function SaleDetailModal({
       // ignore — fall through to popup
     }
 
-    if (targetPrinter && window.api?.print?.silentPrint) {
-      const result = await window.api.print.silentPrint(
-        fullHtml,
-        targetPrinter,
-      );
-      if (!result?.success) {
-        appEvents.emit(
-          "notification:show",
-          "Receipt printing failed: " + (result?.error || "Unknown error"),
-          "error",
-        );
-      }
-    } else {
-      const printWindow = window.open("", "", "width=400,height=600");
-      if (printWindow) {
-        printWindow.document.write(fullHtml);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
-        printWindow.close();
-        setTimeout(() => {
-          (window as any).api?.display?.fixFocus?.();
-        }, 100);
-      }
-    }
+    await printReceipt({
+      text: formatted,
+      logo: shopInfo.logo,
+      printer: targetPrinter,
+    });
   };
 
   const formatTime = (dateStr: string) => {
