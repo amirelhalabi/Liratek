@@ -621,7 +621,7 @@ CREATE TABLE IF NOT EXISTS partner_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER REFERENCES tenants(id),
     partner_id INTEGER NOT NULL REFERENCES partners(id),
-    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'THROUGH_OMT_SEND', 'THROUGH_OMT_RECEIVE', 'THROUGH_WHISH_SEND', 'THROUGH_WHISH_RECEIVE', 'FOR_OMT_SEND', 'FOR_OMT_RECEIVE', 'FOR_WHISH_SEND', 'FOR_WHISH_RECEIVE', 'WHISH_TOPUP', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
+    transaction_type TEXT NOT NULL,
     reference_table TEXT,
     reference_id INTEGER,
     amount REAL NOT NULL,
@@ -1436,4 +1436,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (123, 'add_multi_tenancy'),
     (124, 'name_home_tenant_from_shop'),
     (125, 'add_allow_out_of_stock_sales_setting'),
-    (126, 'zero_sale_txn_amount_lbp_tender_dup');
+    (126, 'zero_sale_txn_amount_lbp_tender_dup'),
+    (127, 'drop_partner_ledger_type_check');

@@ -56,6 +56,7 @@ export interface PartnerBalance {
 export interface PartnerBalanceBreakdown {
   usd: { for: number; through: number; other: number; total: number };
   lbp: { for: number; through: number; other: number; total: number };
+  usdt: { for: number; through: number; other: number; total: number };
 }
 
 export interface LedgerFilters {
@@ -384,7 +385,14 @@ export class PartnerRepository extends BaseRepository<Partner> {
             COALESCE(SUM(CASE WHEN currency='USD' AND direction='DEBIT'  AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
             - COALESCE(SUM(CASE WHEN currency='USD' AND direction='CREDIT' AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS usd_other,
             COALESCE(SUM(CASE WHEN currency='LBP' AND direction='DEBIT'  AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
-            - COALESCE(SUM(CASE WHEN currency='LBP' AND direction='CREDIT' AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS lbp_other
+            - COALESCE(SUM(CASE WHEN currency='LBP' AND direction='CREDIT' AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS lbp_other,
+            -- USDT (Binance partner transactions) — same FOR/THROUGH/other split
+            COALESCE(SUM(CASE WHEN currency='USDT' AND direction='DEBIT'  AND transaction_type LIKE 'FOR_%'  THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='USDT' AND direction='CREDIT' AND transaction_type LIKE 'FOR_%'  THEN amount ELSE 0 END),0) AS usdt_for,
+            COALESCE(SUM(CASE WHEN currency='USDT' AND direction='DEBIT'  AND transaction_type LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='USDT' AND direction='CREDIT' AND transaction_type LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS usdt_through,
+            COALESCE(SUM(CASE WHEN currency='USDT' AND direction='DEBIT'  AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='USDT' AND direction='CREDIT' AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS usdt_other
           FROM partner_ledger
           WHERE partner_id = ? AND tenant_id = ?
         `,
@@ -396,6 +404,9 @@ export class PartnerRepository extends BaseRepository<Partner> {
         lbp_through: number;
         usd_other: number;
         lbp_other: number;
+        usdt_for: number;
+        usdt_through: number;
+        usdt_other: number;
       };
 
       return {
@@ -410,6 +421,12 @@ export class PartnerRepository extends BaseRepository<Partner> {
           through: row.lbp_through,
           other: row.lbp_other,
           total: row.lbp_for + row.lbp_through + row.lbp_other,
+        },
+        usdt: {
+          for: row.usdt_for,
+          through: row.usdt_through,
+          other: row.usdt_other,
+          total: row.usdt_for + row.usdt_through + row.usdt_other,
         },
       };
     } catch (e) {

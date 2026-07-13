@@ -6244,6 +6244,80 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v126 rolled back: no-op (data repair)");
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v127 — Drop the partner_ledger.transaction_type CHECK (PFT-1, schema-only)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 127,
+    name: "drop_partner_ledger_type_check",
+    description:
+      "Drop the fixed enum CHECK on partner_ledger.transaction_type so future Partner-FOR-Transaction types (FOR_BINANCE_* etc.) can be inserted without another table rebuild. SQLite can't ALTER a CHECK, so the table is recreated preserving all rows + both indexes — mirrors migrations v83/v98. The direction and settlement_method CHECKs are unchanged. Schema-only: no new transaction_type values are written by this migration.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE partner_ledger_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            partner_id INTEGER NOT NULL REFERENCES partners(id),
+            transaction_type TEXT NOT NULL,
+            reference_table TEXT,
+            reference_id INTEGER,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            direction TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+            notes TEXT,
+            user_id INTEGER REFERENCES users(id),
+            settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO partner_ledger_new (id, tenant_id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at)
+        SELECT id, tenant_id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at
+        FROM partner_ledger;
+
+        DROP TABLE partner_ledger;
+        ALTER TABLE partner_ledger_new RENAME TO partner_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);
+        CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);
+      `);
+      console.log(
+        "Migration v127: dropped transaction_type CHECK on partner_ledger",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE partner_ledger_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER REFERENCES tenants(id),
+            partner_id INTEGER NOT NULL REFERENCES partners(id),
+            transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'THROUGH_OMT_SEND', 'THROUGH_OMT_RECEIVE', 'THROUGH_WHISH_SEND', 'THROUGH_WHISH_RECEIVE', 'FOR_OMT_SEND', 'FOR_OMT_RECEIVE', 'FOR_WHISH_SEND', 'FOR_WHISH_RECEIVE', 'WHISH_TOPUP', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
+            reference_table TEXT,
+            reference_id INTEGER,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            direction TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+            notes TEXT,
+            user_id INTEGER REFERENCES users(id),
+            settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO partner_ledger_new (id, tenant_id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at)
+        SELECT id, tenant_id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at
+        FROM partner_ledger;
+
+        DROP TABLE partner_ledger;
+        ALTER TABLE partner_ledger_new RENAME TO partner_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);
+        CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);
+      `);
+      console.log(
+        "Migration v127 rolled back: restored transaction_type CHECK on partner_ledger",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
