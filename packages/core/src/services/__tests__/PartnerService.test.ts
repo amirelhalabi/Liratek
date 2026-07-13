@@ -31,7 +31,8 @@ function createTestDb(): Database.Database {
       user_id           INTEGER,
       settlement_method TEXT,
       tenant_id         INTEGER DEFAULT 1,
-      created_at        TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at        TEXT DEFAULT CURRENT_TIMESTAMP,
+      covered_amount    REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE financial_services (
@@ -49,6 +50,64 @@ function createTestDb(): Database.Database {
       phone_number     TEXT,
       tenant_id        INTEGER DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- PFT-6b: PartnerService.settle() now writes a real money movement (unless
+    -- settlementMethod === 'CLIENT_ACCOUNT') via
+    -- PartnerRepository.recordSettlementMoneyMovement(), which needs the
+    -- unified transactions/payments journal + a live drawer_balances row.
+    CREATE TABLE users (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      username   TEXT NOT NULL,
+      role       TEXT DEFAULT 'staff',
+      tenant_id  INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO users (id, username, role) VALUES (1, 'admin', 'admin');
+
+    CREATE TABLE transactions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id     INTEGER DEFAULT 1,
+      type          TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'ACTIVE',
+      source_table  TEXT NOT NULL,
+      source_id     INTEGER NOT NULL,
+      user_id       INTEGER NOT NULL DEFAULT 1,
+      amount_usd    REAL NOT NULL DEFAULT 0,
+      amount_lbp    REAL NOT NULL DEFAULT 0,
+      exchange_rate REAL,
+      client_id     INTEGER,
+      client_name   TEXT,
+      client_phone  TEXT,
+      reverses_id   INTEGER,
+      profit_usd    REAL NOT NULL DEFAULT 0,
+      profit_lbp    REAL NOT NULL DEFAULT 0,
+      summary       TEXT,
+      metadata_json TEXT,
+      device_id     TEXT,
+      created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE payments (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id      INTEGER DEFAULT 1,
+      transaction_id INTEGER,
+      method         TEXT NOT NULL,
+      drawer_name    TEXT NOT NULL,
+      currency_code  TEXT NOT NULL,
+      amount         REAL NOT NULL,
+      note           TEXT,
+      created_by     INTEGER,
+      created_at     TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE drawer_balances (
+      tenant_id     INTEGER DEFAULT 1,
+      drawer_name   TEXT NOT NULL,
+      currency_code TEXT NOT NULL,
+      balance       REAL NOT NULL DEFAULT 0,
+      updated_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
   `);
   return db;

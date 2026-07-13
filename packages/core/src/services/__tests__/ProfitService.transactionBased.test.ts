@@ -192,6 +192,26 @@ function createSchema(d: TestDb): void {
       amount REAL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Referenced by ProfitRepository's notPartnerPending / salePaidOrPartnerSettled
+    -- fragments (PFT-6). Left empty: the NOT EXISTS gate then passes every row,
+    -- preserving this suite's pre-partner expectations unchanged.
+    CREATE TABLE partner_ledger (
+      tenant_id INTEGER DEFAULT 1,
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      partner_id        INTEGER NOT NULL,
+      transaction_type  TEXT,
+      reference_table   TEXT,
+      reference_id      INTEGER,
+      amount            REAL NOT NULL,
+      currency          TEXT NOT NULL DEFAULT 'USD',
+      direction         TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+      notes             TEXT,
+      user_id           INTEGER,
+      settlement_method TEXT,
+      created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      covered_amount    REAL NOT NULL DEFAULT 0
+    );
   `);
 
   d.prepare(`INSERT INTO users (id, username) VALUES (1, 'cashier')`).run();

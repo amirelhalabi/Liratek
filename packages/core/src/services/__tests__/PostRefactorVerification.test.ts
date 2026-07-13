@@ -286,6 +286,27 @@ function buildSchema(db: Database.Database): void {
       created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Referenced by ProfitRepository's notPartnerPending / salePaidOrPartnerSettled
+    -- fragments and FinancialServiceRepository's FOR-partner dispatch. Left
+    -- empty: the NOT EXISTS gate then passes every row, preserving this
+    -- suite's pre-partner expectations unchanged.
+    CREATE TABLE IF NOT EXISTS partner_ledger (
+      tenant_id INTEGER DEFAULT 1,
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      partner_id        INTEGER NOT NULL,
+      transaction_type  TEXT,
+      reference_table   TEXT,
+      reference_id      INTEGER,
+      amount            REAL NOT NULL,
+      currency          TEXT NOT NULL DEFAULT 'USD',
+      direction         TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+      notes             TEXT,
+      user_id           INTEGER,
+      settlement_method TEXT,
+      created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      covered_amount    REAL NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS item_costs (
       tenant_id INTEGER DEFAULT 1,
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1283,7 +1304,20 @@ describe("Post-Refactor Verification", () => {
       const expenseService = new ExpenseService();
       const closingService = new ClosingService();
 
-      const today = new Date().toISOString().split("T")[0];
+      // ClosingRepository.getDailyStatsSnapshot() scopes expenses via
+      // `DATE(expense_date, 'localtime') = DATE('now', 'localtime')` — the
+      // MACHINE-LOCAL calendar day. `new Date().toISOString()` is UTC, so
+      // near local midnight (when the UTC and local calendar days differ,
+      // e.g. after UTC midnight but before local midnight east of UTC) the
+      // seeded expense_date lands on "yesterday" and the snapshot undercounts
+      // it. Ask SQLite for the SAME `date('now','localtime')` the production
+      // predicate uses (mirrors ProfitRepository.localBusinessDay.test.ts),
+      // rather than re-deriving it via JS Date math, so the seed always
+      // matches the predicate it's exercised against, regardless of run time
+      // or UTC-offset sign.
+      const { today } = db
+        .prepare(`SELECT date('now', 'localtime') AS today`)
+        .get() as { today: string };
 
       // Create a sale
       salesService.processSale(

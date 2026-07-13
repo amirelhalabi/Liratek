@@ -29,7 +29,8 @@ function createTestDb(): Database.Database {
       user_id           INTEGER,
       settlement_method TEXT,
       tenant_id         INTEGER DEFAULT 1,
-      created_at        TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at        TEXT DEFAULT CURRENT_TIMESTAMP,
+      covered_amount    REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE financial_services (

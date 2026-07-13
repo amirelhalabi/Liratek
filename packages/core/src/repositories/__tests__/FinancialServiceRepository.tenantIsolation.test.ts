@@ -139,14 +139,38 @@ function createTestDb(): Database.Database {
       id INTEGER PRIMARY KEY AUTOINCREMENT, key_name TEXT NOT NULL, value TEXT
     );
 
+    -- Partner ledger (referenced by FOR-partner dispatch; empty here — no
+    -- test in this file exercises the partner path, but the table must
+    -- exist since FinancialServiceRepository.createTransaction references it).
+    CREATE TABLE partner_ledger (
+      tenant_id         INTEGER DEFAULT 1,
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      partner_id        INTEGER NOT NULL,
+      transaction_type  TEXT,
+      reference_table   TEXT,
+      reference_id      INTEGER,
+      amount            REAL NOT NULL,
+      currency          TEXT NOT NULL DEFAULT 'USD',
+      direction         TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+      notes             TEXT,
+      user_id           INTEGER,
+      settlement_method TEXT,
+      created_at        TEXT DEFAULT CURRENT_TIMESTAMP,
+      covered_amount    REAL NOT NULL DEFAULT 0
+    );
+
     -- Mirrored financial_services rows: same provider/shape, different
-    -- commission, one per tenant.
+    -- commission, one per tenant. Seeded with DATE('now','localtime') to
+    -- match the 'today' predicate FinancialServiceRepository.getAnalytics()
+    -- actually queries with (DATE(created_at) = DATE('now','localtime')) —
+    -- DATE('now') alone is UTC and flakes near local midnight when the UTC
+    -- and local calendar days differ.
     INSERT INTO financial_services
       (tenant_id, provider, service_type, amount, currency, commission, is_settled, created_at)
-      VALUES (1, 'OMT', 'SEND', 100, 'USD', 5, 1, DATE('now'));
+      VALUES (1, 'OMT', 'SEND', 100, 'USD', 5, 1, DATE('now', 'localtime'));
     INSERT INTO financial_services
       (tenant_id, provider, service_type, amount, currency, commission, is_settled, created_at)
-      VALUES (2, 'OMT', 'SEND', 100, 'USD', 9999, 1, DATE('now'));
+      VALUES (2, 'OMT', 'SEND', 100, 'USD', 9999, 1, DATE('now', 'localtime'));
   `);
   return db;
 }

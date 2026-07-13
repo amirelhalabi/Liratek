@@ -153,7 +153,8 @@ function createTestDb(): Database.Database {
       notes            TEXT,
       user_id          INTEGER REFERENCES users(id),
       settlement_method TEXT,
-      created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
+      covered_amount   REAL NOT NULL DEFAULT 0
     );
 
     -- Unified accounting journal (TransactionRepository)
@@ -314,7 +315,29 @@ describe("FinancialServiceRepository — partner mode", () => {
     // ── OMT SEND ─────────────────────────────────────────────────────────────
 
     describe("OMT SEND for partner", () => {
-      it("credits OMT_System drawer (we owe OMT for the send)", () => {
+      // NOTE (PFT-3b, commit 3ad8204): FOR-mode SEND for OMT/WHISH/OMT_APP/
+      // WHISH_APP no longer reserves/credits the system drawer. The shop
+      // fronts the transfer via an explicit OUT disbursement leg (drawer
+      // follows the leg's method); the partner owes exactly what the shop
+      // disbursed. `FinancialServiceRepository.ts` now throws
+      // "A partner SEND must include the shop's disbursement as OUT payment
+      // legs" if no such leg is supplied — these five cases were written
+      // against the pre-PFT-3b model (system-drawer credit, no legs
+      // required) and are updated here to match the new contract; see
+      // frontend/tests/e2e-electron/lira-119-partner-for-financial-service.spec.ts
+      // for the owner-validated catalog this now follows.
+      const disbursementLeg = (amount: number) => ({
+        payments: [
+          {
+            method: "CASH",
+            currencyCode: "USD",
+            amount,
+            direction: "OUT" as const,
+          },
+        ],
+      });
+
+      it("does NOT credit OMT_System drawer (the disbursement leg IS the money movement)", () => {
         const partnerId = seedPartner(db);
         const before = drawerBalance(db, "OMT_System");
 
@@ -328,13 +351,13 @@ describe("FinancialServiceRepository — partner mode", () => {
           omtFee: 5,
           partnerId,
           partnerMode: "FOR",
-          paidByMethod: "CASH",
+          ...disbursementLeg(105),
         });
 
-        expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(before);
+        expect(drawerBalance(db, "OMT_System")).toBe(before);
       });
 
-      it("does NOT credit General drawer (partner collected cash from their customer)", () => {
+      it("debits General by the disbursed amount (shop fronts the transfer via cash OUT leg)", () => {
         const partnerId = seedPartner(db);
         const before = drawerBalance(db, "General");
 
@@ -348,13 +371,13 @@ describe("FinancialServiceRepository — partner mode", () => {
           omtFee: 5,
           partnerId,
           partnerMode: "FOR",
-          paidByMethod: "CASH",
+          ...disbursementLeg(105),
         });
 
-        expect(drawerBalance(db, "General")).toBe(before);
+        expect(drawerBalance(db, "General")).toBeCloseTo(before - 105, 2);
       });
 
-      it("creates a DEBIT ledger entry for amount + fee (partner owes us everything)", () => {
+      it("creates a DEBIT ledger entry for exactly what the shop disbursed (partner owes us everything)", () => {
         const partnerId = seedPartner(db);
 
         repo.createTransaction({
@@ -367,14 +390,14 @@ describe("FinancialServiceRepository — partner mode", () => {
           omtFee: 5,
           partnerId,
           partnerMode: "FOR",
-          paidByMethod: "CASH",
+          ...disbursementLeg(105),
         });
 
         const entries = partnerLedger(db, partnerId);
         expect(entries).toHaveLength(1);
         expect(entries[0].direction).toBe("DEBIT");
         expect(entries[0].transaction_type).toBe("FOR_OMT_SEND");
-        expect(entries[0].amount).toBeCloseTo(105, 2); // 100 + 5 fee
+        expect(entries[0].amount).toBeCloseTo(105, 2); // matches the disbursed OUT leg (100 + 5 fee)
         expect(entries[0].currency).toBe("USD");
       });
 
@@ -391,7 +414,7 @@ describe("FinancialServiceRepository — partner mode", () => {
           omtFee: 5,
           partnerId,
           partnerMode: "FOR",
-          paidByMethod: "CASH",
+          ...disbursementLeg(105),
         });
 
         const entries = partnerLedger(db, partnerId);
@@ -412,7 +435,7 @@ describe("FinancialServiceRepository — partner mode", () => {
           omtFee: 5,
           partnerId,
           partnerMode: "FOR",
-          paidByMethod: "CASH",
+          ...disbursementLeg(105),
         });
 
         const row = db
@@ -429,7 +452,14 @@ describe("FinancialServiceRepository — partner mode", () => {
     // ── OMT RECEIVE ───────────────────────────────────────────────────────────
 
     describe("OMT RECEIVE for partner", () => {
-      it("debits OMT_System drawer (OMT owes us — the main bug fix)", () => {
+      // NOTE (PFT-3b, commit 3ad8204): FOR-mode RECEIVE now books the
+      // incoming funds as a real inflow to the service's own drawer (the
+      // shop actually received the money into its OMT wallet/account) and
+      // owes the partner a CREDIT settled later. The pre-PFT-3b model
+      // DEBITED the system drawer to simulate an immediate walk-in payout,
+      // which no longer happens in FOR mode (no walk-in customer — see
+      // lira-119's "RECEIVE (all): drawer sign" failing-first discriminator).
+      it("credits OMT_System drawer (funds arrive; shop owes partner at settlement)", () => {
         const partnerId = seedPartner(db);
         const before = drawerBalance(db, "OMT_System");
 
@@ -444,8 +474,8 @@ describe("FinancialServiceRepository — partner mode", () => {
           partnerMode: "FOR",
         });
 
-        // OMT_System must be DEBITED — provider owes us the incoming funds
-        expect(drawerBalance(db, "OMT_System")).toBeLessThan(before);
+        // OMT_System must be CREDITED — the money physically arrived in our system
+        expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(before);
       });
 
       it("does NOT debit General drawer (partner pays out their own customer)", () => {
@@ -632,7 +662,14 @@ describe("FinancialServiceRepository — partner mode", () => {
       expect(drawerBalance(db, "Whish_System")).toBe(before);
     });
 
-    it("DOES debit OMT_System for FOR RECEIVE with CUSTOMER_ACCOUNT cashout", () => {
+    // NOTE (PFT-3b, commit 3ad8204): a FOR-partner financial service has no
+    // walk-in customer, so `cashoutMethod`/`clientId` are meaningless for
+    // FOR-mode RECEIVE and are simply ignored — the service drawer is
+    // CREDITED with the incoming funds either way (see the "credits
+    // OMT_System drawer" case above). This case now proves that passing a
+    // CUSTOMER_ACCOUNT cashout hint does not change that outcome (it no
+    // longer flips the drawer to a debit, as the pre-PFT-3b model did).
+    it("still credits OMT_System for FOR RECEIVE even with a CUSTOMER_ACCOUNT cashout hint (no walk-in customer in FOR mode)", () => {
       const partnerId = seedPartner(db);
       const clientId = seedClient(db);
       const before = drawerBalance(db, "OMT_System");
@@ -649,8 +686,8 @@ describe("FinancialServiceRepository — partner mode", () => {
         partnerMode: "FOR",
       });
 
-      // FOR mode: it IS our system, so OMT_System must be debited
-      expect(drawerBalance(db, "OMT_System")).toBeLessThan(before);
+      // FOR mode: cashoutMethod is ignored; funds physically arrive, so credit.
+      expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(before);
     });
   });
 
@@ -735,7 +772,16 @@ describe("FinancialServiceRepository — partner mode", () => {
         omtFee: 5,
         partnerId: p1,
         partnerMode: "FOR",
-        paidByMethod: "CASH",
+        // PFT-3b: FOR-mode SEND requires the shop's disbursement as an
+        // explicit OUT payment leg (see the "OMT SEND for partner" block).
+        payments: [
+          {
+            method: "CASH",
+            currencyCode: "USD",
+            amount: 105,
+            direction: "OUT",
+          },
+        ],
       });
 
       repo.createTransaction({
