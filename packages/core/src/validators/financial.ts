@@ -67,16 +67,29 @@ export const createFinancialServiceSchema = z
      * Stored for audit purposes.
      */
     paymentMethodFeeRate: z.number().min(0).max(0.1).optional(),
-    /** Multi-payment support */
+    /** Multi-payment support. `direction` marks shop-paid OUT legs (change,
+     * or the shop's own disbursement on a FOR-partner SEND) — without it the
+     * web path would strip the field and turn a disbursement into a phantom
+     * customer cash-in (rule 14: keep in sync with the electron
+     * FinancialPaymentLegSchema, which already carries both). */
     payments: z
       .array(
         z.object({
           method: z.string(),
           currencyCode: z.string(),
           amount: z.number().positive(),
+          direction: z.enum(["IN", "OUT"]).optional(),
+          voucherCode: z.string().optional(),
         }),
       )
       .optional(),
+    /** PFT-3b (Partner FOR-Transactions): when partnerMode === "FOR" the
+     * transaction is done ON THE PARTNER'S BEHALF — no walk-in customer, no
+     * counter cash; the full amount books to partner_ledger (see the
+     * repository's FOR-partner dispatch). "THROUGH" keeps the legacy
+     * secondary-system semantics. */
+    partnerId: z.number().int().positive().optional(),
+    partnerMode: z.enum(["THROUGH", "FOR"]).optional(),
     /**
      * Cashout method for RECEIVE transactions: how the shop pays the customer.
      * - CASH (default): debit General drawer
@@ -101,6 +114,13 @@ export const createFinancialServiceSchema = z
     {
       message: "Client is required when paying by Customer Account",
       path: ["clientId"],
+    },
+  )
+  .refine(
+    (data) => !(data.partnerMode === "FOR" && !data.partnerId),
+    {
+      message: 'partnerId is required when partnerMode is "FOR"',
+      path: ["partnerId"],
     },
   )
   .refine(

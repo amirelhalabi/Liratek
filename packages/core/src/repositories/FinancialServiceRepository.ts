@@ -874,6 +874,330 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.payments = inPayments;
       }
 
+      // Shared OUT-leg processor — the ONE loop that debits drawer-affecting
+      // OUT legs (rule 16: no flow-specific branch may iterate them again).
+      // Legacy path: change handed back to the customer. FOR-partner path:
+      // the shop's own disbursement legs (note relabeled accordingly).
+      const processReturnLegs = (noteLabel = "Change returned") => {
+        for (const r of deferPayment ? [] : returnLegs) {
+          const amt = Math.abs(r.amount);
+          if (amt <= 0) continue;
+          if (r.method === "CUSTOMER_ACCOUNT") {
+            if (!resolvedPrimaryClientId) {
+              throw new Error(
+                "Client is required to return change as store credit",
+              );
+            }
+            getDebtService().addCredit({
+              clientId: resolvedPrimaryClientId,
+              amountUsd: r.currencyCode === "USD" ? amt : 0,
+              amountLbp: r.currencyCode === "LBP" ? amt : 0,
+              note: noteLabel,
+              userId: createdBy,
+            });
+          } else if (isDrawerAffectingMethod(r.method)) {
+            const drawerName = paymentMethodToDrawerName(r.method);
+            insertPayment.run(
+              txnId,
+              r.method,
+              drawerName,
+              r.currencyCode,
+              -amt,
+              noteLabel,
+              createdBy,
+            );
+            upsertBalanceDelta.run(drawerName, r.currencyCode, -amt);
+          }
+        }
+      };
+
+      // Katsh "Only Days" returned telecom credits — an internal shop credit
+      // return (Alfa/MTC drawer top-up) tied to the ITEM, independent of who
+      // pays, so it runs for the normal cost/price flow AND the FOR-partner
+      // catalog arm below.
+      const processKatshReturnedCredits = () => {
+        if (
+          data.provider === "Katsh" &&
+          data.returnedCreditsUsd &&
+          data.returnedCreditsUsd > 0
+        ) {
+          const credits = data.returnedCreditsUsd;
+          const isAlfa =
+            data.itemCategory === "alfa" || data.itemCategory === "Alfa";
+          const creditDrawer = isAlfa ? "Alfa" : "MTC";
+          insertPayment.run(
+            txnId,
+            "CREDIT_RETURN",
+            creditDrawer,
+            "USD",
+            credits,
+            `Returned credits: ${credits} USD`,
+            createdBy,
+          );
+          upsertBalanceDelta.run(creditDrawer, "USD", credits);
+        }
+      };
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // PFT-3b — FOR-PARTNER DISPATCH (early return)
+      // ═══════════════════════════════════════════════════════════════════════
+      // Owner-validated catalog (docs/plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
+      // "⭐ VALIDATED FLOW CATALOG"): a for-partner financial service has NO
+      // walk-in customer — no customer cash-in, no payout, no client debt, no
+      // pm-fee row, no supplier auto-record, no commission cash inflow. The
+      // partner owes (SEND → DEBIT) or is owed (RECEIVE → CREDIT) on
+      // partner_ledger, settled later on the Partners page. Returning here
+      // means the entire legacy walk-in dispatch below never runs in FOR mode
+      // — normal + THROUGH-partner behavior is byte-for-byte untouched.
+      //
+      // Profit note: commission/margin stays stamped on the FS + txn rows
+      // exactly as the normal path stamps it. iPick/Katsh margin is immediate
+      // (is_settled = 1) per the owner decision; OMT/app/Binance commission
+      // currently realizes on the existing is_settled machinery — deferral
+      // until PARTNER settlement is PFT-6, deliberately not faked here.
+      if (isForPartner) {
+        const partnerId = data.partnerId as number;
+        const serviceDrawer = this.mapDrawerName(data.provider);
+        const amountAbs = Math.abs(data.amount);
+        const fee = Math.abs(calculatedCommission);
+
+        // No walk-in customer: any customer-paid IN leg is a modeling error —
+        // reject rather than book a phantom cash-in (mirrors SalesRepository /
+        // RechargeRepository / LotoTicketRepository, PFT-R).
+        if (inPayments.length > 0) {
+          throw new Error(
+            "A partner financial service takes no counter payment — the full amount goes on the partner's tab",
+          );
+        }
+        // CUSTOMER_ACCOUNT has no meaning without a customer.
+        if (returnLegs.some((r) => r.method === "CUSTOMER_ACCOUNT")) {
+          throw new Error(
+            "A partner financial service cannot carry a CUSTOMER_ACCOUNT leg",
+          );
+        }
+
+        const insertPartnerLedger = (
+          transactionType: string,
+          ledgerAmount: number,
+          ledgerCurrency: string,
+          direction: "DEBIT" | "CREDIT",
+        ) => {
+          this.db
+            .prepare(
+              `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, tenant_id, created_at)
+               VALUES (?, ?, 'financial_services', ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+            )
+            .run(
+              partnerId,
+              transactionType,
+              id,
+              ledgerAmount,
+              ledgerCurrency,
+              direction,
+              createdBy,
+              tenantId,
+              data.transaction_time ?? null,
+            );
+        };
+
+        if (useCostPriceFlow) {
+          // ── Catalog items + bills (iPick / Katsh / app-wallet grids): the
+          // shop consumes provider stock at cost as normal; the partner owes
+          // the SELLING price (margin immediate — is_settled = 1 already).
+          const forType =
+            data.provider === "iPick"
+              ? "FOR_IPICK"
+              : data.provider === "Katsh"
+                ? "FOR_KATSH"
+                : data.provider === "OMT_APP"
+                  ? "FOR_OMT_APP_SEND"
+                  : data.provider === "WHISH_APP"
+                    ? "FOR_WHISH_APP_SEND"
+                    : null;
+          if (!forType) {
+            throw new Error(
+              `FOR-partner is not supported for provider ${data.provider} on the cost/price flow`,
+            );
+          }
+          if (returnLegs.length > 0) {
+            throw new Error(
+              "A partner catalog sale has no payment legs — the full selling price goes on the partner's tab",
+            );
+          }
+          if (cost > 0) {
+            insertPayment.run(
+              txnId,
+              data.provider,
+              serviceDrawer,
+              currency,
+              -Math.abs(cost),
+              `Cost: ${data.provider}`,
+              createdBy,
+            );
+            upsertBalanceDelta.run(serviceDrawer, currency, -Math.abs(cost));
+          }
+          insertPartnerLedger(forType, Math.abs(price), currency, "DEBIT");
+          processKatshReturnedCredits();
+        } else if (data.serviceType === "SEND") {
+          if (data.provider === "BINANCE") {
+            // The USDT leaves the shop's Binance drawer (real payment row so
+            // void reverses it); the partner owes the USD SELL PRICE
+            // (amount + fee — normal pricing, no surcharge). Partner debt is
+            // USD, never USDT (owner decision — a partner never carries a
+            // USDT balance).
+            if (returnLegs.length > 0) {
+              throw new Error(
+                "A partner Binance SEND has no payment legs — the USDT leaves the Binance drawer and the USD price goes on the partner's tab",
+              );
+            }
+            insertPayment.run(
+              txnId,
+              data.provider,
+              serviceDrawer,
+              "USDT",
+              -amountAbs,
+              "Crypto sent (for partner)",
+              createdBy,
+            );
+            upsertBalanceDelta.run(serviceDrawer, "USDT", -amountAbs);
+            insertPartnerLedger(
+              "FOR_BINANCE_SEND",
+              amountAbs + fee,
+              "USD",
+              "DEBIT",
+            );
+          } else if (
+            data.provider === "OMT" ||
+            data.provider === "WHISH" ||
+            data.provider === "OMT_APP" ||
+            data.provider === "WHISH_APP"
+          ) {
+            // The shop fronts the transfer via the OUT-payment form — each
+            // leg's drawer follows its method (cash→General, OMT_APP→OMT_App,
+            // …) and the fee is already inside what the form disburses. The
+            // partner owes EXACTLY what the shop paid, mirrored per currency
+            // (native, never converted — the T2 lesson). No system-drawer
+            // reserve/credit: the disbursement legs ARE the money movement.
+            if (returnLegs.length === 0) {
+              throw new Error(
+                "A partner SEND must include the shop's disbursement as OUT payment legs",
+              );
+            }
+            const forType =
+              data.provider === "OMT"
+                ? "FOR_OMT_SEND"
+                : data.provider === "WHISH"
+                  ? "FOR_WHISH_SEND"
+                  : data.provider === "OMT_APP"
+                    ? "FOR_OMT_APP_SEND"
+                    : "FOR_WHISH_APP_SEND";
+            const byCurrency = new Map<string, number>();
+            for (const r of returnLegs) {
+              const amt = Math.abs(r.amount);
+              if (amt <= 0) continue;
+              if (!isDrawerAffectingMethod(r.method)) {
+                throw new Error(
+                  "A partner SEND disbursement leg must use a drawer-affecting method",
+                );
+              }
+              if (r.currencyCode !== "USD" && r.currencyCode !== "LBP") {
+                throw new Error(
+                  "Partner debt must be USD or LBP — pick a USD/LBP disbursement method",
+                );
+              }
+              byCurrency.set(
+                r.currencyCode,
+                (byCurrency.get(r.currencyCode) ?? 0) + amt,
+              );
+            }
+            for (const [legCurrency, total] of byCurrency) {
+              insertPartnerLedger(forType, total, legCurrency, "DEBIT");
+            }
+            // The legs themselves are debited ONCE by processReturnLegs below.
+          } else {
+            throw new Error(
+              `FOR-partner is not supported for provider ${data.provider}`,
+            );
+          }
+        } else if (data.serviceType === "RECEIVE") {
+          // Money arrives INTO the shop's service drawer; the shop OWES the
+          // partner (CREDIT). No payout leg at receive time — the partner is
+          // paid at settlement on the Partners page.
+          if (returnLegs.length > 0) {
+            throw new Error(
+              "A partner RECEIVE has no payout legs — the shop owes the partner on their tab and pays at settlement",
+            );
+          }
+          let forType: string;
+          let creditAmount: number;
+          let creditCurrency: string;
+          let drawerCurrency: string;
+          if (data.provider === "OMT") {
+            // Full amount, no fee (owner: OMT system receive has no fee; the
+            // shop's system commission is stamped as profit, not deducted).
+            forType = "FOR_OMT_RECEIVE";
+            creditAmount = amountAbs;
+            creditCurrency = currency;
+            drawerCurrency = currency;
+          } else if (data.provider === "WHISH") {
+            forType = "FOR_WHISH_RECEIVE";
+            creditAmount = amountAbs;
+            creditCurrency = currency;
+            drawerCurrency = currency;
+          } else if (data.provider === "OMT_APP") {
+            forType = "FOR_OMT_APP_RECEIVE";
+            creditAmount = amountAbs - fee;
+            creditCurrency = currency;
+            drawerCurrency = currency;
+          } else if (data.provider === "WHISH_APP") {
+            forType = "FOR_WHISH_APP_RECEIVE";
+            creditAmount = amountAbs - fee;
+            creditCurrency = currency;
+            drawerCurrency = currency;
+          } else if (data.provider === "BINANCE") {
+            // Drawer moves in USDT; the partner is owed USD (owner decision).
+            forType = "FOR_BINANCE_RECEIVE";
+            creditAmount = amountAbs - fee;
+            creditCurrency = "USD";
+            drawerCurrency = "USDT";
+          } else {
+            throw new Error(
+              `FOR-partner is not supported for provider ${data.provider}`,
+            );
+          }
+          insertPayment.run(
+            txnId,
+            data.provider,
+            serviceDrawer,
+            drawerCurrency,
+            amountAbs,
+            `${data.provider} received (for partner)`,
+            createdBy,
+          );
+          upsertBalanceDelta.run(serviceDrawer, drawerCurrency, amountAbs);
+          if (creditAmount > 0) {
+            insertPartnerLedger(
+              forType,
+              creditAmount,
+              creditCurrency,
+              "CREDIT",
+            );
+          }
+        } else {
+          // Bills (serviceType "BILL") without a cost/price pair have no
+          // FOR_* mapping yet — follow-up, not silently mis-booked.
+          throw new Error(
+            `FOR-partner is not supported for service type ${data.serviceType}`,
+          );
+        }
+
+        // The shop's disbursement OUT legs (transfer SEND) — debited exactly
+        // once by the ONE shared OUT-leg processor.
+        processReturnLegs("Partner disbursement");
+
+        return { id, drawer: legacyDrawerLabel };
+      }
+
       if (useCostPriceFlow) {
         // ─── COST/PRICE FLOW (iPick, Katsh, WHISH_APP, OMT_APP, BINANCE) ───
         const providerDrawer = this.mapDrawerName(data.provider);
@@ -1008,31 +1332,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
         // ─── RETURNED CREDITS (Katsh "Only Days" telecom vouchers) ───
         // When a telecom voucher (alfa/mtc) is sold as "only days", the credit
-        // portion is returned to the shop. We top-up the corresponding drawer
-        // (Alfa or MTC) with the full credit amount. SMS costs are paid by the
-        // customer, not the shop.
-        if (
-          data.provider === "Katsh" &&
-          data.returnedCreditsUsd &&
-          data.returnedCreditsUsd > 0
-        ) {
-          const credits = data.returnedCreditsUsd;
-          // Determine drawer from item category
-          const isAlfa =
-            data.itemCategory === "alfa" || data.itemCategory === "Alfa";
-          const creditDrawer = isAlfa ? "Alfa" : "MTC";
-
-          insertPayment.run(
-            txnId,
-            "CREDIT_RETURN",
-            creditDrawer,
-            "USD",
-            credits,
-            `Returned credits: ${credits} USD`,
-            createdBy,
-          );
-          upsertBalanceDelta.run(creditDrawer, "USD", credits);
-        }
+        // portion is returned to the shop — see processKatshReturnedCredits
+        // (shared with the FOR-partner catalog arm above).
+        processKatshReturnedCredits();
       } else {
         // OMT uses 3-drawer cash-reserve: payment +amount, General -amount, OMT_System +amount
         // WHISH uses 2-drawer: payment +amount, Whish_System +amount (no General)
@@ -2002,41 +2304,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         // Supplier auto-record is non-critical; don't fail the transaction
       }
 
-      // Auto-create partner ledger entry if this is a partner transaction
-      if (data.partnerId) {
+      // Auto-create partner ledger entry for THROUGH-partner transactions.
+      // FOR-partner rows are booked in the early FOR dispatch above (PFT-3b)
+      // — its per-provider transaction_type map replaced the old collapsed
+      // OMT/WHISH mapping that mis-typed OMT_APP/WHISH_APP/BINANCE rows.
+      if (isThroughPartner) {
         const providerKey =
           data.provider === "OMT" || data.provider === "OMT_APP"
             ? "OMT"
             : "WHISH";
-        const modePrefix = isForPartner ? "FOR_" : "THROUGH_";
-        const ledgerType = `${modePrefix}${providerKey}_${data.serviceType}`;
-
-        let direction = "";
-        let ledgerAmount = Math.abs(data.amount);
-
-        if (isThroughPartner) {
-          direction = data.serviceType === "SEND" ? "CREDIT" : "DEBIT";
-        } else {
-          // isForPartner
-          if (data.serviceType === "SEND") {
-            direction = "DEBIT";
-            const fee =
-              data.provider === "WHISH"
-                ? (storedWhishFee ?? 0)
-                : data.omtFee != null
-                  ? data.omtFee
-                  : (lookupOmtFee(
-                      data.omtServiceType as OmtServiceType,
-                      Math.abs(data.amount),
-                      currency,
-                    ) ?? 0);
-            ledgerAmount = data.includingFees
-              ? Math.abs(data.amount)
-              : Math.abs(data.amount) + fee;
-          } else {
-            direction = "CREDIT";
-          }
-        }
+        const ledgerType = `THROUGH_${providerKey}_${data.serviceType}`;
+        const direction = data.serviceType === "SEND" ? "CREDIT" : "DEBIT";
+        const ledgerAmount = Math.abs(data.amount);
 
         this.db
           .prepare(
@@ -2052,46 +2331,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             ledgerAmount,
             currency,
             direction,
-            1,
+            createdBy,
             tenantId,
             data.transaction_time ?? null,
           );
       }
 
-      // Return (OUT) legs: change handed back to the customer via a chosen method,
-      // or kept as store credit. Debits the method's drawer (negative delta), or
-      // deposits credit to the client's account for CUSTOMER_ACCOUNT.
-      // Deferred (session basket): change is owned by the basket recorder.
-      for (const r of deferPayment ? [] : returnLegs) {
-        const amt = Math.abs(r.amount);
-        if (amt <= 0) continue;
-        if (r.method === "CUSTOMER_ACCOUNT") {
-          if (!resolvedPrimaryClientId) {
-            throw new Error(
-              "Client is required to return change as store credit",
-            );
-          }
-          getDebtService().addCredit({
-            clientId: resolvedPrimaryClientId,
-            amountUsd: r.currencyCode === "USD" ? amt : 0,
-            amountLbp: r.currencyCode === "LBP" ? amt : 0,
-            note: "Change returned",
-            userId: createdBy,
-          });
-        } else if (isDrawerAffectingMethod(r.method)) {
-          const drawerName = paymentMethodToDrawerName(r.method);
-          insertPayment.run(
-            txnId,
-            r.method,
-            drawerName,
-            r.currencyCode,
-            -amt,
-            "Change returned",
-            createdBy,
-          );
-          upsertBalanceDelta.run(drawerName, r.currencyCode, -amt);
-        }
-      }
+      // Return (OUT) legs: change handed back to the customer via a chosen
+      // method, or kept as store credit — see processReturnLegs (the ONE
+      // shared OUT-leg processor, also used by the FOR-partner dispatch).
+      processReturnLegs();
 
       return { id, drawer: legacyDrawerLabel };
     })();
