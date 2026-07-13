@@ -1645,16 +1645,54 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
+   * A sale enriched with its display customer: the linked client's name/phone
+   * when client_id is set, otherwise the walk-in name/phone stored on the
+   * sale's unified transaction (rule 11 — walk-in names live on `transactions`,
+   * never on `sales`). Read + rename (updateMetadata) hit the SAME field so a
+   * reprint reflects an edit (RCP-1).
+   */
+  getSaleWithCustomer(
+    saleId: number,
+  ): (SaleEntity & { client_name: string | null; client_phone: string | null }) | null {
+    const tenantId = getCurrentTenantId();
+    const rows = this.query<
+      SaleEntity & { client_name: string | null; client_phone: string | null }
+    >(
+      `SELECT s.*,
+              COALESCE(c.full_name, t.client_name) AS client_name,
+              COALESCE(c.phone_number, t.client_phone) AS client_phone
+       FROM ${this.tableName} s
+       LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = ?
+       LEFT JOIN transactions t
+         ON t.source_table = 'sales' AND t.source_id = s.id
+        AND t.type = 'SALE' AND t.tenant_id = ?
+       WHERE s.id = ? AND s.tenant_id = ?
+       LIMIT 1`,
+      tenantId,
+      tenantId,
+      saleId,
+      tenantId,
+    );
+    return rows[0] ?? null;
+  }
+
+  /**
    * Update non-financial metadata on a sale record.
    * Only metadata fields are allowed — financial data is immutable.
+   *
+   * `note` writes to the sale row. `client_name`/`client_phone` (RCP-1
+   * walk-in rename) write to the sale's unified TRANSACTION row — there is no
+   * client_name column on `sales`, and rule 11 keeps the walk-in name on the
+   * transaction. The caller (service) gates this to walk-in sales.
    */
   updateMetadata(
     id: number,
-    data: { note?: string },
+    data: { note?: string; client_name?: string; client_phone?: string },
     editedBy: string,
   ): SaleEntity | null {
     const existing = this.findById(id);
     if (!existing) return null;
+    const tenantId = getCurrentTenantId();
 
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -1664,18 +1702,39 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       values.push(data.note);
     }
 
-    if (fields.length === 0) return existing;
+    if (fields.length > 0) {
+      fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+      values.push(editedBy);
+      values.push(id);
+      values.push(tenantId);
+      this.db
+        .prepare(
+          `UPDATE sales SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        )
+        .run(...values);
+    }
 
-    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
-    values.push(editedBy);
-    values.push(id);
-    values.push(getCurrentTenantId());
-
-    this.db
-      .prepare(
-        `UPDATE sales SET ${fields.join(", ")} WHERE id = ? AND tenant_id = ?`,
-      )
-      .run(...values);
+    // Walk-in rename → the unified transaction row (rule 11).
+    if (data.client_name !== undefined || data.client_phone !== undefined) {
+      const tFields: string[] = [];
+      const tValues: unknown[] = [];
+      if (data.client_name !== undefined) {
+        tFields.push("client_name = ?");
+        tValues.push(data.client_name || null);
+      }
+      if (data.client_phone !== undefined) {
+        tFields.push("client_phone = ?");
+        tValues.push(data.client_phone || null);
+      }
+      tValues.push(id, tenantId);
+      this.db
+        .prepare(
+          `UPDATE transactions SET ${tFields.join(", ")}
+           WHERE source_table = 'sales' AND source_id = ?
+             AND type = 'SALE' AND tenant_id = ?`,
+        )
+        .run(...tValues);
+    }
 
     return this.findById(id);
   }

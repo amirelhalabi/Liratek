@@ -68,11 +68,22 @@
   `client_name` on the sale + receipt WITHOUT creating a client row (the
   existing `clientSearch` free-text already does this — make it explicit and
   ensure it prints; rule 11: keep name on the unified txn row).
-- Completed-sale rename: extend the sale update path to accept
-  `client_name`/`client_phone` (currently `note`-only), propagate to the
-  `sales` row AND its unified transaction (rule 11). Add the edit UI in
-  `SaleDetailModal` + a reprint button.
-- Guard: unit/e2e that a renamed sale's transaction carries the new name.
+- Completed-sale rename (corrected after investigation + advisor):
+  - There is **no `sales.client_name` column** — it's aliased from the clients
+    JOIN. The walk-in name lives on the **unified transaction** (rule 11), so
+    the rename's single write target is `transactions.client_name/_phone`.
+    Do NOT add a sales column / migration.
+  - **Gate to walk-in sales only** (`client_id IS NULL`). A client-linked
+    sale's name comes from the clients record; a per-sale edit would fork the
+    transaction label from the client's real name. Show the edit UI only for
+    walk-ins.
+  - **Read + write the same field**: extend the sale read to surface the
+    transaction's client_name for walk-ins, or the edit-then-reprint prints
+    the stale "Walk-in Customer". (COALESCE the transaction name in getSale.)
+  - Field-picking guard: add `client_name`/`client_phone` to BOTH
+    `SalesService.updateSaleMetadata` and `SalesRepository.updateMetadata`
+    (+ the transaction UPDATE), and the rule-14 electron schema dup.
+- Guard: e2e that a renamed walk-in sale's transaction carries the new name.
 
 ### RCP-2 — Generalized service receipt
 

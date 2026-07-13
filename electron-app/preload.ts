@@ -125,8 +125,12 @@ contextBridge.exposeInMainWorld("api", {
       }),
     getByDateRange: (startDate: string, endDate: string) =>
       ipcRenderer.invoke("sales:get-by-date-range", startDate, endDate),
-    updateMetadata: (data: { id: number; note?: string }) =>
-      ipcRenderer.invoke("sales:update-metadata", data),
+    updateMetadata: (data: {
+      id: number;
+      note?: string;
+      client_name?: string;
+      client_phone?: string;
+    }) => ipcRenderer.invoke("sales:update-metadata", data),
   },
 
   // Dashboard

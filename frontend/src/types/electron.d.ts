@@ -512,6 +512,8 @@ export interface ElectronAPI {
     updateMetadata: (data: {
       id: number;
       note?: string;
+      client_name?: string;
+      client_phone?: string;
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 

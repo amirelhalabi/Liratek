@@ -126,7 +126,10 @@ export class SalesService {
    */
   getSale(saleId: number) {
     try {
-      return this.salesRepo.findById(saleId);
+      // Enriched with the display customer (linked client, or the walk-in
+      // name from the unified transaction) so Sale Detail + reprint show the
+      // real customer, not always "Walk-in Customer" (RCP-1).
+      return this.salesRepo.getSaleWithCustomer(saleId);
     } catch (error) {
       salesLogger.error({ error, saleId }, "Failed to get sale");
       throw error;
@@ -267,7 +270,7 @@ export class SalesService {
    */
   updateSaleMetadata(
     id: number,
-    data: { note?: string },
+    data: { note?: string; client_name?: string; client_phone?: string },
     editedBy: string,
   ): {
     success: boolean;
@@ -288,11 +291,32 @@ export class SalesService {
       newValues.note = data.note;
     }
 
+    // Walk-in customer rename (RCP-1): allowed ONLY for walk-in sales
+    // (client_id IS NULL). A client-linked sale takes its name from the
+    // clients record — a per-sale edit would fork the transaction label from
+    // the client's real name, so it is silently ignored here.
+    const isWalkin = existing.client_id == null;
+    const rename: { client_name?: string; client_phone?: string } = {};
+    if (isWalkin) {
+      if (data.client_name !== undefined) {
+        newValues.client_name = data.client_name;
+        rename.client_name = data.client_name;
+      }
+      if (data.client_phone !== undefined) {
+        newValues.client_phone = data.client_phone;
+        rename.client_phone = data.client_phone;
+      }
+    }
+
     if (Object.keys(newValues).length === 0) {
       return { success: true, entity: existing };
     }
 
-    const updated = this.salesRepo.updateMetadata(id, data, editedBy);
+    const updated = this.salesRepo.updateMetadata(
+      id,
+      { ...(data.note !== undefined ? { note: data.note } : {}), ...rename },
+      editedBy,
+    );
     if (!updated) {
       return { success: false, error: "Failed to update" };
     }

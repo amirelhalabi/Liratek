@@ -204,6 +204,9 @@ export function registerSalesHandlers(): void {
       data: {
         id: number;
         note?: string;
+        // RCP-1 walk-in rename — applied only to walk-in sales by the service.
+        client_name?: string;
+        client_phone?: string;
       },
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
@@ -220,7 +223,15 @@ export function registerSalesHandlers(): void {
 
       const result = salesService.updateSaleMetadata(
         data.id,
-        { note: data.note },
+        {
+          ...(data.note !== undefined ? { note: data.note } : {}),
+          ...(data.client_name !== undefined
+            ? { client_name: data.client_name }
+            : {}),
+          ...(data.client_phone !== undefined
+            ? { client_phone: data.client_phone }
+            : {}),
+        },
         editedBy,
       );
 

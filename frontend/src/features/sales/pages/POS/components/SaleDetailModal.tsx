@@ -7,8 +7,10 @@ import {
   Package,
   DollarSign,
   Printer,
+  Pencil,
 } from "lucide-react";
 import { appEvents, EXCHANGE_RATE } from "@liratek/ui";
+import logger from "@/utils/logger";
 import {
   formatReceipt58mm,
   type ReceiptData,
@@ -34,6 +36,7 @@ interface SaleItem {
 
 interface SaleDetail {
   id: number;
+  client_id: number | null;
   client_name: string | null;
   client_phone: string | null;
   total_amount_usd: number;
@@ -70,26 +73,67 @@ export default function SaleDetailModal({
   const [selectedRefundItem, setSelectedRefundItem] = useState<SaleItem | null>(
     null,
   );
+  // RCP-1 walk-in rename: edit the customer on a walk-in sale (client_id null).
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [savingCustomer, setSavingCustomer] = useState(false);
+
+  const loadSale = async () => {
+    setLoading(true);
+    try {
+      const [saleData, itemsData] = await Promise.all([
+        window.api.sales.get(saleId),
+        window.api.sales.getItems(saleId),
+      ]);
+      setSale(saleData);
+      setItems(itemsData ?? []);
+    } catch {
+      setSale(null);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const [saleData, itemsData] = await Promise.all([
-          window.api.sales.get(saleId),
-          window.api.sales.getItems(saleId),
-        ]);
-        setSale(saleData);
-        setItems(itemsData ?? []);
-      } catch {
-        setSale(null);
-        setItems([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    loadSale();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saleId]);
+
+  const startEditCustomer = () => {
+    setEditName(sale?.client_name || "");
+    setEditPhone(sale?.client_phone || "");
+    setEditingCustomer(true);
+  };
+
+  const handleSaveCustomer = async () => {
+    if (!sale) return;
+    setSavingCustomer(true);
+    try {
+      const result = await window.api.sales.updateMetadata({
+        id: sale.id,
+        client_name: editName.trim(),
+        client_phone: editPhone.trim(),
+      });
+      if (result?.success === false) {
+        appEvents.emit(
+          "notification:show",
+          "Failed to update customer: " + (result.error || "Unknown error"),
+          "error",
+        );
+        return;
+      }
+      setEditingCustomer(false);
+      await loadSale();
+      appEvents.emit("notification:show", "Customer updated", "success");
+    } catch (e) {
+      logger.error("Failed to update sale customer", { error: e });
+      appEvents.emit("notification:show", "Failed to update customer", "error");
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
 
   const handleRefund = async () => {
     if (!sale) return;
@@ -284,16 +328,61 @@ export default function SaleDetailModal({
                 <div className="p-2 bg-slate-800 rounded-lg">
                   <User size={16} className="text-slate-400" />
                 </div>
-                <div>
-                  <div className="text-sm text-slate-200">
-                    {sale.client_name || "Walk-in Customer"}
-                  </div>
-                  {sale.client_phone && (
-                    <div className="text-xs text-slate-500">
-                      {sale.client_phone}
+                {editingCustomer ? (
+                  <div className="flex-1 flex flex-col gap-2">
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      placeholder="Customer name"
+                      className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                    />
+                    <input
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="Phone (optional)"
+                      className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleSaveCustomer}
+                        disabled={savingCustomer}
+                        className="px-3 py-1 rounded-lg text-xs font-semibold bg-orange-600 hover:bg-orange-500 disabled:bg-slate-700 text-white"
+                      >
+                        {savingCustomer ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        onClick={() => setEditingCustomer(false)}
+                        className="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div>
+                      <div className="text-sm text-slate-200">
+                        {sale.client_name || "Walk-in Customer"}
+                      </div>
+                      {sale.client_phone && (
+                        <div className="text-xs text-slate-500">
+                          {sale.client_phone}
+                        </div>
+                      )}
+                    </div>
+                    {/* Rename is a walk-in-only affordance (client_id null): a
+                        client-linked sale takes its name from the client record. */}
+                    {sale.client_id == null && !isRefunded && (
+                      <button
+                        onClick={startEditCustomer}
+                        title="Edit customer"
+                        className="p-1 text-slate-500 hover:text-orange-400"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Items */}
