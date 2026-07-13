@@ -19,6 +19,7 @@ import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
+import { getPartnerRepository } from "./PartnerRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   type TopUpProvider,
@@ -72,6 +73,16 @@ export interface RechargeData {
    * this falsy → behavior is unchanged.
    */
   deferPayment?: boolean;
+  /**
+   * PFT-3a (Partner FOR-Transactions): when set together with
+   * `partnerMode === "FOR"`, the unpaid remainder books to `partner_ledger`
+   * (FOR_RECHARGE DEBIT) against this partner instead of a client's
+   * `debt_ledger`. Everything else about the recharge (stock, drawers,
+   * profit) stays normal.
+   */
+  partnerId?: number;
+  /** Only "FOR" is valid for recharges — the partner analog of CUSTOMER_ACCOUNT. */
+  partnerMode?: "FOR";
 }
 
 export interface RechargeEntity {
@@ -894,8 +905,57 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           upsertBalanceDelta.run(providerDrawerName, "USD", -smsCostUsd);
         }
 
-        // Debt: create ledger entry when paid by DEBT
-        if (hasDebt) {
+        // PFT-3a (Partner FOR-Transactions): routing is mutually exclusive.
+        // When data.partnerMode === "FOR", the unpaid remainder books to
+        // partner_ledger against data.partnerId instead of the client's
+        // debt_ledger — never both on one transaction.
+        const isForPartner = data.partnerMode === "FOR";
+
+        if (isForPartner) {
+          if (!data.partnerId) {
+            throw new Error('partnerId is required when partnerMode is "FOR"');
+          }
+          if (!data.payments || data.payments.length === 0) {
+            throw new Error(
+              "A partner FOR-recharge requires explicit payment legs",
+            );
+          }
+          // Reject any account/debt leg or cross-currency IN leg — the
+          // remainder routes only to the partner, in the recharge's own
+          // currency. Requiring explicit payments also closes the legacy
+          // single-payment paid_by_method fallback that would otherwise
+          // mis-book (it isn't partner-aware).
+          if (
+            inPayments.some(
+              (p) =>
+                !isDrawerAffectingMethod(p.method) ||
+                p.currencyCode !== currency,
+            )
+          ) {
+            throw new Error(
+              "Cannot combine a partner FOR-recharge with an account/debt leg or a cross-currency leg",
+            );
+          }
+          const paidNow = inPayments.reduce(
+            (sum, p) => sum + Math.abs(p.amount),
+            0,
+          );
+          const remainder = Math.abs(data.price) - paidNow;
+          if (remainder > 0.005) {
+            getPartnerRepository().addLedgerEntry({
+              partner_id: data.partnerId as number,
+              transaction_type: "FOR_RECHARGE",
+              reference_table: "recharges",
+              reference_id: rechargeId,
+              amount: remainder,
+              currency,
+              direction: "DEBIT",
+              user_id: createdBy,
+              notes: note,
+            });
+          }
+        } else if (hasDebt) {
+          // Debt: create ledger entry when paid by DEBT
           if (!data.clientId) {
             throw new Error("Cannot create debt without a client");
           }

@@ -232,6 +232,11 @@ export const RechargeSchema = z.object({
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
   default_price_to_client: z.number().nonnegative().optional(),
+  // PFT-3a (Partner FOR-Transactions) — LOCAL duplicate of the core schema
+  // (rule-14 debt, same trap as DebtRepaymentSchema): fields must exist in
+  // BOTH or the desktop path silently strips them.
+  partnerId: z.number().int().positive().optional(),
+  partnerMode: z.enum(["FOR"]).optional(),
 });
 
 export const RechargeCustomerTopUpSchema = z.object({

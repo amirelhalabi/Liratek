@@ -25,6 +25,11 @@ export const createRechargeSchema = z.object({
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
   transaction_time: transactionTimeSchema,
+  // PFT-3a (Partner FOR-Transactions): the unpaid remainder routes to
+  // partner_ledger instead of the client's debt_ledger when set. Only "FOR"
+  // is valid for recharges.
+  partnerId: z.number().int().positive().optional(),
+  partnerMode: z.enum(["FOR"]).optional(),
 });
 
 export const getRechargeStockSchema = z.object({
