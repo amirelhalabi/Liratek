@@ -233,6 +233,47 @@ div** (the OMT-system pattern) on every applicable form.
 | **PFT-3b** | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select. | ⬜ BLOCKED (other session owns FinancialServiceRepository) |
 | **PFT-6** | Settlement→profit recognition — **BIGGER than first planned** (see note) | ⬜ |
 
+### PFT-6 design (locked 2026-07-14, pre-build)
+
+**Mechanism: per-row FIFO coverage on `partner_ledger`, ONE shared pending
+predicate in `ProfitRepository`.**
+
+1. **Migration v128** (+ `create_db.sql`): `partner_ledger` +
+   `covered_amount REAL NOT NULL DEFAULT 0` (plain constant default — safe per
+   the migrations-on-prod-copy scar; replay before release).
+2. **Coverage application**: when a `SETTLEMENT` or manual `ADJUSTMENT` row is
+   booked with direction D, apply |amount| FIFO (oldest first) across the
+   partner's OPPOSITE-direction `FOR_%` rows in the same currency
+   (`covered_amount < amount`), bumping `covered_amount`. `FOR_%`/`THROUGH_%`
+   rows never act as coverage sources — this keeps void-reversal rows (same
+   FOR_ type, opposite direction) from fake-settling their own original.
+   Voiding an already-covered FOR row does NOT rebalance coverage (v1;
+   the void's profit negation nets the P&L anyway — documented).
+3. **Profit gates** (`ProfitRepository`, rule 14 — ONE named fragment):
+   `partnerPending(refTable, refId)` = EXISTS an uncovered `FOR_%` row
+   (excluding `FOR_IPICK`/`FOR_KATSH`, which the owner wants immediate).
+   - SALE arms: gate becomes `saleFullyPaid OR (has FOR_POS row AND NOT
+     partnerPending)` — a covered partner sale realizes; uncovered stays
+     pending; non-partner sales unchanged.
+   - Recharge / loto / FS / custom / maintenance profit arms: add
+     `AND NOT partnerPending(...)` (they have NO pay gate today — this is the
+     fix for the early-recognition gap below).
+4. **E2E (lira-120, failing-first)**: for-partner sale + recharge + loto + FS
+   → profit summary delta 0 (pending) → settle the partner in full → deltas
+   appear (dated at the source txn's day). iPick/Katsh: delta appears
+   immediately. Pre-gate code counts recharge/loto/FS immediately → the
+   "pending before settlement" assertions fail.
+
+**Separate finding — settlement moves NO money (PFT-6b, owner input needed):**
+`PartnerService.settle` books only the partner_ledger row — no drawer
+movement, no unified transaction. When a partner pays their tab in CASH the
+General drawer does not change (pre-existing; also true for THROUGH
+settlements). Under the full-amount model this is now a visible gap. Proposed
+PFT-6b: settlement writes a unified txn + a payment leg per
+`settlement_method` (CASH→General, etc.), with a named reversal owner (rule
+20). Needs owner confirmation because it changes long-standing Partners-page
+drawer behavior.
+
 ### ⚠️ PFT-6 re-scope (found 2026-07-13, advisor)
 The owner-decided defer-to-settlement is **only partially true in code today**:
 - **POS** defers *naturally* — a for-partner sale has `paid_usd = 0`, so
