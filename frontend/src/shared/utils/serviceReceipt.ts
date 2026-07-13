@@ -17,6 +17,8 @@
  * category + subcategory without threading structured metadata.
  */
 
+import { printReceipt } from "./printReceipt";
+
 const WIDTH = 42;
 
 /** The transaction fields the receipt needs (a subset of the unified row). */
@@ -155,4 +157,69 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
   r += border + "\n";
   r += center("Thank you!") + "\n";
   return r;
+}
+
+/**
+ * Fetch a persisted transaction + its customer-facing legs and print a
+ * service receipt (RCP-3). ONE path for both print-after-success and
+ * reprint-from-history — the caller only needs the transaction id.
+ * Resolves the configured silent printer and the shop logo itself.
+ */
+export async function printServiceReceiptByTransaction(
+  transactionId: number,
+  shop: { name: string; phone?: string; location?: string; logo?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const txn = await window.api.transactions.getById(transactionId);
+    if (!txn) return { ok: false, error: "Transaction not found" };
+
+    const legs = (await window.api.transactions.getCustomerLegs(
+      transactionId,
+    )) as ServiceReceiptLeg[];
+
+    let metadata: Record<string, unknown> | null = null;
+    const raw = (txn as { metadata_json?: unknown }).metadata_json;
+    if (typeof raw === "string") {
+      try {
+        metadata = JSON.parse(raw);
+      } catch {
+        metadata = null;
+      }
+    } else if (raw && typeof raw === "object") {
+      metadata = raw as Record<string, unknown>;
+    }
+
+    const t = txn as Record<string, unknown>;
+    const text = buildServiceReceiptText({
+      shop,
+      txn: {
+        id: Number(t.id),
+        type: String(t.type ?? ""),
+        summary: (t.summary as string) ?? null,
+        note: (t.note as string) ?? null,
+        client_name: (t.client_name as string) ?? null,
+        client_phone: (t.client_phone as string) ?? null,
+        created_at: String(t.created_at ?? new Date().toISOString()),
+        metadata,
+      },
+      legs: legs ?? [],
+    });
+
+    let printer = "";
+    try {
+      const settings = await window.api.settings.getAll();
+      printer =
+        (settings?.find(
+          (s: { key_name: string; value: string }) =>
+            s.key_name === "receipt_printer",
+        )?.value as string) || "";
+    } catch {
+      // no configured printer — printReceipt falls back to a print window
+    }
+
+    await printReceipt({ text, printer, ...(shop.logo ? { logo: shop.logo } : {}) });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Print failed" };
+  }
 }

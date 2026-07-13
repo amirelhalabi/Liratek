@@ -863,6 +863,8 @@ contextBridge.exposeInMainWorld("api", {
     getCashFlowByDate: (from: string, to: string) =>
       ipcRenderer.invoke("transactions:cash-flow-by-date", from, to),
     getById: (id: number) => ipcRenderer.invoke("transactions:get-by-id", id),
+    getCustomerLegs: (id: number) =>
+      ipcRenderer.invoke("transactions:get-customer-legs", id),
     getByClient: (clientId: number, limit?: number) =>
       ipcRenderer.invoke("transactions:get-by-client", clientId, limit),
     getByDateRange: (from: string, to: string, type?: string) =>

@@ -96,6 +96,19 @@ export class TransactionService {
     }
   }
 
+  /** Customer-facing payment legs for a transaction (RCP-3 service receipts). */
+  getCustomerFacingLegs(transactionId: number) {
+    try {
+      return this.repo.getCustomerFacingLegs(transactionId);
+    } catch (error) {
+      logger.error(
+        { error, transactionId },
+        "TransactionService.getCustomerFacingLegs error",
+      );
+      return [];
+    }
+  }
+
   getBySourceId(
     sourceTable: string,
     sourceId: number,

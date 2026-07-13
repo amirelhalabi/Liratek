@@ -1776,6 +1776,17 @@ export interface ElectronAPI {
     list: (filter?: { date?: string; type?: string }) => Promise<any[]>;
     get: (id: number) => Promise<any | null>;
     getById: (id: number) => Promise<any | null>;
+    /** RCP-3: customer-facing payment legs for one transaction (service receipts). */
+    getCustomerLegs: (
+      id: number,
+    ) => Promise<
+      Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        direction: "IN" | "OUT";
+      }>
+    >;
     // LIRA-064: returns the unified journal rows, each with a structured
     // `payments` array (in/out legs joined from the payments table). The
     // handler returns the raw array (no { success } envelope).

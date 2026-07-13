@@ -17,6 +17,7 @@
  */
 
 import {
+  MODULE_DEBT_TRANSACTION_TYPES,
   NON_REVERSIBLE_TRANSACTION_TYPES,
   type TransactionStatus,
   type TransactionType,
@@ -823,7 +824,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4. Mark source module record as voided/refunded
       this._markSourceRefunded(original.source_table, original.source_id);
 
-      // 5. If SALE: cancel sale, restore stock, cancel debt
+      // 5. Cancel any module-charge debt booked against this transaction —
+      // every account-charged flow (sale, recharge, financial/custom service,
+      // maintenance), not just sales. No-op when nothing matches.
+      this._cancelDebt(id, userId);
+
+      // 6. If SALE: cancel sale, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
           `UPDATE sales SET status = 'cancelled' WHERE id = ? AND tenant_id = ?`,
@@ -831,10 +837,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           tenantId,
         );
         this._restoreStock(original.source_id);
-        this._cancelDebt(id, userId);
       }
 
-      // 6. Supplier payment: un-apply the FIFO purchase coverage the payment
+      // 7. Supplier payment: un-apply the FIFO purchase coverage the payment
       // consumed (the ledger row itself is soft-voided by step 4).
       this._unapplySupplierPurchaseCoverage(original);
 
@@ -932,7 +937,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 3. Mark source module record as refunded
       this._markSourceRefunded(original.source_table, original.source_id);
 
-      // 4. If SALE: mark sale & items as refunded, restore stock, cancel debt
+      // 4. Cancel any module-charge debt booked against this transaction —
+      // every account-charged flow (sale, recharge, financial/custom service,
+      // maintenance), not just sales. No-op when nothing matches.
+      this._cancelDebt(id, userId);
+
+      // 5. If SALE: mark sale & items as refunded, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
           `UPDATE sales SET status = 'refunded' WHERE id = ? AND tenant_id = ?`,
@@ -945,10 +955,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           tenantId,
         );
         this._restoreStock(original.source_id);
-        this._cancelDebt(id, userId);
       }
 
-      // 5. Supplier payment: un-apply the FIFO purchase coverage
+      // 6. Supplier payment: un-apply the FIFO purchase coverage
       this._unapplySupplierPurchaseCoverage(original);
 
       return refundId;
@@ -996,6 +1005,26 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       transactionId,
       getCurrentTenantId(),
     );
+  }
+
+  /**
+   * Customer-facing payment legs for one transaction — the SAME filter the
+   * LIRA-064 in/out summary uses (isInternalLegJs), so a receipt shows only
+   * real customer cash (never the internal cost / crypto / system-reserve
+   * legs). Direction is sign-derived (negative = paid OUT to the customer);
+   * amount is the absolute value. Used by the RCP-3 service receipts.
+   */
+  getCustomerFacingLegs(
+    transactionId: number,
+  ): { method: string; currency_code: string; amount: number; direction: "IN" | "OUT" }[] {
+    return this.getPaymentsByTransactionId(transactionId)
+      .filter((p) => !isInternalLegJs(p))
+      .map((p) => ({
+        method: p.method,
+        currency_code: p.currency_code,
+        amount: Math.abs(p.amount),
+        direction: p.amount < 0 ? "OUT" : "IN",
+      }));
   }
 
   /**
@@ -1166,32 +1195,45 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
-   * Cancel any debt_ledger entries linked to a transaction.
-   * Inserts a reversing "Refund Reversal" entry to zero out the debt.
+   * Cancel the MODULE-CHARGE debt_ledger entries linked to a transaction by
+   * inserting a reversing "Refund Reversal" entry per charge, negating BOTH
+   * currencies (module debts are per-currency — an LBP recharge debt lives
+   * entirely in amount_lbp).
+   *
+   * Scoped to MODULE_DEBT_TRANSACTION_TYPES, never a blanket transaction_id
+   * match: 'Repayment' rows are back-linked to a transaction too and negating
+   * one would un-pay a debt. No drawer is touched here — an account-charged
+   * leg took no cash, so its reversal must be ledger-only.
    */
   private _cancelDebt(originalTxnId: number, userId: number): void {
     const tenantId = getCurrentTenantId();
+    const typePlaceholders = MODULE_DEBT_TRANSACTION_TYPES.map(() => "?").join(
+      ", ",
+    );
     const debts = this.query<{
       id: number;
       client_id: number;
       amount_usd: number;
+      amount_lbp: number;
     }>(
-      `SELECT id, client_id, amount_usd FROM debt_ledger
-       WHERE transaction_id = ? AND transaction_type = 'Sale Debt' AND tenant_id = ?`,
+      `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
+       WHERE transaction_id = ? AND transaction_type IN (${typePlaceholders}) AND tenant_id = ?`,
       originalTxnId,
+      ...MODULE_DEBT_TRANSACTION_TYPES,
       tenantId,
     );
 
     const insertReversal = this.db.prepare(`
       INSERT INTO debt_ledger (
-        client_id, transaction_type, amount_usd, transaction_id, note, created_by, tenant_id
-      ) VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by refund/void', ?, ?)
+        client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id
+      ) VALUES (?, 'Refund Reversal', ?, ?, ?, 'Debt cancelled by refund/void', ?, ?)
     `);
 
     for (const d of debts) {
       insertReversal.run(
         d.client_id,
         -d.amount_usd,
+        -d.amount_lbp,
         originalTxnId,
         userId,
         tenantId,

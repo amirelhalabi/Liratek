@@ -21,6 +21,9 @@ import {
 } from "../cashFlow";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useShopInfo } from "@/hooks/useShopName";
+import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
+import { appEvents } from "@liratek/ui";
 
 // LIRA-064: structured in/out payment leg joined from the payments table.
 // Mirrors TransactionPaymentLeg in the backend / electron.d.ts. The data is
@@ -568,6 +571,16 @@ const ACTIONABLE_TYPES = new Set([
   "SUPPLIER_PAYMENT",
 ]);
 
+// Service transactions that can (re)print a detailed receipt (RCP-3). POS
+// sales reprint from Sale Detail; these are the service modules (T8).
+const RECEIPTABLE_TYPES = new Set([
+  "FINANCIAL_SERVICE",
+  "RECHARGE",
+  "MAINTENANCE",
+  "CUSTOM_SERVICE",
+  "LOTO",
+]);
+
 // ---------------------------------------------------------------------------
 // Per-session left-border accent (WS8)
 // ---------------------------------------------------------------------------
@@ -605,6 +618,7 @@ export default function TransactionsViewer({
 }: TransactionsViewerProps) {
   const [rows, setRows] = useState<TransactionRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const shopInfo = useShopInfo();
 
   const { methods: paymentMethods } = usePaymentMethods();
   const methodLabelByCode = useMemo(() => {
@@ -719,6 +733,20 @@ export default function TransactionsViewer({
       setLoading(false);
     }
   }, [limit, selectedFilter, search]);
+
+  const handlePrintReceipt = useCallback(
+    async (id: number) => {
+      const res = await printServiceReceiptByTransaction(id, shopInfo);
+      if (!res.ok) {
+        appEvents.emit(
+          "notification:show",
+          "Could not print receipt: " + (res.error || "Unknown error"),
+          "error",
+        );
+      }
+    },
+    [shopInfo],
+  );
 
   const handleVoid = useCallback(
     async (id: number) => {
@@ -892,28 +920,41 @@ export default function TransactionsViewer({
         <td className="p-2" style={{ width: 60 }}>
           {row.reverses_id ? `#${row.reverses_id}` : "—"}
         </td>
-        <td className="p-2" style={{ width: 80 }}>
-          {ACTIONABLE_TYPES.has(row.type) &&
-          row.status !== "VOIDED" &&
-          row.type !== "REFUND" &&
-          !row.reverses_id ? (
-            <div className="flex items-center gap-1">
+        <td className="p-2" style={{ width: 110 }}>
+          <div className="flex items-center gap-1">
+            {/* Reprint a detailed service receipt (RCP-3) — available on any
+                service transaction, including voided/older ones. */}
+            {RECEIPTABLE_TYPES.has(row.type) && (
               <button
-                onClick={() => handleVoid(row.id)}
-                className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
+                onClick={() => handlePrintReceipt(row.id)}
+                title="Print receipt"
+                className="px-1.5 py-0.5 text-[10px] rounded bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
               >
-                Void
+                Print
               </button>
-              <button
-                onClick={() => handleRefund(row.id)}
-                className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
-              >
-                Refund
-              </button>
-            </div>
-          ) : (
-            "—"
-          )}
+            )}
+            {ACTIONABLE_TYPES.has(row.type) &&
+            row.status !== "VOIDED" &&
+            row.type !== "REFUND" &&
+            !row.reverses_id ? (
+              <>
+                <button
+                  onClick={() => handleVoid(row.id)}
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
+                >
+                  Void
+                </button>
+                <button
+                  onClick={() => handleRefund(row.id)}
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+                >
+                  Refund
+                </button>
+              </>
+            ) : RECEIPTABLE_TYPES.has(row.type) ? null : (
+              "—"
+            )}
+          </div>
         </td>
       </tr>
     );

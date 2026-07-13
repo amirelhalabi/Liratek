@@ -34,6 +34,10 @@ export function registerTransactionHandlers(): void {
     return txnService.getById(id);
   });
 
+  ipcMain.handle("transactions:get-customer-legs", (_e, id: number) => {
+    return txnService.getCustomerFacingLegs(id);
+  });
+
   /** Get transactions for a specific client */
   ipcMain.handle(
     "transactions:get-by-client",

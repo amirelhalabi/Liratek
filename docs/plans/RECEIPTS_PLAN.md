@@ -50,7 +50,30 @@
 | **RCP-0** | Logo foundation: Settings upload (base64 → `receipt_logo`), extend `useShopInfo`, shared `printReceipt` util that injects the logo; POS receipts show it | ✅ 2026-07-13 (6e694b4) |
 | **RCP-1** | Walk-in customer: rename on a completed sale + reprint (checkout name-entry already worked) | ✅ 2026-07-13 (8dd83df, lira-111) |
 | **RCP-2** | Generalize the receipt: shared `buildServiceReceiptText(txn, legs, shop)` | ✅ builder + unit tests done 2026-07-13 (wiring = RCP-3) |
-| **RCP-3** | Per-module "Print receipt" button after success + reprint from history: mobile services, recharge, maintenance, custom services, loto | ⬜ (T8 — mechanical, see notes) |
+| **RCP-3** | Service receipts: reprint for all 5 module types via the Transactions viewer (print-after-success inline buttons = optional polish) | ✅ 2026-07-13 (lira-112) |
+
+**RCP-3 done (owner: one receipt per transaction).**
+
+- Server: `TransactionRepository.getCustomerFacingLegs(txnId)` reuses the ONE
+  lira-064 `isInternalLegJs` filter (rule 14) → customer cash legs only,
+  direction sign-derived. Exposed via `transactions.getCustomerLegs`.
+- Frontend: `printServiceReceiptByTransaction(txnId, shop)` — getById → parse
+  `metadata_json` → customer legs → `buildServiceReceiptText` → shared
+  `printReceipt` (logo). ONE path for print-now and reprint.
+- UI: a **"Print" action in the Transactions viewer** on every receiptable
+  row (FINANCIAL_SERVICE, RECHARGE, MAINTENANCE, CUSTOM_SERVICE, LOTO) —
+  reprint for all five modules in one place, incl. voided/older rows. "One
+  receipt per transaction" falls out naturally (a multi-item basket is one
+  carrier transaction → one receipt listing its items via the note).
+- Guard: `lira-112` (getCustomerLegs returns the customer CASH leg, excludes
+  internal cost/reserve/crypto legs). Print output itself isn't asserted
+  headless (verify on the real printer).
+
+**Optional polish (not blocking T8):** an inline "Print receipt" button on
+each module's own success screen (saves a hop to the Transactions viewer).
+Deferred — the capability exists for every module via the viewer; add per
+module when convenient. Threading each module's success → transaction id is
+the only extra step (a `getBySource` binding or returning the txn id).
 
 **RCP-2 done — decisions locked (owner: detailed; advisor-validated):**
 
