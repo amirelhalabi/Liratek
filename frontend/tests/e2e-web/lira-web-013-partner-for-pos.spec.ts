@@ -1,29 +1,23 @@
 /**
  * lira-web-013 — POS sale "for a partner" over REST (the web-transport proof
- * deferred from PFT-2 / ddae06f; PFT-2's own note explicitly defers the web
- * e2e to this spec).
+ * for the partner-FOR POS flow). The REST twin of the desktop lira-113.
  *
- * Guards POST /api/sales/process's partnerId/partnerMode fields (added to the
- * SHARED saleProcessSchema in PFT-2 — same schema, same SalesService.processSale
- * as the Electron IPC path) into the same core routing lira-113 proves over
- * IPC: a sale "FOR" a partner books its unpaid remainder to partner_ledger
- * (FOR_POS DEBIT) instead of a client's debt_ledger — no client is involved
- * here (client_id === null) — while the cash the customer DID pay still goes
- * to the General drawer as usual. Voiding the sale must net the partner back
- * to exactly 0 (reversal symmetry, rule 20 — TransactionRepository's
- * type-agnostic partner_ledger reversal, already guarded generically by
- * lira-113).
+ * Owner-validated model (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md,
+ * "⭐ VALIDATED FLOW CATALOG"; corrected in PFT-R): a FOR-partner sale has NO
+ * walk-in customer and takes NO counter cash — the partner owes the FULL sale
+ * amount (booked to partner_ledger FOR_POS DEBIT against the selected partner,
+ * never a client's debt_ledger; client_id === null here), settled later on the
+ * Partners page. Voiding the sale nets the partner back to exactly 0 (rule 20 —
+ * TransactionRepository's type-agnostic partner_ledger reversal).
  *
- * This is the REST-transport proof, not a UI test — lira-114 is the dedicated
- * desktop UI spec that drives the new checkout "For Partner" control itself.
- * Pre-PFT-2, /api/sales/process's schema stripped partnerId/partnerMode and
- * the sale fell into the client-debt branch with client_id === null, which
- * throws "Cannot create debt for anonymous client" — the create step below
- * cannot pass without the shared-schema fields PFT-2 added.
+ * Guards POST /api/sales/process's partnerId/partnerMode fields (the SHARED
+ * saleProcessSchema, same SalesService.processSale the Electron IPC path uses)
+ * over REST — dual-transport parity with lira-113. This is the REST-transport
+ * proof, not a UI test (lira-114 drives the desktop checkout control).
  */
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
 
-test("POS sale 'FOR' a partner books the remainder to partner_ledger over REST", async ({
+test("POS sale 'FOR' a partner books the FULL amount to partner_ledger over REST; a counter payment is rejected", async ({
   page,
 }) => {
   await loginAsAdmin(page);
@@ -33,7 +27,7 @@ test("POS sale 'FOR' a partner books the remainder to partner_ledger over REST",
   const ts = Date.now();
   const NAME = `L-web-013 Partner Widget ${ts}`;
 
-  // Seed product: cost 60, sell 100 — paying $40 leaves the $60 remainder.
+  // Seed product: cost 60, sell 100 — the partner owes the full $100, no cash.
   const product = await (
     await page.request.post(`${BACKEND_URL}/api/inventory/products`, {
       headers: auth,
@@ -85,8 +79,9 @@ test("POS sale 'FOR' a partner books the remainder to partner_ledger over REST",
   const partnerBalBefore = await balOf();
   const drawerBefore = await drawerUsd();
 
-  // Action: $100 sale, $40 CASH paid, $60 remainder routed to the partner.
-  const sale = await (
+  // A FOR-partner sale takes NO counter payment — a $40 CASH IN leg must be
+  // REJECTED outright (not accepted and partially booked as a "remainder").
+  const rejected = await (
     await page.request.post(`${BACKEND_URL}/api/sales/process`, {
       headers: auth,
       data: {
@@ -100,13 +95,36 @@ test("POS sale 'FOR' a partner books the remainder to partner_ledger over REST",
         payment_usd: 40,
         payment_lbp: 0,
         payments: [
-          {
-            method: "CASH",
-            currency_code: "USD",
-            amount: 40,
-            direction: "IN",
-          },
+          { method: "CASH", currency_code: "USD", amount: 40, direction: "IN" },
         ],
+        change_given_usd: 0,
+        change_given_lbp: 0,
+        exchange_rate: 90000,
+      },
+    })
+  ).json();
+  // Rule 19c envelope: HTTP 200 with { success:false, error } — not a 4xx.
+  expect(rejected.success).toBe(false);
+  expect(String(rejected.error ?? "")).toContain("no counter payment");
+  // The rejected attempt is a full no-op — the partner balance didn't move.
+  expect((await balOf()) - partnerBalBefore).toBeCloseTo(0, 2);
+
+  // The real FOR-partner sale: NO payment legs at all — the full $100 goes
+  // on the partner's tab.
+  const sale = await (
+    await page.request.post(`${BACKEND_URL}/api/sales/process`, {
+      headers: auth,
+      data: {
+        client_id: null,
+        partnerId,
+        partnerMode: "FOR",
+        items: [{ product_id: productId, quantity: 1, price: 100 }],
+        total_amount: 100,
+        discount: 0,
+        final_amount: 100,
+        payment_usd: 0,
+        payment_lbp: 0,
+        payments: [],
         change_given_usd: 0,
         change_given_lbp: 0,
         exchange_rate: 90000,
@@ -115,14 +133,13 @@ test("POS sale 'FOR' a partner books the remainder to partner_ledger over REST",
   ).json();
   expect(sale.success, JSON.stringify(sale)).toBeTruthy();
 
-  // Routing: the partner now owes the $60 remainder (FOR_POS DEBIT). Pre-PFT-2
-  // this throws for the anonymous client before ever reaching this delta.
+  // Routing: the partner owes the FULL $100 (FOR_POS DEBIT).
   const partnerBalAfterSale = await balOf();
-  expect(partnerBalAfterSale - partnerBalBefore).toBeCloseTo(60, 2);
+  expect(partnerBalAfterSale - partnerBalBefore).toBeCloseTo(100, 2);
 
-  // The General drawer still takes the $40 cash the customer paid.
+  // No cash was collected — the General drawer is untouched.
   const drawerAfterSale = await drawerUsd();
-  expect(drawerAfterSale - drawerBefore).toBeCloseTo(40, 2);
+  expect(drawerAfterSale - drawerBefore).toBeCloseTo(0, 2);
 
   // Reversal symmetry (rule 20): void the SALE and confirm the partner nets
   // back to exactly 0 — matched by identity (type + unique product name in
@@ -151,7 +168,7 @@ test("POS sale 'FOR' a partner books the remainder to partner_ledger over REST",
   const partnerBalAfterVoid = await balOf();
   expect(partnerBalAfterVoid - partnerBalBefore).toBeCloseTo(0, 2);
 
-  // And the drawer gives the $40 cash back on void.
+  // The drawer was never touched, so it stays at baseline through the void.
   const drawerAfterVoid = await drawerUsd();
   expect(drawerAfterVoid - drawerBefore).toBeCloseTo(0, 2);
 });
