@@ -107,6 +107,15 @@ interface ProfitSummary {
     count: number;
   };
   expenses: { total_usd: number; total_lbp: number; count: number };
+  /** Profit earned but not yet realized in cash — sitting in a partner
+   *  settlement or a client's debt account. Optional so an older cached
+   *  summary response (pre-deferred-profit backend) doesn't crash the page. */
+  deferred?: {
+    partner_profit_usd: number;
+    partner_profit_lbp: number;
+    client_debt_profit_usd: number;
+    client_debt_profit_lbp: number;
+  };
   totals: {
     gross_revenue_usd: number;
     gross_revenue_lbp: number;
@@ -578,6 +587,67 @@ export default function Profits() {
               />
             </div>
 
+            {/* Deferred profit — earned but not yet realized: sitting in a
+                partner settlement or a client's debt account rather than
+                cash. Informational only; excluded from the KPI totals above. */}
+            {summary.deferred &&
+              ((summary.deferred.partner_profit_usd ?? 0) !== 0 ||
+                (summary.deferred.partner_profit_lbp ?? 0) !== 0 ||
+                (summary.deferred.client_debt_profit_usd ?? 0) !== 0 ||
+                (summary.deferred.client_debt_profit_lbp ?? 0) !== 0) && (
+                <div
+                  data-testid="profits-deferred-card"
+                  className="bg-amber-950/20 rounded-xl border border-amber-800/40 p-4 space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-amber-400" />
+                      Deferred Profit
+                    </span>
+                    <span className="text-xs text-amber-400/70">
+                      Not yet realized
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 space-y-2">
+                    <div className="flex justify-between items-center gap-4">
+                      <span>Pending partner settlements</span>
+                      <span className="text-amber-300 font-semibold text-right">
+                        {formatAmount(
+                          summary.deferred.partner_profit_usd ?? 0,
+                          "USD",
+                        )}
+                        {(summary.deferred.partner_profit_lbp ?? 0) !== 0 && (
+                          <span className="block text-[11px] text-amber-400/70 font-normal">
+                            {formatAmount(
+                              summary.deferred.partner_profit_lbp ?? 0,
+                              "LBP",
+                            )}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center gap-4 border-t border-amber-800/30 pt-2">
+                      <span>Pending client accounts</span>
+                      <span className="text-amber-300 font-semibold text-right">
+                        {formatAmount(
+                          summary.deferred.client_debt_profit_usd ?? 0,
+                          "USD",
+                        )}
+                        {(summary.deferred.client_debt_profit_lbp ?? 0) !==
+                          0 && (
+                          <span className="block text-[11px] text-amber-400/70 font-normal">
+                            {formatAmount(
+                              summary.deferred.client_debt_profit_lbp ?? 0,
+                              "LBP",
+                            )}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
             {/* Module breakdown cards */}
             <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
               Breakdown by Source
@@ -906,43 +976,42 @@ export default function Profits() {
               {/* Other / kept change (T3): change the operator kept instead of
                   returning, stamped on debt repayments. Owner decision
                   2026-07-13 — visible as its own line, per currency. */}
-              {summary.debt_repayments &&
-                summary.debt_repayments.count > 0 && (
-                  <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-white">
-                        Other / Kept Change
-                      </span>
-                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-                        {summary.debt_repayments.count} repayments
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-400 space-y-1">
-                      {summary.debt_repayments.profit_usd > 0 && (
-                        <div className="flex justify-between">
-                          <span className="font-semibold">Kept (USD)</span>
-                          <span className="text-emerald-400 font-semibold">
-                            {formatAmount(
-                              summary.debt_repayments.profit_usd,
-                              "USD",
-                            )}
-                          </span>
-                        </div>
-                      )}
-                      {summary.debt_repayments.profit_lbp > 0 && (
-                        <div className="flex justify-between">
-                          <span className="font-semibold">Kept (LBP)</span>
-                          <span className="text-emerald-400 font-semibold">
-                            {formatAmount(
-                              summary.debt_repayments.profit_lbp,
-                              "LBP",
-                            )}
-                          </span>
-                        </div>
-                      )}
-                    </div>
+              {summary.debt_repayments && summary.debt_repayments.count > 0 && (
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white">
+                      Other / Kept Change
+                    </span>
+                    <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                      {summary.debt_repayments.count} repayments
+                    </span>
                   </div>
-                )}
+                  <div className="text-xs text-slate-400 space-y-1">
+                    {summary.debt_repayments.profit_usd > 0 && (
+                      <div className="flex justify-between">
+                        <span className="font-semibold">Kept (USD)</span>
+                        <span className="text-emerald-400 font-semibold">
+                          {formatAmount(
+                            summary.debt_repayments.profit_usd,
+                            "USD",
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {summary.debt_repayments.profit_lbp > 0 && (
+                      <div className="flex justify-between">
+                        <span className="font-semibold">Kept (LBP)</span>
+                        <span className="text-emerald-400 font-semibold">
+                          {formatAmount(
+                            summary.debt_repayments.profit_lbp,
+                            "LBP",
+                          )}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Expense breakdown */}

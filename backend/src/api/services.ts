@@ -7,6 +7,7 @@ import {
   getFinancialServicesSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
+import type { AuthRequest } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -53,13 +54,15 @@ router.post(
   async (req, res): Promise<void> => {
     try {
       const financialService = getFinancialService();
-      const result = financialService.addTransaction(req.body);
+      const userId = (req as AuthRequest).user!.userId;
+      const result = financialService.addTransaction({
+        ...req.body,
+        userId,
+      });
 
-      if (!result.success) {
-        res.status(400).json(result);
-        return;
-      }
-
+      // Match the IPC envelope: HTTP 200 with { success: false, error }
+      // even on a business-rule failure (rule 19c) — the frontend adapter
+      // branches on result.success, not the status code.
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Add service transaction error");

@@ -1270,6 +1270,7 @@ export default function MobileRecharge() {
             isAdmin={isAdmin}
             onReturnChange={setReturnLegs}
             onRefreshHistory={loadRechargeHistory}
+            onRefreshBalances={loadDrawerBalances}
             onTransactionTimeChange={setTelecomTransactionTime}
           />
         )}

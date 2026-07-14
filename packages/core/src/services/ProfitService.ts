@@ -162,6 +162,17 @@ export interface ProfitSummary {
     net_profit_usd: number;
     net_profit_lbp: number;
   };
+  /** Deferred-profit visibility (owner ask 2026-07-14): profit already
+   *  stamped on a transaction but currently STRANDED behind an uncovered
+   *  partner settlement (PFT-6) or client-debt repayment (DBT-1). Additive
+   *  visibility only — NOT netted into `totals` above (those already exclude
+   *  it via the same partner/debt gates). */
+  deferred: {
+    partner_profit_usd: number;
+    partner_profit_lbp: number;
+    client_debt_profit_usd: number;
+    client_debt_profit_lbp: number;
+  };
 }
 
 export interface ProfitByClient {
@@ -347,6 +358,11 @@ export class ProfitService {
       // 7. Expenses.
       const expenses = this.repo.getExpenseTotals(fromDt, toDt);
 
+      // Deferred profit (PFT-6 partner + DBT-1 client-debt) — visibility
+      // only; NOT netted into gross_profit_*/net_profit_* below, which
+      // already exclude it via the same partner/debt gates.
+      const deferred = this.repo.getDeferredProfit(fromDt, toDt);
+
       // Totals
       const grossRevenueUsd =
         sales.revenue_usd +
@@ -416,6 +432,7 @@ export class ProfitService {
           net_profit_usd: grossProfitUsd - expenses.total_usd,
           net_profit_lbp: grossProfitLbp - expenses.total_lbp,
         },
+        deferred,
       };
     } catch (error) {
       logger.error({ error }, "ProfitService.getSummary error");

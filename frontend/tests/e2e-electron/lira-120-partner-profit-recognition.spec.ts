@@ -40,6 +40,12 @@ type Summary = {
   financial_services: { commission_usd: number };
   mobile_services: { profit_usd: number };
   recharges: { profit_usd: number };
+  deferred: {
+    partner_profit_usd: number;
+    partner_profit_lbp: number;
+    client_debt_profit_usd: number;
+    client_debt_profit_lbp: number;
+  };
 };
 
 type Api = {
@@ -49,7 +55,11 @@ type Api = {
       create: (d: {
         name: string;
         phone?: string;
-      }) => Promise<{ success: boolean; data?: { id: number }; error?: string }>;
+      }) => Promise<{
+        success: boolean;
+        data?: { id: number };
+        error?: string;
+      }>;
       getBalance: (id: number) => Promise<{ usd: number; lbp: number }>;
       settle: (d: {
         partnerId: number;
@@ -207,6 +217,11 @@ test.describe("LIRA-120 — partner settlement realizes profit and moves money",
     expect(
       s1.mobile_services.profit_usd - s0.mobile_services.profit_usd,
     ).toBeCloseTo(5.89, 2);
+    // Deferred-profit visibility: sale 40 + recharge 37.89 + OMT_APP 2 sit in
+    // the deferred bucket while pending; Katsh (5.89) is EXCLUDED — immediate.
+    expect(
+      s1.deferred.partner_profit_usd - s0.deferred.partner_profit_usd,
+    ).toBeCloseTo(79.89, 2);
 
     // ── Settle the full USD balance in CASH ──────────────────────────────
     const generalBeforeSettle = await generalUsd(appPage);
@@ -247,6 +262,10 @@ test.describe("LIRA-120 — partner settlement realizes profit and moves money",
     expect(
       s2.mobile_services.profit_usd - s0.mobile_services.profit_usd,
     ).toBeCloseTo(5.89, 2);
+    // Deferred-profit visibility: fully settled → the bucket returns to baseline.
+    expect(
+      s2.deferred.partner_profit_usd - s0.deferred.partner_profit_usd,
+    ).toBeCloseTo(0, 2);
   });
 
   test("partial settlement keeps the source pending; completing it realizes (FIFO)", async ({

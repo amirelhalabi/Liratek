@@ -85,6 +85,10 @@ interface TelecomFormProps {
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
   /** Called after a successful metadata edit to reload the history list */
   onRefreshHistory?: () => void;
+  /** Called after a successful "For Partner" submit to refresh the parent's
+   *  drawer-balance widget (the normal path already refreshes it via its own
+   *  loadDrawerBalances call in the parent's handleTelecomSubmit). */
+  onRefreshBalances?: () => void;
   onTransactionTimeChange?: (time: string | undefined) => void;
 }
 
@@ -143,6 +147,7 @@ export function TelecomForm({
   onReturnChange,
   onKeptChange,
   onRefreshHistory,
+  onRefreshBalances,
   onTransactionTimeChange,
 }: TelecomFormProps) {
   const api = useApi();
@@ -329,6 +334,7 @@ export function TelecomForm({
       setTelecomDaysCostUsd("");
       setPhoneNumber("");
       onRefreshHistory?.();
+      onRefreshBalances?.();
     } catch (err) {
       logger.error("Failed to submit partner recharge:", err);
       appEvents.emit(
@@ -745,192 +751,198 @@ export function TelecomForm({
                     ).toLocaleString()}{" "}
                     LBP
                   </span>{" "}
-                  goes on the selected partner&apos;s account, settled later
-                  on the Partners page.
+                  goes on the selected partner&apos;s account, settled later on
+                  the Partners page.
                 </div>
               ) : (
-              <PaymentSheet
-                open={sheetOpen}
-                onClose={() => setSheetOpen(false)}
-                onConfirm={handleTelecomSubmit}
-                isSubmitting={isSubmitting}
-                title={`${isMTC ? "MTC" : "Alfa"} ${rechargeType === "DAYS" ? "Days" : "Credit Transfer"}`}
-                accentColor={`bg-${accent}-600 hover:bg-${accent}-500 text-white`}
-                totalAmount={
-                  telecomPrice
-                    ? parseFloat(telecomPrice)
-                    : rechargeType === "DAYS"
-                      ? 0
-                      : parseFloat(telecomAmount || "0") * alfaCreditCostRate
-                }
-                totalAmountCurrency="LBP"
-                currency="LBP"
-                paymentMethods={methods}
-                clientId={telecomClientId}
-                fetchClientVouchers={fetchClientVouchers}
-                exchangeRate={exchangeRate}
-                showDiscount={true}
-                maxDiscount={Math.max(
-                  0,
-                  (telecomPrice ? parseFloat(telecomPrice) : 0) -
-                    (rechargeType === "DAYS"
-                      ? parseFloat(telecomDaysCostUsd || "0") *
-                        alfaCreditCostRate
-                      : parseFloat(telecomAmount || "0") * alfaCreditCostRate),
-                )}
-                onPaymentChange={(lines) => {
-                  setPaymentLines(lines);
-                  if (lines.length === 1) {
-                    setPaidBy(lines[0].method);
+                <PaymentSheet
+                  open={sheetOpen}
+                  onClose={() => setSheetOpen(false)}
+                  onConfirm={handleTelecomSubmit}
+                  isSubmitting={isSubmitting}
+                  title={`${isMTC ? "MTC" : "Alfa"} ${rechargeType === "DAYS" ? "Days" : "Credit Transfer"}`}
+                  accentColor={`bg-${accent}-600 hover:bg-${accent}-500 text-white`}
+                  totalAmount={
+                    telecomPrice
+                      ? parseFloat(telecomPrice)
+                      : rechargeType === "DAYS"
+                        ? 0
+                        : parseFloat(telecomAmount || "0") * alfaCreditCostRate
                   }
-                }}
-                onDiscountChange={handleDiscountChange}
-                {...(onReturnChange ? { onReturnChange } : {})}
-                {...(onKeptChange ? { onKeptChange } : {})}
-                hasClient={!!telecomClientId}
-                paymentInputKey={paymentInputKey}
-                initialPaymentMethod={initialPaymentMethod}
-                summary={[
-                  {
-                    label: rechargeType === "DAYS" ? "Days" : "Amount",
-                    value:
-                      rechargeType === "DAYS"
-                        ? `${telecomAmount || "0"} days`
-                        : `$${telecomAmount || "0"}`,
-                  },
-                  {
-                    label: "Price",
-                    value: `${(telecomPrice ? parseFloat(telecomPrice) : parseFloat(telecomAmount || "0") * alfaCreditCostRate).toLocaleString()} LBP`,
-                    color: "text-emerald-400",
-                  },
-                ]}
-              >
-                {/* Client selector - always visible; auto-selects CUSTOMER_ACCOUNT when a registered client is picked or a new name+phone is entered */}
-                <div className="relative">
-                  <label
-                    htmlFor="telecom-debt-client"
-                    className={`block text-xs font-medium mb-2 uppercase tracking-wider flex items-center gap-1.5 ${
-                      paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
-                        ? "text-orange-400"
-                        : "text-slate-400"
-                    }`}
-                  >
-                    <User size={12} />
-                    {paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
-                      ? "Client (required for debt)"
-                      : "Client (optional)"}
-                  </label>
-                  {telecomClientId ? (
-                    <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3">
-                      <User size={16} className="text-orange-400" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white font-medium truncate">
-                          {telecomClientName}
-                        </div>
-                        {telecomClientPhone && (
-                          <div className="text-xs text-orange-300/80 font-mono truncate">
-                            {telecomClientPhone}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => {
-                          setTelecomClientId(null);
-                          setTelecomClientName("");
-                          setTelecomClientPhone("");
-                        }}
-                        className="text-slate-400 hover:text-white transition-colors"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="relative">
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                          <Search size={16} />
-                        </div>
-                        <input
-                          type="text"
-                          value={telecomClientName}
-                          onChange={(e) => {
-                            setTelecomClientName(e.target.value);
-                            setShowClientSearch(true);
-                            searchClients(e.target.value);
-                          }}
-                          onFocus={() => {
-                            if (telecomClientName.length >= 2) {
-                              setShowClientSearch(true);
-                              searchClients(telecomClientName);
-                            }
-                          }}
-                          className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
-                          placeholder="Search client by name..."
-                        />
-                        {showClientSearch && clientSearchResults.length > 0 && (
-                          <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-48 overflow-auto">
-                            {clientSearchResults.map((c: any) => (
-                              <button
-                                key={c.id}
-                                onClick={() => {
-                                  selectClient(c);
-                                  setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                                  setPaymentInputKey((k) => k + 1);
-                                }}
-                                className="w-full text-left px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl flex items-center justify-between gap-2"
-                              >
-                                <span className="truncate">
-                                  {c.full_name || c.name}
-                                </span>
-                                {c.phone_number && (
-                                  <span className="text-xs text-slate-400 font-mono shrink-0">
-                                    {c.phone_number}
-                                  </span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                          <Phone size={14} />
-                        </div>
-                        <input
-                          type="tel"
-                          inputMode="numeric"
-                          value={telecomClientPhone}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setTelecomClientPhone(val);
-                            // Search by phone too — backend matches name OR phone
-                            if (val.trim().length >= 3) {
-                              setShowClientSearch(true);
-                              searchClients(val.trim());
-                            }
-                          }}
-                          className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white font-mono focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
-                          placeholder="Phone number (registers a new client)"
-                        />
-                      </div>
-                      {telecomClientName.trim() &&
-                        telecomClientPhone.trim() &&
-                        !telecomClientId && (
-                          <p className="text-xs text-orange-300/80 px-1">
-                            New client will be created on confirm.
-                          </p>
-                        )}
-                    </div>
+                  totalAmountCurrency="LBP"
+                  currency="LBP"
+                  paymentMethods={methods}
+                  clientId={telecomClientId}
+                  fetchClientVouchers={fetchClientVouchers}
+                  exchangeRate={exchangeRate}
+                  showDiscount={true}
+                  maxDiscount={Math.max(
+                    0,
+                    (telecomPrice ? parseFloat(telecomPrice) : 0) -
+                      (rechargeType === "DAYS"
+                        ? parseFloat(telecomDaysCostUsd || "0") *
+                          alfaCreditCostRate
+                        : parseFloat(telecomAmount || "0") *
+                          alfaCreditCostRate),
                   )}
-                </div>
-                <TransactionTimeOverride
-                  value={transactionTime}
-                  onChange={(t) => {
-                    setTransactionTime(t);
-                    onTransactionTimeChange?.(t);
+                  onPaymentChange={(lines) => {
+                    setPaymentLines(lines);
+                    if (lines.length === 1) {
+                      setPaidBy(lines[0].method);
+                    }
                   }}
-                />
-              </PaymentSheet>
+                  onDiscountChange={handleDiscountChange}
+                  {...(onReturnChange ? { onReturnChange } : {})}
+                  {...(onKeptChange ? { onKeptChange } : {})}
+                  hasClient={!!telecomClientId}
+                  paymentInputKey={paymentInputKey}
+                  initialPaymentMethod={initialPaymentMethod}
+                  summary={[
+                    {
+                      label: rechargeType === "DAYS" ? "Days" : "Amount",
+                      value:
+                        rechargeType === "DAYS"
+                          ? `${telecomAmount || "0"} days`
+                          : `$${telecomAmount || "0"}`,
+                    },
+                    {
+                      label: "Price",
+                      value: `${(telecomPrice ? parseFloat(telecomPrice) : parseFloat(telecomAmount || "0") * alfaCreditCostRate).toLocaleString()} LBP`,
+                      color: "text-emerald-400",
+                    },
+                  ]}
+                >
+                  {/* Client selector - always visible; auto-selects CUSTOMER_ACCOUNT when a registered client is picked or a new name+phone is entered */}
+                  <div className="relative">
+                    <label
+                      htmlFor="telecom-debt-client"
+                      className={`block text-xs font-medium mb-2 uppercase tracking-wider flex items-center gap-1.5 ${
+                        paymentLines.some(
+                          (l) => l.method === "CUSTOMER_ACCOUNT",
+                        )
+                          ? "text-orange-400"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      <User size={12} />
+                      {paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
+                        ? "Client (required for debt)"
+                        : "Client (optional)"}
+                    </label>
+                    {telecomClientId ? (
+                      <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3">
+                        <User size={16} className="text-orange-400" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white font-medium truncate">
+                            {telecomClientName}
+                          </div>
+                          {telecomClientPhone && (
+                            <div className="text-xs text-orange-300/80 font-mono truncate">
+                              {telecomClientPhone}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setTelecomClientId(null);
+                            setTelecomClientName("");
+                            setTelecomClientPhone("");
+                          }}
+                          className="text-slate-400 hover:text-white transition-colors"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                            <Search size={16} />
+                          </div>
+                          <input
+                            type="text"
+                            value={telecomClientName}
+                            onChange={(e) => {
+                              setTelecomClientName(e.target.value);
+                              setShowClientSearch(true);
+                              searchClients(e.target.value);
+                            }}
+                            onFocus={() => {
+                              if (telecomClientName.length >= 2) {
+                                setShowClientSearch(true);
+                                searchClients(telecomClientName);
+                              }
+                            }}
+                            className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
+                            placeholder="Search client by name..."
+                          />
+                          {showClientSearch &&
+                            clientSearchResults.length > 0 && (
+                              <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-48 overflow-auto">
+                                {clientSearchResults.map((c: any) => (
+                                  <button
+                                    key={c.id}
+                                    onClick={() => {
+                                      selectClient(c);
+                                      setInitialPaymentMethod(
+                                        "CUSTOMER_ACCOUNT",
+                                      );
+                                      setPaymentInputKey((k) => k + 1);
+                                    }}
+                                    className="w-full text-left px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl flex items-center justify-between gap-2"
+                                  >
+                                    <span className="truncate">
+                                      {c.full_name || c.name}
+                                    </span>
+                                    {c.phone_number && (
+                                      <span className="text-xs text-slate-400 font-mono shrink-0">
+                                        {c.phone_number}
+                                      </span>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                        </div>
+                        <div className="relative">
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                            <Phone size={14} />
+                          </div>
+                          <input
+                            type="tel"
+                            inputMode="numeric"
+                            value={telecomClientPhone}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setTelecomClientPhone(val);
+                              // Search by phone too — backend matches name OR phone
+                              if (val.trim().length >= 3) {
+                                setShowClientSearch(true);
+                                searchClients(val.trim());
+                              }
+                            }}
+                            className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white font-mono focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
+                            placeholder="Phone number (registers a new client)"
+                          />
+                        </div>
+                        {telecomClientName.trim() &&
+                          telecomClientPhone.trim() &&
+                          !telecomClientId && (
+                            <p className="text-xs text-orange-300/80 px-1">
+                              New client will be created on confirm.
+                            </p>
+                          )}
+                      </div>
+                    )}
+                  </div>
+                  <TransactionTimeOverride
+                    value={transactionTime}
+                    onChange={(t) => {
+                      setTransactionTime(t);
+                      onTransactionTimeChange?.(t);
+                    }}
+                  />
+                </PaymentSheet>
               )}
             </div>
           </div>

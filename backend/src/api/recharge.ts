@@ -4,6 +4,7 @@ import { validateRequest } from "../middleware/validation.js";
 import { getRechargeService, createRechargeSchema } from "@liratek/core";
 import { z } from "zod";
 import { logger } from "../server.js";
+import type { AuthRequest } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -31,13 +32,15 @@ router.post(
   async (req, res): Promise<void> => {
     try {
       const rechargeService = getRechargeService();
-      const result = rechargeService.processRecharge(req.body);
+      const userId = (req as AuthRequest).user!.userId;
+      const result = rechargeService.processRecharge({
+        ...req.body,
+        userId,
+      });
 
-      if (!result.success) {
-        res.status(400).json(result);
-        return;
-      }
-
+      // Match the IPC envelope: HTTP 200 with { success: false, error }
+      // even on a business-rule failure (rule 19c) — the frontend adapter
+      // branches on result.success, not the status code.
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Process recharge error");

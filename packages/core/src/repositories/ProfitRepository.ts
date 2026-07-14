@@ -203,6 +203,21 @@ export interface UnsettledCommissionRow {
   created_at: string;
 }
 
+/**
+ * Deferred-profit visibility (owner ask 2026-07-14): profit currently
+ * STRANDED behind an uncovered partner-settlement row (PFT-6) or an
+ * uncovered client-debt repayment row (DBT-1) — i.e. profit already stamped
+ * on the transaction's profit_usd/profit_lbp but not yet counted as realized
+ * by getSummary/getByUser/getByClient because their partner/debt gates
+ * exclude it.
+ */
+export interface DeferredProfitRow {
+  partner_profit_usd: number;
+  partner_profit_lbp: number;
+  client_debt_profit_usd: number;
+  client_debt_profit_lbp: number;
+}
+
 // =============================================================================
 // Rule 14 — named domain-rule SQL fragments (defined ONCE, reused everywhere)
 // =============================================================================
@@ -740,6 +755,61 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND tenant_id = ?`,
       )
       .get(fromDt, toDt, getCurrentTenantId()) as ExpenseTotalsRow;
+  }
+
+  /**
+   * Deferred profit (owner ask 2026-07-14): the slice of transactions.profit_usd
+   * / profit_lbp that is currently STRANDED behind an uncovered partner FOR_%
+   * row (PFT-6) or an uncovered client-debt charge row (DBT-1) — the exact
+   * negation of the gates {@link getByUser}/{@link getByClient} already apply
+   * before counting a transaction's profit as realized. Reuses
+   * txnNotPartnerPending / notDebtPending verbatim (rule 14) so this bucket
+   * always reconciles with the realized totals: a source moves out of here
+   * and into the realized summary the moment it settles/repays, never both.
+   */
+  getDeferredProfit(fromDt: string, toDt: string): DeferredProfitRow {
+    const tenantId = getCurrentTenantId();
+
+    const partnerRow = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND t.type IN (${PROFIT_TXN_TYPES})
+          AND NOT (${txnNotPartnerPending("t")})
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, tenantId) as {
+      profit_usd: number;
+      profit_lbp: number;
+    };
+
+    const clientDebtRow = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(t.profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(t.profit_lbp), 0) AS profit_lbp
+        FROM transactions t
+        WHERE t.status = 'ACTIVE'
+          AND t.type IN (${PROFIT_TXN_TYPES})
+          AND NOT (${notDebtPending("t.id")})
+          AND ${dateRange("t.created_at")}
+          AND t.tenant_id = ?`,
+      )
+      .get(fromDt, toDt, tenantId) as {
+      profit_usd: number;
+      profit_lbp: number;
+    };
+
+    return {
+      partner_profit_usd: partnerRow.profit_usd,
+      partner_profit_lbp: partnerRow.profit_lbp,
+      client_debt_profit_usd: clientDebtRow.profit_usd,
+      client_debt_profit_lbp: clientDebtRow.profit_lbp,
+    };
   }
 
   // ---------------------------------------------------------------------------

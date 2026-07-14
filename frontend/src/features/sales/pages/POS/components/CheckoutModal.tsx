@@ -79,10 +79,15 @@ export type CheckoutDraftData = {
   changeGivenUSD: number;
   changeGivenLBP: number;
   exchangeRate: number;
+  /** PFT-2b: preserves the "For Partner" toggle + selected partner across
+   *  minimize/edit/resume so a restored draft doesn't silently fall back to
+   *  a normal client sale. Optional — old persisted drafts without these
+   *  fields still restore fine (falls back to a normal, non-partner sale). */
+  forPartner?: boolean;
+  selectedPartnerId?: number | null;
 };
 
 const generateReceiptNumber = () => `${RECEIPT_NUMBER_PREFIX}${Date.now()}`;
-
 
 export default function CheckoutModal({
   items,
@@ -157,8 +162,11 @@ export default function CheckoutModal({
     Array<{ method?: string; currencyCode: string; amount: number }> | undefined
   >(() => {
     if (!draftData) return undefined;
-    const lines: Array<{ method?: string; currencyCode: string; amount: number }> =
-      [];
+    const lines: Array<{
+      method?: string;
+      currencyCode: string;
+      amount: number;
+    }> = [];
     if (draftData.paidUSD) {
       lines.push({
         method: "CASH",
@@ -262,8 +270,15 @@ export default function CheckoutModal({
       setClientSearch(draftData.clientSearchInput);
       setSecondaryInput(draftData.clientSearchSecondary);
       setDiscount(draftData.discount ?? 0);
-      const lines: Array<{ method?: string; currencyCode: string; amount: number }> =
-        [];
+      // PFT-2b: restore the "For Partner" toggle + selected partner so a
+      // resumed for-partner order doesn't silently become a normal sale.
+      setForPartner(draftData.forPartner ?? false);
+      setSelectedPartnerId(draftData.selectedPartnerId ?? null);
+      const lines: Array<{
+        method?: string;
+        currencyCode: string;
+        amount: number;
+      }> = [];
       if (draftData.paidUSD) {
         lines.push({
           method: "CASH",
@@ -821,6 +836,8 @@ export default function CheckoutModal({
                           changeGivenUSD: cashReturnUSD,
                           changeGivenLBP: cashReturnLBP,
                           exchangeRate: effectiveExchangeRate,
+                          forPartner,
+                          selectedPartnerId,
                         })
                       }
                       className="p-1.5 text-slate-400 hover:text-violet-400 hover:bg-violet-500/10 rounded-lg transition-colors"
@@ -912,6 +929,8 @@ export default function CheckoutModal({
                         changeGivenUSD: cashReturnUSD,
                         changeGivenLBP: cashReturnLBP,
                         exchangeRate: effectiveExchangeRate,
+                        forPartner,
+                        selectedPartnerId,
                       })
                     }
                     className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
@@ -945,8 +964,8 @@ export default function CheckoutModal({
                 >
                   No payment is collected for a partner sale. The full{" "}
                   <span className="font-bold">{fmtTotal(finalAmount)}</span>{" "}
-                  goes on the selected partner&apos;s account, settled later
-                  on the Partners page.
+                  goes on the selected partner&apos;s account, settled later on
+                  the Partners page.
                 </div>
               ) : (
                 <>
@@ -990,8 +1009,8 @@ export default function CheckoutModal({
                       finalAmount,
                     ) && (
                       <div className="text-xs text-orange-400 bg-orange-500/10 rounded px-3 py-2">
-                        Debt is disabled. Full payment required to complete
-                        this sale.
+                        Debt is disabled. Full payment required to complete this
+                        sale.
                       </div>
                     )}
                 </>

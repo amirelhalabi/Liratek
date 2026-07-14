@@ -36,7 +36,11 @@ type Api = {
       create: (d: {
         name: string;
         phone?: string;
-      }) => Promise<{ success: boolean; data?: { id: number }; error?: string }>;
+      }) => Promise<{
+        success: boolean;
+        data?: { id: number };
+        error?: string;
+      }>;
       getBalance: (id: number) => Promise<{ usd: number; lbp: number }>;
       recordTransaction: (d: unknown) => Promise<{
         success: boolean;
@@ -61,7 +65,15 @@ type Api = {
       summary: (
         f: string,
         t: string,
-      ) => Promise<{ recharges: { profit_usd: number } }>;
+      ) => Promise<{
+        recharges: { profit_usd: number };
+        deferred: {
+          partner_profit_usd: number;
+          partner_profit_lbp: number;
+          client_debt_profit_usd: number;
+          client_debt_profit_lbp: number;
+        };
+      }>;
       byUser: (
         f: string,
         t: string,
@@ -83,6 +95,17 @@ async function rechargeProfitUsd(page: Page): Promise<number> {
     async ({ FROM, TO }) => {
       const w = window as unknown as Api;
       return (await w.api.profits.summary(FROM, TO)).recharges.profit_usd;
+    },
+    { FROM, TO },
+  );
+}
+
+async function clientDebtDeferredUsd(page: Page): Promise<number> {
+  return page.evaluate(
+    async ({ FROM, TO }) => {
+      const w = window as unknown as Api;
+      return (await w.api.profits.summary(FROM, TO)).deferred
+        .client_debt_profit_usd;
     },
     { FROM, TO },
   );
@@ -178,6 +201,7 @@ test.describe("LIRA-121 — partner cash-moved entries, client-debt profit defer
     });
 
     const p0 = await rechargeProfitUsd(appPage);
+    const d0 = await clientDebtDeferredUsd(appPage);
 
     // MTC voucher, cost 60 / price 90.17 (markup 30.17), fully on account.
     const created = await appPage.evaluate(
@@ -209,6 +233,9 @@ test.describe("LIRA-121 — partner cash-moved entries, client-debt profit defer
 
     // Failing-first (DBT-1): pre-fix the markup counted immediately (+30.17).
     expect((await rechargeProfitUsd(appPage)) - p0).toBeCloseTo(0, 2);
+    // Deferred-profit visibility: the markup sits in the client-debt bucket
+    // while the account charge is uncovered.
+    expect((await clientDebtDeferredUsd(appPage)) - d0).toBeCloseTo(30.17, 2);
 
     // Client repays in full → repayment FIFO covers the charge → realized.
     const repaid = await appPage.evaluate(async (clientId) => {
@@ -223,6 +250,8 @@ test.describe("LIRA-121 — partner cash-moved entries, client-debt profit defer
     expect(repaid.success).toBe(true);
 
     expect((await rechargeProfitUsd(appPage)) - p0).toBeCloseTo(30.17, 2);
+    // Deferred-profit visibility: fully repaid → the bucket returns to baseline.
+    expect((await clientDebtDeferredUsd(appPage)) - d0).toBeCloseTo(0, 2);
   });
 
   test("DBT-2: the by-user view excludes pending partner profit and realizes it on settlement", async ({
