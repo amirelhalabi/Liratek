@@ -121,7 +121,7 @@ async function createPartner(page: Page, label: string): Promise<number> {
 }
 
 test.describe("LIRA-120 — partner settlement realizes profit and moves money", () => {
-  test("pending until settled (sale/recharge/FS), Katsh immediate; settle → profit + General cash", async ({
+  test("pending until settled (sale/recharge/FS/Katsh — no carve-out); settle → profit + General cash", async ({
     appPage,
   }) => {
     const ts = Date.now();
@@ -137,7 +137,7 @@ test.describe("LIRA-120 — partner settlement realizes profit and moves money",
 
     // Four for-partner transactions, one per profit stream:
     //   POS margin 40 | recharge markup 37.89 | OMT_APP commission 2 |
-    //   Katsh margin 5.89 (owner exception: immediate).
+    //   Katsh margin 5.89 (all deferred — no provider carve-out).
     const created = await appPage.evaluate(
       async ({ partnerId, productId, ts }) => {
         const w = window as unknown as Api;
