@@ -3,8 +3,11 @@
  * partner SETTLES, and a settlement MOVES REAL MONEY into the drawer.
  *
  * Owner decisions (docs/plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md):
- *   - Model A (2026-07-13): for-partner margin/markup/commission is real only
- *     once the partner pays — EXCEPT iPick/Katsh (immediate).
+ *   - Model A (2026-07-13, no carve-outs as of 2026-07-14): for-partner
+ *     margin/markup/commission — for EVERY provider, iPick/Katsh included — is
+ *     real only once the partner pays. (The former iPick/Katsh "immediate"
+ *     exception was removed so one rule holds everywhere: profit lands in the
+ *     report when the money comes in.)
  *   - PFT-6b (2026-07-14): a settlement credits/debits the method's drawer
  *     (CASH→General) with a unified PARTNER_SETTLEMENT transaction.
  *
@@ -21,7 +24,8 @@
  *   - the "General +settled amount" assert FAILS (settle moved no money);
  *   - the "sales profit appears after settling" assert FAILS (settlement
  *     never opened the saleFullyPaid gate — the margin was stranded).
- *   Katsh stays immediate on BOTH (owner-exception regression guard).
+ *   Katsh now defers with the rest (its margin is 0 before settle and only
+ *     appears after — the removed-exception regression guard).
  *
  * Rule 15: fresh partner per test; all asserts are deltas on summary fields,
  * getBalance, and named drawers.
@@ -213,15 +217,15 @@ test.describe("LIRA-120 — partner settlement realizes profit and moves money",
     ).toBeCloseTo(0, 2);
     // Sale margin pending (paid_usd = 0 — same pre/post, sanity).
     expect(s1.sales.profit_usd - s0.sales.profit_usd).toBeCloseTo(0, 2);
-    // Owner exception: Katsh margin is IMMEDIATE (regression guard).
+    // No carve-out: Katsh margin defers too — 0 until the partner settles.
     expect(
       s1.mobile_services.profit_usd - s0.mobile_services.profit_usd,
-    ).toBeCloseTo(5.89, 2);
-    // Deferred-profit visibility: sale 40 + recharge 37.89 + OMT_APP 2 sit in
-    // the deferred bucket while pending; Katsh (5.89) is EXCLUDED — immediate.
+    ).toBeCloseTo(0, 2);
+    // Deferred-profit visibility: sale 40 + recharge 37.89 + OMT_APP 2 +
+    // Katsh 5.89 all sit in the deferred bucket while the partner owes.
     expect(
       s1.deferred.partner_profit_usd - s0.deferred.partner_profit_usd,
-    ).toBeCloseTo(79.89, 2);
+    ).toBeCloseTo(85.78, 2);
 
     // ── Settle the full USD balance in CASH ──────────────────────────────
     const generalBeforeSettle = await generalUsd(appPage);

@@ -120,7 +120,7 @@ bucket (added in PFT-1) is now dead-but-harmless plumbing.
 | `FOR_POS`                                                                                                     | DEBIT (full sale price, no counter cash)          | `SalesRepository` (`sale.partnerMode === "FOR"`)                                                                                                                                              | `_reversePartnerLedger` (type-agnostic, keyed by `reference_table='sales'`/`reference_id`)                                                                                                                                         |
 | `FOR_RECHARGE`                                                                                                | DEBIT                                             | `RechargeRepository`                                                                                                                                                                          | `_reversePartnerLedger`                                                                                                                                                                                                            |
 | `FOR_LOTO`                                                                                                    | DEBIT                                             | `LotoTicketRepository`                                                                                                                                                                        | `_reversePartnerLedger` — but the LOTO transaction itself is `NON_REVERSIBLE_TRANSACTION_TYPES`, so in practice this row is corrected only via a settlement/adjustment, never a void                                               |
-| `FOR_IPICK`, `FOR_KATSH`                                                                                      | DEBIT                                             | `FinancialServiceRepository` (cost/price catalog+bill flow)                                                                                                                                   | `_reversePartnerLedger`; **excluded from the partner-pending profit gate** (see §6 — immediate recognition)                                                                                                                        |
+| `FOR_IPICK`, `FOR_KATSH`                                                                                      | DEBIT                                             | `FinancialServiceRepository` (cost/price catalog+bill flow)                                                                                                                                   | `_reversePartnerLedger`; defers profit via the partner-pending gate like every other `FOR_%` type (see §6 — no carve-out)                                                                                                          |
 | `FOR_OMT_SEND`, `FOR_WHISH_SEND`, `FOR_OMT_APP_SEND`, `FOR_WHISH_APP_SEND`, `FOR_BINANCE_SEND`                | DEBIT                                             | `FinancialServiceRepository` (SEND, "For Partner" checkbox)                                                                                                                                   | `_reversePartnerLedger`                                                                                                                                                                                                            |
 | `FOR_OMT_RECEIVE`, `FOR_WHISH_RECEIVE`, `FOR_OMT_APP_RECEIVE`, `FOR_WHISH_APP_RECEIVE`, `FOR_BINANCE_RECEIVE` | CREDIT (shop owes partner)                        | `FinancialServiceRepository` (RECEIVE, "For Partner" checkbox)                                                                                                                                | `_reversePartnerLedger`                                                                                                                                                                                                            |
 | `THROUGH_OMT_SEND` / `THROUGH_WHISH_SEND`                                                                     | CREDIT                                            | `FinancialServiceRepository` (`ledgerType = \`THROUGH*${OMT\|WHISH}*${SEND\|RECEIVE}\``, template-composed, not a literal — only OMT/OMT_APP→OMT and WHISH/WHISH_APP→WHISH map)               | `_reversePartnerLedger`                                                                                                                                                                                                            |
@@ -221,31 +221,31 @@ needs it — never copy-pasted.
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `saleFullyPaid(alias)`                | Sales revenue/cost/profit (`getSalesRevCost`, `getSalesProfit`) via `salePaidOrPartnerSettled`                                                 | `paid_usd + paid_lbp / exchange_rate_snapshot >= final_amount_usd − 0.05`                                                                                                                                                                                   |
 | `salePaidOrPartnerSettled(alias)`     | All SALE-sourced profit queries                                                                                                                | `saleFullyPaid` **OR** (the sale has a `FOR_%` partner row **AND** `notPartnerPending` says it's fully settled) — a for-partner sale carries `paid_usd = 0` (no counter cash), so without this OR-arm it would never realize                                |
-| `notPartnerPending(refTable, idExpr)` | FS (`getFinancialSettledByCurrency`), recharge, loto — module-level queries keyed by the source row                                            | `NOT EXISTS` an uncovered `FOR_%` row for this source, **excluding `FOR_IPICK`/`FOR_KATSH`** (immediate-profit exception)                                                                                                                                   |
+| `notPartnerPending(refTable, idExpr)` | FS (`getFinancialSettledByCurrency`), recharge, loto — module-level queries keyed by the source row                                            | `NOT EXISTS` an uncovered `FOR_%` row for this source — **all providers, no carve-out** (iPick/Katsh defer like the rest)                                                                                                                                   |
 | `txnNotPartnerPending(alias)`         | `getByUser`, `getByClient`, `getDeferredProfit`                                                                                                | Same as `notPartnerPending` but keyed by the **transaction's own** `source_table`/`source_id` (these views iterate unified transactions, not module rows)                                                                                                   |
-| `notDebtPending(txnIdExpr)`           | FS (all providers, including iPick/Katsh — see asymmetry below), recharge, custom service, loto, maintenance, `getByUser`/`getByClient`        | `NOT EXISTS` an uncovered `'Recharge Debt'`/`'Service Debt'`/`'Custom Service Debt'`/`'Loto Debt'`/`'Maintenance Debt'` row for this transaction. **`'Sale Debt'` is deliberately excluded** — sales recognize via `saleFullyPaid`/`sales.paid_usd` instead |
+| `notDebtPending(txnIdExpr)`           | FS (all providers, including iPick/Katsh), recharge, custom service, loto, maintenance, `getByUser`/`getByClient`                              | `NOT EXISTS` an uncovered `'Recharge Debt'`/`'Service Debt'`/`'Custom Service Debt'`/`'Loto Debt'`/`'Maintenance Debt'` row for this transaction. **`'Sale Debt'` is deliberately excluded** — sales recognize via `saleFullyPaid`/`sales.paid_usd` instead |
 | `fs.is_settled`                       | FS commission (`getFinancialSettledByCurrency` / `getFinancialPendingByCurrency`, `getRealizedCommissionTotals`, `getPendingCommissionTotals`) | The OMT/WHISH-style commission is realized only once the supplier settlement batch (`SupplierRepository.settleTransactions`) stamps `is_settled = 1`                                                                                                        |
 
-**The iPick/Katsh immediate exception — verified, and it is asymmetric across
-the two gates:**
+**iPick/Katsh — one rule, no carve-out (former exception removed 2026-07-14):**
 
-- **Partner-pending** (`notPartnerPending`/`txnNotPartnerPending`): `FOR_IPICK`
-  and `FOR_KATSH` are explicitly excluded from the uncovered-row scan — a
-  for-partner iPick/Katsh sale's margin is realized immediately, never waiting
-  on the partner to settle. This is a real, coded exception.
-- **Debt-pending** (`notDebtPending`): there is **no provider carve-out at
-  all** — the fragment matches on `debt_ledger.transaction_type`, not
-  provider. `getMobileServicesByCurrency` (iPick/Katsh/BOB) applies
-  `notDebtPending` unconditionally, same as every other module. A CUSTOMER_ACCOUNT-charged
-  iPick/Katsh bill therefore defers its profit until the client repays, exactly
-  like an OMT/WHISH/recharge/custom-service/maintenance charge — it does
-  **not** get the same "immediate" treatment the partner gate gives it. Both
-  gates are intentional and independently defensible (an unpaid client charge
-  is genuinely unpaid regardless of provider; the partner "immediate" carve-out
-  is about a trusted partner receivable, a different risk). Flagging this here
-  because the PFT-6/DBT-1 plan-doc language ("iPick/Katsh stay immediate, same
-  owner exception as partners") reads as if the exception applies uniformly —
-  in code, it is scoped to the partner gate only.
+Both profit gates now treat iPick/Katsh exactly like every other provider:
+profit defers until the money comes in.
+
+- **Partner-pending** (`notPartnerPending`/`txnNotPartnerPending`): every
+  `FOR_%` type — `FOR_IPICK`/`FOR_KATSH` included — stays in the uncovered-row
+  scan. A for-partner iPick/Katsh margin is realized only when the partner
+  settles, same as `FOR_POS`/`FOR_RECHARGE`/etc. (The earlier explicit
+  `NOT IN ('FOR_IPICK','FOR_KATSH')` carve-out was deleted; owner decision — one
+  rule, "profit shows in the report when the money comes in.")
+- **Debt-pending** (`notDebtPending`): unchanged — never had a provider
+  carve-out. The fragment matches on `debt_ledger.transaction_type`, so a
+  CUSTOMER_ACCOUNT-charged iPick/Katsh bill defers until the client repays,
+  exactly like every other module.
+
+Both gates are now symmetric: an unpaid receivable is unpaid regardless of
+provider, whether the counterparty is a partner or a client account. The
+PFT-6/DBT-1 plan-doc language that once described an "immediate" iPick/Katsh
+partner exception is superseded by this — there is no exception anywhere.
 
 **Documented v1 gaps** (profit views that do **not** apply the partner/debt
 gates, as of this writing):

@@ -966,10 +966,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // — normal + THROUGH-partner behavior is byte-for-byte untouched.
       //
       // Profit note: commission/margin stays stamped on the FS + txn rows
-      // exactly as the normal path stamps it. iPick/Katsh margin is immediate
-      // (is_settled = 1) per the owner decision; OMT/app/Binance commission
-      // currently realizes on the existing is_settled machinery — deferral
-      // until PARTNER settlement is PFT-6, deliberately not faked here.
+      // exactly as the normal path stamps it (iPick/Katsh keep is_settled = 1
+      // for the supplier-settlement machinery). Recognition, however, is
+      // deferred until the PARTNER settles — ProfitRepository's partner gate
+      // (notPartnerPending / txnNotPartnerPending, no provider carve-out as of
+      // 2026-07-14) zeroes every FOR_% source until settlement FIFO covers it.
+      // Deferral is read-side (PFT-6), not faked by withholding the stamp here.
       if (isForPartner) {
         const partnerId = data.partnerId as number;
         const serviceDrawer = this.mapDrawerName(data.provider);

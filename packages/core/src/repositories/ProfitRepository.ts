@@ -241,10 +241,11 @@ function saleNotFullyPaid(alias: string): string {
  * (owner decision, Model A). A source row is "partner-pending" while any of
  * its FOR_% partner_ledger rows is not fully covered by settlement FIFO
  * coverage (v128 covered_amount; PartnerRepository.applySettlementCoverage).
- * iPick/Katsh margins are immediate (owner exception) so their FOR types are
- * excluded from the scan. Non-partner rows have no FOR_% rows and pass
- * unchanged. reference_table + reference_id identify the source row globally
- * (one AUTOINCREMENT per table), so no tenant correlation is needed.
+ * The rule has NO carve-outs — every provider (including iPick/Katsh) defers
+ * until the partner's cash comes in (owner decision 2026-07-14, resolving the
+ * former iPick/Katsh immediate exception). Non-partner rows have no FOR_% rows
+ * and pass unchanged. reference_table + reference_id identify the source row
+ * globally (one AUTOINCREMENT per table), so no tenant correlation is needed.
  */
 function notPartnerPending(refTable: string, idExpr: string): string {
   return `NOT EXISTS (
@@ -252,7 +253,6 @@ function notPartnerPending(refTable: string, idExpr: string): string {
     WHERE plp.reference_table = '${refTable}'
       AND plp.reference_id = ${idExpr}
       AND plp.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-      AND plp.transaction_type NOT IN ('FOR_IPICK', 'FOR_KATSH')
       AND plp.covered_amount < plp.amount - 0.005
   )`;
 }
@@ -290,7 +290,6 @@ function txnNotPartnerPending(alias: string): string {
     WHERE plp.reference_table = ${alias}.source_table
       AND plp.reference_id = ${alias}.source_id
       AND plp.transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
-      AND plp.transaction_type NOT IN ('FOR_IPICK', 'FOR_KATSH')
       AND plp.covered_amount < plp.amount - 0.005
   )`;
 }
@@ -544,7 +543,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       ) as FinCurrencyRow[];
   }
 
-  /** Mobile services (iPick/Katsh/BOB) revenue/cost/profit grouped by currency. */
+  /**
+   * Mobile services (iPick/Katsh/BOB) revenue/cost/profit grouped by currency.
+   * Gated by notPartnerPending so a for-partner iPick/Katsh row defers its
+   * whole line (revenue + cost + profit + count) until the partner settles —
+   * matching the deferred bucket, the daily trend, and getByUser/getByClient
+   * (this was the sole FS aggregation missing the partner gate).
+   */
   getMobileServicesByCurrency(
     fromDt: string,
     toDt: string,
@@ -562,6 +567,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE fs.provider IN (${MOBILE_PROVIDERS})
           AND t.status = 'ACTIVE'
           AND ${notRefunded("fs")}
+          AND ${notPartnerPending("financial_services", "fs.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("fs.created_at")}
           AND fs.tenant_id = ? AND t.tenant_id = ?
