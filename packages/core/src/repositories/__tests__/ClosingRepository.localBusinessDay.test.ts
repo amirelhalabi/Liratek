@@ -76,7 +76,9 @@ function localTodayAtUtc(hour: string): string {
     .prepare(
       `SELECT datetime(date('now','localtime') || ' ${hour}:00:00', 'utc') AS ts`,
     )
-    .get() as { ts: string } extends never ? string : string as unknown as string;
+    .get() as { ts: string } extends never
+    ? string
+    : string as unknown as string;
 }
 
 beforeAll(() => {

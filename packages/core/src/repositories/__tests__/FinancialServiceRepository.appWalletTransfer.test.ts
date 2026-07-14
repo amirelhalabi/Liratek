@@ -322,7 +322,9 @@ describe("FinancialServiceRepository — C4: app-wallet transfers move the app d
     expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 100, 2);
 
     const row = db
-      .prepare("SELECT omt_fee, commission FROM financial_services WHERE id = ?")
+      .prepare(
+        "SELECT omt_fee, commission FROM financial_services WHERE id = ?",
+      )
       .get(id) as { omt_fee: number; commission: number };
     expect(row.omt_fee).toBeCloseTo(5, 2);
     expect(row.commission).toBeCloseTo(5, 2);
@@ -389,7 +391,9 @@ describe("FinancialServiceRepository — C4: app-wallet transfers move the app d
     expect(balance(db, "General", "USD")).toBeCloseTo(genBefore - 100, 2);
 
     const row = db
-      .prepare("SELECT whish_fee, commission FROM financial_services WHERE id = ?")
+      .prepare(
+        "SELECT whish_fee, commission FROM financial_services WHERE id = ?",
+      )
       .get(id) as { whish_fee: number; commission: number };
     expect(row.whish_fee).toBeCloseTo(1, 2);
     expect(row.commission).toBeCloseTo(1, 2);

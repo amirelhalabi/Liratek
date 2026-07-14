@@ -116,13 +116,10 @@ export const createFinancialServiceSchema = z
       path: ["clientId"],
     },
   )
-  .refine(
-    (data) => !(data.partnerMode === "FOR" && !data.partnerId),
-    {
-      message: 'partnerId is required when partnerMode is "FOR"',
-      path: ["partnerId"],
-    },
-  )
+  .refine((data) => !(data.partnerMode === "FOR" && !data.partnerId), {
+    message: 'partnerId is required when partnerMode is "FOR"',
+    path: ["partnerId"],
+  })
   .refine(
     (data) => {
       // For OMT services (except OMT_WALLET and ONLINE_BROKERAGE), omtFee is optional

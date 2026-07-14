@@ -91,7 +91,10 @@ test.describe("LIRA-110 — expense payment methods (all drawers, Binance USDT)"
       -AMT,
       2,
     );
-    expect(binanceAfter.usdBalance - binanceBefore.usdBalance).toBeCloseTo(0, 2);
+    expect(binanceAfter.usdBalance - binanceBefore.usdBalance).toBeCloseTo(
+      0,
+      2,
+    );
 
     // Void (rule 20): the generic reversal restores by the leg's currency_code,
     // so the Binance USDT balance nets back to the starting point.
@@ -104,9 +107,10 @@ test.describe("LIRA-110 — expense payment methods (all drawers, Binance USDT)"
     expect(voided.ok).toBe(true);
 
     const binanceRestored = await drawer(appPage, "Binance");
-    expect(
-      binanceRestored.usdtBalance - binanceBefore.usdtBalance,
-    ).toBeCloseTo(0, 2);
+    expect(binanceRestored.usdtBalance - binanceBefore.usdtBalance).toBeCloseTo(
+      0,
+      2,
+    );
   });
 
   test("Cash expense still debits General USD (DB-driven method list regression)", async ({

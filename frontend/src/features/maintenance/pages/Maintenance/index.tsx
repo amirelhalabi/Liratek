@@ -471,7 +471,9 @@ export default function Maintenance() {
                             )}
                             {job.created_at && (
                               <span className="text-[10px] text-slate-600">
-                                {parseDbDate(job.created_at).toLocaleDateString()}
+                                {parseDbDate(
+                                  job.created_at,
+                                ).toLocaleDateString()}
                               </span>
                             )}
                           </div>

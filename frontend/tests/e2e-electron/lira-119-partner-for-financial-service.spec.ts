@@ -58,7 +58,11 @@ type Api = {
       create: (d: {
         name: string;
         phone?: string;
-      }) => Promise<{ success: boolean; data?: { id: number }; error?: string }>;
+      }) => Promise<{
+        success: boolean;
+        data?: { id: number };
+        error?: string;
+      }>;
       getBalance: (id: number) => Promise<{ usd: number; lbp: number }>;
       getLedger: (id: number) => Promise<{ entries: LedgerEntry[] }>;
     };
@@ -78,9 +82,7 @@ type Api = {
       >;
     };
     transactions: {
-      getRecent: (
-        n: number,
-      ) => Promise<
+      getRecent: (n: number) => Promise<
         Array<{
           id: number;
           type: string;
@@ -162,7 +164,12 @@ const CASES: Case[] = [
       omtServiceType: "INTRA",
       omtFee: 3,
       payments: [
-        { method: "CASH", currencyCode: "USD", amount: 103.11, direction: "OUT" },
+        {
+          method: "CASH",
+          currencyCode: "USD",
+          amount: 103.11,
+          direction: "OUT",
+        },
       ],
     },
     match: "100.11",
@@ -202,7 +209,12 @@ const CASES: Case[] = [
       currency: "USD",
       whishFee: 1,
       payments: [
-        { method: "CASH", currencyCode: "USD", amount: 51.22, direction: "OUT" },
+        {
+          method: "CASH",
+          currencyCode: "USD",
+          amount: 51.22,
+          direction: "OUT",
+        },
       ],
     },
     match: "50.22",
@@ -240,7 +252,12 @@ const CASES: Case[] = [
       currency: "USD",
       commission: 2,
       payments: [
-        { method: "CASH", currencyCode: "USD", amount: 22.33, direction: "OUT" },
+        {
+          method: "CASH",
+          currencyCode: "USD",
+          amount: 22.33,
+          direction: "OUT",
+        },
       ],
     },
     match: "20.33",
@@ -281,7 +298,12 @@ const CASES: Case[] = [
       currency: "USD",
       commission: 1,
       payments: [
-        { method: "CASH", currencyCode: "USD", amount: 26.44, direction: "OUT" },
+        {
+          method: "CASH",
+          currencyCode: "USD",
+          amount: 26.44,
+          direction: "OUT",
+        },
       ],
     },
     match: "25.44",
@@ -312,7 +334,8 @@ const CASES: Case[] = [
     ],
   },
   {
-    label: "Binance SEND 60.55 USDT (fee 2) → drawer −60.55 USDT, owes 62.55 USD",
+    label:
+      "Binance SEND 60.55 USDT (fee 2) → drawer −60.55 USDT, owes 62.55 USD",
     payload: {
       provider: "BINANCE",
       serviceType: "SEND",
@@ -331,7 +354,8 @@ const CASES: Case[] = [
     ],
   },
   {
-    label: "Binance RECEIVE 45.56 USDT (fee 1.5) → drawer +45.56, owes 44.06 USD",
+    label:
+      "Binance RECEIVE 45.56 USDT (fee 1.5) → drawer +45.56, owes 44.06 USD",
     payload: {
       provider: "BINANCE",
       serviceType: "RECEIVE",
@@ -454,8 +478,7 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
         const w = window as unknown as Api;
         const row = (await w.api.transactions.getRecent(100)).find(
           (t) =>
-            t.type === "FINANCIAL_SERVICE" &&
-            (t.summary ?? "").includes(match),
+            t.type === "FINANCIAL_SERVICE" && (t.summary ?? "").includes(match),
         );
         const r = row
           ? await w.api.transactions.void(row.id)
@@ -500,7 +523,12 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
         partnerId,
         partnerMode: "FOR",
         payments: [
-          { method: "CASH", currencyCode: "USD", amount: 23.99, direction: "IN" },
+          {
+            method: "CASH",
+            currencyCode: "USD",
+            amount: 23.99,
+            direction: "IN",
+          },
         ],
       });
       return { ok: r.success, error: r.error ?? null };

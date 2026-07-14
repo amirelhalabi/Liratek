@@ -84,10 +84,9 @@ export function initVoiceWebSocketServer(httpServer: Server): WebSocketServer {
       // handshake, so the JWT rides in the `?token=` query param; verify it the
       // same way the HTTP path does (verifyJwt → HS256, signature-checked).
       // Reject the handshake (no wss upgrade) on a missing/invalid token.
-      const token = new URL(
-        request.url,
-        "http://localhost",
-      ).searchParams.get("token");
+      const token = new URL(request.url, "http://localhost").searchParams.get(
+        "token",
+      );
       if (!token || !verifyJwt(token)) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();

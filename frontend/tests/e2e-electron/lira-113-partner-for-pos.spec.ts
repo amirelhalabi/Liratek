@@ -44,7 +44,11 @@ type Api = {
         name: string;
         phone?: string;
         notes?: string;
-      }) => Promise<{ success: boolean; data?: { id: number }; error?: string }>;
+      }) => Promise<{
+        success: boolean;
+        data?: { id: number };
+        error?: string;
+      }>;
       getBalance: (partnerId: number) => Promise<{ usd: number; lbp: number }>;
     };
     sales: {
@@ -134,7 +138,12 @@ test.describe("LIRA-113 — POS sale for a partner books the FULL amount, no cou
           payment_usd: 40,
           payment_lbp: 0,
           payments: [
-            { method: "CASH", currency_code: "USD", amount: 40, direction: "IN" },
+            {
+              method: "CASH",
+              currency_code: "USD",
+              amount: 40,
+              direction: "IN",
+            },
           ],
           change_given_usd: 0,
           change_given_lbp: 0,

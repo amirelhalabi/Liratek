@@ -55,7 +55,11 @@ type Api = {
         name: string;
         phone?: string;
         notes?: string;
-      }) => Promise<{ success: boolean; data?: { id: number }; error?: string }>;
+      }) => Promise<{
+        success: boolean;
+        data?: { id: number };
+        error?: string;
+      }>;
       getBalance: (partnerId: number) => Promise<{ usd: number; lbp: number }>;
     };
     recharge: {
@@ -85,20 +89,23 @@ async function generalUsd(page: Page): Promise<number> {
 
 async function createPartner(page: Page, label: string): Promise<number> {
   const ts = Date.now();
-  return page.evaluate(async ({ label, ts }) => {
-    const w = window as unknown as Api;
-    const created = await w.api.partners.create({
-      name: `${label} ${ts}`,
-      // Keep the label's letters in the phone (not just the timestamp) so
-      // the two partners in this file never collide even if both tests
-      // happened to run within the same millisecond.
-      phone: `${label}${ts}`.slice(0, 12),
-    });
-    if (!created.success || !created.data) {
-      throw new Error(created.error ?? "partner create failed");
-    }
-    return created.data.id;
-  }, { label, ts });
+  return page.evaluate(
+    async ({ label, ts }) => {
+      const w = window as unknown as Api;
+      const created = await w.api.partners.create({
+        name: `${label} ${ts}`,
+        // Keep the label's letters in the phone (not just the timestamp) so
+        // the two partners in this file never collide even if both tests
+        // happened to run within the same millisecond.
+        phone: `${label}${ts}`.slice(0, 12),
+      });
+      if (!created.success || !created.data) {
+        throw new Error(created.error ?? "partner create failed");
+      }
+      return created.data.id;
+    },
+    { label, ts },
+  );
 }
 
 test.describe("LIRA-115 — mobile RECHARGE for a partner books the FULL amount, no counter cash", () => {
@@ -109,38 +116,45 @@ test.describe("LIRA-115 — mobile RECHARGE for a partner books the FULL amount,
     const partnerId = await createPartner(appPage, "L115FullA");
 
     const drawerBefore = await generalUsd(appPage);
-    const partnerBalBefore = (await appPage.evaluate(
-      async (id) => (window as unknown as Api).api.partners.getBalance(id),
-      partnerId,
-    )).usd;
-
-    const result = await appPage.evaluate(async ({ partnerId, ts }) => {
-      const w = window as unknown as Api;
-      // Partner mode: no walk-in customer, no counter cash — the full price
-      // goes straight on the partner's tab. No `payments` array at all.
-      const res = await w.api.recharge.process({
-        provider: "MTC",
-        type: "VOUCHER",
-        amount: 137,
-        cost: 0,
-        price: 137,
-        currency: "USD",
+    const partnerBalBefore = (
+      await appPage.evaluate(
+        async (id) => (window as unknown as Api).api.partners.getBalance(id),
         partnerId,
-        partnerMode: "FOR",
-        note: `L115 full ${ts}`,
-      });
-      return { ok: res.success, error: res.error ?? null };
-    }, { partnerId, ts });
+      )
+    ).usd;
+
+    const result = await appPage.evaluate(
+      async ({ partnerId, ts }) => {
+        const w = window as unknown as Api;
+        // Partner mode: no walk-in customer, no counter cash — the full price
+        // goes straight on the partner's tab. No `payments` array at all.
+        const res = await w.api.recharge.process({
+          provider: "MTC",
+          type: "VOUCHER",
+          amount: 137,
+          cost: 0,
+          price: 137,
+          currency: "USD",
+          partnerId,
+          partnerMode: "FOR",
+          note: `L115 full ${ts}`,
+        });
+        return { ok: res.success, error: res.error ?? null };
+      },
+      { partnerId, ts },
+    );
 
     // Failing-first (see file header): committed code throws "A partner
     // FOR-recharge requires explicit payment legs" here → ok would be false.
     expect(result.error).toBeNull();
     expect(result.ok).toBe(true);
 
-    const partnerBalAfter = (await appPage.evaluate(
-      async (id) => (window as unknown as Api).api.partners.getBalance(id),
-      partnerId,
-    )).usd;
+    const partnerBalAfter = (
+      await appPage.evaluate(
+        async (id) => (window as unknown as Api).api.partners.getBalance(id),
+        partnerId,
+      )
+    ).usd;
 
     // Routing: the partner owes the FULL $137 — no remainder math, no
     // counter cash collected first.
@@ -183,31 +197,41 @@ test.describe("LIRA-115 — mobile RECHARGE for a partner books the FULL amount,
     const partnerId = await createPartner(appPage, "L115Reject");
 
     const drawerBefore = await generalUsd(appPage);
-    const partnerBalBefore = (await appPage.evaluate(
-      async (id) => (window as unknown as Api).api.partners.getBalance(id),
-      partnerId,
-    )).usd;
-
-    const rejected = await appPage.evaluate(async ({ partnerId, ts }) => {
-      const w = window as unknown as Api;
-      const res = await w.api.recharge.process({
-        provider: "MTC",
-        type: "VOUCHER",
-        amount: 137,
-        cost: 0,
-        price: 137,
-        currency: "USD",
+    const partnerBalBefore = (
+      await appPage.evaluate(
+        async (id) => (window as unknown as Api).api.partners.getBalance(id),
         partnerId,
-        partnerMode: "FOR",
-        // Gotcha: payment legs use currencyCode (camelCase), not
-        // currency_code.
-        payments: [
-          { method: "CASH", currencyCode: "USD", amount: 40, direction: "IN" },
-        ],
-        note: `L115 reject ${ts}`,
-      });
-      return { ok: res.success, error: res.error ?? null };
-    }, { partnerId, ts });
+      )
+    ).usd;
+
+    const rejected = await appPage.evaluate(
+      async ({ partnerId, ts }) => {
+        const w = window as unknown as Api;
+        const res = await w.api.recharge.process({
+          provider: "MTC",
+          type: "VOUCHER",
+          amount: 137,
+          cost: 0,
+          price: 137,
+          currency: "USD",
+          partnerId,
+          partnerMode: "FOR",
+          // Gotcha: payment legs use currencyCode (camelCase), not
+          // currency_code.
+          payments: [
+            {
+              method: "CASH",
+              currencyCode: "USD",
+              amount: 40,
+              direction: "IN",
+            },
+          ],
+          note: `L115 reject ${ts}`,
+        });
+        return { ok: res.success, error: res.error ?? null };
+      },
+      { partnerId, ts },
+    );
 
     // Failing-first (see file header): on committed code this leg is
     // ACCEPTED (drawer-affecting, same currency) and only the $97 remainder
@@ -221,10 +245,12 @@ test.describe("LIRA-115 — mobile RECHARGE for a partner books the FULL amount,
 
     // Nothing should have moved — the whole attempt rolled back inside the
     // repository's db.transaction() on throw.
-    const partnerBalAfter = (await appPage.evaluate(
-      async (id) => (window as unknown as Api).api.partners.getBalance(id),
-      partnerId,
-    )).usd;
+    const partnerBalAfter = (
+      await appPage.evaluate(
+        async (id) => (window as unknown as Api).api.partners.getBalance(id),
+        partnerId,
+      )
+    ).usd;
     expect(partnerBalAfter - partnerBalBefore).toBeCloseTo(0, 2);
 
     const drawerAfter = await generalUsd(appPage);

@@ -52,7 +52,9 @@ describe("buildServiceReceiptText", () => {
           commission: 2,
         },
       },
-      legs: [{ method: "CASH", currency_code: "USD", amount: 102, direction: "IN" }],
+      legs: [
+        { method: "CASH", currency_code: "USD", amount: 102, direction: "IN" },
+      ],
     });
     expect(r).toContain("Corner Tech");
     expect(r).toContain("Service: OMT SEND");
@@ -133,7 +135,9 @@ describe("buildServiceReceiptText", () => {
           commission: 0,
         },
       },
-      legs: [{ method: "CASH", currency_code: "USD", amount: 50, direction: "OUT" }],
+      legs: [
+        { method: "CASH", currency_code: "USD", amount: 50, direction: "OUT" },
+      ],
     });
     expect(r).toContain("Service: OMT RECEIVE");
     expect(r).toContain("Change:");
@@ -150,11 +154,21 @@ describe("buildServiceReceiptText", () => {
         client_name: null,
         client_phone: null,
         created_at: "2026-07-13T10:00:00Z",
-        metadata: { provider: "Katsh", service_type: "SEND", amount: 60, currency: "USD" },
+        metadata: {
+          provider: "Katsh",
+          service_type: "SEND",
+          amount: 60,
+          currency: "USD",
+        },
       },
       legs: [
         { method: "CASH", currency_code: "USD", amount: 40, direction: "IN" },
-        { method: "OMT", currency_code: "LBP", amount: 1_800_000, direction: "IN" },
+        {
+          method: "OMT",
+          currency_code: "LBP",
+          amount: 1_800_000,
+          direction: "IN",
+        },
       ],
     });
     expect(r).toContain("Paid (CASH):");

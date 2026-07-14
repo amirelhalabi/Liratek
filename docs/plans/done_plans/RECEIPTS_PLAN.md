@@ -4,13 +4,14 @@
 > **Origin**: Sprint T5 (receipt logo + editable walk-in customer) and T8
 > (receipts for mobile services, recharge, maintenance, custom services, loto).
 > **Owner decisions (interview 2026-07-13)**:
+>
 > - Logo: **upload in Settings**, stored in the DB (base64) — works desktop + web.
 > - Receipts for **all** modules: mobile services (OMT/Whish/Katch), recharge
 >   (MTC/Alfa), maintenance, custom services, loto.
 > - Walk-in customer: **both** — set a name at POS checkout (prints, no client
 >   record) AND rename the customer on a completed sale + reprint.
 > - Trigger: **Print button after success** + reprint from history (like POS).
-> **Tickets**: RCP-0 … RCP-3.
+>   **Tickets**: RCP-0 … RCP-3.
 
 ---
 
@@ -45,12 +46,12 @@
 
 ## Phases
 
-| Ticket | Scope | Status |
-| ------ | ----- | ------ |
-| **RCP-0** | Logo foundation: Settings upload (base64 → `receipt_logo`), extend `useShopInfo`, shared `printReceipt` util that injects the logo; POS receipts show it | ✅ 2026-07-13 (6e694b4) |
-| **RCP-1** | Walk-in customer: rename on a completed sale + reprint (checkout name-entry already worked) | ✅ 2026-07-13 (8dd83df, lira-111) |
-| **RCP-2** | Generalize the receipt: shared `buildServiceReceiptText(txn, legs, shop)` | ✅ builder + unit tests done 2026-07-13 (wiring = RCP-3) |
-| **RCP-3** | Service receipts: reprint for all 5 module types via the Transactions viewer (print-after-success inline buttons = optional polish) | ✅ 2026-07-13 (lira-112) |
+| Ticket    | Scope                                                                                                                                                    | Status                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **RCP-0** | Logo foundation: Settings upload (base64 → `receipt_logo`), extend `useShopInfo`, shared `printReceipt` util that injects the logo; POS receipts show it | ✅ 2026-07-13 (6e694b4)                                  |
+| **RCP-1** | Walk-in customer: rename on a completed sale + reprint (checkout name-entry already worked)                                                              | ✅ 2026-07-13 (8dd83df, lira-111)                        |
+| **RCP-2** | Generalize the receipt: shared `buildServiceReceiptText(txn, legs, shop)`                                                                                | ✅ builder + unit tests done 2026-07-13 (wiring = RCP-3) |
+| **RCP-3** | Service receipts: reprint for all 5 module types via the Transactions viewer (print-after-success inline buttons = optional polish)                      | ✅ 2026-07-13 (lira-112)                                 |
 
 **RCP-3 done (owner: one receipt per transaction).**
 
@@ -121,8 +122,8 @@ no checkout rebuild was needed (optional: relabel the client-search field as
   `updateSetting("receipt_logo", dataUrl)`. Show a preview + a remove button.
 - `useShopInfo()` gains `logo` (the data URL, or "").
 - New `frontend/src/shared/utils/printReceipt.ts`: `printReceipt({ text,
-  logo, printer })` — the extracted CSS + `<img>` (when logo set) + `<pre>`
-  + silent/fallback. CheckoutModal + SaleDetailModal call it.
+logo, printer })` — the extracted CSS + `<img>` (when logo set) + `<pre>`
+  - silent/fallback. CheckoutModal + SaleDetailModal call it.
 - Guard: unit test the HTML builder (logo present → `<img>`; absent → none).
 
 ### RCP-1 — Walk-in customer

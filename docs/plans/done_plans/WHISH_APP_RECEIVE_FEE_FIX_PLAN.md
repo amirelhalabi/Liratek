@@ -65,14 +65,14 @@ reading — profit, drawers, and payout all agree — and matches Binance behavi
 
 ### 1. Frontend — `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx`
 
-| # | What | Today (buggy) | Target |
-|---|------|---------------|--------|
-| a | `shopProfit` for WHISH_APP RECEIVE (`:155-158`) | `providerFee * 0.1` | `providerFee` (full fee) |
-| b | `amount` sent — both direct submit (`:246`) and session `formData.amount` (`:210`) | `includingFees ? parsed − fee : parsed` | `includingFees ? parsed : parsed + fee` (wallet inflow) — RECEIVE only, SEND unchanged |
-| c | Session cart `amount` for RECEIVE (`:204`, currently `−totalAmount` = −(amount+fee) → basket would pay the customer $101) | `−totalAmount` | `−payout` = `−(includingFees ? parsed − fee : parsed)` |
-| d | `linkTransaction` after direct submit (`:274-277`) | `amountUsd: totalAmount`, `profitUsd: shopProfit − discount` | `amountUsd: payout`, `profitUsd: max(0, fee − discount)` |
-| e | Fee clearability (`:139-140`) — typing `0` currently falls back to the auto fee, so a no-fee receive is impossible | `parseFloat(manualFee \|\| "0") > 0 ? … : autoFee` | `manualFee !== "" ? (parseFloat(manualFee) \|\| 0) : autoFee` |
-| f | Summary/receipt labels | shows amount+fee as "total" | show **wallet inflow** and **customer receives** lines per the new spec |
+| #   | What                                                                                                                      | Today (buggy)                                                | Target                                                                                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| a   | `shopProfit` for WHISH_APP RECEIVE (`:155-158`)                                                                           | `providerFee * 0.1`                                          | `providerFee` (full fee)                                                               |
+| b   | `amount` sent — both direct submit (`:246`) and session `formData.amount` (`:210`)                                        | `includingFees ? parsed − fee : parsed`                      | `includingFees ? parsed : parsed + fee` (wallet inflow) — RECEIVE only, SEND unchanged |
+| c   | Session cart `amount` for RECEIVE (`:204`, currently `−totalAmount` = −(amount+fee) → basket would pay the customer $101) | `−totalAmount`                                               | `−payout` = `−(includingFees ? parsed − fee : parsed)`                                 |
+| d   | `linkTransaction` after direct submit (`:274-277`)                                                                        | `amountUsd: totalAmount`, `profitUsd: shopProfit − discount` | `amountUsd: payout`, `profitUsd: max(0, fee − discount)`                               |
+| e   | Fee clearability (`:139-140`) — typing `0` currently falls back to the auto fee, so a no-fee receive is impossible        | `parseFloat(manualFee \|\| "0") > 0 ? … : autoFee`           | `manualFee !== "" ? (parseFloat(manualFee) \|\| 0) : autoFee`                          |
+| f   | Summary/receipt labels                                                                                                    | shows amount+fee as "total"                                  | show **wallet inflow** and **customer receives** lines per the new spec                |
 
 ### 2. Core — `packages/core/src/repositories/FinancialServiceRepository.ts`
 
@@ -105,9 +105,9 @@ reading — profit, drawers, and payout all agree — and matches Binance behavi
    - included, entered 100 → `amount: 100`, `commission: 1`, cart `−99`
    - not included, entered 100 → `amount: 101`, `commission: 1`, cart `−100`
    - manualFee `"0"` → fee 0, `commission: 0`
-   Run against the current code first: they must fail with `amount 99/100`, `commission 0.1`,
-   cart `−100/−101`.
-3. **E2E (desktop)** — extend the recharge lira-* spec: Whish App receive 100 (fee included),
+     Run against the current code first: they must fail with `amount 99/100`, `commission 0.1`,
+     cart `−100/−101`.
+3. **E2E (desktop)** — extend the recharge lira-\* spec: Whish App receive 100 (fee included),
    assert by identity (WHISH_APP + RECEIVE) and **drawer deltas** (Whish_App +100, Cash −99)
    per rule 15. Then void → deltas reversed.
 

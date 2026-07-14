@@ -5,10 +5,7 @@
  * (zero USD part always shown) and computed Outstanding Debt from paid_usd
  * alone — an LBP-paid sale showed its full amount as still owed.
  */
-import {
-  formatPaidAmount,
-  saleOutstandingUsd,
-} from "../salePaidFormat";
+import { formatPaidAmount, saleOutstandingUsd } from "../salePaidFormat";
 
 describe("formatPaidAmount — zero parts are hidden", () => {
   it("LBP-only payment shows just the LBP part (the reported bug)", () => {

@@ -191,10 +191,7 @@ async function submitReceive(
   await expect(proceedBtn).toBeEnabled({ timeout: 5_000 });
   await proceedBtn.click();
 
-  const confirmBtn = page
-    .locator("button")
-    .filter({ hasText: /^Pay / })
-    .last();
+  const confirmBtn = page.locator("button").filter({ hasText: /^Pay / }).last();
   await expect(confirmBtn).toBeVisible({ timeout: 5_000 });
   await confirmBtn.click();
   await expect(confirmBtn).toBeHidden({ timeout: 8_000 });
@@ -365,9 +362,7 @@ test.describe("LIRA-101 — App wallet RECEIVE fee handling", () => {
 
     // No "fee included in amount" toggle exists for OMT App at all — confirm
     // it before relying on that fact for the rest of this test.
-    await expect(
-      appPage.getByLabel("Fee included in amount"),
-    ).toHaveCount(0);
+    await expect(appPage.getByLabel("Fee included in amount")).toHaveCount(0);
 
     const before = await drawers(appPage);
     await submitReceive(appPage, {
@@ -412,8 +407,6 @@ test.describe("LIRA-101 — App wallet RECEIVE fee handling", () => {
 
     // No checkbox at all for OMT App — the scenario "OMT App receive, fee
     // included" has no UI expression, regardless of prior Whish App state.
-    await expect(
-      appPage.getByLabel("Fee included in amount"),
-    ).toHaveCount(0);
+    await expect(appPage.getByLabel("Fee included in amount")).toHaveCount(0);
   });
 });

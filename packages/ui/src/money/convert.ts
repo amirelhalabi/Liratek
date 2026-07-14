@@ -1,17 +1,8 @@
-import {
-  type Money,
-  MoneyError,
-  type RateSide,
-  type RateTable,
-} from "./types";
+import { type Money, MoneyError, type RateSide, type RateTable } from "./types";
 
 /** Units of `code` per one unit of the table's base (base itself = 1).
  *  Degenerate rates (missing, 0, NaN, negative) throw — never NaN out. */
-function unitsPerBase(
-  code: string,
-  rates: RateTable,
-  side: RateSide,
-): number {
+function unitsPerBase(code: string, rates: RateTable, side: RateSide): number {
   if (code === rates.base) return 1;
   const rate = rates.rates[code]?.[side];
   if (!Number.isFinite(rate) || rate === undefined || rate <= 0) {
@@ -51,5 +42,8 @@ export function convert(
   if (!Number.isFinite(m.amount)) {
     throw new MoneyError(`convert: non-finite amount for ${m.currency}`);
   }
-  return { amount: m.amount * crossRate(m.currency, to, rates, side), currency: to };
+  return {
+    amount: m.amount * crossRate(m.currency, to, rates, side),
+    currency: to,
+  };
 }

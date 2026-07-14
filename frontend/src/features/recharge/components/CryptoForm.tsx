@@ -526,8 +526,8 @@ export function CryptoForm({
           data-testid="crypto-partner-no-payment-notice"
           className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
         >
-          No payment is collected for a partner transaction. The partner
-          will {cryptoType === "RECEIVE" ? "be credited" : "owe"}{" "}
+          No payment is collected for a partner transaction. The partner will{" "}
+          {cryptoType === "RECEIVE" ? "be credited" : "owe"}{" "}
           <span className="font-bold">
             ${(cryptoType === "RECEIVE" ? payout : sendTotal).toFixed(2)}
           </span>{" "}

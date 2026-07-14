@@ -710,7 +710,10 @@ export function FinancialForm({
                   setInitialPaymentMethod(v);
                   setPaymentInputKey((k) => k + 1);
                 }}
-                options={methods.map((m) => ({ value: m.code, label: m.label }))}
+                options={methods.map((m) => ({
+                  value: m.code,
+                  label: m.label,
+                }))}
                 buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-500 transition-all cursor-pointer"
               />
             )}
@@ -766,13 +769,13 @@ export function FinancialForm({
             className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
           >
             <span>
-              No payment is collected from a customer for a partner order.
-              The full{" "}
+              No payment is collected from a customer for a partner order. The
+              full{" "}
               <span className="font-bold">
                 {totalPrice.toLocaleString()} LBP
               </span>{" "}
-              goes on the selected partner&apos;s account, settled later on
-              the Partners page.
+              goes on the selected partner&apos;s account, settled later on the
+              Partners page.
             </span>
             {hasTransferUnit && (
               <div className="flex items-center gap-2">

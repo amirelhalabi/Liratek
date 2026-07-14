@@ -263,8 +263,7 @@ export class ClosingService {
         user_id: data.userId ?? 0,
         drawer_name: "AGGREGATED",
         notes:
-          data.notes ??
-          `Daily closing for ${data.closingDate ?? localDay()}`,
+          data.notes ?? `Daily closing for ${data.closingDate ?? localDay()}`,
         amounts: data.amounts ?? [],
       });
     } catch (error) {

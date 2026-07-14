@@ -339,9 +339,7 @@ export default function Dashboard() {
             window.api.closing.getSystemExpectedBalancesDynamic(),
             window.api.debt.getSummary(),
             window.api.inventory.getStockStats(),
-            window.api.financial.getMonthlyPL(
-              localMonth(),
-            ),
+            window.api.financial.getMonthlyPL(localMonth()),
             window.api.currencies.allDrawerCurrencies(),
             window.api.debt.getDebtors(),
           ])

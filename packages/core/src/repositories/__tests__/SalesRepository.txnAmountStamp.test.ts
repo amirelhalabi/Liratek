@@ -237,7 +237,12 @@ describe("SalesRepository — SALE/REFUND rows stamp value, not tender", () => {
         .get(saleId) as { id: number }
     ).id;
 
-    repo.refundSaleItem({ saleId, saleItemId: itemId, refundQuantity: 1, userId: 1 });
+    repo.refundSaleItem({
+      saleId,
+      saleItemId: itemId,
+      refundQuantity: 1,
+      userId: 1,
+    });
 
     // Pre-fix: amount_lbp = -(5 × 90,000) = -450,000 alongside amount_usd = -5.
     expect(stampedTxn(db, "REFUND")).toEqual({ amount_usd: -5, amount_lbp: 0 });
@@ -487,13 +492,30 @@ describe("migration v126 — repairs historical double-stamped sales rows", () =
     v126!.up(db);
 
     const rows = db
-      .prepare(`SELECT type, source_table, amount_usd, amount_lbp FROM transactions ORDER BY id`)
-      .all() as { type: string; source_table: string; amount_usd: number; amount_lbp: number }[];
+      .prepare(
+        `SELECT type, source_table, amount_usd, amount_lbp FROM transactions ORDER BY id`,
+      )
+      .all() as {
+      type: string;
+      source_table: string;
+      amount_usd: number;
+      amount_lbp: number;
+    }[];
     expect(rows).toEqual([
       { type: "SALE", source_table: "sales", amount_usd: 5, amount_lbp: 0 },
       { type: "REFUND", source_table: "sales", amount_usd: -5, amount_lbp: 0 },
-      { type: "SALE", source_table: "sales", amount_usd: 0, amount_lbp: 900_000 },
-      { type: "RECHARGE", source_table: "recharges", amount_usd: 0, amount_lbp: 450_000 },
+      {
+        type: "SALE",
+        source_table: "sales",
+        amount_usd: 0,
+        amount_lbp: 900_000,
+      },
+      {
+        type: "RECHARGE",
+        source_table: "recharges",
+        amount_usd: 0,
+        amount_lbp: 450_000,
+      },
     ]);
     db.close();
   });

@@ -1026,7 +1026,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    */
   getCustomerFacingLegs(
     transactionId: number,
-  ): { method: string; currency_code: string; amount: number; direction: "IN" | "OUT" }[] {
+  ): {
+    method: string;
+    currency_code: string;
+    amount: number;
+    direction: "IN" | "OUT";
+  }[] {
     return this.getPaymentsByTransactionId(transactionId)
       .filter((p) => !isInternalLegJs(p))
       .map((p) => ({

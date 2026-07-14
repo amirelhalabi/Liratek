@@ -138,9 +138,12 @@ test("refund from the Transactions table cancels an account-charged recharge deb
   // THE fix: the debt is cancelled — the client's balance returns to its
   // pre-recharge level in BOTH currencies (pre-fix: LBP stayed +654,000).
   await expect
-    .poll(async () => (await balance(appPage)).lbp - (charged.lbp - PRICE_LBP), {
-      timeout: 10_000,
-    })
+    .poll(
+      async () => (await balance(appPage)).lbp - (charged.lbp - PRICE_LBP),
+      {
+        timeout: 10_000,
+      },
+    )
     .toBeCloseTo(0, 2);
   const after = await balance(appPage);
   expect(after.usd).toBeCloseTo(charged.usd, 2);

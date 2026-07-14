@@ -80,8 +80,9 @@ export async function printReceipt({
     printWindow.close();
     // Windows focus fix (Electron): restore focus to the app window.
     setTimeout(() => {
-      (window as unknown as { api?: { display?: { fixFocus?: () => void } } })
-        .api?.display?.fixFocus?.();
+      (
+        window as unknown as { api?: { display?: { fixFocus?: () => void } } }
+      ).api?.display?.fixFocus?.();
     }, 100);
   }
 }

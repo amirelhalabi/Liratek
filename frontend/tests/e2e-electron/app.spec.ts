@@ -267,11 +267,11 @@ test.describe("Debts (self-seeded)", () => {
     await expect(appPage.locator("text=Cart is empty")).not.toBeVisible();
 
     await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
-    await expect(
-      appPage.locator('[data-testid="checkout-modal"]'),
-    ).toBeVisible({
-      timeout: 5000,
-    });
+    await expect(appPage.locator('[data-testid="checkout-modal"]')).toBeVisible(
+      {
+        timeout: 5000,
+      },
+    );
 
     // Assign the seeded client — payment auto-switches to Customer Account
     const clientField = appPage.locator(

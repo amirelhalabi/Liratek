@@ -167,6 +167,7 @@ shim/money bug). Its `session.getActive/cartAdd/checkout` mappings remain.
 **Remaining:** ~43 specs.
 
 **Two learnings from this pass:**
+
 1. **Most namespaces already have REST** (built in phases 1–2: maintenance, suppliers, recharge,
    services, profits, rates, exchange, sessions, debts, transactions, …). The blocked list was
    over-pessimistic — most specs need only a **shim mapping** to an existing route, not a new build.
@@ -179,8 +180,8 @@ shim/money bug). Its `session.getActive/cartAdd/checkout` mappings remain.
    re-run. A spec that flakes in the full suite but passes standalone is an isolation/env issue, not
    a product bug — verify standalone before adding to the allowlist AND run the FULL suite before
    committing the allowlist entry (isolation-green is necessary, not sufficient). Highest-surface (`lira-090/094/097`) touch namespaces with no
-REST yet (`maintenance`, `omt`, `recharge.topUpFrom*`, `suppliers.recordCashflow`,
-`profits.summary`, `auth.createUser`) — those need phase-2-style routes built first.
+   REST yet (`maintenance`, `omt`, `recharge.topUpFrom*`, `suppliers.recordCashflow`,
+   `profits.summary`, `auth.createUser`) — those need phase-2-style routes built first.
 
 **Cross-spec test-data collision (the `lira-099` lesson, resolved `9cb5603`).** The web-shared DB is
 walked by BOTH the web-only `lira-web-*` specs AND the desktop specs. lira-099 (desktop, hardcodes

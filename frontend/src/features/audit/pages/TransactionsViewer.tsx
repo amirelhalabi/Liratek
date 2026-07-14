@@ -892,8 +892,10 @@ export default function TransactionsViewer({
                   );
                 })()
               : formatAmount(
-                  tender?.usd ?? (credit ? Math.abs(row.amount_usd) : row.amount_usd),
-                  tender?.lbp ?? (credit ? Math.abs(row.amount_lbp) : row.amount_lbp),
+                  tender?.usd ??
+                    (credit ? Math.abs(row.amount_usd) : row.amount_usd),
+                  tender?.lbp ??
+                    (credit ? Math.abs(row.amount_lbp) : row.amount_lbp),
                   row.metadata_json,
                 )}
           </span>

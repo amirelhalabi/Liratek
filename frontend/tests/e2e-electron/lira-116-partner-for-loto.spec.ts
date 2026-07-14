@@ -54,7 +54,11 @@ type Api = {
         name: string;
         phone?: string;
         notes?: string;
-      }) => Promise<{ success: boolean; data?: { id: number }; error?: string }>;
+      }) => Promise<{
+        success: boolean;
+        data?: { id: number };
+        error?: string;
+      }>;
       getBalance: (partnerId: number) => Promise<{ usd: number; lbp: number }>;
     };
     loto: {
@@ -81,24 +85,30 @@ async function generalLbp(page: Page): Promise<number> {
 }
 
 async function createPartner(page: Page, tag: string): Promise<number> {
-  return page.evaluate(async ({ tag }) => {
-    const w = window as unknown as Api;
-    const created = await w.api.partners.create({
-      name: `${tag} ${Date.now()}`,
-      phone: `${tag}${Date.now()}`,
-    });
-    if (!created.success || !created.data) {
-      throw new Error(created.error ?? "partner create failed");
-    }
-    return created.data.id;
-  }, { tag });
+  return page.evaluate(
+    async ({ tag }) => {
+      const w = window as unknown as Api;
+      const created = await w.api.partners.create({
+        name: `${tag} ${Date.now()}`,
+        phone: `${tag}${Date.now()}`,
+      });
+      if (!created.success || !created.data) {
+        throw new Error(created.error ?? "partner create failed");
+      }
+      return created.data.id;
+    },
+    { tag },
+  );
 }
 
 async function partnerLbp(page: Page, partnerId: number): Promise<number> {
-  return page.evaluate(async ({ partnerId }) => {
-    const w = window as unknown as Api;
-    return (await w.api.partners.getBalance(partnerId)).lbp;
-  }, { partnerId });
+  return page.evaluate(
+    async ({ partnerId }) => {
+      const w = window as unknown as Api;
+      return (await w.api.partners.getBalance(partnerId)).lbp;
+    },
+    { partnerId },
+  );
 }
 
 test.describe("LIRA-116 — Loto ticket for a partner (full-amount model, no counter cash)", () => {

@@ -121,8 +121,7 @@ function webApiShimBody(): void {
       return rest("POST", "/api/sessions/start", body);
     },
     // close(id, closedBy) — closedBy is IPC-only (JWT actor on REST); drop it.
-    "session.close": async ([id]) =>
-      rest("POST", `/api/sessions/${id}/close`),
+    "session.close": async ([id]) => rest("POST", `/api/sessions/${id}/close`),
     "session.getActiveSessions": async () =>
       rest("GET", "/api/sessions/active-list"),
     "session.getTodayAllSessions": async () =>
@@ -137,12 +136,8 @@ function webApiShimBody(): void {
     //    ledger). IPC passes supplier_id INSIDE the object; REST puts it in the
     //    URL — extract it (arg→URL+body translation). ──
     "suppliers.list": async ([search, includeInactive]) =>
-      (
-        await rest(
-          "GET",
-          "/api/suppliers" + qs({ search, includeInactive }),
-        )
-      ).suppliers,
+      (await rest("GET", "/api/suppliers" + qs({ search, includeInactive })))
+        .suppliers,
     "suppliers.getBalances": async ([includeInactive]) =>
       (await rest("GET", "/api/suppliers/balances" + qs({ includeInactive })))
         .balances,
@@ -155,8 +150,12 @@ function webApiShimBody(): void {
     //    path (job → unified transaction + drawers + optional CUSTOMER_ACCOUNT
     //    debt_ledger), routed through the same core MaintenanceService. ──
     "maintenance.getJobs": async ([statusFilter]) =>
-      (await rest("GET", "/api/maintenance/jobs" + qs({ status: statusFilter })))
-        .jobs,
+      (
+        await rest(
+          "GET",
+          "/api/maintenance/jobs" + qs({ status: statusFilter }),
+        )
+      ).jobs,
     "maintenance.save": async ([job]) =>
       rest("POST", "/api/maintenance/jobs", job),
     "maintenance.delete": async ([id]) =>

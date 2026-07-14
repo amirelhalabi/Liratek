@@ -45,9 +45,9 @@ type Api = {
       }>;
     };
     transactions: {
-      getRecent: (n: number) => Promise<
-        Array<{ id: number; type: string; summary: string | null }>
-      >;
+      getRecent: (
+        n: number,
+      ) => Promise<Array<{ id: number; type: string; summary: string | null }>>;
       getById: (
         id: number,
       ) => Promise<{ id: number; profit_usd: number; profit_lbp: number }>;

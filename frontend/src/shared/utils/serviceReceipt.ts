@@ -217,9 +217,16 @@ export async function printServiceReceiptByTransaction(
       // no configured printer — printReceipt falls back to a print window
     }
 
-    await printReceipt({ text, printer, ...(shop.logo ? { logo: shop.logo } : {}) });
+    await printReceipt({
+      text,
+      printer,
+      ...(shop.logo ? { logo: shop.logo } : {}),
+    });
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Print failed" };
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Print failed",
+    };
   }
 }

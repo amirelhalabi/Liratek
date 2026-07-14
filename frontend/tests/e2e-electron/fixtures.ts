@@ -313,9 +313,7 @@ export const test = base.extend<
           signal,
           at: new Date().toISOString(),
         };
-        process.stderr.write(
-          `[electron-exit] code=${code} signal=${signal}\n`,
-        );
+        process.stderr.write(`[electron-exit] code=${code} signal=${signal}\n`);
       });
 
       try {

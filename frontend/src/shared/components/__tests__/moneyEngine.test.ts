@@ -209,9 +209,10 @@ describe("allocatePayments — cross-currency spillover (D1, I2)", () => {
 
     expect(result.remaining).toEqual([]);
     // USD first (largest), then LBP.
-    expect(
-      result.crossCurrencyApplied.map((c) => c.to.currency),
-    ).toEqual(["USD", "LBP"]);
+    expect(result.crossCurrencyApplied.map((c) => c.to.currency)).toEqual([
+      "USD",
+      "LBP",
+    ]);
     // Consumed: $10 → 9 EUR; 600,000 LBP → 600,000 × 0.9 / 89,000 ≈ 6.0674 EUR.
     expect(result.change).toHaveLength(1);
     expect(result.change[0].currency).toBe("EUR");

@@ -63,7 +63,11 @@ interface RenderOptions {
   requiresClientForDebt?: boolean;
   onChange?: ChangeMock;
   exchangeRate?: number;
-  initialLines?: Array<{ method?: string; currencyCode: string; amount: number }>;
+  initialLines?: Array<{
+    method?: string;
+    currencyCode: string;
+    amount: number;
+  }>;
   onExchangeRateChange?: RateMock;
   totals?: Array<{ amount: number; currency: string }>;
 }
@@ -601,7 +605,6 @@ describe("MultiPaymentInput", () => {
       setRate("95,000");
       expect(onExchangeRateChange).toHaveBeenLastCalledWith(95000);
     });
-
   });
 
   describe("T2 — native-LBP total round-tripped through the USD scalar (bug proof)", () => {
@@ -740,9 +743,9 @@ describe("MultiPaymentInput", () => {
       fireEvent.click(screen.getByTestId("keep-change"));
       expect(onKeptChange).toHaveBeenLastCalledWith(null);
       const restored = onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[];
-      expect(restored.some((l) => l.direction === "OUT" && l.amount === 50)).toBe(
-        true,
-      );
+      expect(
+        restored.some((l) => l.direction === "OUT" && l.amount === 50),
+      ).toBe(true);
     });
 
     it("reports the kept amounts in the TENDER currency, not the smart-split return suggestion", () => {
@@ -762,9 +765,9 @@ describe("MultiPaymentInput", () => {
       // $4.73 USD (what the customer overpaid in), no LBP involved. A
       // cross-denominated kept split corrupts per-currency netting (lira-107).
       expect(onKeptChange).toHaveBeenLastCalledWith({ usd: 4.73, lbp: 0 });
-      expect(
-        (onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[]),
-      ).toEqual([]);
+      expect(onReturnChange.mock.calls.at(-1)?.[0] as PaymentLine[]).toEqual(
+        [],
+      );
     });
   });
 

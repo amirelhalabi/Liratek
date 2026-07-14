@@ -1480,7 +1480,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                         ? Math.abs(debtLeg.amount)
                         : 0,
                       txnId,
-                      walletSendDebtNote(data.provider, data.amount, currency, fee),
+                      walletSendDebtNote(
+                        data.provider,
+                        data.amount,
+                        currency,
+                        fee,
+                      ),
                       createdBy,
                       tenantId,
                     );
@@ -1504,7 +1509,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                     cashCurrency === "USD" ? cashTotal : 0,
                     cashCurrency === "LBP" ? cashTotal : 0,
                     txnId,
-                    walletSendDebtNote(data.provider, data.amount, currency, fee),
+                    walletSendDebtNote(
+                      data.provider,
+                      data.amount,
+                      currency,
+                      fee,
+                    ),
                     createdBy,
                     tenantId,
                   );

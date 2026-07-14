@@ -25,9 +25,7 @@ type Api = {
       getRecent: (
         n: number,
       ) => Promise<Array<{ id: number; type: string; summary: string | null }>>;
-      getCustomerLegs: (
-        id: number,
-      ) => Promise<
+      getCustomerLegs: (id: number) => Promise<
         Array<{
           method: string;
           currency_code: string;
@@ -54,13 +52,21 @@ test.describe("LIRA-112 — service receipt customer legs", () => {
         commission: 2,
         paidByMethod: "CASH",
         payments: [
-          { method: "CASH", currencyCode: "USD", amount: 139.77, direction: "IN" },
+          {
+            method: "CASH",
+            currencyCode: "USD",
+            amount: 139.77,
+            direction: "IN",
+          },
         ],
         note: `L112 ${Date.now()}`,
       });
-      if (!res.success) return { ok: false, error: res.error ?? "failed", legs: [] };
+      if (!res.success)
+        return { ok: false, error: res.error ?? "failed", legs: [] };
       const row = (await w.api.transactions.getRecent(50)).find(
-        (t) => t.type === "FINANCIAL_SERVICE" && (t.summary ?? "").includes("137.77"),
+        (t) =>
+          t.type === "FINANCIAL_SERVICE" &&
+          (t.summary ?? "").includes("137.77"),
       );
       if (!row) return { ok: false, error: "txn not found", legs: [] };
       const legs = await w.api.transactions.getCustomerLegs(row.id);

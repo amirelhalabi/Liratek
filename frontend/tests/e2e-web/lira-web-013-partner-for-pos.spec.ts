@@ -128,10 +128,9 @@ test("POS sale 'FOR' a partner books the remainder to partner_ledger over REST",
   // back to exactly 0 — matched by identity (type + unique product name in
   // the summary), never by row position (rule 15).
   const recent = await (
-    await page.request.get(
-      `${BACKEND_URL}/api/transactions/recent?limit=100`,
-      { headers: auth },
-    )
+    await page.request.get(`${BACKEND_URL}/api/transactions/recent?limit=100`, {
+      headers: auth,
+    })
   ).json();
   const row = (
     recent.transactions as Array<{
@@ -143,10 +142,9 @@ test("POS sale 'FOR' a partner books the remainder to partner_ledger over REST",
   expect(row, "sale txn not found").toBeTruthy();
 
   const voided = await (
-    await page.request.post(
-      `${BACKEND_URL}/api/transactions/${row!.id}/void`,
-      { headers: auth },
-    )
+    await page.request.post(`${BACKEND_URL}/api/transactions/${row!.id}/void`, {
+      headers: auth,
+    })
   ).json();
   expect(voided.success, JSON.stringify(voided)).toBeTruthy();
 

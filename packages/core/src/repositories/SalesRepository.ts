@@ -1726,7 +1726,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getSaleWithCustomer(
     saleId: number,
-  ): (SaleEntity & { client_name: string | null; client_phone: string | null }) | null {
+  ):
+    | (SaleEntity & { client_name: string | null; client_phone: string | null })
+    | null {
     const tenantId = getCurrentTenantId();
     const rows = this.query<
       SaleEntity & { client_name: string | null; client_phone: string | null }

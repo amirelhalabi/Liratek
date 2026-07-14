@@ -55,6 +55,7 @@ overpay at repo-chosen rates and could drift from what the operator saw.
 ### UI
 
 One toggle button in the Return/Change block of `MultiPaymentInput`:
+
 - Activate → both return fields zero + disable, `onReturnChange([])`, and a
   new optional callback `onKeptChange({ usd, lbp } | null)` fires with the
   suggested-change amounts as of that moment.
@@ -71,9 +72,9 @@ become misleading.
 
 ## 3. Phases
 
-| Ticket | Scope | Status |
-| ------ | ----- | ------ |
-| **KC-0** | MultiPaymentInput: "Keep change" button + `onKeptChange` emission; component tests (failing-first: returning-nothing is impossible today) | ✅ 2026-07-13 |
+| Ticket   | Scope                                                                                                                                                                | Status                                                                                                                |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **KC-0** | MultiPaymentInput: "Keep change" button + `onKeptChange` emission; component tests (failing-first: returning-nothing is impossible today)                            | ✅ 2026-07-13                                                                                                         |
 | **KC-1** | Reference module POS end-to-end: schema field, handler + REST, SalesRepository profit stamp, failing-first repo test + e2e incl. **create + refund nets to 0** proof | ✅ 2026-07-13 (lira-106; failing-first proof: profit delta 40 pre-fix vs 90 post-fix; 164 desktop + 42 web e2e green) |
 
 **KC-1 implementation notes (2026-07-13):**
@@ -89,7 +90,7 @@ become misleading.
 - Unmigrated modules receiving the fields (e.g. Maintenance shares
   CheckoutModal) safely STRIP them at validation (Zod default) until their
   KC-3 schema lands — no breakage, just ignored.
-| **KC-2** | Debts: reduction excludes kept amounts; DEBT_REPAYMENT profit stamp; e2e | ✅ 2026-07-13 (lira-107; "Other / kept change" profits bucket + page line) |
+  | **KC-2** | Debts: reduction excludes kept amounts; DEBT_REPAYMENT profit stamp; e2e | ✅ 2026-07-13 (lira-107; "Other / kept change" profits bucket + page line) |
 
 **KC-2 implementation notes (2026-07-13):**
 
@@ -141,7 +142,7 @@ would strip.
 - Financial-services family (FinancialForm, OMT/Whish app transfers, Katch
   bills, crypto) deliberately NOT wired yet — their PaymentSheet callers show
   no button (opt-in) until KC-4 lands their schemas/stamps.
-| **KC-4** | Sessions + financial family + catalog forms | ✅ 2026-07-13 (complete — lira-108 x5, lira-109) |
+  | **KC-4** | Sessions + financial family + catalog forms | ✅ 2026-07-13 (complete — lira-108 x5, lira-109) |
 
 **KC-4 completion (2026-07-13, owner decisions):**
 

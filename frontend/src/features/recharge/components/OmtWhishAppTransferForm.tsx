@@ -311,7 +311,7 @@ function OmtWhishAppTransferFormInner({
         setClientId(null);
         setPaymentLines([]);
         setReturnLegs([]);
-      setKeptChange(null);
+        setKeptChange(null);
         setManualFee("");
         setTransactionTime(undefined);
         resetSaveAsClient();
@@ -626,156 +626,155 @@ function OmtWhishAppTransferFormInner({
           >
             {serviceType === "SEND" ? (
               <>
-                No counter payment is collected for a partner transfer. The
-                shop disburses{" "}
-                <span className="font-bold">${totalAmount.toFixed(2)}</span>{" "}
-                via the method above; the partner is billed for the full
-                amount, settled later on the Partners page.
+                No counter payment is collected for a partner transfer. The shop
+                disburses{" "}
+                <span className="font-bold">${totalAmount.toFixed(2)}</span> via
+                the method above; the partner is billed for the full amount,
+                settled later on the Partners page.
               </>
             ) : (
               <>
-                No payout is made to a walk-in customer. The wallet is
-                credited{" "}
+                No payout is made to a walk-in customer. The wallet is credited{" "}
                 <span className="font-bold">${walletAmount.toFixed(2)}</span>,
-                and the partner&apos;s account is credited accordingly,
-                settled later on the Partners page.
+                and the partner&apos;s account is credited accordingly, settled
+                later on the Partners page.
               </>
             )}
           </div>
         </div>
       ) : (
         <>
-        {/* Sender / Receiver Info — only the mode's own party (A2):
+          {/* Sender / Receiver Info — only the mode's own party (A2):
             SEND collects the sender, RECEIVE collects the receiver. */}
-        <div className="grid grid-cols-2 gap-3">
-          {serviceType === "SEND" && (
-            <>
-              <div>
-                <label
-                  htmlFor="sender-name"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                >
-                  <User size={12} /> Sender Name{" "}
-                  {activeSession && serviceType === "SEND" && "• Session"}
-                </label>
-                <ClientAutocompleteInput
-                  id="sender-name"
-                  type="text"
-                  value={senderName}
-                  onChange={(v) => {
-                    setSenderName(v);
-                    if (serviceType === "SEND") setClientId(null);
-                  }}
-                  onClientSelect={(c) => {
-                    setSenderPhone(c.phone_number || "");
-                    if (serviceType === "SEND") {
-                      setClientId(c.id);
-                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                      setPaymentInputKey((k) => k + 1);
-                    }
-                  }}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                  placeholder="Sender name"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="sender-phone"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                >
-                  <Phone size={12} /> Sender Phone{" "}
-                  {activeSession && serviceType === "SEND" && "• Session"}
-                </label>
-                <ClientAutocompleteInput
-                  id="sender-phone"
-                  type="tel"
-                  value={senderPhone}
-                  onChange={(v) => {
-                    setSenderPhone(v);
-                    if (serviceType === "SEND") setClientId(null);
-                  }}
-                  onClientSelect={(c) => {
-                    setSenderName(c.full_name);
-                    if (serviceType === "SEND") {
-                      setClientId(c.id);
-                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                      setPaymentInputKey((k) => k + 1);
-                    }
-                  }}
-                  searchByPhone
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                  placeholder="Sender phone"
-                />
-              </div>
-            </>
-          )}
-          {serviceType === "RECEIVE" && (
-            <>
-              <div>
-                <label
-                  htmlFor="receiver-name"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                >
-                  <User size={12} /> Receiver Name{" "}
-                  {activeSession && serviceType === "RECEIVE" && "• Session"}
-                </label>
-                <ClientAutocompleteInput
-                  id="receiver-name"
-                  type="text"
-                  value={receiverName}
-                  onChange={(v) => {
-                    setReceiverName(v);
-                    if (serviceType === "RECEIVE") setClientId(null);
-                  }}
-                  onClientSelect={(c) => {
-                    setReceiverPhone(c.phone_number || "");
-                    if (serviceType === "RECEIVE") {
-                      setClientId(c.id);
-                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                      setPaymentInputKey((k) => k + 1);
-                    }
-                  }}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                  placeholder="Receiver name"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="receiver-phone"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                >
-                  <Phone size={12} /> Receiver Phone{" "}
-                  {activeSession && serviceType === "RECEIVE" && "• Session"}
-                </label>
-                <ClientAutocompleteInput
-                  id="receiver-phone"
-                  type="tel"
-                  value={receiverPhone}
-                  onChange={(v) => {
-                    setReceiverPhone(v);
-                    if (serviceType === "RECEIVE") setClientId(null);
-                  }}
-                  onClientSelect={(c) => {
-                    setReceiverName(c.full_name);
-                    if (serviceType === "RECEIVE") {
-                      setClientId(c.id);
-                      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-                      setPaymentInputKey((k) => k + 1);
-                    }
-                  }}
-                  searchByPhone
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                  placeholder="Receiver phone"
-                />
-              </div>
-            </>
-          )}
-        </div>
-        <SaveAsClientCheckbox
-          checked={saveAsClient}
-          onChange={setSaveAsClient}
-          hidden={!showSaveAsClient}
-        />
+          <div className="grid grid-cols-2 gap-3">
+            {serviceType === "SEND" && (
+              <>
+                <div>
+                  <label
+                    htmlFor="sender-name"
+                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                  >
+                    <User size={12} /> Sender Name{" "}
+                    {activeSession && serviceType === "SEND" && "• Session"}
+                  </label>
+                  <ClientAutocompleteInput
+                    id="sender-name"
+                    type="text"
+                    value={senderName}
+                    onChange={(v) => {
+                      setSenderName(v);
+                      if (serviceType === "SEND") setClientId(null);
+                    }}
+                    onClientSelect={(c) => {
+                      setSenderPhone(c.phone_number || "");
+                      if (serviceType === "SEND") {
+                        setClientId(c.id);
+                        setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                        setPaymentInputKey((k) => k + 1);
+                      }
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                    placeholder="Sender name"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="sender-phone"
+                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                  >
+                    <Phone size={12} /> Sender Phone{" "}
+                    {activeSession && serviceType === "SEND" && "• Session"}
+                  </label>
+                  <ClientAutocompleteInput
+                    id="sender-phone"
+                    type="tel"
+                    value={senderPhone}
+                    onChange={(v) => {
+                      setSenderPhone(v);
+                      if (serviceType === "SEND") setClientId(null);
+                    }}
+                    onClientSelect={(c) => {
+                      setSenderName(c.full_name);
+                      if (serviceType === "SEND") {
+                        setClientId(c.id);
+                        setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                        setPaymentInputKey((k) => k + 1);
+                      }
+                    }}
+                    searchByPhone
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                    placeholder="Sender phone"
+                  />
+                </div>
+              </>
+            )}
+            {serviceType === "RECEIVE" && (
+              <>
+                <div>
+                  <label
+                    htmlFor="receiver-name"
+                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                  >
+                    <User size={12} /> Receiver Name{" "}
+                    {activeSession && serviceType === "RECEIVE" && "• Session"}
+                  </label>
+                  <ClientAutocompleteInput
+                    id="receiver-name"
+                    type="text"
+                    value={receiverName}
+                    onChange={(v) => {
+                      setReceiverName(v);
+                      if (serviceType === "RECEIVE") setClientId(null);
+                    }}
+                    onClientSelect={(c) => {
+                      setReceiverPhone(c.phone_number || "");
+                      if (serviceType === "RECEIVE") {
+                        setClientId(c.id);
+                        setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                        setPaymentInputKey((k) => k + 1);
+                      }
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                    placeholder="Receiver name"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="receiver-phone"
+                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                  >
+                    <Phone size={12} /> Receiver Phone{" "}
+                    {activeSession && serviceType === "RECEIVE" && "• Session"}
+                  </label>
+                  <ClientAutocompleteInput
+                    id="receiver-phone"
+                    type="tel"
+                    value={receiverPhone}
+                    onChange={(v) => {
+                      setReceiverPhone(v);
+                      if (serviceType === "RECEIVE") setClientId(null);
+                    }}
+                    onClientSelect={(c) => {
+                      setReceiverName(c.full_name);
+                      if (serviceType === "RECEIVE") {
+                        setClientId(c.id);
+                        setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                        setPaymentInputKey((k) => k + 1);
+                      }
+                    }}
+                    searchByPhone
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                    placeholder="Receiver phone"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <SaveAsClientCheckbox
+            checked={saveAsClient}
+            onChange={setSaveAsClient}
+            hidden={!showSaveAsClient}
+          />
         </>
       )}
 
@@ -886,7 +885,10 @@ function OmtWhishAppTransferFormInner({
                   label: "Received into Wallet",
                   value: `$${walletAmount.toFixed(2)}`,
                 }
-              : { label: "Transfer Amount", value: `$${parsedAmount.toFixed(2)}` },
+              : {
+                  label: "Transfer Amount",
+                  value: `$${parsedAmount.toFixed(2)}`,
+                },
             ...(providerFee > 0
               ? [
                   {

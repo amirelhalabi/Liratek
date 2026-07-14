@@ -1791,9 +1791,7 @@ export interface ElectronAPI {
     get: (id: number) => Promise<any | null>;
     getById: (id: number) => Promise<any | null>;
     /** RCP-3: customer-facing payment legs for one transaction (service receipts). */
-    getCustomerLegs: (
-      id: number,
-    ) => Promise<
+    getCustomerLegs: (id: number) => Promise<
       Array<{
         method: string;
         currency_code: string;

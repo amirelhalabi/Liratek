@@ -36,7 +36,7 @@ the UI derives its numbers from one computation, the submission from another.
 1. **No bare money numbers.** Every amount carries its currency: `Money = { amount, currency }`.
 2. **Conversion only at a currency boundary.** A rate is consulted exactly when a
    payment (or spillover) crosses from one currency to another — never within one.
-   Same-currency math is rate-independent *by construction*.
+   Same-currency math is rate-independent _by construction_.
 3. **One engine, two uses.** The number the UI displays and the number that books
    come from the SAME pure-function call. Display and submission can never drift.
 4. **Adding a currency is data, not code.** EUR later = one registry row + one rate
@@ -49,16 +49,16 @@ the UI derives its numbers from one computation, the submission from another.
 export type Money = { amount: number; currency: string };
 
 export type RateTable = {
-  base: string;                                        // "USD"
+  base: string; // "USD"
   rates: Record<string, { buy: number; sell: number }>; // value of 1 unit vs base
 };
 // convert(x, from, to) = through base: from→base→to. Identity when from === to.
 
 export type CurrencyInfo = {
-  code: string;        // "USD" | "LBP" | later "EUR"
+  code: string; // "USD" | "LBP" | later "EUR"
   symbol: string;
-  decimals: number;    // USD 2, LBP 0
-  epsilon: number;     // "close enough to settled": USD 0.01, LBP 0.5
+  decimals: number; // USD 2, LBP 0
+  epsilon: number; // "close enough to settled": USD 0.01, LBP 0.5
 };
 ```
 
@@ -112,11 +112,11 @@ Excess payment in currency X settles the other currencies' remaining debt in
 **descending order of remaining value normalized to base**; whatever is left after
 all debt is settled becomes change **in X** (the currency the customer handed over).
 
-- *Why:* deterministic, explainable at the counter ("your extra LBP paid down the
+- _Why:_ deterministic, explainable at the counter ("your extra LBP paid down the
   dollar debt first because it was the bigger one"), minimizes the number of
   currencies left open, and change in the tender currency matches how the return-leg
   drawer flow already works.
-- *Rejected:* fixed priority list (arbitrary; silently wrong the day EUR arrives);
+- _Rejected:_ fixed priority list (arbitrary; silently wrong the day EUR arrives);
   pro-rata split (fractional conversions across several currencies — impossible to
   explain to a cashier or audit).
 
@@ -124,15 +124,15 @@ all debt is settled becomes change **in X** (the currency the customer handed ov
 
 Ships in `@liratek/ui` next to the component. It is pure zero-dependency TS.
 
-- *Why:* every consumer today is a frontend form; `@liratek/ui` is already the shared
+- _Why:_ every consumer today is a frontend form; `@liratek/ui` is already the shared
   frontend package; moving pure TS later is cheap — duplicating it is exactly how the
   current display-vs-booking drift happened.
-- *Promotion trigger (explicit):* the FIRST time `packages/core` or `backend` needs
+- _Promotion trigger (explicit):_ the FIRST time `packages/core` or `backend` needs
   conversion/allocation math, the module graduates to its own `packages/money`
   workspace and both import it. Never copy.
-- *Rejected:* `packages/core` now (main-process-oriented package, would couple the
+- _Rejected:_ `packages/core` now (main-process-oriented package, would couple the
   renderer to it); new workspace now (cost with no second consumer yet).
-- *Note:* engine unit tests live in the frontend workspace beside the existing
+- _Note:_ engine unit tests live in the frontend workspace beside the existing
   component tests (`frontend/src/shared/components/__tests__/`) because
   `packages/ui` has no jest infrastructure — same convention as
   `MultiPaymentInput.test.tsx` today.
@@ -148,7 +148,7 @@ trigger on a pure-LBP debt paid in LBP).
   per-transaction override surfaced via `onRateOverride(pair, rate)` and fed into the
   SAME `allocatePayments` call that computes both the display and the submitted
   amounts (generalizes today's `repayModalRate` pattern, minus the split-brain).
-- *Rejected:* always-visible rate field (invites edits that can't affect anything —
+- _Rejected:_ always-visible rate field (invites edits that can't affect anything —
   the current bug's UX); hiding rate entirely (operators legitimately override the
   daily rate per transaction — owner-confirmed workflow).
 
@@ -167,14 +167,14 @@ tests) until each migrates; the shim is deleted in MCP-5.
 
 ## 6. Phases & tickets
 
-| Ticket | Scope | Size | Status |
-| ------ | ----- | ---- | ------ |
-| **MCP-0** | Characterization tests + the failing T2 test | S | ✅ 2026-07-12 |
-| **MCP-1** | Money core (`types`, `convert`, `round`, `registry`, `allocatePayments`) + invariant tests | M | ✅ 2026-07-12 |
-| **MCP-2** | Rewire `MultiPaymentInput` internals onto the engine behind the old props (zero behavior change) | M | ✅ 2026-07-12 |
-| **MCP-3** | Migrate the Debts repayment + cash-out modal to `totals: Money[]`; T2 test green; e2e | M | ✅ 2026-07-12 (lira-105) |
-| **MCP-4** | Migrate the remaining 13 consumer files (mechanical) | M (spread) | ✅ 2026-07-12 |
-| **MCP-5** | Delete the deprecated `totalAmount` path; EUR-readiness check | S | ✅ 2026-07-12 (revised scope) |
+| Ticket    | Scope                                                                                            | Size       | Status                        |
+| --------- | ------------------------------------------------------------------------------------------------ | ---------- | ----------------------------- |
+| **MCP-0** | Characterization tests + the failing T2 test                                                     | S          | ✅ 2026-07-12                 |
+| **MCP-1** | Money core (`types`, `convert`, `round`, `registry`, `allocatePayments`) + invariant tests       | M          | ✅ 2026-07-12                 |
+| **MCP-2** | Rewire `MultiPaymentInput` internals onto the engine behind the old props (zero behavior change) | M          | ✅ 2026-07-12                 |
+| **MCP-3** | Migrate the Debts repayment + cash-out modal to `totals: Money[]`; T2 test green; e2e            | M          | ✅ 2026-07-12 (lira-105)      |
+| **MCP-4** | Migrate the remaining 13 consumer files (mechanical)                                             | M (spread) | ✅ 2026-07-12                 |
+| **MCP-5** | Delete the deprecated `totalAmount` path; EUR-readiness check                                    | S          | ✅ 2026-07-12 (revised scope) |
 
 **MCP-5 outcome (2026-07-12):** `totalAmount` prop and its internal shim are
 deleted — `totals: Money[]` is the only totals contract. `totalAmountCurrency`
@@ -294,24 +294,24 @@ rateTable through the component with zero component changes).
 Call sites (from repo grep, 2026-07-12; most are genuinely single-currency and
 become `totals=[{amount, currency:"USD"}]` one-liners):
 
-| File | Note |
-| ---- | ---- |
-| `features/sales/pages/POS/components/CheckoutModal.tsx` | USD sale total |
-| `features/sessions/components/SessionCheckoutModal.tsx` | check for mixed-position feed |
-| `features/loto/pages/Loto/index.tsx` | |
-| `features/loto/components/SettlementVerification.tsx` | |
-| `features/expenses/pages/Expenses/index.tsx` | touches T7 (all payment methods) — coordinate |
-| `features/custom-services/pages/CustomServices/index.tsx` | |
-| `features/recharge/components/TelecomForm.tsx` | |
-| `features/recharge/components/KatchForm.tsx` | |
-| `features/recharge/components/PaymentSheet.tsx` | |
-| `features/recharge/pages/Recharge/index.tsx` | |
-| `features/services/pages/Services/index.tsx` | |
-| `features/settings/pages/Settings/SupplierLedger.tsx` | supplier ledger may be mixed-currency — audit like Debts |
-| `features/suppliers/pages/Suppliers/index.tsx` | same audit |
+| File                                                      | Note                                                     |
+| --------------------------------------------------------- | -------------------------------------------------------- |
+| `features/sales/pages/POS/components/CheckoutModal.tsx`   | USD sale total                                           |
+| `features/sessions/components/SessionCheckoutModal.tsx`   | check for mixed-position feed                            |
+| `features/loto/pages/Loto/index.tsx`                      |                                                          |
+| `features/loto/components/SettlementVerification.tsx`     |                                                          |
+| `features/expenses/pages/Expenses/index.tsx`              | touches T7 (all payment methods) — coordinate            |
+| `features/custom-services/pages/CustomServices/index.tsx` |                                                          |
+| `features/recharge/components/TelecomForm.tsx`            |                                                          |
+| `features/recharge/components/KatchForm.tsx`              |                                                          |
+| `features/recharge/components/PaymentSheet.tsx`           |                                                          |
+| `features/recharge/pages/Recharge/index.tsx`              |                                                          |
+| `features/services/pages/Services/index.tsx`              |                                                          |
+| `features/settings/pages/Settings/SupplierLedger.tsx`     | supplier ledger may be mixed-currency — audit like Debts |
+| `features/suppliers/pages/Suppliers/index.tsx`            | same audit                                               |
 
-- **Audit rule while migrating:** any consumer found feeding a *mixed/native-LBP
-  position normalized at a frozen rate* (the T2 pattern) gets the Debts treatment +
+- **Audit rule while migrating:** any consumer found feeding a _mixed/native-LBP
+  position normalized at a frozen rate_ (the T2 pattern) gets the Debts treatment +
   its own regression test, not just the mechanical prop swap. Prime suspects:
   SupplierLedger, Suppliers, SessionCheckoutModal.
 - **Audit results (2026-07-12):**
@@ -344,13 +344,13 @@ become `totals=[{amount, currency:"USD"}]` one-liners):
 
 ## 7. Test plan summary
 
-| Layer | What | Where |
-| ----- | ---- | ----- |
-| Unit (engine) | Invariants I1–I5, D1 spillover, epsilon/rounding, degenerate rates | `moneyEngine.test.ts` (frontend workspace) |
-| Unit (component) | Characterization of pre-change behavior + T2 regression (failing-first) | `MultiPaymentInput.test.tsx` |
-| Unit (debts) | `repaymentReduction` wrapper parity | existing `repaymentReduction.test.ts` |
-| E2E desktop | `lira-105` rate-invariance + per-currency deltas | `frontend/tests/e2e-electron/` |
-| E2E web | same flow over the shim (parity roadmap) | `frontend/tests/e2e-web/` |
+| Layer            | What                                                                    | Where                                      |
+| ---------------- | ----------------------------------------------------------------------- | ------------------------------------------ |
+| Unit (engine)    | Invariants I1–I5, D1 spillover, epsilon/rounding, degenerate rates      | `moneyEngine.test.ts` (frontend workspace) |
+| Unit (component) | Characterization of pre-change behavior + T2 regression (failing-first) | `MultiPaymentInput.test.tsx`               |
+| Unit (debts)     | `repaymentReduction` wrapper parity                                     | existing `repaymentReduction.test.ts`      |
+| E2E desktop      | `lira-105` rate-invariance + per-currency deltas                        | `frontend/tests/e2e-electron/`             |
+| E2E web          | same flow over the shim (parity roadmap)                                | `frontend/tests/e2e-web/`                  |
 
 ## 8. Risks & gotchas
 

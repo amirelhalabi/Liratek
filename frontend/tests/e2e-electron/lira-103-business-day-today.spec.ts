@@ -71,7 +71,8 @@ test.describe("LIRA-103 — daily stats use the local business day", () => {
         transaction_time: boundary,
       });
 
-      const after = (await w.api.closing.getDailyStatsSnapshot()).totalProfitUSD;
+      const after = (await w.api.closing.getDailyStatsSnapshot())
+        .totalProfitUSD;
 
       // The OMT flow computes its own commission; read it back and confirm the
       // backdate was honored (created_at on the prior UTC day).

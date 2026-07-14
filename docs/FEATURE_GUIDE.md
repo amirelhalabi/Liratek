@@ -16,22 +16,22 @@ Companion docs: [CLAUDE.md](../CLAUDE.md) (non-negotiable rules 11–17),
 
 **Customer-interaction modules** (each writes unified transactions):
 
-| Section                       | Code identity                                   | Notes                                                                                                                          |
-| ----------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| POS                           | `sales`, `sale_items`                           | multi-item cart, drafts, refunds                                                                                               |
-| Primary system send/receive   | `financial_services`, service_type SEND/RECEIVE | the shop's **base system** (`system_settings.shop_base_system`, default OMT)                                                   |
-| Secondary system send/receive | same table, routed **through a partner**        | the non-base system (e.g. WHISH when base=OMT); obligation lives in `partner_ledger`, never `supplier_ledger`                  |
-| Exchange                      | `exchange`                                      | USD↔LBP, direction "both"                                                                                                      |
-| Maintenance                   | `maintenance_jobs`                              | statuses: Received / In_Progress / Ready / Delivered / Delivered_Paid (there is **no** "completed" status)                     |
-| Custom services               | `custom_services`                               | includes Hold Money (HOLD_MONEY / HOLD_MONEY_COLLECT)                                                                          |
-| Recharge — MTC                | provider `MTC`                                  | credits (CREDIT_TRANSFER), days                                                                                                |
-| Recharge — Alfa               | provider `ALFA`                                 | credits, days, **Alfa Gift** (ALFA_GIFT — payload `{type, amount, cost, price}`)                                               |
-| Recharge — iPick              | provider `iPick`                                | bills + catalog items                                                                                                          |
+| Section                       | Code identity                                   | Notes                                                                                                                                                                                                         |
+| ----------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POS                           | `sales`, `sale_items`                           | multi-item cart, drafts, refunds                                                                                                                                                                              |
+| Primary system send/receive   | `financial_services`, service_type SEND/RECEIVE | the shop's **base system** (`system_settings.shop_base_system`, default OMT)                                                                                                                                  |
+| Secondary system send/receive | same table, routed **through a partner**        | the non-base system (e.g. WHISH when base=OMT); obligation lives in `partner_ledger`, never `supplier_ledger`                                                                                                 |
+| Exchange                      | `exchange`                                      | USD↔LBP, direction "both"                                                                                                                                                                                     |
+| Maintenance                   | `maintenance_jobs`                              | statuses: Received / In_Progress / Ready / Delivered / Delivered_Paid (there is **no** "completed" status)                                                                                                    |
+| Custom services               | `custom_services`                               | includes Hold Money (HOLD_MONEY / HOLD_MONEY_COLLECT)                                                                                                                                                         |
+| Recharge — MTC                | provider `MTC`                                  | credits (CREDIT_TRANSFER), days                                                                                                                                                                               |
+| Recharge — Alfa               | provider `ALFA`                                 | credits, days, **Alfa Gift** (ALFA_GIFT — payload `{type, amount, cost, price}`)                                                                                                                              |
+| Recharge — iPick              | provider `iPick`                                | bills + catalog items                                                                                                                                                                                         |
 | Recharge — Katsh              | provider `Katsh`                                | bills + catalog items. Casing is load-bearing: the schema CHECK allows only `Katsh`/`iPick`, and SQLite compares case-sensitively — a `'KATCH'` filter in ProfitRepository once hid every Katsh sale's profit |
-| Whish App                     | provider `WHISH_APP` (drawer `Whish_App`)       | transfers (send/receive) + bills/items section. Spelling is always `WHISH_APP` — the `WISH_APP` typo was migrated away in v105 |
-| OMT App                       | provider `OMT_APP` (drawer `OMT_App`)           | transfers (send/receive)                                                                                                       |
-| Binance                       | provider `BINANCE`                              | send + cashout (USDT wallet)                                                                                                   |
-| Loto                          | `loto_tickets`, `loto_cash_prizes`              | ticket sales, cash prizes, monthly fees, settlements                                                                           |
+| Whish App                     | provider `WHISH_APP` (drawer `Whish_App`)       | transfers (send/receive) + bills/items section. Spelling is always `WHISH_APP` — the `WISH_APP` typo was migrated away in v105                                                                                |
+| OMT App                       | provider `OMT_APP` (drawer `OMT_App`)           | transfers (send/receive)                                                                                                                                                                                      |
+| Binance                       | provider `BINANCE`                              | send + cashout (USDT wallet)                                                                                                                                                                                  |
+| Loto                          | `loto_tickets`, `loto_cash_prizes`              | ticket sales, cash prizes, monthly fees, settlements                                                                                                                                                          |
 
 **Shop-only pages**: debts, inventory, clients, profits (admin-only), sessions,
 partners, suppliers, vouchers/gift cards, expenses, closing.
@@ -340,3 +340,29 @@ Copy this into your task when building any flow that moves money:
 13. **E2E guard**: delta + identity assertions per CLAUDE.md rule 15; prove the test
     FAILS on the pre-fix code (rule 17). See the
     [e2e suite index](../frontend/tests/e2e-electron/README.md).
+
+### Counterparty checklist
+
+Touching a client (`debt_ledger`), partner (`partner_ledger`), or supplier
+(`supplier_ledger`) ledger? Read
+**[docs/COUNTERPARTY_LEDGERS.md](./COUNTERPARTY_LEDGERS.md)** first — the
+canonical model (lifecycle, per-ledger transaction-type catalog + reversal
+owner, coverage/epsilon conventions, the full profit-recognition gate table,
+and the current known gaps). Five things every new charge/settlement type
+must nail:
+
+1. **Routing is mutually exclusive** — a transaction charges the client's
+   debt ledger **or** a selected partner's ledger, never both on one row.
+2. **Counterparty is actually selected** — a client via `canChargeToCustomerAccount`
+   (name + phone); a partner via a real `partnerId`, never auto-selected.
+3. **Coverage is applied on settlement** — FIFO, oldest-first, through the
+   named coverage mechanism for that ledger (never a fresh copy-pasted loop).
+4. **Recognition is gated** — a new charge/accrual type must be inside the
+   relevant profit-recognition scan (`notPartnerPending`/`txnNotPartnerPending`
+   for partners, `notDebtPending` for client-account service debt, or the
+   sale/FS-specific gate) — silently outside the scan means accidental
+   immediate recognition, not a decision.
+5. **Reversal owner is named** — whitelisted in the generic path
+   (`MODULE_DEBT_TRANSACTION_TYPES` / type-agnostic `_reversePartnerLedger`)
+   or explicitly gated non-reversible with a documented correction path
+   (rule 20).

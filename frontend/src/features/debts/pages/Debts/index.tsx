@@ -678,7 +678,7 @@ export default function Debts() {
         alert("Repayment processed!");
         setShowRepaymentModal(false);
         setRepayPaymentLines([]);
-          setRepayKeptChange(null);
+        setRepayKeptChange(null);
         setRepayReturnLegs([]);
         setRepayNote("");
         setRepayTransactionTime(undefined);
@@ -1270,7 +1270,7 @@ export default function Debts() {
                         onClick={() => {
                           setRepayMode("repay");
                           setRepayPaymentLines([]);
-          setRepayKeptChange(null);
+                          setRepayKeptChange(null);
                           setRepayReturnLegs([]);
                           setShowRepaymentModal(true);
                         }}
@@ -1285,7 +1285,7 @@ export default function Debts() {
                         onClick={() => {
                           setRepayMode("cashout");
                           setRepayPaymentLines([]);
-          setRepayKeptChange(null);
+                          setRepayKeptChange(null);
                           setRepayReturnLegs([]);
                           setShowRepaymentModal(true);
                         }}
@@ -1444,7 +1444,9 @@ export default function Debts() {
                               className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
                             >
                               <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                                {parseDbDate(item.created_at).toLocaleDateString()}
+                                {parseDbDate(
+                                  item.created_at,
+                                ).toLocaleDateString()}
                                 <div className="text-[10px] text-slate-500">
                                   {parseDbDate(
                                     item.created_at,
@@ -1695,7 +1697,9 @@ export default function Debts() {
                               className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
                             >
                               <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                                {parseDbDate(item.created_at).toLocaleDateString()}
+                                {parseDbDate(
+                                  item.created_at,
+                                ).toLocaleDateString()}
                                 <div className="text-[10px] text-slate-500">
                                   {parseDbDate(
                                     item.created_at,

@@ -719,10 +719,7 @@ function KatchFormInner({
   // partnerId, partnerMode: "FOR", payments: [] — the backend books the
   // provider drawer −cost and the partner owes exactly the selling price.
   const handleForPartnerSubmit = async () => {
-    if (
-      (cart.size === 0 && pendingBills.length === 0) ||
-      isSubmittingPartner
-    )
+    if ((cart.size === 0 && pendingBills.length === 0) || isSubmittingPartner)
       return;
     if (!selectedPartnerId) {
       appEvents.emit(
@@ -767,10 +764,7 @@ function KatchFormInner({
         );
       }, 0);
 
-      const aggregatedCommission = Math.max(
-        0,
-        totalSellPrice - aggregatedCost,
-      );
+      const aggregatedCommission = Math.max(0, totalSellPrice - aggregatedCost);
 
       const noteLines = cartItems.map((line) => {
         const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
@@ -1072,7 +1066,9 @@ function KatchFormInner({
             paidByMethod: finalPaymentMethod,
             payments: isCarrier ? paymentsPayload : undefined,
             // Kept change rides the legs-carrying first bill (no items case).
-            ...(isCarrier && keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+            ...(isCarrier &&
+            keptChange &&
+            (keptChange.usd > 0 || keptChange.lbp > 0)
               ? {
                   kept_change_usd: keptChange.usd,
                   kept_change_lbp: keptChange.lbp,
@@ -1273,9 +1269,9 @@ function KatchFormInner({
             data-testid="katch-partner-no-payment-notice"
             className="w-full text-xs text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2"
           >
-            No payment is collected for a partner transaction. The full
-            selling price goes on the selected partner&apos;s account,
-            settled later on the Partners page.
+            No payment is collected for a partner transaction. The full selling
+            price goes on the selected partner&apos;s account, settled later on
+            the Partners page.
           </div>
         )}
       </div>
@@ -1341,7 +1337,9 @@ function KatchFormInner({
                   }
                   className={`w-1/2 py-2 ${billAccent.button} disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors`}
                 >
-                  {activeSession && !forPartner ? "Add Bill to Cart" : "Add Bill"}
+                  {activeSession && !forPartner
+                    ? "Add Bill to Cart"
+                    : "Add Bill"}
                 </button>
               </div>
               {pendingBills.length > 0 && (!activeSession || forPartner) && (

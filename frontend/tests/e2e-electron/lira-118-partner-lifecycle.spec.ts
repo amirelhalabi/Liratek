@@ -62,7 +62,11 @@ type Api = {
         name: string;
         phone?: string;
         notes?: string;
-      }) => Promise<{ success: boolean; data?: { id: number }; error?: string }>;
+      }) => Promise<{
+        success: boolean;
+        data?: { id: number };
+        error?: string;
+      }>;
       getBalance: (
         partnerId: number,
       ) => Promise<{ usd: number; lbp: number; usdt: number }>;
@@ -103,7 +107,11 @@ type Api = {
     loto: {
       sell: (
         d: unknown,
-      ) => Promise<{ success: boolean; ticket?: { id: number }; error?: string }>;
+      ) => Promise<{
+        success: boolean;
+        ticket?: { id: number };
+        error?: string;
+      }>;
     };
     transactions: {
       getRecent: (

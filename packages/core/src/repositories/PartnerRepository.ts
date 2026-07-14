@@ -305,7 +305,10 @@ export class PartnerRepository extends BaseRepository<Partner> {
       // tell which source transactions the partner has actually settled.
       // PFT-7b: cash-moved manual entries (applyCoverage) count too — profit
       // realizes when real money moves; paper entries never cover.
-      if (data.transaction_type === "SETTLEMENT" || data.applyCoverage === true) {
+      if (
+        data.transaction_type === "SETTLEMENT" ||
+        data.applyCoverage === true
+      ) {
         this.applySettlementCoverage(
           data.partner_id,
           data.currency,

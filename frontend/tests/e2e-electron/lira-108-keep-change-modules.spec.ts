@@ -50,9 +50,9 @@ type Api = {
       ) => Promise<{ success: boolean; id?: number; error?: string }>;
     };
     transactions: {
-      getRecent: (n: number) => Promise<
-        Array<{ id: number; type: string; summary: string | null }>
-      >;
+      getRecent: (
+        n: number,
+      ) => Promise<Array<{ id: number; type: string; summary: string | null }>>;
       getById: (
         id: number,
       ) => Promise<{ id: number; profit_usd: number; profit_lbp: number }>;
@@ -75,13 +75,15 @@ test.describe("LIRA-108 — keep-change across modules", () => {
           cost_usd: 10,
           price_usd: 40,
           paid_by: "CASH",
-          payments: [
-            { method: "CASH", currency_code: "USD", amount: 45 },
-          ],
+          payments: [{ method: "CASH", currency_code: "USD", amount: 45 }],
           kept_change_usd: 5,
           kept_change_lbp: 0,
         });
-        return { ok: res.success, error: res.error ?? null, delta: (await s()) - before };
+        return {
+          ok: res.success,
+          error: res.error ?? null,
+          delta: (await s()) - before,
+        };
       },
       { FROM, TO },
     );
@@ -111,12 +113,21 @@ test.describe("LIRA-108 — keep-change across modules", () => {
           paid_usd: 53,
           paid_lbp: 0,
           payments: [
-            { method: "CASH", currency_code: "USD", amount: 53, direction: "IN" },
+            {
+              method: "CASH",
+              currency_code: "USD",
+              amount: 53,
+              direction: "IN",
+            },
           ],
           kept_change_usd: 3,
           kept_change_lbp: 0,
         });
-        return { ok: res.success, error: res.error ?? null, delta: (await s()) - before };
+        return {
+          ok: res.success,
+          error: res.error ?? null,
+          delta: (await s()) - before,
+        };
       },
       { FROM, TO },
     );
@@ -180,13 +191,19 @@ test.describe("LIRA-108 — keep-change across modules", () => {
         commission: 2,
         paidByMethod: "CASH",
         payments: [
-          { method: "CASH", currencyCode: "USD", amount: 142.31, direction: "IN" },
+          {
+            method: "CASH",
+            currencyCode: "USD",
+            amount: 142.31,
+            direction: "IN",
+          },
         ],
         note: marker,
         kept_change_usd: 5,
         kept_change_lbp: 0,
       });
-      if (!res.success) return { ok: false, error: res.error ?? "failed", profit: null };
+      if (!res.success)
+        return { ok: false, error: res.error ?? "failed", profit: null };
       const row = (await w.api.transactions.getRecent(50)).find(
         (t) =>
           t.type === "FINANCIAL_SERVICE" &&
@@ -222,7 +239,11 @@ test.describe("LIRA-108 — keep-change across modules", () => {
           kept_change_usd: 0,
           kept_change_lbp: 30_000,
         });
-        return { ok: res.success, error: res.error ?? null, delta: (await s()) - before };
+        return {
+          ok: res.success,
+          error: res.error ?? null,
+          delta: (await s()) - before,
+        };
       },
       { FROM, TO },
     );

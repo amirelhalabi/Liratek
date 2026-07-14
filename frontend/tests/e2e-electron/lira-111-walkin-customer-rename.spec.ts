@@ -29,9 +29,7 @@ type Api = {
       process: (
         d: unknown,
       ) => Promise<{ success: boolean; id?: number; error?: string }>;
-      get: (
-        id: number,
-      ) => Promise<{
+      get: (id: number) => Promise<{
         id: number;
         client_id: number | null;
         client_name: string | null;
@@ -55,7 +53,12 @@ type Api = {
       getRecent: (
         n: number,
       ) => Promise<
-        Array<{ id: number; type: string; source_id: number | null; summary: string | null }>
+        Array<{
+          id: number;
+          type: string;
+          source_id: number | null;
+          summary: string | null;
+        }>
       >;
       getById: (
         id: number,

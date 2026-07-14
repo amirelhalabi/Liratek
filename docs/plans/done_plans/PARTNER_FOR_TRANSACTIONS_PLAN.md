@@ -11,7 +11,7 @@
 A FOR-partner transaction is a **normal transaction** — same stock/credit
 consumed, same **sell-price** billing, same **profit stamped** (POS margin,
 recharge markup, loto commission, OMT system commission) — with ONE
-difference: the **unpaid remainder books to `partner_ledger` (FOR_*, DEBIT)**
+difference: the **unpaid remainder books to `partner_ledger` (FOR\_\*, DEBIT)**
 instead of a client's `debt_ledger`, against a **selected partner** instead of
 a client.
 
@@ -65,14 +65,14 @@ a client.
   drop it once. Rebuild inside the migration txn, recreate the 2 indexes +
   partner_id/user_id FKs; replay on a real client DB copy before release.
 - **Partner-ledger reversal is a PFT-2 item (rule 20), and fixes a
-  PRE-EXISTING bug.** Confirmed via the FOR_OMT void oracle: `voidTransaction`
+  PRE-EXISTING bug.** Confirmed via the FOR*OMT void oracle: `voidTransaction`
   does NOT touch `partner_ledger` at all — so voiding ANY partner transaction
-  (existing FOR_OMT/THROUGH_* included) already strands its ledger row. PFT-2
+  (existing FOR_OMT/THROUGH*_ included) already strands its ledger row. PFT-2
   adds a **type-agnostic** reversal in `voidTransaction`: for the voided
   transaction, find `partner_ledger` rows `WHERE reference_table =
-  original.source_table AND reference_id = original.source_id` and write a
+original.source_table AND reference_id = original.source_id` and write a
   negating CREDIT (journal pattern; guard double-reversal via the VOIDED
-  status gate). This covers FOR_* AND the pre-existing FOR_OMT/THROUGH_* gap
+  status gate). This covers FOR\__ AND the pre-existing FOR*OMT/THROUGH*\* gap
   uniformly. Prove create+void nets partner ledger to 0 per currency,
   failing-first.
 - **Routing is mutually exclusive + partner-gated**: FOR-partner remainder →
@@ -87,16 +87,16 @@ a client.
 
 ## Phases
 
-| Ticket | Scope | Status |
-| ------ | ----- | ------ |
-| **PFT-1** | Schema: DROP `partner_ledger.transaction_type` CHECK → free-form (migration table-rebuild + create_db.sql); add USDT bucket to `getBalanceBreakdown`. Replay on a prod DB copy. | ✅ 2026-07-13 (6cc3672) |
-| **PFT-2** | PARTNER_ACCOUNT routing + **POS** reference + **type-agnostic partner_ledger reversal in voidTransaction/refundTransaction** (fixes the pre-existing FOR_OMT gap too). Failing-first: create+void nets partner ledger to 0; drawer deltas normal. | ✅ 2026-07-13 (lira-113) |
-| **PFT-2b** | Frontend: POS checkout "For Partner" toggle + partner picker (dual-transport). | ✅ 2026-07-13 (dc829f2, lira-114 + lira-web-013) |
-| **PFT-3a** | Recharge family MTC/Alfa → `FOR_RECHARGE` routing. | ✅ 2026-07-13 (6a8dc06, lira-115) |
+| Ticket     | Scope                                                                                                                                                                                                                                               | Status                                                      |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **PFT-1**  | Schema: DROP `partner_ledger.transaction_type` CHECK → free-form (migration table-rebuild + create_db.sql); add USDT bucket to `getBalanceBreakdown`. Replay on a prod DB copy.                                                                     | ✅ 2026-07-13 (6cc3672)                                     |
+| **PFT-2**  | PARTNER_ACCOUNT routing + **POS** reference + **type-agnostic partner_ledger reversal in voidTransaction/refundTransaction** (fixes the pre-existing FOR_OMT gap too). Failing-first: create+void nets partner ledger to 0; drawer deltas normal.   | ✅ 2026-07-13 (lira-113)                                    |
+| **PFT-2b** | Frontend: POS checkout "For Partner" toggle + partner picker (dual-transport).                                                                                                                                                                      | ✅ 2026-07-13 (dc829f2, lira-114 + lira-web-013)            |
+| **PFT-3a** | Recharge family MTC/Alfa → `FOR_RECHARGE` routing.                                                                                                                                                                                                  | ✅ 2026-07-13 (6a8dc06, lira-115)                           |
 | **PFT-3b** | Financial-service family: Katsh/iPick, OMT App/Whish App, Binance (`FOR_*` each; Binance = USDT) + refine existing FOR_OMT "skip General" → conditional cash-at-time. **Open forks: Binance remainder currency (USDT vs cash), RECEIVE direction.** | ✅ 2026-07-14 (backend 3ad8204, frontend 51a562d, lira-119) |
-| **PFT-4** | Loto → `FOR_LOTO` routing (LBP; non-reversible, settlement-owned reversal). | ✅ 2026-07-13 (d91785d, lira-116) |
-| **PFT-5** | Partners page: `FOR_*` rows render (prefix parser) + USDT balance card/settle. **Also fixed a real bug: USDT settle direction was keyed off the USD balance sign.** | ✅ 2026-07-13 (a019798, lira-117) |
-| **PFT-6** | Profit recognition on partner settlement (Model A, owner-decided): FIFO settlement→source linkage bumps the source paid state so `saleFullyPaid` opens. Cross-cutting; built once after routing. | ✅ 2026-07-14 (1232759, lira-120) |
+| **PFT-4**  | Loto → `FOR_LOTO` routing (LBP; non-reversible, settlement-owned reversal).                                                                                                                                                                         | ✅ 2026-07-13 (d91785d, lira-116)                           |
+| **PFT-5**  | Partners page: `FOR_*` rows render (prefix parser) + USDT balance card/settle. **Also fixed a real bug: USDT settle direction was keyed off the USD balance sign.**                                                                                 | ✅ 2026-07-13 (a019798, lira-117)                           |
+| **PFT-6**  | Profit recognition on partner settlement (Model A, owner-decided): FIFO settlement→source linkage bumps the source paid state so `saleFullyPaid` opens. Cross-cutting; built once after routing.                                                    | ✅ 2026-07-14 (1232759, lira-120)                           |
 
 ## PFT-6 — profit recognition on partner settlement (OWNER DECIDED: Model A)
 
@@ -106,12 +106,12 @@ cash and the existing on-account treatment; a normal credit sale already defers
 profit until repayment. Does not block PFT-2/3/4 routing (routing is
 model-independent); PFT-6 is the cross-cutting recognition mechanism, built once.
 
-**PFT-6 to build:** partner FOR_* settlement must link back to the source
+**PFT-6 to build:** partner FOR*\* settlement must link back to the source
 transaction(s) and open the fully-paid gate — mirror the supplier FIFO coverage
 pattern (`TransactionRepository._unapplySupplierPurchaseCoverage` /
 `_applySupplierPurchaseCoverage` already do FIFO settlement→purchase linkage).
 On a partner settlement, apply the paid amount FIFO across that partner's open
-FOR_* DEBIT rows, and for each source sale/service now covered, bump its paid
+FOR*\* DEBIT rows, and for each source sale/service now covered, bump its paid
 state (`sales.paid_usd` etc.) so `saleFullyPaid` opens and the stamped margin
 enters realized profit. Prove failing-first: a FOR-partner sale's margin is
 pending before settlement, realized after (rule 17), and nets to 0 on void of
@@ -160,6 +160,7 @@ to owner before PFT-3/4 (recharge/loto have the same fully-paid-gate shape).
 model used everywhere above.** After a detailed owner interview, the model is:
 
 ## Governing principle
+
 A "for partner" transaction has **NO walk-in customer in between** — the shop
 acts for the partner, who **owes** the shop (SEND) or **is owed** by the shop
 (RECEIVE) the **FULL amount**. **No cash is taken at the counter** for the
@@ -168,6 +169,7 @@ settlement**. The partner is selected via a **"For Partner" checkbox + partner
 div** (the OMT-system pattern) on every applicable form.
 
 ## Profit timing
+
 - **Immediate** (stamped + realized at the transaction): **iPick / Katsh only.**
 - **Deferred until the partner settles**: everything else — POS margin, recharge
   markup, loto commission, and ALL OMT / OMT App / Whish App / Binance
@@ -175,48 +177,54 @@ div** (the OMT-system pattern) on every applicable form.
   "fee is immediate" — FS fee/commission is real only on settlement.)
 
 ## SEND — partner OWES the shop (partner_ledger DEBIT)
-| Service | Drawer effect (normal flow kept) | Partner owes | Profit |
-| --- | --- | --- | --- |
-| **POS** | stock −qty; **NO cash drawer** | full sale price (USD) | margin — deferred |
-| **Recharge MTC/Alfa** | MTC/Alfa provider drawer −amount | full price (USD/LBP) | markup — deferred |
-| **Loto** | supplier float (normal) | full ticket value (LBP) | commission — deferred |
-| **OMT system / OMT App / Whish App** | **existing OUT-payment form, any method (drawer follows method: cash→General, etc.); fee already in the form** | **full amount paid** | commission — deferred |
-| **Binance** | **Binance/USDT drawer −(USDT sent)** | **full amount in USD** | margin — deferred |
-| **iPick / Katsh / MTC-Alfa bill / Whish App bill** | cost/provider (normal) | **selling price** | margin — **IMMEDIATE** |
+
+| Service                                            | Drawer effect (normal flow kept)                                                                               | Partner owes            | Profit                 |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------- | ---------------------- |
+| **POS**                                            | stock −qty; **NO cash drawer**                                                                                 | full sale price (USD)   | margin — deferred      |
+| **Recharge MTC/Alfa**                              | MTC/Alfa provider drawer −amount                                                                               | full price (USD/LBP)    | markup — deferred      |
+| **Loto**                                           | supplier float (normal)                                                                                        | full ticket value (LBP) | commission — deferred  |
+| **OMT system / OMT App / Whish App**               | **existing OUT-payment form, any method (drawer follows method: cash→General, etc.); fee already in the form** | **full amount paid**    | commission — deferred  |
+| **Binance**                                        | **Binance/USDT drawer −(USDT sent)**                                                                           | **full amount in USD**  | margin — deferred      |
+| **iPick / Katsh / MTC-Alfa bill / Whish App bill** | cost/provider (normal)                                                                                         | **selling price**       | margin — **IMMEDIATE** |
 
 ## RECEIVE — shop OWES the partner (partner_ledger CREDIT)
-| Service | Drawer effect | Shop owes partner | Fee |
-| --- | --- | --- | --- |
-| **OMT system** | OMT drawer +amount | full amount | **no fee** |
-| **OMT App** | OMT App drawer +amount | amount − fee (if fee) | optional — deferred |
-| **Whish App** | Whish App drawer +amount | amount − fee (if fee) | optional — deferred |
-| **Binance** | **Binance/USDT drawer +amount** | amount − fee (if fee), **in USD** | optional — deferred |
+
+| Service        | Drawer effect                   | Shop owes partner                 | Fee                 |
+| -------------- | ------------------------------- | --------------------------------- | ------------------- |
+| **OMT system** | OMT drawer +amount              | full amount                       | **no fee**          |
+| **OMT App**    | OMT App drawer +amount          | amount − fee (if fee)             | optional — deferred |
+| **Whish App**  | Whish App drawer +amount        | amount − fee (if fee)             | optional — deferred |
+| **Binance**    | **Binance/USDT drawer +amount** | amount − fee (if fee), **in USD** | optional — deferred |
 
 - No immediate payout on RECEIVE — the shop pays the partner **at settlement**
   (any method). The service drawer just increases by the received amount.
 
 ## Currency
+
 - **Binance partner debt is USD both ways** (the drawer moves in USDT, but the
   partner owes/is-owed **USD**). → A partner **never carries a USDT balance**.
   **Remove USDT from the settle-currency options** and the USDT partner balance
   card (PFT-5 built these under the obsolete "track in USDT" answer). The
   Binance/USDT **drawer** is still real (currency_drawers), only the partner
-  *ledger* is USD/LBP. (PFT-1's usdt bucket in `getBalanceBreakdown` becomes dead
+  _ledger_ is USD/LBP. (PFT-1's usdt bucket in `getBalanceBreakdown` becomes dead
   but harmless — leave it.)
 
 ## Partners page
+
 - **Settlement** nets balances per currency (USD/LBP); paying down a DEBIT /
   paying out a CREDIT is **when the deferred profit is recognized** (PFT-6).
 - **KEEP the "Add credit / debt" button** (owner wants it) — a general manual
   partner-ledger adjustment tool, like the Accounts page.
 
 ## UI
+
 - All SEND/RECEIVE financial-service forms (OMT system, OMT App, Whish App,
   Binance) get the **OMT-system "For Partner" checkbox + partner div**. The OMT
   App / Whish App / Binance forms currently **auto-select the single partner** —
   that is the bug to fix (make it opt-in via the checkbox).
 
 ## Impact on already-shipped Wave-1 work (must be REVISED)
+
 - **PFT-2 (POS), PFT-3a (recharge), PFT-4 (loto)** shipped on the walk-in
   remainder model → **revise to full-amount, no counter-cash step in partner
   mode**; update lira-113/114/115/116 to assert the full amount + no drawer cash.
@@ -225,16 +233,17 @@ div** (the OMT-system pattern) on every applicable form.
   getBalance/getAllBalances plumbing (harmless).
 
 ## Re-scoped remaining tickets
-| Ticket | Scope | Status |
-| --- | --- | --- |
-| **PFT-R** | Revise POS/recharge/loto (PFT-2/3a/4) walk-in→full-amount; hide counter-cash in partner mode; update their e2es | ✅ 2026-07-13 (a65d70f, lira-113/114/115/116) |
-| **PFT-R5** | Remove USDT settle option + card (Binance debt is USD); obsolete lira-117 | ✅ 2026-07-13 (9fb33ad) |
-| **PFT-7** | Partners page **"Add credit / debt"** manual-adjustment button (dual-transport) | ✅ 2026-07-13 (9fb33ad) |
-| **PFT-3b** | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select. | ✅ 2026-07-14 (backend 3ad8204 + lira-119 13×; frontend 51a562d incl. the Services-page FOR+SEND OUT-leg fix) |
-| **PFT-6** | Settlement→profit recognition (FIFO covered_amount, v128) + **PFT-6b** settlement moves the drawer (PARTNER_SETTLEMENT txn) | ✅ 2026-07-14 (1232759, lira-120; v1 gates = summary/by-date/by-module; by-user/by-client/payment-method views ungated — documented) |
-| **PFT-7b** | OWNER DECIDED 2026-07-14: the Partners "Add credit/debt" modal gains a **"cash moved" checkbox** — ticked → the drawer moves with the entry (add debt = cash OUT to partner, add credit = cash IN), recorded as an auditable PARTNER_PAYMENT transaction; unticked → today's bookkeeping-only ADJUSTMENT. Profit-coverage rule: **coverage applies when real money moves** (SETTLEMENT, or ADJUSTMENT with cash moved); paper entries never cover. | ✅ 2026-07-14 (32e909c, lira-121) |
-| **DBT-1 (notDebtPending)** | OWNER DECIDED 2026-07-14: **client-account SERVICE profit waits until the client repays** (recharge/FS/custom/maintenance/loto on CUSTOMER_ACCOUNT), consistent with products + partners. iPick/Katsh stay immediate (same owner exception as partners). Mechanism mirrors PFT-6: v129 `debt_ledger.covered_amount`; repayments apply FIFO coverage to module-debt charge rows per client+currency; ProfitRepository gains `notDebtPending`. NOTE: existing unpaid account-charged services flip realized→pending (owner informed). | ✅ 2026-07-14 (32e909c, lira-121) |
-| **DBT-2 (side views)** | OWNER DECIDED 2026-07-14: gate the **by-employee** and **top-clients** profit views so every tab matches the Summary (partner + debt gates, txn-level fragments). | ✅ 2026-07-14 (32e909c, lira-121) |
+
+| Ticket                     | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Status                                                                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **PFT-R**                  | Revise POS/recharge/loto (PFT-2/3a/4) walk-in→full-amount; hide counter-cash in partner mode; update their e2es                                                                                                                                                                                                                                                                                                                                                                                                                     | ✅ 2026-07-13 (a65d70f, lira-113/114/115/116)                                                                                        |
+| **PFT-R5**                 | Remove USDT settle option + card (Binance debt is USD); obsolete lira-117                                                                                                                                                                                                                                                                                                                                                                                                                                                           | ✅ 2026-07-13 (9fb33ad)                                                                                                              |
+| **PFT-7**                  | Partners page **"Add credit / debt"** manual-adjustment button (dual-transport)                                                                                                                                                                                                                                                                                                                                                                                                                                                     | ✅ 2026-07-13 (9fb33ad)                                                                                                              |
+| **PFT-3b**                 | FS SEND (OMT/OMT App/Whish App via OUT-payment form; iPick/Katsh/bills selling-price; Binance USDT-drawer/USD-debt) + FS RECEIVE (OMT/App/Whish App/Binance: service drawer +amt, owe partner amount−fee). "For Partner" checkbox+div on each; fix auto-select.                                                                                                                                                                                                                                                                     | ✅ 2026-07-14 (backend 3ad8204 + lira-119 13×; frontend 51a562d incl. the Services-page FOR+SEND OUT-leg fix)                        |
+| **PFT-6**                  | Settlement→profit recognition (FIFO covered_amount, v128) + **PFT-6b** settlement moves the drawer (PARTNER_SETTLEMENT txn)                                                                                                                                                                                                                                                                                                                                                                                                         | ✅ 2026-07-14 (1232759, lira-120; v1 gates = summary/by-date/by-module; by-user/by-client/payment-method views ungated — documented) |
+| **PFT-7b**                 | OWNER DECIDED 2026-07-14: the Partners "Add credit/debt" modal gains a **"cash moved" checkbox** — ticked → the drawer moves with the entry (add debt = cash OUT to partner, add credit = cash IN), recorded as an auditable PARTNER_PAYMENT transaction; unticked → today's bookkeeping-only ADJUSTMENT. Profit-coverage rule: **coverage applies when real money moves** (SETTLEMENT, or ADJUSTMENT with cash moved); paper entries never cover.                                                                                  | ✅ 2026-07-14 (32e909c, lira-121)                                                                                                    |
+| **DBT-1 (notDebtPending)** | OWNER DECIDED 2026-07-14: **client-account SERVICE profit waits until the client repays** (recharge/FS/custom/maintenance/loto on CUSTOMER_ACCOUNT), consistent with products + partners. iPick/Katsh stay immediate (same owner exception as partners). Mechanism mirrors PFT-6: v129 `debt_ledger.covered_amount`; repayments apply FIFO coverage to module-debt charge rows per client+currency; ProfitRepository gains `notDebtPending`. NOTE: existing unpaid account-charged services flip realized→pending (owner informed). | ✅ 2026-07-14 (32e909c, lira-121)                                                                                                    |
+| **DBT-2 (side views)**     | OWNER DECIDED 2026-07-14: gate the **by-employee** and **top-clients** profit views so every tab matches the Summary (partner + debt gates, txn-level fragments).                                                                                                                                                                                                                                                                                                                                                                   | ✅ 2026-07-14 (32e909c, lira-121)                                                                                                    |
 
 ### PFT-6 design (locked 2026-07-14, pre-build)
 
@@ -249,14 +258,14 @@ predicate in `ProfitRepository`.**
    partner's OPPOSITE-direction `FOR_%` rows in the same currency
    (`covered_amount < amount`), bumping `covered_amount`. `FOR_%`/`THROUGH_%`
    rows never act as coverage sources — this keeps void-reversal rows (same
-   FOR_ type, opposite direction) from fake-settling their own original.
+   FOR\_ type, opposite direction) from fake-settling their own original.
    Voiding an already-covered FOR row does NOT rebalance coverage (v1;
    the void's profit negation nets the P&L anyway — documented).
 3. **Profit gates** (`ProfitRepository`, rule 14 — ONE named fragment):
    `partnerPending(refTable, refId)` = EXISTS an uncovered `FOR_%` row
    (excluding `FOR_IPICK`/`FOR_KATSH`, which the owner wants immediate).
    - SALE arms: gate becomes `saleFullyPaid OR (has FOR_POS row AND NOT
-     partnerPending)` — a covered partner sale realizes; uncovered stays
+partnerPending)` — a covered partner sale realizes; uncovered stays
      pending; non-partner sales unchanged.
    - Recharge / loto / FS / custom / maintenance profit arms: add
      `AND NOT partnerPending(...)` (they have NO pay gate today — this is the
@@ -279,8 +288,10 @@ settlement hits General; method-specific drawers otherwise; voidable/audited
 like other transactions).
 
 ### ⚠️ PFT-6 re-scope (found 2026-07-13, advisor)
+
 The owner-decided defer-to-settlement is **only partially true in code today**:
-- **POS** defers *naturally* — a for-partner sale has `paid_usd = 0`, so
+
+- **POS** defers _naturally_ — a for-partner sale has `paid_usd = 0`, so
   `saleFullyPaid` is false and its margin is already excluded from realized
   profit. PFT-6's "FIFO settlement → bump `paid_usd` → open the gate" fixes POS.
 - **Recharge / loto / FS have NO payment gate** — `getRechargesByCurrency`,

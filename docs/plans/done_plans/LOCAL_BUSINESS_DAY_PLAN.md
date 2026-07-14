@@ -17,11 +17,13 @@ Effect in Beirut (UTC+3): the day rolls at 03:00 local. Records made 00:00–03:
 under the previous day; "today's stats"/dashboard/monthly-P&L/profits-range bucket by UTC.
 
 Decision (user, 2026-07-11): fix to Beirut local. Implementation = align outliers to the
-existing `'localtime'` convention. This implements **machine-local**, which *equals* Beirut on
+existing `'localtime'` convention. This implements **machine-local**, which _equals_ Beirut on
 the reported platform (desktop) — not a hardcoded Beirut offset (so DST is handled by the OS).
 
 ### Web / multi-tenant caveat (advisor #2 — must be acted on for web mode)
+
 `'now','localtime'` / `datetime(col,'localtime')` follow the **machine's** TZ:
+
 - **Desktop (Electron):** machine = the shop's PC = Beirut → fixes the reported bug. ✓
 - **Web backend:** follows the **server's** TZ. The backend currently pins **no TZ** (verified —
   no `TZ` in `backend/.env*`, Dockerfile, or code). So on web the server buckets by its own TZ
@@ -36,6 +38,7 @@ the reported platform (desktop) — not a hardcoded Beirut offset (so DST is han
 ## Changes
 
 ### A. Shared local-day helpers (define once per runtime layer — rule 14)
+
 - `packages/core/src/utils/localDate.ts`: `localDay(d=new Date())` → local `YYYY-MM-DD`,
   `localMonth()` → `YYYY-MM`, `localDaysAgo(n)`. Use local getters, NOT `toISOString`.
 - `packages/ui` `DateRangeFilter.tsx`: fix `todayISO()`/`daysAgoISO()` to use local getters
@@ -44,8 +47,9 @@ the reported platform (desktop) — not a hardcoded Beirut offset (so DST is han
   the DateRangeFilter helpers (Dashboard month, prefills, CheckpointTimeline, CashReportModal).
 
 ### B. Core SQL: UTC → localtime (align to SalesRepository)
+
 - `ClosingRepository.getDailyStatsSnapshot`: drop JS `today`; `DATE(col,'localtime') =
-  DATE('now','localtime')` for created_at cols; `expense_date = DATE('now','localtime')`
+DATE('now','localtime')` for created_at cols; `expense_date = DATE('now','localtime')`
   (date-only col — no `'localtime'` on the column).
 - `ClosingRepository.hasOpeningBalanceToday`: `closing_date = DATE('now','localtime')`.
 - `ClosingRepository.getCheckpointTimeline`: default from/to → `localDay()`.
@@ -65,26 +69,31 @@ the reported platform (desktop) — not a hardcoded Beirut offset (so DST is han
   stay — storing a UTC instant in a timestamp column is correct.)
 
 ### C. Frontend "today" defaults → local
+
 Dashboard month (342/354); expense (54/110), loto (219/309), Checkpoint (225),
 CheckpointScheduler (76/78) prefills; `CheckpointTimeline.todayISO` (40); `CashReportModal`
 (53/57).
 
 ### Leave
+
 - `new Date().toISOString()` storing a "now" instant into a timestamp column (correct).
 - `ReportingService.getDateRange` (date-only→date-only; latent negative-offset-only edge, not Beirut).
 - Class A display fixes (already done) and date-only display (Class B).
 
 ## Tests (rule 17 — must fail on the UTC version)
+
 Core jest with `process.env.TZ='Asia/Beirut'`: insert a row whose `created_at` UTC-day ≠
 local-day (e.g. UTC `2026-07-10 23:30:00` = Beirut `2026-07-11 02:30`); assert
 `getDailyStatsSnapshot` and `ProfitRepository` bucket it under the LOCAL day. Prove each fails
 before the SQL change, passes after.
 
 ## Verify
+
 `cd packages/core && npm run build` + sync; `yarn typecheck`; `yarn lint`; core jest (Node ABI,
 TZ=Asia/Beirut) then restore Electron ABI; frontend tests; the two timezone e2e specs.
 
 ## Status — DONE (2026-07-11)
+
 - Helpers: `packages/core/src/utils/localDate.ts`, `frontend/src/shared/utils/localDay.ts`,
   `DateRangeFilter.todayISO/daysAgoISO` now local.
 - Core SQL: ClosingRepository (`todayLocal` helper + createCheckpoint/hasOpeningBalanceToday/

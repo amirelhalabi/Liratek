@@ -278,11 +278,7 @@ export default function MultiPaymentInput({
   /** Convert an amount between currencies at the effective table. Unknown
    *  pairs fall back to the amount unchanged — the legacy behavior of
    *  normalizeToTarget's "no cross-rate support" branch. */
-  const convertSafe = (
-    amount: number,
-    from: string,
-    to: string,
-  ): number => {
+  const convertSafe = (amount: number, from: string, to: string): number => {
     if (from === to) return amount;
     try {
       return convertMoney({ amount, currency: from }, to, internalRates, side)
@@ -1061,109 +1057,117 @@ export default function MultiPaymentInput({
                 </div>
 
                 <div className="flex-1 min-w-0 p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  {/* Payment Method */}
-                  <select
-                    data-testid={`payment-method-${line.id}`}
-                    value={line.method}
-                    onChange={(e) =>
-                      updatePaymentLine(line.id, "method", e.target.value)
-                    }
-                    className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
-                  >
-                    {paymentMethods.map((pm) => (
-                      <option key={pm.code} value={pm.code}>
-                        {pm.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    {/* Payment Method */}
+                    <select
+                      data-testid={`payment-method-${line.id}`}
+                      value={line.method}
+                      onChange={(e) =>
+                        updatePaymentLine(line.id, "method", e.target.value)
+                      }
+                      className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
+                    >
+                      {paymentMethods.map((pm) => (
+                        <option key={pm.code} value={pm.code}>
+                          {pm.label}
+                        </option>
+                      ))}
+                    </select>
 
-                  {/* Currency */}
-                  <select
-                    data-testid={`payment-currency-${line.id}`}
-                    value={line.currencyCode}
-                    onChange={(e) =>
-                      updatePaymentLine(line.id, "currencyCode", e.target.value)
-                    }
-                    className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
-                  >
-                    {currencies.map((curr) => (
-                      <option key={curr.code} value={curr.code}>
-                        {curr.code}
-                      </option>
-                    ))}
-                  </select>
+                    {/* Currency */}
+                    <select
+                      data-testid={`payment-currency-${line.id}`}
+                      value={line.currencyCode}
+                      onChange={(e) =>
+                        updatePaymentLine(
+                          line.id,
+                          "currencyCode",
+                          e.target.value,
+                        )
+                      }
+                      className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
+                    >
+                      {currencies.map((curr) => (
+                        <option key={curr.code} value={curr.code}>
+                          {curr.code}
+                        </option>
+                      ))}
+                    </select>
 
-                  {/* Amount — DecimalInput keeps the raw text while focused so
+                    {/* Amount — DecimalInput keeps the raw text while focused so
                       decimal points survive typing (a controlled fmtNum/parseNum
                       round-trip ate the "." on every keystroke). */}
-                  <div className="relative w-28">
-                    {["$", "€", "£"].includes(getSymbol(line.currencyCode)) && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
-                        {getSymbol(line.currencyCode)}
-                      </span>
-                    )}
-                    <DecimalInput
-                      data-testid={`payment-amount-${line.id}`}
-                      value={line.amount}
-                      decimals={line.currencyCode === "LBP" ? 0 : 2}
-                      onChange={(n) => updatePaymentLine(line.id, "amount", n)}
-                      className={`w-full bg-slate-900 border border-slate-600 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
-                        ["$", "€", "£"].includes(getSymbol(line.currencyCode))
-                          ? "pl-7"
-                          : "pl-3"
-                      }`}
-                      placeholder="0"
-                    />
-                  </div>
-
-                  {/* Remove */}
-                  <button
-                    type="button"
-                    disabled={paymentLines.length === 1}
-                    onClick={() => removePaymentLine(line.id)}
-                    className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
-                    title="Remove"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-
-                {/* Voucher picker (GIFT_CARD) */}
-                {fetchClientVouchers && line.method === "GIFT_CARD" && (
-                  <div className="pl-3 border-l-2 border-orange-500/30">
-                    {renderVoucherSelector(line)}
-                  </div>
-                )}
-
-                {/* PM Fee sub-line */}
-                {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
-                  <div className="flex items-center gap-2 pl-3 border-l-2 border-violet-500/30">
-                    <span className="text-[11px] text-violet-400 whitespace-nowrap">
-                      PM fee
-                    </span>
-                    <div className="relative w-24">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-violet-400 text-[10px]">
-                        $
-                      </span>
-                      <input
-                        type="number"
-                        value={
-                          pmFeeOverrides[line.id] ??
-                          (line.amount * pmFeeRate).toFixed(2)
+                    <div className="relative w-28">
+                      {["$", "€", "£"].includes(
+                        getSymbol(line.currencyCode),
+                      ) && (
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
+                          {getSymbol(line.currencyCode)}
+                        </span>
+                      )}
+                      <DecimalInput
+                        data-testid={`payment-amount-${line.id}`}
+                        value={line.amount}
+                        decimals={line.currencyCode === "LBP" ? 0 : 2}
+                        onChange={(n) =>
+                          updatePaymentLine(line.id, "amount", n)
                         }
-                        onChange={(e) => {
-                          const newOverrides = { ...pmFeeOverrides };
-                          newOverrides[line.id] = e.target.value;
-                          setPmFeeOverrides(newOverrides);
-                        }}
-                        className="w-full bg-violet-950/40 border border-violet-700/40 rounded-md pl-5 pr-2 py-1 text-violet-200 text-xs font-mono focus:outline-none focus:border-violet-500"
-                        placeholder="0.00"
-                        step="0.01"
+                        className={`w-full bg-slate-900 border border-slate-600 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
+                          ["$", "€", "£"].includes(getSymbol(line.currencyCode))
+                            ? "pl-7"
+                            : "pl-3"
+                        }`}
+                        placeholder="0"
                       />
                     </div>
+
+                    {/* Remove */}
+                    <button
+                      type="button"
+                      disabled={paymentLines.length === 1}
+                      onClick={() => removePaymentLine(line.id)}
+                      className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
+                      title="Remove"
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
-                )}
+
+                  {/* Voucher picker (GIFT_CARD) */}
+                  {fetchClientVouchers && line.method === "GIFT_CARD" && (
+                    <div className="pl-3 border-l-2 border-orange-500/30">
+                      {renderVoucherSelector(line)}
+                    </div>
+                  )}
+
+                  {/* PM Fee sub-line */}
+                  {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
+                    <div className="flex items-center gap-2 pl-3 border-l-2 border-violet-500/30">
+                      <span className="text-[11px] text-violet-400 whitespace-nowrap">
+                        PM fee
+                      </span>
+                      <div className="relative w-24">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-violet-400 text-[10px]">
+                          $
+                        </span>
+                        <input
+                          type="number"
+                          value={
+                            pmFeeOverrides[line.id] ??
+                            (line.amount * pmFeeRate).toFixed(2)
+                          }
+                          onChange={(e) => {
+                            const newOverrides = { ...pmFeeOverrides };
+                            newOverrides[line.id] = e.target.value;
+                            setPmFeeOverrides(newOverrides);
+                          }}
+                          className="w-full bg-violet-950/40 border border-violet-700/40 rounded-md pl-5 pr-2 py-1 text-violet-200 text-xs font-mono focus:outline-none focus:border-violet-500"
+                          placeholder="0.00"
+                          step="0.01"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1434,7 +1438,9 @@ export default function MultiPaymentInput({
             <span className="text-red-400">Remaining (Debt)</span>
             <span className="flex items-center gap-2">
               <span className="font-mono font-bold text-red-400">
-                {fmtTarget(toDisplayCurrency(effectiveTotalInTarget - totalPaid))}
+                {fmtTarget(
+                  toDisplayCurrency(effectiveTotalInTarget - totalPaid),
+                )}
               </span>
               {showWaiveButton && (
                 <button
@@ -1473,23 +1479,23 @@ export default function MultiPaymentInput({
                     button would suppress the return without stamping profit
                     (silent money hole). */}
                 {onKeptChange && (
-                <button
-                  type="button"
-                  data-testid="keep-change"
-                  onClick={() => setKeepChange((k) => !k)}
-                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
-                    keepChange
-                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                      : "bg-slate-900 text-amber-300 border-amber-700/40 hover:border-amber-500"
-                  }`}
-                  title={
-                    keepChange
-                      ? "Keeping the change as profit — tap to return it"
-                      : "Return nothing — keep the change as profit"
-                  }
-                >
-                  {keepChange ? "Keeping ✓" : "Keep change"}
-                </button>
+                  <button
+                    type="button"
+                    data-testid="keep-change"
+                    onClick={() => setKeepChange((k) => !k)}
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
+                      keepChange
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                        : "bg-slate-900 text-amber-300 border-amber-700/40 hover:border-amber-500"
+                    }`}
+                    title={
+                      keepChange
+                        ? "Keeping the change as profit — tap to return it"
+                        : "Return nothing — keep the change as profit"
+                    }
+                  >
+                    {keepChange ? "Keeping ✓" : "Keep change"}
+                  </button>
                 )}
                 {/* Method selector — only when non-cash methods are available */}
                 {!isCashOnlyPayment && !keepChange && (

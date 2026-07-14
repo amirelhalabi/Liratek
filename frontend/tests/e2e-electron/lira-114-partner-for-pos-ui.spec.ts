@@ -47,7 +47,11 @@ type Api = {
       create: (d: {
         name: string;
         phone?: string;
-      }) => Promise<{ success: boolean; data?: { id: number }; error?: string }>;
+      }) => Promise<{
+        success: boolean;
+        data?: { id: number };
+        error?: string;
+      }>;
       getBalance: (partnerId: number) => Promise<{ usd: number; lbp: number }>;
     };
     transactions: {
@@ -132,9 +136,7 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FULL-a
     await expect(productItem).toBeVisible({ timeout: 5_000 });
     await productItem.click();
 
-    await appPage
-      .getByRole("button", { name: /Proceed to Checkout/i })
-      .click();
+    await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
     const modal = appPage.locator('[data-testid="checkout-modal"]');
     await expect(modal).toBeVisible({ timeout: 5_000 });
 
@@ -154,9 +156,9 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FULL-a
     // THE failing-first assertion (rule 17) — see file header. On committed
     // code MultiPaymentInput keeps rendering regardless of the toggle, so
     // this count reads 1, not 0.
-    await expect(
-      modal.locator('[data-testid^="payment-amount-"]'),
-    ).toHaveCount(0);
+    await expect(modal.locator('[data-testid^="payment-amount-"]')).toHaveCount(
+      0,
+    );
     // The no-payment notice takes its place.
     await expect(
       modal.locator('[data-testid="checkout-partner-no-payment-notice"]'),
@@ -178,7 +180,9 @@ test.describe("LIRA-114 — POS checkout 'For Partner' control drives the FULL-a
     // Success closes the modal; a pre-fix failure leaves it open with an
     // error toast instead — either way, give the IPC round-trip time to
     // settle before reading balances (reading immediately risks a race).
-    await expect(modal).toBeHidden({ timeout: 10_000 }).catch(() => {});
+    await expect(modal)
+      .toBeHidden({ timeout: 10_000 })
+      .catch(() => {});
 
     const partnerBalAfter = await partnerUsd(appPage, partnerId);
     const drawerAfterSale = await generalUsd(appPage);

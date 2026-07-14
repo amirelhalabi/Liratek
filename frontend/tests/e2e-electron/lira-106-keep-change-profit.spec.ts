@@ -81,8 +81,8 @@ test.describe("LIRA-106 — keep change books as profit", () => {
     const result = await appPage.evaluate(
       async ({ FROM, TO, productId }) => {
         const w = window as unknown as Api;
-        const s = async () => (await w.api.profits.summary(FROM, TO)).sales
-          .profit_usd;
+        const s = async () =>
+          (await w.api.profits.summary(FROM, TO)).sales.profit_usd;
 
         const before = await s();
         const res = await w.api.sales.process({

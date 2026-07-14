@@ -160,7 +160,8 @@ export default function AuditLogViewer({
         showRowCount
         totalRowCount={total ?? rows.length}
         getSortValue={(row, key) => {
-          if (key === "created_at") return parseDbDate(row.created_at).getTime();
+          if (key === "created_at")
+            return parseDbDate(row.created_at).getTime();
           return String((row as unknown as Record<string, unknown>)[key] ?? "");
         }}
         className="w-full text-left"

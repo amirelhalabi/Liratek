@@ -280,7 +280,9 @@ export function LotoPage() {
       transaction_time: transactionTime,
       // T3 keep-change: kept amounts join the ticket's profit stamp. Never
       // applicable in partner mode (no counter cash to keep).
-      ...(keptChange && !forPartner && (keptChange.usd > 0 || keptChange.lbp > 0)
+      ...(keptChange &&
+      !forPartner &&
+      (keptChange.usd > 0 || keptChange.lbp > 0)
         ? {
             kept_change_usd: keptChange.usd,
             kept_change_lbp: keptChange.lbp,
