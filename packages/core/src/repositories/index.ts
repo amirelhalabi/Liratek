@@ -86,6 +86,7 @@ export type {
   DebtSummary,
   CreateRepaymentData,
   RepaymentPaymentLine,
+  CounterpartyDiscountData,
 } from "./DebtRepository.js";
 
 // Voucher Repository
@@ -202,6 +203,7 @@ export type {
   SettleTransactionsData,
   SupplierCashflowData,
   SupplierBalance,
+  SupplierDiscountData,
 } from "./SupplierRepository.js";
 
 // Maintenance Repository
@@ -534,3 +536,17 @@ export type {
   CreateTenantData,
   UpdateTenantData,
 } from "./TenantRepository.js";
+
+// Money posting helpers (seed of CQ-3's moneyPosting.ts — Payment-Legs
+// Integrity plan, S2 hard-reject leg reconciliation)
+export {
+  reconcileLegs,
+  expectedTotalIn,
+  LEG_RECONCILIATION_EPSILON_USD,
+} from "./moneyPosting.js";
+export type {
+  ReconciliationLeg,
+  KeptChange,
+  ExpectedTotals,
+  ReconcileLegsInput,
+} from "./moneyPosting.js";

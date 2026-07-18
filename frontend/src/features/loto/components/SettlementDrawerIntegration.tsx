@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useApi, Select } from "@liratek/ui";
+import { appEvents, useApi, Select } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import {
   Wallet,
@@ -84,6 +84,11 @@ export function SettlementDrawerIntegration({
 
       if (!result.success) throw new Error(result.error ?? "Settlement failed");
 
+      appEvents.emit(
+        "notification:show",
+        "Loto settlement completed successfully",
+        "success",
+      );
       setSuccess(true);
       setTimeout(() => {
         onSettlementComplete?.();

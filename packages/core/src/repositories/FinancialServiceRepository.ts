@@ -13,8 +13,13 @@ import {
   partitionLegs,
 } from "../utils/payments.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
+import {
+  getPartnerRepository,
+  type CreateLedgerEntryData,
+} from "./PartnerRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
+import { reconcileLegs, expectedTotalIn } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -26,6 +31,17 @@ import {
 } from "../utils/omtFees.js";
 import { lookupWhishFee } from "../utils/whishFees.js";
 import { financialLogger } from "../utils/logger.js";
+
+/**
+ * CQ-7: the FOR_%/THROUGH_% partner-ledger type literal, narrowed from
+ * `CreateLedgerEntryData["transaction_type"]` (which also carries legacy/
+ * settlement members and `undefined`). Used to type the FOR-partner
+ * dispatch's ledger-type locals so they type-check against
+ * `PartnerRepository.addLedgerEntry` without widening to plain `string`.
+ */
+type ForPartnerLedgerType = NonNullable<
+  CreateLedgerEntryData["transaction_type"]
+>;
 
 // =============================================================================
 // Entity Types
@@ -182,6 +198,21 @@ export interface CreateFinancialServiceData {
    * operator-edited rate from the payment UI.
    */
   exchangeRate?: number;
+  /**
+   * Payment-Legs Integrity plan: the USD→LBP rate MultiPaymentInput actually
+   * converted the customer's TENDER at (e.g. the buy rate for a form that
+   * passes `exchangeRate={buyRate}` to its PaymentSheet, per the owner's
+   * 2026-07-06 MPI-buy-rate decision) — this can differ from `exchangeRate`
+   * above, which is the transaction's stamped rate-of-record (sell-side for
+   * money-in flows). When present, leg reconciliation (`reconcileLegs`)
+   * converts at THIS rate instead of `exchangeRate` — the till's own change
+   * math must be compared at the SAME rate it used, or a legitimate
+   * buy/sell-spread checkout false-rejects (lira-095). Falls back to
+   * `exchangeRate` (then a live sell-rate lookup) when omitted — every
+   * existing caller that doesn't send it is unaffected. Never used to stamp
+   * `transactions.exchange_rate` — only the reconciliation check.
+   */
+  tender_exchange_rate?: number;
   /** Partner ID: when set, this transaction involves a partner */
   partnerId?: number;
   /** Partner Mode: specifies if we use their system ('THROUGH') or they use our system ('FOR') */
@@ -201,6 +232,23 @@ export interface CreateFinancialServiceData {
    * created. Non-session callers leave this falsy → behavior is unchanged.
    */
   deferPayment?: boolean;
+  /**
+   * Payment-Legs Integrity plan (Wave 8, owner decision 2026-07-18): the
+   * bills/catalog cart flow (KatchForm / FinancialForm) submits ONE
+   * legs-carrying CARRIER transaction per checkout — every sibling unit in
+   * the same cart submits `deferPayment: true` and carries no legs (see
+   * docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). The carrier's own
+   * `price` is only ONE unit's share of the cart, so reconciling legs
+   * against `price` alone would hard-reject every legitimate multi-unit
+   * checkout. `checkoutTotal` is the FULL amount the customer owes for the
+   * entire checkout, split by the currencies the cart was denominated in.
+   * When present alongside `payments`, the cost/price flow reconciles legs
+   * against THIS instead of `price` (S2's hard-reject invariant, applied to
+   * the right total). Omitted → unchecked legacy behavior (single-unit
+   * checkouts, scripted callers) — same no-op-on-absence contract as every
+   * other `reconcileLegs` call site.
+   */
+  checkoutTotal?: { usd: number; lbp: number };
   /**
    * Authenticated user id stamped on the unified transaction, payment, and
    * debt_ledger rows this transaction writes (all three carry a
@@ -436,6 +484,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
     return this.db.transaction(() => {
       const currency = data.currency ?? "USD";
+      // Payment-Legs Integrity plan: every reconcileLegs call site in this
+      // method compares legs at this ONE rate — the caller's tender rate
+      // when supplied (the till's own conversion, may be buy-side), else the
+      // stamped rate-of-record, else a live sell-rate lookup. This is
+      // reconciliation-only; the `transactions.exchange_rate` stamp below
+      // always uses `data.exchangeRate ?? getUsdLbpSellRate` directly and is
+      // never affected by `tender_exchange_rate`.
+      const reconciliationRate =
+        data.tender_exchange_rate ??
+        data.exchangeRate ??
+        getUsdLbpSellRate(this.db);
       const cost = data.cost ?? 0;
       const price = data.price ?? (useCostPriceFlow ? data.amount : 0);
       const paidBy =
@@ -998,28 +1057,32 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         // or the provider + direction for transfers (owner ask 2026-07-14).
         const ledgerNotes = note ?? `${data.provider} ${data.serviceType}`;
         const insertPartnerLedger = (
-          transactionType: string,
+          transactionType: ForPartnerLedgerType,
           ledgerAmount: number,
           ledgerCurrency: string,
           direction: "DEBIT" | "CREDIT",
         ) => {
-          this.db
-            .prepare(
-              `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, tenant_id, created_at)
-               VALUES (?, ?, 'financial_services', ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
-            )
-            .run(
-              partnerId,
-              transactionType,
-              id,
-              ledgerAmount,
-              ledgerCurrency,
-              direction,
-              ledgerNotes,
-              createdBy,
-              tenantId,
-              data.transaction_time ?? null,
-            );
+          // CQ-7: routed through PartnerRepository.addLedgerEntry instead of
+          // a raw INSERT — same row values (reference_table is always
+          // 'financial_services' here, matching the prior literal), plus
+          // tenant stamping via getCurrentTenantId() inside addLedgerEntry
+          // (same tenant as this transaction's `tenantId`, read from the
+          // same fixed/request-scoped context). addLedgerEntry's coverage
+          // hook only fires for transaction_type === 'SETTLEMENT' or
+          // applyCoverage === true — neither applies to FOR_% rows, so no
+          // FIFO coverage runs here (verified in PartnerRepository.ts).
+          getPartnerRepository().addLedgerEntry({
+            partner_id: partnerId,
+            transaction_type: transactionType,
+            reference_table: "financial_services",
+            reference_id: id,
+            amount: ledgerAmount,
+            currency: ledgerCurrency,
+            direction,
+            notes: ledgerNotes,
+            user_id: createdBy,
+            created_at: data.transaction_time ?? undefined,
+          });
         };
 
         if (useCostPriceFlow) {
@@ -1150,7 +1213,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               "A partner RECEIVE has no payout legs — the shop owes the partner on their tab and pays at settlement",
             );
           }
-          let forType: string;
+          let forType: ForPartnerLedgerType;
           let creditAmount: number;
           let creditCurrency: string;
           let drawerCurrency: string;
@@ -1236,6 +1299,34 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             createdBy,
           );
           upsertBalanceDelta.run(providerDrawer, currency, -Math.abs(cost));
+        }
+
+        // S2 hard-reject reconciliation (Payment-Legs Integrity plan, Wave 8,
+        // owner decision 2026-07-18): a multi-unit cart checkout (KatchForm
+        // bills / FinancialForm catalog items) books ALL of its legs against
+        // exactly ONE carrier transaction — this unit's own `price` is only
+        // that unit's share of the cart, not what the legs need to cover.
+        // Reconcile against `checkoutTotal` (the full cart total) INSTEAD of
+        // `price` when the caller supplied it. No-ops (same as every other
+        // `reconcileLegs` site) when `data.payments` is empty/undefined
+        // (deferPayment siblings never carry legs) or when `checkoutTotal`
+        // is absent — legacy single-unit checkouts and scripted callers are
+        // unaffected.
+        if (!deferPayment && data.checkoutTotal) {
+          reconcileLegs({
+            inLegs: data.payments,
+            outLegs: returnLegs,
+            keptChange: {
+              usd: data.kept_change_usd,
+              lbp: data.kept_change_lbp,
+            },
+            expectedTotals: {
+              usd: data.checkoutTotal.usd,
+              lbp: data.checkoutTotal.lbp,
+            },
+            exchangeRate: reconciliationRate,
+            context: `${data.provider} ${data.serviceType} checkout`,
+          });
         }
 
         // Price inflow: customer pays the shop.
@@ -1413,6 +1504,43 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               : isBINANCE
                 ? "USD"
                 : currency;
+
+          // S2 hard-reject reconciliation (Payment-Legs Integrity plan): the
+          // customer's cash legs must cover the FULL amount the caller's own
+          // UI charged the customer. This branch used to GUESS that total as
+          // `cryptoAmount + fee` (fee always added on top) — wrong for a SEND
+          // whose fee is instead carved OUT of the entered amount (a $137.31
+          // net transfer with a $2 fee already deducted owes $137.31, not
+          // $139.31 — see lira-108's raw payload, and
+          // omtWhishAppFees.ts's fee-mode divergence the guess never
+          // modeled). Rather than track every fee-mode combination a caller
+          // might use, the caller (whose own UI already computed the real
+          // customer-owed total — e.g. OmtWhishAppTransferForm's own
+          // `totalAmount`) supplies it explicitly as `checkoutTotal`, the
+          // SAME contract the cost/price checkout branch above uses. Absent
+          // that, the check is skipped entirely (no guess) — matching every
+          // other `reconcileLegs` site's no-op-on-absence contract; every
+          // legacy/scripted caller (incl. this repo's own jest fixtures) is
+          // unaffected. `reconciliationRate` prefers the caller's tender
+          // rate (`tender_exchange_rate`) over the stamped rate, same as the
+          // checkout branch above.
+          if (
+            data.serviceType === "SEND" &&
+            !deferPayment &&
+            data.checkoutTotal
+          ) {
+            reconcileLegs({
+              inLegs: data.payments,
+              outLegs: returnLegs,
+              keptChange: {
+                usd: data.kept_change_usd,
+                lbp: data.kept_change_lbp,
+              },
+              expectedTotals: data.checkoutTotal,
+              exchangeRate: reconciliationRate,
+              context: `${data.provider} SEND`,
+            });
+          }
 
           if (data.serviceType === "SEND") {
             // 1. Debit Binance drawer (USDT): crypto leaves the shop's account
@@ -1656,6 +1784,26 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               return 0;
             return (Math.abs(leg.amount) / totalNonCashPaid) * pmFee;
           };
+
+          // S2 hard-reject reconciliation (Payment-Legs Integrity plan): the
+          // customer's legs must cover totalCustomerPays (sent amount +
+          // provider fee + payment-method fee) — the same total this branch
+          // credits to drawers/debt below. No-ops on an empty `data.payments`
+          // (legacy single-payment fallback) or under deferPayment (session
+          // basket owns the customer-cash side).
+          if (!deferPayment) {
+            reconcileLegs({
+              inLegs: data.payments,
+              outLegs: returnLegs,
+              keptChange: {
+                usd: data.kept_change_usd,
+                lbp: data.kept_change_lbp,
+              },
+              expectedTotals: expectedTotalIn(totalCustomerPays, currency),
+              exchangeRate: reconciliationRate,
+              context: `${data.provider} SEND`,
+            });
+          }
 
           if (deferPayment) {
             // Deferred (session basket): skip ALL customer cash-in legs, pmFee
@@ -2180,6 +2328,24 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               const payoutLegs = (data.payments ?? []).filter((p) =>
                 isDrawerAffectingMethod(p.method),
               );
+
+              // S2 hard-reject reconciliation (Payment-Legs Integrity plan):
+              // the payout legs must sum to EXACTLY receiveAmount (what the
+              // shop owes the customer — NOT totalOwed, which also includes
+              // the commission the shop keeps). No OUT legs are folded in
+              // here: a RECEIVE payout has no "customer overpaid, return
+              // change" concept the way a SEND does — any OUT-tagged leg on
+              // this transaction is a distinct mechanism handled once by the
+              // shared return-leg loop, not part of what this branch owes.
+              // No-ops on an empty `data.payments` (the single-amount
+              // fallback below, still correct for legacy/scripted callers).
+              reconcileLegs({
+                inLegs: data.payments,
+                expectedTotals: expectedTotalIn(receiveAmount, currency),
+                exchangeRate: reconciliationRate,
+                context: `${data.provider} RECEIVE cashout`,
+              });
+
               if (payoutLegs.length > 0) {
                 for (const leg of payoutLegs) {
                   const legDrawer = paymentMethodToDrawerName(leg.method);
@@ -2345,28 +2511,31 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           data.provider === "OMT" || data.provider === "OMT_APP"
             ? "OMT"
             : "WHISH";
-        const ledgerType = `THROUGH_${providerKey}_${data.serviceType}`;
+        // Template-composed, not a literal (see partnerLedgerTypes.guard.test.ts) —
+        // only OMT/OMT_APP→OMT and WHISH/WHISH_APP→WHISH map, so in practice
+        // the result is always one of the four THROUGH_* union members; typed
+        // as plain `string` here (not inferred as a template-literal type)
+        // because a hypothetical BILL serviceType would widen beyond the
+        // union, and this must stay a narrowing (not same-widening) cast.
+        const ledgerType: string = `THROUGH_${providerKey}_${data.serviceType}`;
         const direction = data.serviceType === "SEND" ? "CREDIT" : "DEBIT";
         const ledgerAmount = Math.abs(data.amount);
 
-        this.db
-          .prepare(
-            `
-          INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, tenant_id, created_at)
-          VALUES (?, ?, 'financial_services', ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
-        `,
-          )
-          .run(
-            data.partnerId,
-            ledgerType,
-            id,
-            ledgerAmount,
-            currency,
-            direction,
-            createdBy,
-            tenantId,
-            data.transaction_time ?? null,
-          );
+        // CQ-7: routed through PartnerRepository.addLedgerEntry instead of a
+        // raw INSERT — same row values (reference_table fixed to
+        // 'financial_services', matching the prior literal; `notes` stays
+        // unset/NULL, matching the prior column list which omitted it).
+        getPartnerRepository().addLedgerEntry({
+          partner_id: data.partnerId as number,
+          transaction_type: ledgerType as ForPartnerLedgerType,
+          reference_table: "financial_services",
+          reference_id: id,
+          amount: ledgerAmount,
+          currency,
+          direction,
+          user_id: createdBy,
+          created_at: data.transaction_time ?? undefined,
+        });
       }
 
       // Return (OUT) legs: change handed back to the customer via a chosen

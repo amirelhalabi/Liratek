@@ -9,6 +9,7 @@ import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
+import { getSupplierRepository } from "./SupplierRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   isDrawerAffectingMethod,
@@ -364,11 +365,6 @@ export class LotoTicketRepository {
 
       // 4. Create supplier ledger entry (we owe LOTO: sale_amount - commission)
       const amountWeOwe = data.sale_amount - data.commission_amount;
-      const insertLedger = this.db.prepare(`
-        INSERT INTO supplier_ledger (
-          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
 
       // Get or create LOTO supplier
       let supplierStmt = this.db.prepare(
@@ -391,16 +387,19 @@ export class LotoTicketRepository {
       // Suppliers page sums ledger rows and reads >0 as "You owe"). TOP_UP —
       // not PAYMENT — because addLedgerEntry force-negates PAYMENT amounts; a
       // future refactor through it would silently re-invert this row.
-      insertLedger.run(
-        tenantId,
-        supplierId,
-        "TOP_UP",
-        0, // USD
-        amountWeOwe, // Positive LBP = we owe them
-        `Ticket sale: we owe LOTO ${amountWeOwe} LBP (sale: ${data.sale_amount}, commission: ${data.commission_amount})`,
-        data.userId,
-        null, // Pass null to avoid FK constraint issues
-      );
+      //
+      // CQ-7: routed through addLedgerEntry's link-mode instead of a raw
+      // INSERT — same entry_type/amounts/note/is_auto(=0) as before, plus the
+      // LOTO transaction_id link the raw INSERT deliberately left null.
+      getSupplierRepository().addLedgerEntry({
+        supplier_id: supplierId,
+        entry_type: "TOP_UP",
+        amount_usd: 0,
+        amount_lbp: amountWeOwe, // Positive LBP = we owe them
+        note: `Ticket sale: we owe LOTO ${amountWeOwe} LBP (sale: ${data.sale_amount}, commission: ${data.commission_amount})`,
+        created_by: data.userId,
+        transaction_id: txnId,
+      });
 
       return ticket;
     });

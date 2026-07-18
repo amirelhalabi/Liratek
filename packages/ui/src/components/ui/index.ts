@@ -27,6 +27,11 @@ export type {
   DrawerBalanceWithBalance,
   TopUpProvider,
 } from "./TopUpModal";
+export { CounterpartySettleModal } from "./CounterpartySettleModal";
+export type {
+  CounterpartySettleModalProps,
+  CounterpartySettleConfirmColor,
+} from "./CounterpartySettleModal";
 export { default as TextInput } from "./TextInput";
 export type { TextInputProps } from "./TextInput";
 export { ConfirmModal } from "./ConfirmModal";

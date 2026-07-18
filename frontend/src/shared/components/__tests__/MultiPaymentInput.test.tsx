@@ -28,7 +28,7 @@
  * jest-dom matchers are registered globally via jest.setup.ts.
  */
 
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, act } from "@testing-library/react";
 import {
   MultiPaymentInput,
   type PaymentLine,
@@ -61,6 +61,7 @@ interface RenderOptions {
   totalAmountCurrency?: string;
   hasClient?: boolean;
   requiresClientForDebt?: boolean;
+  autoDebtRemainder?: boolean;
   onChange?: ChangeMock;
   exchangeRate?: number;
   initialLines?: Array<{
@@ -87,6 +88,7 @@ function renderMpi(opts: RenderOptions = {}) {
       totalAmountCurrency={opts.totalAmountCurrency ?? "USD"}
       hasClient={opts.hasClient ?? false}
       requiresClientForDebt={opts.requiresClientForDebt ?? true}
+      autoDebtRemainder={opts.autoDebtRemainder ?? false}
       paymentMethods={PAYMENT_METHODS}
       currencies={CURRENCIES}
       exchangeRate={opts.exchangeRate ?? EXCHANGE_RATE}
@@ -804,6 +806,291 @@ describe("MultiPaymentInput", () => {
       // The header field edits the USD↔LBP pair only — EUR math is untouched.
       setRate("100,000");
       expect(firstAmountInput().value).toBe("90");
+    });
+  });
+
+  describe("auto-debt remainder (real incident: $315 WHISH send, $300 typed as cash)", () => {
+    // Owner-reported 2026-07-15: a $315 send, operator typed "$300" intending
+    // "$300 cash + $15 debt". Single-payment mode discarded the typed amount —
+    // only the method + the FULL total ever reached the backend — so the
+    // whole $315 was silently charged to CUSTOMER_ACCOUNT with zero cash
+    // recorded. Fix: the instant an edit creates a shortfall, materialize a
+    // live remainder leg — synchronously, so onChange is correct even before
+    // any debounced reveal (a fast Enter/Pay must not race the visual
+    // split-toggle animation, the same class of bug as the SearchBar A5 fix).
+    //
+    // OPT-IN (post-review hardening): the feature fires ONLY when the
+    // consumer passes autoDebtRemainder={<its validated charge predicate>} —
+    // hasClient alone proved polysemous across consumers (name-only in some,
+    // cashout-credit semantics on RECEIVE flows) and produced sign inversions.
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it("OPT-IN default: without autoDebtRemainder, underpayment never auto-splits even with a client", () => {
+      const { onChange } = renderMpi({ totalAmount: 315, hasClient: true });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      expect(onChange.mock.calls.at(-1)?.[0] as PaymentLine[]).toHaveLength(1);
+      expect(allLines()).toHaveLength(1);
+      expect(
+        within(screen.getByTestId("payment-summary")).getByText(
+          /Remaining \(Debt\)/i,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("emits a 2-leg payload IMMEDIATELY on underpayment — no wait for the visual reveal", () => {
+      const { onChange } = renderMpi({
+        totalAmount: 315,
+        hasClient: true,
+        autoDebtRemainder: true,
+      });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+
+      // No jest.advanceTimersByTime — this is the exact moment a fast
+      // confirm click would read the parent's state. Pre-fix this would be
+      // [{ CASH, 300 }], silently dropping the $15 debt on submit.
+      const lastLines = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLines).toHaveLength(2);
+      expect(lastLines[0]).toMatchObject({ method: "CASH", amount: 300 });
+      expect(lastLines[1]).toMatchObject({
+        method: "CUSTOMER_ACCOUNT",
+        currencyCode: "USD",
+        amount: 15,
+      });
+    });
+
+    it("does NOT auto-split without a chargeable client — keeps the honest Remaining (Debt) warning", () => {
+      const { onChange } = renderMpi({
+        totalAmount: 315,
+        hasClient: false,
+        autoDebtRemainder: true,
+      });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+
+      const lastLines = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLines).toHaveLength(1);
+      expect(
+        within(screen.getByTestId("payment-summary")).getByText(
+          /Remaining \(Debt\)/i,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("does NOT auto-split when CUSTOMER_ACCOUNT isn't an offered payment method (Settings toggle off)", () => {
+      const onChange = jest.fn();
+      render(
+        <MultiPaymentInput
+          totals={[{ amount: 315, currency: "USD" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={true}
+          requiresClientForDebt={true}
+          autoDebtRemainder={true}
+          paymentMethods={[
+            { code: "CASH", label: "Cash" },
+            { code: "OMT", label: "OMT" },
+          ]}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={onChange}
+        />,
+      );
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+
+      const lastLines = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLines).toHaveLength(1);
+    });
+
+    it("leaves a lone CUSTOMER_ACCOUNT line's own reduced amount untouched (no second real-money method for the rest)", () => {
+      const { onChange } = renderMpi({
+        totalAmount: 315,
+        hasClient: true,
+        autoDebtRemainder: true,
+      });
+
+      const id = firstLineId();
+      fireEvent.change(screen.getByTestId(`payment-method-${id}`), {
+        target: { value: "CUSTOMER_ACCOUNT" },
+      });
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+
+      const lastLines = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLines).toHaveLength(1);
+      expect(lastLines[0]).toMatchObject({
+        method: "CUSTOMER_ACCOUNT",
+        amount: 300,
+      });
+    });
+
+    it("reveals the second row visually only ~500ms after the operator stops typing", () => {
+      renderMpi({ totalAmount: 315, hasClient: true, autoDebtRemainder: true });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+      // Data is already correct (previous test) but the UI hasn't flipped yet.
+      expect(allLines()).toHaveLength(1);
+
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      expect(allLines()).toHaveLength(2);
+    });
+
+    it("keeps live-tracking the remainder as the first line keeps changing, until manually edited", () => {
+      const { onChange } = renderMpi({
+        totalAmount: 315,
+        hasClient: true,
+        autoDebtRemainder: true,
+      });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+      expect(
+        (onChange.mock.calls.at(-1)?.[0] as PaymentLine[])[1],
+      ).toMatchObject({ amount: 15 });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "280" } });
+      expect(
+        (onChange.mock.calls.at(-1)?.[0] as PaymentLine[])[1],
+      ).toMatchObject({ amount: 35 });
+
+      // Reveal, then edit the debt line directly — it detaches (frozen).
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+      const debtLineEl = allLines()[1] as HTMLElement;
+      const debtAmountInput = within(debtLineEl).getByTestId(/payment-amount-/);
+      fireEvent.change(debtAmountInput, { target: { value: "50" } });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "200" } });
+      const finalLines = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(finalLines[0]).toMatchObject({ amount: 200 });
+      // Frozen at the manually-set 50 — NOT resized to 115.
+      expect(finalLines[1]).toMatchObject({ amount: 50 });
+    });
+
+    it("removing the auto-added debt line clears tracking (no phantom resurrection)", () => {
+      const { onChange } = renderMpi({
+        totalAmount: 315,
+        hasClient: true,
+        autoDebtRemainder: true,
+      });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+      expect(allLines()).toHaveLength(2);
+
+      const secondLine = allLines()[1];
+      const removeBtn = within(secondLine as HTMLElement).getByTitle("Remove");
+      fireEvent.click(removeBtn);
+
+      expect(allLines()).toHaveLength(1);
+      const lastLines = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lastLines).toHaveLength(1);
+      expect(lastLines[0]).toMatchObject({ method: "CASH", amount: 300 });
+    });
+
+    // Review finding (code-review 2026-07-17): the withdraw branch used to
+    // run BEFORE the touched-guard, silently deleting a manually edited debt
+    // leg when the primary later covered the total. Fixed by detach-on-touch:
+    // an edited auto leg becomes an ordinary manual line the effect never
+    // deletes. Proven failing-first against the pre-fix effect ordering.
+    it("a manually edited debt leg is NOT deleted when the primary later covers the total", () => {
+      const { onChange } = renderMpi({
+        totalAmount: 315,
+        hasClient: true,
+        autoDebtRemainder: true,
+      });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+
+      // Operator takes ownership of the debt leg (deliberate $50 entry).
+      const debtLineEl = allLines()[1] as HTMLElement;
+      fireEvent.change(within(debtLineEl).getByTestId(/payment-amount-/), {
+        target: { value: "50" },
+      });
+
+      // Primary now covers the whole total — the detached leg must survive.
+      fireEvent.change(firstAmountInput(), { target: { value: "315" } });
+
+      const lines = onChange.mock.calls.at(-1)?.[0] as PaymentLine[];
+      expect(lines).toHaveLength(2);
+      expect(lines[1]).toMatchObject({
+        method: "CUSTOMER_ACCOUNT",
+        amount: 50,
+      });
+      expect(allLines()).toHaveLength(2);
+    });
+
+    // Review finding: after an auto-reveal, covering the total removed the
+    // debt leg but left the sheet stuck in a one-line "Split" UI. The
+    // withdraw path now folds an AUTO-revealed split back to single mode
+    // (a manually toggled split is never folded).
+    it("auto-revealed split folds back to single mode when the primary covers the total", () => {
+      renderMpi({ totalAmount: 315, hasClient: true, autoDebtRemainder: true });
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+      act(() => {
+        jest.advanceTimersByTime(500);
+      });
+      expect(allLines()).toHaveLength(2);
+      expect(screen.getByTestId("split-toggle")).toHaveTextContent(
+        "Split Active",
+      );
+
+      fireEvent.change(firstAmountInput(), { target: { value: "315" } });
+
+      expect(allLines()).toHaveLength(1);
+      expect(screen.getByTestId("split-toggle")).not.toHaveTextContent(
+        "Split Active",
+      );
+    });
+
+    // Review finding: the effect's deps omitted the totals, so a total that
+    // changed while the sheet was open left a stale debt-leg amount (an
+    // underbooked shortfall). totalsKey is now a dependency.
+    it("re-derives the debt leg when the totals prop changes mid-payment", () => {
+      const onChange: ChangeMock = jest.fn();
+      const ui = (total: number) => (
+        <MultiPaymentInput
+          totals={[{ amount: total, currency: "USD" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={true}
+          requiresClientForDebt={true}
+          autoDebtRemainder={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={onChange}
+        />
+      );
+      const { rerender } = render(ui(315));
+
+      fireEvent.change(firstAmountInput(), { target: { value: "300" } });
+      expect(
+        (onChange.mock.calls.at(-1)?.[0] as PaymentLine[])[1],
+      ).toMatchObject({ amount: 15 });
+
+      rerender(ui(400));
+
+      expect(
+        (onChange.mock.calls.at(-1)?.[0] as PaymentLine[])[1],
+      ).toMatchObject({ method: "CUSTOMER_ACCOUNT", amount: 100 });
     });
   });
 });

@@ -24,8 +24,11 @@ import {
   ChevronUp,
   AlertCircle,
   ToggleLeft,
+  Eraser,
 } from "lucide-react";
 import { useShopBase } from "@/hooks/useShopBase";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { useSellRate } from "@/hooks/useSellRate";
 import type {
   Partner,
   PartnerLedgerEntry,
@@ -36,13 +39,17 @@ import type {
 } from "@/types/electron";
 import {
   appEvents,
+  CounterpartySettleModal,
   PageHeader,
   DecimalInput,
   Select,
   useApi,
+  type PaymentLine,
+  type PaymentMethod,
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { capSettlementDiscount } from "../../utils/settlementDiscount";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -92,12 +99,19 @@ function BalanceIcon({ usd, lbp }: { usd: number; lbp: number }) {
   return <Minus className="w-4 h-4 text-slate-400" />;
 }
 
-const SETTLEMENT_METHODS = [
-  { value: "CASH", label: "Cash" },
-  { value: "OMT", label: "OMT" },
-  { value: "WHISH", label: "Whish" },
-  { value: "BINANCE", label: "Binance" },
-  { value: "CLIENT_ACCOUNT", label: "Client Account" },
+// CQ-11 — split-leg settlement methods (MultiPaymentInput). Deliberately a
+// FIXED local list, not the DB-driven `usePaymentMethods()` (which carries
+// CUSTOMER_ACCOUNT/GIFT_CARD — methods with no meaning for a partner
+// settlement) — and deliberately WITHOUT "CLIENT_ACCOUNT": that value settles
+// no money (partner_ledger.settlement_method CHECK constraint keeps it
+// legacy-field-only) and can never appear as a split-leg method (core
+// PartnerService.settle rejects it outright). CLIENT_ACCOUNT stays reachable
+// only via the modal's separate non-legs toggle below.
+const PARTNER_LEG_METHODS: PaymentMethod[] = [
+  { code: "CASH", label: "Cash" },
+  { code: "OMT", label: "OMT" },
+  { code: "WHISH", label: "Whish" },
+  { code: "BINANCE", label: "Binance" },
 ];
 
 /**
@@ -330,15 +344,61 @@ interface SettleModalProps {
 }
 
 function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
-  const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
-  const [method, setMethod] = useState("CASH");
+  // CQ-11: split-leg settlement (MultiPaymentInput) is the default path —
+  // legs are locked to `currency` (the `currencies` prop below offers only
+  // the one selected currency, so the operator can never build a
+  // cross-currency leg the backend would reject). CLIENT_ACCOUNT settles no
+  // money at all (partner_ledger.settlement_method CHECK + PartnerService
+  // both keep it legacy-field-only) — the toggle below swaps to a plain
+  // manual amount with no legs instead of trying to represent "no money
+  // moved" as a payment method.
+  const [useClientAccount, setUseClientAccount] = useState(false);
+  const [clientAccountAmount, setClientAccountAmount] = useState("");
+  const [settleLines, setSettleLines] = useState<PaymentLine[]>([]);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // CQ-10: bundled discount — forgives part of what the partner owes,
+  // alongside the settlement. Denominated in the SAME currency as the
+  // settlement itself (the settle API is single-amount/single-currency), and
+  // capped at that currency's balance.
+  const [discountAmount, setDiscountAmount] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
   const api = useApi();
+  // Settlements convert at the BUY side (owner decision 2026-07-06), same as
+  // every other MultiPaymentInput in the app — inert here in practice since
+  // legs are locked to one currency, but kept real (not the 89000 fallback)
+  // for consistency and safety if that ever changes.
+  const { buyRate: exchangeRate } = useSellRate();
 
-  const parsedAmount = parseFloat(amount) || 0;
+  const validLines = settleLines.filter((l) => l.amount > 0);
+  const legsAmount = validLines.reduce((s, l) => s + l.amount, 0);
+  const parsedAmount = useClientAccount
+    ? parseFloat(clientAccountAmount) || 0
+    : legsAmount;
   const isValid = parsedAmount > 0;
+  const balanceInCurrency = Math.max(
+    0,
+    currency === "USD" ? partner.usd : partner.lbp,
+  );
+  // CQ-10: PartnerService.settle posts the settlement `amount` and the
+  // `discount` as two INDEPENDENT ledger rows with no combined validation
+  // (unlike Debts, where the reduction math is capped against the
+  // discount-adjusted due) — settle() doesn't even cap `amount` alone
+  // against the balance. capSettlementDiscount caps the discount at what's
+  // left AFTER the settlement amount, so "owed X, paid Y, discount Z" can
+  // never post Y + Z > X against this partner's balance.
+  const maxDiscountInCurrency = Math.max(0, balanceInCurrency - parsedAmount);
+  const parsedDiscount = capSettlementDiscount(
+    balanceInCurrency,
+    parsedAmount,
+    parseFloat(discountAmount) || 0,
+  );
+  // Netted out of what MultiPaymentInput is fed as "owed" — otherwise a
+  // partial settle + a discount covering the rest would show a false
+  // "Remaining (Debt)" warning inside the split-leg form (the discount isn't
+  // debt, it's being forgiven).
+  const nettedBalance = Math.max(0, balanceInCurrency - parsedDiscount);
 
   async function handleSettle() {
     if (!isValid) {
@@ -347,15 +407,49 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
     }
     setSubmitting(true);
     try {
+      // partner_ledger.settlement_method is CHECK-constrained to
+      // CASH/OMT/WHISH/BINANCE/CLIENT_ACCOUNT — never "SPLIT". A true
+      // multi-method split still needs ONE value for that column; the first
+      // leg's method is as good a "primary method" tag as any (the legs
+      // themselves, not this field, drive the actual money movement).
+      const settlementMethod = useClientAccount
+        ? "CLIENT_ACCOUNT"
+        : (validLines[0]?.method ?? "CASH");
       const result = await api.partners.settle({
         partnerId: partner.id,
         amount: parsedAmount,
         currency,
-        settlementMethod: method,
+        settlementMethod,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...(!useClientAccount && validLines.length > 0
+          ? {
+              payments: validLines.map((l) => ({
+                method: l.method,
+                currency_code: l.currencyCode,
+                amount: l.amount,
+              })),
+            }
+          : {}),
+        ...(parsedDiscount > 0
+          ? {
+              discount: {
+                amount_usd: currency === "USD" ? parsedDiscount : 0,
+                amount_lbp: currency === "LBP" ? parsedDiscount : 0,
+                ...(discountReason.trim()
+                  ? { reason: discountReason.trim() }
+                  : {}),
+              },
+            }
+          : {}),
       });
       if (result.success) {
-        appEvents.emit("notification:show", "Settlement recorded.", "success");
+        appEvents.emit(
+          "notification:show",
+          parsedDiscount > 0
+            ? `Settlement recorded (discount ${currency === "USD" ? "$" : ""}${parsedDiscount.toFixed(currency === "USD" ? 2 : 0)}${currency === "LBP" ? " LBP" : ""})`
+            : "Settlement recorded.",
+          "success",
+        );
         onSettled();
         onClose();
       } else {
@@ -377,94 +471,153 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   }
 
   return (
-    <Modal title={`Settle – ${partner.name}`} onClose={onClose}>
-      <div className="space-y-4">
-        {/* Current balance reference */}
-        <div className="bg-slate-900 rounded-lg p-3 flex gap-4 text-sm">
-          <div>
-            <span className="text-slate-400 text-xs block">Balance USD</span>
-            <span className={`font-semibold ${balanceColor(partner.usd, 0)}`}>
-              {fmtUSD(partner.usd)}
-            </span>
+    <CounterpartySettleModal
+      title={`Settle – ${partner.name}`}
+      showCloseButton
+      panelClassName="max-w-md"
+      onCancel={onClose}
+      onConfirm={handleSettle}
+      confirmLabel="Confirm Settlement"
+      confirmColor="emerald"
+      confirmDisabled={!isValid}
+      isSubmitting={submitting}
+      beforeContent={
+        <>
+          {/* Current balance reference */}
+          <div className="bg-slate-900 rounded-lg p-3 flex gap-4 text-sm">
+            <div>
+              <span className="text-slate-400 text-xs block">Balance USD</span>
+              <span className={`font-semibold ${balanceColor(partner.usd, 0)}`}>
+                {fmtUSD(partner.usd)}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 text-xs block">Balance LBP</span>
+              <span className={`font-semibold ${balanceColor(0, partner.lbp)}`}>
+                {fmtLBP(partner.lbp)}
+              </span>
+            </div>
           </div>
-          <div>
-            <span className="text-slate-400 text-xs block">Balance LBP</span>
-            <span className={`font-semibold ${balanceColor(0, partner.lbp)}`}>
-              {fmtLBP(partner.lbp)}
-            </span>
-          </div>
-        </div>
 
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <label className="text-xs text-slate-400 block mb-1">Amount</label>
-            <DecimalInput
-              value={parseFloat(amount) || 0}
-              onChange={(n) => setAmount(n ? String(n) : "")}
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-              placeholder="0.00"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">
-              Currency
+          <div className="flex items-end gap-3">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">
+                Currency
+              </label>
+              <Select
+                value={currency}
+                onChange={(v) => setCurrency(v as "USD" | "LBP")}
+                options={[
+                  { value: "USD", label: "USD" },
+                  { value: "LBP", label: "LBP" },
+                ]}
+                buttonClassName="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <label
+              className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer pb-2.5"
+              data-testid="partner-settle-client-account-toggle"
+            >
+              <input
+                type="checkbox"
+                checked={useClientAccount}
+                onChange={(e) => setUseClientAccount(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-600 bg-slate-900 accent-violet-500"
+              />
+              Settle via Client Account (no cash)
             </label>
-            <Select
-              value={currency}
-              onChange={(v) => setCurrency(v as "USD" | "LBP")}
-              options={[
-                { value: "USD", label: "USD" },
-                { value: "LBP", label: "LBP" },
-              ]}
-              buttonClassName="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            />
           </div>
-        </div>
 
-        <div>
-          <label className="text-xs text-slate-400 block mb-1">
-            Settlement Method
-          </label>
-          <Select
-            value={method}
-            onChange={(v) => setMethod(v)}
-            options={SETTLEMENT_METHODS.map((m) => ({
-              value: m.value,
-              label: m.label,
-            }))}
-            buttonClassName="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-          />
-        </div>
-
-        <div>
-          <label className="text-xs text-slate-400 block mb-1">Notes</label>
-          <input
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            placeholder="Optional notes..."
-          />
-        </div>
-
-        <div className="flex gap-3 pt-1">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg transition-colors text-sm"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSettle}
-            disabled={submitting || !isValid}
-            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors text-sm"
-          >
-            {submitting ? "Processing..." : "Confirm Settlement"}
-          </button>
-        </div>
+          {useClientAccount && (
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">
+                Amount
+              </label>
+              <DecimalInput
+                value={parseFloat(clientAccountAmount) || 0}
+                onChange={(n) => setClientAccountAmount(n ? String(n) : "")}
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                placeholder="0.00"
+                autoFocus
+              />
+            </div>
+          )}
+        </>
+      }
+      multiPaymentInputKey={currency}
+      // CLIENT_ACCOUNT settles no cash — no legs make sense there, so the
+      // split-leg form is skipped entirely (not just visually hidden) in
+      // that mode; only the plain manual amount above applies.
+      multiPaymentInput={
+        useClientAccount
+          ? undefined
+          : {
+              totals: [{ amount: nettedBalance, currency }],
+              totalAmountCurrency: currency,
+              currency,
+              onChange: setSettleLines,
+              showPmFee: false,
+              showDiscount: false,
+              // Locked to the single selected currency — the operator can
+              // never build a leg in the OTHER currency (the backend rejects
+              // a mixed-currency settle outright; this keeps the constraint
+              // visible in the UI itself, not just enforced post-submit).
+              paymentMethods: PARTNER_LEG_METHODS,
+              currencies: [
+                currency === "USD"
+                  ? { code: "USD", symbol: "$" }
+                  : { code: "LBP", symbol: "LBP" },
+              ],
+              exchangeRate,
+            }
+      }
+      discountSlot={
+        // CQ-10: bundled discount — forgives part of what the partner
+        // owes, in the same currency as the settlement above.
+        balanceInCurrency > 0 && (
+          <div className="bg-emerald-950/20 border border-emerald-800/40 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">
+                Discount / Forgive ({currency})
+              </span>
+              <span className="text-[11px] text-emerald-400/70">
+                Up to{" "}
+                {currency === "USD"
+                  ? fmtUSD(maxDiscountInCurrency)
+                  : fmtLBP(maxDiscountInCurrency)}{" "}
+                (after settlement)
+              </span>
+            </div>
+            <DecimalInput
+              value={parsedDiscount}
+              onChange={(n) => setDiscountAmount(n ? String(n) : "")}
+              className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-2 text-emerald-100 text-sm focus:outline-none focus:border-emerald-500"
+              placeholder="0.00"
+            />
+            {parsedDiscount > 0 && (
+              <input
+                type="text"
+                value={discountReason}
+                onChange={(e) => setDiscountReason(e.target.value)}
+                className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-2 text-emerald-100 text-xs focus:outline-none focus:border-emerald-500"
+                placeholder="Reason (optional)..."
+              />
+            )}
+          </div>
+        )
+      }
+    >
+      <div>
+        <label className="text-xs text-slate-400 block mb-1">Notes</label>
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+          placeholder="Optional notes..."
+        />
       </div>
-    </Modal>
+    </CounterpartySettleModal>
   );
 }
 
@@ -683,6 +836,163 @@ function RecordTxModal({
               : adjustmentOnly
                 ? "Add Credit / Debt"
                 : "Record Transaction"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Write-off Modal (CQ-10, D4: admin-only) ──────────────────────────────────
+//
+// Standalone pure forgiveness — WE forgive part of what the PARTNER owes us
+// (mirrors Debts' "Write off debt"). No cash movement. Applies only when the
+// partner has a positive balance in a currency (balance.usd/lbp > 0 = "they
+// owe us" per the DetailPanel's own labels) — there is nothing to forgive
+// on the side we owe them.
+//
+// SINGLE currency per call (unlike Debts/Suppliers): partner_ledger is
+// one-currency-per-row, so PartnerService.writeOff rejects a call supplying
+// both amount_usd AND amount_lbp — reconciled against the sibling's landed
+// core (packages/core/src/services/PartnerService.ts writeOff) after this
+// modal was first drafted as a dual-currency row like Debts'. A currency
+// picker (mirroring SettleModal) keeps this single-amount/single-currency.
+
+interface WriteOffModalProps {
+  partner: PartnerWithBalance;
+  onClose: () => void;
+  onWrittenOff: () => void;
+}
+
+function WriteOffModal({ partner, onClose, onWrittenOff }: WriteOffModalProps) {
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const api = useApi();
+
+  const owedInCurrency = Math.max(
+    0,
+    currency === "USD" ? partner.usd : partner.lbp,
+  );
+  const parsedAmount = Math.min(
+    Math.max(0, parseFloat(amount) || 0),
+    owedInCurrency,
+  );
+  const isValid = parsedAmount > 0;
+
+  async function handleWriteOff() {
+    if (!isValid) {
+      appEvents.emit("notification:show", "Enter a valid amount.", "error");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await api.partners.writeOff({
+        partnerId: partner.id,
+        amount_usd: currency === "USD" ? parsedAmount : 0,
+        amount_lbp: currency === "LBP" ? parsedAmount : 0,
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
+      });
+      if (result.success) {
+        appEvents.emit("notification:show", "Balance written off.", "success");
+        onWrittenOff();
+        onClose();
+      } else {
+        appEvents.emit(
+          "notification:show",
+          result.error ?? "Failed to write off.",
+          "error",
+        );
+      }
+    } catch {
+      appEvents.emit("notification:show", "Unexpected error.", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title={`Write off – ${partner.name}`} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-xs text-slate-400">
+          We forgive part of what {partner.name} owes us — no cash movement.
+        </p>
+        {/* Current balance reference (same layout as SettleModal). */}
+        <div className="bg-slate-900 rounded-lg p-3 flex gap-4 text-sm">
+          <div>
+            <span className="text-slate-400 text-xs block">Balance USD</span>
+            <span className={`font-semibold ${balanceColor(partner.usd, 0)}`}>
+              {fmtUSD(partner.usd)}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 text-xs block">Balance LBP</span>
+            <span className={`font-semibold ${balanceColor(0, partner.lbp)}`}>
+              {fmtLBP(partner.lbp)}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="text-xs text-slate-400 block mb-1">
+              Amount — owed{" "}
+              {currency === "USD"
+                ? fmtUSD(owedInCurrency)
+                : fmtLBP(owedInCurrency)}
+            </label>
+            <DecimalInput
+              value={parsedAmount}
+              onChange={(n) => setAmount(n ? String(n) : "")}
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+              placeholder="0.00"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">
+              Currency
+            </label>
+            <Select
+              value={currency}
+              onChange={(v) => {
+                setCurrency(v as "USD" | "LBP");
+                setAmount("");
+              }}
+              options={[
+                { value: "USD", label: "USD" },
+                { value: "LBP", label: "LBP" },
+              ]}
+              buttonClassName="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-400 block mb-1">Reason</label>
+          <input
+            type="text"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+            placeholder="Optional reason..."
+          />
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg transition-colors text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleWriteOff}
+            disabled={submitting || !isValid}
+            className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors text-sm"
+          >
+            {submitting ? "Processing..." : "Write off"}
           </button>
         </div>
       </div>
@@ -926,6 +1236,8 @@ interface DetailPanelProps {
   onAddCredit: () => void;
   onDeactivate: () => void;
   onActivate: () => void;
+  /** CQ-10 (D4): standalone write-off (admin-only, pure forgiveness). */
+  onWriteOff: () => void;
 }
 
 function DetailPanel({
@@ -936,7 +1248,14 @@ function DetailPanel({
   onAddCredit,
   onDeactivate,
   onActivate,
+  onWriteOff,
 }: DetailPanelProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  // CQ-10 (D4): only when the partner has something left to forgive — a
+  // positive balance means "they owe us" (see the USD/LBP balance cards
+  // below), the same sign the write-off applies to.
+  const canWriteOff = partner.usd > 0.01 || partner.lbp > 0.5;
   const [entries, setEntries] = useState<PartnerLedgerEntry[]>([]);
   const [balance, setBalance] = useState<PartnerBalance>({
     usd: partner.usd,
@@ -1058,6 +1377,18 @@ function DetailPanel({
               <Wallet className="w-3.5 h-3.5" />
               Add Credit / Debt
             </button>
+            {/* CQ-10 (D4): standalone write-off — admin-only, pure
+                forgiveness with no cash movement. */}
+            {isAdmin && canWriteOff && (
+              <button
+                onClick={onWriteOff}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition-colors"
+                title="Forgive part of what the partner owes us"
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                Write off
+              </button>
+            )}
             {partner.is_active === 1 && (
               <button
                 onClick={onDeactivate}
@@ -1425,6 +1756,9 @@ export function PartnersPage() {
     useState<PartnerWithBalance | null>(null);
   const [deactivatingPartner, setDeactivatingPartner] =
     useState<PartnerWithBalance | null>(null);
+  // CQ-10 (D4): standalone write-off (admin-only, pure forgiveness).
+  const [writingOffPartner, setWritingOffPartner] =
+    useState<PartnerWithBalance | null>(null);
   const api = useApi();
 
   const selectedPartner = partners.find((p) => p.id === selectedId) ?? null;
@@ -1589,6 +1923,7 @@ export function PartnersPage() {
               onRecordTx={() => setRecordingTxPartner(selectedPartner)}
               onAddCredit={() => setAddingCreditPartner(selectedPartner)}
               onDeactivate={() => setDeactivatingPartner(selectedPartner)}
+              onWriteOff={() => setWritingOffPartner(selectedPartner)}
               onActivate={async () => {
                 const result = await api.partners.activate(selectedPartner.id);
                 if (result.success) {
@@ -1663,6 +1998,13 @@ export function PartnersPage() {
             setSelectedId(null);
             loadPartners();
           }}
+        />
+      )}
+      {writingOffPartner && (
+        <WriteOffModal
+          partner={writingOffPartner}
+          onClose={() => setWritingOffPartner(null)}
+          onWrittenOff={loadPartners}
         />
       )}
     </div>

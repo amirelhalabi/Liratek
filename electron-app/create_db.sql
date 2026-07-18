@@ -409,7 +409,7 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant_id INTEGER REFERENCES tenants(id),
   supplier_id INTEGER NOT NULL,
-  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US')),
+  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT')),
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   note TEXT,
@@ -1444,4 +1444,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (126, 'zero_sale_txn_amount_lbp_tender_dup'),
     (127, 'drop_partner_ledger_type_check'),
     (128, 'add_partner_ledger_covered_amount'),
-    (129, 'add_debt_ledger_covered_amounts');
+    (129, 'add_debt_ledger_covered_amounts'),
+    (130, 'backfill_supplier_payment_is_auto_metadata'),
+    (131, 'add_discount_entry_type_supplier_ledger');

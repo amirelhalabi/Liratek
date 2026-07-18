@@ -165,3 +165,108 @@ test("partner FOR-recharge books the full price, settles, and a moveCash adjustm
   const drawerAfterAdjustment = await generalDrawerUsd();
   expect(drawerAfterAdjustment - drawerBeforeAdjustment).toBeCloseTo(-15, 2);
 });
+
+/**
+ * CQ-11 — partner settlement via split payment legs (MultiPaymentInput),
+ * the new capability the Partners page's SettleModal gained this ticket.
+ * Both legs are CASH (rather than guessing a second method's seeded drawer
+ * name) — the point being proven is the `payments[]` contract itself: legs
+ * must sum to `amount`, and the combined drawer delta must equal a single
+ * full-amount CASH settle would produce, whether posted as one leg or two.
+ */
+test("partner settlement via split CASH legs sums correctly and books one combined drawer delta", async ({
+  page,
+}) => {
+  await loginAsAdmin(page);
+  const token = await page.evaluate(() => localStorage.getItem("liratek.jwt"));
+  const auth = { Authorization: `Bearer ${token}` };
+
+  const ts = Date.now();
+  const NAME = `L-web-014b Partner ${ts}`;
+
+  const partner = await (
+    await page.request.post(`${BACKEND_URL}/api/partners`, {
+      headers: auth,
+      data: { name: NAME, phone: `Lweb014b${ts}`.slice(0, 15) },
+    })
+  ).json();
+  expect(partner.success, JSON.stringify(partner)).toBeTruthy();
+  const partnerId = partner.data.id as number;
+
+  const balOf = async (): Promise<number> => {
+    const r = await (
+      await page.request.get(
+        `${BACKEND_URL}/api/partners/${partnerId}/balance`,
+        { headers: auth },
+      )
+    ).json();
+    expect(r.success).toBeTruthy();
+    return r.balance.usd as number;
+  };
+  const generalDrawerUsd = async (): Promise<number> => {
+    const r = await (
+      await page.request.get(`${BACKEND_URL}/api/dashboard/drawer-balances`, {
+        headers: auth,
+      })
+    ).json();
+    expect(r.success).toBeTruthy();
+    return r.balances.generalDrawer.usd as number;
+  };
+
+  const balBefore = await balOf();
+
+  // Book a $60 debt "FOR" the partner (same PFT-R full-amount routing as the
+  // spec above) so there's a real balance to settle in split legs.
+  const recharge = await (
+    await page.request.post(`${BACKEND_URL}/api/recharge/process`, {
+      headers: auth,
+      data: {
+        provider: "MTC",
+        type: "VOUCHER",
+        amount: 60,
+        cost: 40,
+        price: 60,
+        currency: "USD",
+        partnerId,
+        partnerMode: "FOR",
+      },
+    })
+  ).json();
+  expect(recharge.success, JSON.stringify(recharge)).toBeTruthy();
+  expect((await balOf()) - balBefore).toBeCloseTo(60, 2);
+
+  const drawerBeforeSettle = await generalDrawerUsd();
+
+  // Split settle: $35 + $25 CASH legs (sum to `amount`, both same currency as
+  // the settle itself — partnerSettleSchema's structural rules). Supersedes
+  // `settlementMethod` for money movement; `settlementMethod` is still
+  // required and stamped on the partner_ledger row (never "SPLIT" — CHECK
+  // constrained to CASH/OMT/WHISH/BINANCE/CLIENT_ACCOUNT).
+  const settled = await (
+    await page.request.post(`${BACKEND_URL}/api/partners/settle`, {
+      headers: auth,
+      data: {
+        partnerId,
+        amount: 60,
+        currency: "USD",
+        settlementMethod: "CASH",
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 35 },
+          { method: "CASH", currency_code: "USD", amount: 25 },
+        ],
+      },
+    })
+  ).json();
+  expect(settled.success, JSON.stringify(settled)).toBeTruthy();
+
+  // Balance nets back to the pre-recharge level — the split legs cleared the
+  // FULL $60, not just one of them.
+  expect((await balOf()) - balBefore).toBeCloseTo(0, 2);
+
+  // Both legs route to the same CASH drawer (General); the combined delta
+  // must equal exactly what a single one-leg $60 CASH settle would produce
+  // (lira-web-014's own settle step, above) — proving two legs aren't
+  // double-booked or under-booked against the drawer.
+  const drawerAfterSettle = await generalDrawerUsd();
+  expect(drawerAfterSettle - drawerBeforeSettle).toBeCloseTo(60, 2);
+});

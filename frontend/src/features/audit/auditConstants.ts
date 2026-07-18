@@ -61,6 +61,66 @@ export type FilterOption = {
   supplier_credit_only?: boolean;
 };
 
+// ---------------------------------------------------------------------------
+// D2 — SUPPLIER_PAYMENT default-view visibility
+// ---------------------------------------------------------------------------
+//
+// Manual supplier payments (Suppliers page Pay/Receive, a real drawer_name
+// entry) are first-class citizens of the Transactions page by default.
+// Auto-generated sibling rows — the supplier debt/credit ledger writes every
+// other module (recharge top-ups, financial-service SEND/RECEIVE, loto, …)
+// books automatically — carry `metadata.is_auto === true` and stay hidden
+// UNLESS the operator explicitly selects a SUPPLIER_PAYMENT-targeted filter
+// (see FILTER_GROUPS' "Suppliers" group), which always wins over the
+// default hide. Extracted as pure, dependency-free helpers so the rule is
+// unit-testable without rendering TransactionsViewer.
+
+function parseMetaSafe(
+  metaJson: string | null | undefined,
+): Record<string, unknown> {
+  if (!metaJson) return {};
+  try {
+    return JSON.parse(metaJson) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** True only when the row's metadata explicitly flags it auto-generated.
+ *  Manual rows (no key at all) and unparsable/missing metadata read as
+ *  `false` — the safe default is "visible", not "hidden". */
+export function isAutoSupplierPayment(
+  metaJson: string | null | undefined,
+): boolean {
+  return parseMetaSafe(metaJson).is_auto === true;
+}
+
+/**
+ * Whether a SUPPLIER_PAYMENT row should be visible under the given filter
+ * state (D2). `activeOption` is the currently selected FILTER_GROUPS entry,
+ * or undefined for "All types".
+ *
+ *   - No filter, or any filter NOT targeting SUPPLIER_PAYMENT: manual rows
+ *     show, auto rows stay hidden (the default-view rule).
+ *   - An explicit SUPPLIER_PAYMENT filter overrides the default hide:
+ *     - "Supplier Credit" (`supplier_credit_only`) narrows to just the
+ *       is_credit rows, auto or not — unchanged from the pre-D2 behaviour.
+ *     - Any other SUPPLIER_PAYMENT filter (e.g. "Supplier Payment") reveals
+ *       every row, including the auto ones.
+ */
+export function isSupplierPaymentVisible(
+  metaJson: string | null | undefined,
+  activeOption: Pick<FilterOption, "type" | "supplier_credit_only"> | undefined,
+): boolean {
+  if (activeOption?.type === "SUPPLIER_PAYMENT") {
+    if (activeOption.supplier_credit_only) {
+      return parseMetaSafe(metaJson).is_credit === true;
+    }
+    return true;
+  }
+  return !isAutoSupplierPayment(metaJson);
+}
+
 export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
   {
     group: "Cash",
@@ -171,6 +231,35 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     ],
   },
   {
+    // Suppliers are first-class citizens of the Transactions page (CQ-8).
+    // CLIENT_CREATED stays blanket-hidden by default (see
+    // HIDDEN_TRANSACTION_TYPES in TransactionsViewer); SUPPLIER_PAYMENT is
+    // NOT — D2 shows manual payments by default and only hides the
+    // auto-generated ledger siblings (metadata.is_auto). "Supplier Payment"
+    // and "Supplier Credit" below are both explicit-filter escape hatches
+    // that reveal the auto rows too — see isSupplierPaymentVisible.
+    group: "Suppliers",
+    options: [
+      { label: "Supplier Settlement", type: "SUPPLIER_SETTLEMENT" },
+      { label: "Supplier Payment", type: "SUPPLIER_PAYMENT" },
+      {
+        label: "Supplier Credit",
+        type: "SUPPLIER_PAYMENT",
+        supplier_credit_only: true,
+      },
+    ],
+  },
+  {
+    // PARTNER_SETTLEMENT / PARTNER_PAYMENT (CQ-8) — always visible by
+    // default, same as any other counterparty transaction; these
+    // type-only filters just let the operator narrow to them.
+    group: "Partners",
+    options: [
+      { label: "Partner Settlement", type: "PARTNER_SETTLEMENT" },
+      { label: "Partner Payment", type: "PARTNER_PAYMENT" },
+    ],
+  },
+  {
     group: "Other",
     options: [
       { label: "Sale", type: "SALE" },
@@ -179,17 +268,10 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "Maintenance", type: "MAINTENANCE" },
       { label: "Expense", type: "EXPENSE" },
       { label: "Debt Repayment", type: "DEBT_REPAYMENT" },
-      // SUPPLIER_PAYMENT and CLIENT_CREATED are intentionally hidden from the
-      // transactions table by default (see HIDDEN_TRANSACTION_TYPES in
-      // TransactionsViewer). "Supplier Credit" below is the one deliberate
-      // exception: selecting it narrows the query to SUPPLIER_PAYMENT and
-      // reveals just the is_credit rows.
-      { label: "Supplier Settlement", type: "SUPPLIER_SETTLEMENT" },
-      {
-        label: "Supplier Credit",
-        type: "SUPPLIER_PAYMENT",
-        supplier_credit_only: true,
-      },
+      // CQ-10: one type spans all three counterparty kinds (debt/supplier/
+      // partner) — amounts are always 0 (the value lives in signed
+      // profit_usd/lbp), no dedicated group needed for a single filter.
+      { label: "Discount", type: "COUNTERPARTY_DISCOUNT" },
       { label: "Checkpoint", type: "CHECKPOINT" },
       { label: "Refund", type: "REFUND" },
       { label: "Client Updated", type: "CLIENT_UPDATED" },
@@ -197,3 +279,35 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     ],
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Transactions-table action gating (Void / Refund / Print)
+// ---------------------------------------------------------------------------
+
+/**
+ * Types whose rows get Void + Refund buttons in the transactions table.
+ * Must stay the exact complement of core's NON_REVERSIBLE_TRANSACTION_TYPES —
+ * the backend's _assertReversible is the real gate; this set only controls
+ * visibility. The actionGating guard test enforces the partition.
+ */
+export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
+  "SALE",
+  "FINANCIAL_SERVICE",
+  "EXCHANGE",
+  "RECHARGE",
+  "CUSTOM_SERVICE",
+  "MAINTENANCE",
+  "EXPENSE",
+  "DEBT_REPAYMENT",
+  "SUPPLIER_PAYMENT",
+]);
+
+/** Service transactions that can (re)print a detailed receipt (RCP-3). POS
+ *  sales reprint from Sale Detail; these are the service modules (T8). */
+export const RECEIPTABLE_TYPES: ReadonlySet<string> = new Set([
+  "FINANCIAL_SERVICE",
+  "RECHARGE",
+  "MAINTENANCE",
+  "CUSTOM_SERVICE",
+  "LOTO",
+]);

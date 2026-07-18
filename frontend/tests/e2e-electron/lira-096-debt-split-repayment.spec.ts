@@ -171,12 +171,12 @@ test.describe("LIRA-096 — debt split repayment (USD + LBP)", () => {
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
 
     // Pre-fix this fired "Error: Validation failed: amountUSD: Expected
-    // number, received nan" — the success dialog is the guard.
-    await expect
-      .poll(() => dialogs.some((d) => /Repayment processed/i.test(d)), {
-        timeout: 15_000,
-      })
-      .toBe(true);
+    // number, received nan" — the success toast is the guard.
+    await expect(
+      appPage
+        .locator('[role="alert"]', { hasText: /Repayment processed/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     expect(
       dialogs.filter((d) => /error|validation|nan/i.test(d)),
       "repayment raised an error dialog",

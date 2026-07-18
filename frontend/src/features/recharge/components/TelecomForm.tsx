@@ -329,6 +329,11 @@ export function TelecomForm({
         return;
       }
 
+      appEvents.emit(
+        "notification:show",
+        "Partner recharge recorded successfully",
+        "success",
+      );
       _setTelecomAmount("");
       setTelecomPrice("");
       setTelecomDaysCostUsd("");
@@ -795,6 +800,8 @@ export function TelecomForm({
                   {...(onReturnChange ? { onReturnChange } : {})}
                   {...(onKeptChange ? { onKeptChange } : {})}
                   hasClient={!!telecomClientId}
+                  // Charge flow: shortfall → debt on the resolved client.
+                  autoDebtRemainder={!!telecomClientId}
                   paymentInputKey={paymentInputKey}
                   initialPaymentMethod={initialPaymentMethod}
                   summary={[

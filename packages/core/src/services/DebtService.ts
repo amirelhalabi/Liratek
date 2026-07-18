@@ -17,6 +17,7 @@ import {
   type DebtorSummary,
   type DebtSummary,
   type RepaymentPaymentLine,
+  type CounterpartyDiscountData,
 } from "../repositories/index.js";
 import { debtLogger } from "../utils/logger.js";
 
@@ -43,6 +44,10 @@ export interface RepaymentData {
   keptChangeUSD?: number;
   keptChangeLBP?: number;
   transaction_time?: string;
+  /** CQ-10: a forgiven remainder bundled with this repayment ("owed X, paid
+   *  Y, discount Z"). Posts its own 'Debt Discount' ledger row + a signed
+   *  COUNTERPARTY_DISCOUNT transaction. */
+  discount?: CounterpartyDiscountData;
 }
 
 // =============================================================================
@@ -106,6 +111,7 @@ export class DebtService {
       keptChangeUSD,
       keptChangeLBP,
       transaction_time,
+      discount,
     } = data;
 
     // Validate
@@ -166,6 +172,7 @@ export class DebtService {
         kept_change_usd: keptChangeUSD,
         kept_change_lbp: keptChangeLBP,
         transaction_time,
+        discount,
       });
 
       debtLogger.info(
@@ -183,6 +190,84 @@ export class DebtService {
       debtLogger.error(
         { error, clientId, amountUSD, amountLBP },
         "Failed to add repayment",
+      );
+      return { success: false, error: (error as Error).message };
+    }
+  }
+
+  /**
+   * CQ-10 (D4: admin-only, enforced by the IPC handler / REST route) —
+   * standalone write-off: forgive part of a client's debt with NO settlement
+   * attached. amountUSD/amountLBP are validated PER CURRENCY against the
+   * client's OUTSTANDING debt (mirrors cashOut's per-currency credit guard,
+   * mirrored for the opposite balance sign) — a write-off must never exceed
+   * what the client actually owes in that currency.
+   */
+  writeOffDebt(data: {
+    clientId: number;
+    amountUSD: number;
+    amountLBP: number;
+    reason?: string;
+    userId: number;
+    transaction_time?: string;
+  }): RepaymentResult {
+    const { clientId, amountUSD, amountLBP, reason, userId, transaction_time } =
+      data;
+
+    if (!clientId) {
+      return { success: false, error: "Client ID is required" };
+    }
+    if ((amountUSD ?? 0) <= 0 && (amountLBP ?? 0) <= 0) {
+      return {
+        success: false,
+        error: "Write-off amount must be greater than zero",
+      };
+    }
+
+    // The write-off may not exceed the client's DEBT per currency — the
+    // mirror image of cashOut's "may not exceed the client's credit" guard.
+    const balance = this.debtRepo.getClientBalance(clientId);
+    const debtUsd = Math.max(0, balance.balance_usd);
+    const debtLbp = Math.max(0, balance.balance_lbp);
+    if (debtUsd <= 0 && debtLbp <= 0) {
+      return {
+        success: false,
+        error: "Client has no outstanding debt to write off",
+      };
+    }
+    if (amountUSD > debtUsd + 0.05) {
+      return {
+        success: false,
+        error: `Write-off ($${amountUSD.toFixed(2)}) exceeds the client's USD debt ($${debtUsd.toFixed(2)})`,
+      };
+    }
+    if ((amountLBP ?? 0) > debtLbp + 1000) {
+      return {
+        success: false,
+        error: `Write-off (${(amountLBP ?? 0).toLocaleString()} LBP) exceeds the client's LBP debt (${debtLbp.toLocaleString()} LBP)`,
+      };
+    }
+
+    try {
+      const result = this.debtRepo.writeOffDebt({
+        client_id: clientId,
+        amount_usd: amountUSD,
+        amount_lbp: amountLBP ?? 0,
+        reason,
+        created_by: userId,
+        transaction_time,
+      });
+
+      debtLogger.info(
+        { clientId, amountUSD, amountLBP, txnId: result.id },
+        `Debt write-off of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`,
+      );
+
+      return { success: true, id: result.id };
+    } catch (error) {
+      debtLogger.error(
+        { error, clientId, amountUSD, amountLBP },
+        "Failed to write off debt",
       );
       return { success: false, error: (error as Error).message };
     }

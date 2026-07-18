@@ -302,9 +302,15 @@ describe("FinancialServiceRepository — C3: supplier ledger = transaction amoun
   });
 
   it("SEND split-pay: ledger stays the transfer amount even when the paid legs total differs", () => {
-    // $50 transfer + $2 fee; customer split-pays $30 cash + 2,000,000 LBP —
-    // a paid total unrelated to the transfer amount. The ledger must still
-    // record exactly the $50 transfer in the denominated currency.
+    // $50 transfer + $2 fee; customer split-pays $30 cash + 1,980,000 LBP —
+    // a paid total unrelated to the TRANSFER amount (data.amount = $50) even
+    // though it reconciles exactly against the TRUE customer-owed total
+    // (transfer + fee = $52 = $30 + 1,980,000/90,000). The repository now
+    // hard-rejects legs that don't cover the customer's real total (S2,
+    // Payment-Legs Integrity plan); 1,980,000 (not the original 2,000,000,
+    // which was $0.22 short of $52 at this rate) is the number that both
+    // reconciles AND keeps this test's point intact: the ledger books $50
+    // (the bare transfer), never $52 (transfer + fee) or $30 (one leg).
     repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
@@ -315,7 +321,7 @@ describe("FinancialServiceRepository — C3: supplier ledger = transaction amoun
       omtFee: 2,
       payments: [
         { method: "CASH", currencyCode: "USD", amount: 30 },
-        { method: "CASH", currencyCode: "LBP", amount: 2_000_000 },
+        { method: "CASH", currencyCode: "LBP", amount: 1_980_000 },
       ],
       exchangeRate: 90000,
     });

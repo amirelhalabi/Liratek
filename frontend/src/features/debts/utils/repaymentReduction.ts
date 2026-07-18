@@ -72,3 +72,59 @@ export function computeRepaymentReduction({
 
   return { reduceUsd, reduceLbp };
 }
+
+/**
+ * applyDebtDiscount
+ *
+ * CQ-10: a bundled repayment can forgive part of the debt alongside the cash
+ * payment (owed − paid − discount = remaining). This clamps the requested
+ * discount, per currency, to what is actually owed (forgiving more than the
+ * debt doesn't make sense) and returns the REMAINING due after the discount.
+ *
+ * Callers MUST feed `remainingDueUsd/remainingDueLbp` — not the raw
+ * `dueUsd/dueLbp` — into BOTH the MultiPaymentInput `totals` prop (so the
+ * operator sees the discounted total live) AND `computeRepaymentReduction`'s
+ * `dueUsd/dueLbp` at submit time. Passing the raw due into the reduction call
+ * would only happen to stay correct by relying on change-leg netting to cap
+ * the effective payment — capping the DUE itself makes
+ * `paid + appliedDiscount ≤ dueUsd/dueLbp` hold structurally, independent of
+ * how change is handled.
+ */
+export interface ApplyDebtDiscountInput {
+  dueUsd: number;
+  dueLbp: number;
+  discountUsd: number;
+  discountLbp: number;
+}
+
+export interface ApplyDebtDiscountResult {
+  /** Discount actually applied, per currency — capped at what's due. */
+  appliedDiscountUsd: number;
+  appliedDiscountLbp: number;
+  /** Due AFTER the discount, per currency — feed this to both the payment
+   *  UI's totals and the reduction math, never the raw due. */
+  remainingDueUsd: number;
+  remainingDueLbp: number;
+}
+
+export function applyDebtDiscount({
+  dueUsd,
+  dueLbp,
+  discountUsd,
+  discountLbp,
+}: ApplyDebtDiscountInput): ApplyDebtDiscountResult {
+  const appliedDiscountUsd = Math.min(
+    Math.max(0, discountUsd),
+    Math.max(0, dueUsd),
+  );
+  const appliedDiscountLbp = Math.min(
+    Math.max(0, discountLbp),
+    Math.max(0, dueLbp),
+  );
+  return {
+    appliedDiscountUsd,
+    appliedDiscountLbp,
+    remainingDueUsd: Math.max(0, dueUsd - appliedDiscountUsd),
+    remainingDueLbp: Math.max(0, dueLbp - appliedDiscountLbp),
+  };
+}

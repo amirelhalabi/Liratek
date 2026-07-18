@@ -11,6 +11,7 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { paymentMethodToDrawerName } from "../utils/payments.js";
+import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 
 // =============================================================================
 // Entity Types
@@ -120,7 +121,13 @@ export interface CreateLedgerEntryData {
     | "CUSTOM_SERVICE"
     | "WHISH_TOPUP"
     | "SETTLEMENT"
-    | "ADJUSTMENT";
+    | "ADJUSTMENT"
+    /** CQ-10 — the partner forgives part of what they owe (direction CREDIT,
+     *  same as a SETTLEMENT) or the shop forgives part of what it owes the
+     *  partner (direction DEBIT). Free-text since v127 — see
+     *  partnerLedgerTypes.guard.test.ts (only polices FOR_%/THROUGH_%
+     *  literals, so this union entry is the only enforcement for 'DISCOUNT'). */
+    | "DISCOUNT";
   reference_table?: string;
   reference_id?: number;
   amount: number;
@@ -132,6 +139,11 @@ export interface CreateLedgerEntryData {
   /** PFT-7b: force settlement FIFO coverage for a non-SETTLEMENT row (a
    *  cash-moved manual entry) — profit realizes when real money moves. */
   applyCoverage?: boolean;
+  /** CQ-7: optional backdated timestamp (mirrors the caller's own
+   *  `transaction_time` override, e.g. FinancialServiceRepository's FOR_%/
+   *  THROUGH_% rows) — COALESCEd with CURRENT_TIMESTAMP, so omitting it keeps
+   *  the existing default behavior for every other caller. */
+  created_at?: string;
 }
 
 // =============================================================================
@@ -283,7 +295,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
           partner_id, transaction_type, reference_table, reference_id,
           amount, currency, direction, notes, user_id, settlement_method,
           tenant_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
       const result = stmt.run(
         data.partner_id,
@@ -297,6 +309,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
         data.user_id ?? null,
         data.settlement_method ?? null,
         tenantId,
+        data.created_at ?? null,
       );
       const id = Number(result.lastInsertRowid);
 
@@ -305,8 +318,13 @@ export class PartnerRepository extends BaseRepository<Partner> {
       // tell which source transactions the partner has actually settled.
       // PFT-7b: cash-moved manual entries (applyCoverage) count too — profit
       // realizes when real money moves; paper entries never cover.
+      // CQ-10: a DISCOUNT row covers exactly like a SETTLEMENT — a forgiven
+      // amount is just as real as cash for closing out a FOR_% obligation
+      // (skipping this would leave the deferred profit stuck forever, the
+      // exact "paper ADJUSTMENT" trap this ticket exists to avoid).
       if (
         data.transaction_type === "SETTLEMENT" ||
+        data.transaction_type === "DISCOUNT" ||
         data.applyCoverage === true
       ) {
         this.applySettlementCoverage(
@@ -396,6 +414,16 @@ export class PartnerRepository extends BaseRepository<Partner> {
    * BINANCE settlements move the Binance drawer in USDT at the settled USD
    * figure (the same 1:1 numeric convention the Binance FOR flows use —
    * the partner ledger is always USD).
+   *
+   * CQ-11 (split-leg settlement) — an optional `legs` array supersedes
+   * `entry.settlement_method` for MONEY MOVEMENT: instead of ONE payments
+   * row + ONE drawer delta, it writes N payments rows + N drawer deltas
+   * (one per leg), still inside the SAME transaction and still against the
+   * SAME single partner_ledger row / single PARTNER_SETTLEMENT transaction.
+   * Every leg's `currency_code` is validated upstream (schema + service) to
+   * equal `entry.currency`; the BINANCE→USDT drawer-currency override is
+   * preserved per leg exactly like the single-leg path. Omitting `legs`
+   * keeps the original single-leg behavior byte-identical.
    */
   recordSettlementMoneyMovement(
     entry: PartnerLedgerEntry,
@@ -403,6 +431,14 @@ export class PartnerRepository extends BaseRepository<Partner> {
     txnType:
       | "PARTNER_SETTLEMENT"
       | "PARTNER_PAYMENT" = TRANSACTION_TYPES.PARTNER_SETTLEMENT,
+    /** CQ-10 — a bundled discount is annotated onto THIS settlement's own
+     *  metadata (informational only; the money-and-profit effect lives on
+     *  the separate COUNTERPARTY_DISCOUNT row `recordDiscount` posts). */
+    discount?: { amount_usd: number; amount_lbp: number; reason?: string },
+    /** CQ-11 — split payment legs (MultiPaymentInput). Each leg's amount is
+     *  UNsigned (positive); the direction sign is derived once from
+     *  `entry.direction`, same as the legacy single-leg `signed` below. */
+    legs?: Array<{ method: string; currency_code: string; amount: number }>,
   ): number {
     const tenantId = getCurrentTenantId();
     const method = entry.settlement_method ?? "CASH";
@@ -417,6 +453,18 @@ export class PartnerRepository extends BaseRepository<Partner> {
 
     const partner = this.getById(entry.partner_id);
     const label = partner?.name ?? `partner #${entry.partner_id}`;
+
+    // CQ-11: the transaction's method (both the legacy top-level
+    // `settlement_method` metadata key and the namespaced
+    // `counterparty.method`) reflects what ACTUALLY moved money — the
+    // legs' methods when present (collapsing to 'SPLIT' when they're mixed),
+    // falling back to the legacy `method` when `legs` is omitted.
+    const legMethods = legs ? new Set(legs.map((l) => l.method)) : null;
+    const effectiveMethod = legMethods
+      ? legMethods.size > 1
+        ? "SPLIT"
+        : (legs as Array<{ method: string }>)[0].method
+      : method;
 
     const txn = this.db.transaction(() => {
       const txnId = getTransactionRepository().createTransaction({
@@ -435,41 +483,152 @@ export class PartnerRepository extends BaseRepository<Partner> {
             : "Partner settlement"
         }: ${
           entry.direction === "CREDIT" ? "received from" : "paid to"
-        } ${label} — ${Math.abs(entry.amount)} ${entry.currency} via ${method}`,
+        } ${label} — ${Math.abs(entry.amount)} ${entry.currency} via ${effectiveMethod}`,
         metadata_json: {
           partner_id: entry.partner_id,
-          settlement_method: method,
+          settlement_method: effectiveMethod,
           direction: entry.direction,
+          // CQ-8 counterparty contract: CREDIT settlement = partner pays the
+          // shop (IN); DEBIT settlement = shop pays the partner (OUT) — same
+          // direction the drawer delta above (`signed`) already encodes.
+          counterparty: buildCounterpartyMetadata({
+            kind: "partner",
+            id: entry.partner_id,
+            name: label,
+            flow: entry.direction === "CREDIT" ? "IN" : "OUT",
+            method: effectiveMethod,
+            ledgerEntryId: entry.id,
+            discount: discount
+              ? {
+                  amount_usd: Math.abs(discount.amount_usd || 0),
+                  amount_lbp: Math.abs(discount.amount_lbp || 0),
+                  reason: discount.reason,
+                }
+              : undefined,
+          }),
         },
       });
-      this.db
-        .prepare(
-          `INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          txnId,
-          method,
-          drawerName,
-          drawerCurrency,
-          signed,
-          `Partner settlement (${label})`,
-          userId,
-          tenantId,
-        );
-      this.db
-        .prepare(
-          `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-             balance = drawer_balances.balance + excluded.balance,
-             updated_at = CURRENT_TIMESTAMP`,
-        )
-        .run(drawerName, drawerCurrency, signed, tenantId);
+
+      if (legs && legs.length > 0) {
+        for (const leg of legs) {
+          const legDrawerName = paymentMethodToDrawerName(leg.method);
+          const legDrawerCurrency =
+            leg.method === "BINANCE" ? "USDT" : leg.currency_code;
+          const legSigned =
+            entry.direction === "CREDIT"
+              ? Math.abs(leg.amount)
+              : -Math.abs(leg.amount);
+          this.db
+            .prepare(
+              `INSERT INTO payments (
+                transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              txnId,
+              leg.method,
+              legDrawerName,
+              legDrawerCurrency,
+              legSigned,
+              `Partner settlement (${label})`,
+              userId,
+              tenantId,
+            );
+          this.db
+            .prepare(
+              `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
+                 balance = drawer_balances.balance + excluded.balance,
+                 updated_at = CURRENT_TIMESTAMP`,
+            )
+            .run(legDrawerName, legDrawerCurrency, legSigned, tenantId);
+        }
+      } else {
+        this.db
+          .prepare(
+            `INSERT INTO payments (
+              transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            txnId,
+            method,
+            drawerName,
+            drawerCurrency,
+            signed,
+            `Partner settlement (${label})`,
+            userId,
+            tenantId,
+          );
+        this.db
+          .prepare(
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
+               balance = drawer_balances.balance + excluded.balance,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+          .run(drawerName, drawerCurrency, signed, tenantId);
+      }
       return txnId;
     });
     return txn();
+  }
+
+  /**
+   * CQ-10 — post ONE COUNTERPARTY_DISCOUNT transaction for a partner DISCOUNT
+   * ledger entry. Unlike recordSettlementMoneyMovement, this writes NO
+   * payments row / drawer delta — a discount moves no cash (amount_usd/
+   * amount_lbp = 0). `entry` must already have been written via
+   * addLedgerEntry(transaction_type: "DISCOUNT", ...) — its own insertion
+   * already triggered applySettlementCoverage.
+   *
+   * direction CREDIT = the shop forgives the partner's debt to it (forgiving
+   * a receivable) → profit NEGATIVE, flow IN (as-if-paid). direction DEBIT =
+   * the partner forgives what the shop owes them (a payable) → profit
+   * POSITIVE, flow OUT.
+   */
+  recordDiscount(entry: PartnerLedgerEntry, userId: number): number {
+    const partner = this.getById(entry.partner_id);
+    const label = partner?.name ?? `partner #${entry.partner_id}`;
+    const magnitude = Math.abs(entry.amount);
+    const signedProfit = entry.direction === "CREDIT" ? -magnitude : magnitude;
+
+    return getTransactionRepository().createTransaction({
+      type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
+      source_table: "partner_ledger",
+      source_id: entry.id,
+      user_id: userId,
+      amount_usd: 0,
+      amount_lbp: 0,
+      profit_usd: entry.currency === "USD" ? signedProfit : 0,
+      profit_lbp: entry.currency === "LBP" ? signedProfit : 0,
+      client_id: null,
+      summary:
+        entry.direction === "CREDIT"
+          ? `Discount: ${magnitude} ${entry.currency} forgiven — ${label}`
+          : `Partner discount received: ${magnitude} ${entry.currency} — ${label}`,
+      metadata_json: {
+        partner_id: entry.partner_id,
+        direction: entry.direction,
+        // CQ-10/D1 counterparty contract: CREDIT forgives a receivable
+        // (flow IN, as-if-paid); DEBIT forgives a payable (flow OUT), same
+        // direction a real settlement of that sign would use.
+        counterparty: buildCounterpartyMetadata({
+          kind: "partner",
+          id: entry.partner_id,
+          name: label,
+          flow: entry.direction === "CREDIT" ? "IN" : "OUT",
+          method: "LEDGER",
+          ledgerEntryId: entry.id,
+          discount: {
+            amount_usd: entry.currency === "USD" ? magnitude : 0,
+            amount_lbp: entry.currency === "LBP" ? magnitude : 0,
+          },
+        }),
+      },
+    });
   }
 
   getLedgerEntries(

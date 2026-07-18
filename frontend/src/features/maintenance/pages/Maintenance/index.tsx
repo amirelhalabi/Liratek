@@ -11,7 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import CheckoutModal from "@/features/sales/pages/POS/components/CheckoutModal";
-import { PageHeader, useApi, DecimalInput } from "@liratek/ui";
+import { appEvents, PageHeader, useApi, DecimalInput } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { HistoryModal } from "./components/HistoryModal";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
@@ -370,6 +370,11 @@ export default function Maintenance() {
 
     const result = await api.saveMaintenanceJob(jobData);
     if (result.success) {
+      appEvents.emit(
+        "notification:show",
+        "Maintenance payment processed successfully",
+        "success",
+      );
       setIsCheckoutOpen(false);
       handleNewJob();
       const data = await api.getMaintenanceJobs(filter);

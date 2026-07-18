@@ -6390,6 +6390,135 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v130 — backfill metadata.is_auto on historical SUPPLIER_PAYMENT rows (CQ-8)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 130,
+    name: "backfill_supplier_payment_is_auto_metadata",
+    description:
+      "Data-only backfill: stamp top-level metadata_json.is_auto = true on historical SUPPLIER_PAYMENT transactions whose linked supplier_ledger row (source_table='supplier_ledger', source_id=ledger id) has is_auto=1. Feeds owner decision D2 (manual supplier payments visible on the Transactions page by default, auto-generated sibling rows stay behind the filter) — without this backfill, pre-CQ-8 auto rows would show up as if they were manual. Pure UPDATE, no ALTER — safe on both fresh and prod DBs; fresh installs have no historical rows to touch. Idempotent: json_set-ing the same key to the same value twice is a no-op the second time.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const result = db
+        .prepare(
+          `UPDATE transactions
+           SET metadata_json = json_set(
+             CASE
+               WHEN metadata_json IS NULL THEN '{}'
+               WHEN json_valid(metadata_json) = 0 THEN '{}'
+               ELSE metadata_json
+             END,
+             '$.is_auto', json('true')
+           )
+           WHERE type = 'SUPPLIER_PAYMENT'
+             AND source_table = 'supplier_ledger'
+             AND EXISTS (
+               SELECT 1 FROM supplier_ledger sl
+               WHERE sl.id = transactions.source_id
+                 AND sl.tenant_id = transactions.tenant_id
+                 AND sl.is_auto = 1
+             )`,
+        )
+        .run();
+      console.log(
+        `Migration v130: backfilled is_auto metadata on ${result.changes} historical SUPPLIER_PAYMENT transaction(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      // Data-only backfill: no down migration. Removing the is_auto key would
+      // be lossy-safe (it's re-derivable from supplier_ledger.is_auto by
+      // re-running up()) but serves no purpose — nothing depends on the key
+      // being ABSENT, only on it being present-and-true for auto rows.
+      void db;
+      console.log(
+        "Migration v130: no-op rollback (data-only backfill, re-derivable from supplier_ledger.is_auto)",
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v131 — Add 'DISCOUNT' to supplier_ledger.entry_type CHECK (CQ-10)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 131,
+    name: "add_discount_entry_type_supplier_ledger",
+    description:
+      "Add 'DISCOUNT' to the supplier_ledger.entry_type CHECK so a supplier forgiving part of what the shop owes (CQ-10) posts a first-class ledger row instead of being crammed into ADJUSTMENT/PAYMENT. Unlike partner_ledger (v127, which DROPPED its CHECK in favor of free-form + TS-union/guard enforcement), supplier_ledger keeps a strict enum here — it's a small, stable, non-templated set of entry types (unlike partner's many composed FOR_%/THROUGH_% literals), so widening the CHECK preserves the existing strictness with the least change. SQLite can't ALTER a CHECK, so the table is recreated preserving all rows + the index — mirrors migrations v83/v98/v99/v127's 12-step rebuild pattern.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE supplier_ledger_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          is_auto INTEGER NOT NULL DEFAULT 0,
+          is_refunded INTEGER NOT NULL DEFAULT 0,
+          refunded_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_new (id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at)
+        SELECT id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at
+        FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+        ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+      console.log(
+        "Migration v131: added 'DISCOUNT' to supplier_ledger.entry_type",
+      );
+    },
+    down(db: Database.Database) {
+      // Relabel DISCOUNT rows to ADJUSTMENT first (closest pre-existing
+      // meaning: a manual balance correction) — the old CHECK would reject
+      // them mid-rebuild otherwise, same pattern as v99's down().
+      db.exec(`
+        UPDATE supplier_ledger SET entry_type = 'ADJUSTMENT' WHERE entry_type = 'DISCOUNT';
+
+        CREATE TABLE supplier_ledger_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          is_auto INTEGER NOT NULL DEFAULT 0,
+          is_refunded INTEGER NOT NULL DEFAULT 0,
+          refunded_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_old (id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at)
+        SELECT id, tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at
+        FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+        ALTER TABLE supplier_ledger_old RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+      console.log(
+        "Migration v131 rolled back: removed 'DISCOUNT' from supplier_ledger.entry_type (relabeled existing rows to ADJUSTMENT)",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

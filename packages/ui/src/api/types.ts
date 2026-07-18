@@ -384,7 +384,22 @@ export type ApiAdapter = {
     user_id?: number;
     payments?: Array<{ method: string; currencyCode: string; amount: number }>;
     transaction_time?: string;
+    /** CQ-10: bundled discount — forgives part of the debt alongside the
+     *  cash payment. Posts a signed-profit 'Debt Discount' ledger row. */
+    discount?: { amount_usd: number; amount_lbp: number; reason?: string };
   }) => Promise<ApiResult>;
+  /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
+   *  cash movement. Capped server-side at the client's outstanding balance
+   *  per currency. */
+  debtWriteOff: (payload: {
+    clientId: number;
+    // NOTE camelCase — mirrors debtWriteOffSchema/addRepaymentSchema's
+    // amountUSD/amountLBP convention (unlike suppliers/partners write-off,
+    // which use amount_usd/amount_lbp).
+    amountUSD: number;
+    amountLBP: number;
+    reason?: string;
+  }) => Promise<ApiResult & { id?: number }>;
   getClientBalance: (clientId: number) => Promise<{
     success: boolean;
     data?: { balance_usd: number; balance_lbp: number };
@@ -396,6 +411,19 @@ export type ApiAdapter = {
   addAccountEntry: (
     payload: unknown,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
+  /** Consume a client's prepaid credit balance (IPC: debt.useCredit). */
+  consumeCredit: (payload: {
+    clientId: number;
+    amountUsd: number;
+    amountLbp: number;
+    note?: string;
+    transactionTime?: string;
+  }) => Promise<{ success: boolean; id?: number; error?: string }>;
+  /** Edit a debt_ledger row's note (IPC: debt.updateMetadata). */
+  updateDebtMetadata: (payload: {
+    id: number;
+    note?: string;
+  }) => Promise<{ success: boolean; data?: any; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Exchange
@@ -551,6 +579,50 @@ export type ApiAdapter = {
     note?: string;
     payments?: Array<{ method: string; currency_code: string; amount: number }>;
   }) => Promise<ApiResult & { id?: number }>;
+  /** Pay a supplier down / record a supplier paying us, via payment legs. */
+  recordSupplierCashflow: (data: {
+    supplier_id: number;
+    direction: "PAY" | "RECEIVE";
+    payments: Array<{ method: string; currency_code: string; amount: number }>;
+    note?: string;
+    exchange_rate?: number;
+    /** CQ-10: bundled discount — PAY direction only (backend rejects it on
+     *  RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row. */
+    discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+  }) => Promise<ApiResult & { id?: number }>;
+  /** CQ-10: standalone supplier write-off (admin-only) — the supplier
+   *  forgives what we owe them; capped server-side at the outstanding
+   *  balance per currency. */
+  supplierWriteOff: (data: {
+    supplier_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    reason?: string;
+  }) => Promise<ApiResult & { id?: number }>;
+  /** All transactions for a provider (history tab) — settled + unsettled. */
+  getAllSupplierTransactions: (
+    provider: string,
+    limit?: number,
+  ) => Promise<any[]>;
+  /** Per-provider unsettled commission summary (dashboard + profits page). */
+  getUnsettledSummary: () => Promise<any[]>;
+  /** Product-supplier aggregate balances (Inventory-linked suppliers). */
+  getSupplierProductBalances: () => Promise<any[]>;
+  /** Inventory items sourced from one product supplier. */
+  getSupplierProductItems: (supplierId: number) => Promise<any[]>;
+  /** Purchase (delivery batch) records for a product supplier. */
+  getSupplierPurchases: (supplierId: number) => Promise<any[]>;
+  /**
+   * Log a delivery batch for a product supplier (FIFO payment coverage).
+   * NOTE: core SupplierService.createPurchase returns the raw entity on
+   * success (no `success` wrapper) and only `{ success: false, error }` on
+   * failure — this passes the result through unchanged, it does not reshape.
+   */
+  createSupplierPurchase: (data: {
+    supplier_id: number;
+    total_usd: number;
+    note?: string;
+  }) => Promise<any>;
 
   // ---------------------------------------------------------------------------
   // Rates (new 4-column schema: to_code, market_rate, delta, is_stronger)
@@ -848,7 +920,27 @@ export type ApiAdapter = {
       currency: string;
       settlementMethod: string;
       notes?: string;
+      /** CQ-10: bundled discount — forgives part of what the partner owes
+       *  alongside the settlement. Posts a signed-profit 'DISCOUNT' row. */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+      /** CQ-11 — split-leg settlement (MultiPaymentInput); supersedes
+       *  `settlementMethod` for money movement when present. Every leg's
+       *  currency_code must match `currency` and legs must sum to `amount`. */
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
     }) => Promise<{ success: boolean; data?: any; error?: string }>;
+    /** CQ-10: standalone partner write-off (admin-only) — we forgive what
+     *  the partner owes us; capped server-side at the outstanding balance
+     *  per currency. */
+    writeOff: (data: {
+      partnerId: number;
+      amount_usd: number;
+      amount_lbp: number;
+      reason?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
   /** Vouchers (gift cards) — config CRUD. Channels return the service

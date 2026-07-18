@@ -12,10 +12,20 @@
  *  - RECEIVE: the shop pays the customer out of the drawer(s) → out
  *    (the customer pays nothing; the per-currency payout legs are shown by
  *    the payment-legs subtext)
+ *
+ * PARTNER_SETTLEMENT / PARTNER_PAYMENT are unusual: unlike every other type,
+ * their `amount_usd`/`amount_lbp` are SIGNED (positive = cash into the
+ * drawer, negative = out) instead of encoding direction via the type — see
+ * PartnerRepository.recordSettlementMoneyMovement. `signedAmounts` (the
+ * row's own amount_usd/amount_lbp, unmodified) lets this function read that
+ * sign for historical rows written before the CQ-8 counterparty contract;
+ * new rows carry `metadata.counterparty.flow` ('IN'|'OUT') and that is
+ * preferred whenever present.
  */
 export function getCashFlowDirection(
   type: string,
   metaJson?: string | null,
+  signedAmounts?: { usd: number; lbp: number },
 ): "in" | "out" | "both" | null {
   switch (type) {
     case "FINANCIAL_SERVICE": {
@@ -57,6 +67,30 @@ export function getCashFlowDirection(
         }
       }
       return "out";
+    }
+    case "PARTNER_SETTLEMENT":
+    case "PARTNER_PAYMENT": {
+      if (metaJson) {
+        try {
+          const m = JSON.parse(metaJson) as {
+            counterparty?: { flow?: "IN" | "OUT" };
+          };
+          const flow = m.counterparty?.flow;
+          if (flow === "IN") return "in";
+          if (flow === "OUT") return "out";
+        } catch {
+          /* fall through to the sign-based fallback below */
+        }
+      }
+      // Historical rows (pre-counterparty-contract): read the sign of the
+      // row's own signed amount. Only one currency is ever populated per
+      // row, so whichever is non-zero carries the sign.
+      if (signedAmounts) {
+        const signed = signedAmounts.usd || signedAmounts.lbp;
+        if (signed > 0) return "in";
+        if (signed < 0) return "out";
+      }
+      return null;
     }
     case "EXPENSE":
     case "LOTO_MONTHLY_FEE":
@@ -111,4 +145,74 @@ export function isCashTransaction(
   payments: Array<{ method: string }> | undefined,
 ): boolean {
   return !!payments?.some((p) => p.method === "CASH");
+}
+
+/**
+ * Structured payment leg as returned by TransactionRepository.getRecent
+ * (LIRA-064). `signed_amount` keeps the sign; `amount` is the absolute value;
+ * `direction` is derived from the sign ("in" = customer paid the shop, "out" =
+ * change returned). Mirrors the backend / electron.d.ts shape.
+ */
+export type TransactionPaymentLeg = {
+  direction: "in" | "out";
+  amount: number;
+  signed_amount: number;
+  currency_code: string;
+  method: string;
+};
+
+/** Format a single payment amount with its currency, e.g. "$50" or "100,000 LBP". */
+export function formatLegAmount(leg: TransactionPaymentLeg): string {
+  const value = leg.amount.toLocaleString();
+  return leg.currency_code === "USD"
+    ? `$${value}`
+    : `${value} ${leg.currency_code}`;
+}
+
+/**
+ * Build the "in: ... · out: ..." string from the structured payment legs,
+ * joined entirely client-side. Returns null when there are no legs so callers
+ * can skip rendering. Same-currency legs on the same side are summed so the
+ * label stays compact (e.g. two USD cash legs → one "$50").
+ *
+ * Payment-Legs Integrity plan (S3 — tender-first display): this reads ONLY
+ * `leg.currency_code`/`leg.amount`/`leg.direction` — never the row's own
+ * service currency (amount_usd/amount_lbp) — so a USD-denominated service
+ * paid with a single LBP leg renders "in: 900,000 LBP", not "in: $10". The
+ * function is currency-agnostic by construction; there is no code path that
+ * could conflate the two.
+ */
+export function formatPaymentLegs(
+  legs: TransactionPaymentLeg[] | undefined,
+): string | null {
+  if (!legs || legs.length === 0) return null;
+
+  const sumByCurrency = (side: "in" | "out"): string[] => {
+    const totals = new Map<string, number>();
+    for (const leg of legs) {
+      if (leg.direction !== side) continue;
+      totals.set(
+        leg.currency_code,
+        (totals.get(leg.currency_code) ?? 0) + leg.amount,
+      );
+    }
+    return [...totals.entries()].map(([currency_code, amount]) =>
+      formatLegAmount({
+        direction: side,
+        amount,
+        signed_amount: amount,
+        currency_code,
+        method: "",
+      }),
+    );
+  };
+
+  const inParts = sumByCurrency("in");
+  const outParts = sumByCurrency("out");
+
+  const segments: string[] = [];
+  if (inParts.length) segments.push(`in: ${inParts.join(" + ")}`);
+  if (outParts.length) segments.push(`out: ${outParts.join(" + ")}`);
+
+  return segments.length ? segments.join(" · ") : null;
 }

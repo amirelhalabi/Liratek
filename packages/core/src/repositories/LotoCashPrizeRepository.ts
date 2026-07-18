@@ -8,6 +8,7 @@ import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getSupplierRepository } from "./SupplierRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   isDrawerAffectingMethod,
@@ -131,11 +132,6 @@ export class LotoCashPrizeRepository {
       }
 
       // 4. Create supplier ledger entry (LOTO owes us this amount - reimbursable)
-      const insertLedger = this.db.prepare(`
-        INSERT INTO supplier_ledger (
-          tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
 
       // Get or create LOTO supplier
       let supplierStmt = this.db.prepare(
@@ -156,18 +152,21 @@ export class LotoCashPrizeRepository {
 
       // Negative amount = LOTO owes us / reduces what we owe (standard
       // supplier convention: the Suppliers page reads <0 as "They owe you").
-      insertLedger.run(
-        tenantId,
-        supplierId,
-        "CASH_PRIZE",
-        0,
-        -data.prize_amount,
-        data.ticket_number
+      //
+      // CQ-7: routed through addLedgerEntry's link-mode instead of a raw
+      // INSERT — same entry_type/amounts/note/is_auto(=0)/transaction_id
+      // link as before.
+      getSupplierRepository().addLedgerEntry({
+        supplier_id: supplierId,
+        entry_type: "CASH_PRIZE",
+        amount_usd: 0,
+        amount_lbp: -data.prize_amount,
+        note: data.ticket_number
           ? `Cash prize payout: LOTO owes us ${data.prize_amount} LBP (ticket: ${data.ticket_number})`
           : `Cash prize payout: LOTO owes us ${data.prize_amount} LBP`,
-        data.userId,
-        txnId,
-      );
+        created_by: data.userId,
+        transaction_id: txnId,
+      });
 
       return prize;
     });

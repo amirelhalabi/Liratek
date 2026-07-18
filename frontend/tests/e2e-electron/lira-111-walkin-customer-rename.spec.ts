@@ -50,9 +50,7 @@ type Api = {
       }) => Promise<{ success?: boolean; id?: number }>;
     };
     transactions: {
-      getRecent: (
-        n: number,
-      ) => Promise<
+      getRecent: (n: number) => Promise<
         Array<{
           id: number;
           type: string;

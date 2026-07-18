@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { DecimalInput, Select, useApi } from "@liratek/ui";
+import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -94,7 +94,11 @@ export function DrawerTopUpModal({
       }
 
       if (result.success) {
-        alert("Drawer topped up successfully.");
+        appEvents.emit(
+          "notification:show",
+          "Drawer topped up successfully.",
+          "success",
+        );
         setAmountUsd("");
         setAmountLbp("");
         setNotes("");

@@ -55,6 +55,13 @@ export const TRANSACTION_TYPES = {
    *  Accounts-page CREDIT_CASH_IN/DEBT_CASH_OUT analog (add debt = cash OUT
    *  to the partner, add credit = cash IN from the partner). */
   PARTNER_PAYMENT: "PARTNER_PAYMENT",
+  /** CQ-10 — a counterparty (client/supplier/partner) forgives part of a
+   *  balance, or the shop forgives part of what a counterparty owes. Posted
+   *  once per discount (bundled with a settlement or standalone), on top of
+   *  the kind-specific ledger row ('Debt Discount' / 'DISCOUNT' /
+   *  'DISCOUNT'). amount_usd/amount_lbp are always 0 (no cash moves);
+   *  profit_usd/profit_lbp carry the SIGNED discount (D1). */
+  COUNTERPARTY_DISCOUNT: "COUNTERPARTY_DISCOUNT",
 
   // Closing / Checkpoint
   CHECKPOINT: "CHECKPOINT",
@@ -118,6 +125,42 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // PARTNER_PAYMENT (PFT-7b): same rationale — the cash-moved manual entry
     // applies coverage stamps the generic reversal cannot un-apply.
     TRANSACTION_TYPES.PARTNER_PAYMENT,
+    // COUNTERPARTY_DISCOUNT (CQ-10): no drawer/legs to reverse (amount_usd/lbp
+    // are always 0) and the FIFO coverage it applied (sales.paid_usd /
+    // debt_ledger.covered_* / partner_ledger.covered_amount /
+    // supplier_purchases.paid_usd) cannot be un-applied generically. Rule-20
+    // owner: a correction is an OPPOSITE discount (or a manual reversing
+    // entry), never a void.
+    TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
+    // MTC_TOPUP / ALFA_TOPUP (topUpFromCustomer): moves General AND the
+    // provider drawer directly with NO payments legs — the generic reversal
+    // touches neither drawer. Rule-20 owner: correct with an opposite manual
+    // top-up from the Recharge page.
+    TRANSACTION_TYPES.MTC_TOPUP,
+    TRANSACTION_TYPES.ALFA_TOPUP,
+    // DRAWER_TOPUP (createTopUpFromDrawer): two drawer movements but only the
+    // General-side payments leg — a void would restore General and strand the
+    // source drawer's deduction. Rule-20 owner: an opposite transfer.
+    TRANSACTION_TYPES.DRAWER_TOPUP,
+    // HOLD_MONEY / HOLD_MONEY_COLLECT: hold_money.status ('held'/'collected')
+    // is not reset by the generic reversal (hold_money is not in
+    // _markSourceRefunded) — voiding a hold then collecting it pays out twice.
+    // Rule-20 owner: the Hold Money page's own lifecycle.
+    TRANSACTION_TYPES.HOLD_MONEY,
+    TRANSACTION_TYPES.HOLD_MONEY_COLLECT,
+    // LOTO_MONTHLY_FEE: loto_monthly_fees.is_paid stays 1 on a voided payment
+    // (table not in _markSourceRefunded) — the month would show paid with the
+    // cash reversed. Rule-20 owner: the Loto monthly-fee page.
+    TRANSACTION_TYPES.LOTO_MONTHLY_FEE,
+    // CHECKPOINT: a physical-count reconciliation anchor — reversing its
+    // adjustment legs shifts live balances away from counted reality and
+    // orphans the daily_closings snapshot. Correct with a new checkpoint.
+    TRANSACTION_TYPES.CHECKPOINT,
+    // CLIENT_* rows are non-financial audit markers; a reversal row is
+    // meaningless noise.
+    TRANSACTION_TYPES.CLIENT_CREATED,
+    TRANSACTION_TYPES.CLIENT_UPDATED,
+    TRANSACTION_TYPES.CLIENT_DELETED,
   ]);
 
 /**

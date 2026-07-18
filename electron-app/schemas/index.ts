@@ -19,10 +19,24 @@ import {
   holdMoneyCreateSchema,
   debtCashOutSchema,
   debtAccountEntrySchema,
+  addRepaymentSchema,
+  debtUseCreditSchema,
+  debtWriteOffSchema,
   voucherCreateSchema,
+  supplierLedgerEntrySchema,
+  supplierSettleSchema,
+  supplierCashflowSchema,
+  supplierPurchaseCreateSchema,
+  supplierWriteOffSchema,
+  partnerRecordTransactionSchema,
+  partnerSettleSchema,
+  partnerWriteOffSchema,
   type VoucherCreateInput,
   type DebtCashOutInput,
   type DebtAccountEntryInput,
+  type AddRepaymentInput,
+  type DebtUseCreditInput,
+  type DebtWriteOffInput,
   type HoldMoneyCreateInput,
   type SaleProcessInput,
   type LotoSellInput,
@@ -33,6 +47,14 @@ import {
   type LotoCheckpointSettleInput,
   type LotoCheckpointsSettleBatchInput,
   type SessionCheckoutInput,
+  type SupplierLedgerEntryInput,
+  type SupplierSettleInput,
+  type SupplierCashflowInput,
+  type SupplierPurchaseCreateInput,
+  type SupplierWriteOffInput,
+  type PartnerRecordTransactionInput,
+  type PartnerSettleInput,
+  type PartnerWriteOffInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -335,6 +357,27 @@ export const FinancialServiceSchema = z.object({
   // multi-bill payment): skips the customer-inflow and change-leg blocks while
   // still booking cost outflow + supplier commission.
   deferPayment: z.boolean().optional(),
+  // Payment-Legs Integrity plan (Wave 8) — LOCAL duplicate of the core
+  // createFinancialServiceSchema field (rule-14 debt, same trap as
+  // kept_change_usd/lbp above): the bills/catalog cart's CARRIER transaction
+  // (the one that carries `payments`) may attach the full checkout total
+  // here so the repository reconciles legs against the WHOLE cart rather
+  // than this one unit's `price`. Fields must exist in BOTH or the desktop
+  // path silently strips it.
+  checkoutTotal: z
+    .object({
+      usd: z.number().min(0),
+      lbp: z.number().min(0),
+    })
+    .optional(),
+  // Payment-Legs Integrity plan (Wave 9) — LOCAL duplicate of the core
+  // createFinancialServiceSchema field (rule-14 debt, same trap as
+  // checkoutTotal above): the USD→LBP rate MultiPaymentInput actually
+  // converted the customer's tender at (may be the buy rate, per the
+  // owner's 2026-07-06 MPI-buy-rate decision), used to reconcile legs
+  // instead of the stamped rate-of-record. Fields must exist in BOTH or the
+  // desktop path silently strips it.
+  tender_exchange_rate: z.number().positive().optional(),
   // Acting user id; the handler overrides this with the authenticated user,
   // but allowing it through keeps validatePayload from stripping a supplied one.
   userId: z.number().int().optional(),
@@ -440,35 +483,17 @@ export const HoldMoneyCreateSchema =
 // Debt Repayment
 // =============================================================================
 
-const RepaymentPaymentLegSchema = z.object({
-  method: z.string().min(1),
-  currencyCode: z.string().min(1),
-  amount: z.number(),
-  direction: z.enum(["IN", "OUT"]).optional(),
-});
-
-export const DebtRepaymentSchema = z.object({
-  clientId: z.number().int().positive(),
-  amountUSD: z.number().nonnegative(),
-  amountLBP: z.number().nonnegative(),
-  paidAmountUSD: z.number().optional(),
-  paidAmountLBP: z.number().optional(),
-  drawerName: z.string().optional(),
-  note: z.string().optional(),
-  paidByMethod: z.string().optional(),
-  payments: z.array(RepaymentPaymentLegSchema).optional(),
-  // T3 keep-change (KC-2): kept (not returned) change per currency → profit
-  // stamp on the DEBT_REPAYMENT transaction. Same stripping trap as
-  // transaction_time below: this schema is a LOCAL duplicate of core's
-  // addRepaymentSchema (rule-14 debt — the REST route validates the core one;
-  // lift/consolidate like DebtCashOutSchema when next touched), so new fields
-  // must be added in BOTH places or the desktop path silently drops them.
-  keptChangeUSD: z.number().nonnegative().optional(),
-  keptChangeLBP: z.number().nonnegative().optional(),
-  // Operator time-override — without this Zod stripped it and the repayment
-  // "Set custom time" silently did nothing.
-  transaction_time: z.string().optional(),
-});
+// CQ-8: the local DebtRepaymentSchema duplicate (documented rule-14 debt) is
+// gone — re-exports packages/core/src/validators/debt.ts's addRepaymentSchema
+// so the IPC handler and the REST route validate against ONE schema. This
+// closed a real drift, not just a documented one: core's repaymentPaymentLine
+// leg schema was missing `direction` (IN/OUT, used for change-return legs),
+// so the REST repayment route was silently stripping it off every leg —
+// fixed in debt.ts itself, which fixes both transports at once. Cast bridges
+// the zod-major mismatch (core=zod4, this workspace=zod3); runtime API
+// identical.
+export const DebtRepaymentSchema =
+  addRepaymentSchema as unknown as z.ZodSchema<AddRepaymentInput>;
 
 // Lifted to packages/core/src/validators/debt.ts so the IPC handler and the
 // REST route validate against ONE schema (rule 14). Casts bridge the zod-major
@@ -490,17 +515,21 @@ export const DebtAddCreditSchema = z
     message: "At least one amount (USD or LBP) must be greater than 0",
   });
 
-export const DebtUseCreditSchema = z
-  .object({
-    clientId: z.number().int().positive(),
-    amountUsd: z.number().nonnegative().default(0),
-    amountLbp: z.number().nonnegative().default(0),
-    note: z.string().max(500).optional(),
-    transactionTime: z.string().optional(),
-  })
-  .refine((data) => data.amountUsd > 0 || data.amountLbp > 0, {
-    message: "At least one amount (USD or LBP) must be greater than 0",
-  });
+// CQ-9 (rule 14): lifted to packages/core/src/validators/debt.ts so the IPC
+// handler (debt:use-credit) and the new REST route (POST
+// /api/debts/use-credit) validate against ONE schema. Cast bridges the
+// zod-major mismatch (core=zod4, this workspace=zod3); runtime API and field
+// names/laxity are unchanged (byte-for-byte lift of the local schema this
+// replaces).
+export const DebtUseCreditSchema =
+  debtUseCreditSchema as unknown as z.ZodSchema<DebtUseCreditInput>;
+
+// CQ-10 (D4: admin-only on both transports) — standalone debt write-off.
+// Lifted to packages/core/src/validators/debt.ts so the IPC handler
+// (debt:write-off) and the REST route (POST /api/debts/write-off) validate
+// against ONE schema (rule 14). Cast bridges the zod-major mismatch.
+export const DebtWriteOffSchema =
+  debtWriteOffSchema as unknown as z.ZodSchema<DebtWriteOffInput>;
 
 // =============================================================================
 // Clients
@@ -527,48 +556,25 @@ export const SupplierCreateSchema = z.object({
   provider: z.string().optional(),
 });
 
-export const SupplierLedgerEntrySchema = z.object({
-  supplier_id: z.number().int().positive(),
-  entry_type: z.enum(["TOP_UP", "PAYMENT", "ADJUSTMENT"]),
-  amount_usd: z.number(),
-  amount_lbp: z.number(),
-  note: z.string().optional(),
-  drawer_name: z.string().optional(),
-});
+// CQ-8 (rule 14): lifted to packages/core/src/validators/supplier.ts so the
+// IPC handlers (supplierHandlers.ts) and any REST route validate against ONE
+// schema each. Casts bridge the zod-major mismatch (core=zod4, this
+// workspace=zod3); runtime API identical. Field names unchanged.
+export const SupplierLedgerEntrySchema =
+  supplierLedgerEntrySchema as unknown as z.ZodSchema<SupplierLedgerEntryInput>;
+export const SupplierSettleSchema =
+  supplierSettleSchema as unknown as z.ZodSchema<SupplierSettleInput>;
+export const SupplierCashflowSchema =
+  supplierCashflowSchema as unknown as z.ZodSchema<SupplierCashflowInput>;
+export const SupplierPurchaseCreateSchema =
+  supplierPurchaseCreateSchema as unknown as z.ZodSchema<SupplierPurchaseCreateInput>;
 
-const SettlementPaymentSchema = z.object({
-  method: z.string().min(1),
-  currency_code: z.string().min(1),
-  amount: z.number(),
-});
-
-export const SupplierSettleSchema = z.object({
-  supplier_id: z.number().int().positive(),
-  financial_service_ids: z.array(z.number().int().positive()).min(1),
-  amount_usd: z.number(),
-  amount_lbp: z.number(),
-  commission_usd: z.number(),
-  commission_lbp: z.number(),
-  drawer_name: z.string(),
-  note: z.string().optional(),
-  payments: z.array(SettlementPaymentSchema).optional(),
-});
-
-/** Pay a supplier / record a supplier paying us, via payment-method legs. */
-export const SupplierCashflowSchema = z.object({
-  supplier_id: z.number().int().positive(),
-  direction: z.enum(["PAY", "RECEIVE"]),
-  payments: z.array(SettlementPaymentSchema).min(1),
-  note: z.string().optional(),
-  exchange_rate: z.number().positive().optional(),
-});
-
-/** Log a delivery batch for a product supplier (FIFO payment coverage). */
-export const SupplierPurchaseCreateSchema = z.object({
-  supplier_id: z.number().int().positive(),
-  total_usd: z.number().positive("Amount must be greater than 0"),
-  note: z.string().optional(),
-});
+// CQ-10 (D4: admin-only on both transports) — standalone supplier write-off.
+// Lifted to packages/core/src/validators/supplier.ts so the IPC handler
+// (suppliers:write-off) and the REST route (POST /api/suppliers/:id/write-off)
+// validate against ONE schema (rule 14). Cast bridges the zod-major mismatch.
+export const SupplierWriteOffSchema =
+  supplierWriteOffSchema as unknown as z.ZodSchema<SupplierWriteOffInput>;
 
 // =============================================================================
 // Vouchers (Gift Cards)
@@ -590,6 +596,28 @@ export const VoucherCreateSchema =
 // against zod 3); the runtime API is identical.
 export const SessionCheckoutSchema =
   sessionCheckoutSchema as unknown as z.ZodSchema<SessionCheckoutInput>;
+
+// =============================================================================
+// Partners
+// =============================================================================
+
+// CQ-8 (rule 14): partner IPC handlers had zero Zod validation before this —
+// re-exports packages/core/src/validators/partner.ts's schemas (the FULL
+// transaction_type union, already used by backend/src/api/partners.ts) so the
+// IPC handlers (partnerHandlers.ts) validate the same shape the REST route
+// does. Cast bridges the zod-major mismatch (core=zod4, this workspace=zod3);
+// runtime API identical.
+export const PartnerRecordTransactionSchema =
+  partnerRecordTransactionSchema as unknown as z.ZodSchema<PartnerRecordTransactionInput>;
+export const PartnerSettleSchema =
+  partnerSettleSchema as unknown as z.ZodSchema<PartnerSettleInput>;
+
+// CQ-10 (D4: admin-only on both transports) — standalone partner write-off.
+// Lifted to packages/core/src/validators/partner.ts so the IPC handler
+// (partners:write-off) and the REST route (POST /api/partners/write-off)
+// validate against ONE schema (rule 14). Cast bridges the zod-major mismatch.
+export const PartnerWriteOffSchema =
+  partnerWriteOffSchema as unknown as z.ZodSchema<PartnerWriteOffInput>;
 
 // =============================================================================
 // Helpers

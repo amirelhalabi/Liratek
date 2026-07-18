@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { MultiPaymentInput, PageHeader, type PaymentLine } from "@liratek/ui";
-import { Truck } from "lucide-react";
+import {
+  appEvents,
+  CounterpartySettleModal,
+  PageHeader,
+  type PaymentLine,
+} from "@liratek/ui";
+import { Truck, Eraser } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
   useSuppliersQuery,
@@ -13,6 +20,10 @@ import {
   useSupplierLedgerQuery,
   useAllTransactionsQuery,
   useSupplierCashflowMutation,
+  useSupplierWriteOffMutation,
+  useUnsettledTransactionsQuery,
+  useSettleTransactionsMutation,
+  type UnsettledSupplierTransaction,
 } from "../../hooks/useSuppliers";
 
 type Supplier = {
@@ -141,6 +152,10 @@ function balanceColor(amount: number): string {
 export default function SuppliersPage() {
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
+  const { user } = useAuth();
+  // CQ-10 (D4): standalone write-off is admin-only; the bundled Pay/Receive
+  // discount stays admin+staff, same as the Pay/Receive flow it's attached to.
+  const isAdmin = user?.role === "admin";
 
   // ── UI / form state (kept local — not server state) ──────────────────────
   const [viewCategory, setViewCategory] = useState<"companies" | "products">(
@@ -159,6 +174,40 @@ export default function SuppliersPage() {
   const [cashflowLines, setCashflowLines] = useState<PaymentLine[]>([]);
   const [cashflowNote, setCashflowNote] = useState("");
   const [cashflowKey, setCashflowKey] = useState(0);
+  // CQ-10: bundled discount on the Pay/Receive form. MultiPaymentInput's
+  // totals here are ALWAYS single-currency (payAmount/payCurrency — the
+  // mixed-balance case already collapses to one net USD figure), so the
+  // built-in discount scalar maps cleanly: it's already denominated in
+  // payCurrency, no per-currency split needed.
+  const [cashflowDiscount, setCashflowDiscount] = useState(0);
+  const [cashflowDiscountReason, setCashflowDiscountReason] = useState("");
+
+  // CQ-10 (D4): standalone "Write off" modal (admin-only, pure forgiveness —
+  // the supplier forgives what we owe them, no cash movement).
+  const [showWriteOffModal, setShowWriteOffModal] = useState(false);
+  useModalFocusFix(showWriteOffModal);
+  const [writeOffAmountUsd, setWriteOffAmountUsd] = useState("");
+  const [writeOffAmountLbp, setWriteOffAmountLbp] = useState("");
+  const [writeOffReason, setWriteOffReason] = useState("");
+  const [writeOffSubmitting, setWriteOffSubmitting] = useState(false);
+
+  // D5 — batch settlement (resurrected from the orphaned
+  // Settings/SupplierLedger.tsx, admin-only, built on the shared
+  // CounterpartySettleModal). Selection is keyed off the SAME
+  // getUnsettledByProvider row set the deleted UI used — not `allTxns` (the
+  // Transactions-tab history query includes row types, e.g. a plain SEND
+  // with no cost/commission, that were never "settleable" here).
+  const [selectedSettleIds, setSelectedSettleIds] = useState<Set<number>>(
+    new Set(),
+  );
+  const [showSettleConfirm, setShowSettleConfirm] = useState(false);
+  useModalFocusFix(showSettleConfirm);
+  const [settlePaymentLines, setSettlePaymentLines] = useState<PaymentLine[]>(
+    [],
+  );
+  const [settleNote, setSettleNote] = useState("");
+  const [settleSubmitting, setSettleSubmitting] = useState(false);
+  const [settleKey, setSettleKey] = useState(0);
 
   // ── Exchange rate ─────────────────────────────────────────────────────────
   // Payments use the BUY rate (owner decision 2026-07-06): every
@@ -184,6 +233,9 @@ export default function SuppliersPage() {
   const allTxnsQuery = useAllTransactionsQuery(
     isProductSupplier ? null : (selectedSupplier?.provider ?? null),
   );
+  const unsettledQuery = useUnsettledTransactionsQuery(
+    isProductSupplier ? null : (selectedSupplier?.provider ?? null),
+  );
   const productItemsQuery = useProductItemsQuery(
     isProductSupplier ? selectedSupplierId : null,
   );
@@ -195,6 +247,8 @@ export default function SuppliersPage() {
     []) as SupplierBalance[];
   const ledger = (ledgerQuery.data ?? []) as LedgerEntry[];
   const allTxns = (allTxnsQuery.data ?? []) as SupplierTxn[];
+  const unsettledTxns = (unsettledQuery.data ??
+    []) as UnsettledSupplierTransaction[];
   const productItems = (productItemsQuery.data ?? []) as Array<{
     product_id: number;
     name: string;
@@ -230,6 +284,18 @@ export default function SuppliersPage() {
   // Use the right balance source depending on which tab we're viewing
   const activeBalanceMap =
     viewCategory === "products" ? productBalanceBySupplier : balanceBySupplier;
+
+  // CQ-10: selected supplier's current balance, per currency — positive
+  // means we owe THEM (see describeBalance), which is exactly the condition
+  // under which they have something left to forgive (write-off).
+  const selectedBalanceUsd = Number(
+    activeBalanceMap.get(selectedSupplierId ?? -1)?.total_usd ?? 0,
+  );
+  const selectedBalanceLbp = Number(
+    activeBalanceMap.get(selectedSupplierId ?? -1)?.total_lbp ?? 0,
+  );
+  const canWriteOffSupplier =
+    selectedBalanceUsd > BALANCE_EPS || selectedBalanceLbp > BALANCE_EPS;
 
   const totalOwed = useMemo(() => {
     let usd = 0;
@@ -342,6 +408,14 @@ export default function SuppliersPage() {
     }
   }, [activeTab, selectedSupplierId, defaultDirection]);
 
+  // CQ-10: discount is PAY-only (backend rejects it on RECEIVE) — clear it
+  // whenever the direction flips or the form remounts post-submit, so a
+  // stale discount never survives into a different supplier/direction.
+  useEffect(() => {
+    setCashflowDiscount(0);
+    setCashflowDiscountReason("");
+  }, [cashflowDirection, cashflowKey]);
+
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleCashflow = async () => {
     if (!selectedSupplierId) return;
@@ -351,6 +425,20 @@ export default function SuppliersPage() {
       return;
     }
     const trimmedNote = cashflowNote.trim();
+    // CQ-10: bundled discount — PAY only. MultiPaymentInput's onDiscountChange
+    // already emits the clamped value (capped at maxDiscount === payAmount)
+    // in payCurrency, so it maps 1:1 onto whichever currency field is owed.
+    const hasDiscount = cashflowDirection === "PAY" && cashflowDiscount > 0;
+    const trimmedDiscountReason = cashflowDiscountReason.trim();
+    const discountFields = hasDiscount
+      ? {
+          discount: {
+            amount_usd: payCurrency === "USD" ? cashflowDiscount : 0,
+            amount_lbp: payCurrency === "LBP" ? cashflowDiscount : 0,
+            ...(trimmedDiscountReason ? { reason: trimmedDiscountReason } : {}),
+          },
+        }
+      : {};
     const res = await supplierCashflow.mutateAsync({
       supplier_id: selectedSupplierId,
       direction: cashflowDirection,
@@ -363,11 +451,19 @@ export default function SuppliersPage() {
       // Omit `note` entirely when empty (exactOptionalPropertyTypes: the field is
       // `note?: string`, so it must be absent rather than explicitly undefined).
       ...(trimmedNote ? { note: trimmedNote } : {}),
+      ...discountFields,
     });
     if (!(res as { success: boolean }).success) {
       alert((res as { error?: string }).error || "Failed");
       return;
     }
+    appEvents.emit(
+      "notification:show",
+      hasDiscount
+        ? `Supplier transaction recorded (discount ${payCurrency === "USD" ? "$" : ""}${cashflowDiscount.toFixed(payCurrency === "USD" ? 2 : 0)}${payCurrency === "LBP" ? " LBP" : ""})`
+        : "Supplier transaction recorded successfully",
+      "success",
+    );
     setCashflowLines([]);
     setCashflowNote("");
     setCashflowKey((k) => k + 1);
@@ -377,6 +473,133 @@ export default function SuppliersPage() {
     selectedSupplierId,
     selectedSupplier?.provider ?? null,
   );
+  const supplierWriteOff = useSupplierWriteOffMutation(selectedSupplierId);
+
+  const handleSupplierWriteOff = async () => {
+    if (!selectedSupplierId) return;
+    const amountUsd = Math.min(
+      Math.max(0, parseFloat(writeOffAmountUsd.replace(/,/g, "")) || 0),
+      Math.max(0, selectedBalanceUsd),
+    );
+    const amountLbp = Math.min(
+      Math.max(0, parseFloat(writeOffAmountLbp.replace(/,/g, "")) || 0),
+      Math.max(0, selectedBalanceLbp),
+    );
+    if (amountUsd <= 0 && amountLbp <= 0) return;
+    setWriteOffSubmitting(true);
+    try {
+      const result = await supplierWriteOff.mutateAsync({
+        supplier_id: selectedSupplierId,
+        amount_usd: amountUsd,
+        amount_lbp: amountLbp,
+        ...(writeOffReason.trim() ? { reason: writeOffReason.trim() } : {}),
+      });
+      if ((result as { success: boolean }).success) {
+        appEvents.emit("notification:show", "Balance written off.", "success");
+        setShowWriteOffModal(false);
+        setWriteOffAmountUsd("");
+        setWriteOffAmountLbp("");
+        setWriteOffReason("");
+      } else {
+        alert((result as { error?: string }).error || "Failed");
+      }
+    } catch {
+      alert("Failed to write off balance");
+    } finally {
+      setWriteOffSubmitting(false);
+    }
+  };
+
+  // ── D5: batch settlement (admin-only) ─────────────────────────────────────
+  const settleTransactions = useSettleTransactionsMutation(
+    selectedSupplierId,
+    selectedSupplier?.provider ?? null,
+  );
+
+  // Same owed/commission math the deleted Settings/SupplierLedger.tsx used:
+  // RECEIVE rows owe |amount| + commission; LBP rows are excluded from the
+  // batch-settle money math (neither the orphan nor this page's own
+  // Outstanding footer handled an LBP settle amount — out of scope here).
+  const selectedUnsettled = useMemo(
+    () => unsettledTxns.filter((t) => selectedSettleIds.has(t.id)),
+    [unsettledTxns, selectedSettleIds],
+  );
+  const settleTotalOwedUsd = useMemo(
+    () =>
+      selectedUnsettled
+        .filter((t) => t.currency !== "LBP")
+        .reduce((s, t) => s + Math.abs(t.amount) + t.commission, 0),
+    [selectedUnsettled],
+  );
+  const settleCommissionUsd = useMemo(
+    () =>
+      selectedUnsettled
+        .filter((t) => t.currency !== "LBP")
+        .reduce((s, t) => s + t.commission, 0),
+    [selectedUnsettled],
+  );
+  const settleNetPayUsd = Math.max(0, settleTotalOwedUsd - settleCommissionUsd);
+  const selectableUnsettled = useMemo(
+    () => unsettledTxns.filter((t) => t.currency !== "LBP"),
+    [unsettledTxns],
+  );
+
+  const handleOpenSettleConfirm = () => {
+    setSettlePaymentLines([]);
+    setSettleNote("");
+    setSettleKey((k) => k + 1);
+    setShowSettleConfirm(true);
+  };
+
+  const handleBatchSettle = async () => {
+    if (!selectedSupplierId || selectedSettleIds.size === 0) return;
+    const activeLines = settlePaymentLines.filter((p) => p.amount > 0);
+    setSettleSubmitting(true);
+    try {
+      const drawer = selectedSupplier?.provider
+        ? (PROVIDER_DRAWER[selectedSupplier.provider] ?? "General")
+        : "General";
+      const trimmedNote = settleNote.trim();
+      const result = await settleTransactions.mutateAsync({
+        supplier_id: selectedSupplierId,
+        financial_service_ids: [...selectedSettleIds],
+        amount_usd: settleNetPayUsd,
+        amount_lbp: 0,
+        commission_usd: settleCommissionUsd,
+        commission_lbp: 0,
+        drawer_name: drawer,
+        ...(trimmedNote
+          ? { note: trimmedNote }
+          : { note: `Settlement: ${selectedSettleIds.size} txns` }),
+        ...(activeLines.length > 0
+          ? {
+              payments: activeLines.map((p) => ({
+                method: p.method,
+                currency_code: p.currencyCode,
+                amount: p.amount,
+              })),
+            }
+          : {}),
+      });
+      if (!(result as { success: boolean }).success) {
+        alert((result as { error?: string }).error || "Settlement failed");
+        return;
+      }
+      appEvents.emit(
+        "notification:show",
+        `Settled ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} — net $${settleNetPayUsd.toFixed(2)}`,
+        "success",
+      );
+      setShowSettleConfirm(false);
+      setSelectedSettleIds(new Set());
+      setSettlePaymentLines([]);
+      setSettleNote("");
+    } catch {
+      alert("Settlement failed");
+    } finally {
+      setSettleSubmitting(false);
+    }
+  };
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
@@ -548,19 +771,38 @@ export default function SuppliersPage() {
                     })()}
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    suppliersQuery.refetch();
-                    balancesQuery.refetch();
-                    productBalancesQuery.refetch();
-                    ledgerQuery.refetch();
-                    if (!isProductSupplier) allTxnsQuery.refetch();
-                    if (isProductSupplier) productItemsQuery.refetch();
-                  }}
-                  className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
-                >
-                  Refresh
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* CQ-10 (D4): standalone write-off — admin-only, only when
+                      we owe the supplier something left to forgive. */}
+                  {isAdmin && canWriteOffSupplier && (
+                    <button
+                      onClick={() => {
+                        setWriteOffAmountUsd("");
+                        setWriteOffAmountLbp("");
+                        setWriteOffReason("");
+                        setShowWriteOffModal(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
+                      title="Supplier forgives part of what we owe them"
+                    >
+                      <Eraser className="w-4 h-4" />
+                      Write off
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      suppliersQuery.refetch();
+                      balancesQuery.refetch();
+                      productBalancesQuery.refetch();
+                      ledgerQuery.refetch();
+                      if (!isProductSupplier) allTxnsQuery.refetch();
+                      if (isProductSupplier) productItemsQuery.refetch();
+                    }}
+                    className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
+                  >
+                    Refresh
+                  </button>
+                </div>
               </div>
 
               {/* Tabs */}
@@ -694,6 +936,103 @@ export default function SuppliersPage() {
                 </div>
               )}
 
+              {/* Tab: Transactions — batch settlement (D5, admin-only) above
+                  the read-only full history below. */}
+              {selectedSupplier.is_active !== 0 &&
+                activeTab === "settle" &&
+                isAdmin && (
+                  <div className="border border-slate-700 rounded-xl overflow-hidden mb-4">
+                    <div className="flex items-center justify-between px-3 py-2 bg-slate-900/60">
+                      <label className="flex items-center gap-2 text-slate-300 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={
+                            selectableUnsettled.length > 0 &&
+                            selectedSettleIds.size ===
+                              selectableUnsettled.length
+                          }
+                          onChange={(e) =>
+                            setSelectedSettleIds(
+                              e.target.checked
+                                ? new Set(selectableUnsettled.map((t) => t.id))
+                                : new Set(),
+                            )
+                          }
+                          className="w-4 h-4 rounded border-slate-600 bg-slate-900"
+                        />
+                        Settle transactions — select all (
+                        {selectableUnsettled.length})
+                      </label>
+                      <button
+                        onClick={handleOpenSettleConfirm}
+                        disabled={selectedSettleIds.size === 0}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium"
+                      >
+                        Settle
+                        {selectedSettleIds.size > 0
+                          ? ` (${selectedSettleIds.size})`
+                          : ""}
+                      </button>
+                    </div>
+                    {unsettledQuery.isLoading ? (
+                      <div className="text-slate-400 text-xs py-4 text-center">
+                        Loading pending transactions…
+                      </div>
+                    ) : selectableUnsettled.length === 0 ? (
+                      <div className="text-slate-500 text-xs py-4 text-center">
+                        No pending transactions to settle for{" "}
+                        {selectedSupplier.name}
+                      </div>
+                    ) : (
+                      <div className="max-h-[30vh] overflow-y-auto divide-y divide-slate-700">
+                        {selectableUnsettled.map((t) => (
+                          <label
+                            key={t.id}
+                            className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-700/30 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedSettleIds.has(t.id)}
+                              onChange={(e) => {
+                                const next = new Set(selectedSettleIds);
+                                if (e.target.checked) next.add(t.id);
+                                else next.delete(t.id);
+                                setSelectedSettleIds(next);
+                              }}
+                              className="w-4 h-4 rounded border-slate-600 bg-slate-900 shrink-0"
+                            />
+                            <span className="flex-1 text-slate-300">
+                              {t.omt_service_type || t.service_type}
+                            </span>
+                            <span className="font-mono text-white">
+                              ${Math.abs(t.amount).toFixed(2)}
+                            </span>
+                            <span className="font-mono text-emerald-400 w-20 text-right">
+                              {t.commission > 0
+                                ? `+$${t.commission.toFixed(4)}`
+                                : "—"}
+                            </span>
+                            <span className="text-slate-500 w-36 text-right">
+                              {parseDbDate(t.created_at).toLocaleString()}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    {selectedSettleIds.size > 0 && (
+                      <div className="flex items-center justify-between px-3 py-2 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
+                        <span>
+                          Owed ${settleTotalOwedUsd.toFixed(2)} − commission $
+                          {settleCommissionUsd.toFixed(4)}
+                        </span>
+                        <span className="font-mono font-bold text-white">
+                          Net you pay: ${settleNetPayUsd.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
               {/* Tab: Transactions (full history, read-only) */}
               {selectedSupplier.is_active !== 0 && activeTab === "settle" && (
                 <div className="space-y-3">
@@ -826,45 +1165,78 @@ export default function SuppliersPage() {
                 </div>
               )}
 
-              {/* Tab: Pay / Receive */}
+              {/* Tab: Pay / Receive — CQ-11: shared CounterpartySettleModal,
+                  inline variant (no backdrop/title — embedded in the tab). */}
               {selectedSupplier.is_active !== 0 && activeTab === "manual" && (
-                <div className="space-y-4">
-                  {/* Direction toggle */}
-                  <div className="flex gap-2">
-                    {(["PAY", "RECEIVE"] as const).map((dir) => (
-                      <button
-                        key={dir}
-                        onClick={() => setCashflowDirection(dir)}
-                        className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                          cashflowDirection === dir
-                            ? dir === "PAY"
-                              ? "bg-red-600 text-white"
-                              : "bg-green-600 text-white"
-                            : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                        }`}
-                      >
-                        {dir === "PAY" ? "Pay Supplier" : "Supplier Paid Us"}
-                      </button>
-                    ))}
-                  </div>
-
-                  <MultiPaymentInput
-                    key={`${cashflowKey}-${cashflowDirection}`}
-                    totals={[
+                <CounterpartySettleModal
+                  variant="inline"
+                  beforeContent={
+                    <div className="flex gap-2">
+                      {(["PAY", "RECEIVE"] as const).map((dir) => (
+                        <button
+                          key={dir}
+                          onClick={() => setCashflowDirection(dir)}
+                          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                            cashflowDirection === dir
+                              ? dir === "PAY"
+                                ? "bg-red-600 text-white"
+                                : "bg-green-600 text-white"
+                              : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                          }`}
+                        >
+                          {dir === "PAY" ? "Pay Supplier" : "Supplier Paid Us"}
+                        </button>
+                      ))}
+                    </div>
+                  }
+                  multiPaymentInputKey={`${cashflowKey}-${cashflowDirection}`}
+                  multiPaymentInput={{
+                    totals: [
                       { amount: Math.abs(payAmount), currency: payCurrency },
-                    ]}
-                    totalAmountCurrency={payCurrency}
-                    currency={payCurrency}
-                    onChange={setCashflowLines}
-                    showPmFee={false}
-                    showDiscount={false}
-                    paymentMethods={methods}
-                    currencies={[
+                    ],
+                    totalAmountCurrency: payCurrency,
+                    currency: payCurrency,
+                    onChange: setCashflowLines,
+                    showPmFee: false,
+                    // CQ-10: discount is PAY-only (the supplier forgiving part
+                    // of what we owe them) — the backend rejects it on
+                    // RECEIVE. The single-currency totals here (payCurrency)
+                    // mean the built-in scalar discount maps 1:1, no custom
+                    // row needed (unlike Debts' mixed USD+LBP due).
+                    showDiscount: cashflowDirection === "PAY",
+                    maxDiscount: Math.abs(payAmount),
+                    onDiscountChange: setCashflowDiscount,
+                    paymentMethods: methods,
+                    currencies: [
                       { code: "USD", symbol: "$" },
                       { code: "LBP", symbol: "LBP" },
-                    ]}
-                    exchangeRate={exchangeRate}
-                  />
+                    ],
+                    exchangeRate: exchangeRate,
+                  }}
+                  onConfirm={handleCashflow}
+                  confirmLabel={
+                    cashflowDirection === "PAY"
+                      ? "Record Payment"
+                      : "Record Receipt"
+                  }
+                  confirmColor={cashflowDirection === "PAY" ? "red" : "green"}
+                  isSubmitting={supplierCashflow.isPending}
+                >
+                  {cashflowDirection === "PAY" && cashflowDiscount > 0 && (
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">
+                        Discount reason (optional)
+                      </label>
+                      <input
+                        value={cashflowDiscountReason}
+                        onChange={(e) =>
+                          setCashflowDiscountReason(e.target.value)
+                        }
+                        className="w-full bg-slate-950 border border-emerald-700/40 rounded-lg px-3 py-2 text-white text-sm"
+                        placeholder="Why the supplier is forgiving this amount…"
+                      />
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">
@@ -881,25 +1253,7 @@ export default function SuppliersPage() {
                       }
                     />
                   </div>
-
-                  <div className="flex justify-end">
-                    <button
-                      onClick={handleCashflow}
-                      disabled={supplierCashflow.isPending}
-                      className={`px-6 py-2 rounded-lg text-white font-semibold transition-colors disabled:opacity-50 ${
-                        cashflowDirection === "PAY"
-                          ? "bg-red-600 hover:bg-red-500"
-                          : "bg-green-600 hover:bg-green-500"
-                      }`}
-                    >
-                      {supplierCashflow.isPending
-                        ? "Processing…"
-                        : cashflowDirection === "PAY"
-                          ? "Record Payment"
-                          : "Record Receipt"}
-                    </button>
-                  </div>
-                </div>
+                </CounterpartySettleModal>
               )}
 
               {/* Ledger history */}
@@ -963,6 +1317,170 @@ export default function SuppliersPage() {
           )}
         </div>
       </div>
+
+      {/* CQ-10 (D4): standalone "Write off" modal — admin-only, pure
+          forgiveness (the supplier forgives what we owe them), no cash
+          movement. Capped client-side at the outstanding balance per
+          currency; the backend re-validates. */}
+      {showWriteOffModal && selectedSupplier && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowWriteOffModal(false);
+          }}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+            role="presentation"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-white mb-1">Write off</h3>
+            <p className="text-xs text-slate-400 mb-4">
+              {selectedSupplier.name} forgives part of what we owe them — no
+              cash movement.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                  Amount (USD) — owed $
+                  {Math.max(0, selectedBalanceUsd).toFixed(2)}
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={writeOffAmountUsd}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/,/g, "");
+                    if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                      setWriteOffAmountUsd(raw);
+                    }
+                  }}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                  Amount (LBP) — owed{" "}
+                  {Math.max(0, selectedBalanceLbp).toLocaleString()}
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={writeOffAmountLbp}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/,/g, "");
+                    if (raw === "" || /^\d+$/.test(raw)) {
+                      setWriteOffAmountLbp(raw);
+                    }
+                  }}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                  Reason
+                </label>
+                <input
+                  type="text"
+                  value={writeOffReason}
+                  onChange={(e) => setWriteOffReason(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                  placeholder="Optional reason..."
+                />
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  onClick={() => setShowWriteOffModal(false)}
+                  className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={
+                    writeOffSubmitting ||
+                    (!writeOffAmountUsd.trim() && !writeOffAmountLbp.trim())
+                  }
+                  onClick={handleSupplierWriteOff}
+                  className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-orange-600 hover:bg-orange-500 shadow-orange-900/20"
+                >
+                  {writeOffSubmitting ? "Processing..." : "Write off"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* D5 — batch settlement confirm step (admin-only), built on the
+          shared CounterpartySettleModal. No discount/reason field:
+          supplierSettleSchema carries no discount — a batch settle is
+          cash/commission only. */}
+      {showSettleConfirm && selectedSupplier && isAdmin && (
+        <CounterpartySettleModal
+          title={`Settle ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} with ${selectedSupplier.name}`}
+          panelClassName="max-w-md"
+          onCancel={() => setShowSettleConfirm(false)}
+          onConfirm={handleBatchSettle}
+          confirmLabel="Confirm Settlement"
+          confirmColor="blue"
+          isSubmitting={settleSubmitting}
+          beforeContent={
+            <div className="bg-slate-800 rounded-xl p-4 space-y-2 text-sm">
+              <div className="flex justify-between text-slate-300">
+                <span>Total owed to {selectedSupplier.name}:</span>
+                <span className="font-mono font-bold text-white">
+                  ${settleTotalOwedUsd.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between text-slate-300">
+                <span>Your commission:</span>
+                <span className="font-mono text-emerald-400">
+                  −${settleCommissionUsd.toFixed(4)}
+                </span>
+              </div>
+              <div className="h-px bg-slate-600" />
+              <div className="flex justify-between font-bold">
+                <span className="text-white">
+                  Net payment to {selectedSupplier.name}:
+                </span>
+                <span className="font-mono text-blue-400 text-base">
+                  ${settleNetPayUsd.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          }
+          multiPaymentInputKey={settleKey}
+          multiPaymentInput={{
+            totals: [{ amount: settleNetPayUsd, currency: "USD" }],
+            currency: "USD",
+            onChange: setSettlePaymentLines,
+            showPmFee: false,
+            showDiscount: false,
+            paymentMethods: methods,
+            currencies: [
+              { code: "USD", symbol: "$" },
+              { code: "LBP", symbol: "LBP" },
+            ],
+            exchangeRate: exchangeRate,
+          }}
+        >
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">
+              Note (optional)
+            </label>
+            <input
+              value={settleNote}
+              onChange={(e) => setSettleNote(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+              placeholder={`Settlement with ${selectedSupplier.name}`}
+            />
+          </div>
+        </CounterpartySettleModal>
+      )}
     </div>
   );
 }

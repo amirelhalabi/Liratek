@@ -554,6 +554,11 @@ export class SessionCheckoutService {
             ]
               .filter(Boolean)
               .join(" + ")}`,
+            metadata_json: {
+              session_id: sessionId,
+              kept_change_usd: keptUsd,
+              kept_change_lbp: keptLbp,
+            },
           });
           // Sessions link via session_transactions (no session_id column on
           // transactions) — link so the session sweep/detail sees the row.

@@ -163,7 +163,11 @@ test.describe("LIRA-097 — creditor cash out", () => {
       .fill(String(CREDIT));
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
 
-    await expect.poll(() => dialogs.length > 0, { timeout: 15_000 }).toBe(true);
+    await expect(
+      appPage
+        .locator('[role="alert"]', { hasText: /Cash out processed/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     expect(
       dialogs.filter((d) => /error|validation|nan/i.test(d)),
       "cash out raised an error dialog",
@@ -330,11 +334,11 @@ test.describe("LIRA-097 — creditor cash out", () => {
       appPage.locator('[data-testid^="payment-amount-"]').first(),
     ).toHaveValue(String(USD_CREDIT));
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
-    await expect
-      .poll(() => dialogs.some((d) => /Cash out processed/i.test(d)), {
-        timeout: 15_000,
-      })
-      .toBe(true);
+    await expect(
+      appPage
+        .locator('[role="alert"]', { hasText: /Cash out processed/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
 
     // Step 2 — the position is now a pure LBP debt: the form opens pre-seeded
     // with the NATIVE-currency line (3,155,000 LBP, not a converted $35.06).
@@ -348,11 +352,11 @@ test.describe("LIRA-097 — creditor cash out", () => {
       appPage.locator('[data-testid^="payment-amount-"]').first(),
     ).toHaveValue(LBP_DEBT.toLocaleString());
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
-    await expect
-      .poll(() => dialogs.some((d) => /Repayment processed/i.test(d)), {
-        timeout: 15_000,
-      })
-      .toBe(true);
+    await expect(
+      appPage
+        .locator('[role="alert"]', { hasText: /Repayment processed/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     expect(
       dialogs.filter((d) => /error|validation|nan/i.test(d)),
       "mixed settle raised an error dialog",
@@ -536,11 +540,11 @@ test.describe("LIRA-097 — creditor cash out", () => {
       appPage.locator('[data-testid^="payment-amount-"]').first(),
     ).toHaveValue(LBP_DEBT.toLocaleString());
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
-    await expect
-      .poll(() => dialogs.some((d) => /Repayment processed/i.test(d)), {
-        timeout: 15_000,
-      })
-      .toBe(true);
+    await expect(
+      appPage
+        .locator('[role="alert"]', { hasText: /Repayment processed/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
 
     // The client STAYS selected with the USD credit intact — the old
     // converted-net check saw net ≈ −$14 (< 0.01), deselected them, and (with
@@ -568,11 +572,11 @@ test.describe("LIRA-097 — creditor cash out", () => {
       appPage.locator('[data-testid^="payment-amount-"]').first(),
     ).toHaveValue(String(USD_CREDIT));
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
-    await expect
-      .poll(() => dialogs.some((d) => /Cash out processed/i.test(d)), {
-        timeout: 15_000,
-      })
-      .toBe(true);
+    await expect(
+      appPage
+        .locator('[role="alert"]', { hasText: /Cash out processed/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     expect(
       dialogs.filter((d) => /error|validation|nan/i.test(d)),
       "mixed both-buttons flow raised an error dialog",

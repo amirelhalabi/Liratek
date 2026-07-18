@@ -24,3 +24,5 @@ export * from "./session.js";
 export * from "./holdMoney.js";
 export * from "./partner.js";
 export * from "./voucher.js";
+export * from "./counterparty.js";
+export * from "./supplier.js";

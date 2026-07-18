@@ -153,11 +153,11 @@ test.describe("LIRA-105 — repayment prefill is rate-invariant for native-LBP d
 
     // Book it. The repayment must clear exactly the native LBP debt.
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
-    await expect
-      .poll(() => dialogs.some((d) => /Repayment processed/i.test(d)), {
-        timeout: 15_000,
-      })
-      .toBe(true);
+    await expect(
+      appPage
+        .locator('[role="alert"]', { hasText: /Repayment processed/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     expect(
       dialogs.filter((d) => /error|validation|nan/i.test(d)),
       "repayment raised an error dialog",

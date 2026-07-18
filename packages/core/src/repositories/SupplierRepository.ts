@@ -10,6 +10,7 @@ import {
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 
 export interface SupplierEntity {
   id: number;
@@ -37,7 +38,12 @@ export type SupplierLedgerEntryType =
   /** The supplier paid the shop (e.g. settling an overpayment they owed us).
    *  Positive ledger amount (mirror of PAYMENT) with cash CREDITED to the
    *  payment-method drawer. */
-  | "SUPPLIER_PAYS_US";
+  | "SUPPLIER_PAYS_US"
+  /** CQ-10 (v131): the supplier forgives part of what the shop owes them.
+   *  Negative ledger amount (mirror of PAYMENT — reduces what we owe), NO
+   *  cash movement (no drawer/payments row) — see SupplierRepository's
+   *  _postSupplierDiscount. */
+  | "DISCOUNT";
 
 export interface SupplierLedgerEntryEntity {
   id: number;
@@ -89,6 +95,15 @@ export interface SettleTransactionsData {
  * provider's own stock drawer. Works with zero pending transactions to settle
  * (pure balance pay-down / receipt).
  */
+/** CQ-10 — a discount/write-off amount bundled with a cashflow, or posted
+ *  standalone. amount_usd/amount_lbp are the FORGIVEN amounts (always
+ *  treated as positive magnitudes regardless of sign supplied). */
+export interface SupplierDiscountData {
+  amount_usd: number;
+  amount_lbp: number;
+  reason?: string;
+}
+
 export interface SupplierCashflowData {
   supplier_id: number;
   /** PAY = shop pays the supplier (cash out, ledger −). RECEIVE = supplier pays
@@ -101,6 +116,12 @@ export interface SupplierCashflowData {
   /** Exchange rate (1 USD = X LBP) used to convert LBP legs to USD when
    *  applying FIFO coverage to supplier_purchases. Defaults to 89 000. */
   exchange_rate?: number;
+  /** CQ-10 — bundled discount: "owed X, paid Y, discount Z". ONLY valid on
+   *  PAY direction (a supplier can't simultaneously pay the shop AND forgive
+   *  what the shop owes them) — recordSupplierCashflow throws otherwise.
+   *  Posts its OWN 'DISCOUNT' supplier_ledger row + COUNTERPARTY_DISCOUNT
+   *  transaction. */
+  discount?: SupplierDiscountData;
 }
 
 export interface CreateSupplierData {
@@ -121,6 +142,20 @@ export interface CreateSupplierLedgerEntryData {
   created_by: number;
   drawer_name?: string;
   is_auto?: boolean;
+  /** Real payment-method leg for the PAYMENT+drawer branch's `payments` row.
+   *  Defaults to "CASH" — behavior-identical for existing callers that never
+   *  pass it (CQ-7: the branch used to hardcode 'CASH' unconditionally). */
+  method?: string;
+  /**
+   * Link-mode (CQ-7): when provided, the ledger row is stamped with this
+   * EXISTING transactions.id and addLedgerEntry creates NO new transaction
+   * row — the caller's own flow (e.g. RechargeRepository.topUpFromSupplier,
+   * LotoTicketRepository, LotoCashPrizeRepository) already created its own
+   * unified transaction (and owns any drawer movement) inside the SAME
+   * db.transaction(). When omitted, addLedgerEntry creates its own
+   * journal transaction row, as before.
+   */
+  transaction_id?: number;
 }
 
 export interface SupplierBalance {
@@ -148,7 +183,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       let sql = includeInactive
         ? `SELECT ${this.getColumns()} FROM suppliers WHERE tenant_id = ?`
         : `SELECT ${this.getColumns()} FROM suppliers WHERE tenant_id = ? AND is_active = 1
-             AND NOT (provider IN ('OMT', 'WHISH')
+             AND NOT (COALESCE(provider, '') IN ('OMT', 'WHISH')
                       AND provider <> COALESCE(
                         (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = suppliers.tenant_id),
                         'OMT'))`;
@@ -214,7 +249,29 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
   }
 
+  /**
+   * CQ-8: cheap supplier-name lookup for the `counterparty` metadata
+   * contract. Falls back to a placeholder rather than throwing — a
+   * missing/deleted supplier must never block a payment/settlement write.
+   */
+  private _getSupplierName(supplierId: number): string {
+    const row = this.db
+      .prepare(`SELECT name FROM suppliers WHERE id = ? AND tenant_id = ?`)
+      .get(supplierId, getCurrentTenantId()) as { name: string } | undefined;
+    return row?.name ?? `Supplier #${supplierId}`;
+  }
+
   addLedgerEntry(data: CreateSupplierLedgerEntryData): { id: number } {
+    // CQ-7 dead corner: a drawer_name only ever makes sense on a PAYMENT row
+    // (the only branch that has ever consumed it — verified against every
+    // caller). Every other combo silently did nothing pre-fix; reject it
+    // outright rather than resurrect the silent no-op.
+    if (data.drawer_name && data.entry_type !== "PAYMENT") {
+      throw new DatabaseError(
+        `addLedgerEntry: drawer_name is only valid with entry_type "PAYMENT" (got "${data.entry_type}")`,
+      );
+    }
+
     try {
       const tenantId = getCurrentTenantId();
       // Enforce sign convention: PAYMENT amounts stored as negative
@@ -228,8 +285,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const stmt = this.db.prepare(`
         INSERT INTO supplier_ledger (
           supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto,
-          tenant_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          transaction_id, tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.supplier_id,
@@ -239,9 +296,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         data.note ?? null,
         data.created_by,
         data.is_auto ? 1 : 0,
+        data.transaction_id ?? null,
         tenantId,
       );
       const entryId = Number(res.lastInsertRowid);
+
+      // Link-mode (CQ-7): the caller's OWN flow already created a unified
+      // transaction (and owns any drawer movement) inside the SAME
+      // db.transaction() — stamp it and stop. Creating a second transaction
+      // row here would double-book the same event.
+      if (data.transaction_id) {
+        return { id: entryId };
+      }
 
       // If drawer_name is provided, update drawer_balances
       if (data.drawer_name) {
@@ -253,123 +319,164 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             updated_at = CURRENT_TIMESTAMP
         `);
 
-        // Decrease drawer for PAYMENT, Increase for TOP_UP (refund style), or Adjustment
-        // Logic: Debt is liability. Payment reduces liability and reduces asset (Cash).
-        // TOP_UP increases liability and (theoretically) increases asset if we got stock?
-        // Usually, payments are the ones affecting cash.
-        if (data.entry_type === "PAYMENT") {
-          // Create unified transaction row for supplier payment
-          const txnId = getTransactionRepository().createTransaction({
-            type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
-            source_table: "supplier_ledger",
-            source_id: entryId,
-            user_id: data.created_by,
-            amount_usd: Math.abs(amountUsd),
-            amount_lbp: Math.abs(amountLbp),
-            summary: `Supplier Payment: $${Math.abs(amountUsd)} + ${Math.abs(amountLbp)} LBP`,
-            metadata_json: {
-              supplier_id: data.supplier_id,
-              drawer_name: data.drawer_name,
-            },
-          });
+        // Guaranteed entry_type === "PAYMENT" by the guard above (the only
+        // combo drawer_name has ever been paired with).
+        // Create unified transaction row for supplier payment
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+          source_table: "supplier_ledger",
+          source_id: entryId,
+          user_id: data.created_by,
+          amount_usd: Math.abs(amountUsd),
+          amount_lbp: Math.abs(amountLbp),
+          summary: `Supplier Payment: $${Math.abs(amountUsd)} + ${Math.abs(amountLbp)} LBP`,
+          metadata_json: {
+            supplier_id: data.supplier_id,
+            drawer_name: data.drawer_name,
+            // CQ-8 counterparty contract: this branch is guaranteed
+            // entry_type === "PAYMENT" (guard above) — the shop always pays
+            // OUT of the drawer here.
+            counterparty: buildCounterpartyMetadata({
+              kind: "supplier",
+              id: data.supplier_id,
+              name: this._getSupplierName(data.supplier_id),
+              flow: "OUT",
+              method: data.method ?? "CASH",
+              ledgerEntryId: entryId,
+            }),
+          },
+        });
 
-          // Link supplier_ledger row to unified transaction
-          this.db
-            .prepare(
-              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
-            )
-            .run(txnId, entryId, tenantId);
+        // Link supplier_ledger row to unified transaction
+        this.db
+          .prepare(
+            `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(txnId, entryId, tenantId);
 
-          if (amountUsd)
-            upsertBalanceDelta.run(
-              data.drawer_name,
-              "USD",
-              amountUsd,
-              tenantId,
-            );
-          if (amountLbp)
-            upsertBalanceDelta.run(
-              data.drawer_name,
-              "LBP",
-              amountLbp,
-              tenantId,
-            );
+        if (amountUsd)
+          upsertBalanceDelta.run(data.drawer_name, "USD", amountUsd, tenantId);
+        if (amountLbp)
+          upsertBalanceDelta.run(data.drawer_name, "LBP", amountLbp, tenantId);
 
-          // Log to payments table
-          this.db
-            .prepare(
-              `
+        // Log to payments table. `method` defaults to "CASH" (CQ-7: this
+        // branch used to hardcode the literal 'CASH' regardless of how the
+        // supplier was actually paid).
+        this.db
+          .prepare(
+            `
             INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
-            VALUES (?, 'CASH', ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `,
-            )
-            .run(
-              txnId,
-              data.drawer_name,
-              amountUsd ? "USD" : "LBP",
-              amountUsd || amountLbp,
-              data.note || `Supplier Payment: ${data.supplier_id}`,
-              data.created_by,
-              tenantId,
-            );
-        }
+          )
+          .run(
+            txnId,
+            data.method ?? "CASH",
+            data.drawer_name,
+            amountUsd ? "USD" : "LBP",
+            amountUsd || amountLbp,
+            data.note || `Supplier Payment: ${data.supplier_id}`,
+            data.created_by,
+            tenantId,
+          );
       } else {
-        // No drawer_name: still create a transaction record for non-PAYMENT entries
-        // (TOP_UP, SALE_COST, ADJUSTMENT, SUPPLIER_PAYS_US) so they appear in the
-        // unified journal.
-        if (data.entry_type !== "PAYMENT") {
-          const typeMap: Record<string, string> = {
-            TOP_UP: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
-            SALE_COST: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
-            ADJUSTMENT: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
-            SETTLEMENT: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
-          };
-          const txnType =
-            typeMap[data.entry_type] || TRANSACTION_TYPES.SUPPLIER_PAYMENT;
+        // No drawer_name: still create a transaction record for EVERY entry
+        // type — including PAYMENT (CQ-7 dead-corner fix: pre-fix a
+        // no-drawer PAYMENT wrote a supplier_ledger row with NO transaction
+        // row at all) — so it appears in the unified journal.
+        const typeMap: Record<string, string> = {
+          TOP_UP: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+          SALE_COST: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+          PAYMENT: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+          ADJUSTMENT: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+          SETTLEMENT: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
+        };
+        const txnType =
+          typeMap[data.entry_type] || TRANSACTION_TYPES.SUPPLIER_PAYMENT;
 
-          // SUPPLIER_PAYS_US through this path is a *cashless credit* — the
-          // supplier owes us (e.g. the fixed commission on an iPick/Katsh bill);
-          // no drawer moves. The supplier_ledger keeps the signed amount
-          // (negative = credit to us, so SUM stays a valid balance), but the
-          // unified journal is an event log: store a positive magnitude and flag
-          // it as a credit so the UI shows money owed to us, not a negative
-          // "payment". (recordSupplierCashflow handles the real cash RECEIVE.)
-          const isSupplierCredit = data.entry_type === "SUPPLIER_PAYS_US";
-          const journalUsd = isSupplierCredit ? Math.abs(amountUsd) : amountUsd;
-          const journalLbp = isSupplierCredit ? Math.abs(amountLbp) : amountLbp;
+        // SUPPLIER_PAYS_US through this path is a *cashless credit* — the
+        // supplier owes us (e.g. the fixed commission on an iPick/Katsh bill);
+        // no drawer moves. The supplier_ledger keeps the signed amount
+        // (negative = credit to us, so SUM stays a valid balance), but the
+        // unified journal is an event log: store a positive magnitude and flag
+        // it as a credit so the UI shows money owed to us, not a negative
+        // "payment". (recordSupplierCashflow handles the real cash RECEIVE.)
+        const isSupplierCredit = data.entry_type === "SUPPLIER_PAYS_US";
+        // PAYMENT's ledger sign is the force-negated bookkeeping convention
+        // applied above, not the event's natural value — show the paid
+        // magnitude, same as the drawer-based PAYMENT branch above.
+        const showMagnitude = isSupplierCredit || data.entry_type === "PAYMENT";
+        const journalUsd = showMagnitude ? Math.abs(amountUsd) : amountUsd;
+        const journalLbp = showMagnitude ? Math.abs(amountLbp) : amountLbp;
 
-          let summary: string;
-          if (isSupplierCredit) {
-            const parts: string[] = [];
-            if (journalUsd) parts.push(`$${journalUsd.toLocaleString()}`);
-            if (journalLbp) parts.push(`${journalLbp.toLocaleString()} LBP`);
-            summary = `Supplier credit: ${parts.join(" + ") || "$0"}`;
-          } else {
-            summary = `Supplier ${data.entry_type}: $${amountUsd} + ${amountLbp} LBP`;
-          }
-
-          const txnId = getTransactionRepository().createTransaction({
-            type: txnType as TransactionType,
-            source_table: "supplier_ledger",
-            source_id: entryId,
-            user_id: data.created_by,
-            amount_usd: journalUsd,
-            amount_lbp: journalLbp,
-            summary,
-            metadata_json: {
-              supplier_id: data.supplier_id,
-              entry_type: data.entry_type,
-              ...(isSupplierCredit ? { is_credit: true } : {}),
-            },
-          });
-
-          // Link supplier_ledger row to unified transaction
-          this.db
-            .prepare(
-              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
-            )
-            .run(txnId, entryId, tenantId);
+        let summary: string;
+        if (isSupplierCredit) {
+          const parts: string[] = [];
+          if (journalUsd) parts.push(`$${journalUsd.toLocaleString()}`);
+          if (journalLbp) parts.push(`${journalLbp.toLocaleString()} LBP`);
+          summary = `Supplier credit: ${parts.join(" + ") || "$0"}`;
+        } else if (data.entry_type === "PAYMENT") {
+          summary = `Supplier Payment: $${journalUsd} + ${journalLbp} LBP`;
+        } else {
+          summary = `Supplier ${data.entry_type}: $${amountUsd} + ${amountLbp} LBP`;
         }
+
+        // CQ-8 counterparty contract flow: PAYMENT always pays cash OUT;
+        // SUPPLIER_PAYS_US is the supplier crediting the shop (IN), even
+        // when cashless; every other entry_type (TOP_UP/SALE_COST/
+        // ADJUSTMENT) is a non-cash accrual — direction follows the same
+        // sign the ledger itself uses ("+ = shop owes supplier" reads as the
+        // supplier extending value to the shop → IN; a negative correction
+        // reads the same direction as a PAYMENT → OUT).
+        const counterpartyFlow: "IN" | "OUT" =
+          data.entry_type === "PAYMENT"
+            ? "OUT"
+            : isSupplierCredit
+              ? "IN"
+              : (amountUsd || amountLbp) < 0
+                ? "OUT"
+                : "IN";
+
+        const txnId = getTransactionRepository().createTransaction({
+          type: txnType as TransactionType,
+          source_table: "supplier_ledger",
+          source_id: entryId,
+          user_id: data.created_by,
+          amount_usd: journalUsd,
+          amount_lbp: journalLbp,
+          summary,
+          metadata_json: {
+            supplier_id: data.supplier_id,
+            entry_type: data.entry_type,
+            ...(isSupplierCredit ? { is_credit: true } : {}),
+            // No `payments` row is ever inserted on this branch (no drawer
+            // moves) — method is the journal-only marker, never a real
+            // payment/settlement method.
+            counterparty: buildCounterpartyMetadata({
+              kind: "supplier",
+              id: data.supplier_id,
+              name: this._getSupplierName(data.supplier_id),
+              flow: counterpartyFlow,
+              method: "LEDGER",
+              ledgerEntryId: entryId,
+            }),
+            // D2 (owner decision 2026-07-18): manual supplier payments show
+            // on the Transactions page by default; auto-generated rows
+            // (RechargeRepository/FinancialServiceRepository/Loto auto
+            // supplier debt) stay behind the filter. This is the ONLY
+            // addLedgerEntry branch that creates its own transaction row for
+            // an is_auto:true caller (link-mode callers own their own
+            // transaction's metadata and are out of this ticket's scope).
+            ...(data.is_auto ? { is_auto: true } : {}),
+          },
+        });
+
+        // Link supplier_ledger row to unified transaction
+        this.db
+          .prepare(
+            `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+          )
+          .run(txnId, entryId, tenantId);
       }
 
       return { id: entryId };
@@ -471,10 +578,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     try {
       const tenantId = getCurrentTenantId();
       // Hide the SECONDARY OMT/WHISH system (obligations live in partner_ledger).
+      // COALESCE the NULL provider: `NULL IN (...)` is SQL NULL, and
+      // `NOT (NULL AND …)` is NULL too — without it, every provider-less
+      // supplier was silently dropped from the balances list (latent bug
+      // caught by lira-web-015).
       const filter = includeInactive
         ? "s.tenant_id = ?"
         : `s.tenant_id = ? AND s.is_active = 1
-           AND NOT (s.provider IN ('OMT', 'WHISH')
+           AND NOT (COALESCE(s.provider, '') IN ('OMT', 'WHISH')
                     AND s.provider <> COALESCE(
                       (SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = s.tenant_id),
                       'OMT'))`;
@@ -578,30 +689,41 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         }
 
         // ── 4. Create unified transaction for audit trail ──────────────────
-        const txnRes = this.db
-          .prepare(
-            `INSERT INTO transactions
-               (type, status, source_table, source_id, user_id,
-                amount_usd, amount_lbp, summary, metadata_json, tenant_id, created_at)
-             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-          )
-          .run(
-            TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
-            ledgerEntryId,
-            data.created_by,
-            data.amount_usd,
-            data.amount_lbp,
-            `Settlement: ${data.financial_service_ids.length} txns, net $${data.amount_usd.toFixed(2)}`,
-            JSON.stringify({
-              supplier_id: data.supplier_id,
-              financial_service_ids: data.financial_service_ids,
-              commission_usd: data.commission_usd,
-              commission_lbp: data.commission_lbp,
-              drawer_name: data.drawer_name,
+        // CQ-7: funneled through the single createTransaction() gate instead
+        // of a raw INSERT — the row now gains the funnel's completeness
+        // guards and exchange-rate snapshot (previously always NULL here).
+        const settlementMethod =
+          data.payments && data.payments.length > 0
+            ? data.payments.length === 1
+              ? data.payments[0].method
+              : "SPLIT"
+            : "CASH";
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
+          source_table: "supplier_ledger",
+          source_id: ledgerEntryId,
+          user_id: data.created_by,
+          amount_usd: data.amount_usd,
+          amount_lbp: data.amount_lbp,
+          summary: `Settlement: ${data.financial_service_ids.length} txns, net $${data.amount_usd.toFixed(2)}`,
+          metadata_json: {
+            supplier_id: data.supplier_id,
+            financial_service_ids: data.financial_service_ids,
+            commission_usd: data.commission_usd,
+            commission_lbp: data.commission_lbp,
+            drawer_name: data.drawer_name,
+            // CQ-8 counterparty contract: a settlement pays the supplier's
+            // net amount OUT of the drawer.
+            counterparty: buildCounterpartyMetadata({
+              kind: "supplier",
+              id: data.supplier_id,
+              name: this._getSupplierName(data.supplier_id),
+              flow: "OUT",
+              method: settlementMethod,
+              ledgerEntryId: ledgerEntryId,
             }),
-            tenantId,
-          );
-        const txnId = Number(txnRes.lastInsertRowid);
+          },
+        });
 
         // Link ledger entry to unified transaction
         this.db
@@ -697,6 +819,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     if (!data.payments?.length) {
       throw new DatabaseError("No payment legs provided");
     }
+    // CQ-10: a discount only makes sense on a PAY-direction cashflow (we owe
+    // them, they forgive part of it) — RECEIVE means the supplier is paying
+    // US, so "they also forgive what we owe" is a contradiction in the same
+    // call. Guarded here (not just at the schema/service layer) so no caller
+    // can bypass it.
+    if (data.discount && data.direction !== "PAY") {
+      throw new DatabaseError(
+        `recordSupplierCashflow: discount is only valid on PAY-direction cashflow (got "${data.direction}")`,
+      );
+    }
     try {
       const tenantId = getCurrentTenantId();
       const run = this.db.transaction(() => {
@@ -742,28 +874,44 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const summary = isPay
           ? `Supplier Payment: ${money}`
           : `Supplier Payment Received: ${money}`;
-        const txnRes = this.db
-          .prepare(
-            `INSERT INTO transactions
-               (type, status, source_table, source_id, user_id,
-                amount_usd, amount_lbp, summary, metadata_json, tenant_id, created_at)
-             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-          )
-          .run(
-            TRANSACTION_TYPES.SUPPLIER_PAYMENT,
-            ledgerEntryId,
-            data.created_by,
-            usd,
-            lbp,
-            summary,
-            JSON.stringify({
-              supplier_id: data.supplier_id,
-              direction: data.direction,
-              entry_type: entryType,
+        // CQ-7: funneled through createTransaction() instead of a raw INSERT
+        // — gains the completeness guards and exchange-rate snapshot.
+        const cashflowMethod =
+          data.payments.length === 1 ? data.payments[0].method : "SPLIT";
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+          source_table: "supplier_ledger",
+          source_id: ledgerEntryId,
+          user_id: data.created_by,
+          amount_usd: usd,
+          amount_lbp: lbp,
+          summary,
+          metadata_json: {
+            supplier_id: data.supplier_id,
+            direction: data.direction,
+            entry_type: entryType,
+            // CQ-8 counterparty contract: PAY = shop pays the supplier
+            // (OUT); RECEIVE = supplier pays the shop (IN). CQ-10: a bundled
+            // discount is annotated onto THIS transaction's metadata
+            // (informational — the money-and-profit effect lives on the
+            // separate COUNTERPARTY_DISCOUNT row posted below).
+            counterparty: buildCounterpartyMetadata({
+              kind: "supplier",
+              id: data.supplier_id,
+              name: this._getSupplierName(data.supplier_id),
+              flow: isPay ? "OUT" : "IN",
+              method: cashflowMethod,
+              ledgerEntryId: ledgerEntryId,
+              discount: data.discount
+                ? {
+                    amount_usd: Math.abs(data.discount.amount_usd || 0),
+                    amount_lbp: Math.abs(data.discount.amount_lbp || 0),
+                    reason: data.discount.reason,
+                  }
+                : undefined,
             }),
-            tenantId,
-          );
-        const txnId = Number(txnRes.lastInsertRowid);
+          },
+        });
         this.db
           .prepare(
             `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
@@ -801,40 +949,27 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // Apply FIFO coverage to supplier_purchases for PAY direction.
         // LBP legs are converted to USD at the payment's exchange rate.
         if (isPay) {
-          const totalUsdEquiv = usd + lbp / rate;
-          if (totalUsdEquiv > 0) {
-            const unpaid = this.db
-              .prepare(
-                `SELECT id, total_usd, paid_usd
-                 FROM supplier_purchases
-                 WHERE supplier_id = ? AND paid_usd < total_usd - 0.005 AND tenant_id = ?
-                 ORDER BY created_at ASC`,
-              )
-              .all(data.supplier_id, tenantId) as {
-              id: number;
-              total_usd: number;
-              paid_usd: number;
-            }[];
+          this._applyPurchaseFifoCoverage(
+            data.supplier_id,
+            usd + lbp / rate,
+            tenantId,
+          );
+        }
 
-            const updatePurchase = this.db.prepare(
-              `UPDATE supplier_purchases
-               SET paid_usd = ?, updated_at = CURRENT_TIMESTAMP
-               WHERE id = ? AND tenant_id = ?`,
-            );
-
-            let remaining = totalUsdEquiv;
-            for (const row of unpaid) {
-              if (remaining <= 0) break;
-              const canAbsorb = row.total_usd - row.paid_usd;
-              const applied = Math.min(remaining, canAbsorb);
-              updatePurchase.run(
-                Math.min(row.paid_usd + applied, row.total_usd),
-                row.id,
-                tenantId,
-              );
-              remaining -= applied;
-            }
-          }
+        // CQ-10 — bundled discount: posted AFTER the cashflow's own FIFO
+        // coverage so the discount's budget only touches whatever the cash
+        // portion left open (same open purchases, a second/remaining pass).
+        if (
+          data.discount &&
+          (data.discount.amount_usd > 0 || data.discount.amount_lbp > 0)
+        ) {
+          this._postSupplierDiscount(
+            data.supplier_id,
+            data.discount,
+            data.created_by,
+            tenantId,
+            rate,
+          );
         }
 
         return { id: ledgerEntryId };
@@ -843,6 +978,199 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       return run();
     } catch (e) {
       throw new DatabaseError("Failed to record supplier cashflow", {
+        cause: e,
+      });
+    }
+  }
+
+  /**
+   * Rule 14 — the ONE FIFO allocator for supplier_purchases (shared by
+   * recordSupplierCashflow's PAY branch and _postSupplierDiscount; CQ-10
+   * extracted this out of recordSupplierCashflow rather than pasting the
+   * same allocation loop a third time). Oldest-open-first, clamped at each
+   * purchase's outstanding balance. `usdEquivalent` is already converted
+   * (LBP legs pre-converted by the caller at the transaction's exchange rate).
+   */
+  private _applyPurchaseFifoCoverage(
+    supplierId: number,
+    usdEquivalent: number,
+    tenantId: number,
+  ): void {
+    if (usdEquivalent <= 0) return;
+    const unpaid = this.db
+      .prepare(
+        `SELECT id, total_usd, paid_usd
+         FROM supplier_purchases
+         WHERE supplier_id = ? AND paid_usd < total_usd - 0.005 AND tenant_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(supplierId, tenantId) as {
+      id: number;
+      total_usd: number;
+      paid_usd: number;
+    }[];
+
+    const updatePurchase = this.db.prepare(
+      `UPDATE supplier_purchases
+       SET paid_usd = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND tenant_id = ?`,
+    );
+
+    let remaining = usdEquivalent;
+    for (const row of unpaid) {
+      if (remaining <= 0) break;
+      const canAbsorb = row.total_usd - row.paid_usd;
+      const applied = Math.min(remaining, canAbsorb);
+      updatePurchase.run(
+        Math.min(row.paid_usd + applied, row.total_usd),
+        row.id,
+        tenantId,
+      );
+      remaining -= applied;
+    }
+  }
+
+  /**
+   * CQ-10 — post ONE COUNTERPARTY_DISCOUNT transaction (+ its owning
+   * 'DISCOUNT' supplier_ledger row) for a supplier forgiving part of what the
+   * shop owes them. Used by BOTH entry paths: bundled (called from inside
+   * recordSupplierCashflow's transaction, PAY direction only) and standalone
+   * (writeOffSupplierDebt, its own transaction).
+   *
+   * amount_usd/amount_lbp = 0 (no cash moved); profit_usd/profit_lbp =
+   * POSITIVE the forgiven amount (D1: a supplier discount is a gain — the
+   * shop no longer has to pay that cost).
+   */
+  private _postSupplierDiscount(
+    supplierId: number,
+    discount: SupplierDiscountData,
+    createdBy: number,
+    tenantId: number,
+    rate = 89000,
+  ): number {
+    const amountUsd = Math.abs(discount.amount_usd || 0);
+    const amountLbp = Math.abs(discount.amount_lbp || 0);
+
+    const ledgerRes = this.db
+      .prepare(
+        `INSERT INTO supplier_ledger
+           (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+         VALUES (?, 'DISCOUNT', ?, ?, ?, ?, ?, datetime('now'))`,
+      )
+      .run(
+        supplierId,
+        -amountUsd,
+        -amountLbp,
+        discount.reason ?? null,
+        createdBy,
+        tenantId,
+      );
+    const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
+
+    const label = this._getSupplierName(supplierId);
+    const money = `$${amountUsd.toFixed(2)}${amountLbp ? ` + ${amountLbp.toLocaleString()} LBP` : ""}`;
+    const txnId = getTransactionRepository().createTransaction({
+      type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
+      source_table: "supplier_ledger",
+      source_id: ledgerEntryId,
+      user_id: createdBy,
+      amount_usd: 0,
+      amount_lbp: 0,
+      profit_usd: amountUsd,
+      profit_lbp: amountLbp,
+      summary: `Supplier discount received: ${money} — ${label}`,
+      metadata_json: {
+        supplier_id: supplierId,
+        entry_type: "DISCOUNT",
+        // CQ-10/D1 counterparty contract: receiving a discount on a payable
+        // is booked "as if paid" — flow OUT, the same direction a real
+        // supplier payment uses.
+        counterparty: buildCounterpartyMetadata({
+          kind: "supplier",
+          id: supplierId,
+          name: label,
+          flow: "OUT",
+          method: "LEDGER",
+          ledgerEntryId: ledgerEntryId,
+          discount: {
+            amount_usd: amountUsd,
+            amount_lbp: amountLbp,
+            reason: discount.reason,
+          },
+        }),
+      },
+    });
+
+    this.db
+      .prepare(
+        `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(txnId, ledgerEntryId, tenantId);
+
+    const usdEquivalent = amountUsd + amountLbp / rate;
+    this._applyPurchaseFifoCoverage(supplierId, usdEquivalent, tenantId);
+
+    return txnId;
+  }
+
+  /**
+   * Per-supplier net balance (+ = shop owes supplier). Used by
+   * SupplierService.writeOffSupplierDebt to validate a write-off against the
+   * OUTSTANDING balance per currency — mirrors DebtRepository.getClientBalance.
+   */
+  getSupplierBalance(supplierId: number): {
+    balance_usd: number;
+    balance_lbp: number;
+  } {
+    const tenantId = getCurrentTenantId();
+    const row = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(amount_usd), 0) as balance_usd,
+          COALESCE(SUM(amount_lbp), 0) as balance_lbp
+         FROM supplier_ledger
+         WHERE supplier_id = ? AND tenant_id = ? AND ${ledgerNotRefunded()}`,
+      )
+      .get(supplierId, tenantId) as
+      | { balance_usd: number; balance_lbp: number }
+      | undefined;
+    return {
+      balance_usd: row?.balance_usd ?? 0,
+      balance_lbp: row?.balance_lbp ?? 0,
+    };
+  }
+
+  /**
+   * CQ-10 (D4: admin-only, enforced by the caller) — standalone write-off: no
+   * cashflow attached, just forgive part of what the shop owes a supplier.
+   * Validation (positive amount, does not exceed the outstanding balance per
+   * currency) lives in SupplierService.writeOffSupplierDebt.
+   */
+  writeOffSupplierDebt(data: {
+    supplier_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    reason?: string;
+    created_by: number;
+  }): { id: number } {
+    try {
+      const tenantId = getCurrentTenantId();
+      const run = this.db.transaction(() => {
+        const txnId = this._postSupplierDiscount(
+          data.supplier_id,
+          {
+            amount_usd: data.amount_usd,
+            amount_lbp: data.amount_lbp,
+            reason: data.reason,
+          },
+          data.created_by,
+          tenantId,
+        );
+        return { id: txnId };
+      });
+      return run();
+    } catch (e) {
+      throw new DatabaseError("Failed to write off supplier debt", {
         cause: e,
       });
     }

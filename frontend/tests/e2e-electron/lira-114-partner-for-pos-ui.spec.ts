@@ -44,10 +44,7 @@ test.describe.configure({ retries: 0 });
 type Api = {
   api: {
     partners: {
-      create: (d: {
-        name: string;
-        phone?: string;
-      }) => Promise<{
+      create: (d: { name: string; phone?: string }) => Promise<{
         success: boolean;
         data?: { id: number };
         error?: string;

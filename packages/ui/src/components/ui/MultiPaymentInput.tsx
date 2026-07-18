@@ -144,7 +144,25 @@ export interface MultiPaymentInputProps {
    *  payment). Default false — return method follows the forward methods,
    *  as today. */
   cashOnlyReturn?: boolean;
+  /** OPT-IN: when true and the single payment line underpays the total, a
+   *  live CUSTOMER_ACCOUNT remainder leg is auto-added so the shortfall books
+   *  as client debt instead of being silently dropped (the lira-122 incident:
+   *  in single mode only the method + FULL total ever reached the backend).
+   *
+   *  Default false — the consumer must opt in, passing its OWN validated
+   *  charge-eligibility predicate (canChargeToCustomerAccount-grade: existing
+   *  client or name+phone), NOT the loosely-defined hasClient. Never enable
+   *  on money-OUT flows (RECEIVE cashouts, payouts): there CUSTOMER_ACCOUNT
+   *  means "credit the customer's account" and an auto IN-direction debt leg
+   *  inverts the sign of the unpaid remainder. */
+  autoDebtRemainder?: boolean;
 }
+
+/** Delay before the auto-added debt remainder visually flips the sheet into
+ *  split mode. Cosmetic only — the onChange payload is correct immediately;
+ *  this just keeps the layout from jumping mid-keystroke. Mirrored by the
+ *  e2e wait in lira-122-auto-debt-split.spec.ts. */
+export const AUTO_SPLIT_REVEAL_MS = 500;
 
 const CASH_EQUIVALENT_METHODS = new Set(["CASH", "CUSTOMER_ACCOUNT"]);
 
@@ -195,6 +213,7 @@ export default function MultiPaymentInput({
   waiveRemainingThreshold = 1,
   smartSplitOverpay = false,
   cashOnlyReturn = false,
+  autoDebtRemainder = false,
 }: MultiPaymentInputProps) {
   // Seeded lines are captured once — the prop is read at mount only.
   const seededLinesRef = useRef<PaymentLine[] | null>(
@@ -254,6 +273,27 @@ export default function MultiPaymentInput({
   // Tracks whether the user manually edited the single-mode amount, so a
   // deliberate overpayment isn't clobbered by the auto-sync-to-total effect.
   const singleAmountTouchedRef = useRef<boolean>(false);
+
+  // Auto-debt remainder line id (or null). In single-payment mode, a typed
+  // amount below the total used to be cosmetic — only the method + the FULL
+  // total were ever submitted, silently discarding the shortfall (real
+  // incident: "$300 cash + $15 debt" typed, $315 charged entirely to
+  // CUSTOMER_ACCOUNT because single mode never sent a partial amount).
+  // `autoDebtLineIdRef` tracks the id of the live-managed CUSTOMER_ACCOUNT
+  // remainder line while it is auto-managed. The moment the operator edits
+  // that line directly it DETACHES (ref nulled) and becomes an ordinary
+  // manual line the effect never touches again — including never deleting
+  // it when the primary line later covers the total.
+  const autoDebtLineIdRef = useRef<string | null>(null);
+  // Explicit removal of the auto-added line means "not this time" — without
+  // this, the creation effect (which only sees "1 line, still short") would
+  // resurrect it on the very next render. Cleared the moment the operator
+  // edits the primary line again — a fresh action re-opens the possibility.
+  const autoDebtDismissedRef = useRef<boolean>(false);
+  // True while split mode was entered by the auto-reveal (not the operator's
+  // Split toggle) — lets the withdraw path fold the sheet back to single
+  // mode instead of leaving a stuck one-line "Split" UI.
+  const autoRevealedRef = useRef<boolean>(false);
 
   const safeExchangeRate =
     exchangeRate || rateTableProp?.rates["LBP"]?.[side] || 89000;
@@ -542,6 +582,10 @@ export default function MultiPaymentInput({
 
   const removePaymentLine = (id: string) => {
     if (paymentLines.length > 1) {
+      if (id === autoDebtLineIdRef.current) {
+        autoDebtLineIdRef.current = null;
+        autoDebtDismissedRef.current = true;
+      }
       handleLinesChange(paymentLines.filter((line) => line.id !== id));
     }
   };
@@ -555,6 +599,18 @@ export default function MultiPaymentInput({
     // deliberate overpayment is preserved.
     if (field === "amount" && !isSplitMode) {
       singleAmountTouchedRef.current = true;
+    }
+    // ANY direct edit to the auto-managed debt remainder DETACHES it — from
+    // here on it is the operator's ordinary manual line: never resized,
+    // never auto-deleted (even when the primary line later covers the total).
+    if (id === autoDebtLineIdRef.current) {
+      autoDebtLineIdRef.current = null;
+    } else {
+      // Editing the primary line is a fresh action — re-open the
+      // possibility of auto-splitting even after an earlier dismissal.
+      // (In genuine 2+ line manual splits this is inert: the auto-debt
+      // effect bails on any shape other than one primary line.)
+      autoDebtDismissedRef.current = false;
     }
     const updatedLines = paymentLines.map((line) => {
       if (line.id !== id) return line;
@@ -721,6 +777,123 @@ export default function MultiPaymentInput({
   const hasDebt = paymentLines.some(
     (line) => line.method === "CUSTOMER_ACCOUNT",
   );
+
+  // Materialize the CUSTOMER_ACCOUNT remainder leg the instant a shortfall
+  // exists — a PLAIN effect (no timer), so onChange is up to date before any
+  // confirm click. Scope is deliberately narrow: only the single-line shape
+  // the incident targets (the operator's one line, optionally plus our
+  // tracked remainder). A genuine manual split (2+ lines) is never touched.
+  // Fires ONLY for consumers that opted in via `autoDebtRemainder` (their own
+  // validated charge predicate — see the prop doc) — everywhere else the
+  // "Remaining (Debt)" warning stays as the honest signal.
+  useEffect(() => {
+    const trackedId = autoDebtLineIdRef.current;
+    const primaryLines = trackedId
+      ? paymentLines.filter((l) => l.id !== trackedId)
+      : paymentLines;
+
+    if (primaryLines.length !== 1) {
+      // Operator built a real split around us — release the tracked line
+      // as an ordinary manual leg.
+      autoDebtLineIdRef.current = null;
+      return;
+    }
+
+    const line = primaryLines[0];
+    const debtLine = trackedId
+      ? paymentLines.find((l) => l.id === trackedId)
+      : undefined;
+
+    const eligible =
+      autoDebtRemainder &&
+      hasClient &&
+      line.method !== "CUSTOMER_ACCOUNT" &&
+      paymentMethods.some((pm) => pm.code === "CUSTOMER_ACCOUNT");
+
+    // Withdraw the auto leg when it no longer applies (feature toggled off,
+    // method changed to CUSTOMER_ACCOUNT, or the primary now covers the
+    // total). Only ever removes the line WE still manage — a detached
+    // (operator-edited) leg has trackedId null and is never deleted here.
+    const withdraw = () => {
+      autoDebtLineIdRef.current = null;
+      const updated = [line];
+      setPaymentLines(updated);
+      onChange(updated);
+      if (autoRevealedRef.current) {
+        autoRevealedRef.current = false;
+        setIsSplitMode(false);
+      }
+    };
+
+    if (!eligible) {
+      if (debtLine) withdraw();
+      return;
+    }
+
+    // Outstanding remainder in the primary line's own currency — via the
+    // same per-currency engine the manual "+ Add Line" prefill uses
+    // (allocatePayments: native remaining passes raw, only the
+    // cross-currency slice is rate-converted), so multi-currency totals
+    // never round-trip through a scalar.
+    const amount = prefillAmountFor(line.currencyCode, trackedId ?? undefined);
+    const lineTolerance = line.currencyCode === "LBP" ? 100 : 0.01;
+
+    if (amount <= lineTolerance) {
+      if (debtLine) withdraw();
+      return;
+    }
+
+    // Explicitly removed and not yet re-armed by a fresh primary-line edit —
+    // don't resurrect it.
+    if (!debtLine && autoDebtDismissedRef.current) return;
+
+    if (
+      debtLine &&
+      debtLine.amount === amount &&
+      debtLine.currencyCode === line.currencyCode
+    ) {
+      return; // already correct
+    }
+
+    const newId = debtLine?.id ?? crypto.randomUUID();
+    autoDebtLineIdRef.current = newId;
+    const updated = [
+      line,
+      {
+        id: newId,
+        method: "CUSTOMER_ACCOUNT",
+        currencyCode: line.currencyCode,
+        amount,
+      },
+    ];
+    setPaymentLines(updated);
+    onChange(updated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    paymentLines,
+    autoDebtRemainder,
+    hasClient,
+    paymentMethods,
+    effectiveRate,
+    clampedDiscount,
+    totalsKey,
+  ]);
+
+  // Purely cosmetic: reveal the second row AUTO_SPLIT_REVEAL_MS after the
+  // operator stops editing, so the layout doesn't flicker mid-keystroke.
+  // Correctness never depends on this — the effect above already keeps
+  // onChange accurate as soon as the shortfall appears, regardless of when
+  // (or whether) this visual flip happens.
+  useEffect(() => {
+    if (isSplitMode) return;
+    if (!autoDebtLineIdRef.current) return;
+    const timer = setTimeout(() => {
+      autoRevealedRef.current = true;
+      setIsSplitMode(true);
+    }, AUTO_SPLIT_REVEAL_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentLines, isSplitMode]);
 
   const getSymbol = (currencyCode: string): string => {
     const curr = currencies.find((c) => c.code === currencyCode);
@@ -947,8 +1120,11 @@ export default function MultiPaymentInput({
 
   const toggleSplitMode = () => {
     if (isSplitMode) {
-      // Switching to single: reset to one line with full amount (re-enable auto-sync)
+      // Switching to single: reset to one line with full amount (re-enable
+      // auto-sync) and fully reset the auto-debt machinery — a fresh start.
       singleAmountTouchedRef.current = false;
+      autoDebtLineIdRef.current = null;
+      autoDebtDismissedRef.current = false;
       const singleLine: PaymentLine[] = [
         {
           id: crypto.randomUUID(),
@@ -962,6 +1138,9 @@ export default function MultiPaymentInput({
       setPaymentLines(singleLine);
       onChange(singleLine);
     }
+    // Operator owns the split state from here — the auto-reveal must not
+    // fold it back.
+    autoRevealedRef.current = false;
     setIsSplitMode(!isSplitMode);
   };
 

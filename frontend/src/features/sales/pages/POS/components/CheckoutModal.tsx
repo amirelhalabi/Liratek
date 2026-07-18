@@ -225,6 +225,18 @@ export default function CheckoutModal({
     .filter((p) => p.currencyCode === "LBP")
     .reduce((acc, p) => acc + (p.amount || 0), 0);
 
+  // Receipt split: CUSTOMER_ACCOUNT legs are debt, not tender — the printed
+  // receipt must never claim the on-account portion was paid in cash/wallet
+  // (paidUSD/paidLBP above intentionally still include them: settlement
+  // completeness counts covered-by-debt as covered).
+  const isTenderLeg = (p: PaymentLine) => p.method !== "CUSTOMER_ACCOUNT";
+  const tenderUSD = paymentLines
+    .filter((p) => p.currencyCode === "USD" && isTenderLeg(p))
+    .reduce((acc, p) => acc + (p.amount || 0), 0);
+  const tenderLBP = paymentLines
+    .filter((p) => p.currencyCode === "LBP" && isTenderLeg(p))
+    .reduce((acc, p) => acc + (p.amount || 0), 0);
+
   // Track if customer was auto-filled from session
   const [isAutoFilledFromSession, setIsAutoFilledFromSession] = useState(false);
 
@@ -540,8 +552,10 @@ export default function CheckoutModal({
       subtotal: totalAmount,
       discount: discount,
       total: finalAmount,
-      payment_usd: paidUSD,
-      payment_lbp: paidLBP,
+      payment_usd: tenderUSD,
+      payment_lbp: tenderLBP,
+      on_account_usd: paidUSD - tenderUSD,
+      on_account_lbp: paidLBP - tenderLBP,
       change_usd: cashReturnUSD,
       change_lbp: cashReturnLBP,
       exchange_rate: effectiveExchangeRate,
@@ -984,6 +998,10 @@ export default function CheckoutModal({
                       : {})}
                     requiresClientForDebt={true}
                     hasClient={canCreateDebt}
+                    // Sale (charge flow): shortfall → client debt.
+                    // canCreateDebt already enforces the name+phone /
+                    // existing-client-with-phone rule.
+                    autoDebtRemainder={canCreateDebt}
                     paymentMethods={effectivePaymentMethods}
                     currencies={[
                       { code: "USD", symbol: "$" },

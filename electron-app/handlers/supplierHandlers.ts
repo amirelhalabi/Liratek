@@ -8,6 +8,7 @@ import {
   SupplierSettleSchema,
   SupplierCashflowSchema,
   SupplierPurchaseCreateSchema,
+  SupplierWriteOffSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -180,6 +181,34 @@ export function registerSupplierHandlers(): void {
         direction: v.data.direction,
       },
     });
+    return result;
+  });
+
+  /** CQ-10 (D4): standalone write-off — forgive part of what the shop owes
+   *  a supplier, with NO cashflow attached. Admin-only. */
+  ipcMain.handle("suppliers:write-off", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(SupplierWriteOffSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.writeOffSupplierDebt({
+      ...v.data,
+      created_by: auth.userId,
+    });
+    if (result.success) {
+      audit(e.sender.id, {
+        action: "write_off",
+        entity_type: "supplier_write_off",
+        summary: `Supplier write-off for #${v.data.supplier_id}: $${v.data.amount_usd} + ${v.data.amount_lbp} LBP`,
+        metadata: {
+          supplier_id: v.data.supplier_id,
+          amount_usd: v.data.amount_usd,
+          amount_lbp: v.data.amount_lbp,
+        },
+      });
+    }
     return result;
   });
 }

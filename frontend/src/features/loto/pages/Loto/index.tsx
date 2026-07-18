@@ -5,7 +5,7 @@
 import { useState, useEffect } from "react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { localDay } from "@/shared/utils/localDay";
-import { useApi, PageHeader, DecimalInput } from "@liratek/ui";
+import { appEvents, useApi, PageHeader, DecimalInput } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -183,7 +183,11 @@ export function LotoPage() {
       });
 
       if (result.success) {
-        alert("Checkpoint created successfully!");
+        appEvents.emit(
+          "notification:show",
+          "Checkpoint created successfully!",
+          "success",
+        );
         loadTodayStats();
       } else {
         alert("Failed to create checkpoint: " + result.error);
@@ -333,7 +337,11 @@ export function LotoPage() {
       const result = await lotoApi.sell(ticketData);
 
       if (result.success) {
-        alert("Ticket sold successfully!");
+        appEvents.emit(
+          "notification:show",
+          "Ticket sold successfully!",
+          "success",
+        );
         setSaleAmount("");
         setPaymentLines([]);
         setReturnLegs([]);
@@ -397,7 +405,11 @@ export function LotoPage() {
       const result = await lotoApi.cashPrize.create(prizeData);
 
       if (result.success) {
-        alert("Cash prize recorded successfully!");
+        appEvents.emit(
+          "notification:show",
+          "Cash prize recorded successfully!",
+          "success",
+        );
         // Reset form
         setCashPrizeTicketNumber("");
         setCashPrizeAmount("");
@@ -615,6 +627,11 @@ export function LotoPage() {
                       exchangeRate={exchangeRate}
                       initialMethod={initialPaymentMethod}
                       hasClient={
+                        !!clientId ||
+                        (!!clientName.trim() && !!clientPhone.trim())
+                      }
+                      // Ticket sale (charge flow): shortfall → client debt.
+                      autoDebtRemainder={
                         !!clientId ||
                         (!!clientName.trim() && !!clientPhone.trim())
                       }

@@ -599,6 +599,23 @@ export interface ElectronAPI {
         direction?: "IN" | "OUT";
       }>;
       transaction_time?: string;
+      /** CQ-10: bundled discount — forgives part of the debt alongside the
+       *  cash payment. Posts a signed-profit 'Debt Discount' ledger row. */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** CQ-10: standalone debt write-off (admin-only) — pure forgiveness, no
+     *  cash movement. Capped server-side at the client's outstanding balance
+     *  per currency. */
+    writeOff: (data: {
+      clientId: number;
+      // NOTE camelCase (unlike suppliers/partners write-off): mirrors
+      // debtWriteOffSchema/addRepaymentSchema's existing amountUSD/amountLBP
+      // convention — reconciled against the sibling's landed core schema
+      // (packages/core/src/validators/debt.ts) rather than the ticket's
+      // generic amount_usd/amount_lbp shorthand.
+      amountUSD: number;
+      amountLBP: number;
+      reason?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     cashOut: (data: {
       clientId: number;
@@ -1038,6 +1055,18 @@ export interface ElectronAPI {
       }>;
       note?: string;
       exchange_rate?: number;
+      /** CQ-10: bundled discount — PAY direction only (backend rejects it on
+       *  RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row. */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** CQ-10: standalone supplier write-off (admin-only) — the supplier
+     *  forgives what we owe them; capped server-side at the outstanding
+     *  balance per currency. */
+    writeOff: (data: {
+      supplier_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      reason?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getProductBalances: () => Promise<
       Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
@@ -2417,11 +2446,35 @@ export interface ElectronAPI {
       currency: string;
       settlementMethod: string;
       notes?: string;
+      /** CQ-10: bundled discount — forgives part of what the partner owes
+       *  alongside the settlement. Posts a signed-profit 'DISCOUNT' row. */
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+      /** CQ-11 — split-leg settlement (MultiPaymentInput), e.g. $60 CASH +
+       *  $40 OMT. Every leg's currency_code must match `currency` above and
+       *  legs must sum to `amount` (±0.005); when present it supersedes
+       *  `settlementMethod` for money movement (still required — stamped on
+       *  the partner_ledger row; CHECK-constrained, so it must be a real
+       *  method, never "SPLIT"). CLIENT_ACCOUNT settles no money and can
+       *  never appear as a leg. */
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
     }) => Promise<{
       success: boolean;
       data?: PartnerLedgerEntry;
       error?: string;
     }>;
+    /** CQ-10: standalone partner write-off (admin-only) — we forgive what
+     *  the partner owes us; capped server-side at the outstanding balance
+     *  per currency. */
+    writeOff: (data: {
+      partnerId: number;
+      amount_usd: number;
+      amount_lbp: number;
+      reason?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 }
 

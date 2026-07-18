@@ -58,11 +58,7 @@ test.describe.configure({ retries: 0 });
 type Api = {
   api: {
     partners: {
-      create: (d: {
-        name: string;
-        phone?: string;
-        notes?: string;
-      }) => Promise<{
+      create: (d: { name: string; phone?: string; notes?: string }) => Promise<{
         success: boolean;
         data?: { id: number };
         error?: string;
@@ -105,9 +101,7 @@ type Api = {
       ) => Promise<{ success: boolean; id?: number; error?: string }>;
     };
     loto: {
-      sell: (
-        d: unknown,
-      ) => Promise<{
+      sell: (d: unknown) => Promise<{
         success: boolean;
         ticket?: { id: number };
         error?: string;

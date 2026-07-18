@@ -17,7 +17,6 @@ import {
   TransactionRepository,
   getTransactionRepository,
 } from "../repositories/TransactionRepository.js";
-import { getRateRepository } from "../repositories/RateRepository.js";
 import logger from "../utils/logger.js";
 
 export class TransactionService {
@@ -32,8 +31,8 @@ export class TransactionService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Create a transaction, automatically snapshotting the current exchange rate
-   * if none is provided.
+   * Create a transaction. The repository stamps the current exchange rate
+   * when none is provided (see TransactionRepository.snapshotExchangeRate).
    */
   createTransaction(data: CreateTransactionInput): number {
     try {
@@ -47,10 +46,6 @@ export class TransactionService {
         }
       }
 
-      // Snapshot exchange rate if not explicitly provided
-      if (data.exchange_rate === undefined) {
-        data = { ...data, exchange_rate: this.snapshotExchangeRate() };
-      }
       return this.repo.createTransaction(data);
     } catch (error) {
       logger.error(
@@ -280,23 +275,6 @@ export class TransactionService {
     } catch (error) {
       logger.error({ error }, "TransactionService.getRevenueByUser error");
       return [];
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Snapshot the current USD→LBP exchange rate.
-   * Returns null if no rate is configured (non-fatal).
-   */
-  private snapshotExchangeRate(): number | null {
-    try {
-      const rateEntity = getRateRepository().findByCode("LBP");
-      return rateEntity ? rateEntity.market_rate : null;
-    } catch {
-      return null;
     }
   }
 }

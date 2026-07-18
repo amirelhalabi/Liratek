@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import { Plus, Banknote, History } from "lucide-react";
 import {
+  appEvents,
   PageHeader,
   Select,
   useApi,
@@ -109,6 +110,11 @@ export default function Expenses() {
       });
 
       if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          "Expense recorded successfully",
+          "success",
+        );
         setFormData({
           description: "",
           category: "Shop_Supply",

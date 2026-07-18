@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, Phone, Search, X, Plus } from "lucide-react";
 import {
+  appEvents,
   useApi,
   ServiceTypeTabs,
   DecimalInput,
@@ -24,6 +25,7 @@ import type {
 import { HistoryModal } from "./HistoryModal";
 import { useSellRate } from "@/hooks/useSellRate";
 import logger from "@/utils/logger";
+import { toCamelLegs } from "@/utils/paymentUtils";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
@@ -109,6 +111,9 @@ export function FinancialForm({
     new Set(),
   );
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
+  // S6: change/return legs (OUT) — this form never wired these, so
+  // overpayment change was never recorded (lira-088 rule).
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   // T3 keep-change: kept change → profit stamp on the legs-carrying txn.
   const [keptChange, setKeptChange] = useState<{
     usd: number;
@@ -367,6 +372,7 @@ export function FinancialForm({
       // Reset form
       setCart(new Map());
       setKeptChange(null);
+      setReturnLegs([]);
       setClientName("");
       setClientPhone("");
       setClientId(null);
@@ -379,20 +385,25 @@ export function FinancialForm({
 
     const cartItems = Array.from(cart.values());
     const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
-    const hasVoucherLeg = paymentLines.some(
-      (l: PaymentLine) => l.method === "GIFT_CARD",
-    );
+    // S1 — never gate legs on split (or voucher): forward the full leg set
+    // (IN tender + OUT change) whenever ANY payment line exists. Gating on
+    // isSplitPayment/hasVoucherLeg alone silently dropped a single-line
+    // payment's tender amount + currency, and this form never forwarded
+    // change/return legs at all (S6) — overpayment change was never
+    // recorded (lira-088 rule).
     const paymentsPayload =
-      isSplitPayment || hasVoucherLeg
-        ? paymentLines.map((l: PaymentLine) => ({
-            method: l.method,
-            currencyCode: l.currencyCode,
-            amount: l.amount,
-            ...(l.method === "GIFT_CARD" && l.voucherCode
-              ? { voucherCode: l.voucherCode }
-              : {}),
-          }))
+      paymentLines.length > 0 || returnLegs.length > 0
+        ? toCamelLegs(paymentLines, returnLegs)
         : undefined;
+    // checkoutTotal (Payment-Legs Integrity plan wave 8): the carrier's own
+    // `amount` is just ONE unit's discounted price — the payment legs it
+    // carries cover the WHOLE cart. Mirrors the header's own total math
+    // (totalPrice, always LBP here) net of the same `discount` the per-unit
+    // loop below already applies, so the repository can reconcile the legs
+    // against the real customer-owed total for the checkout instead of one
+    // item's price.
+    const checkoutTotalLbp = Math.max(0, totalPrice - discount);
+    const checkoutTotal = { usd: 0, lbp: checkoutTotalLbp };
 
     let allSucceeded = true;
 
@@ -407,6 +418,13 @@ export function FinancialForm({
       keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
         ? { ...keptChange }
         : null;
+    // Payment legs book against exactly ONE carrier transaction — the first
+    // unit; every other unit submits deferPayment (cost + commission only).
+    // Attaching the same legs to all N unit calls multiplies the drawer
+    // inflow and any CUSTOMER_ACCOUNT debt N× (KatchForm's bills loop guards
+    // this same trap). Single-payment submits (no legs array) keep the
+    // per-unit price booking untouched.
+    let legsCarried = false;
     for (const line of cartItems) {
       const sellPrice = line.item.catalogSellPrice ?? 0;
       const cost = line.item.catalogCost ?? 0;
@@ -419,6 +437,8 @@ export function FinancialForm({
       const commission = discountedSellPrice - cost;
 
       for (let i = 0; i < line.quantity; i++) {
+        const isCarrier = paymentsPayload !== undefined && !legsCarried;
+        if (isCarrier) legsCarried = true;
         try {
           const result = await api.addOMTTransaction({
             provider: activeProvider,
@@ -428,7 +448,19 @@ export function FinancialForm({
             currency: "LBP",
             commission: Math.max(0, commission),
             paidByMethod: finalPaymentMethod,
-            payments: paymentsPayload,
+            payments: isCarrier ? paymentsPayload : undefined,
+            checkoutTotal: isCarrier ? checkoutTotal : undefined,
+            // Payment-Legs Integrity plan (Wave 9): the rate this form's own
+            // PaymentSheet/MultiPaymentInput actually converted tender at
+            // (`exchangeRate` above, `isMoneyIn ? sellRate : buyRate`) — may
+            // differ from the repository's stamped/live rate lookup, so
+            // reconciliation must compare at the SAME rate the till used
+            // (lira-095). Rides only the carrier call, same gating as
+            // checkoutTotal.
+            tender_exchange_rate: isCarrier ? exchangeRate : undefined,
+            ...(paymentsPayload !== undefined && !isCarrier
+              ? { deferPayment: true }
+              : {}),
             ...(keptPending
               ? (() => {
                   const k = keptPending;
@@ -480,8 +512,14 @@ export function FinancialForm({
     }
 
     if (allSucceeded) {
+      appEvents.emit(
+        "notification:show",
+        "Transactions processed successfully",
+        "success",
+      );
       setCart(new Map());
       setKeptChange(null);
+      setReturnLegs([]);
       setClientName("");
       setClientPhone("");
       setClientId(null);
@@ -579,6 +617,11 @@ export function FinancialForm({
     }
 
     if (allSucceeded) {
+      appEvents.emit(
+        "notification:show",
+        "Partner transactions processed successfully",
+        "success",
+      );
       setCart(new Map());
       setExpandedKeys(new Set());
       setSearchQuery("");
@@ -1087,6 +1130,7 @@ export function FinancialForm({
           }
           totalAmount={totalPrice}
           onKeptChange={setKeptChange}
+          onReturnChange={setReturnLegs}
           totalAmountCurrency="LBP"
           currency="LBP"
           paymentMethods={methods}
@@ -1098,6 +1142,13 @@ export function FinancialForm({
             !!clientId ||
             !!activeSession?.customer_name ||
             (!!clientName.trim() && !!clientPhone.trim())
+          }
+          // Charge flow (catalog items / bills sold to a walk-in): a
+          // shortfall becomes client debt — but only for a client the
+          // backend can actually resolve (id, or name+phone to create).
+          // Session-name-only is NOT enough for a debt row.
+          autoDebtRemainder={
+            !!clientId || (!!clientName.trim() && !!clientPhone.trim())
           }
           paymentInputKey={paymentInputKey}
           initialPaymentMethod={initialPaymentMethod}

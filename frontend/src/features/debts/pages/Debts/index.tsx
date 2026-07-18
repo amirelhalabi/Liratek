@@ -16,8 +16,11 @@ import {
   X as CloseIcon,
   Upload,
   Plus,
+  Eraser,
 } from "lucide-react";
 import {
+  appEvents,
+  CounterpartySettleModal,
   PageHeader,
   Select,
   ServiceTypeTabs,
@@ -29,9 +32,12 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@liratek/ui";
-import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
-import { computeRepaymentReduction } from "../../utils/repaymentReduction";
+import {
+  computeRepaymentReduction,
+  applyDebtDiscount,
+} from "../../utils/repaymentReduction";
 import {
   formatPaidAmount,
   saleOutstandingUsd,
@@ -71,6 +77,9 @@ type SortOrder = "desc" | "asc";
 export default function Debts() {
   const api = useApi();
   const { user } = useAuth();
+  // CQ-10: standalone write-off is admin-only (D4) — bundled repayment
+  // discounts stay admin+staff, same as the flow they're attached to.
+  const isAdmin = user?.role === "admin";
   const { allMethods: methods } = usePaymentMethods();
   // Debt repayment converts LBP↔USD at the BUY rate (owner decision
   // 2026-07-06): payments/repayments use buyRate across every
@@ -180,6 +189,20 @@ export default function Debts() {
   const [repayTransactionTime, setRepayTransactionTime] = useState<
     string | undefined
   >();
+  // CQ-10: bundled discount on the repayment modal — "repay" mode only
+  // (forgiving part of a credit the shop is CASHING OUT has no defined
+  // semantics). Raw text state mirrors the Credit modal's amount inputs.
+  const [repayDiscountUsd, setRepayDiscountUsd] = useState("");
+  const [repayDiscountLbp, setRepayDiscountLbp] = useState("");
+  const [repayDiscountReason, setRepayDiscountReason] = useState("");
+
+  // CQ-10: standalone "Write off debt" modal (admin-only, pure forgiveness).
+  const [showWriteOffModal, setShowWriteOffModal] = useState(false);
+  useModalFocusFix(showWriteOffModal);
+  const [writeOffAmountUsd, setWriteOffAmountUsd] = useState("");
+  const [writeOffAmountLbp, setWriteOffAmountLbp] = useState("");
+  const [writeOffReason, setWriteOffReason] = useState("");
+  const [writeOffSubmitting, setWriteOffSubmitting] = useState(false);
 
   const loadDebtors = useCallback(async () => {
     try {
@@ -380,6 +403,40 @@ export default function Debts() {
   const dueLbp = Math.max(0, netLbp);
   const creditUsd = Math.max(0, -netUsd);
   const creditLbp = Math.max(0, -netLbp);
+
+  // CQ-10: bundled repayment discount — "repay" mode only (a cash-OUT has no
+  // discount concept). The MultiPaymentInput totals AND the reduction math
+  // both consume `repayRemainingDue*` (never the raw `dueUsd/dueLbp`) so
+  // "owed − paid − discount = remaining" holds structurally — see
+  // applyDebtDiscount's header comment.
+  const repayDiscountUsdNum =
+    parseFloat(repayDiscountUsd.replace(/,/g, "")) || 0;
+  const repayDiscountLbpNum =
+    parseFloat(repayDiscountLbp.replace(/,/g, "")) || 0;
+  const {
+    appliedDiscountUsd: repayAppliedDiscountUsd,
+    appliedDiscountLbp: repayAppliedDiscountLbp,
+    remainingDueUsd: repayRemainingDueUsd,
+    remainingDueLbp: repayRemainingDueLbp,
+  } = applyDebtDiscount({
+    dueUsd,
+    dueLbp,
+    discountUsd: repayDiscountUsdNum,
+    discountLbp: repayDiscountLbpNum,
+  });
+
+  // CQ-10: standalone write-off amounts, capped at the outstanding balance
+  // per currency (same clamp helper as the bundled discount above).
+  const {
+    appliedDiscountUsd: writeOffAppliedUsd,
+    appliedDiscountLbp: writeOffAppliedLbp,
+  } = applyDebtDiscount({
+    dueUsd,
+    dueLbp,
+    discountUsd: parseFloat(writeOffAmountUsd.replace(/,/g, "")) || 0,
+    discountLbp: parseFloat(writeOffAmountLbp.replace(/,/g, "")) || 0,
+  });
+
   // Per-SIDE outstanding flags — never reduce the two currencies to one sign:
   // a mixed client (USD credit + LBP debt, or the reverse) is a creditor AND
   // a debtor at once, and each side needs its own action button. Keying the
@@ -572,7 +629,7 @@ export default function Debts() {
             : {}),
         });
         if (result.success) {
-          alert("Cash out processed!");
+          appEvents.emit("notification:show", "Cash out processed!", "success");
           setShowRepaymentModal(false);
           setRepayPaymentLines([]);
           setRepayKeptChange(null);
@@ -598,8 +655,11 @@ export default function Debts() {
     // everything into one USD figure used to leave offsetting USD-credit /
     // LBP-debt residues on clients who paid across currencies.
     const conversionRate = repayModalRate ?? EXCHANGE_RATE;
+    // CQ-10: gate on the DISCOUNT-ADJUSTED remaining due — the reduction call
+    // below uses the same adjusted figures, so this must match.
     const needsConversion =
-      paidLBP > dueLbp || (paidUSD > dueUsd && dueLbp > 0);
+      paidLBP > repayRemainingDueLbp ||
+      (paidUSD > repayRemainingDueUsd && repayRemainingDueLbp > 0);
     if (
       needsConversion &&
       !(Number.isFinite(conversionRate) && conversionRate > 0)
@@ -626,13 +686,17 @@ export default function Debts() {
       repayReturnLegs
         .filter((l) => l.currencyCode === "LBP")
         .reduce((s, l) => s + l.amount, 0) + keptLbp;
+    // CQ-10: due passed here is the DISCOUNT-ADJUSTED remaining due, never
+    // the raw dueUsd/dueLbp — see applyDebtDiscount's header comment for why
+    // that seam matters (paid + discount must never be able to exceed the
+    // original due).
     const { reduceUsd, reduceLbp } = computeRepaymentReduction({
       paidUsd: paidUSD,
       paidLbp: paidLBP,
       returnedUsd,
       returnedLbp,
-      dueUsd,
-      dueLbp,
+      dueUsd: repayRemainingDueUsd,
+      dueLbp: repayRemainingDueLbp,
       rate: conversionRate,
     });
 
@@ -642,6 +706,20 @@ export default function Debts() {
       );
       return;
     }
+
+    const hasDiscount =
+      repayAppliedDiscountUsd > 0 || repayAppliedDiscountLbp > 0;
+    const discountFields = hasDiscount
+      ? {
+          discount: {
+            amount_usd: repayAppliedDiscountUsd,
+            amount_lbp: repayAppliedDiscountLbp,
+            ...(repayDiscountReason.trim()
+              ? { reason: repayDiscountReason.trim() }
+              : {}),
+          },
+        }
+      : {};
 
     try {
       const keptFields =
@@ -656,6 +734,7 @@ export default function Debts() {
             payments: paymentLegs,
             note: repayNote,
             ...keptFields,
+            ...discountFields,
             ...(repayTransactionTime
               ? { transaction_time: repayTransactionTime }
               : {}),
@@ -668,6 +747,7 @@ export default function Debts() {
             payments: paymentLegs,
             note: repayNote,
             ...keptFields,
+            ...discountFields,
             ...(repayTransactionTime
               ? { transaction_time: repayTransactionTime }
               : {}),
@@ -675,13 +755,26 @@ export default function Debts() {
           });
 
       if (result.success) {
-        alert("Repayment processed!");
+        appEvents.emit(
+          "notification:show",
+          hasDiscount
+            ? `Repayment processed (discount $${repayAppliedDiscountUsd.toFixed(2)}${
+                repayAppliedDiscountLbp > 0
+                  ? ` + ${repayAppliedDiscountLbp.toLocaleString()} LBP`
+                  : ""
+              })`
+            : "Repayment processed!",
+          "success",
+        );
         setShowRepaymentModal(false);
         setRepayPaymentLines([]);
         setRepayKeptChange(null);
         setRepayReturnLegs([]);
         setRepayNote("");
         setRepayTransactionTime(undefined);
+        setRepayDiscountUsd("");
+        setRepayDiscountLbp("");
+        setRepayDiscountReason("");
 
         // Reload debtors list
         await loadDebtors();
@@ -1272,6 +1365,9 @@ export default function Debts() {
                           setRepayPaymentLines([]);
                           setRepayKeptChange(null);
                           setRepayReturnLegs([]);
+                          setRepayDiscountUsd("");
+                          setRepayDiscountLbp("");
+                          setRepayDiscountReason("");
                           setShowRepaymentModal(true);
                         }}
                         className="px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
@@ -1293,6 +1389,23 @@ export default function Debts() {
                       >
                         <ArrowUpRight size={20} />
                         Cash Out
+                      </button>
+                    )}
+                    {/* CQ-10 (D4): standalone write-off — admin-only, pure
+                        forgiveness with no cash movement. */}
+                    {hasDebt && isAdmin && (
+                      <button
+                        onClick={() => {
+                          setWriteOffAmountUsd("");
+                          setWriteOffAmountLbp("");
+                          setWriteOffReason("");
+                          setShowWriteOffModal(true);
+                        }}
+                        className="px-4 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-200"
+                        title="Forgive part of the debt with no cash movement"
+                      >
+                        <Eraser size={18} />
+                        Write off
                       </button>
                     )}
                   </div>
@@ -1869,134 +1982,319 @@ export default function Debts() {
           />
         )}
 
-        {/* Repayment Modal */}
+        {/* Repayment Modal — CQ-11: shared CounterpartySettleModal
+            (MultiPaymentInput + Debts' own dual-currency discount row +
+            note + TransactionTimeOverride + footer), replacing the
+            hand-rolled modal shell byte-for-byte in behavior. */}
         {showRepaymentModal && (
+          <CounterpartySettleModal
+            title="Process Repayment"
+            onCancel={() => setShowRepaymentModal(false)}
+            onConfirm={handleProcessRepayment}
+            confirmLabel="Confirm Payment"
+            confirmColor="emerald"
+            multiPaymentInput={{
+              // Per-currency totals (multi-currency engine, T2 fix): the
+              // debt keeps its native composition, so an LBP debt paid in
+              // LBP is rate-invariant — editing the modal rate no longer
+              // re-derives the LBP figure through a USD scalar
+              // (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md, MCP-3).
+              // Repay mode feeds the DISCOUNT-ADJUSTED remaining due (CQ-10)
+              // — never the raw due — so "Remaining (Debt)" and the
+              // auto-filled amount already reflect a bundled discount.
+              totals: [
+                ...((repayMode === "cashout"
+                  ? creditUsd
+                  : repayRemainingDueUsd) > 0
+                  ? [
+                      {
+                        amount:
+                          repayMode === "cashout"
+                            ? creditUsd
+                            : repayRemainingDueUsd,
+                        currency: "USD",
+                      },
+                    ]
+                  : []),
+                ...((repayMode === "cashout"
+                  ? creditLbp
+                  : repayRemainingDueLbp) > 0
+                  ? [
+                      {
+                        amount:
+                          repayMode === "cashout"
+                            ? creditLbp
+                            : repayRemainingDueLbp,
+                        currency: "LBP",
+                      },
+                    ]
+                  : []),
+              ],
+              // Repayments convert at the BUY side (owner decision
+              // 2026-07-06) — passed explicitly, never defaulted silently.
+              side: "buy",
+              // Seeded ONCE on mount — the discount is 0 at that point, so
+              // the raw due/credit is the correct initial prefill; the
+              // reactive `totals` above carries any later discount.
+              initialLines: [
+                ...((repayMode === "cashout" ? creditUsd : dueUsd) > 0
+                  ? [
+                      {
+                        currencyCode: "USD",
+                        amount: repayMode === "cashout" ? creditUsd : dueUsd,
+                      },
+                    ]
+                  : []),
+                ...((repayMode === "cashout" ? creditLbp : dueLbp) > 0
+                  ? [
+                      {
+                        currencyCode: "LBP",
+                        amount: repayMode === "cashout" ? creditLbp : dueLbp,
+                      },
+                    ]
+                  : []),
+              ],
+              currency: "USD",
+              onChange: setRepayPaymentLines,
+              onReturnChange: setRepayReturnLegs,
+              showPmFee: false,
+              // CQ-10: MultiPaymentInput's built-in discount is a single
+              // scalar normalized to ONE target currency — it doesn't map
+              // cleanly onto a mixed USD+LBP debt position, so the compact
+              // "Discount / forgive" row (discountSlot below) replaces it
+              // (repay mode only).
+              showDiscount: false,
+              paymentMethods: methods,
+              currencies: [
+                { code: "USD", symbol: "$" },
+                { code: "LBP", symbol: "LBP" },
+              ],
+              exchangeRate: EXCHANGE_RATE,
+              onExchangeRateChange: setRepayModalRate,
+              // T3 keep-change — REPAY mode only: keeping "change" on a
+              // cash-out (shop pays the client) has no defined booking
+              // semantics, so the button stays hidden there (opt-in).
+              ...(repayMode === "repay"
+                ? { onKeptChange: setRepayKeptChange }
+                : {}),
+            }}
+            discountSlot={
+              // CQ-10: bundled discount / forgive — repay mode only. Each
+              // currency is capped client-side at what's still due; the
+              // backend re-validates.
+              repayMode === "repay" &&
+              hasDebt && (
+                <div className="bg-emerald-950/20 border border-emerald-800/40 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">
+                      Discount / Forgive
+                    </span>
+                    {(repayAppliedDiscountUsd > 0 ||
+                      repayAppliedDiscountLbp > 0) && (
+                      <span className="text-[11px] text-emerald-400/70">
+                        Remaining: ${repayRemainingDueUsd.toFixed(2)}
+                        {repayRemainingDueLbp > 0 &&
+                          ` + ${repayRemainingDueLbp.toLocaleString()} LBP`}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">
+                        Amount (USD)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={repayDiscountUsd}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/,/g, "");
+                          if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                            setRepayDiscountUsd(raw);
+                          }
+                        }}
+                        className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-1.5 text-emerald-100 text-sm font-mono focus:outline-none focus:border-emerald-500"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">
+                        Amount (LBP)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={repayDiscountLbp}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/,/g, "");
+                          if (raw === "" || /^\d+$/.test(raw)) {
+                            setRepayDiscountLbp(raw);
+                          }
+                        }}
+                        className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-1.5 text-emerald-100 text-sm font-mono focus:outline-none focus:border-emerald-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={repayDiscountReason}
+                    onChange={(e) => setRepayDiscountReason(e.target.value)}
+                    className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-1.5 text-emerald-100 text-xs focus:outline-none focus:border-emerald-500"
+                    placeholder="Reason (optional)..."
+                  />
+                </div>
+              )
+            }
+          >
+            <div>
+              <label
+                htmlFor="repay-note"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
+                Note
+              </label>
+              <input
+                id="repay-note"
+                type="text"
+                value={repayNote}
+                onChange={(e) => setRepayNote(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
+                placeholder="Optional note..."
+              />
+            </div>
+
+            <TransactionTimeOverride
+              value={repayTransactionTime}
+              onChange={setRepayTransactionTime}
+            />
+          </CounterpartySettleModal>
+        )}
+
+        {/* CQ-10 (D4): standalone "Write off debt" modal — admin-only, pure
+            forgiveness with no cash movement. Capped client-side at the
+            client's outstanding balance per currency; the backend
+            re-validates. */}
+        {showWriteOffModal && selectedClient && (
           <div
             className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
             role="presentation"
             onMouseDown={(e) => {
-              if (e.target === e.currentTarget) {
-                setShowRepaymentModal(false);
-              }
+              if (e.target === e.currentTarget) setShowWriteOffModal(false);
             }}
           >
             <div
-              className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-xl shadow-2xl overflow-hidden"
+              className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl"
               role="presentation"
               onMouseDown={(e) => e.stopPropagation()}
             >
-              <h3 className="text-xl font-bold text-white mb-4">
-                Process Repayment
+              <h3 className="text-xl font-bold text-white mb-1">
+                Write off debt
               </h3>
-
+              <p className="text-xs text-slate-400 mb-4">
+                {selectedClient.full_name} — forgives part of the debt with no
+                cash movement.
+              </p>
               <div className="space-y-4">
-                {/* Multi-payment input — opens pre-seeded with the mode's
-                    PER-CURRENCY position (one line per currency in its own
-                    currency). The seed is the single prefill mechanism: a
-                    separate quick-fill button used to write page state this
-                    component never displayed (book-what-you-don't-see). */}
-                <MultiPaymentInput
-                  // Per-currency totals (multi-currency engine, T2 fix): the
-                  // debt keeps its native composition, so an LBP debt paid in
-                  // LBP is rate-invariant — editing the modal rate no longer
-                  // re-derives the LBP figure through a USD scalar
-                  // (docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md, MCP-3).
-                  totals={[
-                    ...((repayMode === "cashout" ? creditUsd : dueUsd) > 0
-                      ? [
-                          {
-                            amount:
-                              repayMode === "cashout" ? creditUsd : dueUsd,
-                            currency: "USD",
-                          },
-                        ]
-                      : []),
-                    ...((repayMode === "cashout" ? creditLbp : dueLbp) > 0
-                      ? [
-                          {
-                            amount:
-                              repayMode === "cashout" ? creditLbp : dueLbp,
-                            currency: "LBP",
-                          },
-                        ]
-                      : []),
-                  ]}
-                  // Repayments convert at the BUY side (owner decision
-                  // 2026-07-06) — passed explicitly, never defaulted silently.
-                  side="buy"
-                  initialLines={[
-                    ...((repayMode === "cashout" ? creditUsd : dueUsd) > 0
-                      ? [
-                          {
-                            currencyCode: "USD",
-                            amount:
-                              repayMode === "cashout" ? creditUsd : dueUsd,
-                          },
-                        ]
-                      : []),
-                    ...((repayMode === "cashout" ? creditLbp : dueLbp) > 0
-                      ? [
-                          {
-                            currencyCode: "LBP",
-                            amount:
-                              repayMode === "cashout" ? creditLbp : dueLbp,
-                          },
-                        ]
-                      : []),
-                  ]}
-                  currency="USD"
-                  onChange={setRepayPaymentLines}
-                  onReturnChange={setRepayReturnLegs}
-                  showPmFee={false}
-                  paymentMethods={methods}
-                  currencies={[
-                    { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "LBP" },
-                  ]}
-                  exchangeRate={EXCHANGE_RATE}
-                  onExchangeRateChange={setRepayModalRate}
-                  // T3 keep-change — REPAY mode only: keeping "change" on a
-                  // cash-out (shop pays the client) has no defined booking
-                  // semantics, so the button stays hidden there (opt-in).
-                  {...(repayMode === "repay"
-                    ? { onKeptChange: setRepayKeptChange }
-                    : {})}
-                />
-
                 <div>
-                  <label
-                    htmlFor="repay-note"
-                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
-                  >
-                    Note
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Amount (USD) — owed ${dueUsd.toFixed(2)}
                   </label>
                   <input
-                    id="repay-note"
                     type="text"
-                    value={repayNote}
-                    onChange={(e) => setRepayNote(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
-                    placeholder="Optional note..."
+                    inputMode="decimal"
+                    value={writeOffAmountUsd}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/,/g, "");
+                      if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                        setWriteOffAmountUsd(raw);
+                      }
+                    }}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Amount (LBP) — owed {dueLbp.toLocaleString()}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={writeOffAmountLbp}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/,/g, "");
+                      if (raw === "" || /^\d+$/.test(raw)) {
+                        setWriteOffAmountLbp(raw);
+                      }
+                    }}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Reason
+                  </label>
+                  <input
+                    type="text"
+                    value={writeOffReason}
+                    onChange={(e) => setWriteOffReason(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                    placeholder="Optional reason..."
                   />
                 </div>
 
-                <TransactionTimeOverride
-                  value={repayTransactionTime}
-                  onChange={setRepayTransactionTime}
-                />
-
-                <div className="pt-4 flex gap-3">
+                <div className="pt-2 flex gap-3">
                   <button
-                    onClick={() => setShowRepaymentModal(false)}
+                    onClick={() => setShowWriteOffModal(false)}
                     className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={handleProcessRepayment}
-                    className="flex-1 py-3 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 active:scale-95 transition-all"
+                    disabled={
+                      writeOffSubmitting ||
+                      (writeOffAppliedUsd <= 0 && writeOffAppliedLbp <= 0)
+                    }
+                    onClick={async () => {
+                      setWriteOffSubmitting(true);
+                      try {
+                        const result = await api.debtWriteOff({
+                          clientId: selectedClient.id,
+                          // camelCase — matches core's debtWriteOffSchema
+                          // (reconciled against the sibling's landed schema;
+                          // suppliers/partners write-off use amount_usd/
+                          // amount_lbp, debt does not).
+                          amountUSD: writeOffAppliedUsd,
+                          amountLBP: writeOffAppliedLbp,
+                          ...(writeOffReason.trim()
+                            ? { reason: writeOffReason.trim() }
+                            : {}),
+                        });
+                        if (result.success) {
+                          appEvents.emit(
+                            "notification:show",
+                            "Debt written off.",
+                            "success",
+                          );
+                          setShowWriteOffModal(false);
+                          await loadDebtors();
+                          loadHistory(selectedClient.id);
+                          loadLedgerBalance(selectedClient.id);
+                        } else {
+                          alert("Error: " + result.error);
+                        }
+                      } catch (error) {
+                        logger.error("Debt write-off failed", { error });
+                        alert("Failed to write off debt");
+                      } finally {
+                        setWriteOffSubmitting(false);
+                      }
+                    }}
+                    className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-orange-600 hover:bg-orange-500 shadow-orange-900/20"
                   >
-                    Confirm Payment
+                    {writeOffSubmitting ? "Processing..." : "Write off"}
                   </button>
                 </div>
               </div>
@@ -2162,10 +2460,12 @@ export default function Debts() {
                         ...(creditNote ? { note: creditNote } : {}),
                       });
                       if (result.success) {
-                        alert(
+                        appEvents.emit(
+                          "notification:show",
                           creditDirection === "credit"
                             ? "Credit added successfully!"
                             : "Debt added successfully!",
+                          "success",
                         );
                         setShowCreditModal(false);
                         setCreditClientSearch("");

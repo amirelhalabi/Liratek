@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { idSchema } from "./common.js";
+import { counterpartyDiscountInputSchema } from "./counterparty.js";
 
 /**
  * Partner System validation schemas (LIRA-037).
@@ -68,15 +69,94 @@ export const partnerRecordTransactionSchema = z.object({
   moveCash: z.boolean().optional(),
 });
 
+// CQ-11 — a single split-settlement leg (MultiPaymentInput on the Partners
+// page): "settle $100 as $60 CASH + $40 OMT". Deliberately NOT the same shape
+// as the sales/recharge payment-leg contract (utils/payments.ts) — there is
+// no `direction` field because a partner settlement never carries a
+// return/change leg, only money moving one way.
+const partnerSettlementLegSchema = z.object({
+  method: z.string().min(1),
+  currency_code: z.string().min(1),
+  amount: z.number().positive(),
+});
+
 // Settle a partner balance (money — writes a SETTLEMENT partner_ledger entry;
 // direction is computed server-side from the current balance).
-export const partnerSettleSchema = z.object({
-  partnerId: idSchema,
-  amount: z.number().positive(),
-  currency: z.string().min(1),
-  settlementMethod: z.string().min(1),
-  notes: z.string().optional(),
-});
+export const partnerSettleSchema = z
+  .object({
+    partnerId: idSchema,
+    amount: z.number().positive(),
+    currency: z.string().min(1),
+    settlementMethod: z.string().min(1),
+    notes: z.string().optional(),
+    // CQ-10: a settlement may bundle a forgiven remainder ("owed X, paid Y,
+    // discount Z") — posts its OWN 'DISCOUNT' partner_ledger entry (same
+    // direction as the settlement) + COUNTERPARTY_DISCOUNT transaction
+    // (PartnerService.settle). partner_ledger is one-currency-per-row, so only
+    // the side matching `currency` above is honored — PartnerService.settle
+    // rejects a discount that supplies BOTH amount_usd AND amount_lbp
+    // (ambiguous which currency it belongs to) rather than silently drop one.
+    discount: counterpartyDiscountInputSchema.optional(),
+    // CQ-11 — split-leg settlement (e.g. $60 CASH + $40 OMT), backing the
+    // shared MultiPaymentInput settle modal. When present it SUPERSEDES
+    // settlementMethod for money movement (PartnerRepository writes N
+    // payments rows + N drawer deltas instead of one) — but
+    // `settlementMethod` is still required and still stamped on the
+    // partner_ledger row itself; omitting `payments` entirely keeps the
+    // legacy single-leg behavior byte-identical.
+    payments: z.array(partnerSettlementLegSchema).min(1).optional(),
+  })
+  .refine(
+    (d) =>
+      !d.payments ||
+      d.payments.every((leg) => leg.currency_code === d.currency),
+    {
+      message:
+        "Every payment leg's currency_code must match the settlement currency — multi-currency settles stay one-settle-per-currency",
+      path: ["payments"],
+    },
+  )
+  .refine(
+    (d) =>
+      !d.payments ||
+      Math.abs(
+        d.payments.reduce((sum, leg) => sum + leg.amount, 0) - d.amount,
+      ) <= 0.005,
+    {
+      message: "Payment legs must sum to the settlement amount",
+      path: ["payments"],
+    },
+  )
+  .refine(
+    (d) =>
+      !d.payments || !d.payments.some((leg) => leg.method === "CLIENT_ACCOUNT"),
+    {
+      message:
+        "CLIENT_ACCOUNT settles no money — it cannot appear as a split payment leg; use settlementMethod alone for account settlements",
+      path: ["payments"],
+    },
+  )
+  .refine((d) => !(d.payments && d.settlementMethod === "CLIENT_ACCOUNT"), {
+    message:
+      "A CLIENT_ACCOUNT settlement moves no money and cannot be combined with split payment legs",
+    path: ["payments"],
+  });
+
+// CQ-10 (D4: admin-only on both transports) — standalone write-off: forgive
+// part of a partner balance with NO settlement attached. Mirrors the fixed
+// {amount_usd, amount_lbp, reason?} discount contract, but — like
+// partnerSettleSchema's `discount` — partner_ledger can only book ONE
+// currency per call; PartnerService.writeOff rejects supplying both.
+export const partnerWriteOffSchema = z
+  .object({
+    partnerId: idSchema,
+    amount_usd: z.number().nonnegative().default(0),
+    amount_lbp: z.number().nonnegative().default(0),
+    reason: z.string().optional(),
+  })
+  .refine((d) => d.amount_usd > 0 || d.amount_lbp > 0, {
+    message: "At least one amount (USD or LBP) must be greater than 0",
+  });
 
 export type PartnerCreateInput = z.infer<typeof partnerCreateSchema>;
 export type PartnerUpdateInput = z.infer<typeof partnerUpdateSchema>;
@@ -84,3 +164,4 @@ export type PartnerRecordTransactionInput = z.infer<
   typeof partnerRecordTransactionSchema
 >;
 export type PartnerSettleInput = z.infer<typeof partnerSettleSchema>;
+export type PartnerWriteOffInput = z.infer<typeof partnerWriteOffSchema>;

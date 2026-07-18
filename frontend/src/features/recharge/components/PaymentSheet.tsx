@@ -44,6 +44,10 @@ export interface PaymentSheetProps {
   pmFeeRate?: number;
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
+  /** Opt-in auto CUSTOMER_ACCOUNT remainder on underpayment — pass the
+   *  flow's validated charge predicate; never enable on payout/RECEIVE
+   *  flows (see MultiPaymentInputProps.autoDebtRemainder). */
+  autoDebtRemainder?: boolean;
   onPaymentChange: (lines: PaymentLine[]) => void;
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
   /** T3 keep-change opt-in pass-through — only wire on flows whose backend
@@ -83,6 +87,7 @@ export function PaymentSheet({
   pmFeeRate,
   requiresClientForDebt = true,
   hasClient = false,
+  autoDebtRemainder = false,
   onPaymentChange,
   onReturnChange,
   onKeptChange,
@@ -216,6 +221,7 @@ export function PaymentSheet({
               {...(onKeptChange ? { onKeptChange } : {})}
               requiresClientForDebt={requiresClientForDebt}
               hasClient={hasClient}
+              autoDebtRemainder={autoDebtRemainder}
               {...(initialPaymentMethod !== undefined
                 ? { initialMethod: initialPaymentMethod }
                 : {})}

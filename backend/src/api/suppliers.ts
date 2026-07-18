@@ -6,11 +6,23 @@
 
 import { Router } from "express";
 import { requireAuth, requireRole, AuthRequest } from "../middleware/auth.js";
-import { getSupplierService } from "@liratek/core";
+import { validateRequest } from "../middleware/validation.js";
+import {
+  getSupplierService,
+  getFinancialService,
+  supplierLedgerEntrySchema,
+  supplierSettleSchema,
+  supplierCashflowSchema,
+  supplierPurchaseCreateSchema,
+  supplierWriteOffSchema,
+} from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = Router();
 const supplierService = getSupplierService();
+
+// ── Reads (any authenticated role — mirrors the IPC handlers, none of which
+// call requireRole for reads) ───────────────────────────────────────────────
 
 // GET /api/suppliers
 router.get("/", requireAuth, async (req, res) => {
@@ -37,12 +49,86 @@ router.get("/balances", requireAuth, async (_req, res) => {
   }
 });
 
+// GET /api/suppliers/unsettled?provider=OMT — unsettled transactions for a
+// provider (mirrors suppliers:unsettled-transactions → FinancialService).
+router.get("/unsettled", requireAuth, async (req, res) => {
+  try {
+    const provider = req.query.provider as string | undefined;
+    if (!provider) {
+      res.status(400).json({ success: false, error: "provider is required" });
+      return;
+    }
+    const transactions = getFinancialService().getUnsettledByProvider(provider);
+    res.json({ success: true, transactions });
+  } catch (error) {
+    logger.error({ error }, "Get unsettled supplier transactions error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get unsettled transactions" });
+  }
+});
+
+// GET /api/suppliers/all-transactions?provider=OMT&limit=50 — full history
+// tab (mirrors suppliers:all-transactions → FinancialService.getAllByProvider).
+router.get("/all-transactions", requireAuth, async (req, res) => {
+  try {
+    const provider = req.query.provider as string | undefined;
+    if (!provider) {
+      res.status(400).json({ success: false, error: "provider is required" });
+      return;
+    }
+    const limit = req.query.limit
+      ? parseInt(req.query.limit as string, 10)
+      : undefined;
+    const transactions = getFinancialService().getAllByProvider(
+      provider,
+      limit,
+    );
+    res.json({ success: true, transactions });
+  } catch (error) {
+    logger.error({ error }, "Get all supplier transactions error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get transactions" });
+  }
+});
+
+// GET /api/suppliers/unsettled-summary — per-provider summary (dashboard +
+// profits pending tab; mirrors suppliers:unsettled-summary).
+router.get("/unsettled-summary", requireAuth, async (_req, res) => {
+  try {
+    const summary = getFinancialService().getUnsettledSummary();
+    res.json({ success: true, summary });
+  } catch (error) {
+    logger.error({ error }, "Get unsettled supplier summary error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get unsettled summary" });
+  }
+});
+
+// GET /api/suppliers/product-balances — inventory cost minus payments
+// (mirrors suppliers:product-balances).
+router.get("/product-balances", requireAuth, async (_req, res) => {
+  try {
+    const balances = supplierService.getProductSupplierBalances();
+    res.json({ success: true, balances });
+  } catch (error) {
+    logger.error({ error }, "Get product supplier balances error");
+    res.status(500).json({
+      success: false,
+      error: "Failed to get product supplier balances",
+    });
+  }
+});
+
 // GET /api/suppliers/:id/ledger
 router.get("/:id/ledger", requireAuth, async (req, res) => {
   try {
     const supplierId = parseInt(req.params.id);
     if (isNaN(supplierId)) {
       res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
     }
 
     const limit = req.query.limit
@@ -58,6 +144,46 @@ router.get("/:id/ledger", requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/suppliers/:id/product-items — inventory items for a product
+// supplier (name, qty, cost, total; mirrors suppliers:product-items).
+router.get("/:id/product-items", requireAuth, async (req, res) => {
+  try {
+    const supplierId = parseInt(req.params.id, 10);
+    if (isNaN(supplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
+    }
+    const items = supplierService.getProductItems(supplierId);
+    res.json({ success: true, items });
+  } catch (error) {
+    logger.error({ error }, "Get supplier product items error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get product items" });
+  }
+});
+
+// GET /api/suppliers/:id/purchases — delivery batches for a product supplier
+// (mirrors suppliers:purchases).
+router.get("/:id/purchases", requireAuth, async (req, res) => {
+  try {
+    const supplierId = parseInt(req.params.id, 10);
+    if (isNaN(supplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+      return;
+    }
+    const purchases = supplierService.getSupplierPurchases(supplierId);
+    res.json({ success: true, purchases });
+  } catch (error) {
+    logger.error({ error }, "Get supplier purchases error");
+    res.status(500).json({ success: false, error: "Failed to get purchases" });
+  }
+});
+
+// ── Writes (admin only — mirrors every IPC write handler in
+// supplierHandlers.ts, all of which gate on requireRole(["admin"]), no
+// staff access) ──────────────────────────────────────────────────────────────
+
 // POST /api/suppliers
 router.post("/", requireAuth, requireRole(["admin"]), async (req, res) => {
   try {
@@ -67,6 +193,7 @@ router.post("/", requireAuth, requireRole(["admin"]), async (req, res) => {
       res
         .status(400)
         .json({ success: false, error: "Supplier name is required" });
+      return;
     }
 
     const result = supplierService.createSupplier({
@@ -93,43 +220,35 @@ router.post("/", requireAuth, requireRole(["admin"]), async (req, res) => {
 });
 
 // POST /api/suppliers/:id/ledger
+// CQ-9 validation retrofit: was hand-rolled field checks — now validates
+// against the core `supplierLedgerEntrySchema` (rule 14), the same schema
+// suppliers:add-ledger-entry validates against. `supplier_id` is sourced from
+// the URL (not the client-supplied body) before validation, since the schema
+// requires it at the top level. Path and envelope are unchanged.
 router.post(
   "/:id/ledger",
   requireAuth,
   requireRole(["admin"]),
-  async (req: AuthRequest, res) => {
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierLedgerEntrySchema),
+  (req: AuthRequest, res) => {
     try {
-      const supplier_id = parseInt(req.params.id);
-      if (isNaN(supplier_id)) {
-        res.status(400).json({ success: false, error: "Invalid supplier ID" });
-      }
-
-      const { entry_type, amount_usd, amount_lbp, note, drawer_name } =
-        req.body;
-
-      if (
-        !entry_type ||
-        (amount_usd === undefined && amount_lbp === undefined)
-      ) {
-        res.status(400).json({
-          success: false,
-          error:
-            "Missing required fields: entry_type, amount_usd or amount_lbp",
-        });
-      }
-
       const result = supplierService.addLedgerEntry({
-        supplier_id,
-        entry_type,
-        amount_usd: amount_usd || 0,
-        amount_lbp: amount_lbp || 0,
-        note,
-        drawer_name,
+        ...req.body,
         created_by: req.user?.userId || 1,
       });
 
       if (result.success) {
-        logger.info({ supplier_id, entry_type }, "Supplier ledger entry added");
+        logger.info(
+          {
+            supplier_id: req.body.supplier_id,
+            entry_type: req.body.entry_type,
+          },
+          "Supplier ledger entry added",
+        );
         res.json(result);
       } else {
         res.status(400).json(result);
@@ -139,6 +258,119 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to add ledger entry" });
+    }
+  },
+);
+
+// POST /api/suppliers/:id/settle — settle a batch of financial_services
+// transactions with a supplier (mirrors suppliers:settle-transactions).
+// `supplier_id` is sourced from the URL, same pattern as /:id/ledger above.
+router.post(
+  "/:id/settle",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierSettleSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.settleTransactions({
+        ...req.body,
+        created_by: req.user!.userId,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Settle supplier transactions error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to settle transactions" });
+    }
+  },
+);
+
+// POST /api/suppliers/:id/cashflow — pay a supplier down / record a supplier
+// paying us, via payment-method legs (mirrors suppliers:record-cashflow).
+router.post(
+  "/:id/cashflow",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierCashflowSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.recordSupplierCashflow({
+        ...req.body,
+        created_by: req.user!.userId,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Record supplier cashflow error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to record cashflow" });
+    }
+  },
+);
+
+// POST /api/suppliers/:id/purchases — log a delivery batch for a product
+// supplier (mirrors suppliers:purchase-create). Envelope matches the IPC
+// handler exactly: either the raw SupplierPurchase entity (no `success` key)
+// or { success: false, error }.
+router.post(
+  "/:id/purchases",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierPurchaseCreateSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.createPurchase({
+        ...req.body,
+        created_by: req.user!.userId,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Create supplier purchase error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to create purchase" });
+    }
+  },
+);
+
+// POST /api/suppliers/:id/write-off (admin-only, D4) — forgive part of what
+// the shop owes a supplier, with NO cashflow attached (mirrors
+// suppliers:write-off). `supplier_id` is sourced from the URL, same pattern
+// as /:id/ledger, /:id/settle, /:id/cashflow above.
+router.post(
+  "/:id/write-off",
+  requireAuth,
+  requireRole(["admin"]),
+  (req: AuthRequest, _res, next) => {
+    req.body = { ...req.body, supplier_id: Number(req.params.id) };
+    next();
+  },
+  validateRequest(supplierWriteOffSchema),
+  (req: AuthRequest, res) => {
+    try {
+      const result = supplierService.writeOffSupplierDebt({
+        ...req.body,
+        created_by: req.user!.userId,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Write off supplier debt error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to write off supplier debt" });
     }
   },
 );

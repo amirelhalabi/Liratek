@@ -1,9 +1,12 @@
 # Counterparty Consolidation — Accounts / Suppliers / Partners
 
-> **Created**: 2026-07-14
+> **Created**: 2026-07-14 · **Extended**: 2026-07-18 (CQ-7 … CQ-11)
 > **Origin**: Owner observation — "accounts, suppliers, partners have a lot in
 > common; what do you suggest from a software-engineering perspective?"
-> **Status**: PLAN (no code changed yet). Tickets: CQ-0 … CQ-6.
+> Extension origin: owner requirement — every payment on the three pages must
+> produce a well-formed transaction visible on the Transactions page, with a
+> defined information contract including discounts, on one shared code layer.
+> **Status**: CQ-0, CQ-1 shipped (commit 491042f). CQ-2 … CQ-11 open.
 
 ## The shared concept
 
@@ -52,9 +55,9 @@ provider collapse, the loto double-book, the USDT settle direction).
 ## Principles (what to do — and NOT do)
 
 1. **Consolidate BEHAVIOR, not STORAGE.** Do NOT merge the three ledger
-   tables into a `party_ledger` (party_type discriminator). The schemas are
+   tables into a `party_ledger` (party*type discriminator). The schemas are
    stable, migration is a table rebuild ×3 on live money data (the v104 scar),
-   and the win is almost entirely in shared _code_, not shared _rows_.
+   and the win is almost entirely in shared \_code*, not shared _rows_.
    Revisit only if a 4th counterparty type ever appears. **Non-goal.**
 2. **Strangler-fig, one extraction per PR/commit**, each behavior-identical
    and gated by the existing wall: 49 e2e (lira-113…121 + money suites),
@@ -101,3 +104,136 @@ Suggested order: CQ-0 → CQ-1 (guards first), then CQ-2 → CQ-3 → CQ-4 → C
 - No service-layer "GenericCounterpartyService" abstraction — the three
   domains keep their own services (rule 13 orchestration); only the shared
   mechanics move into helpers.
+
+---
+
+# Extension (2026-07-18) — Payments visibility, transaction contract, discounts
+
+> Audit basis: four parallel subsystem sweeps (debts / suppliers / partners /
+> cross-cutting) on 2026-07-18. Every finding below carries a file:line in the
+> sweep reports; the load-bearing ones were re-verified in source.
+
+## New requirements
+
+R1. **Every payment on the three pages posts a complete unified transaction**
+that is actually visible on the Transactions page.
+R2. **One defined information contract** for what a counterparty transaction
+carries (amounts, counterparty identity, direction, method, legs,
+discount).
+R3. **Discounts** — a counterparty forgives part of what we owe (supplier
+discount) or we forgive part of what they owe (client/partner write-off) —
+recorded on the ledger, on the transaction, and in P&L. No such
+mechanism exists anywhere today (verified: zero hits in all three
+subsystems).
+
+## Defects the audit found (feed CQ-7/CQ-8/CQ-9)
+
+**Journal integrity (R1 violations):**
+
+- `SupplierRepository.settleTransactions` (`:581-604`) and
+  `recordSupplierCashflow` (`:745-766`) bypass
+  `TransactionRepository.createTransaction` with raw `INSERT INTO
+transactions` — skipping the completeness guards and the exchange-rate
+  snapshot; the raw INSERT omits `exchange_rate`/`client_id`/`device_id`.
+- `SupplierRepository.addLedgerEntry` dead corners: `entry_type='PAYMENT'`
+  with no `drawer_name` writes a ledger row with **no transaction row at
+  all**; `drawer_name` + non-PAYMENT writes neither transaction nor drawer.
+  Its drawer branch also hardcodes the payments-row method to `'CASH'`
+  (`:302`) instead of the real leg method.
+- Raw ledger INSERTs bypassing `addLedgerEntry`:
+  `RechargeRepository.topUpFromSupplier` (`:1096-1110`, `is_auto` omitted →
+  0, no `transaction_id` link), `LotoTicketRepository` (`:365-403`),
+  `LotoCashPrizeRepository` (`:133-170`); on the partner side
+  `FinancialServiceRepository` FOR (`:1000-1023`) and THROUGH (`:2343-2370`)
+  blocks and `RechargeRepository.topUpFromPartner` (`:1192-1205`).
+- **Viewer visibility**: `PARTNER_SETTLEMENT`/`PARTNER_PAYMENT` have no type
+  label, no color, no in/out direction (cashFlow.ts falls to `null`), and no
+  filter group — they render as raw underscored strings with no badge.
+  `SUPPLIER_PAYMENT` is blanket-hidden by `HIDDEN_TRANSACTION_TYPES`; only
+  the `is_credit` subset is reachable via the "Supplier Credit" filter — a
+  manual supplier payment is invisible on the Transactions page.
+
+**Validation/parity (rule 14/19 violations):**
+
+- Partner IPC handlers have **zero Zod validation** (plain TS interfaces);
+  only the REST side validates.
+- No `validators/supplier.ts` exists; supplier REST routes validate by hand;
+  supplier IPC uses local-only schemas.
+- `DebtRepaymentSchema` in `electron-app/schemas/index.ts:461-465` is a
+  documented hand-synced duplicate of core's `addRepaymentSchema`.
+- Supplier web mode is broken, not just missing: `settleTransactions`'s REST
+  fallback targets `POST /api/suppliers/:id/settle` which **does not exist**
+  (404), `recordSupplierCashflow` has no dual-mode wrapper at all (undefined
+  in browser), 9 of 14 supplier channels have no REST route. Debt gaps:
+  `debt:use-credit`/`debts:update-metadata` have no REST route; repayment is
+  admin+staff on IPC but admin-only on REST.
+
+**Reversal-symmetry gaps (rule 20):**
+
+- Voiding a `DEBT_REPAYMENT` returns the cash but does NOT restore the
+  `'Repayment'` ledger row — debt stays reduced (documented unowned gap,
+  FEATURE_GUIDE §; COUNTERPARTY_LEDGERS.md:291-294). Owner decision D3 below.
+- `PARTNER_SETTLEMENT`/`PARTNER_PAYMENT` non-reversibility has no direct jest
+  assertion (only set membership); add them to the
+  `TransactionRepository.nonReversibleGate` GATED list.
+- FIFO coverage (`applySettlementCoverage`) has no core-level unit test —
+  only e2e (lira-120). CQ-2 must add the unit layer.
+
+**Dead/orphaned code discovered (fold into CQ-11):**
+
+- `Settings/SupplierLedger.tsx` — full second Suppliers UI, not imported
+  anywhere, already drifted; the ONLY caller of `settleTransactions`, so the
+  entire batch-settlement feature is currently unreachable in the shipped app.
+- `supplier_purchases` write path (`createPurchase`, `applyFifoPayment`) is
+  fully wired but has zero UI callers; `recordSupplierCashflow` reimplements
+  the FIFO inline instead of calling `applyFifoPayment`.
+
+## New tickets
+
+| Ticket    | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Depends on  | Risk                                  |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------- |
+| **CQ-7**  | **Journal integrity.** Route `settleTransactions` + `recordSupplierCashflow` through `createTransaction`; define/close the `addLedgerEntry` dead corners (a PAYMENT ledger row without a transaction row must become impossible); replace every raw `INSERT INTO supplier_ledger`/`partner_ledger` with the owning repo's `addLedgerEntry` (or the CQ-3 helper), stamping `is_auto` + `transaction_id` consistently; fix the hardcoded `'CASH'` method. Failing-first test per fix (rule 17); the full existing wall stays green.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | —           | med (money paths, mechanical)         |
+| **CQ-8**  | **Transaction contract + viewer visibility.** DONE 2026-07-18. `packages/core/src/validators/counterparty.ts`: one Zod metadata schema — `metadata_json.counterparty = {kind: 'client'\|'supplier'\|'partner', id, name, flow: 'IN'\|'OUT', method, ledger_entry_id, discount?: {amount_usd, amount_lbp, reason?}}` (namespaced object, additive to each site's legacy keys; `flow` lives INSIDE the object — implemented shape) plus top-level `is_auto: true` on auto supplier journal rows (+ v130 backfill migration for historical rows) — stamped by all seven counterparty money types. Partner IPC Zod wired; `validators/supplier.ts` created; `DebtRepaymentSchema` duplicate deleted (drift fix: core repayment leg schema was missing `direction` — REST was silently stripping it; fixed in core for both transports). Viewer: PARTNER\_\* labels/colors/direction/filters; D2 hide rule per `metadata.is_auto`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | CQ-7        | low-med                               |
+| **CQ-9**  | **Web/REST parity + role alignment (rule 19).** DONE 2026-07-18. 11 routes added (9 supplier + debt use-credit/update-metadata), roles aligned to IPC (repayments admin+staff; client-balance too), existing supplier routes schema-validated, suppliers feature migrated off raw window.api (9 dual-mode fns), lira-web-015 guards cashflow+contract over REST (full web suite 45/45). Bonus fixes en route: REST repayment was stripping leg `direction`; NULL-provider suppliers were invisible to listSuppliers/getSupplierBalances (SQL NULL trap). Follow-up ticket: Dashboard.tsx/Profits.tsx still gate on raw `window.api` truthiness (rule 19a) — their web fallback is now live code.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | CQ-8        | med (breadth)                         |
+| **CQ-10** | **Discounts.** DONE 2026-07-18 (v131 widened supplier CHECK; COUNTERPARTY*DISCOUNT amounts-0/signed-profit rows; coverage applied on all three ledgers; 3 admin-only write-off endpoints + bundled discount on repayment/cashflow/settle; Profits `discounts` bucket; 5 failing-first proofs; web suite 45/45. Pre-release note: replay v131 against a prod DB copy per migration policy.) Original scope: UX: settlement modals gain the existing `MultiPaymentInput` discount field (suppliers currently pass `showDiscount={false}`) → "owed X, paid Y, discount Z"; plus a standalone write-off action per page. Ledger: one discount row per kind — debt `'Debt Discount'` (negative, cash-free), supplier `'DISCOUNT'` (CHECK-widening migration + create_db.sql), partner `'DISCOUNT'` (free-text since v127) — **which MUST apply FIFO coverage** (a paper ADJUSTMENT leaves FOR*%/module-charge rows uncovered → deferred profit stuck forever; verified trap). Transaction: discount rides the settlement row's `metadata.discount` when paid+forgiven together; standalone write-off posts a new `COUNTERPARTY_DISCOUNT` type, NON_REVERSIBLE (correction = opposite discount), classified in the actionGating guard. P&L: stamp signed profit on the discount row (given discount = −profit, received = +profit) — bucket per owner decision D1. Failing-first: create+discount+settle nets every ledger AND the recognition gate to the correct state per currency. | CQ-7, CQ-8  | high (new money semantics — needs D1) |
+| **CQ-11** | **Shared settlement UI (extends CQ-6).** DONE 2026-07-18 (CounterpartySettleModal in packages/ui adopted by all three pages; Partners split-leg settle incl. backend payments[] contract; D5 executed — orphan deleted, batch settlement rebuilt in the Suppliers Transactions tab; BalanceCard/LedgerTable deliberately NOT extracted, shapes diverge; web suite 46/46.) Original scope: One `<CounterpartySettleModal>` family (MultiPaymentInput + direction + discount + transaction-time) used by all three pages — Partners finally gets split-leg payments (today it hand-rolls a single-leg form); one `<BalanceCard>`/`<LedgerTable>`. Resolve the orphaned `Settings/SupplierLedger.tsx` (owner decision D5: delete it and resurrect batch-settlement inside the Suppliers page, or drop the feature).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | CQ-6, CQ-10 | low-med (UI)                          |
+
+Order: **CQ-7 → CQ-8 → CQ-9** (each independently shippable), CQ-2/CQ-3 from
+the original plan can proceed in parallel with CQ-7; **CQ-10 after CQ-7+CQ-8**
+(discounts must not land on the bypassing write paths); CQ-11 last.
+
+## Owner decisions (DECIDED 2026-07-18)
+
+- **D1 — Discount P&L: signed profit stamp.** Discount transaction rows carry
+  signed `profit_usd/lbp` (discount we give = negative profit, discount a
+  supplier gives us = positive) so the existing profit machinery aggregates
+  them; Profits page shows a "Discounts" line.
+- **D2 — Supplier payment visibility: manual visible, auto hidden.** Manual
+  supplier payments show on the Transactions page by default; auto-generated
+  sibling rows (`metadata.is_auto`) stay behind the filter. Replaces the
+  blanket `HIDDEN_TRANSACTION_TYPES` hiding of `SUPPLIER_PAYMENT`.
+- **D3 — `DEBT_REPAYMENT` void: restore the debt.** Extend the void/refund
+  path to re-add the `'Repayment'` ledger reduction (new reversal owner +
+  failing-first test proving cash AND debt both net to zero). Also unwind the
+  repayment's FIFO coverage stamps (`covered_usd/lbp`, `sales.paid_usd`).
+- **D4 — Discount permissions: admin + staff for settlement discounts;
+  standalone write-offs admin-only.** Enforced identically on IPC
+  (`requireRole`) and REST.
+- **D5 — Orphaned supplier settlement UI: delete + rebuild in Suppliers.**
+  Delete `Settings/SupplierLedger.tsx`; re-home batch settlement inside the
+  Suppliers page's (currently read-only) Transactions tab, built on the CQ-11
+  shared settle modal.
+
+## Agent execution map (sonnet subagents, one wave per row)
+
+| Wave | Agents (parallel)                                                                                                       | Gate                                                                |
+| ---- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| 1    | backend-agent: CQ-7 supplier funnel + corners; backend-agent: CQ-7 raw-insert normalization (partner + loto + recharge) | core+backend jest, failing-first per fix, core rebuild+sync         |
+| 2    | backend-agent: CQ-8 validators/contract; frontend-agent: CQ-8 viewer visibility                                         | jest + typecheck + actionGating/metadata guard tests                |
+| 3    | backend-agent: CQ-9 supplier REST; backend-agent: CQ-9 debt REST/roles                                                  | backend jest + web e2e (`yarn test:e2e:web`)                        |
+| 4    | backend-agent: CQ-10 core (ledger types, coverage, migration); frontend-agent: CQ-10 UI after core lands                | failing-first ledger-nets-to-zero suites, then desktop e2e full run |
+| 5    | frontend-agent: CQ-11 shared modals                                                                                     | frontend jest + lira-114/118/120 + web parity specs                 |
+
+Constraints: never run desktop e2e while a frontend agent has edits in flight
+(Vite serves source live); rebuild+sync core after every packages/core wave;
+one repo per commit for call-site migrations so regressions bisect.

@@ -481,6 +481,39 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     };
   }
 
+  /**
+   * CQ-10 (D1) — signed profit from counterparty discounts/write-offs
+   * (COUNTERPARTY_DISCOUNT rows across all three ledgers: debt/supplier/
+   * partner). amount_usd/amount_lbp on these rows are always 0 (no cash
+   * moved) — profit_usd/profit_lbp carry the SIGNED discount (forgiven =
+   * negative, received = positive). COUNTERPARTY_DISCOUNT is
+   * NON_REVERSIBLE_TRANSACTION_TYPES (no void/refund row ever exists to net
+   * against), so a plain ACTIVE-status sum is complete — unlike
+   * getDebtRepaymentProfit, there's no REFUND counterpart to sum in.
+   */
+  getCounterpartyDiscountTotals(
+    fromDt: string,
+    toDt: string,
+  ): { profit_usd: number; profit_lbp: number; count: number } {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(profit_lbp), 0) AS profit_lbp,
+          COUNT(*) AS count
+        FROM transactions
+        WHERE status = 'ACTIVE'
+          AND type = 'COUNTERPARTY_DISCOUNT'
+          AND ${dateRange("created_at")}
+          AND tenant_id = ?`,
+      )
+      .get(fromDt, toDt, getCurrentTenantId()) as {
+      profit_usd: number;
+      profit_lbp: number;
+      count: number;
+    };
+  }
+
   /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */
   getFinancialSettledByCurrency(
     fromDt: string,

@@ -215,6 +215,13 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("debt:use-credit", data),
     getClientBalance: (clientId: number) =>
       ipcRenderer.invoke("debt:client-balance", clientId),
+    // CQ-10 (D4): standalone write-off — admin-only, no cash movement.
+    writeOff: (data: {
+      clientId: number;
+      amountUSD: number;
+      amountLBP: number;
+      reason?: string;
+    }) => ipcRenderer.invoke("debt:write-off", data),
   },
 
   // Vouchers (Gift Cards)
@@ -329,6 +336,15 @@ contextBridge.exposeInMainWorld("api", {
       cashoutMethod?: string;
       transaction_time?: string;
       deferPayment?: boolean;
+      /** Payment-Legs Integrity plan (Wave 8): full checkout total for a
+       *  multi-unit cart's legs-carrying CARRIER transaction (KatchForm /
+       *  FinancialForm). See CreateFinancialServiceData in @liratek/core. */
+      checkoutTotal?: { usd: number; lbp: number };
+      /** Payment-Legs Integrity plan (Wave 9): the rate MultiPaymentInput
+       *  actually converted the customer's tender at (may differ from the
+       *  transaction's stamped rate-of-record) — reconciliation uses this
+       *  when present. See CreateFinancialServiceData in @liratek/core. */
+      tender_exchange_rate?: number;
     }) => ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),
@@ -472,6 +488,13 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       exchange_rate?: number;
     }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
+    // CQ-10 (D4): standalone write-off — admin-only, no cashflow attached.
+    writeOff: (data: {
+      supplier_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      reason?: string;
+    }) => ipcRenderer.invoke("suppliers:write-off", data),
     getProductBalances: () => ipcRenderer.invoke("suppliers:product-balances"),
     getProductItems: (supplierId: number) =>
       ipcRenderer.invoke("suppliers:product-items", supplierId),
@@ -734,6 +757,13 @@ contextBridge.exposeInMainWorld("api", {
     recordTransaction: (data: unknown) =>
       ipcRenderer.invoke("partners:record-transaction", data),
     settle: (data: unknown) => ipcRenderer.invoke("partners:settle", data),
+    // CQ-10 (D4): standalone write-off — admin-only, no settlement attached.
+    writeOff: (data: {
+      partnerId: number;
+      amount_usd: number;
+      amount_lbp: number;
+      reason?: string;
+    }) => ipcRenderer.invoke("partners:write-off", data),
   },
 
   // Settings

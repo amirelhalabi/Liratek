@@ -15,34 +15,12 @@ import {
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-
-interface RecordTransactionInput {
-  partnerId: number;
-  transactionType?:
-    | "OMT_SEND"
-    | "OMT_RECEIVE"
-    | "WHISH_SEND"
-    | "WHISH_RECEIVE"
-    | "CUSTOM_SERVICE"
-    | "SETTLEMENT"
-    | "ADJUSTMENT";
-  referenceTable?: string;
-  referenceId?: number;
-  amount: number;
-  currency: string;
-  direction: "DEBIT" | "CREDIT";
-  notes?: string;
-  /** PFT-7b: "cash moved" — drawer moves with the entry (PARTNER_PAYMENT). */
-  moveCash?: boolean;
-}
-
-interface SettleInput {
-  partnerId: number;
-  amount: number;
-  currency: string;
-  settlementMethod: string;
-  notes?: string;
-}
+import {
+  PartnerRecordTransactionSchema,
+  PartnerSettleSchema,
+  PartnerWriteOffSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 let service: ReturnType<typeof getPartnerService> | null = null;
 
@@ -269,62 +247,65 @@ export function registerPartnerHandlers(): void {
   );
 
   // Record partner transaction (admin, staff)
-  ipcMain.handle(
-    "partners:record-transaction",
-    (event, data: RecordTransactionInput) => {
-      try {
-        const auth = requireRole(event.sender.id, ["admin", "staff"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-
-        const result = getServiceInstance().recordPartnerTransaction({
-          ...data,
-          userId: auth.userId,
-        });
-        audit(event.sender.id, {
-          action: "create",
-          entity_type: "partner_ledger",
-          summary: `Partner #${data.partnerId} ${data.direction}: ${data.amount} ${data.currency} (${data.transactionType ?? "MANUAL"})`,
-          metadata: {
-            partnerId: data.partnerId,
-            transactionType: data.transactionType,
-            amount: data.amount,
-            currency: data.currency,
-            direction: data.direction,
-          },
-        });
-        return { success: true, data: result };
-      } catch (error) {
-        ipcLogger.error({ error }, "partners:record-transaction failed");
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to record partner transaction",
-        };
-      }
-    },
-  );
-
-  // Settle partner balance (admin, staff)
-  ipcMain.handle("partners:settle", (event, data: SettleInput) => {
+  ipcMain.handle("partners:record-transaction", (event, data: unknown) => {
     try {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      const v = validatePayload(PartnerRecordTransactionSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = getServiceInstance().recordPartnerTransaction({
+        ...v.data,
+        userId: auth.userId,
+      });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "partner_ledger",
+        summary: `Partner #${v.data.partnerId} ${v.data.direction}: ${v.data.amount} ${v.data.currency} (${v.data.transactionType ?? "MANUAL"})`,
+        metadata: {
+          partnerId: v.data.partnerId,
+          transactionType: v.data.transactionType,
+          amount: v.data.amount,
+          currency: v.data.currency,
+          direction: v.data.direction,
+        },
+      });
+      return { success: true, data: result };
+    } catch (error) {
+      ipcLogger.error({ error }, "partners:record-transaction failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to record partner transaction",
+      };
+    }
+  });
+
+  // Settle partner balance (admin, staff)
+  ipcMain.handle("partners:settle", (event, data: unknown) => {
+    try {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(PartnerSettleSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       const result = getServiceInstance().settle({
-        ...data,
+        ...v.data,
         userId: auth.userId,
       });
       audit(event.sender.id, {
         action: "settle",
         entity_type: "partner_ledger",
-        summary: `Settled partner #${data.partnerId}: ${data.amount} ${data.currency} via ${data.settlementMethod}`,
+        summary: `Settled partner #${v.data.partnerId}: ${v.data.amount} ${v.data.currency} via ${v.data.settlementMethod}`,
         metadata: {
-          partnerId: data.partnerId,
-          amount: data.amount,
-          currency: data.currency,
-          settlementMethod: data.settlementMethod,
+          partnerId: v.data.partnerId,
+          amount: v.data.amount,
+          currency: v.data.currency,
+          settlementMethod: v.data.settlementMethod,
         },
       });
       return { success: true, data: result };
@@ -334,6 +315,45 @@ export function registerPartnerHandlers(): void {
         success: false,
         error:
           error instanceof Error ? error.message : "Failed to settle partner",
+      };
+    }
+  });
+
+  // CQ-10 (D4): standalone write-off — forgive part of a partner balance
+  // with NO settlement attached. Admin-only on both transports.
+  ipcMain.handle("partners:write-off", (event, data: unknown) => {
+    try {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(PartnerWriteOffSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = getServiceInstance().writeOff({
+        ...v.data,
+        userId: auth.userId,
+      });
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "write_off",
+          entity_type: "partner_write_off",
+          summary: `Partner write-off for #${v.data.partnerId}: $${v.data.amount_usd} + ${v.data.amount_lbp} LBP`,
+          metadata: {
+            partnerId: v.data.partnerId,
+            amount_usd: v.data.amount_usd,
+            amount_lbp: v.data.amount_lbp,
+          },
+        });
+      }
+      return result;
+    } catch (error) {
+      ipcLogger.error({ error }, "partners:write-off failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to write off partner balance",
       };
     }
   });

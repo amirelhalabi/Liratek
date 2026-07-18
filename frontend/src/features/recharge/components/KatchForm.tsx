@@ -841,6 +841,11 @@ function KatchFormInner({
     }
 
     if (allSucceeded) {
+      appEvents.emit(
+        "notification:show",
+        "Partner bills processed successfully",
+        "success",
+      );
       setCart(new Map());
       setExpandedKeys(new Set());
       setTransactionTime(undefined);
@@ -947,6 +952,22 @@ function KatchFormInner({
       paymentLines.length > 0
         ? toCamelLegs(paymentLines, returnLegs)
         : undefined;
+    // checkoutTotal (Payment-Legs Integrity plan wave 8): the carrier's own
+    // `amount` covers only the cart items (or one bill) — the payment legs
+    // it carries cover the WHOLE checkout (items + bills together). Mirrors
+    // the PaymentSheet's own total math below (totalAmount/totalAmountCurrency
+    // = billsOnlyUsd ? billsTotal : totalPrice + billsLbpValue, in
+    // billsCurrency), net of the same `discount` MultiPaymentInput already
+    // applied, so the repository can reconcile legs against the real
+    // customer-owed total instead of one item's/bill's own price.
+    const checkoutTotalNative = Math.max(
+      0,
+      (billsOnlyUsd ? billsTotal : totalPrice + billsLbpValue) - discount,
+    );
+    const checkoutTotal =
+      billsCurrency === "USD"
+        ? { usd: checkoutTotalNative, lbp: 0 }
+        : { usd: 0, lbp: checkoutTotalNative };
 
     // true when there are no catalog items to process (bill-only flow)
     let allSucceeded = cart.size === 0;
@@ -1004,6 +1025,15 @@ function KatchFormInner({
           commission: aggregatedCommission,
           paidByMethod: finalPaymentMethod,
           payments: paymentsPayload,
+          checkoutTotal: paymentsPayload !== undefined ? checkoutTotal : undefined,
+          // Payment-Legs Integrity plan (Wave 9, lira-095): the rate this
+          // form's own PaymentSheet/MultiPaymentInput actually converted
+          // tender at (`exchangeRate` prop — the buyRate this page passes,
+          // see Recharge/index.tsx's `buyRate: exchangeRate`), so the
+          // repository reconciles legs at the SAME rate the till used
+          // instead of falling back to its own (sell-side) stamped rate.
+          tender_exchange_rate:
+            paymentsPayload !== undefined ? exchangeRate : undefined,
           // Kept change rides the legs-carrying items txn (lira-095 convention).
           ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
             ? {
@@ -1065,6 +1095,16 @@ function KatchFormInner({
             commission: 0,
             paidByMethod: finalPaymentMethod,
             payments: isCarrier ? paymentsPayload : undefined,
+            checkoutTotal:
+              isCarrier && paymentsPayload !== undefined
+                ? checkoutTotal
+                : undefined,
+            // Payment-Legs Integrity plan (Wave 9, lira-095) — see the items
+            // branch above for the full rationale.
+            tender_exchange_rate:
+              isCarrier && paymentsPayload !== undefined
+                ? exchangeRate
+                : undefined,
             // Kept change rides the legs-carrying first bill (no items case).
             ...(isCarrier &&
             keptChange &&
@@ -1100,6 +1140,11 @@ function KatchFormInner({
     }
 
     if (allSucceeded) {
+      appEvents.emit(
+        "notification:show",
+        "Bills processed successfully",
+        "success",
+      );
       setCart(new Map());
       setClientName("");
       setClientPhone("");
@@ -1594,6 +1639,10 @@ function KatchFormInner({
         maxDiscount={maxDiscount}
         onDiscountChange={setDiscount}
         hasClient={!!clientId || (!!clientName.trim() && !!clientPhone.trim())}
+        // Charge flow: shortfall → client debt (id, or name+phone to create).
+        autoDebtRemainder={
+          !!clientId || (!!clientName.trim() && !!clientPhone.trim())
+        }
         paymentInputKey={paymentInputKey}
         initialPaymentMethod={initialPaymentMethod}
         onPaymentChange={(lines) => {

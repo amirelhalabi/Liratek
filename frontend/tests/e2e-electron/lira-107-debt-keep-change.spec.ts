@@ -165,11 +165,11 @@ test.describe("LIRA-107 — keep change on a debt repayment", () => {
     await expect(appPage.getByText("Change kept (profit)")).toBeVisible();
 
     await appPage.getByRole("button", { name: /^Confirm Payment$/ }).click();
-    await expect
-      .poll(() => dialogs.some((d) => /Repayment processed/i.test(d)), {
-        timeout: 15_000,
-      })
-      .toBe(true);
+    await expect(
+      appPage
+        .locator('[role="alert"]', { hasText: /Repayment processed/i })
+        .first(),
+    ).toBeVisible({ timeout: 15_000 });
     expect(
       dialogs.filter((d) => /error|validation|nan/i.test(d)),
       "repayment raised an error dialog",

@@ -151,6 +151,12 @@ export interface ProfitSummary {
     profit_lbp: number;
     count: number;
   };
+  /** CQ-10 (D1) — signed profit from counterparty discounts/write-offs across
+   *  all three ledgers (debt/supplier/partner): a forgiven receivable is
+   *  negative, a received discount is positive. NETTED into totals below
+   *  (same treatment as debt_repayments) — a discount is a real P&L event,
+   *  not just a footnote. */
+  discounts: { usd: number; lbp: number };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
@@ -355,6 +361,17 @@ export class ProfitService {
       // source on DEBT_REPAYMENT rows; REFUND rows net a voided repayment out.
       const debtRepayments = this.repo.getDebtRepaymentProfit(fromDt, toDt);
 
+      // CQ-10 (D1) — signed profit from counterparty discounts/write-offs
+      // (debt/supplier/partner alike — one unified transaction type).
+      const discountTotals = this.repo.getCounterpartyDiscountTotals(
+        fromDt,
+        toDt,
+      );
+      const discounts = {
+        usd: discountTotals.profit_usd,
+        lbp: discountTotals.profit_lbp,
+      };
+
       // 7. Expenses.
       const expenses = this.repo.getExpenseTotals(fromDt, toDt);
 
@@ -399,7 +416,8 @@ export class ProfitService {
         maint.profit_usd +
         exchange.profit_usd +
         mobileSvc.profit_usd +
-        debtRepayments.profit_usd;
+        debtRepayments.profit_usd +
+        discounts.usd;
       const grossProfitLbp =
         finSvc.commission_lbp +
         finSvc.pm_fee_lbp +
@@ -408,7 +426,8 @@ export class ProfitService {
         maint.profit_lbp +
         loto.profit_lbp +
         mobileSvc.profit_lbp +
-        debtRepayments.profit_lbp;
+        debtRepayments.profit_lbp +
+        discounts.lbp;
 
       return {
         period: `${from} to ${to}`,
@@ -421,6 +440,7 @@ export class ProfitService {
         loto,
         exchange,
         debt_repayments: debtRepayments,
+        discounts,
         expenses,
         totals: {
           gross_revenue_usd: grossRevenueUsd,

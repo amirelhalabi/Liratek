@@ -158,6 +158,7 @@ describe("TransactionRepository — refund profit stamp", () => {
       profit_usd: profitUsd,
       profit_lbp: profitLbp,
       summary: "Recharge: MTC",
+      metadata_json: { provider: "MTC" },
     });
     db.prepare(
       `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount)

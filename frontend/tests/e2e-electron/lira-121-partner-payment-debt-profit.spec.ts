@@ -33,10 +33,7 @@ const TO = "2099-12-31";
 type Api = {
   api: {
     partners: {
-      create: (d: {
-        name: string;
-        phone?: string;
-      }) => Promise<{
+      create: (d: { name: string; phone?: string }) => Promise<{
         success: boolean;
         data?: { id: number };
         error?: string;

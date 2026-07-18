@@ -116,6 +116,13 @@ interface ProfitSummary {
     client_debt_profit_usd: number;
     client_debt_profit_lbp: number;
   };
+  /** CQ-10 (D1): net signed profit from counterparty discounts — a discount
+   *  WE give (client/partner write-off) is negative, a discount a supplier
+   *  gives US is positive. Already folded into the totals above (the
+   *  discount row carries a normal signed profit stamp); this bucket is a
+   *  breakout for visibility. Optional so an older cached summary response
+   *  (pre-CQ-10 backend) doesn't crash the page. */
+  discounts?: { usd: number; lbp: number };
   totals: {
     gross_revenue_usd: number;
     gross_revenue_lbp: number;
@@ -1012,6 +1019,52 @@ export default function Profits() {
                   </div>
                 </div>
               )}
+
+              {/* Discounts (CQ-10, D1): signed profit — negative when the
+                  shop forgave a client/partner debt, positive when a
+                  supplier forgave part of what we owed them. Already folded
+                  into the totals above; this is a visibility breakout. */}
+              {summary.discounts &&
+                (summary.discounts.usd !== 0 ||
+                  summary.discounts.lbp !== 0) && (
+                  <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        Discounts
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.discounts.usd !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">USD</span>
+                          <span
+                            className={`font-semibold ${
+                              summary.discounts.usd > 0
+                                ? "text-emerald-400"
+                                : "text-red-400"
+                            }`}
+                          >
+                            {formatAmount(summary.discounts.usd, "USD")}
+                          </span>
+                        </div>
+                      )}
+                      {summary.discounts.lbp !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">LBP</span>
+                          <span
+                            className={`font-semibold ${
+                              summary.discounts.lbp > 0
+                                ? "text-emerald-400"
+                                : "text-red-400"
+                            }`}
+                          >
+                            {formatAmount(summary.discounts.lbp, "LBP")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
             </div>
 
             {/* Expense breakdown */}

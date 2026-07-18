@@ -56,9 +56,24 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getClientDebtHistory(clientId);
   getClientDebtTotal = (clientId: number) => api.getClientDebtTotal(clientId);
   addRepayment = (payload: any) => api.addRepayment(payload);
+  debtWriteOff = (payload: {
+    clientId: number;
+    amountUSD: number;
+    amountLBP: number;
+    reason?: string;
+  }) => api.debtWriteOff(payload);
   getClientBalance = (clientId: number) => api.getClientBalance(clientId);
   cashOut = (payload: any) => api.debtCashOut(payload);
   addAccountEntry = (payload: any) => api.debtAccountEntry(payload);
+  consumeCredit = (payload: {
+    clientId: number;
+    amountUsd: number;
+    amountLbp: number;
+    note?: string;
+    transactionTime?: string;
+  }) => api.debtUseCredit(payload);
+  updateDebtMetadata = (payload: { id: number; note?: string }) =>
+    api.debtUpdateMetadata(payload);
 
   // ---------------------------------------------------------------------------
   // Exchange
@@ -194,6 +209,33 @@ export class ElectronApiAdapter implements ApiAdapter {
   getUnsettledTransactions = (provider: string) =>
     api.getUnsettledTransactions(provider);
   settleTransactions = (data: any) => api.settleTransactions(data);
+  recordSupplierCashflow = (data: {
+    supplier_id: number;
+    direction: "PAY" | "RECEIVE";
+    payments: Array<{ method: string; currency_code: string; amount: number }>;
+    note?: string;
+    exchange_rate?: number;
+    discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+  }) => api.recordSupplierCashflow(data);
+  supplierWriteOff = (data: {
+    supplier_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    reason?: string;
+  }) => api.supplierWriteOff(data);
+  getAllSupplierTransactions = (provider: string, limit?: number) =>
+    api.getAllSupplierTransactions(provider, limit);
+  getUnsettledSummary = () => api.getUnsettledSummary();
+  getSupplierProductBalances = () => api.getSupplierProductBalances();
+  getSupplierProductItems = (supplierId: number) =>
+    api.getSupplierProductItems(supplierId);
+  getSupplierPurchases = (supplierId: number) =>
+    api.getSupplierPurchases(supplierId);
+  createSupplierPurchase = (data: {
+    supplier_id: number;
+    total_usd: number;
+    note?: string;
+  }) => api.createSupplierPurchase(data);
 
   // ---------------------------------------------------------------------------
   // Rates
@@ -503,7 +545,20 @@ export class ElectronApiAdapter implements ApiAdapter {
       currency: string;
       settlementMethod: string;
       notes?: string;
+      discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+      /** CQ-11 — split-leg settlement (MultiPaymentInput). */
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
     }) => api.partnersSettle(data),
+    writeOff: (data: {
+      partnerId: number;
+      amount_usd: number;
+      amount_lbp: number;
+      reason?: string;
+    }) => api.partnerWriteOff(data),
   };
 
   // Nested namespace mirroring window.api.vouchers (dual-mode IPC/REST).

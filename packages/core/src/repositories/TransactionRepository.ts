@@ -23,6 +23,7 @@ import {
   type TransactionType,
 } from "../constants/transactionTypes.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
+import { getRateRepository } from "./RateRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 
@@ -178,16 +179,24 @@ export interface CreateTransactionInput {
   source_table: string;
   source_id: number;
   user_id: number;
-  amount_usd?: number;
-  amount_lbp?: number;
+  /** Denominated value of the transaction, NOT the tender (legs carry tender).
+   *  Required: a row with no stated amount is unreadable in every report. */
+  amount_usd: number;
+  amount_lbp: number;
   profit_usd?: number;
   profit_lbp?: number;
+  /** USD↔LBP rate stamp. Omit to snapshot the current market rate; pass an
+   *  explicit null only to opt out of a rate stamp entirely. */
   exchange_rate?: number | null;
   client_id?: number | null;
   client_name?: string | null;
+  /** Requires client_name — a bare phone number is never a valid identity. */
   client_phone?: string | null;
-  summary?: string;
-  metadata_json?: Record<string, unknown>;
+  /** Required, non-blank: the human-readable row label in the transactions table. */
+  summary: string;
+  /** Required: flow-specific facts (provider, service_type, item_key, …) that
+   *  filters and receipts read. Pass {} only if the flow truly has none. */
+  metadata_json: Record<string, unknown>;
   device_id?: string;
   transaction_time?: string;
 }
@@ -309,8 +318,29 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
   /**
    * Create a new transaction record. Returns the new transaction ID.
+   *
+   * Completeness guards (every flow funnels through here — see
+   * createGuards test): blank summaries and phone-without-name client
+   * identities are rejected; a missing exchange_rate is snapshotted from the
+   * current LBP market rate so reports can always convert the row.
    */
   createTransaction(data: CreateTransactionInput): number {
+    if (!data.summary || data.summary.trim() === "") {
+      throw new Error(
+        `Transaction summary must be non-empty (type=${data.type}, source=${data.source_table}#${data.source_id})`,
+      );
+    }
+    if (data.client_phone && !data.client_name) {
+      throw new Error(
+        `client_phone requires client_name (type=${data.type}, source=${data.source_table}#${data.source_id})`,
+      );
+    }
+
+    const exchangeRate =
+      data.exchange_rate !== undefined
+        ? data.exchange_rate
+        : this.snapshotExchangeRate();
+
     const metadataStr = data.metadata_json
       ? JSON.stringify(data.metadata_json)
       : null;
@@ -329,7 +359,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       data.amount_lbp ?? 0,
       data.profit_usd ?? 0,
       data.profit_lbp ?? 0,
-      data.exchange_rate ?? null,
+      exchangeRate ?? null,
       data.client_id ?? null,
       data.client_name ?? null,
       data.client_phone ?? null,
@@ -341,6 +371,20 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
 
     return result.lastInsertRowid as number;
+  }
+
+  /**
+   * Snapshot the current USD→LBP market rate for rows created without an
+   * explicit exchange_rate. Fail-soft: partial schemas (older test fixtures)
+   * and missing rate rows yield null — a write must never fail on this.
+   */
+  private snapshotExchangeRate(): number | null {
+    try {
+      const rate = getRateRepository().findByCode("LBP");
+      return rate ? rate.market_rate : null;
+    } catch {
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1024,9 +1068,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * legs). Direction is sign-derived (negative = paid OUT to the customer);
    * amount is the absolute value. Used by the RCP-3 service receipts.
    */
-  getCustomerFacingLegs(
-    transactionId: number,
-  ): {
+  getCustomerFacingLegs(transactionId: number): {
     method: string;
     currency_code: string;
     amount: number;

@@ -7,7 +7,7 @@ import {
 } from "react";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
-import { useApi } from "@liratek/ui";
+import { appEvents, useApi } from "@liratek/ui";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -492,6 +492,11 @@ export default function MobileRecharge() {
         }
       }
 
+      appEvents.emit(
+        "notification:show",
+        `${activeProvider} recharge processed successfully`,
+        "success",
+      );
       setTelecomAmount("");
       setTelecomPrice("");
       setTelecomDaysCostUsd("");
@@ -653,8 +658,10 @@ export default function MobileRecharge() {
         Katsh: "Katsh",
       };
 
-      alert(
+      appEvents.emit(
+        "notification:show",
         `Successfully topped up ${providerLabels[topUpData.provider] || topUpData.provider} drawer with ${data.amount} ${data.currency}`,
+        "success",
       );
     },
     [topUpData, activeConfig, loadFinancialData, loadDrawerBalances],
@@ -690,8 +697,10 @@ export default function MobileRecharge() {
         data.cashPaidCurrency === "LBP"
           ? `${data.cashPaid.toLocaleString()} LBP`
           : `$${data.cashPaid.toFixed(2)}`;
-      alert(
+      appEvents.emit(
+        "notification:show",
         `Successfully topped up ${topUpData.provider} drawer with ${data.creditsAmount} USD credits (paid ${cashDisplay} cash)`,
+        "success",
       );
     },
     [topUpData, loadDrawerBalances],
@@ -719,8 +728,10 @@ export default function MobileRecharge() {
       loadFinancialData();
       loadDrawerBalances();
 
-      alert(
+      appEvents.emit(
+        "notification:show",
         `Successfully topped up ${topUpData.provider} via supplier credit: ${data.amount} ${data.currency}`,
+        "success",
       );
     },
     [topUpData, loadFinancialData, loadDrawerBalances],
@@ -744,7 +755,11 @@ export default function MobileRecharge() {
       }
       loadFinancialData();
       loadDrawerBalances();
-      alert(`Whish App topped up via partner: ${data.amount} ${data.currency}`);
+      appEvents.emit(
+        "notification:show",
+        `Whish App topped up via partner: ${data.amount} ${data.currency}`,
+        "success",
+      );
     },
     [loadFinancialData, loadDrawerBalances],
   );
@@ -763,8 +778,10 @@ export default function MobileRecharge() {
       }
       loadFinancialData();
       loadDrawerBalances();
-      alert(
+      appEvents.emit(
+        "notification:show",
         `Whish App topped up from client: +${data.amount} ${data.currency}`,
+        "success",
       );
     },
     [loadFinancialData, loadDrawerBalances],
@@ -858,6 +875,11 @@ export default function MobileRecharge() {
         alert(result.error || "Failed to process Alfa gift");
         return;
       }
+      appEvents.emit(
+        "notification:show",
+        "Alfa Gift recharge processed successfully",
+        "success",
+      );
       resetGiftForm();
       loadFinancialData();
       loadDrawerBalances();
@@ -906,12 +928,14 @@ export default function MobileRecharge() {
         ? cryptoPaymentLines[0].method
         : cryptoPaidBy;
 
-    // Send the structured legs whenever the payment is split OR the customer got
-    // change back (a return/OUT leg). Gating on isSplitPayment alone silently
-    // dropped the OUT leg for a single payment + change, so the returned cash
-    // never reached the ledger (e.g. Binance SEND: paid $100, got 180,000 LBP).
+    // S1 — never gate legs on split: forward the full leg set whenever ANY
+    // payment line exists. Gating on isSplitPayment alone silently dropped a
+    // single-line payment's tender amount + currency (only the method
+    // survived), and separately dropped the OUT leg for a single payment +
+    // change, so the returned cash never reached the ledger (e.g. Binance
+    // SEND: paid $100, got 180,000 LBP).
     const useCryptoStructuredPayments =
-      isSplitPayment || cryptoReturnLegs.length > 0;
+      cryptoPaymentLines.length > 0 || cryptoReturnLegs.length > 0;
 
     // Derive cashout method from payment lines: if DEBT is used, it means Customer Account
     const derivedCashoutMethod =
@@ -1026,6 +1050,11 @@ export default function MobileRecharge() {
         }
       }
 
+      appEvents.emit(
+        "notification:show",
+        "Crypto transaction recorded successfully",
+        "success",
+      );
       setCryptoAmount("");
       setCryptoClientName("");
       setCryptoClientPhone("");

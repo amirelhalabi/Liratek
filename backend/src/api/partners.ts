@@ -7,6 +7,7 @@ import {
   partnerUpdateSchema,
   partnerRecordTransactionSchema,
   partnerSettleSchema,
+  partnerWriteOffSchema,
   type LedgerFilters,
 } from "@liratek/core";
 import type { AuthRequest } from "../middleware/auth.js";
@@ -19,6 +20,9 @@ const router = express.Router();
 router.use(authenticateJWT);
 
 const writeGate = requireRole(["admin", "staff"]);
+// CQ-10 (D4): standalone write-offs are admin-ONLY on both transports —
+// stricter than the admin+staff settlement paths above.
+const adminGate = requireRole(["admin"]);
 
 function uniqueNameError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : "";
@@ -176,6 +180,19 @@ router.post(
           error instanceof Error ? error.message : "Failed to settle partner",
       });
     }
+  },
+);
+
+// POST /api/partners/write-off (admin-only, D4) — forgive part of a partner
+// balance with NO settlement attached (userId injected).
+router.post(
+  "/write-off",
+  adminGate,
+  validateRequest(partnerWriteOffSchema),
+  (req, res) => {
+    const userId = (req as AuthRequest).user!.userId;
+    const result = getPartnerService().writeOff({ ...req.body, userId });
+    res.json(result);
   },
 );
 

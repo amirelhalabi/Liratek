@@ -22,8 +22,13 @@ export interface ReceiptData {
   subtotal: number;
   discount: number;
   total: number;
+  /** Cash/wallet tender actually handed over — excludes on-account legs. */
   payment_usd: number;
   payment_lbp: number;
+  /** Portion charged to the client's account (debt) — printed separately so
+   *  the receipt never claims a debt was paid as tender. */
+  on_account_usd?: number;
+  on_account_lbp?: number;
   change_usd: number;
   change_lbp: number;
   exchange_rate: number;
@@ -135,6 +140,19 @@ export function formatReceipt58mm(data: ReceiptData): string {
 
   if (data.payment_lbp > 0) {
     receipt += fmtLine("Paid LBP:", `${data.payment_lbp.toLocaleString()}`);
+  }
+
+  if ((data.on_account_usd ?? 0) > 0) {
+    receipt += fmtLine(
+      "On Account:",
+      `${sym}${(data.on_account_usd ?? 0).toFixed(2)}`,
+    );
+  }
+  if ((data.on_account_lbp ?? 0) > 0) {
+    receipt += fmtLine(
+      "On Account LBP:",
+      `${(data.on_account_lbp ?? 0).toLocaleString()}`,
+    );
   }
 
   if (data.change_usd > 0) {
@@ -254,6 +272,16 @@ export function formatReceipt80mm(data: ReceiptData): string {
     receipt +=
       padRight(`(@ ${data.exchange_rate}/USD)`, 46) +
       `${sym}${(data.payment_lbp / data.exchange_rate).toFixed(2)}\n`;
+  }
+  if ((data.on_account_usd ?? 0) > 0) {
+    receipt +=
+      padRight("On Account - USD:", 46) +
+      `${sym}${(data.on_account_usd ?? 0).toFixed(2)}\n`;
+  }
+  if ((data.on_account_lbp ?? 0) > 0) {
+    receipt +=
+      padRight("On Account - LBP:", 46) +
+      `${(data.on_account_lbp ?? 0).toLocaleString()}\n`;
   }
   receipt +=
     padRight("Change - USD:", 46) + `${sym}${data.change_usd.toFixed(2)}\n`;

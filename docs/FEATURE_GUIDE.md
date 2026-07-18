@@ -79,33 +79,70 @@ with the per-currency payout legs shown in the payment-legs subtext (lira-075).
 
 ## 4. Payment legs (split payment, change, the ONE-loop rule)
 
-Source of truth: [packages/core/src/utils/payments.ts](../packages/core/src/utils/payments.ts) + CLAUDE.md rule 16.
+Source of truth: [packages/core/src/utils/payments.ts](../packages/core/src/utils/payments.ts) +
+[moneyPosting.ts](../packages/core/src/repositories/moneyPosting.ts) (`reconcileLegs`) +
+CLAUDE.md rule 16.
 
-- The frontend sends **all legs in ONE IPC call**: split legs, change/return legs,
-  cashout method. There is never a follow-up call — money fixes belong in the repository.
+- **The law (S1, Payment-Legs Integrity plan): a form forwards ALL legs whenever
+  ANY payment line exists — never gate on split.** A single-line cash payment
+  sends its one IN leg exactly the same way a split payment sends several;
+  "only send legs when the payment is split" (or "only when there's a
+  voucher/change leg") is the bug class itself — four forms silently dropped
+  amount+currency on the common single-line case, and backend fallbacks then
+  assumed tender = service currency (docs/plans/todo_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md).
+  Read "the frontend sends all legs in ONE IPC call" below as **every line,
+  every time** — not "all legs, on the occasions there happen to be several."
+  There is never a follow-up call — money fixes belong in the repository.
 - A leg without `direction` is **IN** (customer-paid / payout funding). `direction: "OUT"`
   marks change/return legs. `partitionLegs` splits them.
 - Each money repository has **ONE shared end-of-transaction loop** that debits every
   drawer-affecting OUT leg exactly once ("Change returned"). Flow-specific branches
   must build from the **IN set only** — iterating `returnLegs` in a branch double-debits
   the drawer (caught pre-merge in C1; guarded by lira-074).
+- **Reconciliation is hard-reject (S2, `reconcileLegs`).** Whenever a flow
+  receives legs, it verifies — at the transaction's stamped exchange rate,
+  epsilon $0.05 USD-equivalent (~5,000 LBP) — `sum(IN legs incl.
+  CUSTOMER_ACCOUNT) − sum(OUT change legs) − kept_change = required total`.
+  A mismatch throws BEFORE any row is written, inside the flow's
+  `db.transaction(...)`, so a rejected write leaves nothing partial behind.
+  CUSTOMER_ACCOUNT legs count as IN — an on-account remainder is still
+  "paid," just on credit (the name+phone identity requirement for account
+  legs is enforced elsewhere, not by this check). No legs at all (a legacy/
+  scripted caller using a bare `paidByMethod`/`cashoutMethod`) → no check;
+  this is the one legitimate no-op, not a precedent for gating on anything
+  else.
+- **Carrier `checkoutTotal` (multi-unit cart checkouts).** A cart checkout
+  (KatchForm bills, FinancialForm catalog items) submits one transaction per
+  unit but books ALL legs against exactly ONE of them — the **carrier**; see
+  "One payment covering N transactions" below. The carrier's own `price` is
+  only that one unit's share of the cart, so reconciling legs against `price`
+  would hard-reject every legitimate multi-unit checkout — the caller instead
+  supplies `checkoutTotal: { usd, lbp }` (the full cart total, in whichever
+  currencies it was denominated) and the repository reconciles against THAT.
+  Omitted → unchecked (single-unit checkouts, scripted callers). The void-path
+  gap this per-unit/carrier split still leaves open is tracked in
+  docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md.
 - In the stored row, OUT legs carry **negative `signed_amount`**; `amount` is absolute.
   Same-currency IN legs are kept separate (no premature merge) — lira-064.
 - Legs are returned structurally by `TransactionRepository.getRecent` (`payments[]`)
   and appended by the viewer — never baked into the stored `summary` text (lira-064).
 - Internal legs (COMMISSION, PM_FEE, TRANSFER, CREDIT_RETURN, CREDIT_USED, SMS_COST,
   provider cost outflows) must **not** surface as customer-facing legs (lira-064, lira-078).
-- **Every form that collects payment lines must forward its change legs.** Loto,
-  Alfa Gift, and custom services each lost them once (page never wired Return/Change,
-  component didn't forward `onReturnChange`, repository ignored `data.payments`) — lira-088.
+- **Every form that collects a payment line must forward its change legs —
+  regardless of whether the payment was split.** Loto, Alfa Gift, and custom
+  services each lost them once (page never wired Return/Change, component
+  didn't forward `onReturnChange`, repository ignored `data.payments`) —
+  lira-088.
 - On a split RECEIVE payout, **each leg debits its own drawer in its own currency**
   (a $190 + 540,000 LBP payout debits both) — lira-074.
 - `NON_DRAWER_METHODS` = { CUSTOMER_ACCOUNT, GIFT_CARD } — these legs never touch a drawer.
 - **One payment covering N transactions**: legs must book against exactly ONE of
-  them; the others are sent with `deferPayment: true` (skips the inflow and
-  change-leg blocks, still books cost outflow + supplier commission). This is how
-  session baskets and multi-bill checkouts work — attaching the same legs to two
-  transactions double-books the drawer (lira-095, lira-session-basket-payment).
+  them (the carrier); the others are sent with `deferPayment: true` (skips the
+  inflow and change-leg blocks, still books cost outflow + supplier commission).
+  This is how session baskets and multi-bill checkouts work — attaching the same
+  legs to two transactions double-books the drawer (lira-095,
+  lira-session-basket-payment). See "Carrier `checkoutTotal`" above for how the
+  carrier's required total is computed in a multi-unit cart.
 
 ---
 

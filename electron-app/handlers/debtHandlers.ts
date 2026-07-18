@@ -15,6 +15,7 @@ import {
   DebtAccountEntrySchema,
   DebtAddCreditSchema,
   DebtUseCreditSchema,
+  DebtWriteOffSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -35,6 +36,10 @@ interface RepaymentData {
   userId?: number;
   paidByMethod?: string;
   payments?: RepaymentPaymentLeg[];
+  // CQ-10: a forgiven remainder bundled with this repayment ("owed X, paid
+  // Y, discount Z") — see packages/core/src/validators/debt.ts's
+  // addRepaymentSchema `discount` field.
+  discount?: { amount_usd: number; amount_lbp: number; reason?: string };
 }
 
 export function registerDebtHandlers(): void {
@@ -338,5 +343,36 @@ export function registerDebtHandlers(): void {
         error: error instanceof Error ? error.message : "Failed to get balance",
       };
     }
+  });
+
+  // CQ-10 (D4): standalone write-off — forgive part of a client's debt with
+  // NO settlement attached. Admin-only on both transports.
+  ipcMain.handle("debt:write-off", (event, data: unknown) => {
+    const auth = requireRole(event.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(DebtWriteOffSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = debtService.writeOffDebt({
+      ...v.data,
+      userId: auth.userId,
+    });
+
+    if (result.success) {
+      audit(event.sender.id, {
+        action: "write_off",
+        entity_type: "debt_write_off",
+        summary: `Debt write-off for client #${v.data.clientId}: $${v.data.amountUSD} + ${v.data.amountLBP} LBP`,
+        metadata: {
+          clientId: v.data.clientId,
+          amountUSD: v.data.amountUSD,
+          amountLBP: v.data.amountLBP,
+          reason: v.data.reason,
+        },
+      });
+    }
+
+    return result;
   });
 }

@@ -440,6 +440,26 @@ export async function addRepayment(payload: any) {
   );
 }
 
+// Standalone debt write-off (CQ-10, admin-only) — pure forgiveness, no cash
+// movement. Envelope { success, id?, error? }.
+export async function debtWriteOff(payload: {
+  clientId: number;
+  // camelCase — matches core's debtWriteOffSchema (validated identically on
+  // both IPC and REST; no per-transport field translation here).
+  amountUSD: number;
+  amountLBP: number;
+  reason?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().debt.writeOff(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/debts/write-off`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
 // Per-currency raw client balance ({success, data:{balance_usd, balance_lbp}}).
 export async function getClientBalance(clientId: number) {
   return ipcOrHttp(
@@ -472,6 +492,48 @@ export async function debtAccountEntry(payload: any) {
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         `/api/debts/account-entry`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+// Consume a client's prepaid credit balance (mirrors IPC "debt:use-credit" /
+// DebtService.useCredit). CQ-9: no REST route existed for this before; zero
+// frontend call sites today (grepped — nothing calls
+// window.api.debt.useCredit), added for transport parity ahead of a caller.
+export async function debtUseCredit(payload: {
+  clientId: number;
+  amountUsd: number;
+  amountLbp: number;
+  note?: string;
+  transactionTime?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().debt.useCredit(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/debts/use-credit`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+// Edit a debt_ledger row's note (mirrors IPC channel "debts:update-metadata",
+// exposed at window.api.debt.updateMetadata — note the singular/plural
+// SPLIT between the `debt` namespace and its `debts:*` channel name, verified
+// against electron-app/preload.ts). CQ-9: no REST route existed for this
+// before; zero frontend call sites today (grepped — nothing calls
+// window.api.debt.updateMetadata), added for transport parity ahead of a
+// caller.
+export async function debtUpdateMetadata(payload: {
+  id: number;
+  note?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().debt.updateMetadata(payload),
+    async () =>
+      requestJson<{ success: boolean; data?: any; error?: string }>(
+        `/api/debts/update-metadata`,
         { method: "POST", body: payload },
       ),
   );
@@ -619,6 +681,24 @@ export async function partnersSettle(payload: any) {
     async () =>
       requestJson<{ success: boolean; data?: any; error?: string }>(
         `/api/partners/settle`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+// Standalone partner write-off (CQ-10, admin-only) — we forgive what the
+// partner owes us. Envelope { success, id?, error? }.
+export async function partnerWriteOff(payload: {
+  partnerId: number;
+  amount_usd: number;
+  amount_lbp: number;
+  reason?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().partners.writeOff(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/partners/write-off`,
         { method: "POST", body: payload },
       ),
   );
@@ -1318,6 +1398,155 @@ export async function settleTransactions(data: {
         `/api/suppliers/${data.supplier_id}/settle`,
         { method: "POST", body: data },
       ),
+  );
+}
+
+// Pay a supplier down / record a supplier paying us, via payment-method legs
+// (CQ-9 — this had NO dual-mode wrapper at all before, so it was `undefined`
+// in the browser; useSuppliers.ts called window.api.suppliers.recordCashflow
+// directly).
+export async function recordSupplierCashflow(data: {
+  supplier_id: number;
+  direction: "PAY" | "RECEIVE";
+  payments: Array<{
+    method: string;
+    currency_code: string;
+    amount: number;
+  }>;
+  note?: string;
+  exchange_rate?: number;
+  // CQ-10: bundled discount — PAY direction only (backend rejects it on
+  // RECEIVE). Posts a signed-profit 'DISCOUNT' supplier_ledger row.
+  discount?: { amount_usd: number; amount_lbp: number; reason?: string };
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.recordCashflow(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/suppliers/${data.supplier_id}/cashflow`,
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+// Standalone supplier write-off (CQ-10, admin-only) — the supplier forgives
+// what we owe them. Envelope { success, id?, error? }.
+export async function supplierWriteOff(payload: {
+  supplier_id: number;
+  amount_usd: number;
+  amount_lbp: number;
+  reason?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.writeOff(payload),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/suppliers/${payload.supplier_id}/write-off`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
+// All transactions for a provider (history tab) — wider scope than
+// getUnsettledTransactions (settled + unsettled). Raw array, matching IPC.
+export async function getAllSupplierTransactions(
+  provider: string,
+  limit?: number,
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getAllTransactions(provider, limit),
+    async () => {
+      const qs = new URLSearchParams({ provider });
+      if (limit) qs.set("limit", String(limit));
+      const res = await requestJson<{ success: boolean; transactions: any[] }>(
+        `/api/suppliers/all-transactions?${qs.toString()}`,
+      );
+      return res.transactions || [];
+    },
+  );
+}
+
+// Per-provider unsettled commission summary (dashboard + profits page).
+// NOTE: named to match the pre-existing (until now dead) `(api as
+// any).getUnsettledSummary?.()` fallback already written in
+// frontend/src/features/dashboard/pages/Dashboard.tsx and
+// frontend/src/features/profits/pages/Profits.tsx — those files are outside
+// this ticket's ownership (not the suppliers feature) and still gate on raw
+// `window.api` truthiness (a separate rule-19a violation), but adding this
+// method under the name they already expect means their REST fallback starts
+// working the moment the backend route lands, instead of silently resolving
+// to `undefined`.
+export async function getUnsettledSummary() {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getUnsettledSummary(),
+    async () => {
+      const res = await requestJson<{ success: boolean; summary: any[] }>(
+        `/api/suppliers/unsettled-summary`,
+      );
+      return res.summary || [];
+    },
+  );
+}
+
+// Product-supplier aggregate balances (Inventory-linked suppliers). Raw array.
+export async function getSupplierProductBalances() {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getProductBalances(),
+    async () => {
+      const res = await requestJson<{ success: boolean; balances: any[] }>(
+        `/api/suppliers/product-balances`,
+      );
+      return res.balances || [];
+    },
+  );
+}
+
+// Inventory items sourced from one product supplier. Raw array.
+export async function getSupplierProductItems(supplierId: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getProductItems(supplierId),
+    async () => {
+      const res = await requestJson<{ success: boolean; items: any[] }>(
+        `/api/suppliers/${supplierId}/product-items`,
+      );
+      return res.items || [];
+    },
+  );
+}
+
+// Purchase (delivery batch) records for a product supplier. Raw array.
+export async function getSupplierPurchases(supplierId: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getPurchases(supplierId),
+    async () => {
+      const res = await requestJson<{ success: boolean; purchases: any[] }>(
+        `/api/suppliers/${supplierId}/purchases`,
+      );
+      return res.purchases || [];
+    },
+  );
+}
+
+// Log a delivery batch for a product supplier (FIFO payment coverage).
+// NOTE: the core SupplierService.createPurchase return shape is unusual — on
+// success it returns the raw SupplierPurchase entity (no `success` wrapper),
+// only returning `{ success: false, error }` on failure (see
+// packages/core/src/services/SupplierService.ts createPurchase). This wrapper
+// passes the result through unchanged on both transports rather than
+// reshaping it, matching what the (currently unused-by-the-page)
+// useCreatePurchaseMutation hook already expected from the Electron path.
+export async function createSupplierPurchase(data: {
+  supplier_id: number;
+  total_usd: number;
+  note?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.createPurchase(data),
+    async () =>
+      requestJson<any>(`/api/suppliers/${data.supplier_id}/purchases`, {
+        method: "POST",
+        body: data,
+      }),
   );
 }
 

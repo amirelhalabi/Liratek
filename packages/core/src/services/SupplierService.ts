@@ -141,6 +141,58 @@ export class SupplierService {
       return { success: false, error: toErrorString(e) };
     }
   }
+
+  /**
+   * CQ-10 (D4: admin-only, enforced by the caller) — standalone write-off:
+   * forgive part of what the shop owes a supplier, with NO cashflow attached.
+   * amount_usd/amount_lbp are validated PER CURRENCY against the OUTSTANDING
+   * balance (mirrors DebtService.cashOut's per-currency guard, applied to the
+   * supplier's "we owe them" balance instead of a client credit).
+   */
+  writeOffSupplierDebt(data: {
+    supplier_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    reason?: string;
+    created_by: number;
+  }): SupplierResult {
+    try {
+      if (!data.supplier_id)
+        return { success: false, error: "supplier_id is required" };
+      if ((data.amount_usd ?? 0) <= 0 && (data.amount_lbp ?? 0) <= 0)
+        return {
+          success: false,
+          error: "Write-off amount must be greater than zero",
+        };
+
+      const balance = this.repo.getSupplierBalance(data.supplier_id);
+      const owedUsd = Math.max(0, balance.balance_usd);
+      const owedLbp = Math.max(0, balance.balance_lbp);
+      if (owedUsd <= 0 && owedLbp <= 0) {
+        return {
+          success: false,
+          error: "Supplier has no outstanding balance to write off",
+        };
+      }
+      if (data.amount_usd > owedUsd + 0.05) {
+        return {
+          success: false,
+          error: `Write-off ($${data.amount_usd.toFixed(2)}) exceeds what the shop owes the supplier ($${owedUsd.toFixed(2)})`,
+        };
+      }
+      if ((data.amount_lbp ?? 0) > owedLbp + 1000) {
+        return {
+          success: false,
+          error: `Write-off (${(data.amount_lbp ?? 0).toLocaleString()} LBP) exceeds what the shop owes the supplier (${owedLbp.toLocaleString()} LBP)`,
+        };
+      }
+
+      const res = this.repo.writeOffSupplierDebt(data);
+      return { success: true, id: res.id };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
 }
 
 let supplierServiceInstance: SupplierService | null = null;

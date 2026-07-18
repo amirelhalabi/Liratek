@@ -16,6 +16,16 @@ import {
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { buildCounterpartyMetadata } from "../validators/counterparty.js";
+
+/** CQ-10 — a discount/write-off amount bundled with a settlement, or posted
+ *  standalone. amount_usd/amount_lbp are the FORGIVEN amounts (always
+ *  treated as positive magnitudes regardless of sign supplied). */
+export interface CounterpartyDiscountData {
+  amount_usd: number;
+  amount_lbp: number;
+  reason?: string;
+}
 
 /** A single payment leg for multi-payment repayments */
 export interface RepaymentPaymentLine {
@@ -96,6 +106,11 @@ export interface CreateRepaymentData {
   kept_change_usd?: number;
   kept_change_lbp?: number;
   transaction_time?: string;
+  /** CQ-10 — bundled discount: "owed X, paid Y, discount Z". Posts its OWN
+   *  'Debt Discount' ledger row + COUNTERPARTY_DISCOUNT transaction (see
+   *  DebtRepository._postDebtDiscount) with the SAME FIFO coverage steps a
+   *  repayment gets, applied to its own (separate) budget. */
+  discount?: CounterpartyDiscountData;
 }
 
 // =============================================================================
@@ -144,6 +159,19 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
     // Use sell_rate (customer gives us this rate)
     return rateResult.sell_rate;
+  }
+
+  /**
+   * CQ-8: cheap client-name lookup for the `counterparty` metadata contract
+   * (every counterparty money transaction stamps a human-readable name).
+   * Falls back to a placeholder rather than throwing — a missing/deleted
+   * client must never block a repayment/cash-entry write.
+   */
+  private _getClientName(clientId: number): string {
+    const row = this.db
+      .prepare(`SELECT full_name FROM clients WHERE id = ? AND tenant_id = ?`)
+      .get(clientId, getCurrentTenantId()) as { full_name: string } | undefined;
+    return row?.full_name ?? `Client #${clientId}`;
   }
 
   /**
@@ -297,6 +325,26 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         metadata_json: {
           paid_by: primaryMethod,
           legs: paymentLegs.length > 1 ? paymentLegs : undefined,
+          // CQ-8 counterparty contract: a repayment is the customer handing
+          // cash INTO the shop. CQ-10: a bundled discount is annotated onto
+          // this SAME transaction's metadata (informational — the money-and-
+          // profit effect lives on the separate COUNTERPARTY_DISCOUNT row
+          // posted below).
+          counterparty: buildCounterpartyMetadata({
+            kind: "client",
+            id: data.client_id,
+            name: this._getClientName(data.client_id),
+            flow: "IN",
+            method: primaryMethod,
+            ledgerEntryId: repaymentId,
+            discount: data.discount
+              ? {
+                  amount_usd: Math.abs(data.discount.amount_usd || 0),
+                  amount_lbp: Math.abs(data.discount.amount_lbp || 0),
+                  reason: data.discount.reason,
+                }
+              : undefined,
+          }),
         },
         transaction_time: data.transaction_time,
       });
@@ -554,7 +602,138 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         totalLBP || data.amount_lbp,
       );
 
+      // CQ-10 — bundled discount: posted AFTER the repayment's own coverage
+      // so the discount's FIFO budget only touches whatever the cash portion
+      // left open (same open rows, a second/remaining pass — never the same
+      // dollars applied twice).
+      if (
+        data.discount &&
+        (data.discount.amount_usd > 0 || data.discount.amount_lbp > 0)
+      ) {
+        this._postDebtDiscount(
+          data.client_id,
+          data.discount,
+          data.created_by,
+          data.transaction_time,
+        );
+      }
+
       return { id: repaymentId };
+    });
+  }
+
+  /**
+   * CQ-10 — post ONE COUNTERPARTY_DISCOUNT transaction (+ its owning
+   * 'Debt Discount' debt_ledger row) for a client whose debt is partly or
+   * fully forgiven. Used by BOTH entry paths: bundled (called from inside
+   * addRepayment's transaction) and standalone (writeOffDebt, its own
+   * transaction). Mirrors addRepayment's own post-ledger coverage steps
+   * (_markSalesPaidFIFO then _coverServiceDebtsFIFO) so a discount opens the
+   * SAME profit-recognition gates a cash repayment would.
+   *
+   * amount_usd/amount_lbp = 0 (no cash moved — keeps cash-flow reports
+   * clean); profit_usd/profit_lbp = NEGATIVE the forgiven amount (D1: the
+   * shop forgives a receivable, a real cost).
+   */
+  private _postDebtDiscount(
+    clientId: number,
+    discount: CounterpartyDiscountData,
+    createdBy: number,
+    transactionTime?: string,
+  ): number {
+    const tenantId = getCurrentTenantId();
+    const amountUsd = Math.abs(discount.amount_usd || 0);
+    const amountLbp = Math.abs(discount.amount_lbp || 0);
+
+    const stmt = this.db.prepare(`
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+      VALUES (?, 'Debt Discount', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+    `);
+    const result = stmt.run(
+      clientId,
+      -amountUsd,
+      -amountLbp,
+      discount.reason || null,
+      createdBy,
+      tenantId,
+      transactionTime ?? null,
+    );
+    const ledgerId = Number(result.lastInsertRowid);
+
+    const clientName = this._getClientName(clientId);
+    const txnId = getTransactionRepository().createTransaction({
+      type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
+      source_table: "debt_ledger",
+      source_id: ledgerId,
+      user_id: createdBy,
+      amount_usd: 0,
+      amount_lbp: 0,
+      profit_usd: -amountUsd,
+      profit_lbp: -amountLbp,
+      client_id: clientId,
+      summary: `Discount: $${amountUsd.toFixed(2)}${amountLbp ? ` + ${amountLbp.toLocaleString()} LBP` : ""} forgiven — ${clientName}`,
+      metadata_json: {
+        // CQ-10/D1 counterparty contract: forgiving a receivable is booked
+        // "as if paid" — flow IN, the same direction a real repayment uses.
+        counterparty: buildCounterpartyMetadata({
+          kind: "client",
+          id: clientId,
+          name: clientName,
+          flow: "IN",
+          method: "LEDGER",
+          ledgerEntryId: ledgerId,
+          discount: {
+            amount_usd: amountUsd,
+            amount_lbp: amountLbp,
+            reason: discount.reason,
+          },
+        }),
+      },
+      transaction_time: transactionTime,
+    });
+
+    this.db
+      .prepare(
+        `UPDATE debt_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
+      )
+      .run(txnId, ledgerId, tenantId);
+
+    // Same coverage shape as a repayment (DBT-1): sales absorb first via
+    // _markSalesPaidFIFO, the remainder covers module-debt charge rows via
+    // _coverServiceDebtsFIFO — otherwise a forgiven balance would leave
+    // deferred profit stuck behind an uncovered charge row forever.
+    const usdRemainder = this._markSalesPaidFIFO(clientId, amountUsd);
+    this._coverServiceDebtsFIFO(clientId, usdRemainder, amountLbp);
+
+    return txnId;
+  }
+
+  /**
+   * CQ-10 (D4: admin-only, enforced by the caller) — standalone write-off: no
+   * settlement attached, just forgive part of what a client owes. Validation
+   * (positive amount, does not exceed the outstanding balance per currency)
+   * lives in DebtService.writeOffDebt — this method only posts the row.
+   */
+  writeOffDebt(data: {
+    client_id: number;
+    amount_usd: number;
+    amount_lbp: number;
+    reason?: string;
+    created_by: number;
+    transaction_time?: string;
+  }): { id: number } {
+    return this.transaction(() => {
+      const txnId = this._postDebtDiscount(
+        data.client_id,
+        {
+          amount_usd: data.amount_usd,
+          amount_lbp: data.amount_lbp,
+          reason: data.reason,
+        },
+        data.created_by,
+        data.transaction_time,
+      );
+      return { id: txnId };
     });
   }
 
@@ -820,6 +999,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         metadata_json: {
           legs: legs.length > 1 ? legs : undefined,
           paid_by: legs.length === 1 ? legs[0].method : "SPLIT",
+          // CQ-8 counterparty contract: the shop pays the customer their
+          // held credit OUT of the drawer.
+          counterparty: buildCounterpartyMetadata({
+            kind: "client",
+            id: data.client_id,
+            name: this._getClientName(data.client_id),
+            flow: "OUT",
+            method: legs.length === 1 ? legs[0].method : "SPLIT",
+            ledgerEntryId: ledgerId,
+          }),
         },
         transaction_time: data.transaction_time,
       });
@@ -964,6 +1153,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         metadata_json: {
           legs: legs.length > 1 ? legs : undefined,
           paid_by: legs.length === 1 ? legs[0].method : "SPLIT",
+          // CQ-8 counterparty contract: "credit" = customer hands the shop
+          // cash (IN); "debt" = shop hands the customer a cash advance (OUT).
+          counterparty: buildCounterpartyMetadata({
+            kind: "client",
+            id: data.client_id,
+            name: this._getClientName(data.client_id),
+            flow: isCredit ? "IN" : "OUT",
+            method: legs.length === 1 ? legs[0].method : "SPLIT",
+            ledgerEntryId: ledgerId,
+          }),
         },
         transaction_time: data.transaction_time,
       });

@@ -180,6 +180,11 @@ export function CryptoForm({
         return;
       }
 
+      appEvents.emit(
+        "notification:show",
+        "Partner crypto transaction recorded successfully",
+        "success",
+      );
       setCryptoAmount("");
       setCryptoFee("");
       setCryptoDescription("");

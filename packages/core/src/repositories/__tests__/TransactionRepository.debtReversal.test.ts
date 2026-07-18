@@ -256,6 +256,7 @@ describe("TransactionRepository — module-debt reversal on refund/void", () => 
       exchange_rate: 90_000,
       client_id: CLIENT_ID,
       summary: "Recharge: MTC Credits $6",
+      metadata_json: { provider: "MTC" },
     });
     db.prepare(
       `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, created_by, due_date)
@@ -369,8 +370,10 @@ describe("TransactionRepository — module-debt reversal on refund/void", () => 
       source_id: 1,
       user_id: 1,
       amount_usd: 50,
+      amount_lbp: 0,
       client_id: CLIENT_ID,
       summary: "Sale #1",
+      metadata_json: {},
     });
     db.prepare(
       `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount)

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useApi } from "@liratek/ui";
+import { appEvents, useApi } from "@liratek/ui";
 import { AlertTriangle, CheckCircle } from "lucide-react";
 import { localDay } from "@/shared/utils/localDay";
 
@@ -82,6 +82,11 @@ export function CheckpointScheduler({
 
       const result = await api.loto.checkpoint.create(checkpointData);
       if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          "Checkpoint created successfully!",
+          "success",
+        );
         setShowPopup(false);
         setLastCheckpoint(result.checkpoint);
         onCheckpointCreated?.(result.checkpoint);

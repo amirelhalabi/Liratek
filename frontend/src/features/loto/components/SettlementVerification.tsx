@@ -1,5 +1,10 @@
 import { useState, useEffect } from "react";
-import { useApi, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import {
+  appEvents,
+  useApi,
+  MultiPaymentInput,
+  type PaymentLine,
+} from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { localDay } from "@/shared/utils/localDay";
@@ -252,6 +257,11 @@ export function SettlementVerification({
       // Cash prizes are now automatically marked as reimbursed by the backend
       // during settleCheckpoint() — no separate loop needed
 
+      appEvents.emit(
+        "notification:show",
+        "Loto settlement recorded successfully",
+        "success",
+      );
       setSettlementSuccess(true);
 
       if (onSettlementComplete) {

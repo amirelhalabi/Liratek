@@ -13,11 +13,18 @@ import {
   type TransactionFiltersParam,
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
-import { FILTER_GROUPS } from "../auditConstants";
+import {
+  ACTIONABLE_TYPES,
+  FILTER_GROUPS,
+  RECEIPTABLE_TYPES,
+  isSupplierPaymentVisible,
+} from "../auditConstants";
 import {
   getCashFlowDirection,
   isCashTransaction,
   saleTenderTotals,
+  formatPaymentLegs,
+  type TransactionPaymentLeg,
 } from "../cashFlow";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -26,15 +33,8 @@ import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt"
 import { appEvents } from "@liratek/ui";
 
 // LIRA-064: structured in/out payment leg joined from the payments table.
-// Mirrors TransactionPaymentLeg in the backend / electron.d.ts. The data is
-// returned by the backend; we only format/join it client-side here.
-type TransactionPaymentLeg = {
-  direction: "in" | "out";
-  amount: number;
-  signed_amount: number;
-  currency_code: string;
-  method: string;
-};
+// Type + formatting now live in ../cashFlow (Payment-Legs Integrity plan S3 —
+// pure logic exported so it's unit-testable without importing this page).
 
 type TransactionRow = {
   id: number;
@@ -68,17 +68,17 @@ type TransactionRow = {
 
 const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
 
-// Transaction types hidden from the table by default: auto-generated
-// supplier-ledger payment siblings (SUPPLIER_PAYMENT, including the is_credit
-// "Supplier Credit" rows) and client-activity log noise (CLIENT_CREATED),
-// neither useful in the operator-facing list by default. SUPPLIER_PAYMENT is
-// still reachable via the dedicated "Supplier Credit" filter option (see
-// auditConstants FILTER_GROUPS) — the load filter below only un-hides it when
-// that option is explicitly selected.
-const HIDDEN_TRANSACTION_TYPES = new Set([
-  "SUPPLIER_PAYMENT",
-  "CLIENT_CREATED",
-]);
+// Transaction types blanket-hidden from the table regardless of any per-row
+// metadata: client-activity log noise (CLIENT_CREATED), not useful in the
+// operator-facing list by default.
+//
+// SUPPLIER_PAYMENT used to blanket-hide here too. D2 (CQ-8) replaced that:
+// a manual supplier payment is now a first-class visible row and only the
+// auto-generated ledger siblings (metadata.is_auto === true) stay hidden by
+// default — see isSupplierPaymentVisible (auditConstants.ts), applied
+// per-row below since the SQL-level `excludeTypes` can only exclude by
+// type, not by metadata.
+const HIDDEN_TRANSACTION_TYPES = new Set(["CLIENT_CREATED"]);
 
 // ---------------------------------------------------------------------------
 // Type label helpers
@@ -120,6 +120,11 @@ const STATIC_TYPE_LABELS: Record<string, string> = {
   HOLD_MONEY_COLLECT: "Hold Returned",
   CREDIT_CASH_IN: "Account Credit",
   DEBT_CASH_OUT: "Cash Advance",
+  PARTNER_SETTLEMENT: "Partner Settlement",
+  PARTNER_PAYMENT: "Partner Payment",
+  // CQ-10: one label for all three counterparty kinds (debt/supplier/
+  // partner) — the row's metadata.counterparty identifies which.
+  COUNTERPARTY_DISCOUNT: "Discount",
 };
 
 function getTypeLabel(row: TransactionRow): string {
@@ -199,6 +204,14 @@ const TYPE_COLORS: Record<string, string> = {
   DEBT_CASH_OUT: "text-rose-400",
   SUPPLIER_PAYMENT: "text-indigo-400",
   SUPPLIER_SETTLEMENT: "text-indigo-300",
+  // Partners get their own family — teal/cyan are already taken by
+  // CLIENT_* (teal) and CUSTOM_SERVICE (cyan), so "sky" keeps them visually
+  // distinct while staying in the same cool-hue neighbourhood.
+  PARTNER_SETTLEMENT: "text-sky-400",
+  PARTNER_PAYMENT: "text-sky-300",
+  // CQ-10: fuchsia is otherwise unused — keeps "Discount" visually distinct
+  // from every other family (green/blue/purple/indigo/sky/lime/rose/teal…).
+  COUNTERPARTY_DISCOUNT: "text-fuchsia-400",
   CHECKPOINT: "text-slate-400",
   LOTO: "text-lime-500",
   LOTO_CASH_PRIZE: "text-lime-400",
@@ -298,57 +311,9 @@ function formatAmount(
 }
 
 // ---------------------------------------------------------------------------
-// Structured payment legs (LIRA-064)
+// Structured payment legs (LIRA-064) — formatPaymentLegs now lives in
+// ../cashFlow (imported above).
 // ---------------------------------------------------------------------------
-
-/** Format a single payment amount with its currency, e.g. "$50" or "100,000 LBP". */
-function formatLegAmount(leg: TransactionPaymentLeg): string {
-  const value = leg.amount.toLocaleString();
-  return leg.currency_code === "USD"
-    ? `$${value}`
-    : `${value} ${leg.currency_code}`;
-}
-
-/**
- * Build the "in: ... · out: ..." string from the structured payment legs,
- * joined entirely client-side. Returns null when there are no legs so callers
- * can skip rendering. Same-currency legs on the same side are summed so the
- * label stays compact (e.g. two USD cash legs → one "$50").
- */
-function formatPaymentLegs(
-  legs: TransactionPaymentLeg[] | undefined,
-): string | null {
-  if (!legs || legs.length === 0) return null;
-
-  const sumByCurrency = (side: "in" | "out"): string[] => {
-    const totals = new Map<string, number>();
-    for (const leg of legs) {
-      if (leg.direction !== side) continue;
-      totals.set(
-        leg.currency_code,
-        (totals.get(leg.currency_code) ?? 0) + leg.amount,
-      );
-    }
-    return [...totals.entries()].map(([currency_code, amount]) =>
-      formatLegAmount({
-        direction: side,
-        amount,
-        signed_amount: amount,
-        currency_code,
-        method: "",
-      }),
-    );
-  };
-
-  const inParts = sumByCurrency("in");
-  const outParts = sumByCurrency("out");
-
-  const segments: string[] = [];
-  if (inParts.length) segments.push(`in: ${inParts.join(" + ")}`);
-  if (outParts.length) segments.push(`out: ${outParts.join(" + ")}`);
-
-  return segments.length ? segments.join(" · ") : null;
-}
 
 /** Title-cases an unmapped method code as a fallback, e.g. "PM_FEE" → "Pm Fee". */
 function fallbackMethodLabel(method: string): string {
@@ -479,6 +444,18 @@ function isSupplierCredit(type: string, metaJson?: string | null): boolean {
   }
 }
 
+/**
+ * PARTNER_SETTLEMENT/PARTNER_PAYMENT store SIGNED amount_usd/amount_lbp
+ * (positive = cash in, negative = cash out) instead of the unsigned
+ * magnitude every other transaction type uses — see
+ * PartnerRepository.recordSettlementMoneyMovement. The sign itself is read
+ * by cashFlow.ts's historical-row fallback; display always wants the plain
+ * magnitude (same treatment as the supplier-credit case above).
+ */
+function isSignedPartnerType(type: string): boolean {
+  return type === "PARTNER_SETTLEMENT" || type === "PARTNER_PAYMENT";
+}
+
 interface CashFlowBadgeProps {
   type: string;
   amountUsd: number;
@@ -509,10 +486,17 @@ function CashFlowBadge({
     );
   }
 
-  const direction = getCashFlowDirection(type, metaJson);
+  const direction = getCashFlowDirection(type, metaJson, {
+    usd: amountUsd,
+    lbp: amountLbp,
+  });
   if (!direction) return null;
 
-  const amountStr = formatAmount(amountUsd, amountLbp, metaJson);
+  // Partner rows carry a signed magnitude (see isSignedPartnerType) — the
+  // sign was only needed above to resolve direction; show the plain amount.
+  const amountStr = isSignedPartnerType(type)
+    ? formatAmount(Math.abs(amountUsd), Math.abs(amountLbp), metaJson)
+    : formatAmount(amountUsd, amountLbp, metaJson);
 
   if (direction === "both") {
     return (
@@ -554,32 +538,8 @@ function CashFlowBadge({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Actionable types (void / refund buttons)
-// ---------------------------------------------------------------------------
-
-const ACTIONABLE_TYPES = new Set([
-  "SALE",
-  "FINANCIAL_SERVICE",
-  "EXCHANGE",
-  "BINANCE",
-  "RECHARGE",
-  "CUSTOM_SERVICE",
-  "MAINTENANCE",
-  "EXPENSE",
-  "DEBT_REPAYMENT",
-  "SUPPLIER_PAYMENT",
-]);
-
-// Service transactions that can (re)print a detailed receipt (RCP-3). POS
-// sales reprint from Sale Detail; these are the service modules (T8).
-const RECEIPTABLE_TYPES = new Set([
-  "FINANCIAL_SERVICE",
-  "RECHARGE",
-  "MAINTENANCE",
-  "CUSTOM_SERVICE",
-  "LOTO",
-]);
+// Void/refund + receipt gating sets live in auditConstants.ts (shared with
+// the actionGating guard test that ties them to core's NON_REVERSIBLE set).
 
 // ---------------------------------------------------------------------------
 // Per-session left-border accent (WS8)
@@ -643,11 +603,13 @@ export default function TransactionsViewer({
   // to the session. Detection is order-independent: a non-session row is
   // sandwiched when its id falls strictly between the min and max id of any
   // session's rows.
-  // The "System Transactions" fold/button is disabled: the system rows it used
-  // to collapse (chiefly SUPPLIER_PAYMENT) are now hidden outright via
-  // HIDDEN_TRANSACTION_TYPES, so any remaining non-session rows just render
-  // inline. An empty map means no row is treated as sandwiched, so the ⚙ toggle
-  // never appears in the session-grouped view.
+  // The "System Transactions" fold/button is disabled: the system rows it
+  // used to collapse (chiefly auto-generated SUPPLIER_PAYMENT siblings) are
+  // hidden by default via the per-row D2 rule (see isSupplierPaymentVisible/
+  // filterVisible below) or CLIENT_CREATED's blanket HIDDEN_TRANSACTION_TYPES
+  // hide, so any remaining non-session rows just render inline. An empty map
+  // means no row is treated as sandwiched, so the ⚙ toggle never appears in
+  // the session-grouped view.
   const sandwichedMap = useMemo(() => new Map<number, number>(), []);
 
   // For each session's sandwiched group: how many rows, and which has the
@@ -684,21 +646,21 @@ export default function TransactionsViewer({
       // Exclude the always-hidden types at the SQL level so LIMIT is applied
       // to already-filtered rows — a burst of hidden-type rows (e.g. hundreds
       // of CLIENT_CREATED from a bulk import) can no longer crowd genuinely
-      // visible rows out of the result window. "Supplier Credit" is the one
-      // deliberate exception: it needs SUPPLIER_PAYMENT rows to stay in the
-      // raw result so it can narrow them down to just the is_credit ones.
-      filters.excludeTypes = activeOption?.supplier_credit_only
-        ? ["CLIENT_CREATED"]
-        : Array.from(HIDDEN_TRANSACTION_TYPES);
+      // visible rows out of the result window. CLIENT_CREATED is the only
+      // type that's safe to exclude here: its hide/show is never conditional
+      // on per-row metadata. SUPPLIER_PAYMENT (D2) is NOT excluded — whether
+      // a given row shows depends on metadata.is_auto, which the SQL filter
+      // can't see, so that decision is made entirely client-side below.
+      filters.excludeTypes = Array.from(HIDDEN_TRANSACTION_TYPES);
 
       const requested = Number(limit) || 50;
       const filterVisible = (rows: TransactionRow[]) => {
         let vis = rows.filter((r) => {
-          if (!HIDDEN_TRANSACTION_TYPES.has(r.type)) return true;
-          return (
-            !!activeOption?.supplier_credit_only &&
-            isSupplierCredit(r.type, r.metadata_json)
-          );
+          if (HIDDEN_TRANSACTION_TYPES.has(r.type)) return false;
+          if (r.type === "SUPPLIER_PAYMENT") {
+            return isSupplierPaymentVisible(r.metadata_json, activeOption);
+          }
+          return true;
         });
         // B6: "Cash only (till)" — keep transactions with a CASH payment leg.
         if (activeOption?.cash_only) {
@@ -707,11 +669,13 @@ export default function TransactionsViewer({
         return vis;
       };
 
-      // The SQL exclusion covers the default case in one round-trip. The two
-      // remaining JS-only filters above (Supplier Credit's is_credit check,
-      // Cash Only's joined payment legs) can still under-fill a window, so
-      // keep widening the fetch until it's satisfied or the table is
-      // exhausted (raw came back shorter than what we asked for).
+      // The SQL exclusion only covers CLIENT_CREATED now. The per-row
+      // JS-only filters above (SUPPLIER_PAYMENT's is_auto/is_credit checks,
+      // Cash Only's joined payment legs) can under-fill a window — a run of
+      // auto-generated supplier rows is the same "crowds out real rows"
+      // risk CLIENT_CREATED bulk-imports posed pre-D2 — so keep widening the
+      // fetch until it's satisfied or the table is exhausted (raw came back
+      // shorter than what we asked for).
       let fetchSize = requested * 3;
       const FETCH_CAP = Math.max(fetchSize, 5000);
       let visible: TransactionRow[] = [];
@@ -802,6 +766,7 @@ export default function TransactionsViewer({
     isSystem?: boolean,
   ) {
     const credit = isSupplierCredit(row.type, row.metadata_json);
+    const partnerSigned = isSignedPartnerType(row.type);
     const tender = saleTenderTotals(row.type, row.payments);
     return (
       <tr
@@ -893,9 +858,13 @@ export default function TransactionsViewer({
                 })()
               : formatAmount(
                   tender?.usd ??
-                    (credit ? Math.abs(row.amount_usd) : row.amount_usd),
+                    (credit || partnerSigned
+                      ? Math.abs(row.amount_usd)
+                      : row.amount_usd),
                   tender?.lbp ??
-                    (credit ? Math.abs(row.amount_lbp) : row.amount_lbp),
+                    (credit || partnerSigned
+                      ? Math.abs(row.amount_lbp)
+                      : row.amount_lbp),
                   row.metadata_json,
                 )}
           </span>

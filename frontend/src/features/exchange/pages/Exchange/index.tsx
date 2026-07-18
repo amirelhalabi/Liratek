@@ -8,7 +8,7 @@ import {
   History,
   ChevronDown,
 } from "lucide-react";
-import { PageHeader, useApi, DecimalInput } from "@liratek/ui";
+import { appEvents, PageHeader, useApi, DecimalInput } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
@@ -664,6 +664,11 @@ export default function Exchange() {
             logger.error("Failed to link exchange to session:", err);
           }
         }
+        appEvents.emit(
+          "notification:show",
+          "Exchange processed successfully",
+          "success",
+        );
         setAmountIn(0);
         setAmountOut("");
         setClientName("");

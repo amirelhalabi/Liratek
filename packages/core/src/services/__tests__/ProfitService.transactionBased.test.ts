@@ -1082,3 +1082,78 @@ describe("(e) grid-item (cost/price) profit visibility in the summary", () => {
     expect(summary.totals.gross_profit_lbp).toBe(100_000);
   });
 });
+
+describe("(j) CQ-10 — counterparty discounts in the summary (D1 sign contract)", () => {
+  /**
+   * CQ-10 wires COUNTERPARTY_DISCOUNT rows into ProfitRepository.
+   * getCounterpartyDiscountTotals → ProfitService.getSummary's `discounts`
+   * bucket, netted into gross/net profit. This is the sibling frontend
+   * agent's exact contract (summary.discounts.{usd,lbp}) — nothing else in
+   * this suite creates a COUNTERPARTY_DISCOUNT row, so without this test the
+   * query, the assembly, AND the sign convention are all unverified
+   * end-to-end (only the ledger-repository unit tests cover the row itself).
+   */
+  it("a forgiven (given) discount surfaces as NEGATIVE usd/lbp and drops gross/net profit by that amount", () => {
+    // Mirrors DebtRepository._postDebtDiscount: forgiving a client's debt is
+    // a NEGATIVE profit stamp (D1).
+    insertTxn({
+      type: "COUNTERPARTY_DISCOUNT",
+      sourceTable: "debt_ledger",
+      sourceId: 1,
+      profitUsd: -30,
+      amountUsd: 0,
+    });
+    // A normal recognized profit source alongside it, so the netting is
+    // provably additive rather than the discount being the only row.
+    db.prepare(
+      `INSERT INTO recharges (id, carrier, currency_code, price, cost, created_at)
+       VALUES (1, 'MTC', 'USD', 10, 8, ?)`,
+    ).run(TS);
+    insertTxn({
+      type: "RECHARGE",
+      sourceTable: "recharges",
+      sourceId: 1,
+      profitUsd: 2,
+      amountUsd: 10,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.discounts.usd).toBeCloseTo(-30, 2);
+    expect(summary.discounts.lbp).toBe(0);
+    // gross profit = recharge (+2) + discount (-30) = -28
+    expect(summary.totals.gross_profit_usd).toBeCloseTo(-28, 2);
+    expect(summary.totals.net_profit_usd).toBeCloseTo(-28, 2);
+  });
+
+  it("a received (supplier/partner forgives us) discount surfaces as POSITIVE and adds to gross/net profit", () => {
+    // Mirrors SupplierRepository._postSupplierDiscount: a supplier forgiving
+    // what we owe them is a POSITIVE profit stamp (D1) — a real gain.
+    insertTxn({
+      type: "COUNTERPARTY_DISCOUNT",
+      sourceTable: "supplier_ledger",
+      sourceId: 1,
+      profitUsd: 15,
+      amountUsd: 0,
+    });
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.discounts.usd).toBeCloseTo(15, 2);
+    expect(summary.totals.gross_profit_usd).toBeCloseTo(15, 2);
+    expect(summary.totals.net_profit_usd).toBeCloseTo(15, 2);
+  });
+
+  it("a VOIDED COUNTERPARTY_DISCOUNT row is excluded (status filter, not just type)", () => {
+    const id = insertTxn({
+      type: "COUNTERPARTY_DISCOUNT",
+      sourceTable: "debt_ledger",
+      sourceId: 2,
+      profitUsd: -50,
+      amountUsd: 0,
+    });
+    db.prepare(`UPDATE transactions SET status = 'VOID' WHERE id = ?`).run(id);
+
+    const summary = service.getSummary(FROM, TO);
+    expect(summary.discounts.usd).toBe(0);
+    expect(summary.totals.gross_profit_usd).toBe(0);
+  });
+});

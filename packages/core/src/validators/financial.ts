@@ -103,6 +103,38 @@ export const createFinancialServiceSchema = z
     kept_change_usd: z.number().nonnegative().optional(),
     kept_change_lbp: z.number().nonnegative().optional(),
     transaction_time: transactionTimeSchema,
+    /**
+     * Payment-Legs Integrity plan (Wave 8, owner decision 2026-07-18): the
+     * bills/catalog cart flow (KatchForm / FinancialForm) submits ONE
+     * legs-carrying CARRIER transaction per checkout — every other unit in
+     * the same cart submits `deferPayment: true` and carries no legs (see
+     * docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). The carrier's
+     * own `price` is only ONE unit's share of the cart, so reconciling legs
+     * against `price` alone would hard-reject every legitimate multi-unit
+     * checkout. `checkoutTotal` is the FULL amount the customer owes for the
+     * entire checkout, split by the currencies the cart was denominated in.
+     * When present alongside `payments`, the repository reconciles the legs
+     * against `checkoutTotal` instead of `price` (S2's hard-reject
+     * invariant, applied to the right total). Omitted → unchecked legacy
+     * behavior (single-unit checkouts, scripted callers).
+     */
+    checkoutTotal: z
+      .object({
+        usd: z.number().min(0),
+        lbp: z.number().min(0),
+      })
+      .optional(),
+    /**
+     * Payment-Legs Integrity plan: the USD→LBP rate MultiPaymentInput
+     * actually converted the customer's TENDER at (may be the buy rate —
+     * see the owner's 2026-07-06 MPI-buy-rate decision — while the
+     * transaction's stamped rate-of-record is sell-side for money-in
+     * flows). When present, leg reconciliation compares at THIS rate
+     * instead of the stamped one, so a legitimate buy/sell-spread checkout
+     * doesn't false-reject (lira-095). Omitted → unaffected legacy
+     * behavior.
+     */
+    tender_exchange_rate: z.number().positive().optional(),
   })
   .refine(
     (data) => {

@@ -254,6 +254,14 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
     const beforeOmt = balance(db, "OMT_System", "USD");
 
     // 196 USD INTRA receive paid out as 190 USD + 540,000 LBP.
+    //
+    // exchangeRate is 90000 (not the 89000 used elsewhere in this file): at
+    // 89000, 540,000 LBP is $6.0674, not the intended $6 — off by $0.067
+    // against the payout-leg reconciliation the repository now hard-rejects
+    // on (S2, Payment-Legs Integrity plan, epsilon $0.05). 90000 is what the
+    // test's own narrative assumes (190 + 540,000/90,000 = 190 + 6 = 196
+    // exactly) and matches the rate used by the sibling
+    // crossCurrencyTender.test.ts.
     repo.createTransaction({
       provider: "OMT",
       serviceType: "RECEIVE",
@@ -266,7 +274,7 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
         { method: "CASH", currencyCode: "USD", amount: 190 },
         { method: "CASH", currencyCode: "LBP", amount: 540000 },
       ],
-      exchangeRate: 89000,
+      exchangeRate: 90000,
     });
 
     // Both currency legs leave the General drawer.

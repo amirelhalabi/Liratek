@@ -1,6 +1,7 @@
 import { useState, useEffect, memo } from "react";
 import { User, Phone } from "lucide-react";
 import {
+  appEvents,
   useApi,
   ServiceTypeTabs,
   DecimalInput,
@@ -78,10 +79,15 @@ function OmtWhishAppTransferFormInner({
     lbp: number;
   } | null>(null);
   const isSplitPayment = paymentLines.length > 1;
-  // Forward structured legs whenever the payment is split OR the customer got
-  // change back (a return/OUT leg); otherwise single payment + change drops the
-  // returned cash so it's never recorded.
-  const useStructuredPayments = isSplitPayment || returnLegs.length > 0;
+  // Forward structured legs whenever ANY payment line exists (S1 — never gate
+  // on split): a single-line payment still carries the tender's amount +
+  // currency, which the backend needs — gating on isSplitPayment alone
+  // silently dropped that leg for the common single-payment case, and the
+  // backend's fallback then assumed tender currency == service currency (the
+  // owner-reported Whish App LBP-as-USD bug). Also forwards whenever the
+  // customer got change back (a return/OUT leg).
+  const useStructuredPayments =
+    paymentLines.length > 0 || returnLegs.length > 0;
   const [paidByMethod, setPaidByMethod] = useState("CASH");
   const [includingFees, setIncludingFees] = useState(false);
   const [manualFee, setManualFee] = useState("");
@@ -273,6 +279,25 @@ function OmtWhishAppTransferFormInner({
           ? toCamelLegs(paymentLines, returnLegs)
           : undefined,
         includingFees,
+        // Payment-Legs Integrity plan (Wave 9): SEND-only — this is the
+        // customer-owed total, not a payout. `totalAmount` is this form's own
+        // computed total (the exact figure the PaymentSheet charges); the
+        // repository's wallet-transfer SEND branch now reconciles legs
+        // against THIS instead of guessing `amount + fee` (lira-108: wrong
+        // for a fee carved OUT of the entered amount). `tender_exchange_rate`
+        // is the rate this form's PaymentSheet/MultiPaymentInput actually
+        // converted tender at, so the repository reconciles at the SAME rate
+        // the till used (lira-095's cross-currency spread bug). Sent only
+        // when legs are sent — no legs, nothing to reconcile.
+        ...(serviceType === "SEND" && useStructuredPayments
+          ? {
+              checkoutTotal:
+                currency === "USD"
+                  ? { usd: totalAmount, lbp: 0 }
+                  : { usd: 0, lbp: totalAmount },
+              tender_exchange_rate: exchangeRate,
+            }
+          : {}),
         // T3 keep-change: kept amounts join the profit stamp.
         ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
@@ -300,8 +325,10 @@ function OmtWhishAppTransferFormInner({
           }
         }
 
-        alert(
+        appEvents.emit(
+          "notification:show",
           `${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"} transfer completed successfully!`,
+          "success",
         );
         setAmount("");
         setSenderName("");
@@ -375,6 +402,11 @@ function OmtWhishAppTransferFormInner({
         return;
       }
 
+      appEvents.emit(
+        "notification:show",
+        "Partner transfer completed successfully",
+        "success",
+      );
       setAmount("");
       setManualFee("");
       loadFinancialData();
@@ -458,6 +490,9 @@ function OmtWhishAppTransferFormInner({
                 onClick={() => {
                   setCurrency(cur);
                   setAmount("");
+                  // Remount the payment input so its seeded line re-opens in
+                  // the newly selected currency (line currency is mount-only).
+                  setPaymentInputKey((k) => k + 1);
                 }}
                 className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
                   currency === cur
@@ -507,19 +542,28 @@ function OmtWhishAppTransferFormInner({
                 htmlFor="transfer-fee"
                 className="block text-xs text-slate-400 mb-1"
               >
-                Fee Amount (USD)
+                Fee Amount ({currency})
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                  $
-                </span>
+                {/* The fee is denominated in the entry currency — the
+                    repository books commission in the transaction's currency,
+                    so a "$" label on an LBP transfer was lying. */}
+                {currency === "USD" && (
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                    $
+                  </span>
+                )}
                 <DecimalInput
                   id="transfer-fee"
                   value={parseFloat(manualFee) || 0}
                   onChange={(n) => setManualFee(String(n))}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+                  className={`w-full bg-slate-800 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all`}
                   placeholder={
-                    autoFee > 0 ? autoFee.toFixed(2) + " (auto)" : "0.00"
+                    autoFee > 0
+                      ? autoFee.toFixed(2) + " (auto)"
+                      : currency === "LBP"
+                        ? "0"
+                        : "0.00"
                   }
                 />
               </div>
@@ -539,7 +583,7 @@ function OmtWhishAppTransferFormInner({
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400">Provider Fee:</span>
               <span className="text-white font-mono">
-                ${providerFee.toFixed(2)}
+                {formatAmount(providerFee, currency)}
               </span>
             </div>
 
@@ -567,19 +611,20 @@ function OmtWhishAppTransferFormInner({
                     <p className="text-slate-400">
                       Received into wallet:{" "}
                       <span className="text-white font-mono font-medium">
-                        ${walletAmount.toFixed(2)}
+                        {formatAmount(walletAmount, currency)}
                       </span>
                     </p>
                     <p className="text-slate-400">
                       Fee:{" "}
                       <span className="text-amber-400 font-mono font-medium">
-                        {includingFees ? "-" : "+"}${providerFee.toFixed(2)}
+                        {includingFees ? "-" : "+"}
+                        {formatAmount(providerFee, currency)}
                       </span>
                     </p>
                     <p className="text-slate-400">
                       Customer receives:{" "}
                       <span className="text-emerald-400 font-mono font-medium">
-                        ${totalAmount.toFixed(2)}
+                        {formatAmount(totalAmount, currency)}
                       </span>
                     </p>
                   </div>
@@ -593,7 +638,7 @@ function OmtWhishAppTransferFormInner({
               <span
                 className={`font-mono font-bold ${shopProfit > 0 ? "text-emerald-400" : "text-slate-500"}`}
               >
-                ${shopProfit.toFixed(2)}
+                {formatAmount(shopProfit, currency)}
               </span>
             </div>
           </div>
@@ -628,16 +673,20 @@ function OmtWhishAppTransferFormInner({
               <>
                 No counter payment is collected for a partner transfer. The shop
                 disburses{" "}
-                <span className="font-bold">${totalAmount.toFixed(2)}</span> via
-                the method above; the partner is billed for the full amount,
+                <span className="font-bold">
+                  {formatAmount(totalAmount, currency)}
+                </span>{" "}
+                via the method above; the partner is billed for the full amount,
                 settled later on the Partners page.
               </>
             ) : (
               <>
                 No payout is made to a walk-in customer. The wallet is credited{" "}
-                <span className="font-bold">${walletAmount.toFixed(2)}</span>,
-                and the partner&apos;s account is credited accordingly, settled
-                later on the Partners page.
+                <span className="font-bold">
+                  {formatAmount(walletAmount, currency)}
+                </span>
+                , and the partner&apos;s account is credited accordingly,
+                settled later on the Partners page.
               </>
             )}
           </div>
@@ -794,7 +843,7 @@ function OmtWhishAppTransferFormInner({
               {isSplitPayment ? "Split" : paidByMethod}
               <span className="text-slate-600 mx-1">·</span>
               <span className="text-white font-mono font-semibold">
-                ${totalAmount.toFixed(2)}
+                {formatAmount(totalAmount, currency)}
               </span>
             </div>
           </div>
@@ -858,14 +907,16 @@ function OmtWhishAppTransferFormInner({
           onConfirm={handleSubmit}
           isSubmitting={isSubmitting}
           title={activeSession ? "Add to Cart" : "Confirm Payment"}
-          subtitle={`${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"} ${serviceType === "SEND" ? "Send" : "Receive"} — $${parsedAmount.toFixed(2)}`}
+          subtitle={`${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"} ${serviceType === "SEND" ? "Send" : "Receive"} — ${formatAmount(parsedAmount, currency)}`}
           accentColor={
             activeProvider === "OMT_APP"
               ? "bg-[#ffde00] hover:bg-[#ffde00]/90 text-black"
               : "bg-[#ff0a46] hover:bg-[#ff0a46]/90 text-white"
           }
           confirmLabel={
-            activeSession ? "Add to Cart" : `Pay $${totalAmount.toFixed(2)}`
+            activeSession
+              ? "Add to Cart"
+              : `Pay ${formatAmount(totalAmount, currency)}`
           }
           summary={[
             // Client details in the confirm step (A3)
@@ -883,17 +934,17 @@ function OmtWhishAppTransferFormInner({
             isAppWalletReceive
               ? {
                   label: "Received into Wallet",
-                  value: `$${walletAmount.toFixed(2)}`,
+                  value: formatAmount(walletAmount, currency),
                 }
               : {
                   label: "Transfer Amount",
-                  value: `$${parsedAmount.toFixed(2)}`,
+                  value: formatAmount(parsedAmount, currency),
                 },
             ...(providerFee > 0
               ? [
                   {
                     label: isAppWalletReceive ? "Fee" : "Provider Fee",
-                    value: `$${providerFee.toFixed(2)}`,
+                    value: formatAmount(providerFee, currency),
                     color: "text-amber-400",
                   },
                 ]
@@ -902,19 +953,23 @@ function OmtWhishAppTransferFormInner({
               ? [
                   {
                     label: "Shop Profit",
-                    value: `$${shopProfit.toFixed(2)}`,
+                    value: formatAmount(shopProfit, currency),
                     color: "text-emerald-400",
                   },
                 ]
               : []),
             {
               label: isAppWalletReceive ? "Customer Receives" : "Total",
-              value: `$${totalAmount.toFixed(2)}`,
+              value: formatAmount(totalAmount, currency),
               ...(isAppWalletReceive ? { color: "text-emerald-400" } : {}),
             },
           ]}
           totalAmount={totalAmount}
-          currency="USD"
+          // The entered amount (and its fee) are denominated by the USD/LBP
+          // toggle — hardcoding USD here made a 420,000 LBP transfer read
+          // "$420,000" in the payment sheet and mislabeled split legs.
+          totalAmountCurrency={currency}
+          currency={currency}
           paymentMethods={allPaymentMethods}
           exchangeRate={exchangeRate}
           showDiscount={true}
@@ -924,6 +979,14 @@ function OmtWhishAppTransferFormInner({
           hasClient={
             !!clientId ||
             (!!activeClientName.trim() && !!activeClientPhone.trim())
+          }
+          // SEND only: the customer pays the shop, so a shortfall is client
+          // debt. RECEIVE is a payout (shop pays the customer) — an auto IN
+          // debt leg there would invert the sign of the unpaid remainder.
+          autoDebtRemainder={
+            serviceType === "SEND" &&
+            (!!clientId ||
+              (!!activeClientName.trim() && !!activeClientPhone.trim()))
           }
           paymentInputKey={paymentInputKey}
           initialPaymentMethod={initialPaymentMethod}

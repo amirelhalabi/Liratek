@@ -1,10 +1,12 @@
 /**
- * E2E: Hidden transaction types + System Transactions button (Issue 4)
+ * E2E: Hidden transaction types + System Transactions button (Issue 4, D2)
  *
- * The transactions table hides SUPPLIER_PAYMENT and CLIENT_CREATED rows by
- * default and removes the ⚙ "System Transactions" fold button. The is_credit
- * variant of SUPPLIER_PAYMENT (commission revenue, rendered "Supplier Credit")
- * is also hidden by default — it only reappears when the operator explicitly
+ * D2 (CQ-8, decided 2026-07-18): a MANUAL supplier payment is a first-class
+ * visible row on the transactions table by default; only auto-generated
+ * ledger siblings (metadata.is_auto === true — e.g. a BILL commission's
+ * journal row) stay hidden, alongside CLIENT_CREATED and the ⚙ "System
+ * Transactions" fold button which never renders. The is_credit auto variant
+ * (rendered "Supplier Credit") only reappears when the operator explicitly
  * selects the "Supplier Credit" type filter.
  *
  * Non-credit SUPPLIER_PAYMENT renders as "SUPPLIER PAYMENT" and CLIENT_CREATED
@@ -105,9 +107,11 @@ test.describe("Transactions table — hidden types", () => {
     await expect(
       appPage.getByText("CLIENT CREATED", { exact: true }),
     ).toHaveCount(0);
+    // …but a MANUAL supplier payment is visible by default (D2) — only the
+    // auto-generated ledger siblings (metadata.is_auto) stay hidden.
     await expect(
-      appPage.getByText("SUPPLIER PAYMENT", { exact: true }),
-    ).toHaveCount(0);
+      appPage.getByText("SUPPLIER PAYMENT", { exact: true }).first(),
+    ).toBeVisible({ timeout: 8_000 });
 
     // …and so is the commission-revenue "Supplier Credit" row, by default…
     await expect(

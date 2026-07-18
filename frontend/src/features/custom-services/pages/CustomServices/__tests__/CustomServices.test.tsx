@@ -15,6 +15,7 @@ const mockDeleteCustomService = jest.fn();
 const mockGetClients = jest.fn();
 
 jest.mock("@liratek/ui", () => ({
+  appEvents: { emit: jest.fn(), on: jest.fn(() => () => {}) },
   useApi: () => ({
     addCustomService: mockAddCustomService,
     deleteCustomService: mockDeleteCustomService,
@@ -118,11 +119,22 @@ jest.mock("@liratek/ui", () => ({
   MultiPaymentInput: ({
     totalAmount,
     onChange,
+    totals,
+    currency,
+    totalAmountCurrency,
   }: {
     totalAmount?: number;
     onChange?: (payments: unknown[]) => void;
+    totals?: { amount: number; currency: string }[];
+    currency?: string;
+    totalAmountCurrency?: string;
   }) => (
     <div data-testid="multi-payment-input">
+      {/* Exposes the currency contract the page feeds the payment section —
+          the LBP-toggle guard asserts on this. */}
+      <div data-testid="multi-payment-props">
+        {JSON.stringify({ totals, currency, totalAmountCurrency })}
+      </div>
       <select
         data-testid="paid-by-select"
         onChange={(e) =>
@@ -377,6 +389,34 @@ describe("CustomServices Page", () => {
     fireEvent.change(usdInputs[1], { target: { value: "12" } }); // price USD
 
     expect(screen.getByText("Profit: $7.00")).toBeInTheDocument();
+  });
+
+  it("feeds the payment section the LBP total when the toggle is on LBP", () => {
+    render(<CustomServices />);
+
+    const readPaymentProps = () =>
+      JSON.parse(screen.getByTestId("multi-payment-props").textContent || "{}");
+
+    // USD mode (default): price lands in the USD bucket.
+    const usdInputs = screen.getAllByPlaceholderText("0.00");
+    fireEvent.change(usdInputs[1], { target: { value: "5" } }); // price USD
+    expect(readPaymentProps()).toEqual({
+      totals: [{ amount: 5, currency: "USD" }],
+      currency: "USD",
+      totalAmountCurrency: "USD",
+    });
+
+    // LBP mode: the same payment section must receive the LBP price —
+    // the pre-fix code passed `priceUsdVal || costUsdVal` (0 in LBP mode)
+    // tagged "USD", so an LBP-priced service showed a $0 payment total.
+    fireEvent.click(screen.getByRole("button", { name: "LBP" }));
+    const lbpInputs = screen.getAllByPlaceholderText("0");
+    fireEvent.change(lbpInputs[1], { target: { value: "420000" } }); // price LBP
+    expect(readPaymentProps()).toEqual({
+      totals: [{ amount: 420000, currency: "LBP" }],
+      currency: "LBP",
+      totalAmountCurrency: "LBP",
+    });
   });
 
   it("should show customer details section for all payment methods", () => {

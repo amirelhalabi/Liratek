@@ -830,7 +830,14 @@ export default function Services() {
         ...(payFee ? { payFee: true } : {}),
         ...(binanceSupplier ? { itemKey: binanceSupplier } : {}),
         includingFees: serviceType === "SEND" ? includingFees : false,
-        ...(isSplitPayment && paymentLines.length > 0
+        // S1 — never gate legs on split: forward the full leg set whenever
+        // ANY payment line exists (a single-line payment still carries the
+        // tender's amount + currency the backend needs). This matches the
+        // shape a split payload already produced (payments via toCamelLegs,
+        // no paidByMethod — the repository reads payments[] as authoritative
+        // over paidByMethod whenever it's present, so paidByMethod is only
+        // ever a legacy fallback for callers with no legs at all).
+        ...(paymentLines.length > 0
           ? {
               payments: toCamelLegs(
                 paymentLines.map((p) => ({
@@ -1123,6 +1130,11 @@ export default function Services() {
         sourceDrawer: data.sourceDrawer,
       });
       if (!result.success) throw new Error(result.error ?? "Top-up failed");
+      appEvents.emit(
+        "notification:show",
+        `${systemTopUpProvider} topped up with ${data.amount} ${data.currency}`,
+        "success",
+      );
     },
     [systemTopUpProvider],
   );
@@ -1135,6 +1147,11 @@ export default function Services() {
         currency: data.currency,
       });
       if (!result.success) throw new Error(result.error ?? "Top-up failed");
+      appEvents.emit(
+        "notification:show",
+        `${systemTopUpProvider} topped up with ${data.amount} ${data.currency} (external)`,
+        "success",
+      );
     },
     [systemTopUpProvider],
   );
@@ -1844,6 +1861,9 @@ export default function Services() {
               {/* Payment Method */}
               <div>
                 <MultiPaymentInput
+                  // Remount on toggle so the seeded payment line re-opens in
+                  // the newly selected currency (line currency is mount-only).
+                  key={currency}
                   totals={[
                     {
                       // On SEND:
@@ -1855,10 +1875,16 @@ export default function Services() {
                             ? parseFloat(amount) || 0
                             : (parseFloat(amount) || 0) + renderProviderFee
                           : parseFloat(amount) || 0,
-                      currency: "USD",
+                      // The toggle denominates BOTH the amount and
+                      // renderProviderFee (LBP fee table for LBP INTRA), so the
+                      // sum is entirely in the entry currency. Hardcoding USD
+                      // here made a 420,000 LBP send read "$420,000" in the
+                      // payment section and mislabeled split legs.
+                      currency,
                     },
                   ]}
-                  currency="USD"
+                  currency={currency}
+                  totalAmountCurrency={currency}
                   onChange={(lines) => {
                     setPaymentLines(lines);
                     // Sync paidByMethod from single-payment line for legacy logic
@@ -1875,6 +1901,15 @@ export default function Services() {
                   hasClient={
                     !!(serviceType === "SEND" ? senderName : receiverName) ||
                     !!(serviceType === "SEND" ? senderPhone : receiverPhone)
+                  }
+                  // SEND only (RECEIVE is a cashout — CUSTOMER_ACCOUNT there
+                  // means crediting the customer, the opposite direction),
+                  // and only with the name+phone the debt validation below
+                  // demands — name-only would auto-split then hard-block.
+                  autoDebtRemainder={
+                    serviceType === "SEND" &&
+                    !!senderName.trim() &&
+                    !!senderPhone.trim()
                   }
                   showPmFee={multiPmFeeApplies}
                   pmFeeRate={PM_FEE_DEFAULT_RATE}

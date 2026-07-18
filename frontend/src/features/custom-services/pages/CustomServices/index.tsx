@@ -24,6 +24,7 @@ import {
   Wallet,
 } from "lucide-react";
 import {
+  appEvents,
   canChargeToCustomerAccount,
   PageHeader,
   useApi,
@@ -311,8 +312,14 @@ export default function CustomServices() {
         addToSessionCart({
           module: "custom_service",
           label,
-          amount: priceUsdVal || costUsdVal,
-          currency: priceUsdVal > 0 ? "USD" : priceLbpVal > 0 ? "LBP" : "USD",
+          // Single-currency model: pair amount with the active toggle currency
+          // (an LBP service used to book amount 0 here — USD fields are
+          // cleared when the toggle is on LBP).
+          amount:
+            currency === "USD"
+              ? priceUsdVal || costUsdVal
+              : priceLbpVal || costLbpVal,
+          currency,
           // Must be the REAL handler channel — the session-checkout replayer
           // invokes it verbatim ("customService:create" was a dead channel
           // that failed every session checkout containing a service; lira-094).
@@ -340,6 +347,11 @@ export default function CustomServices() {
       const result = await api.addCustomService(payload);
 
       if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          "Custom service recorded successfully",
+          "success",
+        );
         // Reset form
         setDescription("");
         setCostUsd("");
@@ -870,16 +882,32 @@ export default function CustomServices() {
                     Payment Method
                   </label>
                   <MultiPaymentInput
-                    key={paymentInputKey}
+                    // Currency in the key: the seeded line currency is
+                    // mount-only, so toggling USD/LBP must remount the widget.
+                    key={`${paymentInputKey}-${currency}`}
+                    // Single-currency model: the toggle clears the other
+                    // currency's fields, so the owed total lives entirely in
+                    // the active currency. Hardcoding the USD pair here made
+                    // an LBP-priced service show a $0 payment total.
                     totals={[
-                      { amount: priceUsdVal || costUsdVal, currency: "USD" },
+                      currency === "USD"
+                        ? { amount: priceUsdVal || costUsdVal, currency: "USD" }
+                        : {
+                            amount: priceLbpVal || costLbpVal,
+                            currency: "LBP",
+                          },
                     ]}
-                    currency="USD"
+                    currency={currency}
+                    totalAmountCurrency={currency}
                     onChange={setPaymentLines}
                     onReturnChange={setReturnLegs}
                     onKeptChange={setKeptChange}
                     requiresClientForDebt={true}
                     hasClient={!!clientId || !!clientName}
+                    // Auto-debt needs a RESOLVED client here: the submit
+                    // guard rejects debt legs without clientId (name-only
+                    // would auto-split and then dead-end at that alert).
+                    autoDebtRemainder={!!clientId}
                     paymentMethods={methods}
                     currencies={[
                       { code: "USD", symbol: "$" },

@@ -61,6 +61,81 @@ describe("getCashFlowDirection — unchanged types (guard against regressions)",
   it("unknown types render no badge", () => {
     expect(getCashFlowDirection("CLIENT_CREATED")).toBeNull();
   });
+
+  // CQ-10: COUNTERPARTY_DISCOUNT rows always carry amounts of 0 (the value
+  // lives in signed profit_usd/lbp) — no cash physically moved, so the
+  // viewer must fall through to the default "no badge" case, same as any
+  // other unmapped type, rather than crashing or guessing a direction.
+  it("COUNTERPARTY_DISCOUNT renders no badge (no cash moves — value is in profit, not amount)", () => {
+    expect(getCashFlowDirection("COUNTERPARTY_DISCOUNT")).toBeNull();
+    expect(
+      getCashFlowDirection("COUNTERPARTY_DISCOUNT", JSON.stringify({})),
+    ).toBeNull();
+  });
+});
+
+describe("getCashFlowDirection — PARTNER_SETTLEMENT / PARTNER_PAYMENT (CQ-8)", () => {
+  const flowMeta = (flow: "IN" | "OUT") =>
+    JSON.stringify({ counterparty: { flow } });
+
+  it.each(["PARTNER_SETTLEMENT", "PARTNER_PAYMENT"] as const)(
+    "%s: metadata.counterparty.flow IN → in",
+    (type) => {
+      expect(getCashFlowDirection(type, flowMeta("IN"))).toBe("in");
+    },
+  );
+
+  it.each(["PARTNER_SETTLEMENT", "PARTNER_PAYMENT"] as const)(
+    "%s: metadata.counterparty.flow OUT → out",
+    (type) => {
+      expect(getCashFlowDirection(type, flowMeta("OUT"))).toBe("out");
+    },
+  );
+
+  it.each(["PARTNER_SETTLEMENT", "PARTNER_PAYMENT"] as const)(
+    "%s: no counterparty metadata falls back to the sign of amount_usd (historical rows)",
+    (type) => {
+      expect(getCashFlowDirection(type, null, { usd: 25, lbp: 0 })).toBe("in");
+      expect(getCashFlowDirection(type, null, { usd: -25, lbp: 0 })).toBe(
+        "out",
+      );
+    },
+  );
+
+  it.each(["PARTNER_SETTLEMENT", "PARTNER_PAYMENT"] as const)(
+    "%s: sign fallback also reads amount_lbp when amount_usd is 0",
+    (type) => {
+      expect(getCashFlowDirection(type, null, { usd: 0, lbp: 900000 })).toBe(
+        "in",
+      );
+      expect(getCashFlowDirection(type, null, { usd: 0, lbp: -900000 })).toBe(
+        "out",
+      );
+    },
+  );
+
+  it("metadata.counterparty.flow takes precedence over the amount sign", () => {
+    expect(
+      getCashFlowDirection("PARTNER_SETTLEMENT", flowMeta("IN"), {
+        usd: -5,
+        lbp: 0,
+      }),
+    ).toBe("in");
+    expect(
+      getCashFlowDirection("PARTNER_PAYMENT", flowMeta("OUT"), {
+        usd: 5,
+        lbp: 0,
+      }),
+    ).toBe("out");
+  });
+
+  it("no metadata and no signed amounts → null (no badge, never crashes)", () => {
+    expect(getCashFlowDirection("PARTNER_SETTLEMENT", null)).toBeNull();
+    expect(getCashFlowDirection("PARTNER_PAYMENT", "not-json{")).toBeNull();
+    expect(
+      getCashFlowDirection("PARTNER_SETTLEMENT", null, { usd: 0, lbp: 0 }),
+    ).toBeNull();
+  });
 });
 
 describe("isCashTransaction — the 'Cash only (till)' filter predicate (B6)", () => {

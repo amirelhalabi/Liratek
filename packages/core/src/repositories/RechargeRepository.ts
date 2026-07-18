@@ -16,6 +16,7 @@ import {
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
+import { reconcileLegs, expectedTotalIn } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
@@ -844,6 +845,27 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           );
         }
         const deferPayment = data.deferPayment === true;
+
+        // S2 hard-reject reconciliation (Payment-Legs Integrity plan): the
+        // customer's legs must cover `data.price` — the same total this
+        // flow credits to drawers/debt below. No-ops on an empty
+        // `data.payments` (legacy single-payment fallback via paid_by_method)
+        // or under deferPayment/FOR-partner (neither owns the customer-cash
+        // side here — the session basket or the partner ledger does).
+        if (!isForPartner && !deferPayment) {
+          reconcileLegs({
+            inLegs: inPayments,
+            outLegs: returnLegs,
+            keptChange: {
+              usd: data.kept_change_usd,
+              lbp: data.kept_change_lbp,
+            },
+            expectedTotals: expectedTotalIn(data.price, currency),
+            exchangeRate: sellRate,
+            context: `${data.provider} ${data.type} recharge`,
+          });
+        }
+
         let hasDebt = false;
         if (isForPartner) {
           // No customer cash and no debt — the FULL price is booked to the
@@ -951,12 +973,30 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           if (!data.clientId) {
             throw new Error("Cannot create debt without a client");
           }
-          const debtAmount =
-            inPayments.length > 0
-              ? inPayments
-                  .filter((p) => !isDrawerAffectingMethod(p.method))
-                  .reduce((sum, p) => sum + Math.abs(p.amount), 0)
-              : data.price;
+          // S7 (Payment-Legs Integrity plan): book PER LEG CURRENCY, never
+          // summed across currencies into one column. The pre-fix code
+          // summed every non-drawer-affecting leg's `amount` regardless of
+          // `currencyCode` into a single `debtAmount`, then booked the WHOLE
+          // sum under whichever currency column matched the service
+          // `currency` — a USD account leg + an LBP account leg (e.g. $5 +
+          // 450,000) collapsed into "450,005" and landed entirely in ONE
+          // column. Mirrors FinancialServiceRepository's multi-leg Service
+          // Debt booking (debtUsd/debtLbp accumulated separately, per leg's
+          // OWN currencyCode).
+          let debtUsd = 0;
+          let debtLbp = 0;
+          if (inPayments.length > 0) {
+            for (const p of inPayments) {
+              if (isDrawerAffectingMethod(p.method)) continue;
+              if (p.currencyCode === "USD") debtUsd += Math.abs(p.amount);
+              else if (p.currencyCode === "LBP") debtLbp += Math.abs(p.amount);
+            }
+          } else {
+            // Single payment (backwards-compatible): the whole price is on
+            // account, in the recharge's own service currency.
+            if (currency === "USD") debtUsd = data.price;
+            else if (currency === "LBP") debtLbp = data.price;
+          }
           this.db
             .prepare(
               `INSERT INTO debt_ledger (
@@ -966,8 +1006,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             .run(
               data.clientId,
               "Recharge Debt",
-              currency === "USD" ? debtAmount : 0,
-              currency === "LBP" ? debtAmount : 0,
+              debtUsd,
+              debtLbp,
               txnId,
               note,
               createdBy,
@@ -1075,7 +1115,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
         // Create unified transaction record
-        getTransactionRepository().createTransaction({
+        const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE_TOPUP,
           source_table: "recharges",
           source_id: rechargeId,
@@ -1092,21 +1132,21 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           },
         });
 
-        // Record supplier ledger TOP_UP entry (liability — we now owe the supplier)
+        // Record supplier ledger TOP_UP entry (liability — we now owe the
+        // supplier). CQ-7: routed through addLedgerEntry's link-mode instead
+        // of a raw INSERT — same entry_type/amounts/note/is_auto(=0) as
+        // before, plus the RECHARGE_TOPUP transaction_id link the raw INSERT
+        // never stamped.
         if (supplier) {
-          this.db
-            .prepare(
-              `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-               VALUES (?, 'TOP_UP', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-            )
-            .run(
-              supplier.id,
-              currency === "USD" ? amount : 0,
-              currency === "LBP" ? amount : 0,
-              `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amount} ${currency}`,
-              data.userId,
-              tenantId,
-            );
+          getSupplierRepository().addLedgerEntry({
+            supplier_id: supplier.id,
+            entry_type: "TOP_UP",
+            amount_usd: currency === "USD" ? amount : 0,
+            amount_lbp: currency === "LBP" ? amount : 0,
+            note: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amount} ${currency}`,
+            created_by: data.userId,
+            transaction_id: txnId,
+          });
         }
 
         // Increase the provider drawer balance
@@ -1188,21 +1228,24 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
-        // Record partner ledger CREDIT entry (we now owe the partner).
-        // Inlined here (not via addLedgerEntry) to stay in this transaction.
-        this.db
-          .prepare(
-            `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, tenant_id, created_at)
-             VALUES (?, 'WHISH_TOPUP', 'recharges', ?, ?, ?, 'CREDIT', ?, ?, CURRENT_TIMESTAMP)`,
-          )
-          .run(
-            data.partnerId,
-            rechargeId,
-            amount,
-            currency,
-            data.userId,
-            tenantId,
-          );
+        // Record partner ledger CREDIT entry (we now owe the partner). CQ-7:
+        // routed through PartnerRepository.addLedgerEntry instead of a raw
+        // INSERT — same transaction_type/reference/amount/currency/direction
+        // as before (notes stays unset/NULL, matching the prior column list;
+        // no created_at override — the raw INSERT always used
+        // CURRENT_TIMESTAMP and this flow has no backdate field). WHISH_TOPUP
+        // is neither "SETTLEMENT" nor applyCoverage:true, so addLedgerEntry
+        // applies no FIFO coverage here — identical to before.
+        getPartnerRepository().addLedgerEntry({
+          partner_id: data.partnerId,
+          transaction_type: "WHISH_TOPUP",
+          reference_table: "recharges",
+          reference_id: rechargeId,
+          amount,
+          currency,
+          direction: "CREDIT",
+          user_id: data.userId,
+        });
 
         // Create unified transaction record
         getTransactionRepository().createTransaction({
