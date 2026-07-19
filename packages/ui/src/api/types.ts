@@ -542,6 +542,20 @@ export type ApiAdapter = {
     user_id?: number;
   }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
   getInitialCheckpointDate: () => Promise<string | null>;
+  /** Per-drawer last-checkpoint status (staleness badges, dashboard). Raw
+   *  Record — null when unavailable (non-critical read). */
+  getLastCheckpointPerDrawer: () => Promise<Record<
+    string,
+    {
+      drawer_name: string;
+      checked_at: string;
+      amounts: Record<string, { physical: number; expected: number }>;
+    }
+  > | null>;
+  /** Whether initial drawer amounts have ever been set (setup banner). */
+  hasInitialBalancesSet: () => Promise<boolean>;
+  /** Whether a starting (session-management) checkpoint has ever been recorded. */
+  hasStartingCheckpoint: () => Promise<boolean>;
 
   // ---------------------------------------------------------------------------
   // Suppliers

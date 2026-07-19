@@ -186,6 +186,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     user_id?: number;
   }) => api.getCheckpointTimeline(filters);
   getInitialCheckpointDate = () => api.getInitialCheckpointDate();
+  getLastCheckpointPerDrawer = () => api.getLastCheckpointPerDrawer();
+  hasInitialBalancesSet = () => api.hasInitialBalancesSet();
+  hasStartingCheckpoint = () => api.hasStartingCheckpoint();
 
   // ---------------------------------------------------------------------------
   // Suppliers

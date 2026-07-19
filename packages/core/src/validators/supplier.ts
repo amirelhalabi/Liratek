@@ -19,10 +19,18 @@ export const supplierLedgerEntrySchema = z.object({
   drawer_name: z.string().optional(),
 });
 
+// CQ-5 follow-up: a leg amount of 0 (or negative) is not a real payment —
+// SupplierRepository's settleTransactions/recordSupplierCashflow loops have
+// no runtime skip-guard (unlike DebtRepository's `if (leg.amount <= 0)
+// continue`), so a zero leg would post a noisy $0 payments row + a no-op
+// drawer upsert, and a negative leg would be silently coerced to its
+// magnitude by the repository's Math.abs(). Rejecting non-positive amounts
+// here — mirroring partnerSettlementLegSchema's existing `.positive()` — closes
+// the gap at the validation boundary instead of special-casing it downstream.
 const supplierPaymentLegSchema = z.object({
   method: z.string().min(1),
   currency_code: z.string().min(1),
-  amount: z.number(),
+  amount: z.number().positive(),
 });
 
 export const supplierSettleSchema = z.object({

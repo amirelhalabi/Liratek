@@ -284,10 +284,20 @@ by cashPaid with no partner row (the margin exists only as a drawer delta) — l
   job's delete is **blocked** — go through refund/void (lira-081).
 - **Known open gaps** (LEFT_TO_DO): voiding a FINANCIAL_SERVICE/RECHARGE row leaves its
   auto SUPPLIER_PAYMENT sibling standing — account for the sibling when touching voids.
-  Refunding a DEBT_REPAYMENT reverses the cash but not the `'Repayment'` ledger row
-  (rule-20 violation: either whitelist `'Repayment'` after a routing analysis, or gate
-  DEBT_REPAYMENT non-reversible like CREDIT_CASH_OUT). Aging/overdue views are
-  charge-only and keep showing reversed charges until due_date passes.
+  Aging/overdue views are charge-only and keep showing reversed charges until due_date
+  passes.
+- **D3 (DONE, 2026-07-19)**: voiding/refunding a DEBT_REPAYMENT now restores the debt,
+  not just the cash. `TransactionRepository._restoreRepaymentDebt` fires when the
+  reversed transaction IS the repayment itself (a different trigger from `_cancelDebt`,
+  which explicitly excludes `'Repayment'` rows) and (a) inserts a compensating
+  `'Repayment Reversal'` ledger row — named to stay outside the rule-20 guard's
+  `'<Module> Debt'` scan by construction, same shape as the existing `'Refund Reversal'`
+  precedent — and (b) unwinds the FIFO coverage the repayment applied
+  (`sales.paid_usd`, `debt_ledger.covered_usd/lbp`) via newest-first reverse-FIFO
+  helpers that mirror `_markSalesPaidFIFO`/`_coverServiceDebtsFIFO`. A bundled CQ-10
+  discount rides a SEPARATE, `NON_REVERSIBLE` transaction and is never touched — only
+  the cash repayment's own coverage share unwinds. See
+  `TransactionRepository.repaymentReversal.test.ts`.
 
 ---
 

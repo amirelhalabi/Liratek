@@ -9,8 +9,25 @@ docs) as of 2026-07-14: `packages/core/src/repositories/DebtRepository.ts`,
 v129). Companion docs: [FEATURE_GUIDE.md](./FEATURE_GUIDE.md) §8/§9/§10 (the
 money-rules version of this material, kept short), the origin tickets
 [COUNTERPARTY_CONSOLIDATION_PLAN.md](./plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md)
-(CQ-0…CQ-6) and [PARTNER_FOR_TRANSACTIONS_PLAN.md](./plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md)
+(CQ-0…CQ-11) and [PARTNER_FOR_TRANSACTIONS_PLAN.md](./plans/done_plans/PARTNER_FOR_TRANSACTIONS_PLAN.md)
 (PFT-1…PFT-7b, DBT-1, DBT-2).
+
+> **Update (2026-07-19)** — additive pass: CQ-1 through CQ-11 of the
+> consolidation plan landed since this doc's 2026-07-14 baseline. In brief:
+> CQ-1 drift guards (a partner-ledger mirror of `moduleDebtTypes.guard.test.ts`
+> now exists), CQ-2 (`utils/fifoCoverage.ts::allocateFifo`) and CQ-3
+> (`repositories/moneyPosting.ts`'s `applyDrawerDelta`/`insertPaymentRow`) and
+> CQ-4 (the same file's charge-routing guards + `bookClientDebtCharge`) — see
+> new §9 below for all three files. CQ-7 funneled Supplier's settlement writes
+> through `createTransaction`. CQ-8 added the `counterparty` metadata contract
+> (`validators/counterparty.ts`, also §9) stamped by every counterparty money
+> transaction. CQ-9 landed the REST/web-parity routes for suppliers + debt.
+> CQ-10 added discounts/write-offs (`COUNTERPARTY_DISCOUNT` transactions,
+> `'Debt Discount'`/`DISCOUNT` ledger types — folded into §2/§3/§4's type
+> tables below, plus `moneyPosting.ts::buildCounterpartyDiscountPosting` in
+> §9). CQ-11 gave Partner settlements split-leg payments (§3, §9). This pass
+> does **not** touch the `DEBT_REPAYMENT` void-gap note in §7 — that's tracked
+> and owned separately.
 
 ---
 
@@ -38,9 +55,11 @@ accrue (a module transaction charges the counterparty)
 | Reversal owner            | `TransactionRepository._cancelDebt` over `MODULE_DEBT_TRANSACTION_TYPES` (both currencies, ledger-only — no drawer touched)                                                                                                                | `TransactionRepository._reversePartnerLedger` — type-agnostic, keyed by `reference_table`/`reference_id` (no `transaction_id` FK on this table)                                                         | Generic void/refund (soft-void via `is_refunded`) + `_unapplySupplierPurchaseCoverage` (PAY-direction FIFO unwind only)                                                                                                                                  |
 
 Three storage schemas, one behavior family. `docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md`
-(CQ-1…CQ-6) is the plan to consolidate the _behavior_ (shared FIFO allocator,
-posting helpers, charge-routing helper) without touching the schemas — **not
-yet built** as of this writing; the sections below describe what exists today.
+(CQ-1…CQ-11) is the plan to consolidate the _behavior_ (shared FIFO allocator,
+posting helpers, charge-routing helper) without touching the schemas —
+**CQ-1 through CQ-11 have landed** (see the "Update (2026-07-19)" note above
+and §9 below for the shared helper layer); the sections below describe what
+exists today, including that landed work.
 
 ---
 
@@ -68,20 +87,22 @@ USD credit and an LBP debt simultaneously (FEATURE_GUIDE §5).
 | `'Loto Debt'`           | `LotoTicketRepository`                                                                                                                                              | `transaction_id` → LOTO txn                     | `_cancelDebt` (whitelisted); profit gated by `notDebtPending`                                                                                                                                                                                                                                                                |
 | `'Maintenance Debt'`    | `MaintenanceRepository`                                                                                                                                             | `transaction_id` → MAINTENANCE txn              | `_cancelDebt` (whitelisted); profit gated by `notDebtPending`                                                                                                                                                                                                                                                                |
 | `'Session Debt'`        | `SessionPaymentRepository` (one row per basket)                                                                                                                     | `session_id` (transaction_id is NULL)           | **Excluded** from `_cancelDebt` by design — reversed by the session flow, not the generic path (`moduleDebtTypes.guard.test.ts` `EXCLUDED_DEBT_TYPES`)                                                                                                                                                                       |
-| `'Repayment'`           | `DebtRepository.addRepayment`                                                                                                                                       | `transaction_id` → DEBT_REPAYMENT txn           | **Known gap** (FEATURE_GUIDE §9): voiding/refunding a DEBT_REPAYMENT reverses the cash (`_reversePayments`) but does **not** touch this ledger row — a rule-20 violation, not yet fixed. `'Repayment'` is deliberately kept OUT of `MODULE_DEBT_TRANSACTION_TYPES` (negating it would un-pay a debt via the wrong mechanism) |
+| `'Repayment'`           | `DebtRepository.addRepayment`                                                                                                                                       | `transaction_id` → DEBT_REPAYMENT txn           | **D3 (DONE, 2026-07-19)**: `TransactionRepository._restoreRepaymentDebt` — fires when the transaction BEING voided/refunded IS the DEBT_REPAYMENT itself (a different trigger from `_cancelDebt`), inserts a compensating `'Repayment Reversal'` row and unwinds the FIFO coverage the repayment applied (see §7). `'Repayment'` stays deliberately OUT of `MODULE_DEBT_TRANSACTION_TYPES` (negating it via `_cancelDebt` would un-pay a debt via the wrong mechanism — pinned by `debtReversal.test.ts`'s "whitelist guard" case) |
 | `'CREDIT_DEPOSIT'`      | `DebtRepository.depositCredit` / manual Add-Credit                                                                                                                  | none (manual entry)                             | Excluded — reversed by the opposite manual entry (`EXCLUDED_DEBT_TYPES`)                                                                                                                                                                                                                                                     |
 | `'CREDIT_USED'`         | `DebtService.useCredit` / `DebtService.cashOut`                                                                                                                     | none (manual entry)                             | Excluded — `CREDIT_CASH_OUT` (the transaction type wrapping a cash-out) is separately gated `NON_REVERSIBLE_TRANSACTION_TYPES`                                                                                                                                                                                               |
 | `'Manual Debt'`         | Manual Add-Debt (Debts page)                                                                                                                                        | none (manual entry)                             | Excluded — reversed by the opposite manual entry; `DEBT_CASH_OUT` is `NON_REVERSIBLE_TRANSACTION_TYPES`                                                                                                                                                                                                                      |
 | `'Imported Debt'`       | Excel import (`insertRawEntry`)                                                                                                                                     | none                                            | Excluded — corrected by re-import or manual entry (idempotent re-import, FEATURE_GUIDE §5)                                                                                                                                                                                                                                   |
 | `'Refund Reversal'`     | `TransactionRepository._cancelDebt` itself                                                                                                                          | `transaction_id` → the voided/refunded original | This IS the reversal row (a journal entry); it is also counted **into** the "outstanding Service Debt" computation on repayment routing (see below) so a refunded service debt stops re-routing repayments forever                                                                                                           |
+| `'Debt Discount'`       | `DebtRepository._postDebtDiscount` (CQ-10 — standalone client write-off, or bundled with a repayment; see §9's `buildCounterpartyDiscountPosting`)                  | `transaction_id` → COUNTERPARTY_DISCOUNT txn    | Not a `_cancelDebt` target — `COUNTERPARTY_DISCOUNT` is `NON_REVERSIBLE_TRANSACTION_TYPES` (§7); correction is an opposite manual discount, never a void. FIFO-covers open module-debt rows via `_coverServiceDebtsFIFO` like a real repayment would (a paper-only ADJUSTMENT would leave them stuck deferred forever)      |
 
 Every `'<Module> Debt'` string literal in `packages/core/src` is scanned by
 `constants/__tests__/moduleDebtTypes.guard.test.ts` at build time: it must be
 either in `MODULE_DEBT_TRANSACTION_TYPES` (generic reversal owns it) or in
 that test's `EXCLUDED_DEBT_TYPES` map with a named owner — an unclassified
-`'X Debt'` literal fails the suite. There is **no equivalent guard yet** for
-`partner_ledger`'s `FOR_*` literals (see §7 below); that guard is
-CQ-1 (**planned, not built**).
+`'X Debt'` literal fails the suite. `partner_ledger`'s `FOR_*`/`THROUGH_*`
+literals get the same treatment now — **CQ-1, landed**:
+`constants/__tests__/partnerLedgerTypes.guard.test.ts` (see §3 below) is the
+mirror guard.
 
 **Service-Debt repayment routing** (`DebtRepository.addRepayment`): when a
 repayment settles a `'Service Debt'`, funds are routed to the originating
@@ -126,8 +147,9 @@ bucket (added in PFT-1) is now dead-but-harmless plumbing.
 | `THROUGH_OMT_SEND` / `THROUGH_WHISH_SEND`                                                                     | CREDIT                                            | `FinancialServiceRepository` (`ledgerType = \`THROUGH*${OMT\|WHISH}*${SEND\|RECEIVE}\``, template-composed, not a literal — only OMT/OMT_APP→OMT and WHISH/WHISH_APP→WHISH map)               | `_reversePartnerLedger`                                                                                                                                                                                                            |
 | `THROUGH_OMT_RECEIVE` / `THROUGH_WHISH_RECEIVE`                                                               | DEBIT                                             | same as above                                                                                                                                                                                 | `_reversePartnerLedger`                                                                                                                                                                                                            |
 | `WHISH_TOPUP`                                                                                                 | CREDIT (shop owes partner for funding the wallet) | `RechargeRepository` (Whish App top-up via partner; touches no cash drawer)                                                                                                                   | The wrapping transaction is `RECHARGE_TOPUP`, which is `NON_REVERSIBLE` — this row has no practical void path (matches the "no payments row" rationale for RECHARGE_TOPUP)                                                         |
-| `SETTLEMENT`                                                                                                  | Either (computed from the current balance)        | `PartnerRepository.recordSettlementMoneyMovement` via `addLedgerEntry` (Partners-page settlement)                                                                                             | `PARTNER_SETTLEMENT`/`PARTNER_PAYMENT` transactions are **`NON_REVERSIBLE_TRANSACTION_TYPES`** — the FIFO `covered_amount` stamps this row applied cannot be un-applied generically; corrections are an opposite manual settlement |
+| `SETTLEMENT`                                                                                                  | Either (computed from the current balance)        | `PartnerRepository.recordSettlementMoneyMovement` via `addLedgerEntry` (Partners-page settlement — **CQ-11**: an optional `legs` array (`partnerSettleSchema.payments`) lets a settlement split across payment methods, e.g. "$60 CASH + $40 OMT"; each leg writes its own `payments` row + drawer delta, `settlementMethod` still stamps the ledger row for display, omitting `legs` keeps the legacy single-leg path byte-identical — see §9) | `PARTNER_SETTLEMENT`/`PARTNER_PAYMENT` transactions are **`NON_REVERSIBLE_TRANSACTION_TYPES`** — the FIFO `covered_amount` stamps this row applied cannot be un-applied generically; corrections are an opposite manual settlement |
 | `ADJUSTMENT`                                                                                                  | Either                                            | Manual Add-credit/debt (PFT-7/7b, `applyCoverage` optional)                                                                                                                                   | Same as SETTLEMENT if `applyCoverage`/cash-moved (wrapped in `PARTNER_PAYMENT`, non-reversible); a paper (non-cash) `ADJUSTMENT` has no transaction wrapper at all, so it's a plain manual ledger edit                             |
+| `DISCOUNT`                                                                                                    | Either (mirrors the settlement's own `entry.direction` — CREDIT → "forgiven"/IN, DEBIT → "received"/OUT; the D1 axis, §9) | `PartnerRepository.recordDiscount` (CQ-10 — bundled with a settlement, or a standalone write-off)                                                                                             | Same as SETTLEMENT — wrapped in `COUNTERPARTY_DISCOUNT`, `NON_REVERSIBLE_TRANSACTION_TYPES`; correction is an opposite manual discount. Runs `applySettlementCoverage` like a real settlement (a paper-only discount would leave `FOR_%` rows stuck deferred) |
 | `OMT_SEND`/`OMT_RECEIVE`/`WHISH_SEND`/`WHISH_RECEIVE`/`CUSTOM_SERVICE`                                        | —                                                 | **Legacy** — declared in `CreateLedgerEntryData`'s type union and in historical migration CHECK constraints; no current repository writes them. Superseded by the `FOR_*`/`THROUGH_*` system. | n/a (dead code path, kept for backward-compat reads of old rows)                                                                                                                                                                   |
 
 `FOR_%`/`THROUGH_%` rows **never act as coverage sources** — only `SETTLEMENT`
@@ -136,16 +158,21 @@ checkbox) run `applySettlementCoverage`. This is deliberate: a void's negating
 `FOR_%` row (opposite direction, same type) must never look like a real
 settlement of its own original.
 
-**No `FOR_*`/`THROUGH_*` literal guard exists yet.** Unlike `debt_ledger`'s
-`moduleDebtTypes.guard.test.ts`, there is no jest test scanning
-`partner_ledger` string literals — CQ-1 in the consolidation plan proposes a
-mirror guard but it is **not built**. Today, adding a new `FOR_*` type is
-enforced only at compile time (the `CreateLedgerEntryData["transaction_type"]`
-union in `PartnerRepository.ts`); the reversal path is automatic (type-agnostic
-`_reversePartnerLedger`), but the profit-recognition decision (immediate like
-iPick/Katsh, or gated like everything else) is a manual edit to
-`notPartnerPending`/`txnNotPartnerPending`'s exclusion list and is easy to
-forget.
+**`FOR_*`/`THROUGH_*` literal guard — CQ-1, landed.** Mirroring `debt_ledger`'s
+`moduleDebtTypes.guard.test.ts`,
+`constants/__tests__/partnerLedgerTypes.guard.test.ts` scans core source for
+every `"FOR_..."`/`"THROUGH_..."` string literal and fails the suite unless it
+is a member of `CreateLedgerEntryData["transaction_type"]` (or the test's own
+`UNUSED_ALLOWLIST`, for a declared-but-not-yet-used union member) — the same
+drift class `moduleDebtTypes.guard.test.ts` already caught for `debt_ledger`.
+Adding a new `FOR_*`/`THROUGH_*` type is still a compile-time union edit
+(`PartnerRepository.ts`) plus this guard catching an unclassified literal; the
+reversal path stays automatic (type-agnostic `_reversePartnerLedger`), but the
+profit-recognition decision (immediate like iPick/Katsh, or gated like
+everything else) is still a manual edit to
+`notPartnerPending`/`txnNotPartnerPending`'s exclusion list — the guard
+enforces the TYPE is classified, not that the profit gate was wired, so that
+part is still easy to forget.
 
 ---
 
@@ -153,10 +180,13 @@ forget.
 
 Schema (`electron-app/create_db.sql`): `id, tenant_id, supplier_id, entry_type
 TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','SALE_COST','PAYMENT',
-'ADJUSTMENT','SETTLEMENT','CASH_PRIZE','SUPPLIER_PAYS_US')), amount_usd,
+'ADJUSTMENT','SETTLEMENT','CASH_PRIZE','SUPPLIER_PAYS_US','DISCOUNT')), amount_usd,
 amount_lbp, note, created_by, transaction_id, is_auto, is_refunded,
 refunded_at, created_at`. This is the **only** one of the three ledgers that
-still has a live CHECK constraint on its type column.
+still has a live CHECK constraint on its type column — v131 (CQ-10) widened it
+to add `'DISCOUNT'` (a supplier forgiving part of what the shop owes); SQLite
+can't `ALTER` a CHECK, so the migration is a full table rebuild preserving
+every row (same 12-step pattern as v83/v98/v99/v127).
 
 **Sign convention**: **+ = shop owes supplier** ("You owe", red); **− = we've
 paid / they owe us less**. `addLedgerEntry` force-normalizes `PAYMENT` rows to
@@ -173,6 +203,7 @@ negative regardless of what the caller passed in.
 | `ADJUSTMENT`       | Manual only (Suppliers page, e.g. opening balances)                                                                                                                                                                                                                                                                                                                 | Generic (soft-void + drawer reversal if any)                                                                                                                                                                                                                                                                                                                     |
 | `SETTLEMENT`       | `SupplierRepository.settleTransactions` (batch-settle pending `financial_services` rows)                                                                                                                                                                                                                                                                            | The wrapping transaction is `SUPPLIER_SETTLEMENT`, which is **`NON_REVERSIBLE`** — the `financial_services.settlement_id`/`is_settled` stamps stay in place, and the commission credit to General has no payments row to reverse                                                                                                                                 |
 | `CASH_PRIZE`       | `LotoCashPrizeRepository`                                                                                                                                                                                                                                                                                                                                           | The wrapping transaction is `LOTO_CASH_PRIZE`, **`NON_REVERSIBLE`** (loto family; settle-to-zero reconciliation would break)                                                                                                                                                                                                                                     |
+| `DISCOUNT`         | `SupplierRepository._postSupplierDiscount` (CQ-10 — bundled with a PAY-direction cashflow, or a standalone write-off; RECEIVE-direction rejects a bundled discount at the data layer — a supplier can't simultaneously pay the shop and forgive what the shop owes them, see §9)                                                                                  | The wrapping transaction is `COUNTERPARTY_DISCOUNT`, **`NON_REVERSIBLE`**; correction is an opposite manual discount. Runs the same FIFO purchase-coverage pass a real `PAY` cashflow does (`allocateFifo`, §9) so open `supplier_purchases` rows don't stay stuck deferred                                                                                    |
 
 **Coverage — `supplier_purchases`** (delivery batches, USD-only:
 `total_usd`, `paid_usd`; no LBP column): a `PAY`-direction cashflow or a
@@ -196,8 +227,11 @@ derived, not stored: `paid_usd >= total_usd − 0.005` → `PAID`; `> 0.005` →
 
 All three are **oldest-first FIFO**, walk their open rows in a single pass,
 and clamp `take = min(remaining, row's outstanding)` — the same shape
-repeated three times (the CQ-2 ticket in the consolidation plan is exactly
-"extract this once").
+repeated three times. **CQ-2, landed**: `utils/fifoCoverage.ts::allocateFifo(open,
+budget, epsilon)` extracts exactly this — pure math, no DB access. Each call
+site above keeps its own SQL for selecting open rows and applying the UPDATE
+(rule 13 — consolidate behavior, not storage) and passes its own pre-existing
+epsilon from the table above, so no site's tolerance changed. See §9.
 
 Reversal of coverage exists in **one** direction: `_unapplySupplierPurchaseCoverage`
 un-applies purchase coverage on a voided/refunded supplier `PAYMENT`
@@ -283,18 +317,37 @@ view of the same idea (outstanding sale-level detail, not just a total).
   at all.)
 - Supplier `PAYMENT` rows via the generic reversal + `_unapplySupplierPurchaseCoverage`
   (drawer + ledger + FIFO purchase coverage all restored).
-
-**Known, currently-unowned gaps (do not claim these net to 0):**
-
-- Voiding a `FINANCIAL_SERVICE`/`RECHARGE` transaction leaves its auto
-  `SUPPLIER_PAYMENT` sibling row standing — nobody reverses the sibling.
-- Refunding a `DEBT_REPAYMENT` reverses the cash (`_reversePayments`) but
-  **not** the `'Repayment'` `debt_ledger` row itself — a rule-20 violation
-  with no assigned owner yet (either whitelist `'Repayment'` after a routing
-  analysis, or gate `DEBT_REPAYMENT` non-reversible like `CREDIT_CASH_OUT`).
+- **D3 (DONE, 2026-07-19)**: `DEBT_REPAYMENT` void/refund via
+  `TransactionRepository._restoreRepaymentDebt` — the generic `_reversePayments`
+  already restored the cash; this step restores the LEDGER side too: inserts a
+  compensating `'Repayment Reversal'` row (drives `debt_ledger` back to its
+  pre-repayment total, both currencies) AND unwinds the FIFO coverage the
+  repayment applied (`sales.paid_usd` via `_unwindSalesPaidFifo`,
+  `debt_ledger.covered_usd/lbp` via `_unwindServiceDebtCoverageFifo` — exact
+  mirrors of `_markSalesPaidFIFO`/`_coverServiceDebtsFIFO`, run newest-first
+  instead of oldest-first, INCLUDING the `s.status = 'completed'` filter on
+  the sales join — a sale that's since been voided/refunded carries a SECOND
+  `transactions` row at the same `source_id`, and dropping that filter
+  double-matches the sale and double-subtracts its `paid_usd`; caught by a
+  dedicated regression test before this landed). **Approximation** (same shape as the supplier
+  unwind above): nothing records which specific sale/charge rows a given
+  repayment's coverage landed on, so the give-back budget is re-derived from
+  the `'Repayment'` row's own absolute amounts and applied newest-covered-first
+  capped at each row's current coverage — exact when reversed in LIFO order
+  (the common case), imprecise under interleaved repayments on the same
+  client (same accepted imprecision as the supplier analog). **Boundary**: a
+  bundled CQ-10 `'Debt Discount'`/`COUNTERPARTY_DISCOUNT` transaction is a
+  SEPARATE transaction_id and is never touched by this step — it stays
+  `NON_REVERSIBLE` by design; only the cash repayment's own share of any
+  shared coverage unwinds. See `TransactionRepository.repaymentReversal.test.ts`.
 - `PARTNER_SETTLEMENT`/`PARTNER_PAYMENT` are flatly non-reversible — their
   FIFO `covered_amount` stamps have no unwind mechanism; correction is an
   opposite manual settlement/adjustment, never a void.
+- `COUNTERPARTY_DISCOUNT` rows (CQ-10 — all three ledgers' `'Debt
+  Discount'`/`DISCOUNT` entries, §2/§3/§4) are **by design** non-reversible
+  (`NON_REVERSIBLE_TRANSACTION_TYPES`), the same posture as the settlement
+  rows just above — not a gap, a decision: their FIFO coverage pass has no
+  generic unwind, so correction is an opposite manual discount, never a void.
 - Aging/overdue debt views are charge-only and keep showing a charge as
   outstanding until its `due_date` passes, even after it's been
   voided/refunded.
@@ -321,10 +374,10 @@ view of the same idea (outstanding sale-level detail, not just a total).
    - **Union / whitelist**: add the debt-ledger type to
      `MODULE_DEBT_TRANSACTION_TYPES` (or `EXCLUDED_DEBT_TYPES` with a named
      owner) — `moduleDebtTypes.guard.test.ts` enforces this at build time
-     **today**. For a new partner `FOR_*`/`THROUGH_*` type, the equivalent
-     guard (CQ-1) is **not built yet** — enforcement is compile-time-only via
-     the `CreateLedgerEntryData` union; don't assume a test will catch a
-     forgotten one.
+     **today**. For a new partner `FOR_*`/`THROUGH_*` type, add it to the
+     `CreateLedgerEntryData` union — `partnerLedgerTypes.guard.test.ts` (CQ-1,
+     landed, §3) now enforces at build time that the literal is a member of
+     that union, mirroring the debt-ledger guard.
    - **Reversal owner**: debt types get `_cancelDebt` for free once
      whitelisted; partner types get `_reversePartnerLedger` for free
      (type-agnostic) **as long as the wrapping transaction type is not** in
@@ -335,3 +388,136 @@ view of the same idea (outstanding sale-level detail, not just a total).
      scan (partner: `LIKE 'FOR\_%'`, excluding `FOR_IPICK`/`FOR_KATSH`; debt:
      the fixed 5-type `IN (...)` list). A type that's silently outside both
      scans recognizes its profit immediately by accident, not by decision.
+
+---
+
+## 9. Shared helper layer (CQ-2 / CQ-3 / CQ-4 / CQ-5 / CQ-8 / CQ-11 — landed)
+
+The consolidation plan's CQ-2 through CQ-5 extracted the genuinely shared
+_behavior_ referenced throughout this doc into three files. Repositories keep
+owning their SQL (rule 13) — these are called BY repos, never reach around
+them.
+
+**`utils/fifoCoverage.ts`** — `allocateFifo(open: {id, outstanding}[], budget,
+epsilon = 0.005): {id, take}[]`. Pure math, no DB access, no imports. Walks
+`open` oldest-first (the caller orders it), clamps each take at the row's
+outstanding balance, stops once the remaining budget drops to `epsilon` or
+below, and skips (without consuming budget) any row whose take would be at or
+below `epsilon` — that also covers rows with zero/negative outstanding. Backs
+all three FIFO mechanisms in §5 (§5's table lists which call site uses which
+epsilon — each kept its own pre-existing tolerance, nothing changed
+underneath any of them).
+
+**`repositories/moneyPosting.ts`** — the shared posting primitives:
+
+- `applyDrawerDelta(db, {drawerName, currencyCode, delta, tenantId})` — the
+  ONE `drawer_balances` upsert (`INSERT … ON CONFLICT(tenant_id, drawer_name,
+  currency_code) DO UPDATE SET balance = balance + excluded.balance`),
+  replacing 35 hand-rolled copies. Always create-on-first-write (net balance =
+  `delta` if the row doesn't exist yet). A handful of sites that must NOT
+  silently create a missing drawer (CustomServiceRepository's refund
+  reversal, RechargeRepository's provider-transfer source-drawer debit,
+  DrawerTopUpRepository's transfer-out leg) were surveyed for CQ-3 and
+  deliberately left on their own plain `UPDATE`.
+- `insertPaymentRow(db, {transactionId?, sessionId?, method, drawerName,
+  currencyCode, amount, note?, createdBy?, tenantId, createdAt?})` — the ONE
+  `payments` row INSERT, replacing ~19 hand-rolled prepared statements. A row
+  belongs to EITHER a transaction OR a session, never both.
+- `reconcileLegs({inLegs, outLegs?, keptChange?, expectedTotals, exchangeRate,
+  context})` — the payment-legs hard-reject check (Payment-Legs Integrity
+  plan, owner decision S2, seeded into this file one wave before CQ-3):
+  `sum(IN legs) − sum(OUT legs) − kept_change === expectedTotals`, evaluated
+  at the transaction's stamped exchange rate (or the till's own conversion
+  rate when it legitimately differs), epsilon $0.05 USD-equivalent. Throws
+  BEFORE any row is written, provided the caller invokes it inside the same
+  `db.transaction(...)` the flow runs in — the throw then unwinds everything
+  written so far. No-ops on an empty/undefined `inLegs` (legacy/scripted
+  callers with no structured legs at all never reach this check).
+- `bookClientDebtCharge(db, {clientId, transactionType, amountUsd?, amountLbp?,
+  transactionId, note?, createdBy?, tenantId})` — the ONE `debt_ledger` charge
+  INSERT (CQ-4), collapsing 12 hand-rolled call sites across
+  SalesRepository/RechargeRepository/FinancialServiceRepository/
+  MaintenanceRepository/CustomServiceRepository/LotoTicketRepository. Bakes in
+  the `due_date = datetime('now', '+30 days')` every site already used
+  identically. `transactionType` must stay a literal string AT THE CALL SITE
+  (not inside this helper) — `moduleDebtTypes.guard.test.ts` scans quoted
+  `'<Module> Debt'` literals anywhere in core source, function-argument
+  position included.
+- `assertPartnerIdRequired` / `assertNoCounterPayment` /
+  `assertNoCustomerAccountLeg` (CQ-4) — the three FOR-partner charge-routing
+  guards (counterparty required; no counter cash from a walk-in customer,
+  PFT-R; no CUSTOMER_ACCOUNT leg alongside a partner route) factored out of
+  Sales/Recharge/Loto/FinancialService's near-duplicate copies (6 copies
+  across 4 repos for the counter-payment guard alone). Error wording is
+  reproduced byte-identical per call site (several e2e specs assert
+  substrings of it) — there is deliberately no `bookPartnerCharge` companion
+  wrapping `PartnerRepository.addLedgerEntry` here: that would require
+  importing `PartnerRepository`, which already imports THIS file, a cycle for
+  zero duplication removed (every `addLedgerEntry` call's parameters are
+  irreducibly bespoke per provider/flow, not a repeated shape).
+- `buildCounterpartyDiscountPosting({kind, ledgerEntryId, counterpartyId,
+  counterpartyName, amountUsd, amountLbp, discountDirection, reason?,
+  extraMetadata?})` (CQ-5/CQ-10) — the signed-profit + `counterparty`
+  metadata shape shared by `DebtRepository._postDebtDiscount`,
+  `SupplierRepository._postSupplierDiscount`, and
+  `PartnerRepository.recordDiscount`. The **D1 sign/flow axis**
+  (`discountDirection: "forgiven" | "received"`): "forgiven" = the shop
+  forgives a receivable (a real cost, profit negative, flow IN) — always
+  Debt's case; "received" = a counterparty forgives a payable (a real gain,
+  profit positive, flow OUT) — always Supplier's case; Partner's direction
+  depends on `entry.direction` (CREDIT, partner owed the shop → "forgiven";
+  DEBIT, shop owed the partner → "received"). Does NOT call `createTransaction`
+  itself — importing `TransactionRepository` here would cycle back through
+  this same file (it already imports `applyDrawerDelta`/`insertPaymentRow`
+  from it) — so the caller still owns the transaction write, its own
+  ledger-row INSERT (`'Debt Discount'`/`'DISCOUNT'` stay literal at the call
+  site for the guard tests), the `transaction_id` link, and its own FIFO
+  coverage pass.
+
+**`validators/counterparty.ts`** — the counterparty transaction metadata
+contract (CQ-8). Every counterparty money transaction — client
+repayment/credit cash-in-out, supplier payment/settlement, partner
+settlement/payment — stamps ONE additional, namespaced `counterparty` object
+into `transactions.metadata_json`, additive to whatever flow-specific keys the
+site already wrote (`paid_by`, `legs`, `supplier_id`, `direction`,
+`entry_type`, `partner_id`, `settlement_method`, `is_credit` — all untouched):
+
+```
+metadata_json.counterparty = {
+  kind: 'client' | 'supplier' | 'partner',
+  id: number,
+  name: string,
+  flow: 'IN' | 'OUT',        // money into the shop vs out of the shop
+  method: string,             // payment/settlement method actually used, or
+                               // 'LEDGER' for a journal-only row with no
+                               // payments leg (e.g. a supplier TOP_UP accrual)
+  ledger_entry_id: number | null,
+  discount?: { amount_usd, amount_lbp, reason? },  // CQ-10
+}
+```
+
+Built by `buildCounterpartyMetadata(input)` so every write site produces the
+identical key shape (camelCase `ledgerEntryId` in, snake_case
+`ledger_entry_id` out — the mapping can't drift between call sites).
+`counterpartyMetadataSchema` validates the STORED shape (loose `z.number()`
+amounts — it's built server-side from already-normalized values);
+`counterpartyDiscountInputSchema` is the stricter INPUT-validation sibling
+(nonnegative amounts, at least one currency > 0) reused by
+`debt.ts`/`supplier.ts`/`partner.ts`'s write-off and bundled-discount schemas
+(rule 14 — defined once, never copy-pasted per subsystem).
+
+**CQ-11 — Partner split-leg settlement.** `partnerSettleSchema.payments`
+(optional; each leg's `amount` is `z.number().positive()`) lets a
+Partners-page settlement split across payment methods — e.g. "$100 owed,
+settle as $60 CASH + $40 OMT" — the same shape Accounts/Suppliers'
+`MultiPaymentInput` already sends. `PartnerRepository.recordSettlementMoneyMovement`'s
+optional `legs` param, when present, writes ONE `payments` row + one drawer
+delta PER leg (superseding the single legacy leg); `settlementMethod` is still
+required and still stamped on the `partner_ledger` row itself for display;
+omitting `legs` entirely keeps the legacy single-leg path byte-identical.
+Schema-level guards on `partnerSettleSchema`: every leg's `currency_code` must
+match the settlement's top-level `currency` (`partner_ledger` is
+one-currency-per-row — no cross-currency split inside one settle call), legs
+must sum to the settlement `amount` within a 0.005 tolerance, and
+`CLIENT_ACCOUNT` may never appear as a split leg (it settles no money, so it
+can only be the sole `settlementMethod`, never mixed into `payments`).

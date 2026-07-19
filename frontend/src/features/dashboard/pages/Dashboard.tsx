@@ -27,7 +27,6 @@ import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localMonth } from "@/shared/utils/localDay";
-import { isElectron } from "@/api/backendApi";
 
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
 
@@ -376,15 +375,14 @@ export default function Dashboard() {
       }
 
       // Load last-checkpoint-per-drawer for staleness badges (admin +
-      // session mgmt only). This read has no REST mirror yet — isElectron()
-      // (not raw window.api truthiness) so the web-test shim, which keeps
-      // isElectron() false on purpose, skips it consistently with real web.
-      if (checkpointsEnabled && isElectron()) {
+      // session mgmt only). Dual-mode via useApi() — no window.api gate; the
+      // REST mirror landed (backend/src/api/closing.ts), so this now works
+      // identically in web mode.
+      if (checkpointsEnabled) {
         try {
-          const statusRes =
-            await window.api?.closing.getLastCheckpointPerDrawer();
-          if (statusRes?.success && statusRes.data) {
-            setDrawerStatuses(statusRes.data);
+          const statuses = await api.getLastCheckpointPerDrawer();
+          if (statuses) {
+            setDrawerStatuses(statuses);
           }
         } catch {
           // non-critical
@@ -460,28 +458,26 @@ export default function Dashboard() {
   );
 
   // Check once on mount whether initial drawer amounts have been set.
+  // Dual-mode via useApi() — no window.api gate; the REST mirror landed
+  // (backend/src/api/closing.ts), so this now works identically in web mode.
   useEffect(() => {
-    // IPC-only check — in web mode keep the default (no setup banner).
-    // isElectron() (not raw window.api truthiness) so the web-test shim,
-    // which keeps isElectron() false on purpose, skips this consistently.
-    if (!isElectron()) return;
-    window.api?.closing.hasInitialBalancesSet().then((isSet) => {
+    api.hasInitialBalancesSet().then((isSet) => {
       setInitialBalancesSet(isSet);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Whether a starting checkpoint has ever been recorded. Only relevant when
   // checkpoints (session management) are enabled; otherwise treat as satisfied
-  // so the banner never shows for shops that don't use the timeline.
+  // so the banner never shows for shops that don't use the timeline. Dual-mode
+  // via useApi() — no window.api gate.
   const refreshStartingCheckpoint = useCallback(() => {
-    if (!checkpointsEnabled || !isElectron()) {
+    if (!checkpointsEnabled) {
       setStartingCheckpointSet(true);
       return;
     }
-    window.api?.closing
-      .hasStartingCheckpoint()
-      .then((isSet) => setStartingCheckpointSet(isSet));
-  }, [checkpointsEnabled]);
+    api.hasStartingCheckpoint().then((isSet) => setStartingCheckpointSet(isSet));
+  }, [checkpointsEnabled, api]);
 
   useEffect(() => {
     refreshStartingCheckpoint();

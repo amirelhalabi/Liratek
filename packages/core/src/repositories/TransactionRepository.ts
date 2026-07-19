@@ -27,6 +27,7 @@ import { getRateRepository } from "./RateRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import { allocateFifo } from "../utils/fifoCoverage.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -874,6 +875,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // maintenance), not just sales. No-op when nothing matches.
       this._cancelDebt(id, userId);
 
+      // 5a. D3 (COUNTERPARTY_CONSOLIDATION_PLAN.md) — if the transaction
+      // being voided IS a DEBT_REPAYMENT itself, restore the debt the
+      // repayment paid down and unwind the FIFO coverage it applied. No-op
+      // for every other transaction type (see the method doc for the
+      // disjoint-trigger proof vs. _cancelDebt above).
+      this._restoreRepaymentDebt(original, userId);
+
       // 5b. Reverse any partner_ledger rows tied to this transaction
       // (PFT-2, rule 20) — type-agnostic, so this also fixes the
       // pre-existing FOR_OMT/THROUGH_* void gap uniformly.
@@ -991,6 +999,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // every account-charged flow (sale, recharge, financial/custom service,
       // maintenance), not just sales. No-op when nothing matches.
       this._cancelDebt(id, userId);
+
+      // 4a. D3 (COUNTERPARTY_CONSOLIDATION_PLAN.md) — if the transaction
+      // being refunded IS a DEBT_REPAYMENT itself, restore the debt the
+      // repayment paid down and unwind the FIFO coverage it applied. No-op
+      // for every other transaction type.
+      this._restoreRepaymentDebt(original, userId);
 
       // 4b. Reverse any partner_ledger rows tied to this transaction
       // (PFT-2, rule 20) — type-agnostic, so this also fixes the
@@ -1176,6 +1190,241 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         tenantId,
       );
       remaining -= giveBack;
+    }
+  }
+
+  /**
+   * D3 (COUNTERPARTY_CONSOLIDATION_PLAN.md, owner-decided 2026-07-18) —
+   * voiding/refunding a DEBT_REPAYMENT transaction must give the debt back,
+   * not just the cash. `_reversePayments` already undoes the drawer side
+   * (the customer's cash / provider RESERVE legs); this step undoes the
+   * LEDGER side `DebtRepository.addRepayment` applied: the 'Repayment'
+   * debt_ledger reduction itself, plus the FIFO coverage stamps it bumped
+   * (`sales.paid_usd` via `_markSalesPaidFIFO`, `debt_ledger.covered_usd/lbp`
+   * via `_coverServiceDebtsFIFO`). This was a long-documented, unowned gap
+   * (COUNTERPARTY_LEDGERS.md §7, FEATURE_GUIDE §9) — this method is now its
+   * owner.
+   *
+   * Trigger is DIFFERENT from `_cancelDebt`: this fires only when the
+   * REVERSED transaction IS the repayment itself (type DEBT_REPAYMENT,
+   * source_table 'debt_ledger'); `_cancelDebt` fires when a MODULE CHARGE
+   * transaction (Sale/Recharge/Service/…) is reversed, and its whitelist
+   * (MODULE_DEBT_TRANSACTION_TYPES) deliberately EXCLUDES 'Repayment' rows
+   * (pinned by debtReversal.test.ts's "whitelist guard" case) so that
+   * reversing a charge never un-pays an unrelated, later repayment. The two
+   * never fire for the same call — no double-reversal risk, no conflict with
+   * that existing pin.
+   *
+   * Boundary (CQ-10): a bundled 'Debt Discount' posts its OWN
+   * COUNTERPARTY_DISCOUNT transaction — a DIFFERENT transaction_id, whose
+   * source_id is the 'Debt Discount' ledger row, never the repayment's own
+   * 'Repayment' row. This method only ever looks up `original.source_id`
+   * (the repayment's row), so it can never see or touch the discount's row
+   * or transaction. COUNTERPARTY_DISCOUNT is NON_REVERSIBLE by design
+   * (correcting a discount is always an opposite discount, never a void) —
+   * voiding the cash side of a discounted repayment must leave the bundled
+   * discount exactly as forgiven as before.
+   *
+   * Approximation (same shape as `_unapplySupplierPurchaseCoverage`):
+   * nothing records exactly which sale/charge rows THIS repayment's coverage
+   * landed on, so the give-back budget is re-derived from the 'Repayment'
+   * row's absolute amounts and applied newest-covered-first, capped at each
+   * row's CURRENT coverage — mirroring `_markSalesPaidFIFO` →
+   * `_coverServiceDebtsFIFO`'s oldest-first/remainder-chaining shape, run in
+   * reverse. Exact when reversed in LIFO order (the common case: void/refund
+   * soon after the repayment); interleaved repayments on the same client can
+   * give back coverage a DIFFERENT repayment applied — the same accepted
+   * imprecision as the supplier analog.
+   *
+   * Viewer note: the new 'Repayment Reversal' row is deliberately NOT added
+   * to `ACCOUNT_CHARGE_PREDICATE`'s exclusion (unlike 'Refund Reversal').
+   * The repayment's OWN 'Repayment' row already satisfies that predicate
+   * (pre-existing, independent of this fix) and gets reconstructed as a
+   * CUSTOMER_ACCOUNT leg on the repayment's row regardless; excluding the
+   * reversal here would leave that pre-existing leg unbalanced (looking like
+   * a standing on-account charge) instead of netting to zero. Cosmetic only
+   * — no ledger amount is affected either way.
+   */
+  private _restoreRepaymentDebt(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    if (
+      original.type !== "DEBT_REPAYMENT" ||
+      original.source_table !== "debt_ledger" ||
+      !original.source_id
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+    const ledger = this.queryOne<{
+      client_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      transaction_type: string;
+    }>(
+      `SELECT client_id, amount_usd, amount_lbp, transaction_type
+       FROM debt_ledger WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    // Defensive: a DEBT_REPAYMENT transaction's source_id always points at
+    // its own 'Repayment' row, but never trust a join blindly.
+    if (!ledger || ledger.transaction_type !== "Repayment") return;
+
+    // The 'Repayment' row stores NEGATIVE amounts (a debt reduction); the
+    // give-back budget — and the compensating row below — use the absolute
+    // value so the restore is a straightforward sign flip.
+    const budgetUsd = Math.abs(ledger.amount_usd);
+    const budgetLbp = Math.abs(ledger.amount_lbp);
+
+    // 1. Restore the debt: a compensating row that negates the 'Repayment'
+    // reduction. Named 'Repayment Reversal' — NOT '<Module> Debt' — so the
+    // rule-20 guard (moduleDebtTypes.guard.test.ts), which only classifies
+    // string literals ending in " Debt", never has to classify it; same
+    // shape as the existing 'Refund Reversal' precedent used by _cancelDebt.
+    // Linked via transaction_id = original.id (the DEBT_REPAYMENT's own id),
+    // mirroring _cancelDebt's originalTxnId linking, not the reversal row's
+    // own new id.
+    this.execute(
+      `INSERT INTO debt_ledger
+        (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id)
+       VALUES (?, 'Repayment Reversal', ?, ?, ?, ?, ?, ?)`,
+      ledger.client_id,
+      budgetUsd,
+      budgetLbp,
+      original.id,
+      "Repayment reversed by refund/void",
+      userId,
+      tenantId,
+    );
+
+    // 2. Unwind the FIFO coverage this repayment applied. Sales absorb first
+    // (mirrors _markSalesPaidFIFO's priority in the forward direction); the
+    // USD remainder plus the full LBP budget then unwinds module-debt
+    // covered_usd/covered_lbp (mirrors _coverServiceDebtsFIFO). Same budget
+    // chaining shape as the forward path, just newest-first and giving back
+    // instead of taking.
+    const consumedBySales = this._unwindSalesPaidFifo(
+      ledger.client_id,
+      budgetUsd,
+      tenantId,
+    );
+    this._unwindServiceDebtCoverageFifo(
+      ledger.client_id,
+      Math.max(0, budgetUsd - consumedBySales),
+      budgetLbp,
+      tenantId,
+    );
+  }
+
+  /**
+   * Reverse-FIFO give-back for `sales.paid_usd` — the exact mirror of
+   * `_markSalesPaidFIFO`, but newest-first (instead of oldest-first) and
+   * subtracting (instead of adding). Returns the consumed amount so the
+   * caller can chain the unconsumed remainder into the service-debt unwind,
+   * exactly like the forward direction chains ITS remainder into
+   * `_coverServiceDebtsFIFO`.
+   *
+   * `s.status = 'completed'` is REQUIRED here (not cosmetic) — it's what
+   * _markSalesPaidFIFO's own SELECT carries and this query must keep: a sale
+   * that has since been voided/refunded gets a SECOND `transactions` row
+   * pointing at the same `source_id` (a VOID reversal keeps `type='SALE'`; a
+   * REFUND row does too), so without this filter the JOIN would return that
+   * sale TWICE and double-subtract its `paid_usd` on the SAME allocateFifo
+   * pass. Excluding non-'completed' sales keeps the join 1:1, same as the
+   * forward direction.
+   */
+  private _unwindSalesPaidFifo(
+    clientId: number,
+    budgetUsd: number,
+    tenantId: number,
+  ): number {
+    if (budgetUsd <= 0) return 0;
+
+    const paidSales = this.query<{ id: number; paid_usd: number }>(
+      `SELECT s.id, s.paid_usd
+       FROM sales s
+       JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id
+         AND t.tenant_id = s.tenant_id
+       WHERE t.client_id = ? AND s.status = 'completed' AND s.paid_usd > 0
+         AND s.tenant_id = ?
+       ORDER BY s.created_at DESC, s.id DESC`,
+      clientId,
+      tenantId,
+    );
+
+    // CQ-2 shared allocator; epsilon 0.01 matches _markSalesPaidFIFO's own
+    // tolerance exactly.
+    const takes = allocateFifo(
+      paidSales.map((s) => ({ id: s.id, outstanding: s.paid_usd })),
+      budgetUsd,
+      0.01,
+    );
+
+    const upd = this.db.prepare(
+      `UPDATE sales SET paid_usd = paid_usd - ? WHERE id = ? AND tenant_id = ?`,
+    );
+    let consumed = 0;
+    for (const t of takes) {
+      upd.run(t.take, t.id, tenantId);
+      consumed += t.take;
+    }
+    return consumed;
+  }
+
+  /**
+   * Reverse-FIFO give-back for `debt_ledger.covered_usd/covered_lbp` — the
+   * exact mirror of `_coverServiceDebtsFIFO`: same MODULE-debt type set,
+   * newest-first, each currency allocated independently via the shared
+   * allocator and merged into one UPDATE per row.
+   */
+  private _unwindServiceDebtCoverageFifo(
+    clientId: number,
+    budgetUsd: number,
+    budgetLbp: number,
+    tenantId: number,
+  ): void {
+    if (budgetUsd <= 0.005 && budgetLbp <= 1) return;
+
+    const covered = this.query<{
+      id: number;
+      covered_usd: number;
+      covered_lbp: number;
+    }>(
+      `SELECT id, covered_usd, covered_lbp
+       FROM debt_ledger
+       WHERE client_id = ? AND tenant_id = ?
+         AND transaction_type IN ('Recharge Debt', 'Service Debt', 'Custom Service Debt', 'Loto Debt', 'Maintenance Debt')
+         AND (covered_usd > 0 OR covered_lbp > 0)
+       ORDER BY created_at DESC, id DESC`,
+      clientId,
+      tenantId,
+    );
+
+    const usdTakes = allocateFifo(
+      covered.map((r) => ({ id: r.id, outstanding: r.covered_usd })),
+      budgetUsd,
+      0.005,
+    );
+    const lbpTakes = allocateFifo(
+      covered.map((r) => ({ id: r.id, outstanding: r.covered_lbp })),
+      budgetLbp,
+      1,
+    );
+    const usdById = new Map(usdTakes.map((t) => [t.id, t.take]));
+    const lbpById = new Map(lbpTakes.map((t) => [t.id, t.take]));
+
+    const upd = this.db.prepare(
+      `UPDATE debt_ledger SET covered_usd = covered_usd - ?, covered_lbp = covered_lbp - ?
+       WHERE id = ? AND tenant_id = ?`,
+    );
+    for (const row of covered) {
+      const takeUsd = usdById.get(row.id) ?? 0;
+      const takeLbp = lbpById.get(row.id) ?? 0;
+      if (takeUsd > 0 || takeLbp > 0) {
+        upd.run(takeUsd, takeLbp, row.id, tenantId);
+      }
     }
   }
 

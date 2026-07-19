@@ -1170,6 +1170,78 @@ export async function hasOpeningBalanceToday() {
   return res.hasOpening;
 }
 
+// CQ-9 follow-up (dashboard staleness badges) — mirrors IPC's
+// closing:get-last-checkpoint-per-drawer envelope ({success, data}) on both
+// transports, unwrapped here so callers get the raw Record directly (matches
+// getInitialCheckpointDate's "raw value" convention below). Returns null on
+// failure (non-critical read — callers already treat it as such).
+export async function getLastCheckpointPerDrawer(): Promise<Record<
+  string,
+  {
+    drawer_name: string;
+    checked_at: string;
+    amounts: Record<string, { physical: number; expected: number }>;
+  }
+> | null> {
+  if (isElectron()) {
+    const res = await (window as any).api.closing.getLastCheckpointPerDrawer();
+    return res?.success && res.data ? res.data : null;
+  }
+  try {
+    const res = await requestJson<{
+      success: boolean;
+      data?: Record<
+        string,
+        {
+          drawer_name: string;
+          checked_at: string;
+          amounts: Record<string, { physical: number; expected: number }>;
+        }
+      >;
+    }>("/api/closing/last-checkpoint-per-drawer");
+    return res.success && res.data ? res.data : null;
+  } catch {
+    return null;
+  }
+}
+
+// CQ-9 follow-up — mirrors closing:has-initial-balances-set. The IPC handler
+// never throws to its caller; it resolves with a conservative default (false)
+// on internal failure. The REST route matches that (always 200), and this
+// wrapper additionally swallows any network-level failure to the same
+// default, so both transports share one never-rejects contract.
+export async function hasInitialBalancesSet(): Promise<boolean> {
+  if (isElectron()) {
+    return (window as any).api.closing.hasInitialBalancesSet();
+  }
+  try {
+    const res = await requestJson<{ success: boolean; isSet: boolean }>(
+      "/api/closing/has-initial-balances-set",
+    );
+    return res.isSet;
+  } catch {
+    return false;
+  }
+}
+
+// CQ-9 follow-up — mirrors closing:has-starting-checkpoint. Conservative
+// default on failure is `true` here (opposite of hasInitialBalancesSet above)
+// so the session-management setup banner never wrongly fires — matches
+// dbHandlers.ts:373-389.
+export async function hasStartingCheckpoint(): Promise<boolean> {
+  if (isElectron()) {
+    return (window as any).api.closing.hasStartingCheckpoint();
+  }
+  try {
+    const res = await requestJson<{ success: boolean; isSet: boolean }>(
+      "/api/closing/has-starting-checkpoint",
+    );
+    return res.isSet;
+  } catch {
+    return true;
+  }
+}
+
 export async function getDailyStatsSnapshot() {
   if (isElectron()) {
     return (window as any).api.closing.getDailyStatsSnapshot();

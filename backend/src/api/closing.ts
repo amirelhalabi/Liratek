@@ -51,6 +51,54 @@ router.get("/has-opening-balance-today", requireAuth, async (_req, res) => {
   }
 });
 
+// GET /api/closing/last-checkpoint-per-drawer — drawer status board (staleness
+// badges, dashboard). Mirrors IPC's closing:get-last-checkpoint-per-drawer
+// envelope exactly: {success:true, data} / {success:false, error}.
+router.get("/last-checkpoint-per-drawer", requireAuth, async (_req, res) => {
+  try {
+    const data = closingService.getLastCheckpointPerDrawer();
+    res.json({ success: true, data });
+  } catch (error) {
+    logger.error({ error }, "Get last checkpoint per drawer error");
+    res.status(500).json({
+      success: false,
+      error: "Failed to get last checkpoint per drawer",
+    });
+  }
+});
+
+// GET /api/closing/has-initial-balances-set — whether initial drawer amounts
+// have ever been set (dashboard setup banner). Mirrors the IPC handler's
+// contract: it never throws to the caller, it resolves with a conservative
+// default (false) on internal failure — so this route always answers 200
+// with {success, isSet}, never a hard error status, keeping the two
+// transports byte-identical for this specific read.
+router.get("/has-initial-balances-set", requireAuth, async (_req, res) => {
+  try {
+    const isSet = closingService.hasInitialBalancesSet();
+    res.json({ success: true, isSet });
+  } catch (error) {
+    logger.error({ error }, "Check initial balances set error");
+    res.json({ success: false, isSet: false });
+  }
+});
+
+// GET /api/closing/has-starting-checkpoint — whether a starting checkpoint
+// has ever been recorded (session-management setup banner). Same
+// never-throws contract as above; the IPC handler's conservative default on
+// failure is `true` here (so the setup banner never wrongly fires when
+// checkpoints are enabled) — deliberately the OPPOSITE default of
+// has-initial-balances-set above, matching dbHandlers.ts:373-389.
+router.get("/has-starting-checkpoint", requireAuth, async (_req, res) => {
+  try {
+    const isSet = closingService.hasStartingCheckpoint();
+    res.json({ success: true, isSet });
+  } catch (error) {
+    logger.error({ error }, "Check starting checkpoint error");
+    res.json({ success: false, isSet: true });
+  }
+});
+
 // GET /api/closing/daily-stats-snapshot
 router.get("/daily-stats-snapshot", requireAuth, async (_req, res) => {
   try {
