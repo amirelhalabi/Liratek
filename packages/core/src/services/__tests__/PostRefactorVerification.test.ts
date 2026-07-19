@@ -117,6 +117,7 @@ function buildSchema(db: Database.Database): void {
       tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
+      session_id     INTEGER,
       method         TEXT NOT NULL,
       drawer_name    TEXT NOT NULL,
       currency_code  TEXT NOT NULL,

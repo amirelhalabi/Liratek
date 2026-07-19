@@ -6,6 +6,7 @@ import {
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 export interface ExpenseEntity {
   id: number;
@@ -87,38 +88,27 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
 
       // All expenses affect drawer balances (unless paid by non-drawer-affecting method)
       if (isDrawerAffectingMethod(paidBy)) {
-        const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
-
-        const insertPayment = this.db.prepare(`
-          INSERT INTO payments (
-            tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
-          ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?
-          )
-        `);
-
         const note = `${data.category}: ${data.description}`;
         const createdBy = userId;
 
         const postOutflow = (currency: string, amount: number) => {
           const delta = -Math.abs(amount);
-          insertPayment.run(
-            tenantId,
-            txnId,
-            paidBy,
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: paidBy,
             drawerName,
-            currency,
-            delta,
+            currencyCode: currency,
+            amount: delta,
             note,
             createdBy,
-          );
-          upsertBalance.run(tenantId, drawerName, currency, delta);
+            tenantId,
+          });
+          applyDrawerDelta(this.db, {
+            drawerName,
+            currencyCode: currency,
+            delta,
+            tenantId,
+          });
         };
 
         // Binance is a USDT-denominated wallet: the shop pays the expense out

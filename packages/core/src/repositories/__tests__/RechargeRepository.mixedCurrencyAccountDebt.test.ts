@@ -297,7 +297,9 @@ describe("RechargeRepository — S7 mixed-currency on-account debt", () => {
     // NOT a single collapsed/miscolumned pair.
     const debts = debtRows(db);
     expect(debts).toHaveLength(2);
-    const reversal = debts.find((d) => d.transaction_type === "Refund Reversal");
+    const reversal = debts.find(
+      (d) => d.transaction_type === "Refund Reversal",
+    );
     expect(reversal?.amount_usd).toBeCloseTo(-5, 2);
     expect(reversal?.amount_lbp).toBeCloseTo(-450000, 2);
   });

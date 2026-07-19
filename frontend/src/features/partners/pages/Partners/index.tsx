@@ -49,7 +49,11 @@ import {
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
-import { capSettlementDiscount } from "../../utils/settlementDiscount";
+import {
+  capSettlementDiscount,
+  discountRoomAfterSettlement,
+  isDiscountClippedBySettlement,
+} from "../../utils/settlementDiscount";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -388,12 +392,36 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   // against the balance. capSettlementDiscount caps the discount at what's
   // left AFTER the settlement amount, so "owed X, paid Y, discount Z" can
   // never post Y + Z > X against this partner's balance.
-  const maxDiscountInCurrency = Math.max(0, balanceInCurrency - parsedAmount);
+  const maxDiscountInCurrency = discountRoomAfterSettlement(
+    balanceInCurrency,
+    parsedAmount,
+  );
+  // Raw (uncapped) value the operator has actually typed — shown in the
+  // discount field itself so it doesn't silently rubber-band back to a
+  // smaller number every keystroke (see isDiscountClippedBySettlement).
+  const requestedDiscountRaw = Math.max(0, parseFloat(discountAmount) || 0);
   const parsedDiscount = capSettlementDiscount(
     balanceInCurrency,
     parsedAmount,
-    parseFloat(discountAmount) || 0,
+    requestedDiscountRaw,
   );
+  // UX fix (COUNTERPARTY_CONSOLIDATION_PLAN follow-up): MultiPaymentInput
+  // auto-fills the settlement leg to the FULL balance by default, so a
+  // discount typed before the operator manually shrinks that leg has zero
+  // room and gets capped to 0 with no explanation — reads as a broken
+  // input rather than an over-the-cap discount. The persistent "Up to $X"
+  // label below already switches to explicit guidance when
+  // maxDiscountInCurrency is 0 (the resting/no-room case); this flag
+  // additionally drives a "only $X will apply" hint for the PARTIAL-room
+  // case, where some room exists but the typed amount still overshoots it.
+  // Money semantics are unchanged either way: parsedDiscount (capped) is
+  // still the only value submitted.
+  const discountClipped = isDiscountClippedBySettlement(
+    balanceInCurrency,
+    parsedAmount,
+    requestedDiscountRaw,
+  );
+  const fmtCur = (n: number) => (currency === "USD" ? fmtUSD(n) : fmtLBP(n));
   // Netted out of what MultiPaymentInput is fed as "owed" — otherwise a
   // partial settle + a discount covering the rest would show a false
   // "Remaining (Debt)" warning inside the split-leg form (the discount isn't
@@ -580,20 +608,32 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">
                 Discount / Forgive ({currency})
               </span>
-              <span className="text-[11px] text-emerald-400/70">
-                Up to{" "}
-                {currency === "USD"
-                  ? fmtUSD(maxDiscountInCurrency)
-                  : fmtLBP(maxDiscountInCurrency)}{" "}
-                (after settlement)
+              <span
+                className="text-[11px] text-emerald-400/70"
+                data-testid="partner-settle-discount-room-label"
+              >
+                {maxDiscountInCurrency > 0
+                  ? `Up to ${fmtCur(maxDiscountInCurrency)} (after settlement)`
+                  : "Lower the payment amount to make room for a discount"}
               </span>
             </div>
             <DecimalInput
-              value={parsedDiscount}
+              value={requestedDiscountRaw}
               onChange={(n) => setDiscountAmount(n ? String(n) : "")}
               className="w-full bg-slate-900 border border-emerald-700/40 rounded-lg px-3 py-2 text-emerald-100 text-sm focus:outline-none focus:border-emerald-500"
               placeholder="0.00"
             />
+            {/* Only for the PARTIAL-room case — when there's no room at
+                all the label above already says so; this avoids repeating
+                the same guidance twice. */}
+            {discountClipped && maxDiscountInCurrency > 0 && (
+              <p
+                className="text-[11px] text-amber-400/90"
+                data-testid="partner-settle-discount-room-hint"
+              >
+                {`Only ${fmtCur(maxDiscountInCurrency)} will be applied — lower the payment amount above to free up more room.`}
+              </p>
+            )}
             {parsedDiscount > 0 && (
               <input
                 type="text"

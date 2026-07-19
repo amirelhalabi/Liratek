@@ -537,16 +537,21 @@ export type {
   UpdateTenantData,
 } from "./TenantRepository.js";
 
-// Money posting helpers (seed of CQ-3's moneyPosting.ts — Payment-Legs
-// Integrity plan, S2 hard-reject leg reconciliation)
+// Money posting helpers (moneyPosting.ts — seeded by the Payment-Legs
+// Integrity plan's S2 hard-reject leg reconciliation; grown by CQ-3 with the
+// shared drawer-upsert/payments-INSERT helpers)
 export {
   reconcileLegs,
   expectedTotalIn,
   LEG_RECONCILIATION_EPSILON_USD,
+  applyDrawerDelta,
+  insertPaymentRow,
 } from "./moneyPosting.js";
 export type {
   ReconciliationLeg,
   KeptChange,
   ExpectedTotals,
   ReconcileLegsInput,
+  ApplyDrawerDeltaInput,
+  InsertPaymentRowInput,
 } from "./moneyPosting.js";

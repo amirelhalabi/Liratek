@@ -18,6 +18,11 @@ import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  bookClientDebtCharge,
+} from "./moneyPosting.js";
 
 // =============================================================================
 // Entity Types
@@ -145,21 +150,45 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         const methodDrawerName = paymentMethodToDrawerName(paidBy);
         const noteText = `Custom Service: ${data.description}`;
 
-        const insertPayment = this.db.prepare(`
-          INSERT INTO payments (
-            tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        // drawer_balances' PRIMARY KEY is now (tenant_id, drawer_name,
-        // currency_code) — the ON CONFLICT target must match it exactly.
-        const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
+        // Payment-row + drawer-balance posting via the shared moneyPosting
+        // helpers (CQ-3). Kept as `.run(...)`-shaped wrapper objects so every
+        // existing call site below (14 pairs) stays byte-identical.
+        const insertPayment = {
+          run: (
+            tenant: number,
+            transactionId: number,
+            method: string,
+            drawerName: string,
+            currencyCode: string,
+            amount: number,
+            note: string | null,
+            createdByUser: number,
+          ) =>
+            insertPaymentRow(this.db, {
+              transactionId,
+              method,
+              drawerName,
+              currencyCode,
+              amount,
+              note,
+              createdBy: createdByUser,
+              tenantId: tenant,
+            }),
+        };
+        const upsertBalance = {
+          run: (
+            tenant: number,
+            drawerName: string,
+            currencyCode: string,
+            delta: number,
+          ) =>
+            applyDrawerDelta(this.db, {
+              drawerName,
+              currencyCode,
+              delta,
+              tenantId: tenant,
+            }),
+        };
 
         if (data.deferPayment) {
           // Session-basket deferred mode: the basket owns the customer-cash price
@@ -270,21 +299,16 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             if (!data.client_id) {
               throw new Error("Cannot create debt without a client");
             }
-            this.db
-              .prepare(
-                `INSERT INTO debt_ledger (
-                  tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-                ) VALUES (?, ?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-              )
-              .run(
-                tenantId,
-                data.client_id,
-                debtUsd,
-                debtLbp,
-                txnId,
-                noteText,
-                createdBy,
-              );
+            bookClientDebtCharge(this.db, {
+              clientId: data.client_id,
+              transactionType: "Custom Service Debt",
+              amountUsd: debtUsd,
+              amountLbp: debtLbp,
+              transactionId: txnId,
+              note: noteText,
+              createdBy,
+              tenantId,
+            });
           }
 
           // Cost outflow — shop pays the cost out-of-pocket, same as all paths.
@@ -372,21 +396,16 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           }
 
           // Debt ledger entry: customer owes the price
-          this.db
-            .prepare(
-              `INSERT INTO debt_ledger (
-                tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-              ) VALUES (?, ?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-            )
-            .run(
-              tenantId,
-              data.client_id,
-              data.price_usd ?? 0,
-              data.price_lbp ?? 0,
-              txnId,
-              noteText,
-              createdBy,
-            );
+          bookClientDebtCharge(this.db, {
+            clientId: data.client_id,
+            transactionType: "Custom Service Debt",
+            amountUsd: data.price_usd ?? 0,
+            amountLbp: data.price_lbp ?? 0,
+            transactionId: txnId,
+            note: noteText,
+            createdBy,
+            tenantId,
+          });
         } else if (paidBy === "GIFT_CARD") {
           // Voucher payment: deposit the voucher's full value to the owner's
           // account, then charge the service price as a debt against that same
@@ -437,21 +456,16 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           }
 
           // Charge the price to the voucher owner's account
-          this.db
-            .prepare(
-              `INSERT INTO debt_ledger (
-                tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-              ) VALUES (?, ?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-            )
-            .run(
-              tenantId,
-              voucher.client_id,
-              data.price_usd ?? 0,
-              data.price_lbp ?? 0,
-              txnId,
-              noteText,
-              createdBy,
-            );
+          bookClientDebtCharge(this.db, {
+            clientId: voucher.client_id,
+            transactionType: "Custom Service Debt",
+            amountUsd: data.price_usd ?? 0,
+            amountLbp: data.price_lbp ?? 0,
+            transactionId: txnId,
+            note: noteText,
+            createdBy,
+            tenantId,
+          });
         } else if (isDrawerAffectingMethod(paidBy)) {
           // Non-DEBT: customer pays now
           // Price inflow (USD)
@@ -627,7 +641,10 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         }>;
 
         for (const pmt of payments) {
-          // Reverse the balance effect
+          // Reverse the balance effect. CQ-3 survey note: intentionally NOT
+          // `applyDrawerDelta` — a plain UPDATE that must NOT create a row
+          // for a missing drawer (this only ever reverses a drawer that
+          // already received the original payment, one query above).
           this.db
             .prepare(
               `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP

@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { allocateFifo } from "../utils/fifoCoverage.js";
 
 export interface SupplierPurchase {
   id: number;
@@ -100,17 +101,25 @@ export class SupplierPurchaseRepository {
        WHERE id = ? AND tenant_id = ?`,
     );
 
-    let remaining = amountUsd;
-    for (const row of unpaid) {
-      if (remaining <= 0) break;
-      const canAbsorb = row.total_usd - row.paid_usd;
-      const applied = Math.min(remaining, canAbsorb);
+    // CQ-2 — shared FIFO allocator (same math as SupplierRepository's
+    // _applyPurchaseFifoCoverage, which covers the same table); epsilon 0
+    // matches this site's original exact tolerance.
+    const takes = allocateFifo(
+      unpaid.map((row) => ({
+        id: row.id,
+        outstanding: row.total_usd - row.paid_usd,
+      })),
+      amountUsd,
+      0,
+    );
+    const unpaidById = new Map(unpaid.map((row) => [row.id, row]));
+    for (const t of takes) {
+      const row = unpaidById.get(t.id as number)!;
       updateRow.run(
-        Math.min(row.paid_usd + applied, row.total_usd),
+        Math.min(row.paid_usd + t.take, row.total_usd),
         row.id,
         tenantId,
       );
-      remaining -= applied;
     }
   }
 }

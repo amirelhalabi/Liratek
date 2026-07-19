@@ -19,7 +19,15 @@ import {
 } from "./PartnerRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
-import { reconcileLegs, expectedTotalIn } from "./moneyPosting.js";
+import {
+  reconcileLegs,
+  expectedTotalIn,
+  applyDrawerDelta,
+  insertPaymentRow,
+  bookClientDebtCharge,
+  assertNoCounterPayment,
+  assertNoCustomerAccountLeg,
+} from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -882,19 +890,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         transaction_time: data.transaction_time,
       });
 
-      // insertPayment / upsertBalanceDelta are shared prepared statements used
-      // by ~50 call sites throughout this transaction. Rather than touch every
+      // insertPayment / upsertBalanceDelta are shared wrapper objects used by
+      // ~50 call sites throughout this transaction. Rather than touch every
       // call site to thread `tenant_id` through, each is wrapped so the
       // existing `.run(...)` call sites (all money-flow control logic —
-      // untouched) transparently carry the current tenant. See WP3b notes:
-      // predicates/columns only, zero change to leg iteration or drawer math.
-      const insertPaymentStmt = this.db.prepare(`
-        INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-        ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?
-        )
-      `);
+      // untouched) transparently carry the current tenant. CQ-3: the SQL
+      // itself now lives in the shared moneyPosting helpers, called from
+      // inside these same wrappers — every call site below is unchanged.
       const insertPayment = {
         run: (
           transactionId: number,
@@ -905,7 +907,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           note: string | null,
           createdBy: number,
         ) =>
-          insertPaymentStmt.run(
+          insertPaymentRow(this.db, {
             transactionId,
             method,
             drawerName,
@@ -914,28 +916,17 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             note,
             createdBy,
             tenantId,
-          ),
+          }),
       };
 
-      // drawer_balances' PK is now (tenant_id, drawer_name, currency_code) —
-      // the ON CONFLICT target must match it exactly or SQLite throws at
-      // prepare time ("ON CONFLICT clause does not match any PRIMARY KEY or
-      // UNIQUE constraint").
-      const upsertBalanceDeltaStmt = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
       const upsertBalanceDelta = {
         run: (drawerName: string, currencyCode: string, balance: number) =>
-          upsertBalanceDeltaStmt.run(
+          applyDrawerDelta(this.db, {
             drawerName,
             currencyCode,
-            balance,
+            delta: balance,
             tenantId,
-          ),
+          }),
       };
 
       // Separate shop→customer change (OUT) legs up front so every inflow branch
@@ -1040,17 +1031,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         // No walk-in customer: any customer-paid IN leg is a modeling error —
         // reject rather than book a phantom cash-in (mirrors SalesRepository /
         // RechargeRepository / LotoTicketRepository, PFT-R).
-        if (inPayments.length > 0) {
-          throw new Error(
-            "A partner financial service takes no counter payment — the full amount goes on the partner's tab",
-          );
-        }
+        assertNoCounterPayment(inPayments.length > 0, "financial service");
         // CUSTOMER_ACCOUNT has no meaning without a customer.
-        if (returnLegs.some((r) => r.method === "CUSTOMER_ACCOUNT")) {
-          throw new Error(
-            "A partner financial service cannot carry a CUSTOMER_ACCOUNT leg",
-          );
-        }
+        assertNoCustomerAccountLeg(
+          returnLegs.some((r) => r.method === "CUSTOMER_ACCOUNT"),
+          "A partner financial service cannot carry a CUSTOMER_ACCOUNT leg",
+        );
 
         // Ledger notes carry the human detail the Partners page shows: the
         // catalog item label for cost/price rows (e.g. "alfa: 7.58 (Prepaid)")
@@ -1386,22 +1372,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               if (p.currencyCode === "USD") debtUsd += Math.abs(p.amount);
               else if (p.currencyCode === "LBP") debtLbp += Math.abs(p.amount);
             }
-            this.db
-              .prepare(
-                `INSERT INTO debt_ledger (
-                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, due_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-              )
-              .run(
-                data.clientId,
-                "Service Debt",
-                debtUsd,
-                debtLbp,
-                txnId,
-                serviceDebtNote(data),
-                createdBy,
-                getCurrentTenantId(),
-              );
+            bookClientDebtCharge(this.db, {
+              clientId: data.clientId,
+              transactionType: "Service Debt",
+              amountUsd: debtUsd,
+              amountLbp: debtLbp,
+              transactionId: txnId,
+              note: serviceDebtNote(data),
+              createdBy,
+              tenantId: getCurrentTenantId(),
+            });
           }
         } else {
           // Single payment (backwards-compatible)
@@ -1424,22 +1404,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             if (!data.clientId) {
               throw new Error("Cannot create debt without a client");
             }
-            this.db
-              .prepare(
-                `INSERT INTO debt_ledger (
-                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, due_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-              )
-              .run(
-                data.clientId,
-                "Service Debt",
-                currency === "USD" ? price : 0,
-                currency === "LBP" ? price : 0,
-                txnId,
-                serviceDebtNote(data),
-                createdBy,
-                getCurrentTenantId(),
-              );
+            bookClientDebtCharge(this.db, {
+              clientId: data.clientId,
+              transactionType: "Service Debt",
+              amountUsd: currency === "USD" ? price : 0,
+              amountLbp: currency === "LBP" ? price : 0,
+              transactionId: txnId,
+              note: serviceDebtNote(data),
+              createdBy,
+              tenantId: getCurrentTenantId(),
+            });
           }
         }
 
@@ -1593,53 +1567,19 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               if (debtLegs.length > 0) {
                 const debtClientId = this.resolveBinanceDebtClient(data, txnId);
                 for (const debtLeg of debtLegs) {
-                  this.db
-                    .prepare(
-                      `INSERT INTO debt_ledger (
-                        client_id, transaction_type, amount_usd, amount_lbp,
-                        transaction_id, note, created_by, tenant_id, due_date
-                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-                    )
-                    .run(
-                      debtClientId,
-                      "Service Debt",
+                  bookClientDebtCharge(this.db, {
+                    clientId: debtClientId,
+                    transactionType: "Service Debt",
+                    amountUsd:
                       debtLeg.currencyCode === "USD"
                         ? Math.abs(debtLeg.amount)
                         : 0,
+                    amountLbp:
                       debtLeg.currencyCode === "LBP"
                         ? Math.abs(debtLeg.amount)
                         : 0,
-                      txnId,
-                      walletSendDebtNote(
-                        data.provider,
-                        data.amount,
-                        currency,
-                        fee,
-                      ),
-                      createdBy,
-                      tenantId,
-                    );
-                }
-              }
-            } else {
-              // Single-payment fallback: customer pays cryptoAmount + fee.
-              const cashTotal = cryptoAmount + fee;
-              if (paidBy === "CUSTOMER_ACCOUNT") {
-                const debtClientId = this.resolveBinanceDebtClient(data, txnId);
-                this.db
-                  .prepare(
-                    `INSERT INTO debt_ledger (
-                      client_id, transaction_type, amount_usd, amount_lbp,
-                      transaction_id, note, created_by, tenant_id, due_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-                  )
-                  .run(
-                    debtClientId,
-                    "Service Debt",
-                    cashCurrency === "USD" ? cashTotal : 0,
-                    cashCurrency === "LBP" ? cashTotal : 0,
-                    txnId,
-                    walletSendDebtNote(
+                    transactionId: txnId,
+                    note: walletSendDebtNote(
                       data.provider,
                       data.amount,
                       currency,
@@ -1647,7 +1587,29 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                     ),
                     createdBy,
                     tenantId,
-                  );
+                  });
+                }
+              }
+            } else {
+              // Single-payment fallback: customer pays cryptoAmount + fee.
+              const cashTotal = cryptoAmount + fee;
+              if (paidBy === "CUSTOMER_ACCOUNT") {
+                const debtClientId = this.resolveBinanceDebtClient(data, txnId);
+                bookClientDebtCharge(this.db, {
+                  clientId: debtClientId,
+                  transactionType: "Service Debt",
+                  amountUsd: cashCurrency === "USD" ? cashTotal : 0,
+                  amountLbp: cashCurrency === "LBP" ? cashTotal : 0,
+                  transactionId: txnId,
+                  note: walletSendDebtNote(
+                    data.provider,
+                    data.amount,
+                    currency,
+                    fee,
+                  ),
+                  createdBy,
+                  tenantId,
+                });
               } else if (isDrawerAffectingMethod(paidBy)) {
                 const cashDrawer = paymentMethodToDrawerName(paidBy);
                 insertPayment.run(
@@ -1923,23 +1885,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   debtLeg.currencyCode === "LBP" ? Math.abs(debtLeg.amount) : 0;
                 const debtNote = `${data.provider} ${data.serviceType}${data.omtServiceType ? ` (${data.omtServiceType})` : ""} — $${data.amount}`;
 
-                this.db
-                  .prepare(
-                    `INSERT INTO debt_ledger (
-                      client_id, transaction_type, amount_usd, amount_lbp,
-                      transaction_id, note, created_by, tenant_id, due_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-                  )
-                  .run(
-                    resolvedClientId,
-                    "Service Debt",
-                    debtAmtUsd,
-                    debtAmtLbp,
-                    txnId,
-                    debtNote,
-                    createdBy,
-                    tenantId,
-                  );
+                bookClientDebtCharge(this.db, {
+                  clientId: resolvedClientId,
+                  transactionType: "Service Debt",
+                  amountUsd: debtAmtUsd,
+                  amountLbp: debtAmtLbp,
+                  transactionId: txnId,
+                  note: debtNote,
+                  createdBy,
+                  tenantId,
+                });
               }
             }
           } else {
@@ -1982,23 +1937,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 )
                 .run(debtClientId, txnId, tenantId);
 
-              this.db
-                .prepare(
-                  `INSERT INTO debt_ledger (
-                    client_id, transaction_type, amount_usd, amount_lbp,
-                    transaction_id, note, created_by, tenant_id, due_date
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-                )
-                .run(
-                  debtClientId,
-                  "Service Debt",
-                  currency === "USD" ? totalCollected : 0,
-                  currency === "LBP" ? totalCollected : 0,
-                  txnId,
-                  `${data.provider} ${data.serviceType}${data.omtServiceType ? ` (${data.omtServiceType})` : ""} — $${data.amount}`,
-                  createdBy,
-                  tenantId,
-                );
+              bookClientDebtCharge(this.db, {
+                clientId: debtClientId,
+                transactionType: "Service Debt",
+                amountUsd: currency === "USD" ? totalCollected : 0,
+                amountLbp: currency === "LBP" ? totalCollected : 0,
+                transactionId: txnId,
+                note: `${data.provider} ${data.serviceType}${data.omtServiceType ? ` (${data.omtServiceType})` : ""} — $${data.amount}`,
+                createdBy,
+                tenantId,
+              });
             } else {
               // Non-debt single payment: credit to drawer
               // Skip for partner transactions: the partner handles their customer directly,

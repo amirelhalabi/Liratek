@@ -14,6 +14,7 @@ import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 export interface LotoCheckpoint {
   id: number;
@@ -339,43 +340,39 @@ export class LotoCheckpointRepository {
         null,
       );
 
-      // 4. Credit commission to General drawer. drawer_balances' PRIMARY KEY
-      // is now (tenant_id, drawer_name, currency_code) — the ON CONFLICT
-      // target must match it exactly.
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-
+      // 4. Credit commission to General drawer.
       if (totalCommission > 0) {
-        upsertBalance.run(tenantId, "General", "LBP", totalCommission);
+        applyDrawerDelta(this.db, {
+          drawerName: "General",
+          currencyCode: "LBP",
+          delta: totalCommission,
+          tenantId,
+        });
       }
 
       // 5. Record payment legs and update drawer balances
       if (payments && payments.length > 0) {
-        const insertPayment = this.db.prepare(`
-          INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
         for (const p of payments) {
           // OUT legs (returned change) are not part of a supplier settlement.
           if (p.direction === "OUT") continue;
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
-          insertPayment.run(
-            tenantId,
-            txnId,
-            p.method,
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: p.method,
             drawerName,
-            p.currency_code,
-            p.amount,
-            `Loto settlement #${id}`,
-            userId,
-          );
-          upsertBalance.run(tenantId, drawerName, p.currency_code, p.amount);
+            currencyCode: p.currency_code,
+            amount: p.amount,
+            note: `Loto settlement #${id}`,
+            createdBy: userId,
+            tenantId,
+          });
+          applyDrawerDelta(this.db, {
+            drawerName,
+            currencyCode: p.currency_code,
+            delta: p.amount,
+            tenantId,
+          });
         }
       }
 
@@ -507,46 +504,34 @@ export class LotoCheckpointRepository {
           null,
         );
 
-      // 4. Credit commission to General drawer once. drawer_balances'
-      // PRIMARY KEY is now (tenant_id, drawer_name, currency_code) — the ON
-      // CONFLICT target must match it exactly.
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-
+      // 4. Credit commission to General drawer once.
       if (totalCommission > 0) {
-        upsertBalance.run(tenantId, "General", "LBP", totalCommission);
+        applyDrawerDelta(this.db, {
+          drawerName: "General",
+          currencyCode: "LBP",
+          delta: totalCommission,
+          tenantId,
+        });
       }
 
       // 5. Record net payment and update drawer balance
       if (payment && payment.amount !== 0) {
-        this.db
-          .prepare(
-            `
-          INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-          )
-          .run(
-            tenantId,
-            txnId,
-            payment.method,
-            payment.drawer_name,
-            payment.currency_code,
-            payment.amount,
-            `Loto batch settlement`,
-            userId,
-          );
-        upsertBalance.run(
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: payment.method,
+          drawerName: payment.drawer_name,
+          currencyCode: payment.currency_code,
+          amount: payment.amount,
+          note: `Loto batch settlement`,
+          createdBy: userId,
           tenantId,
-          payment.drawer_name,
-          payment.currency_code,
-          payment.amount,
-        );
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: payment.drawer_name,
+          currencyCode: payment.currency_code,
+          delta: payment.amount,
+          tenantId,
+        });
       }
 
       // 6 & 7. Mark each checkpoint's cash prizes as reimbursed and checkpoint as settled

@@ -9,6 +9,7 @@ import { getDatabase } from "../db/connection.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 export interface LotoMonthlyFee {
   id: number;
@@ -114,34 +115,23 @@ export class LotoMonthlyFeeRepository {
       });
 
       // 3. Debit drawer balance (money OUT from General/LBP)
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (
-          tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      insertPayment.run(
+      insertPaymentRow(this.db, {
+        transactionId: txnId,
+        method: "CASH",
+        drawerName: "General",
+        currencyCode: "LBP",
+        amount: -fee.fee_amount,
+        note: `Loto monthly fee: ${fee.fee_month}/${fee.fee_year}`,
+        createdBy: userId,
         tenantId,
-        txnId,
-        "CASH",
-        "General",
-        "LBP",
-        -fee.fee_amount,
-        `Loto monthly fee: ${fee.fee_month}/${fee.fee_year}`,
-        userId,
-      );
+      });
 
-      // drawer_balances' PRIMARY KEY is now (tenant_id, drawer_name,
-      // currency_code) — the ON CONFLICT target must match it exactly, or
-      // SQLite rejects the upsert (no unique index on drawer_name+currency
-      // alone anymore).
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-      upsertBalance.run(tenantId, "General", "LBP", -fee.fee_amount);
+      applyDrawerDelta(this.db, {
+        drawerName: "General",
+        currencyCode: "LBP",
+        delta: -fee.fee_amount,
+        tenantId,
+      });
 
       return this.getMonthlyFeeById(id);
     });

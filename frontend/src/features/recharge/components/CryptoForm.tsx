@@ -18,7 +18,10 @@ import type {
 import { HistoryModal } from "./HistoryModal";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
-import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 import logger from "@/utils/logger";
 
 interface CryptoFormProps {
@@ -346,29 +349,15 @@ export function CryptoForm({
           payment is ever collected in this mode (backend rejects any IN
           leg); the PaymentSheet below is replaced with a notice. */}
       <div>
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            data-testid="crypto-for-partner-toggle"
-            checked={forPartner}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              setForPartner(checked);
-              if (!checked) setSelectedPartnerId(null);
-            }}
-            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-          />
-          <span className="text-xs text-slate-400">For Partner</span>
-        </label>
-        {forPartner && (
-          <PartnerSelector
-            required
-            autoSelectSingle
-            selectedPartnerId={selectedPartnerId}
-            onSelect={setSelectedPartnerId}
-            className="mt-2"
-          />
-        )}
+        <ForPartnerToggle
+          testId="crypto-for-partner-toggle"
+          checked={forPartner}
+          onChange={setForPartner}
+          selectedPartnerId={selectedPartnerId}
+          onPartnerChange={setSelectedPartnerId}
+          autoSelectSingle
+          checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+        />
       </div>
 
       {/* Client Name + Phone + Description — Client Name/Phone are hidden
@@ -527,17 +516,14 @@ export function CryptoForm({
       {/* PaymentSheet is skipped entirely for a partner transaction: it
           collects no cash, so show a short notice instead. */}
       {forPartner ? (
-        <div
-          data-testid="crypto-partner-no-payment-notice"
-          className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
-        >
+        <ForPartnerNotice testId="crypto-partner-no-payment-notice">
           No payment is collected for a partner transaction. The partner will{" "}
           {cryptoType === "RECEIVE" ? "be credited" : "owe"}{" "}
           <span className="font-bold">
             ${(cryptoType === "RECEIVE" ? payout : sendTotal).toFixed(2)}
           </span>{" "}
           on their ledger, settled later on the Partners page.
-        </div>
+        </ForPartnerNotice>
       ) : (
         <PaymentSheet
           open={showPaymentSheet}

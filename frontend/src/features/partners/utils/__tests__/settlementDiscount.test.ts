@@ -1,4 +1,8 @@
-import { capSettlementDiscount } from "../settlementDiscount";
+import {
+  capSettlementDiscount,
+  discountRoomAfterSettlement,
+  isDiscountClippedBySettlement,
+} from "../settlementDiscount";
 
 describe("capSettlementDiscount", () => {
   it("caps the discount at what's left after the settlement amount", () => {
@@ -51,5 +55,50 @@ describe("capSettlementDiscount", () => {
   it("treats a negative/zero balance as nothing left to forgive", () => {
     expect(capSettlementDiscount(0, 0, 10)).toBe(0);
     expect(capSettlementDiscount(-5, 0, 10)).toBe(0);
+  });
+});
+
+// SettleModal UX fix (COUNTERPARTY_CONSOLIDATION_PLAN follow-up): the
+// settlement leg auto-fills to the full balance, so a discount typed before
+// the operator manually shrinks that leg gets capped straight to 0 with no
+// explanation. discountRoomAfterSettlement/isDiscountClippedBySettlement
+// drive the modal's "lower the payment amount" hint instead of a silent cap.
+describe("discountRoomAfterSettlement", () => {
+  it("matches the room capSettlementDiscount caps against", () => {
+    // Same balance/settlement pairs as the capSettlementDiscount cases above
+    // — the two must never drift apart (shared helper, rule 14).
+    expect(discountRoomAfterSettlement(100, 70)).toBe(30);
+    expect(discountRoomAfterSettlement(100, 100)).toBe(0);
+    expect(discountRoomAfterSettlement(100, 150)).toBe(0);
+  });
+
+  it("treats a negative/zero balance as nothing left to forgive", () => {
+    expect(discountRoomAfterSettlement(0, 0)).toBe(0);
+    expect(discountRoomAfterSettlement(-5, 0)).toBe(0);
+  });
+});
+
+describe("isDiscountClippedBySettlement", () => {
+  it("is false when the requested discount fits inside the room left", () => {
+    // Balance 100, settling 70 → 30 of room; a 30 request fits exactly.
+    expect(isDiscountClippedBySettlement(100, 70, 30)).toBe(false);
+    expect(isDiscountClippedBySettlement(100, 70, 0)).toBe(false);
+  });
+
+  it("is true the moment the settlement leg still covers the full balance (the reported bug)", () => {
+    // The exact scenario from the owner report: MultiPaymentInput
+    // auto-fills the leg to the full 100 balance, then the operator types a
+    // 30 discount before touching the leg — zero room left, so it's
+    // clipped straight to 0 with no explanation unless this flags it.
+    expect(isDiscountClippedBySettlement(100, 100, 30)).toBe(true);
+  });
+
+  it("is true when the requested discount exceeds a partial room", () => {
+    expect(isDiscountClippedBySettlement(100, 70, 50)).toBe(true);
+  });
+
+  it("is false for a zero/negative request regardless of room", () => {
+    expect(isDiscountClippedBySettlement(100, 100, 0)).toBe(false);
+    expect(isDiscountClippedBySettlement(100, 100, -10)).toBe(false);
   });
 });

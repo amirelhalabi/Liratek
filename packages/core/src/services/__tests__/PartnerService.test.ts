@@ -92,6 +92,7 @@ function createTestDb(): Database.Database {
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id      INTEGER DEFAULT 1,
       transaction_id INTEGER,
+      session_id     INTEGER,
       method         TEXT NOT NULL,
       drawer_name    TEXT NOT NULL,
       currency_code  TEXT NOT NULL,

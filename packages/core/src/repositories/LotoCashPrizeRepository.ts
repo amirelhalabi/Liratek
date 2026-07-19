@@ -14,6 +14,7 @@ import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 export interface LotoCashPrize {
   id: number;
@@ -101,34 +102,25 @@ export class LotoCashPrizeRepository {
         const paymentMethod = "CASH";
         const drawerName = "General";
 
-        const insertPayment = this.db.prepare(`
-          INSERT INTO payments (
-            tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        insertPayment.run(
-          tenantId,
-          txnId,
-          paymentMethod,
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: paymentMethod,
           drawerName,
-          currency,
-          -data.prize_amount,
-          data.ticket_number
+          currencyCode: currency,
+          amount: -data.prize_amount,
+          note: data.ticket_number
             ? `Loto cash prize: ${data.ticket_number}`
             : "Loto cash prize",
-          data.userId,
-        );
+          createdBy: data.userId,
+          tenantId,
+        });
 
-        // drawer_balances' PRIMARY KEY is now (tenant_id, drawer_name,
-        // currency_code) — the ON CONFLICT target must match it exactly.
-        const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
-        upsertBalance.run(tenantId, drawerName, currency, -data.prize_amount);
+        applyDrawerDelta(this.db, {
+          drawerName,
+          currencyCode: currency,
+          delta: -data.prize_amount,
+          tenantId,
+        });
       }
 
       // 4. Create supplier ledger entry (LOTO owes us this amount - reimbursable)

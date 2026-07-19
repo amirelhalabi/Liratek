@@ -221,6 +221,64 @@ describe("PartnerRepository", () => {
     });
   });
 
+  // CQ-2 — the shared FIFO allocator (utils/fifoCoverage.ts) is used here via
+  // applySettlementCoverage. This is a genuine multi-row spillover: a single
+  // SETTLEMENT budget must fully cover the OLDEST FOR_% row before touching
+  // the next one, never overshoot a row's own outstanding, and stop the
+  // instant the budget is spent (not spill unrelated cash into a third row).
+  describe("addLedgerEntry() — SETTLEMENT FIFO coverage (CQ-2 multi-row proof)", () => {
+    it("fully covers the oldest FOR_% row before partially covering the next", () => {
+      const p = repo.create({ name: "FifoCoveragePartner" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_POS",
+        amount: 60,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_RECHARGE",
+        amount: 40,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+      // Untouched control row: same partner, currency, opposite-of-CREDIT
+      // direction, but NOT a FOR_% type — must never receive coverage.
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "WHISH_TOPUP",
+        amount: 999,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "SETTLEMENT",
+        amount: 70,
+        currency: "USD",
+        direction: "CREDIT",
+      });
+
+      const covered = (transactionType: string) =>
+        (
+          db
+            .prepare(
+              `SELECT amount, covered_amount FROM partner_ledger WHERE partner_id = ? AND transaction_type = ?`,
+            )
+            .get(p.id, transactionType) as {
+            amount: number;
+            covered_amount: number;
+          }
+        ).covered_amount;
+
+      expect(covered("FOR_POS")).toBeCloseTo(60, 2); // fully covered, oldest first
+      expect(covered("FOR_RECHARGE")).toBeCloseTo(10, 2); // 70 - 60 = 10 left, partial
+      expect(covered("WHISH_TOPUP")).toBeCloseTo(0, 2); // not a FOR_% row — untouched
+    });
+  });
+
   describe("getLedgerEntries()", () => {
     it("returns all entries for a partner", () => {
       const p = repo.create({ name: "MultiEntry" });

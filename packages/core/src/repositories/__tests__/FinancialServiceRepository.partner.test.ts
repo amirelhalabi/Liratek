@@ -186,6 +186,7 @@ function createTestDb(): Database.Database {
       tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
+      session_id     INTEGER,
       method         TEXT NOT NULL,
       drawer_name    TEXT NOT NULL,
       currency_code  TEXT NOT NULL,
@@ -516,6 +517,91 @@ describe("FinancialServiceRepository — partner mode", () => {
         expect(entries[0].transaction_type).toBe("FOR_OMT_RECEIVE");
         expect(entries[0].amount).toBeCloseTo(100, 2); // payout only, NOT 101
       });
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CQ-4 (COUNTERPARTY_CONSOLIDATION_PLAN.md) — the charge-routing guard
+  // trio, now shared via moneyPosting.ts's assertNoCounterPayment /
+  // assertNoCustomerAccountLeg. These repo-level tests are the ONLY jest
+  // proof that the FOR-partner dispatch actually WIRES the shared guards
+  // (a unit test on the guard functions alone, in moneyPosting.test.ts,
+  // proves the function's own logic but not that this repo calls it) —
+  // SalesRepository/RechargeRepository/LotoTicketRepository have no
+  // equivalent jest fixtures for FOR-partner mode at all (pre-existing gap;
+  // their rejection is proven only by e2e lira-113/115/116/118).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("CQ-4 guard wiring — counter-payment / mutual-exclusivity rejection", () => {
+    it("rejects a counter payment (IN leg) on a FOR-partner financial service", () => {
+      const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          omtFee: 5,
+          partnerId,
+          partnerMode: "FOR",
+          payments: [{ method: "CASH", currencyCode: "USD", amount: 50 }],
+        }),
+      ).toThrow(/no counter payment/i);
+    });
+
+    it("rejects a CUSTOMER_ACCOUNT leg arriving as a return/OUT leg on a FOR-partner financial service", () => {
+      const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          omtFee: 5,
+          partnerId,
+          partnerMode: "FOR",
+          payments: [
+            {
+              method: "CUSTOMER_ACCOUNT",
+              currencyCode: "USD",
+              amount: 50,
+              direction: "OUT",
+            },
+          ],
+        }),
+      ).toThrow(/CUSTOMER_ACCOUNT/);
+    });
+
+    it("does not throw for a valid FOR-partner disbursement (no counter payment, no CUSTOMER_ACCOUNT leg)", () => {
+      const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          omtFee: 5,
+          partnerId,
+          partnerMode: "FOR",
+          payments: [
+            {
+              method: "CASH",
+              currencyCode: "USD",
+              amount: 105,
+              direction: "OUT",
+            },
+          ],
+        }),
+      ).not.toThrow();
     });
   });
 

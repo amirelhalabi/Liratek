@@ -28,7 +28,10 @@ import logger from "@/utils/logger";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
-import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 
 interface CartLineItem {
   item: ServiceItem;
@@ -722,28 +725,18 @@ export function FinancialForm({
                 entirely (see handleForPartnerSubmit). Renders for EVERY
                 provider this form serves, unlike the old always-on header
                 PartnerSelector it replaces. */}
-            <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-slate-400 shrink-0">
-              <input
-                type="checkbox"
-                data-testid="financial-for-partner-toggle"
-                checked={forPartner}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setForPartner(checked);
-                  if (!checked) setPartnerId(null);
-                }}
-                className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-              />
-              For Partner
-            </label>
-            {forPartner && (
-              <PartnerSelector
-                required
-                autoSelectSingle
-                selectedPartnerId={partnerId}
-                onSelect={setPartnerId}
-              />
-            )}
+            <ForPartnerToggle
+              testId="financial-for-partner-toggle"
+              checked={forPartner}
+              onChange={setForPartner}
+              selectedPartnerId={partnerId}
+              onPartnerChange={setPartnerId}
+              autoSelectSingle
+              labelClassName="flex items-center gap-1.5 cursor-pointer select-none text-xs text-slate-400 shrink-0"
+              checkboxClassName="w-3.5 h-3.5 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+              textClassName=""
+              selectorClassName=""
+            />
             {/* Payment method quick-select — hidden in partner mode (no
                 counter cash is collected from a customer). */}
             {!forPartner && (
@@ -807,8 +800,8 @@ export function FinancialForm({
             transfer unit, also surface the "Paid from" drawer method used
             for the OUT-leg disbursement (see handleForPartnerSubmit). */}
         {forPartner && (
-          <div
-            data-testid="financial-partner-no-payment-notice"
+          <ForPartnerNotice
+            testId="financial-partner-no-payment-notice"
             className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
           >
             <span>
@@ -836,7 +829,7 @@ export function FinancialForm({
                 />
               </div>
             )}
-          </div>
+          </ForPartnerNotice>
         )}
 
         {/* Card Grid - hidden for OMT_APP (no items) */}

@@ -24,7 +24,10 @@ import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { convertLBPToUSD } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
-import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 
 interface TelecomFormProps {
   isMTC: boolean;
@@ -694,29 +697,14 @@ export function TelecomForm({
                   cash. Hides the Payment Method dropdown and the Payment
                   Sheet below (no walk-in customer, no cash taken). */}
               <div>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    data-testid="recharge-for-partner-toggle"
-                    checked={forPartner}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setForPartner(checked);
-                      if (!checked) setSelectedPartnerId(null);
-                    }}
-                    className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                  />
-                  <span className="text-xs text-slate-400">For Partner</span>
-                </label>
-                {forPartner && (
-                  <PartnerSelector
-                    required
-                    autoSelectSingle
-                    selectedPartnerId={selectedPartnerId}
-                    onSelect={setSelectedPartnerId}
-                    className="mt-2"
-                  />
-                )}
+                <ForPartnerToggle
+                  testId="recharge-for-partner-toggle"
+                  checked={forPartner}
+                  onChange={setForPartner}
+                  selectedPartnerId={selectedPartnerId}
+                  onPartnerChange={setSelectedPartnerId}
+                  autoSelectSingle
+                />
               </div>
 
               {/* Payment method dropdown — quick inline selection */}
@@ -744,10 +732,7 @@ export function TelecomForm({
               {/* Payment Sheet — skipped entirely for a partner recharge:
                   it collects no cash, so show a short notice instead. */}
               {forPartner ? (
-                <div
-                  data-testid="recharge-partner-no-payment-notice"
-                  className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
-                >
+                <ForPartnerNotice testId="recharge-partner-no-payment-notice">
                   No payment is collected for a partner recharge. The full{" "}
                   <span className="font-bold">
                     {(telecomPrice
@@ -758,7 +743,7 @@ export function TelecomForm({
                   </span>{" "}
                   goes on the selected partner&apos;s account, settled later on
                   the Partners page.
-                </div>
+                </ForPartnerNotice>
               ) : (
                 <PaymentSheet
                   open={sheetOpen}

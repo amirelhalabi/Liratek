@@ -31,7 +31,10 @@ import {
   toSnakeLegs,
 } from "@/utils/paymentUtils";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
-import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -804,28 +807,14 @@ export default function CheckoutModal({
                   allowForPartner so other hosts of this modal are unaffected. */}
               {allowForPartner && (
                 <div className="mb-2">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      data-testid="checkout-for-partner-toggle"
-                      checked={forPartner}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setForPartner(checked);
-                        if (!checked) setSelectedPartnerId(null);
-                      }}
-                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                    />
-                    <span className="text-xs text-slate-400">For Partner</span>
-                  </label>
-                  {forPartner && (
-                    <PartnerSelector
-                      required
-                      selectedPartnerId={selectedPartnerId}
-                      onSelect={setSelectedPartnerId}
-                      className="mt-2"
-                    />
-                  )}
+                  <ForPartnerToggle
+                    testId="checkout-for-partner-toggle"
+                    checked={forPartner}
+                    onChange={setForPartner}
+                    selectedPartnerId={selectedPartnerId}
+                    onPartnerChange={setSelectedPartnerId}
+                    checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  />
                 </div>
               )}
             </div>
@@ -972,15 +961,15 @@ export default function CheckoutModal({
                   amount goes on the partner's tab, settled later on the
                   Partners page. */}
               {forPartner ? (
-                <div
-                  data-testid="checkout-partner-no-payment-notice"
+                <ForPartnerNotice
+                  testId="checkout-partner-no-payment-notice"
                   className="text-sm text-violet-200 bg-violet-500/10 border border-violet-500/30 rounded-xl px-4 py-4"
                 >
                   No payment is collected for a partner sale. The full{" "}
                   <span className="font-bold">{fmtTotal(finalAmount)}</span>{" "}
                   goes on the selected partner&apos;s account, settled later on
                   the Partners page.
-                </div>
+                </ForPartnerNotice>
               ) : (
                 <>
                   <MultiPaymentInput

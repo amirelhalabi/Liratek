@@ -274,4 +274,33 @@ describe("FinancialServiceRepository — cross-tenant isolation", () => {
     // Tenant 2's mirrored drawer is untouched — a leak would move this too.
     expect(t2DrawerAfter.balance).toBe(t2DrawerBefore.balance);
   });
+
+  it("payments rows written under tenant 2 carry tenant_id = 2 (CQ-3 sabotage gap)", () => {
+    // The CQ-3 sabotage check found NO suite read back payments.tenant_id
+    // after a write — a helper hardcoding tenant 1 passed the whole wall.
+    // This is that missing guard.
+    const beforeMax = (
+      db.prepare(`SELECT COALESCE(MAX(id), 0) AS m FROM payments`).get() as {
+        m: number;
+      }
+    ).m;
+
+    runWithTenant(2, () =>
+      repo.createTransaction({
+        provider: "BOB",
+        serviceType: "SEND",
+        amount: 50,
+        currency: "USD",
+        commission: 1,
+        paidByMethod: "CASH",
+        userId: 1,
+      }),
+    );
+
+    const newRows = db
+      .prepare(`SELECT tenant_id FROM payments WHERE id > ?`)
+      .all(beforeMax) as Array<{ tenant_id: number }>;
+    expect(newRows.length).toBeGreaterThan(0);
+    expect(newRows.every((r) => r.tenant_id === 2)).toBe(true);
+  });
 });

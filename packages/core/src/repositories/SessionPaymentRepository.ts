@@ -14,6 +14,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 export interface InsertSessionLegInput {
   sessionId: number;
@@ -54,22 +55,16 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
    * transaction OR a session basket, never both.
    */
   insertSessionLeg(input: InsertSessionLegInput): void {
-    this.db
-      .prepare(
-        `INSERT INTO payments (
-          session_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.sessionId,
-        input.method,
-        input.drawerName,
-        input.currencyCode,
-        input.amount,
-        input.note,
-        input.userId,
-        getCurrentTenantId(),
-      );
+    insertPaymentRow(this.db, {
+      sessionId: input.sessionId,
+      method: input.method,
+      drawerName: input.drawerName,
+      currencyCode: input.currencyCode,
+      amount: input.amount,
+      note: input.note,
+      createdBy: input.userId,
+      tenantId: getCurrentTenantId(),
+    });
   }
 
   /**
@@ -81,15 +76,12 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
     currencyCode: string,
     signedAmount: number,
   ): void {
-    this.db
-      .prepare(
-        `INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-           balance = drawer_balances.balance + excluded.balance,
-           updated_at = CURRENT_TIMESTAMP`,
-      )
-      .run(getCurrentTenantId(), drawerName, currencyCode, signedAmount);
+    applyDrawerDelta(this.db, {
+      drawerName,
+      currencyCode,
+      delta: signedAmount,
+      tenantId: getCurrentTenantId(),
+    });
   }
 
   /**

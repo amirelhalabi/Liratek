@@ -9,6 +9,7 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 // =============================================================================
 // Entity Types
@@ -241,44 +242,43 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         transaction_time: data.transaction_time,
       });
 
-      const insertPayment = this.db.prepare(
-        `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
-         VALUES (?, 'CASH', ?, ?, ?, ?, ?, ?)`,
-      );
-
-      const upsertBalance = this.db.prepare(
-        `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-           balance    = drawer_balances.balance + excluded.balance,
-           updated_at = CURRENT_TIMESTAMP`,
-      );
-
       // Inflow: customer gives fromCurrency → shop drawer increases
       const fromDelta = Math.abs(data.amountIn);
-      insertPayment.run(
-        txnId,
+      insertPaymentRow(this.db, {
+        transactionId: txnId,
+        method: "CASH",
         drawerName,
-        data.fromCurrency,
-        fromDelta,
+        currencyCode: data.fromCurrency,
+        amount: fromDelta,
         note,
         createdBy,
         tenantId,
-      );
-      upsertBalance.run(drawerName, data.fromCurrency, fromDelta, tenantId);
+      });
+      applyDrawerDelta(this.db, {
+        drawerName,
+        currencyCode: data.fromCurrency,
+        delta: fromDelta,
+        tenantId,
+      });
 
       // Outflow: shop gives toCurrency to customer → shop drawer decreases
       const toDelta = -Math.abs(data.amountOut);
-      insertPayment.run(
-        txnId,
+      insertPaymentRow(this.db, {
+        transactionId: txnId,
+        method: "CASH",
         drawerName,
-        data.toCurrency,
-        toDelta,
+        currencyCode: data.toCurrency,
+        amount: toDelta,
         note,
         createdBy,
         tenantId,
-      );
-      upsertBalance.run(drawerName, data.toCurrency, toDelta, tenantId);
+      });
+      applyDrawerDelta(this.db, {
+        drawerName,
+        currencyCode: data.toCurrency,
+        delta: toDelta,
+        tenantId,
+      });
 
       return { id };
     })();

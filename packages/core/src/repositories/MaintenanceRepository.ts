@@ -7,6 +7,11 @@ import {
 import { maintenanceLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  bookClientDebtCharge,
+} from "./moneyPosting.js";
 
 export interface MaintenancePaymentLine {
   method: string;
@@ -248,21 +253,43 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       )
       .run(jobId, tenantId, tenantId);
 
-    const insertPayment = this.db.prepare(`
-      INSERT INTO payments (
-        tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?
-      )
-    `);
+    const insertPayment = {
+      run: (
+        tenant: number,
+        transactionId: number,
+        method: string,
+        drawerName: string,
+        currencyCode: string,
+        amount: number,
+        note: string | null,
+        createdByUser: number,
+      ) =>
+        insertPaymentRow(this.db, {
+          transactionId,
+          method,
+          drawerName,
+          currencyCode,
+          amount,
+          note,
+          createdBy: createdByUser,
+          tenantId: tenant,
+        }),
+    };
 
-    const upsertBalanceDelta = this.db.prepare(`
-      INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-        balance = drawer_balances.balance + excluded.balance,
-        updated_at = CURRENT_TIMESTAMP
-    `);
+    const upsertBalanceDelta = {
+      run: (
+        tenant: number,
+        drawerName: string,
+        currencyCode: string,
+        delta: number,
+      ) =>
+        applyDrawerDelta(this.db, {
+          drawerName,
+          currencyCode,
+          delta,
+          tenantId: tenant,
+        }),
+    };
 
     // Insert each drawer-affecting payment line.
     // Deferred (session basket): the basket recorder owns the customer-cash legs,
@@ -342,20 +369,18 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       if (!opts.clientId) {
         throw new Error("Cannot create debt for anonymous client");
       }
-      this.db
-        .prepare(
-          `INSERT INTO debt_ledger (tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, due_date)
-           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-        )
-        .run(
-          tenantId,
-          opts.clientId,
-          "Maintenance Debt",
-          isLbp ? 0 : debtAmount,
-          isLbp ? debtAmount : 0,
-          txnId,
-          "Balance from Maintenance",
-        );
+      // createdBy stays null: the original hand-rolled INSERT here never
+      // included that column (see moneyPosting.ts's bookClientDebtCharge doc).
+      bookClientDebtCharge(this.db, {
+        clientId: opts.clientId,
+        transactionType: "Maintenance Debt",
+        amountUsd: isLbp ? 0 : debtAmount,
+        amountLbp: isLbp ? debtAmount : 0,
+        transactionId: txnId,
+        note: "Balance from Maintenance",
+        createdBy: null,
+        tenantId,
+      });
       maintenanceLogger.info(
         { jobId, clientId: opts.clientId, debtAmount, currency: opts.currency },
         `Debt created for maintenance job #${jobId}: ${debtAmount} ${opts.currency ?? "USD"}`,

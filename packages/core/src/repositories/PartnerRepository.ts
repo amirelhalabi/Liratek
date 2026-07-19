@@ -11,7 +11,13 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { paymentMethodToDrawerName } from "../utils/payments.js";
+import { allocateFifo } from "../utils/fifoCoverage.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  buildCounterpartyDiscountPosting,
+} from "./moneyPosting.js";
 
 // =============================================================================
 // Entity Types
@@ -393,11 +399,23 @@ export class PartnerRepository extends BaseRepository<Partner> {
     const upd = this.db.prepare(
       `UPDATE partner_ledger SET covered_amount = ? WHERE id = ? AND tenant_id = ?`,
     );
-    for (const row of open) {
-      if (remaining <= 0.005) break;
-      const take = Math.min(remaining, row.amount - row.covered_amount);
-      upd.run(row.covered_amount + take, row.id, tenantId);
-      remaining -= take;
+    // CQ-2 — shared FIFO allocator; epsilon 0.005 matches this site's
+    // original tolerance exactly (both the row-selection filter above and
+    // the loop's own stop condition).
+    const takes = allocateFifo(
+      open.map((row) => ({
+        id: row.id,
+        outstanding: row.amount - row.covered_amount,
+      })),
+      remaining,
+      0.005,
+    );
+    const openById = new Map<number, (typeof open)[number]>(
+      open.map((row) => [row.id, row]),
+    );
+    for (const t of takes) {
+      const row = openById.get(t.id as number)!;
+      upd.run(row.covered_amount + t.take, row.id, tenantId);
     }
   }
 
@@ -518,58 +536,40 @@ export class PartnerRepository extends BaseRepository<Partner> {
             entry.direction === "CREDIT"
               ? Math.abs(leg.amount)
               : -Math.abs(leg.amount);
-          this.db
-            .prepare(
-              `INSERT INTO payments (
-                transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            )
-            .run(
-              txnId,
-              leg.method,
-              legDrawerName,
-              legDrawerCurrency,
-              legSigned,
-              `Partner settlement (${label})`,
-              userId,
-              tenantId,
-            );
-          this.db
-            .prepare(
-              `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-                 balance = drawer_balances.balance + excluded.balance,
-                 updated_at = CURRENT_TIMESTAMP`,
-            )
-            .run(legDrawerName, legDrawerCurrency, legSigned, tenantId);
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: leg.method,
+            drawerName: legDrawerName,
+            currencyCode: legDrawerCurrency,
+            amount: legSigned,
+            note: `Partner settlement (${label})`,
+            createdBy: userId,
+            tenantId,
+          });
+          applyDrawerDelta(this.db, {
+            drawerName: legDrawerName,
+            currencyCode: legDrawerCurrency,
+            delta: legSigned,
+            tenantId,
+          });
         }
       } else {
-        this.db
-          .prepare(
-            `INSERT INTO payments (
-              transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            txnId,
-            method,
-            drawerName,
-            drawerCurrency,
-            signed,
-            `Partner settlement (${label})`,
-            userId,
-            tenantId,
-          );
-        this.db
-          .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-               balance = drawer_balances.balance + excluded.balance,
-               updated_at = CURRENT_TIMESTAMP`,
-          )
-          .run(drawerName, drawerCurrency, signed, tenantId);
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method,
+          drawerName,
+          currencyCode: drawerCurrency,
+          amount: signed,
+          note: `Partner settlement (${label})`,
+          createdBy: userId,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName,
+          currencyCode: drawerCurrency,
+          delta: signed,
+          tenantId,
+        });
       }
       return txnId;
     });
@@ -593,7 +593,26 @@ export class PartnerRepository extends BaseRepository<Partner> {
     const partner = this.getById(entry.partner_id);
     const label = partner?.name ?? `partner #${entry.partner_id}`;
     const magnitude = Math.abs(entry.amount);
-    const signedProfit = entry.direction === "CREDIT" ? -magnitude : magnitude;
+    // CQ-5/D1: CREDIT = the partner owed the shop, forgiven → "forgiven"
+    // (flow IN, as-if-paid). DEBIT = the shop owed the partner, forgiven →
+    // "received" (flow OUT) — same direction a real settlement of that sign
+    // would use. The signed profit + counterparty metadata shape is now the
+    // ONE shared helper every counterparty discount posts through
+    // (moneyPosting.ts) — Debt/Supplier drive the SAME axis from their own
+    // fixed direction.
+    const posting = buildCounterpartyDiscountPosting({
+      kind: "partner",
+      ledgerEntryId: entry.id,
+      counterpartyId: entry.partner_id,
+      counterpartyName: label,
+      amountUsd: entry.currency === "USD" ? magnitude : 0,
+      amountLbp: entry.currency === "LBP" ? magnitude : 0,
+      discountDirection: entry.direction === "CREDIT" ? "forgiven" : "received",
+      extraMetadata: {
+        partner_id: entry.partner_id,
+        direction: entry.direction,
+      },
+    });
 
     return getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
@@ -602,32 +621,14 @@ export class PartnerRepository extends BaseRepository<Partner> {
       user_id: userId,
       amount_usd: 0,
       amount_lbp: 0,
-      profit_usd: entry.currency === "USD" ? signedProfit : 0,
-      profit_lbp: entry.currency === "LBP" ? signedProfit : 0,
+      profit_usd: posting.profit_usd,
+      profit_lbp: posting.profit_lbp,
       client_id: null,
       summary:
         entry.direction === "CREDIT"
           ? `Discount: ${magnitude} ${entry.currency} forgiven — ${label}`
           : `Partner discount received: ${magnitude} ${entry.currency} — ${label}`,
-      metadata_json: {
-        partner_id: entry.partner_id,
-        direction: entry.direction,
-        // CQ-10/D1 counterparty contract: CREDIT forgives a receivable
-        // (flow IN, as-if-paid); DEBIT forgives a payable (flow OUT), same
-        // direction a real settlement of that sign would use.
-        counterparty: buildCounterpartyMetadata({
-          kind: "partner",
-          id: entry.partner_id,
-          name: label,
-          flow: entry.direction === "CREDIT" ? "IN" : "OUT",
-          method: "LEDGER",
-          ledgerEntryId: entry.id,
-          discount: {
-            amount_usd: entry.currency === "USD" ? magnitude : 0,
-            amount_lbp: entry.currency === "LBP" ? magnitude : 0,
-          },
-        }),
-      },
+      metadata_json: posting.metadata_json,
     });
   }
 

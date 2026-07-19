@@ -26,6 +26,7 @@ import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -1196,38 +1197,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       tenantId,
     );
 
-    const insertPayment = this.db.prepare(`
-      INSERT INTO payments (
-        transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const upsertBalance = this.db.prepare(`
-      INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-        balance = drawer_balances.balance + excluded.balance,
-        updated_at = CURRENT_TIMESTAMP
-    `);
-
     for (const p of payments) {
       const negatedAmount = -p.amount;
-      insertPayment.run(
-        reversalTxnId,
-        p.method,
-        p.drawer_name,
-        p.currency_code,
-        negatedAmount,
-        "Reversal",
-        userId,
+      insertPaymentRow(this.db, {
+        transactionId: reversalTxnId,
+        method: p.method,
+        drawerName: p.drawer_name,
+        currencyCode: p.currency_code,
+        amount: negatedAmount,
+        note: "Reversal",
+        createdBy: userId,
         tenantId,
-      );
-      upsertBalance.run(
+      });
+      applyDrawerDelta(this.db, {
+        drawerName: p.drawer_name,
+        currencyCode: p.currency_code,
+        delta: negatedAmount,
         tenantId,
-        p.drawer_name,
-        p.currency_code,
-        negatedAmount,
-      );
+      });
     }
   }
 

@@ -16,7 +16,15 @@ import {
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
-import { reconcileLegs, expectedTotalIn } from "./moneyPosting.js";
+import {
+  reconcileLegs,
+  expectedTotalIn,
+  applyDrawerDelta,
+  insertPaymentRow,
+  bookClientDebtCharge,
+  assertPartnerIdRequired,
+  assertNoCounterPayment,
+} from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
@@ -250,15 +258,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         });
 
         // Increase the provider drawer balance
-        this.db
-          .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-               balance = drawer_balances.balance + excluded.balance,
-               updated_at = CURRENT_TIMESTAMP`,
-          )
-          .run(drawerName, currency, Math.abs(data.amount), tenantId);
+        applyDrawerDelta(this.db, {
+          drawerName,
+          currencyCode: currency,
+          delta: Math.abs(data.amount),
+          tenantId,
+        });
       })();
 
       rechargeLogger.info(
@@ -348,7 +353,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           },
         });
 
-        // Deduct from source drawer
+        // Deduct from source drawer. CQ-3 survey note: intentionally NOT
+        // `applyDrawerDelta` — a plain UPDATE that must NOT create a row for
+        // a missing source drawer (a typo'd/missing source must no-op, not
+        // silently create a phantom negative-balance drawer).
         this.db
           .prepare(
             `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
@@ -357,15 +365,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           .run(amount, data.sourceDrawer, currency, tenantId);
 
         // Add to destination drawer
-        this.db
-          .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-               balance = drawer_balances.balance + excluded.balance,
-               updated_at = CURRENT_TIMESTAMP`,
-          )
-          .run(destDrawer, currency, amount, tenantId);
+        applyDrawerDelta(this.db, {
+          drawerName: destDrawer,
+          currencyCode: currency,
+          delta: amount,
+          tenantId,
+        });
       })();
 
       rechargeLogger.info(
@@ -438,15 +443,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           },
         });
 
-        this.db
-          .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-               balance = drawer_balances.balance + excluded.balance,
-               updated_at = CURRENT_TIMESTAMP`,
-          )
-          .run(destDrawer, currency, amount, tenantId);
+        applyDrawerDelta(this.db, {
+          drawerName: destDrawer,
+          currencyCode: currency,
+          delta: amount,
+          tenantId,
+        });
       })();
 
       rechargeLogger.info(
@@ -558,7 +560,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           },
         });
 
-        // Pay the customer from the General drawer (in the chosen currency)
+        // Pay the customer from the General drawer (in the chosen currency).
+        // CQ-3 survey note: intentionally NOT `applyDrawerDelta` — a plain
+        // UPDATE that must NOT create a row for a missing General drawer.
         if (cashPaid > 0) {
           this.db
             .prepare(
@@ -569,15 +573,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         }
 
         // Add the received credits to the provider drawer
-        this.db
-          .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-             VALUES (?, 'USD', ?, ?)
-             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-               balance = drawer_balances.balance + excluded.balance,
-               updated_at = CURRENT_TIMESTAMP`,
-          )
-          .run(destDrawer, credits, tenantId);
+        applyDrawerDelta(this.db, {
+          drawerName: destDrawer,
+          currencyCode: "USD",
+          delta: credits,
+          tenantId,
+        });
       })();
 
       rechargeLogger.info(
@@ -770,18 +771,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const methodDrawerName = paymentMethodToDrawerName(paidBy);
         const providerDrawerName = data.provider === "MTC" ? "MTC" : "Alfa";
 
-        // insertPayment / upsertBalanceDelta are shared prepared statements
-        // used by several call sites below. Wrapped (rather than threading
+        // insertPayment / upsertBalanceDelta are shared wrapper objects used
+        // by several call sites below. Wrapped (rather than threading
         // tenant_id through every call site) so the existing `.run(...)`
         // call sites — all money-flow control logic, untouched — transparently
-        // carry the current tenant. Predicates/columns only, per WP3b scope.
-        const insertPaymentStmt = this.db.prepare(`
-          INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-          ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?
-          )
-        `);
+        // carry the current tenant. CQ-3: the SQL itself now lives in the
+        // shared moneyPosting helpers, called from inside these wrappers —
+        // every call site below is unchanged.
         const insertPayment = {
           run: (
             transactionId: number,
@@ -792,7 +788,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             note: string | null,
             createdBy: number,
           ) =>
-            insertPaymentStmt.run(
+            insertPaymentRow(this.db, {
               transactionId,
               method,
               drawerName,
@@ -801,27 +797,17 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               note,
               createdBy,
               tenantId,
-            ),
+            }),
         };
 
-        // drawer_balances' PK is now (tenant_id, drawer_name, currency_code) —
-        // the ON CONFLICT target must match it exactly or SQLite throws at
-        // prepare time.
-        const upsertBalanceDeltaStmt = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
         const upsertBalanceDelta = {
           run: (drawerName: string, currencyCode: string, balance: number) =>
-            upsertBalanceDeltaStmt.run(
+            applyDrawerDelta(this.db, {
               drawerName,
               currencyCode,
-              balance,
+              delta: balance,
               tenantId,
-            ),
+            }),
         };
 
         // PFT-R (Partner FOR-Transactions, full-amount model): a "for
@@ -830,8 +816,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Partners page. Computed before touching any payment legs so the
         // customer-cash step below can be skipped entirely in partner mode.
         const isForPartner = data.partnerMode === "FOR";
-        if (isForPartner && !data.partnerId) {
-          throw new Error('partnerId is required when partnerMode is "FOR"');
+        if (isForPartner) {
+          assertPartnerIdRequired(data.partnerId);
         }
 
         // Customer payment (cash-like inflow). Split returned-change (OUT) legs
@@ -839,10 +825,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const { inLegs: inPayments, outLegs: returnLegs } = partitionLegs(
           data.payments,
         );
-        if (isForPartner && inPayments.length > 0) {
-          throw new Error(
-            "A partner recharge takes no counter payment — the full amount goes on the partner's tab",
-          );
+        if (isForPartner) {
+          assertNoCounterPayment(inPayments.length > 0, "recharge");
         }
         const deferPayment = data.deferPayment === true;
 
@@ -997,22 +981,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             if (currency === "USD") debtUsd = data.price;
             else if (currency === "LBP") debtLbp = data.price;
           }
-          this.db
-            .prepare(
-              `INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, tenant_id, due_date
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-            )
-            .run(
-              data.clientId,
-              "Recharge Debt",
-              debtUsd,
-              debtLbp,
-              txnId,
-              note,
-              createdBy,
-              tenantId,
-            );
+          bookClientDebtCharge(this.db, {
+            clientId: data.clientId,
+            transactionType: "Recharge Debt",
+            amountUsd: debtUsd,
+            amountLbp: debtLbp,
+            transactionId: txnId,
+            note,
+            createdBy,
+            tenantId,
+          });
         }
 
         // Return (OUT) legs: change handed back via a chosen method or kept as
@@ -1150,15 +1128,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         }
 
         // Increase the provider drawer balance
-        this.db
-          .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-               balance = drawer_balances.balance + excluded.balance,
-               updated_at = CURRENT_TIMESTAMP`,
-          )
-          .run(destDrawer, currency, amount, tenantId);
+        applyDrawerDelta(this.db, {
+          drawerName: destDrawer,
+          currencyCode: currency,
+          delta: amount,
+          tenantId,
+        });
       })();
 
       rechargeLogger.info(
@@ -1266,15 +1241,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         });
 
         // Increase the Whish App drawer balance
-        this.db
-          .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-               balance = drawer_balances.balance + excluded.balance,
-               updated_at = CURRENT_TIMESTAMP`,
-          )
-          .run(destDrawer, currency, amount, tenantId);
+        applyDrawerDelta(this.db, {
+          drawerName: destDrawer,
+          currencyCode: currency,
+          delta: amount,
+          tenantId,
+        });
       })();
 
       rechargeLogger.info(
@@ -1384,7 +1356,9 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           },
         });
 
-        // Pay the client from the General drawer (same currency)
+        // Pay the client from the General drawer (same currency). CQ-3
+        // survey note: intentionally NOT `applyDrawerDelta` — a plain UPDATE
+        // that must NOT create a row for a missing General drawer.
         if (cashPaid > 0) {
           this.db
             .prepare(
@@ -1395,15 +1369,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         }
 
         // Add the received credits to the Whish App drawer
-        this.db
-          .prepare(
-            `INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-               balance = drawer_balances.balance + excluded.balance,
-               updated_at = CURRENT_TIMESTAMP`,
-          )
-          .run(destDrawer, currency, amount, tenantId);
+        applyDrawerDelta(this.db, {
+          drawerName: destDrawer,
+          currencyCode: currency,
+          delta: amount,
+          tenantId,
+        });
       })();
 
       rechargeLogger.info(

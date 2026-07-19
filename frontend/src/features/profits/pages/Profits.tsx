@@ -339,12 +339,14 @@ export default function Profits() {
 
   // ---------- Fetchers ----------
 
+  // All fetchers below are dual-mode via useApi() — the adapter picks IPC
+  // vs REST internally (ipcOrHttp), so no window.api gate belongs here
+  // (rule 19a): a raw `window.api ? ... : ...` ternary takes the wrong
+  // branch in the browser and under the web-test shim.
   const loadSummary = useCallback(async () => {
     setLoading(true);
     try {
-      const data = window.api
-        ? await window.api.profits.summary(from, to)
-        : await api.getProfitSummary(from, to);
+      const data = await api.getProfitSummary(from, to);
       setSummary(data);
     } catch {
       setSummary(null);
@@ -356,9 +358,7 @@ export default function Profits() {
   const loadByModule = useCallback(async () => {
     setLoading(true);
     try {
-      const data = window.api
-        ? await window.api.profits.byModule(from, to)
-        : await api.getProfitByModule(from, to);
+      const data = await api.getProfitByModule(from, to);
       setByModule(data || []);
     } catch {
       setByModule([]);
@@ -370,9 +370,7 @@ export default function Profits() {
   const loadByDate = useCallback(async () => {
     setLoading(true);
     try {
-      const data = window.api
-        ? await window.api.profits.byDate(from, to)
-        : await api.getProfitByDate(from, to);
+      const data = await api.getProfitByDate(from, to);
       setByDate(data || []);
     } catch {
       setByDate([]);
@@ -384,9 +382,7 @@ export default function Profits() {
   const loadByPayment = useCallback(async () => {
     setLoading(true);
     try {
-      const data = window.api
-        ? await window.api.profits.byPaymentMethod(from, to)
-        : await api.getProfitByPaymentMethod(from, to);
+      const data = await api.getProfitByPaymentMethod(from, to);
       setByPayment(data || []);
     } catch {
       setByPayment([]);
@@ -398,9 +394,7 @@ export default function Profits() {
   const loadByUser = useCallback(async () => {
     setLoading(true);
     try {
-      const data = window.api
-        ? await window.api.profits.byUser(from, to)
-        : await api.getProfitByUser(from, to);
+      const data = await api.getProfitByUser(from, to);
       setByUser(data || []);
     } catch {
       setByUser([]);
@@ -412,9 +406,7 @@ export default function Profits() {
   const loadByClient = useCallback(async () => {
     setLoading(true);
     try {
-      const data = window.api
-        ? await window.api.profits.byClient(from, to, 30)
-        : await api.getProfitByClient(from, to, 30);
+      const data = await api.getProfitByClient(from, to, 30);
       setByClient(data || []);
     } catch {
       setByClient([]);
@@ -426,9 +418,7 @@ export default function Profits() {
   const loadPending = useCallback(async () => {
     setLoading(true);
     try {
-      const data = window.api
-        ? await window.api.profits.pending(from, to)
-        : await api.getPendingProfit(from, to);
+      const data = await api.getPendingProfit(from, to);
       setPendingData(data || null);
     } catch {
       setPendingData(null);
@@ -441,10 +431,8 @@ export default function Profits() {
     setLoading(true);
     try {
       const [data, unsettled] = await Promise.all([
-        window.api ? window.api.omt.getAnalytics() : api.getOMTAnalytics(),
-        window.api
-          ? window.api.suppliers.getUnsettledSummary()
-          : ((api as any).getUnsettledSummary?.() ?? []),
+        api.getOMTAnalytics(),
+        api.getUnsettledSummary(),
       ]);
       setCommissionsData(data);
       setUnsettledByProvider(unsettled || []);

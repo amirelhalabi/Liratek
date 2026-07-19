@@ -102,7 +102,7 @@ CLAUDE.md rule 16.
 - **Reconciliation is hard-reject (S2, `reconcileLegs`).** Whenever a flow
   receives legs, it verifies — at the transaction's stamped exchange rate,
   epsilon $0.05 USD-equivalent (~5,000 LBP) — `sum(IN legs incl.
-  CUSTOMER_ACCOUNT) − sum(OUT change legs) − kept_change = required total`.
+CUSTOMER_ACCOUNT) − sum(OUT change legs) − kept_change = required total`.
   A mismatch throws BEFORE any row is written, inside the flow's
   `db.transaction(...)`, so a rejected write leaves nothing partial behind.
   CUSTOMER_ACCOUNT legs count as IN — an on-account remainder is still

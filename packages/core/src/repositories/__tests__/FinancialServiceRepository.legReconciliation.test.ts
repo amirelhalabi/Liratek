@@ -253,8 +253,7 @@ function counts(db: Database.Database): {
   debtLedger: number;
 } {
   const one = (table: string) =>
-    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number })
-      .n;
+    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
   return {
     transactions: one("transactions"),
     financialServices: one("financial_services"),
@@ -682,9 +681,7 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
           price: 900000,
           currency: "LBP",
           commission: 100000,
-          payments: [
-            { method: "CASH", currencyCode: "LBP", amount: 900000 },
-          ],
+          payments: [{ method: "CASH", currencyCode: "LBP", amount: 900000 }],
           checkoutTotal: { usd: 0, lbp: 1800000 },
           exchangeRate: 90000,
         }),
@@ -753,9 +750,7 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
           price: 900000,
           currency: "LBP",
           commission: 100000,
-          payments: [
-            { method: "CASH", currencyCode: "LBP", amount: 900000 },
-          ],
+          payments: [{ method: "CASH", currencyCode: "LBP", amount: 900000 }],
           exchangeRate: 90000,
         }),
       ).not.toThrow();

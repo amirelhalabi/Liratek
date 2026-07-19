@@ -7,10 +7,15 @@
  * tests for the integration-level "rejected atomically" proof.
  */
 
+import Database from "better-sqlite3";
 import {
   reconcileLegs,
   expectedTotalIn,
   LEG_RECONCILIATION_EPSILON_USD,
+  assertPartnerIdRequired,
+  assertNoCounterPayment,
+  assertNoCustomerAccountLeg,
+  bookClientDebtCharge,
   type ReconciliationLeg,
 } from "../moneyPosting";
 
@@ -331,5 +336,168 @@ describe("reconcileLegs", () => {
     it("treats a non-LBP currency (e.g. USDT) as the USD bucket", () => {
       expect(expectedTotalIn(20, "USDT")).toEqual({ usd: 20, lbp: 0 });
     });
+  });
+});
+
+/**
+ * CQ-4 (COUNTERPARTY_CONSOLIDATION_PLAN.md) — the charge-routing guard trio
+ * + bookClientDebtCharge. Pure-logic guard tests below; the repository-level
+ * "actually wired into the FOR-partner dispatch" proof lives in
+ * FinancialServiceRepository.partner.test.ts (which already has FOR-mode
+ * fixtures) — see the counter-payment/CUSTOMER_ACCOUNT rejection tests added
+ * there alongside this file. SalesRepository/RechargeRepository/
+ * LotoTicketRepository have NO jest-level FOR-partner coverage at all
+ * (pre-existing gap — their rejection path is proven only by e2e
+ * lira-113/115/116/118), so a guard being wired correctly there is not
+ * independently jest-provable this session; these unit tests cover the
+ * shared function's own logic, which every one of the 4 repos now delegates
+ * to verbatim.
+ */
+describe("assertPartnerIdRequired (CQ-4 guard 1 — counterparty-required)", () => {
+  it("throws the exact original message when partnerId is falsy", () => {
+    expect(() => assertPartnerIdRequired(undefined)).toThrow(
+      'partnerId is required when partnerMode is "FOR"',
+    );
+    expect(() => assertPartnerIdRequired(null)).toThrow(
+      'partnerId is required when partnerMode is "FOR"',
+    );
+    expect(() => assertPartnerIdRequired(0)).toThrow(
+      'partnerId is required when partnerMode is "FOR"',
+    );
+  });
+
+  it("does not throw when partnerId is a real id", () => {
+    expect(() => assertPartnerIdRequired(7)).not.toThrow();
+  });
+});
+
+describe("assertNoCounterPayment (CQ-4 guard 2 — counter-payment rejection)", () => {
+  it("reproduces each of the 4 existing per-module messages byte-identical", () => {
+    expect(() => assertNoCounterPayment(true, "sale")).toThrow(
+      "A partner sale takes no counter payment — the full amount goes on the partner's tab",
+    );
+    expect(() => assertNoCounterPayment(true, "recharge")).toThrow(
+      "A partner recharge takes no counter payment — the full amount goes on the partner's tab",
+    );
+    expect(() => assertNoCounterPayment(true, "loto ticket")).toThrow(
+      "A partner loto ticket takes no counter payment — the full amount goes on the partner's tab",
+    );
+    expect(() => assertNoCounterPayment(true, "financial service")).toThrow(
+      "A partner financial service takes no counter payment — the full amount goes on the partner's tab",
+    );
+  });
+
+  it("every message satisfies the e2e substring/regex assertions (lira-113/115/116/118/119)", () => {
+    for (const context of ["sale", "recharge", "loto ticket", "financial service"]) {
+      let message = "";
+      try {
+        assertNoCounterPayment(true, context);
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toContain("no counter payment");
+      expect(message).toMatch(/no counter payment/i);
+    }
+  });
+
+  it("does not throw when there is no counter payment", () => {
+    expect(() => assertNoCounterPayment(false, "sale")).not.toThrow();
+  });
+});
+
+describe("assertNoCustomerAccountLeg (CQ-4 guard 3 — mutual exclusivity)", () => {
+  it("throws the caller-supplied message when a CUSTOMER_ACCOUNT leg is present", () => {
+    expect(() =>
+      assertNoCustomerAccountLeg(true, "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg"),
+    ).toThrow(
+      "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg",
+    );
+  });
+
+  it("does not throw when there is no CUSTOMER_ACCOUNT leg", () => {
+    expect(() => assertNoCustomerAccountLeg(false, "unused")).not.toThrow();
+  });
+});
+
+describe("bookClientDebtCharge (CQ-4 — the client-kind consolidation)", () => {
+  function createDebtLedgerDb(): Database.Database {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE debt_ledger (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_id        INTEGER NOT NULL,
+        transaction_type TEXT NOT NULL,
+        amount_usd       DECIMAL(10, 2),
+        amount_lbp       DECIMAL(15, 2),
+        transaction_id   INTEGER,
+        due_date         TEXT,
+        note             TEXT,
+        created_by       INTEGER,
+        tenant_id        INTEGER,
+        created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    return db;
+  }
+
+  it("writes amount_usd/amount_lbp/created_by exactly as passed — including explicit null (Sales' shape)", () => {
+    const db = createDebtLedgerDb();
+    bookClientDebtCharge(db, {
+      clientId: 1,
+      transactionType: "Sale Debt",
+      amountUsd: 25.5,
+      amountLbp: null,
+      transactionId: 99,
+      note: "Sale #1",
+      createdBy: null,
+      tenantId: 1,
+    });
+    const row = db
+      .prepare(`SELECT * FROM debt_ledger WHERE transaction_id = ?`)
+      .get(99) as Record<string, unknown>;
+    expect(row.transaction_type).toBe("Sale Debt");
+    expect(row.amount_usd).toBe(25.5);
+    expect(row.amount_lbp).toBeNull();
+    expect(row.created_by).toBeNull();
+    expect(row.tenant_id).toBe(1);
+  });
+
+  it("writes dual-currency amounts + created_by when both are supplied (Recharge/FS/CustomService/Loto shape)", () => {
+    const db = createDebtLedgerDb();
+    bookClientDebtCharge(db, {
+      clientId: 2,
+      transactionType: "Recharge Debt",
+      amountUsd: 10,
+      amountLbp: 450000,
+      transactionId: 100,
+      note: "Recharge debt",
+      createdBy: 5,
+      tenantId: 1,
+    });
+    const row = db
+      .prepare(`SELECT * FROM debt_ledger WHERE transaction_id = ?`)
+      .get(100) as Record<string, unknown>;
+    expect(row.amount_usd).toBe(10);
+    expect(row.amount_lbp).toBe(450000);
+    expect(row.created_by).toBe(5);
+  });
+
+  it("stamps a due_date 30 days out (every migrated call site used this exact window)", () => {
+    const db = createDebtLedgerDb();
+    bookClientDebtCharge(db, {
+      clientId: 1,
+      transactionType: "Maintenance Debt",
+      amountUsd: 5,
+      transactionId: 101,
+      tenantId: 1,
+    });
+    const row = db
+      .prepare(`SELECT due_date, created_at FROM debt_ledger WHERE transaction_id = ?`)
+      .get(101) as { due_date: string; created_at: string };
+    const dueDate = new Date(row.due_date);
+    const createdAt = new Date(row.created_at);
+    const diffDays =
+      (dueDate.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
+    expect(diffDays).toBeCloseTo(30, 0);
   });
 });

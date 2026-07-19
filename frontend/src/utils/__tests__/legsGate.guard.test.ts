@@ -88,7 +88,11 @@ function stripCommentsAndStrings(src: string): string {
  *  extraction to "this one expression/statement" instead of a line count —
  *  the reason the Loto false positive (a SIBLING object property several
  *  properties away, same enclosing object literal) doesn't trip CHECK 1. */
-function extractForward(text: string, start: number, stopChars: string): string {
+function extractForward(
+  text: string,
+  start: number,
+  stopChars: string,
+): string {
   let depth = 0;
   let i = start;
   for (; i < text.length; i++) {

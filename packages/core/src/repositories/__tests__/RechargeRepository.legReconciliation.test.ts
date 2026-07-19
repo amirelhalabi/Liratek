@@ -85,6 +85,7 @@ function createTestDb(): Database.Database {
       tenant_id INTEGER DEFAULT 1,
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
+      session_id     INTEGER,
       method         TEXT NOT NULL,
       drawer_name    TEXT NOT NULL,
       currency_code  TEXT NOT NULL,
@@ -162,8 +163,7 @@ function counts(db: Database.Database): {
   debtLedger: number;
 } {
   const one = (table: string) =>
-    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number })
-      .n;
+    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
   return {
     recharges: one("recharges"),
     transactions: one("transactions"),

@@ -2,6 +2,7 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 export interface DrawerTopUpEntity {
   id: number;
@@ -90,50 +91,46 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         transaction_time: txTime,
       });
 
-      // 3. Prepare UPSERT and payment statements
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
       const note = `Drawer Top-Up${data.notes ? `: ${data.notes}` : ""}`;
 
-      // 4. USD inflow
+      // 3. USD inflow
       if (data.amount_usd && data.amount_usd > 0) {
-        insertPayment.run(
-          tenantId,
-          txnId,
-          TOPUP_METHOD,
-          GENERAL_DRAWER,
-          "USD",
-          data.amount_usd,
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: TOPUP_METHOD,
+          drawerName: GENERAL_DRAWER,
+          currencyCode: "USD",
+          amount: data.amount_usd,
           note,
-          userId,
-        );
-        upsertBalance.run(tenantId, GENERAL_DRAWER, "USD", data.amount_usd);
+          createdBy: userId,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: GENERAL_DRAWER,
+          currencyCode: "USD",
+          delta: data.amount_usd,
+          tenantId,
+        });
       }
 
-      // 5. LBP inflow
+      // 4. LBP inflow
       if (data.amount_lbp && data.amount_lbp > 0) {
-        insertPayment.run(
-          tenantId,
-          txnId,
-          TOPUP_METHOD,
-          GENERAL_DRAWER,
-          "LBP",
-          data.amount_lbp,
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: TOPUP_METHOD,
+          drawerName: GENERAL_DRAWER,
+          currencyCode: "LBP",
+          amount: data.amount_lbp,
           note,
-          userId,
-        );
-        upsertBalance.run(tenantId, GENERAL_DRAWER, "LBP", data.amount_lbp);
+          createdBy: userId,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: GENERAL_DRAWER,
+          currencyCode: "LBP",
+          delta: data.amount_lbp,
+          tenantId,
+        });
       }
 
       return topUpId;
@@ -185,58 +182,59 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         transaction_time: txTime,
       });
 
-      // 3. Prepare statements
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-
+      // CQ-3 survey note: `deductBalance` is intentionally NOT
+      // `applyDrawerDelta` — a plain UPDATE that must NOT create a row for a
+      // missing source drawer (this transfer debits an existing named
+      // drawer, e.g. OMT_System; a typo'd/missing source must no-op, not
+      // silently create a phantom negative-balance drawer).
       const deductBalance = this.db.prepare(`
         UPDATE drawer_balances
         SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
         WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?
       `);
 
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
       const note = `Drawer Transfer: ${data.source_drawer} → General${data.notes ? `: ${data.notes}` : ""}`;
 
-      // 4. USD transfer
+      // 3. USD transfer
       if (data.amount_usd && data.amount_usd > 0) {
         deductBalance.run(data.amount_usd, data.source_drawer, "USD", tenantId);
-        upsertBalance.run(tenantId, GENERAL_DRAWER, "USD", data.amount_usd);
-        insertPayment.run(
+        applyDrawerDelta(this.db, {
+          drawerName: GENERAL_DRAWER,
+          currencyCode: "USD",
+          delta: data.amount_usd,
           tenantId,
-          txnId,
-          TOPUP_METHOD,
-          GENERAL_DRAWER,
-          "USD",
-          data.amount_usd,
+        });
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: TOPUP_METHOD,
+          drawerName: GENERAL_DRAWER,
+          currencyCode: "USD",
+          amount: data.amount_usd,
           note,
-          userId,
-        );
+          createdBy: userId,
+          tenantId,
+        });
       }
 
-      // 5. LBP transfer
+      // 4. LBP transfer
       if (data.amount_lbp && data.amount_lbp > 0) {
         deductBalance.run(data.amount_lbp, data.source_drawer, "LBP", tenantId);
-        upsertBalance.run(tenantId, GENERAL_DRAWER, "LBP", data.amount_lbp);
-        insertPayment.run(
+        applyDrawerDelta(this.db, {
+          drawerName: GENERAL_DRAWER,
+          currencyCode: "LBP",
+          delta: data.amount_lbp,
           tenantId,
-          txnId,
-          TOPUP_METHOD,
-          GENERAL_DRAWER,
-          "LBP",
-          data.amount_lbp,
+        });
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: TOPUP_METHOD,
+          drawerName: GENERAL_DRAWER,
+          currencyCode: "LBP",
+          amount: data.amount_lbp,
           note,
-          userId,
-        );
+          createdBy: userId,
+          tenantId,
+        });
       }
 
       return topUpId;

@@ -24,7 +24,10 @@ import { SettlementVerification } from "../../components/SettlementVerification"
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
-import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 
 interface LotoSettings {
   commission_rate: string;
@@ -561,38 +564,22 @@ export function LotoPage() {
                     No counter cash is collected; the partner owes the full
                     sale amount, settled later on the Partners page. */}
                 <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      data-testid="loto-for-partner-toggle"
-                      checked={forPartner}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setForPartner(checked);
-                        if (!checked) setSelectedPartnerId(null);
-                      }}
-                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                    />
-                    <span className="text-sm font-medium text-slate-300">
-                      For Partner
-                    </span>
-                  </label>
-                  {forPartner && (
-                    <PartnerSelector
-                      required
-                      selectedPartnerId={selectedPartnerId}
-                      onSelect={setSelectedPartnerId}
-                      className="mt-2"
-                    />
-                  )}
+                  <ForPartnerToggle
+                    testId="loto-for-partner-toggle"
+                    checked={forPartner}
+                    onChange={setForPartner}
+                    selectedPartnerId={selectedPartnerId}
+                    onPartnerChange={setSelectedPartnerId}
+                    textClassName="text-sm font-medium text-slate-300"
+                  />
                 </div>
 
                 {/* Payment Method — hidden for a partner ticket: no counter
                     cash is collected, the full sale amount goes on the
                     selected partner's tab instead. */}
                 {forPartner ? (
-                  <div
-                    data-testid="loto-partner-no-payment-notice"
+                  <ForPartnerNotice
+                    testId="loto-partner-no-payment-notice"
                     className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3"
                   >
                     No payment is collected for a partner ticket. The full{" "}
@@ -602,7 +589,7 @@ export function LotoPage() {
                     </span>{" "}
                     goes on the selected partner&apos;s account, settled later
                     on the Partners page.
-                  </div>
+                  </ForPartnerNotice>
                 ) : (
                   <div>
                     <MultiPaymentInput

@@ -15,6 +15,14 @@ import { salesLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  bookClientDebtCharge,
+  assertPartnerIdRequired,
+  assertNoCounterPayment,
+  assertNoCustomerAccountLeg,
+} from "./moneyPosting.js";
 
 // =============================================================================
 // Types
@@ -527,21 +535,43 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           `DELETE FROM payments WHERE tenant_id = ? AND transaction_id IN (SELECT id FROM transactions WHERE tenant_id = ? AND source_table = 'sales' AND source_id = ?)`,
         ).run(tenantId, tenantId, saleId);
 
-        const insertPayment = db.prepare(`
-          INSERT INTO payments (
-            transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-          ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?
-          )
-        `);
+        const insertPayment = {
+          run: (
+            transactionId: number,
+            method: string,
+            drawerName: string,
+            currencyCode: string,
+            amount: number,
+            note: string | null,
+            createdBy: number,
+            tenant: number,
+          ) =>
+            insertPaymentRow(db, {
+              transactionId,
+              method,
+              drawerName,
+              currencyCode,
+              amount,
+              note,
+              createdBy,
+              tenantId: tenant,
+            }),
+        };
 
-        const upsertBalanceDelta = db.prepare(`
-          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
+        const upsertBalanceDelta = {
+          run: (
+            tenant: number,
+            drawerName: string,
+            currencyCode: string,
+            delta: number,
+          ) =>
+            applyDrawerDelta(db, {
+              drawerName,
+              currencyCode,
+              delta,
+              tenantId: tenant,
+            }),
+        };
 
         const createdBy = userId;
         const note = sale.note || null;
@@ -742,28 +772,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             // A CUSTOMER_ACCOUNT leg is the client-debt deferred-payment
             // destination — contradictory with routing the amount to the
             // partner instead. Reject rather than silently pick one.
-            const hasCustomerAccountLeg = inLegs.some(
-              (p) => p.method === "CUSTOMER_ACCOUNT",
+            assertNoCustomerAccountLeg(
+              inLegs.some((p) => p.method === "CUSTOMER_ACCOUNT"),
+              "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg — the remainder can only route to one deferred-payment destination",
             );
-            if (hasCustomerAccountLeg) {
-              throw new Error(
-                "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg — the remainder can only route to one deferred-payment destination",
-              );
-            }
             // PFT-R: a partner sale takes no counter payment at all — any
             // customer-paid IN leg (cash, wallet, gift card, ...) means a
             // walk-in customer is in the loop, which contradicts the
             // validated FOR-partner model (full amount, no counter cash).
-            if (inLegs.length > 0) {
-              throw new Error(
-                "A partner sale takes no counter payment — the full amount goes on the partner's tab",
-              );
-            }
-            if (!sale.partnerId) {
-              throw new Error(
-                'partnerId is required when partnerMode is "FOR"',
-              );
-            }
+            assertNoCounterPayment(inLegs.length > 0, "sale");
+            assertPartnerIdRequired(sale.partnerId);
 
             // PFT-R: the partner owes the FULL sale amount unconditionally —
             // never a "remainder after cash" figure, and never gated on the
@@ -791,20 +809,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 throw new Error("Cannot create debt for anonymous client");
               }
 
-              const debtStmt = db.prepare(`
-                INSERT INTO debt_ledger (
-                  client_id, transaction_type, amount_usd, transaction_id, note, due_date, tenant_id
-                ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'), ?)
-              `);
-              // Use txnId (transactions table FK) per unified transaction architecture
-              debtStmt.run(
-                finalClientId,
-                "Sale Debt",
-                remainder,
-                txnId,
-                saleLabel,
+              // Use txnId (transactions table FK) per unified transaction
+              // architecture. amountLbp/createdBy stay null: the original
+              // hand-rolled INSERT here never included those columns (POS
+              // sales are always USD-priced) — see moneyPosting.ts's
+              // bookClientDebtCharge doc for why null reproduces that exactly.
+              bookClientDebtCharge(db, {
+                clientId: finalClientId,
+                transactionType: "Sale Debt",
+                amountUsd: remainder,
+                amountLbp: null,
+                transactionId: txnId,
+                note: saleLabel,
+                createdBy: null,
                 tenantId,
-              );
+              });
             }
           }
         }
@@ -1241,37 +1260,24 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
       const refundRatio = refundAmount / originalTxn.amount_usd;
 
-      const insertPayment = db.prepare(`
-        INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      const upsertBalance = db.prepare(`
-        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-
       for (const payment of originalPayments) {
         const negatedAmount = -(payment.amount * refundRatio);
-        insertPayment.run(
-          refundTxnId,
-          payment.method,
-          payment.drawer_name,
-          payment.currency_code,
-          negatedAmount,
-          `Item refund - ${params.refundQuantity}x product ${item.product_id}`,
-          params.userId,
+        insertPaymentRow(db, {
+          transactionId: refundTxnId,
+          method: payment.method,
+          drawerName: payment.drawer_name,
+          currencyCode: payment.currency_code,
+          amount: negatedAmount,
+          note: `Item refund - ${params.refundQuantity}x product ${item.product_id}`,
+          createdBy: params.userId,
           tenantId,
-        );
-        upsertBalance.run(
+        });
+        applyDrawerDelta(db, {
+          drawerName: payment.drawer_name,
+          currencyCode: payment.currency_code,
+          delta: negatedAmount,
           tenantId,
-          payment.drawer_name,
-          payment.currency_code,
-          negatedAmount,
-        );
+        });
       }
 
       // 8. Update sale_items.refunded_quantity

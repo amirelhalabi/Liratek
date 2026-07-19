@@ -11,6 +11,12 @@ import {
 } from "../utils/payments.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
+import { allocateFifo } from "../utils/fifoCoverage.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  buildCounterpartyDiscountPosting,
+} from "./moneyPosting.js";
 
 export interface SupplierEntity {
   id: number;
@@ -311,14 +317,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
       // If drawer_name is provided, update drawer_balances
       if (data.drawer_name) {
-        const upsertBalanceDelta = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
-
         // Guaranteed entry_type === "PAYMENT" by the guard above (the only
         // combo drawer_name has ever been paired with).
         // Create unified transaction row for supplier payment
@@ -355,30 +353,33 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .run(txnId, entryId, tenantId);
 
         if (amountUsd)
-          upsertBalanceDelta.run(data.drawer_name, "USD", amountUsd, tenantId);
+          applyDrawerDelta(this.db, {
+            drawerName: data.drawer_name,
+            currencyCode: "USD",
+            delta: amountUsd,
+            tenantId,
+          });
         if (amountLbp)
-          upsertBalanceDelta.run(data.drawer_name, "LBP", amountLbp, tenantId);
+          applyDrawerDelta(this.db, {
+            drawerName: data.drawer_name,
+            currencyCode: "LBP",
+            delta: amountLbp,
+            tenantId,
+          });
 
         // Log to payments table. `method` defaults to "CASH" (CQ-7: this
         // branch used to hardcode the literal 'CASH' regardless of how the
         // supplier was actually paid).
-        this.db
-          .prepare(
-            `
-            INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-          )
-          .run(
-            txnId,
-            data.method ?? "CASH",
-            data.drawer_name,
-            amountUsd ? "USD" : "LBP",
-            amountUsd || amountLbp,
-            data.note || `Supplier Payment: ${data.supplier_id}`,
-            data.created_by,
-            tenantId,
-          );
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: data.method ?? "CASH",
+          drawerName: data.drawer_name,
+          currencyCode: amountUsd ? "USD" : "LBP",
+          amount: amountUsd || amountLbp,
+          note: data.note || `Supplier Payment: ${data.supplier_id}`,
+          createdBy: data.created_by,
+          tenantId,
+        });
       } else {
         // No drawer_name: still create a transaction record for EVERY entry
         // type — including PAYMENT (CQ-7 dead-corner fix: pre-fix a
@@ -673,13 +674,20 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .run(ledgerEntryId, ...data.financial_service_ids, tenantId);
 
         // ── 3. Credit commission to General drawer ─────────────────────────
-        const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
+        const upsertBalance = {
+          run: (
+            drawerName: string,
+            currencyCode: string,
+            delta: number,
+            tenant: number,
+          ) =>
+            applyDrawerDelta(this.db, {
+              drawerName,
+              currencyCode,
+              delta,
+              tenantId: tenant,
+            }),
+        };
 
         if (data.commission_usd > 0) {
           upsertBalance.run("General", "USD", data.commission_usd, tenantId);
@@ -734,10 +742,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
         // ── 5. Debit net payment from drawer(s) and insert payment rows ──
         if (data.payments && data.payments.length > 0) {
-          const insertPayment = this.db.prepare(
-            `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          );
           for (const p of data.payments) {
             if (!isDrawerAffectingMethod(p.method)) continue;
             const drawerName = paymentMethodToDrawerName(p.method);
@@ -747,16 +751,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               -Math.abs(p.amount),
               tenantId,
             );
-            insertPayment.run(
-              txnId,
-              p.method,
+            insertPaymentRow(this.db, {
+              transactionId: txnId,
+              method: p.method,
               drawerName,
-              p.currency_code,
-              -Math.abs(p.amount),
-              data.note ?? "Settlement payment",
-              data.created_by,
+              currencyCode: p.currency_code,
+              amount: -Math.abs(p.amount),
+              note: data.note ?? "Settlement payment",
+              createdBy: data.created_by,
               tenantId,
-            );
+            });
           }
         } else {
           // Legacy: single drawer
@@ -779,19 +783,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
           // Insert legacy payment row
           if (data.amount_usd > 0) {
-            this.db
-              .prepare(
-                `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
-                 VALUES (?, 'CASH', ?, 'USD', ?, ?, ?, ?)`,
-              )
-              .run(
-                txnId,
-                data.drawer_name,
-                -data.amount_usd,
-                data.note ?? "Settlement payment",
-                data.created_by,
-                tenantId,
-              );
+            insertPaymentRow(this.db, {
+              transactionId: txnId,
+              method: "CASH",
+              drawerName: data.drawer_name,
+              currencyCode: "USD",
+              amount: -data.amount_usd,
+              note: data.note ?? "Settlement payment",
+              createdBy: data.created_by,
+              tenantId,
+            });
           }
         }
 
@@ -918,32 +919,26 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           )
           .run(txnId, ledgerEntryId, tenantId);
 
-        const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
-        const insertPayment = this.db.prepare(
-          `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        );
         for (const p of data.payments) {
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
           const delta = sign * Math.abs(p.amount);
-          upsertBalance.run(drawerName, p.currency_code, delta, tenantId);
-          insertPayment.run(
-            txnId,
-            p.method,
+          applyDrawerDelta(this.db, {
             drawerName,
-            p.currency_code,
+            currencyCode: p.currency_code,
             delta,
-            data.note ?? summary,
-            data.created_by,
             tenantId,
-          );
+          });
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: p.method,
+            drawerName,
+            currencyCode: p.currency_code,
+            amount: delta,
+            note: data.note ?? summary,
+            createdBy: data.created_by,
+            tenantId,
+          });
         }
 
         // Apply FIFO coverage to supplier_purchases for PAY direction.
@@ -1016,17 +1011,26 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
        WHERE id = ? AND tenant_id = ?`,
     );
 
-    let remaining = usdEquivalent;
-    for (const row of unpaid) {
-      if (remaining <= 0) break;
-      const canAbsorb = row.total_usd - row.paid_usd;
-      const applied = Math.min(remaining, canAbsorb);
+    // CQ-2 — shared FIFO allocator; epsilon 0 matches this site's original
+    // exact tolerance (the SQL filter above already guarantees every open
+    // row has more than 0.005 outstanding, so the allocator's own epsilon
+    // only needs to gate the remaining-budget stop condition).
+    const takes = allocateFifo(
+      unpaid.map((row) => ({
+        id: row.id,
+        outstanding: row.total_usd - row.paid_usd,
+      })),
+      usdEquivalent,
+      0,
+    );
+    const unpaidById = new Map(unpaid.map((row) => [row.id, row]));
+    for (const t of takes) {
+      const row = unpaidById.get(t.id as number)!;
       updatePurchase.run(
-        Math.min(row.paid_usd + applied, row.total_usd),
+        Math.min(row.paid_usd + t.take, row.total_usd),
         row.id,
         tenantId,
       );
-      remaining -= applied;
     }
   }
 
@@ -1069,6 +1073,20 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
     const label = this._getSupplierName(supplierId);
     const money = `$${amountUsd.toFixed(2)}${amountLbp ? ` + ${amountLbp.toLocaleString()} LBP` : ""}`;
+    // CQ-5: the signed profit + counterparty metadata shape (D1 — a supplier
+    // forgiving a payable is booked "as if paid", flow OUT) is now the ONE
+    // shared helper every counterparty discount posts through (moneyPosting.ts).
+    const posting = buildCounterpartyDiscountPosting({
+      kind: "supplier",
+      ledgerEntryId,
+      counterpartyId: supplierId,
+      counterpartyName: label,
+      amountUsd,
+      amountLbp,
+      discountDirection: "received",
+      reason: discount.reason,
+      extraMetadata: { supplier_id: supplierId, entry_type: "DISCOUNT" },
+    });
     const txnId = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
       source_table: "supplier_ledger",
@@ -1076,29 +1094,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       user_id: createdBy,
       amount_usd: 0,
       amount_lbp: 0,
-      profit_usd: amountUsd,
-      profit_lbp: amountLbp,
+      profit_usd: posting.profit_usd,
+      profit_lbp: posting.profit_lbp,
       summary: `Supplier discount received: ${money} — ${label}`,
-      metadata_json: {
-        supplier_id: supplierId,
-        entry_type: "DISCOUNT",
-        // CQ-10/D1 counterparty contract: receiving a discount on a payable
-        // is booked "as if paid" — flow OUT, the same direction a real
-        // supplier payment uses.
-        counterparty: buildCounterpartyMetadata({
-          kind: "supplier",
-          id: supplierId,
-          name: label,
-          flow: "OUT",
-          method: "LEDGER",
-          ledgerEntryId: ledgerEntryId,
-          discount: {
-            amount_usd: amountUsd,
-            amount_lbp: amountLbp,
-            reason: discount.reason,
-          },
-        }),
-      },
+      metadata_json: posting.metadata_json,
     });
 
     this.db

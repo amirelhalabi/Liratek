@@ -132,10 +132,11 @@ function createTestDb(): Database.Database {
       client_id        INTEGER NOT NULL,
       transaction_type TEXT NOT NULL,
       amount_usd       REAL NOT NULL DEFAULT 0,
-      amount_lbp       REAL NOT NULL DEFAULT 0,
+      amount_lbp       REAL,
       transaction_id   INTEGER,
       note             TEXT,
       due_date         TEXT,
+      created_by       INTEGER,
       tenant_id        INTEGER NOT NULL DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
     );

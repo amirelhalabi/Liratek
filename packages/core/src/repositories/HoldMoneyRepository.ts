@@ -14,6 +14,7 @@ import { customServiceLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 // =============================================================================
 // Entity Types
@@ -322,43 +323,28 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
     userId: number,
   ): void {
     const tenantId = getCurrentTenantId();
-    const insertPayment = this.db.prepare(`
-      INSERT INTO payments (
-        transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-      ) VALUES (?, 'CASH', ?, ?, ?, ?, ?, ?)
-    `);
-    const upsertBalance = this.db.prepare(`
-      INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-        balance = drawer_balances.balance + excluded.balance,
-        updated_at = CURRENT_TIMESTAMP
-    `);
 
-    if (usd > 0) {
-      insertPayment.run(
-        txnId,
-        GENERAL_DRAWER,
-        "USD",
-        sign * usd,
+    const postLeg = (currencyCode: string, amount: number) => {
+      insertPaymentRow(this.db, {
+        transactionId: txnId,
+        method: "CASH",
+        drawerName: GENERAL_DRAWER,
+        currencyCode,
+        amount,
         note,
-        userId,
+        createdBy: userId,
         tenantId,
-      );
-      upsertBalance.run(GENERAL_DRAWER, "USD", sign * usd, tenantId);
-    }
-    if (lbp > 0) {
-      insertPayment.run(
-        txnId,
-        GENERAL_DRAWER,
-        "LBP",
-        sign * lbp,
-        note,
-        userId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName: GENERAL_DRAWER,
+        currencyCode,
+        delta: amount,
         tenantId,
-      );
-      upsertBalance.run(GENERAL_DRAWER, "LBP", sign * lbp, tenantId);
-    }
+      });
+    };
+
+    if (usd > 0) postLeg("USD", sign * usd);
+    if (lbp > 0) postLeg("LBP", sign * lbp);
   }
 }
 

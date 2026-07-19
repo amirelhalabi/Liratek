@@ -17,6 +17,12 @@ import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
+import { allocateFifo } from "../utils/fifoCoverage.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  buildCounterpartyDiscountPosting,
+} from "./moneyPosting.js";
 
 /** CQ-10 — a discount/write-off amount bundled with a settlement, or posted
  *  standalone. amount_usd/amount_lbp are the FORGIVEN amounts (always
@@ -356,21 +362,44 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         )
         .run(txnId, repaymentId, tenantId);
 
-      // 2. Record payment entries for drawer tracking
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      // 3. Update drawer balances
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
+      // 2. Record payment entries for drawer tracking / 3. Update drawer
+      // balances — via the shared moneyPosting helpers (CQ-3).
+      const insertPayment = {
+        run: (
+          transactionId: number,
+          method: string,
+          drawerName: string,
+          currencyCode: string,
+          amount: number,
+          note: string | null,
+          createdBy: number,
+          tenant: number,
+        ) =>
+          insertPaymentRow(this.db, {
+            transactionId,
+            method,
+            drawerName,
+            currencyCode,
+            amount,
+            note,
+            createdBy,
+            tenantId: tenant,
+          }),
+      };
+      const upsertBalance = {
+        run: (
+          drawerName: string,
+          currencyCode: string,
+          delta: number,
+          tenant: number,
+        ) =>
+          applyDrawerDelta(this.db, {
+            drawerName,
+            currencyCode,
+            delta,
+            tenantId: tenant,
+          }),
+      };
 
       // Determine if this repayment settles a Service Debt — if so, funds must
       // flow to the originating provider's system drawer, not just stay in
@@ -523,7 +552,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
             insertPayment.run(
               txnId,
-              routingProvider,
+              // Non-null: providerSystemDrawer and routingProvider are always
+              // set together (see the loop above that assigns both).
+              routingProvider!,
               providerSystemDrawer,
               legCurrency,
               routeAmount,
@@ -661,6 +692,19 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const ledgerId = Number(result.lastInsertRowid);
 
     const clientName = this._getClientName(clientId);
+    // CQ-5: the signed profit + counterparty metadata shape (D1 — forgiving
+    // a receivable is booked "as if paid", flow IN) is now the ONE shared
+    // helper every counterparty discount posts through (see moneyPosting.ts).
+    const posting = buildCounterpartyDiscountPosting({
+      kind: "client",
+      ledgerEntryId: ledgerId,
+      counterpartyId: clientId,
+      counterpartyName: clientName,
+      amountUsd,
+      amountLbp,
+      discountDirection: "forgiven",
+      reason: discount.reason,
+    });
     const txnId = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
       source_table: "debt_ledger",
@@ -668,27 +712,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       user_id: createdBy,
       amount_usd: 0,
       amount_lbp: 0,
-      profit_usd: -amountUsd,
-      profit_lbp: -amountLbp,
+      profit_usd: posting.profit_usd,
+      profit_lbp: posting.profit_lbp,
       client_id: clientId,
       summary: `Discount: $${amountUsd.toFixed(2)}${amountLbp ? ` + ${amountLbp.toLocaleString()} LBP` : ""} forgiven — ${clientName}`,
-      metadata_json: {
-        // CQ-10/D1 counterparty contract: forgiving a receivable is booked
-        // "as if paid" — flow IN, the same direction a real repayment uses.
-        counterparty: buildCounterpartyMetadata({
-          kind: "client",
-          id: clientId,
-          name: clientName,
-          flow: "IN",
-          method: "LEDGER",
-          ledgerEntryId: ledgerId,
-          discount: {
-            amount_usd: amountUsd,
-            amount_lbp: amountLbp,
-            reason: discount.reason,
-          },
-        }),
-      },
+      metadata_json: posting.metadata_json,
       transaction_time: transactionTime,
     });
 
@@ -775,22 +803,28 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       rate: number;
     }[];
 
-    let remaining = repaymentUsd;
     const updateStmt = this.db.prepare(
       `UPDATE sales SET paid_usd = paid_usd + ? WHERE id = ? AND tenant_id = ?`,
     );
 
-    for (const sale of unpaidSales) {
-      if (remaining <= 0.01) break;
-      const paidInUsd = sale.paid_usd + sale.paid_lbp / sale.rate;
-      const outstanding = sale.final_amount_usd - paidInUsd;
-      const apply = Math.min(remaining, outstanding);
-      if (apply > 0.01) {
-        updateStmt.run(apply, sale.id, tenantId);
-        remaining -= apply;
-      }
+    // CQ-2 — shared FIFO allocator; epsilon 0.01 matches this site's original
+    // loop tolerance exactly (the SQL filter above uses a separate, larger
+    // 0.05 threshold to decide which sales are still "open" at all).
+    const takes = allocateFifo(
+      unpaidSales.map((sale) => ({
+        id: sale.id,
+        outstanding:
+          sale.final_amount_usd - (sale.paid_usd + sale.paid_lbp / sale.rate),
+      })),
+      repaymentUsd,
+      0.01,
+    );
+    let consumed = 0;
+    for (const t of takes) {
+      updateStmt.run(t.take, t.id, tenantId);
+      consumed += t.take;
     }
-    return Math.max(0, remaining);
+    return Math.max(0, repaymentUsd - consumed);
   }
 
   /**
@@ -837,25 +871,44 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const upd = this.db.prepare(
       `UPDATE debt_ledger SET covered_usd = ?, covered_lbp = ? WHERE id = ? AND tenant_id = ?`,
     );
+
+    // CQ-2 — dual-currency site: the shared single-currency allocator is
+    // called TWICE (once per currency, over the same open rows, in the same
+    // order) and the two independent results are merged into ONE UPDATE per
+    // row — matching this site's original single UPDATE statement shape.
+    // Each currency's allocation is fully independent math (the original
+    // loop only ever coupled the two via a shared row list + a shared
+    // "either currency due" write-gate, never via a shared budget), so
+    // running two independent passes yields the same per-row take values.
+    const usdTakes = allocateFifo(
+      open.map((row) => ({
+        id: row.id,
+        outstanding: row.amount_usd - row.covered_usd,
+      })),
+      remainingUsd,
+      0.005,
+    );
+    const lbpTakes = allocateFifo(
+      open.map((row) => ({
+        id: row.id,
+        outstanding: row.amount_lbp - row.covered_lbp,
+      })),
+      remainingLbp,
+      1,
+    );
+    const usdById = new Map(usdTakes.map((t) => [t.id, t.take]));
+    const lbpById = new Map(lbpTakes.map((t) => [t.id, t.take]));
+
     for (const row of open) {
-      if (remainingUsd <= 0.005 && remainingLbp <= 1) break;
-      const takeUsd = Math.min(
-        remainingUsd,
-        Math.max(0, row.amount_usd - row.covered_usd),
-      );
-      const takeLbp = Math.min(
-        remainingLbp,
-        Math.max(0, row.amount_lbp - row.covered_lbp),
-      );
-      if (takeUsd > 0.005 || takeLbp > 1) {
+      const takeUsd = usdById.get(row.id) ?? 0;
+      const takeLbp = lbpById.get(row.id) ?? 0;
+      if (takeUsd > 0 || takeLbp > 0) {
         upd.run(
           row.covered_usd + takeUsd,
           row.covered_lbp + takeLbp,
           row.id,
           tenantId,
         );
-        remainingUsd -= takeUsd;
-        remainingLbp -= takeLbp;
       }
     }
   }
@@ -1019,18 +1072,42 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         )
         .run(txnId, ledgerId, tenantId);
 
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
+      const insertPayment = {
+        run: (
+          transactionId: number,
+          method: string,
+          drawerName: string,
+          currencyCode: string,
+          amount: number,
+          note: string | null,
+          createdBy: number,
+          tenant: number,
+        ) =>
+          insertPaymentRow(this.db, {
+            transactionId,
+            method,
+            drawerName,
+            currencyCode,
+            amount,
+            note,
+            createdBy,
+            tenantId: tenant,
+          }),
+      };
+      const upsertBalance = {
+        run: (
+          drawerName: string,
+          currencyCode: string,
+          delta: number,
+          tenant: number,
+        ) =>
+          applyDrawerDelta(this.db, {
+            drawerName,
+            currencyCode,
+            delta,
+            tenantId: tenant,
+          }),
+      };
 
       for (const leg of legs) {
         const amt = Math.abs(leg.amount);
@@ -1173,18 +1250,42 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         )
         .run(txnId, ledgerId, tenantId);
 
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance, tenant_id)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
+      const insertPayment = {
+        run: (
+          transactionId: number,
+          method: string,
+          drawerName: string,
+          currencyCode: string,
+          amount: number,
+          note: string | null,
+          createdBy: number,
+          tenant: number,
+        ) =>
+          insertPaymentRow(this.db, {
+            transactionId,
+            method,
+            drawerName,
+            currencyCode,
+            amount,
+            note,
+            createdBy,
+            tenantId: tenant,
+          }),
+      };
+      const upsertBalance = {
+        run: (
+          drawerName: string,
+          currencyCode: string,
+          delta: number,
+          tenant: number,
+        ) =>
+          applyDrawerDelta(this.db, {
+            drawerName,
+            currencyCode,
+            delta,
+            tenantId: tenant,
+          }),
+      };
 
       for (const leg of legs) {
         const amt = Math.abs(leg.amount);

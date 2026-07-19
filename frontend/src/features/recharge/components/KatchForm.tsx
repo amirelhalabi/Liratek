@@ -15,7 +15,10 @@ import {
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
-import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 import type { ProviderConfig, FinancialTransaction } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
@@ -1025,7 +1028,8 @@ function KatchFormInner({
           commission: aggregatedCommission,
           paidByMethod: finalPaymentMethod,
           payments: paymentsPayload,
-          checkoutTotal: paymentsPayload !== undefined ? checkoutTotal : undefined,
+          checkoutTotal:
+            paymentsPayload !== undefined ? checkoutTotal : undefined,
           // Payment-Legs Integrity plan (Wave 9, lira-095): the rate this
           // form's own PaymentSheet/MultiPaymentInput actually converted
           // tender at (`exchangeRate` prop — the buyRate this page passes,
@@ -1287,37 +1291,24 @@ function KatchFormInner({
           and takes NO counter cash; the full selling price goes on the
           selected partner's tab, settled later on the Partners page. */}
       <div className="flex items-center gap-3 flex-wrap">
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            data-testid="katch-for-partner-toggle"
-            checked={forPartner}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              setForPartner(checked);
-              if (!checked) setSelectedPartnerId(null);
-            }}
-            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-          />
-          <span className="text-xs text-slate-400">For Partner</span>
-        </label>
+        <ForPartnerToggle
+          testId="katch-for-partner-toggle"
+          checked={forPartner}
+          onChange={setForPartner}
+          selectedPartnerId={selectedPartnerId}
+          onPartnerChange={setSelectedPartnerId}
+          autoSelectSingle
+          selectorClassName=""
+        />
         {forPartner && (
-          <PartnerSelector
-            required
-            autoSelectSingle
-            selectedPartnerId={selectedPartnerId}
-            onSelect={setSelectedPartnerId}
-          />
-        )}
-        {forPartner && (
-          <div
-            data-testid="katch-partner-no-payment-notice"
+          <ForPartnerNotice
+            testId="katch-partner-no-payment-notice"
             className="w-full text-xs text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-lg px-3 py-2"
           >
             No payment is collected for a partner transaction. The full selling
             price goes on the selected partner&apos;s account, settled later on
             the Partners page.
-          </div>
+          </ForPartnerNotice>
         )}
       </div>
 

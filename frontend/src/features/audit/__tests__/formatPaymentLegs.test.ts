@@ -67,9 +67,9 @@ describe("formatPaymentLegs — tender-first display (S3)", () => {
   });
 
   it("same-currency same-side legs collapse into one summed figure", () => {
-    expect(
-      formatPaymentLegs([leg("in", 2, "USD"), leg("in", 3, "USD")]),
-    ).toBe("in: $5");
+    expect(formatPaymentLegs([leg("in", 2, "USD"), leg("in", 3, "USD")])).toBe(
+      "in: $5",
+    );
   });
 
   it("no legs → null (caller skips rendering)", () => {

@@ -15,6 +15,13 @@ import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  bookClientDebtCharge,
+  assertPartnerIdRequired,
+  assertNoCounterPayment,
+} from "./moneyPosting.js";
 
 function fmtPaymentMethod(method: string): string {
   return method.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -195,20 +202,42 @@ export class LotoTicketRepository {
       // 3. Record payment and update drawer balance.
       // Deferred (session basket): the basket recorder owns the customer-cash
       // post, so skip the drawer movement here (the supplier ledger below stays).
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (
-          tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      // drawer_balances' PRIMARY KEY is now (tenant_id, drawer_name,
-      // currency_code) — the ON CONFLICT target must match it exactly.
-      const upsertBalanceLeg = this.db.prepare(`
-        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
+      const insertPayment = {
+        run: (
+          tenant: number,
+          transactionId: number,
+          method: string,
+          drawerName: string,
+          currencyCode: string,
+          amount: number,
+          note: string | null,
+          createdBy: number,
+        ) =>
+          insertPaymentRow(this.db, {
+            transactionId,
+            method,
+            drawerName,
+            currencyCode,
+            amount,
+            note,
+            createdBy,
+            tenantId: tenant,
+          }),
+      };
+      const upsertBalanceLeg = {
+        run: (
+          tenant: number,
+          drawerName: string,
+          currencyCode: string,
+          delta: number,
+        ) =>
+          applyDrawerDelta(this.db, {
+            drawerName,
+            currencyCode,
+            delta,
+            tenantId: tenant,
+          }),
+      };
 
       // CUSTOMER_ACCOUNT (on-account) portion — accumulated from the legs and
       // booked to debt_ledger below. Pre-fix these legs were silently DROPPED:
@@ -276,16 +305,13 @@ export class LotoTicketRepository {
           data.userId,
         );
 
-        // Update drawer balance (positive delta = money IN). Same composite
-        // (tenant_id, drawer_name, currency_code) conflict target as above.
-        const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-            balance = drawer_balances.balance + excluded.balance,
-            updated_at = CURRENT_TIMESTAMP
-        `);
-        upsertBalance.run(tenantId, drawerName, currency, data.sale_amount);
+        // Update drawer balance (positive delta = money IN).
+        applyDrawerDelta(this.db, {
+          drawerName,
+          currencyCode: currency,
+          delta: data.sale_amount,
+          tenantId,
+        });
       }
 
       // 3b. PFT-R (Partner FOR-Transactions, full-amount model): routing is
@@ -295,9 +321,7 @@ export class LotoTicketRepository {
       // instead of a client's debt_ledger; the normal supplier-float/ticket
       // flow above (steps 1, 2, 4) is unchanged.
       if (isForPartner) {
-        if (!data.partnerId) {
-          throw new Error('partnerId is required when partnerMode is "FOR"');
-        }
+        assertPartnerIdRequired(data.partnerId);
 
         // A partner ticket takes no counter payment at all — any
         // drawer-affecting IN leg, CUSTOMER_ACCOUNT leg (structured or
@@ -315,17 +339,19 @@ export class LotoTicketRepository {
         const hasLegacyCustomerAccount =
           data.payment_method === "CUSTOMER_ACCOUNT";
 
-        if (
+        // The CUSTOMER_ACCOUNT case (hasLegacyCustomerAccount) is folded
+        // into this SAME "no counter payment" guard, not a separate
+        // mutual-exclusivity guard — it already threw this exact message,
+        // never a distinct one (see moneyPosting.ts's assertNoCounterPayment
+        // doc).
+        assertNoCounterPayment(
           hasCounterPaymentLeg ||
-          hasLegacyCounterPayment ||
-          hasLegacyCustomerAccount ||
-          debtUsd > 0 ||
-          debtLbp > 0
-        ) {
-          throw new Error(
-            "A partner loto ticket takes no counter payment — the full amount goes on the partner's tab",
-          );
-        }
+            hasLegacyCounterPayment ||
+            hasLegacyCustomerAccount ||
+            debtUsd > 0 ||
+            debtLbp > 0,
+          "loto ticket",
+        );
 
         // Book the FULL sale amount to the partner's tab. Loto is always
         // LBP-denominated — never a converted figure.
@@ -346,21 +372,16 @@ export class LotoTicketRepository {
         if (!data.clientId) {
           throw new Error("Cannot create debt without a client");
         }
-        this.db
-          .prepare(
-            `INSERT INTO debt_ledger (
-              tenant_id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-            ) VALUES (?, ?, 'Loto Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-          )
-          .run(
-            tenantId,
-            data.clientId,
-            debtUsd,
-            debtLbp,
-            txnId,
-            data.note || txnSummary,
-            data.userId,
-          );
+        bookClientDebtCharge(this.db, {
+          clientId: data.clientId,
+          transactionType: "Loto Debt",
+          amountUsd: debtUsd,
+          amountLbp: debtLbp,
+          transactionId: txnId,
+          note: data.note || txnSummary,
+          createdBy: data.userId,
+          tenantId,
+        });
       }
 
       // 4. Create supplier ledger entry (we owe LOTO: sale_amount - commission)

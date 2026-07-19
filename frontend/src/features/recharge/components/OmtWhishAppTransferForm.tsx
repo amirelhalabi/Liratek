@@ -19,7 +19,10 @@ import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
-import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 import { ensureRechargeClient } from "../utils/ensureClient";
 import { calculateOmtWhishAppFees } from "../utils/omtWhishAppFees";
 import { toCamelLegs } from "@/utils/paymentUtils";
@@ -447,29 +450,14 @@ function OmtWhishAppTransferFormInner({
           previous unconditional-header bug where a single-partner shop
           silently painted "Partner: <name>" on every transaction. */}
       <div>
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            data-testid="omt-whish-transfer-for-partner-toggle"
-            checked={forPartner}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              setForPartner(checked);
-              if (!checked) setSelectedPartnerId(null);
-            }}
-            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-          />
-          <span className="text-xs text-slate-400">For Partner</span>
-        </label>
-        {forPartner && (
-          <PartnerSelector
-            required
-            autoSelectSingle
-            selectedPartnerId={selectedPartnerId}
-            onSelect={setSelectedPartnerId}
-            className="mt-2"
-          />
-        )}
+        <ForPartnerToggle
+          testId="omt-whish-transfer-for-partner-toggle"
+          checked={forPartner}
+          onChange={setForPartner}
+          selectedPartnerId={selectedPartnerId}
+          onPartnerChange={setSelectedPartnerId}
+          autoSelectSingle
+        />
       </div>
 
       {/* Amount Input */}
@@ -665,10 +653,7 @@ function OmtWhishAppTransferFormInner({
               />
             </div>
           )}
-          <div
-            data-testid="omt-whish-transfer-partner-no-payment-notice"
-            className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
-          >
+          <ForPartnerNotice testId="omt-whish-transfer-partner-no-payment-notice">
             {serviceType === "SEND" ? (
               <>
                 No counter payment is collected for a partner transfer. The shop
@@ -689,7 +674,7 @@ function OmtWhishAppTransferFormInner({
                 settled later on the Partners page.
               </>
             )}
-          </div>
+          </ForPartnerNotice>
         </div>
       ) : (
         <>

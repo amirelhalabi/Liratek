@@ -101,6 +101,7 @@ function createTestDb(): Database.Database {
     CREATE TABLE payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
+      session_id INTEGER,
       method TEXT NOT NULL,
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,
@@ -736,6 +737,7 @@ function createExtendedTestDb(): Database.Database {
     CREATE TABLE payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
+      session_id INTEGER,
       method TEXT NOT NULL,
       drawer_name TEXT NOT NULL,
       currency_code TEXT NOT NULL,

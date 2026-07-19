@@ -4,6 +4,7 @@ import { closingLogger } from "../utils/logger.js";
 import { localDay } from "../utils/localDate.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 
 /**
  * Payments-journal method used for the balance adjustment posted when a
@@ -168,6 +169,13 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       // db.exec cannot bind parameters, so the tenant-scoped rewrite uses two
       // prepared statements run back-to-back (same sequential semantics as the
       // previous multi-statement exec).
+      //
+      // CQ-3 survey note: this ON CONFLICT is NOT migrated to the shared
+      // `applyDrawerDelta` helper. It is a full recompute from the payments
+      // journal (SUM(amount) GROUP BY drawer/currency) that OVERWRITES the
+      // balance (`balance = excluded.balance`), not an additive signed delta
+      // — genuinely different semantics from every other drawer_balances
+      // upsert in the codebase. Left as-is.
       const tenantId = getCurrentTenantId();
       this.db
         .prepare(
@@ -292,17 +300,6 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       const getBalance = this.db.prepare(
         `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?`,
       );
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(tenant_id, drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (tenant_id, transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
 
       const tx = this.db.transaction((rows: CheckpointAmount[]) => {
         // 1. Persist the audit snapshot (expected vs physical) for variance reports.
@@ -360,17 +357,22 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
 
         // 4. Post the reconciliation entries to the journal + live balances.
         for (const a of adjustments) {
-          insertPayment.run(
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: CHECKPOINT_ADJUSTMENT_METHOD,
+            drawerName: a.drawer_name,
+            currencyCode: a.currency_code,
+            amount: a.delta,
+            note: `Checkpoint reconciliation for ${closingDate}`,
+            createdBy: data.user_id,
             tenantId,
-            txnId,
-            CHECKPOINT_ADJUSTMENT_METHOD,
-            a.drawer_name,
-            a.currency_code,
-            a.delta,
-            `Checkpoint reconciliation for ${closingDate}`,
-            data.user_id,
-          );
-          upsertBalance.run(tenantId, a.drawer_name, a.currency_code, a.delta);
+          });
+          applyDrawerDelta(this.db, {
+            drawerName: a.drawer_name,
+            currencyCode: a.currency_code,
+            delta: a.delta,
+            tenantId,
+          });
         }
       });
       tx(data.amounts);

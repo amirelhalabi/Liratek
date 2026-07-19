@@ -27,6 +27,7 @@ import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localMonth } from "@/shared/utils/localDay";
+import { isElectron } from "@/api/backendApi";
 
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
 
@@ -321,6 +322,8 @@ export default function Dashboard() {
 
   const loadData = useCallback(async () => {
     try {
+      // Dual-mode via useApi() — the adapter picks IPC vs REST internally
+      // (ipcOrHttp), so no window.api gate belongs here (rule 19a).
       const [
         statsData,
         profitChartData,
@@ -331,29 +334,17 @@ export default function Dashboard() {
         monthlyPL,
         drawerCurrConfig,
         debtorsData,
-      ] = window.api
-        ? await Promise.all([
-            window.api.dashboard.getStats(),
-            window.api.dashboard.getProfitSalesChart(chartType),
-            window.api.sales.getTodaysSales(),
-            window.api.closing.getSystemExpectedBalancesDynamic(),
-            window.api.debt.getSummary(),
-            window.api.inventory.getStockStats(),
-            window.api.financial.getMonthlyPL(localMonth()),
-            window.api.currencies.allDrawerCurrencies(),
-            window.api.debt.getDebtors(),
-          ])
-        : await Promise.all([
-            api.getDashboardStats(),
-            api.getProfitSalesChart(chartType),
-            api.getTodaysSales(),
-            api.getSystemExpectedBalancesDynamic(),
-            api.getDebtSummary(),
-            api.getInventoryStockStats(),
-            api.getMonthlyPL(localMonth()),
-            api.getAllDrawerCurrencies(),
-            api.getDebtors(),
-          ]);
+      ] = await Promise.all([
+        api.getDashboardStats(),
+        api.getProfitSalesChart(chartType),
+        api.getTodaysSales(),
+        api.getSystemExpectedBalancesDynamic(),
+        api.getDebtSummary(),
+        api.getInventoryStockStats(),
+        api.getMonthlyPL(localMonth()),
+        api.getAllDrawerCurrencies(),
+        api.getDebtors(),
+      ]);
 
       setStats({
         ...statsData,
@@ -384,12 +375,15 @@ export default function Dashboard() {
         setDebtors(debtorsData);
       }
 
-      // Load last-checkpoint-per-drawer for staleness badges (admin + session mgmt only)
-      if (checkpointsEnabled && window.api) {
+      // Load last-checkpoint-per-drawer for staleness badges (admin +
+      // session mgmt only). This read has no REST mirror yet — isElectron()
+      // (not raw window.api truthiness) so the web-test shim, which keeps
+      // isElectron() false on purpose, skips it consistently with real web.
+      if (checkpointsEnabled && isElectron()) {
         try {
           const statusRes =
-            await window.api.closing.getLastCheckpointPerDrawer();
-          if (statusRes.success && statusRes.data) {
+            await window.api?.closing.getLastCheckpointPerDrawer();
+          if (statusRes?.success && statusRes.data) {
             setDrawerStatuses(statusRes.data);
           }
         } catch {
@@ -397,23 +391,21 @@ export default function Dashboard() {
         }
       }
 
-      // Load unsettled summary (non-critical — don't let failures block dashboard)
+      // Load unsettled summary (non-critical — don't let failures block
+      // dashboard). Dual-mode via useApi() — no window.api gate.
       try {
-        const unsettled = window.api
-          ? await window.api.suppliers.getUnsettledSummary()
-          : await (api as any).getUnsettledSummary?.();
+        const unsettled = await api.getUnsettledSummary();
         if (Array.isArray(unsettled)) setUnsettledSummary(unsettled);
       } catch {
         // non-critical
       }
 
-      // Load active money holds (non-critical — surfaced as notification cards)
+      // Load active money holds (non-critical — surfaced as notification
+      // cards). Dual-mode via useApi().holdMoney — no window.api gate.
       try {
-        if (window.api?.holdMoney) {
-          const holdsRes = await api.holdMoney.active();
-          if (holdsRes.success && holdsRes.data) {
-            setActiveHolds(holdsRes.data);
-          }
+        const holdsRes = await api.holdMoney.active();
+        if (holdsRes.success && holdsRes.data) {
+          setActiveHolds(holdsRes.data);
         }
       } catch {
         // non-critical
@@ -441,7 +433,6 @@ export default function Dashboard() {
 
   const handleCollectHold = useCallback(
     async (hold: ActiveHold) => {
-      if (!window.api?.holdMoney) return;
       setCollectingHoldId(hold.id);
       try {
         const res = await api.holdMoney.collect(hold.id);
@@ -468,11 +459,13 @@ export default function Dashboard() {
     [loadData],
   );
 
-  // Check once on mount whether initial drawer amounts have been set
+  // Check once on mount whether initial drawer amounts have been set.
   useEffect(() => {
-    // IPC-only check — in web mode keep the default (no setup banner)
-    if (!window.api?.closing) return;
-    window.api.closing.hasInitialBalancesSet().then((isSet) => {
+    // IPC-only check — in web mode keep the default (no setup banner).
+    // isElectron() (not raw window.api truthiness) so the web-test shim,
+    // which keeps isElectron() false on purpose, skips this consistently.
+    if (!isElectron()) return;
+    window.api?.closing.hasInitialBalancesSet().then((isSet) => {
       setInitialBalancesSet(isSet);
     });
   }, []);
@@ -481,11 +474,11 @@ export default function Dashboard() {
   // checkpoints (session management) are enabled; otherwise treat as satisfied
   // so the banner never shows for shops that don't use the timeline.
   const refreshStartingCheckpoint = useCallback(() => {
-    if (!checkpointsEnabled || !window.api?.closing) {
+    if (!checkpointsEnabled || !isElectron()) {
       setStartingCheckpointSet(true);
       return;
     }
-    window.api.closing
+    window.api?.closing
       .hasStartingCheckpoint()
       .then((isSet) => setStartingCheckpointSet(isSet));
   }, [checkpointsEnabled]);
