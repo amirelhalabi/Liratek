@@ -36,7 +36,7 @@ router.get("/products/:id", (req, res) => {
   try {
     const product = service.getProductById(id);
     res.json({ success: true, product });
-  } catch (e) {
+  } catch {
     res.status(404).json({ success: false, error: "Product not found" });
   }
 });

@@ -388,7 +388,12 @@ describe("assertNoCounterPayment (CQ-4 guard 2 — counter-payment rejection)", 
   });
 
   it("every message satisfies the e2e substring/regex assertions (lira-113/115/116/118/119)", () => {
-    for (const context of ["sale", "recharge", "loto ticket", "financial service"]) {
+    for (const context of [
+      "sale",
+      "recharge",
+      "loto ticket",
+      "financial service",
+    ]) {
       let message = "";
       try {
         assertNoCounterPayment(true, context);
@@ -408,7 +413,10 @@ describe("assertNoCounterPayment (CQ-4 guard 2 — counter-payment rejection)", 
 describe("assertNoCustomerAccountLeg (CQ-4 guard 3 — mutual exclusivity)", () => {
   it("throws the caller-supplied message when a CUSTOMER_ACCOUNT leg is present", () => {
     expect(() =>
-      assertNoCustomerAccountLeg(true, "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg"),
+      assertNoCustomerAccountLeg(
+        true,
+        "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg",
+      ),
     ).toThrow(
       "Cannot combine a partner FOR-sale with a CUSTOMER_ACCOUNT payment leg",
     );
@@ -492,7 +500,9 @@ describe("bookClientDebtCharge (CQ-4 — the client-kind consolidation)", () => 
       tenantId: 1,
     });
     const row = db
-      .prepare(`SELECT due_date, created_at FROM debt_ledger WHERE transaction_id = ?`)
+      .prepare(
+        `SELECT due_date, created_at FROM debt_ledger WHERE transaction_id = ?`,
+      )
       .get(101) as { due_date: string; created_at: string };
     const dueDate = new Date(row.due_date);
     const createdAt = new Date(row.created_at);

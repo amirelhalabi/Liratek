@@ -17,10 +17,7 @@
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
-import {
-  ForPartnerToggle,
-  ForPartnerNotice,
-} from "../ForPartnerToggle";
+import { ForPartnerToggle, ForPartnerNotice } from "../ForPartnerToggle";
 
 const mockPartnerSelector = jest.fn(
   (props: {
@@ -100,7 +97,9 @@ describe("ForPartnerToggle", () => {
         onPartnerChange={onPartnerChange}
       />,
     );
-    expect(screen.queryByTestId("stub-partner-selector")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("stub-partner-selector"),
+    ).not.toBeInTheDocument();
 
     rerender(
       <ForPartnerToggle
