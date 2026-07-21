@@ -1,6 +1,12 @@
 # Current Sprint — March 2026
 
-> **Last Updated**: 2026-07-12  
+> **Last Updated**: 2026-07-19 (validation sweep — see
+> `docs/plans/todo_plans/PARTIAL_TASKS_COMPLETION_PLAN.md`. Corrections:
+> "Whish App SEND/RECEIVE" shipped long ago via `OmtWhishAppTransferForm`
+> (Send/Receive tabs); T-61 Loto shipped (v1.29 era, lira-091 guarded);
+> sell-price catalog now 137 zero-`sell` items (was 199); OMT/Whish **System
+> Rate settings** and cost<sell validation remain genuinely pending; T4
+> (Windows timing) still untouched — top open item.)  
 > **Sprint Start**: 2026-03-01  
 > **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update, Sales Reporting, Recharge Page Overhaul, IPEC/KATCH/OMT App Implementation, Exchange Rate System
 
@@ -1079,7 +1085,7 @@ All 11 implementation phases completed:
 
 ### [T-61] Loto Module Implementation
 
-**Priority**: HIGH | **Estimated Time**: 2-3 days | **Status**: Not started
+**Priority**: HIGH | **Estimated Time**: 2-3 days | **Status**: ⚠️ STALE ENTRY — Loto shipped long ago (v1.29 era, `lira-091` guarded; see header note). Section kept for history only.
 
 Add a lottery ticket sales module with the following features:
 
