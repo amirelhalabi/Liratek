@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle,
   Loader2,
+  Printer,
 } from "lucide-react";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -20,8 +21,29 @@ import { binanceCashSide, splitBasketCashSides } from "../utils/binanceCart";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
+import { useShopInfo } from "@/hooks/useShopName";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
+import { printReceipt } from "@/shared/utils/printReceipt";
+import {
+  buildSessionCheckoutReceiptText,
+  type SessionReceiptItem,
+  type SessionReceiptLeg,
+} from "../utils/sessionReceipt";
 import type { CartItem } from "../types/cart";
+
+/** W1.b — snapshot taken BEFORE clearCart()/session-close so the Print
+ *  button (rendered AFTER checkout, once activeSession has already gone
+ *  null — checkout always closes the session) still has everything the
+ *  receipt needs. See sessionReceipt.ts for why this can't reuse
+ *  printServiceReceiptByTransaction. */
+interface CheckoutSuccessState {
+  itemCount: number;
+  sessionId: number;
+  customerName?: string | undefined;
+  customerPhone?: string | undefined;
+  items: SessionReceiptItem[];
+  legs: SessionReceiptLeg[];
+}
 
 interface SessionCheckoutModalProps {
   isOpen: boolean;
@@ -184,6 +206,15 @@ export function SessionCheckoutModal({
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const shopInfo = useShopInfo();
+
+  // W1.b — set once checkout succeeds; renders the Print + Close success view
+  // INSTEAD OF the cart/payment form. Checkout always closes the session
+  // (recordCheckoutClose sets is_active = 0), so `activeSession` goes null
+  // almost immediately after — this snapshot is the only thing the Print
+  // button can rely on.
+  const [checkoutSuccess, setCheckoutSuccess] =
+    useState<CheckoutSuccessState | null>(null);
 
   // Per-item discount (in the item's own currency), capped at each item's
   // profit. Keyed by cart item id. Items with no profit have no input.
@@ -201,6 +232,7 @@ export function SessionCheckoutModal({
       setItemDiscounts({});
       setRateEdited(false);
       setKeptChange(null);
+      setCheckoutSuccess(null);
     }
   }, [isOpen]);
 
@@ -445,9 +477,17 @@ export function SessionCheckoutModal({
   const isPaymentValid =
     combinedTotalUSD <= 0 || paidUSD >= combinedTotalUSD - combinedTolerance;
 
-  if (!isOpen || !activeSession) return null;
+  if (!isOpen) return null;
+  // Checkout closes the session (is_active = 0), so activeSession goes null
+  // right after a successful checkout — keep rendering the success view.
+  if (!activeSession && !checkoutSuccess) return null;
 
   const handleCheckout = async () => {
+    if (!activeSession) {
+      setError("No active session");
+      return;
+    }
+
     if (!user) {
       setError("No authenticated user");
       return;
@@ -518,6 +558,26 @@ export function SessionCheckoutModal({
 
       if (result.success) {
         logger.info(`Session checkout completed: ${result.itemCount} items`);
+        // W1.b — snapshot everything the receipt needs BEFORE clearCart()
+        // wipes cartItems and the session closes (activeSession -> null).
+        const itemCount = result.itemCount ?? cartItems.length;
+        const receiptSnapshot: CheckoutSuccessState = {
+          itemCount,
+          sessionId: activeSession.id,
+          customerName: activeSession.customer_name,
+          customerPhone: activeSession.customer_phone,
+          items: cartItems.map((item) => ({
+            label: item.label,
+            amount: item.amount,
+            currency: item.currency,
+          })),
+          legs: allPaymentLegs.map((l) => ({
+            method: l.method,
+            currency_code: l.currency_code,
+            amount: l.amount,
+            direction: l.direction,
+          })),
+        };
         clearCart();
         await refreshActiveSessions();
         appEvents.emit(
@@ -525,7 +585,9 @@ export function SessionCheckoutModal({
           `Checkout complete — ${result.itemCount} items processed`,
           "success",
         );
-        onClose();
+        // No auto-print (ticket: sessions skip the auto-dialog) — show the
+        // Print + Close success view instead of closing immediately.
+        setCheckoutSuccess(receiptSnapshot);
       } else {
         setError(result.error || "Checkout failed");
         logger.error(`Session checkout failed: ${result.error}`);
@@ -539,284 +601,393 @@ export function SessionCheckoutModal({
     }
   };
 
+  /** W1.b explicit Print button (no auto-print for sessions). Builds the
+   *  receipt purely from the checkout snapshot — see sessionReceipt.ts for
+   *  why this can't go through printServiceReceiptByTransaction. */
+  const handlePrintReceipt = async () => {
+    if (!checkoutSuccess) return;
+    let printer = "";
+    try {
+      const settings = await api.getAllSettings();
+      printer =
+        (settings?.find(
+          (s: { key_name: string; value: string }) =>
+            s.key_name === "receipt_printer",
+        )?.value as string) || "";
+    } catch {
+      // no configured printer — printReceipt falls back to a print window
+    }
+    const text = buildSessionCheckoutReceiptText({
+      shop: shopInfo,
+      sessionId: checkoutSuccess.sessionId,
+      customerName: checkoutSuccess.customerName,
+      customerPhone: checkoutSuccess.customerPhone,
+      items: checkoutSuccess.items,
+      legs: checkoutSuccess.legs,
+    });
+    await printReceipt({
+      text,
+      printer,
+      ...(shopInfo.logo ? { logo: shopInfo.logo } : {}),
+    });
+  };
+
+  const handleSuccessClose = () => {
+    setCheckoutSuccess(null);
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/70"
+        onClick={checkoutSuccess ? handleSuccessClose : onClose}
+      />
 
       {/* Modal */}
       <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/50">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-emerald-600/20 rounded-lg flex items-center justify-center">
-              <ShoppingCart className="w-5 h-5 text-emerald-400" />
+        {checkoutSuccess ? (
+          <>
+            {/* Success header (W1.b) — activeSession is already null here
+                (checkout closes the session), so everything renders from the
+                snapshot captured right before clearCart(). */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/50">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-emerald-600/20 rounded-lg flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    Checkout Complete
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    {checkoutSuccess.customerName || "Walk-in"} —{" "}
+                    {checkoutSuccess.itemCount} item
+                    {checkoutSuccess.itemCount !== 1 ? "s" : ""} processed
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleSuccessClose}
+                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">
-                Session Checkout
-              </h2>
-              <p className="text-xs text-slate-400">
-                {activeSession.customer_name || "Walk-in"} — {cartItems.length}{" "}
-                item{cartItems.length !== 1 ? "s" : ""}
+
+            {/* Success body */}
+            <div className="flex-1 overflow-y-auto px-5 py-10 flex flex-col items-center justify-center gap-3 text-center">
+              <CheckCircle className="w-12 h-12 text-emerald-400" />
+              <p className="text-sm text-slate-300">
+                Payment recorded. Print a receipt for the customer, or close.
               </p>
             </div>
-          </div>
-          <button
-            onClick={onClose}
-            disabled={isProcessing}
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
-        {/* Body — scrollable */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Cart Items with Per-Item Payment Method */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-slate-300">Cart Items</h3>
-            {Array.from(groupedItems.entries()).map(([module, items]) => (
-              <div
-                key={module}
-                className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3"
+            {/* Success footer — explicit Print button only, no auto-print
+                (the ticket: sessions skip the auto-dialog). */}
+            <div className="px-5 py-4 border-t border-slate-700/50 flex gap-3">
+              <button
+                onClick={handlePrintReceipt}
+                className="flex-1 py-2.5 rounded-lg font-medium text-sm text-slate-200 bg-slate-800 hover:bg-slate-700 transition-colors flex items-center justify-center gap-2"
               >
-                <div className="text-xs font-medium text-slate-400 mb-2">
-                  {MODULE_LABELS[module] || module}
+                <Printer className="w-4 h-4" />
+                Print Receipt
+              </button>
+              <button
+                onClick={handleSuccessClose}
+                className="flex-1 py-2.5 rounded-lg font-semibold text-sm text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </>
+        ) : (
+          activeSession && (
+            <>
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-emerald-600/20 rounded-lg flex items-center justify-center">
+                    <ShoppingCart className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      Session Checkout
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      {activeSession.customer_name || "Walk-in"} —{" "}
+                      {cartItems.length} item{cartItems.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  {items.map((item) => {
-                    const profitCap = getItemProfitCap(item);
-                    const discount = itemDiscounts[item.id] ?? 0;
-                    return (
-                      <div key={item.id} className="space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm text-slate-200 truncate flex-1 min-w-0">
-                            {item.label}
-                          </span>
-                          {/* Amount — customer perspective only. Binance
+                <button
+                  onClick={onClose}
+                  disabled={isProcessing}
+                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body — scrollable */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                {/* Cart Items with Per-Item Payment Method */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium text-slate-300">
+                    Cart Items
+                  </h3>
+                  {Array.from(groupedItems.entries()).map(([module, items]) => (
+                    <div
+                      key={module}
+                      className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3"
+                    >
+                      <div className="text-xs font-medium text-slate-400 mb-2">
+                        {MODULE_LABELS[module] || module}
+                      </div>
+                      <div className="space-y-2">
+                        {items.map((item) => {
+                          const profitCap = getItemProfitCap(item);
+                          const discount = itemDiscounts[item.id] ?? 0;
+                          return (
+                            <div key={item.id} className="space-y-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm text-slate-200 truncate flex-1 min-w-0">
+                                  {item.label}
+                                </span>
+                                {/* Amount — customer perspective only. Binance
                               items show their CASH side in USD (the USDT is
                               the service, named in the label; the wallet
                               movement is shop bookkeeping). */}
-                          <span
-                            className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right shrink-0 ${
-                              item.amount < 0
-                                ? "text-red-400"
-                                : "text-emerald-400"
-                            }`}
-                          >
-                            {item.amount < 0 ? "-" : "+"}
-                            {binanceCashSide(item)
-                              ? `$${Math.abs(item.amount).toFixed(2)}`
-                              : formatAmount(item.amount, item.currency)}
-                          </span>
-                        </div>
+                                <span
+                                  className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right shrink-0 ${
+                                    item.amount < 0
+                                      ? "text-red-400"
+                                      : "text-emerald-400"
+                                  }`}
+                                >
+                                  {item.amount < 0 ? "-" : "+"}
+                                  {binanceCashSide(item)
+                                    ? `$${Math.abs(item.amount).toFixed(2)}`
+                                    : formatAmount(item.amount, item.currency)}
+                                </span>
+                              </div>
 
-                        {/* Per-item discount — capped at the item's profit.
+                              {/* Per-item discount — capped at the item's profit.
                             Hidden for items with no profit concept. */}
-                        {profitCap > 0 && (
-                          <div className="flex items-center justify-end gap-2 pl-1">
-                            <label className="text-[11px] text-slate-400 whitespace-nowrap">
-                              Discount (max{" "}
-                              {formatAmount(profitCap, item.currency)})
-                            </label>
-                            <input
-                              type="number"
-                              min={0}
-                              max={profitCap}
-                              step={item.currency === "LBP" ? 1000 : 0.01}
-                              value={discount || ""}
-                              onChange={(e) => {
-                                const raw = parseFloat(e.target.value) || 0;
-                                const clamped = Math.min(
-                                  Math.max(0, raw),
-                                  profitCap,
-                                );
-                                setItemDiscounts((prev) => ({
-                                  ...prev,
-                                  [item.id]: clamped,
-                                }));
-                              }}
-                              className="w-28 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white font-mono text-right focus:outline-none focus:border-orange-500"
-                              placeholder="0"
-                            />
-                          </div>
-                        )}
+                              {profitCap > 0 && (
+                                <div className="flex items-center justify-end gap-2 pl-1">
+                                  <label className="text-[11px] text-slate-400 whitespace-nowrap">
+                                    Discount (max{" "}
+                                    {formatAmount(profitCap, item.currency)})
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={profitCap}
+                                    step={item.currency === "LBP" ? 1000 : 0.01}
+                                    value={discount || ""}
+                                    onChange={(e) => {
+                                      const raw =
+                                        parseFloat(e.target.value) || 0;
+                                      const clamped = Math.min(
+                                        Math.max(0, raw),
+                                        profitCap,
+                                      );
+                                      setItemDiscounts((prev) => ({
+                                        ...prev,
+                                        [item.id]: clamped,
+                                      }));
+                                    }}
+                                    className="w-28 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white font-mono text-right focus:outline-none focus:border-orange-500"
+                                    placeholder="0"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
-          </div>
 
-          {/* Basket total — combined USD/LBP breakdown, shown once before the
+                {/* Basket total — combined USD/LBP breakdown, shown once before the
               payment section since the pooled MultiPaymentInput below only
               displays its running total in USD-equivalent. */}
-          {(netUsd !== 0 || netLbp !== 0) && (
-            <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2 flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-300">Total</span>
-              <span className="flex items-center gap-3 font-mono text-sm">
-                {netUsd !== 0 && (
-                  <span
-                    className={netUsd < 0 ? "text-red-400" : "text-emerald-400"}
-                  >
-                    {netUsd < 0 ? "-" : ""}
-                    {formatAmount(netUsd, "USD")}
-                  </span>
+                {(netUsd !== 0 || netLbp !== 0) && (
+                  <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2 flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-300">
+                      Total
+                    </span>
+                    <span className="flex items-center gap-3 font-mono text-sm">
+                      {netUsd !== 0 && (
+                        <span
+                          className={
+                            netUsd < 0 ? "text-red-400" : "text-emerald-400"
+                          }
+                        >
+                          {netUsd < 0 ? "-" : ""}
+                          {formatAmount(netUsd, "USD")}
+                        </span>
+                      )}
+                      {netLbp !== 0 && (
+                        <span
+                          className={
+                            netLbp < 0 ? "text-red-400" : "text-emerald-400"
+                          }
+                        >
+                          {netLbp < 0 ? "-" : ""}
+                          {formatAmount(netLbp, "LBP")}
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 )}
-                {netLbp !== 0 && (
-                  <span
-                    className={netLbp < 0 ? "text-red-400" : "text-emerald-400"}
-                  >
-                    {netLbp < 0 ? "-" : ""}
-                    {formatAmount(netLbp, "LBP")}
-                  </span>
-                )}
-              </span>
-            </div>
-          )}
 
-          {/* MultiPaymentInput — one pooled section covering both currencies.
+                {/* MultiPaymentInput — one pooled section covering both currencies.
               Pre-seeded with one row per positive currency total, opening
               directly in split mode instead of two separate widgets. */}
-          {(totals.usd > 0 || totals.lbp > 0) && (
-            <div className="space-y-1">
-              <MultiPaymentInput
-                key={`payment-${paymentInputKey}`}
-                // Per-currency totals (multi-currency engine): the GROSS
-                // charges keep their native composition, so an LBP-only
-                // basket's prefill is rate-invariant — editing the modal rate
-                // no longer re-derives it through a USD scalar (the T2 bug,
-                // docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md MCP-4).
-                totals={[
-                  ...(chargeUsd > 0
-                    ? [{ amount: chargeUsd, currency: "USD" }]
-                    : []),
-                  ...(chargeLbp > 0
-                    ? [{ amount: chargeLbp, currency: "LBP" }]
-                    : []),
-                ]}
-                // Session payments convert at the BUY side (owner decision
-                // 2026-07-06), stated explicitly.
-                side="buy"
-                currency="USD"
-                totalAmountCurrency="USD"
-                initialLines={paymentInitialLines}
-                onChange={setPaymentLines}
-                onReturnChange={setReturnLines}
-                onKeptChange={setKeptChange}
-                requiresClientForDebt={true}
-                hasClient={hasClient}
-                paymentMethods={paymentMethodOptions}
-                currencies={currencies}
-                exchangeRate={exchangeRate}
-                onRateChange={handleRateChange}
-                showDiscount={false}
-                label="Payment"
-                initialMethod={initialMethod}
-                clientId={sessionClientId}
-                fetchClientVouchers={fetchClientVouchers}
-              />
-            </div>
-          )}
+                {(totals.usd > 0 || totals.lbp > 0) && (
+                  <div className="space-y-1">
+                    <MultiPaymentInput
+                      key={`payment-${paymentInputKey}`}
+                      // Per-currency totals (multi-currency engine): the GROSS
+                      // charges keep their native composition, so an LBP-only
+                      // basket's prefill is rate-invariant — editing the modal rate
+                      // no longer re-derives it through a USD scalar (the T2 bug,
+                      // docs/plans/done_plans/MULTI_CURRENCY_PAYMENT_PLAN.md MCP-4).
+                      totals={[
+                        ...(chargeUsd > 0
+                          ? [{ amount: chargeUsd, currency: "USD" }]
+                          : []),
+                        ...(chargeLbp > 0
+                          ? [{ amount: chargeLbp, currency: "LBP" }]
+                          : []),
+                      ]}
+                      // Session payments convert at the BUY side (owner decision
+                      // 2026-07-06), stated explicitly.
+                      side="buy"
+                      currency="USD"
+                      totalAmountCurrency="USD"
+                      initialLines={paymentInitialLines}
+                      onChange={setPaymentLines}
+                      onReturnChange={setReturnLines}
+                      onKeptChange={setKeptChange}
+                      requiresClientForDebt={true}
+                      hasClient={hasClient}
+                      paymentMethods={paymentMethodOptions}
+                      currencies={currencies}
+                      exchangeRate={exchangeRate}
+                      onRateChange={handleRateChange}
+                      showDiscount={false}
+                      label="Payment"
+                      initialMethod={initialMethod}
+                      clientId={sessionClientId}
+                      fetchClientVouchers={fetchClientVouchers}
+                    />
+                  </div>
+                )}
 
-          {/* Net cash-OUT to the customer (loto prize / RECEIVE / Binance cash
+                {/* Net cash-OUT to the customer (loto prize / RECEIVE / Binance cash
               out). Shown when the basket nets negative in cash — the shop pays
               this out of the General drawer on confirm. Binance cash-outs live
               in the usdt bucket (their payout is self-posted at replay) but the
               operator still hands over CASH — include them here. */}
-          {(cashPayoutUsd < 0 || cashPayoutLbp < 0) && (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-1">
-              <div className="text-xs font-medium text-amber-300">
-                Payout to customer (cash)
-              </div>
-              {cashPayoutUsd < 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">USD</span>
-                  <span className="font-mono text-amber-400">
-                    {formatAmount(cashPayoutUsd, "USD")}
-                  </span>
-                </div>
-              )}
-              {cashPayoutLbp < 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">LBP</span>
-                  <span className="font-mono text-amber-400">
-                    {formatAmount(cashPayoutLbp, "LBP")}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
+                {(cashPayoutUsd < 0 || cashPayoutLbp < 0) && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-1">
+                    <div className="text-xs font-medium text-amber-300">
+                      Payout to customer (cash)
+                    </div>
+                    {cashPayoutUsd < 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">USD</span>
+                        <span className="font-mono text-amber-400">
+                          {formatAmount(cashPayoutUsd, "USD")}
+                        </span>
+                      </div>
+                    )}
+                    {cashPayoutLbp < 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">LBP</span>
+                        <span className="font-mono text-amber-400">
+                          {formatAmount(cashPayoutLbp, "LBP")}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-          {/* On-account payout: the GROSS cash-out booked as store credit, not
+                {/* On-account payout: the GROSS cash-out booked as store credit, not
               cash handed over (never netted against the charges). */}
-          {payoutOnAccount && (payoutUsd > 0 || payoutLbp > 0) && (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 space-y-1">
-              <div className="text-xs font-medium text-emerald-300">
-                Credited to customer account
+                {payoutOnAccount && (payoutUsd > 0 || payoutLbp > 0) && (
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 space-y-1">
+                    <div className="text-xs font-medium text-emerald-300">
+                      Credited to customer account
+                    </div>
+                    {payoutUsd > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">USD</span>
+                        <span className="font-mono text-emerald-400">
+                          {formatAmount(-payoutUsd, "USD")}
+                        </span>
+                      </div>
+                    )}
+                    {payoutLbp > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">LBP</span>
+                        <span className="font-mono text-emerald-400">
+                          {formatAmount(-payoutLbp, "LBP")}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Error Display */}
+                {error && (
+                  <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                    <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                    <p className="text-sm text-red-300">{error}</p>
+                  </div>
+                )}
               </div>
-              {payoutUsd > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">USD</span>
-                  <span className="font-mono text-emerald-400">
-                    {formatAmount(-payoutUsd, "USD")}
-                  </span>
-                </div>
-              )}
-              {payoutLbp > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">LBP</span>
-                  <span className="font-mono text-emerald-400">
-                    {formatAmount(-payoutLbp, "LBP")}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* Error Display */}
-          {error && (
-            <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-              <p className="text-sm text-red-300">{error}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-4 border-t border-slate-700/50 flex gap-3">
-          <button
-            onClick={onClose}
-            disabled={isProcessing}
-            className="flex-1 py-2.5 rounded-lg font-medium text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleCheckout}
-            disabled={
-              isProcessing ||
-              cartItems.length === 0 ||
-              !isPaymentValid ||
-              customerAccountBlocked
-            }
-            className="flex-1 py-2.5 rounded-lg font-semibold text-sm text-white bg-emerald-600 hover:bg-emerald-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {isProcessing ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <CheckCircle className="w-4 h-4" />
-                Confirm Checkout
-              </>
-            )}
-          </button>
-        </div>
+              {/* Footer */}
+              <div className="px-5 py-4 border-t border-slate-700/50 flex gap-3">
+                <button
+                  onClick={onClose}
+                  disabled={isProcessing}
+                  className="flex-1 py-2.5 rounded-lg font-medium text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCheckout}
+                  disabled={
+                    isProcessing ||
+                    cartItems.length === 0 ||
+                    !isPaymentValid ||
+                    customerAccountBlocked
+                  }
+                  className="flex-1 py-2.5 rounded-lg font-semibold text-sm text-white bg-emerald-600 hover:bg-emerald-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      Confirm Checkout
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
+          )
+        )}
       </div>
     </div>
   );

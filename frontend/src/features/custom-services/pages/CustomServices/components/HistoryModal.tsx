@@ -9,6 +9,7 @@ import {
   Pencil,
   Check,
   Tag,
+  Printer,
 } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -16,6 +17,10 @@ import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { useShopInfo } from "@/hooks/useShopName";
+import { getTransactionBySource } from "@/api/backendApi";
+import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
+import { isReceiptableTransaction } from "@/features/audit/receiptGating";
 import type { CustomServiceEntry } from "../../../hooks/useCustomServices";
 
 function formatTime(dateStr: string): string {
@@ -71,6 +76,18 @@ export function HistoryModal({
     note: "",
   });
   const [editSaving, setEditSaving] = useState(false);
+  const shopInfo = useShopInfo();
+
+  async function handlePrint(tx: CustomServiceEntry) {
+    try {
+      const txn = await getTransactionBySource("custom_services", tx.id);
+      const txnId = (txn as { id?: number } | null)?.id;
+      if (!txnId) return; // voided rows resolve to null — nothing to print
+      await printServiceReceiptByTransaction(txnId, shopInfo);
+    } catch {
+      // Best-effort reprint — never throw into the table's click handler.
+    }
+  }
 
   function startEdit(tx: CustomServiceEntry) {
     setEditingId(tx.id);
@@ -349,6 +366,17 @@ export function HistoryModal({
                           >
                             <Ban size={14} />
                           </button>
+                          {isReceiptableTransaction({
+                            type: "CUSTOM_SERVICE",
+                          }) && (
+                            <button
+                              onClick={() => handlePrint(tx)}
+                              className="text-slate-500 hover:text-white transition-colors p-1"
+                              title="Print receipt"
+                            >
+                              <Printer size={14} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

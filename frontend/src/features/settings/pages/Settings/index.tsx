@@ -10,6 +10,7 @@ import ModulesManager from "./ModulesManager";
 import IntegrationsConfig from "./IntegrationsConfig";
 import CategoriesManager from "./CategoriesManager";
 import MobileServicesManager from "./MobileServicesManager";
+import CarrierLinesManager from "./CarrierLinesManager";
 
 type TabKey =
   | "shop"
@@ -20,7 +21,8 @@ type TabKey =
   | "users"
   | "diagnostics"
   | "integrations"
-  | "mobile-services";
+  | "mobile-services"
+  | "carrier-lines";
 
 export default function Settings() {
   const [active, setActive] = useState<TabKey>("shop");
@@ -34,6 +36,7 @@ export default function Settings() {
     { key: "users", label: "Users" },
     { key: "integrations", label: "Integrations" },
     { key: "mobile-services", label: "Mobile Services" },
+    { key: "carrier-lines", label: "Carrier Lines" },
     { key: "diagnostics", label: "Diagnostics" },
   ] as { key: TabKey; label: string; icon?: typeof Tag }[];
 
@@ -63,6 +66,7 @@ export default function Settings() {
           {active === "users" && <UsersManager />}
           {active === "integrations" && <IntegrationsConfig />}
           {active === "mobile-services" && <MobileServicesManager />}
+          {active === "carrier-lines" && <CarrierLinesManager />}
           {active === "diagnostics" && <Diagnostics />}
         </div>
       </div>

@@ -9,6 +9,7 @@ import {
   Check,
   Phone,
   AlertTriangle,
+  Printer,
 } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -16,6 +17,10 @@ import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { useShopInfo } from "@/hooks/useShopName";
+import { getTransactionBySource } from "@/api/backendApi";
+import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
+import { isReceiptableTransaction } from "@/features/audit/receiptGating";
 import type { FinancialTransaction, ServiceType } from "../types";
 import { FINANCIAL_SERVICE_ICONS } from "../types";
 
@@ -61,6 +66,18 @@ interface HistoryModalProps {
   ) => Promise<{ success: boolean; error?: string }>;
   /** Margin override threshold in LBP for showing theft detection alert. Default: 100,000 */
   marginAlertThreshold?: number;
+  /**
+   * LIRA-069 W1.c — when BOTH `sourceTable` and `transactionType` are given,
+   * a Print column appears on every row `isReceiptableTransaction` approves
+   * (e.g. iPick/Katsh catalog rows, Whish App Bills with item_key set — NOT
+   * OMT/Whish System, OMT App / Whish App transfers, or Binance, even though
+   * they share this same table). `sourceTable` is the module table the row's
+   * `id` is a PK of ("recharges" for telecom, "financial_services" for
+   * financial/Katch/transfer forms); `transactionType` is the unified
+   * transaction `type` column value ("RECHARGE" or "FINANCIAL_SERVICE").
+   */
+  sourceTable?: string;
+  transactionType?: string;
 }
 
 export function HistoryModal({
@@ -76,12 +93,33 @@ export function HistoryModal({
   amountAlwaysUsd = false,
   onUpdateMetadata,
   marginAlertThreshold = 100_000,
+  sourceTable,
+  transactionType,
 }: HistoryModalProps) {
   useModalFocusFix(true);
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
     transactions,
     "created_at",
   );
+  const shopInfo = useShopInfo();
+  const canPrint = Boolean(sourceTable && transactionType);
+
+  async function handlePrint(tx: FinancialTransaction) {
+    if (!sourceTable || !transactionType) return;
+    try {
+      const txn = await getTransactionBySource(sourceTable, tx.id);
+      const txnId = (txn as { id?: number } | null)?.id;
+      if (!txnId) {
+        // Voided/refunded rows can resolve to null (getBySourceId filters
+        // status = 'ACTIVE') — nothing to print, fail quietly.
+        return;
+      }
+      await printServiceReceiptByTransaction(txnId, shopInfo);
+    } catch {
+      // Best-effort reprint — a failed lookup/print shouldn't throw into the
+      // table's click handler.
+    }
+  }
 
   // ── Inline edit state ───────────────────────────────────────────────
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -131,10 +169,13 @@ export function HistoryModal({
     }
   }
 
-  // Column count: base cols + Phone (when editable) + Edit action
+  // Column count: base cols + Phone (when editable) + Edit action + Print
   // Used for the expansion row colspan
   const baseColCount =
-    7 + (showFeeAndProfit ? 1 : 0) + (onUpdateMetadata ? 2 : 0);
+    7 +
+    (showFeeAndProfit ? 1 : 0) +
+    (onUpdateMetadata ? 2 : 0) +
+    (canPrint ? 1 : 0);
 
   return (
     <div
@@ -239,6 +280,9 @@ export function HistoryModal({
                 sortKey: "created_at",
               },
               ...(onUpdateMetadata
+                ? [{ header: "", className: "px-3 py-3 w-10" }]
+                : []),
+              ...(canPrint
                 ? [{ header: "", className: "px-3 py-3 w-10" }]
                 : []),
             ]}
@@ -454,6 +498,26 @@ export function HistoryModal({
                             title="Edit metadata"
                           >
                             <Pencil size={13} />
+                          </button>
+                        )}
+                      </td>
+                    )}
+
+                    {/* Print (LIRA-069 W1.c) — provider-aware gate, same
+                        predicate as the Transactions viewer and auto-print. */}
+                    {canPrint && (
+                      <td className="px-3 py-3 text-right">
+                        {isReceiptableTransaction({
+                          type: transactionType as string,
+                          provider: tx.provider,
+                          itemKey: tx.item_key,
+                        }) && (
+                          <button
+                            onClick={() => handlePrint(tx)}
+                            className="p-1.5 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
+                            title="Print receipt"
+                          >
+                            <Printer size={13} />
                           </button>
                         )}
                       </td>

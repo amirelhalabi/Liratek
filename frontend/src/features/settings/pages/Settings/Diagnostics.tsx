@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, Pencil } from "lucide-react";
+import { FolderOpen, Pencil, PackagePlus } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
 import { appEvents, useApi, Select, ConfirmModal } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import AdjustStockModal, {
+  type AdjustableProduct,
+} from "@/features/inventory/components/AdjustStockModal";
 
 export default function Diagnostics() {
   const api = useApi();
@@ -64,6 +67,8 @@ export default function Diagnostics() {
   >([]);
   const [negStockLoading, setNegStockLoading] = useState(false);
   const [negStockChecked, setNegStockChecked] = useState(false);
+  const [adjustingProduct, setAdjustingProduct] =
+    useState<AdjustableProduct | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -435,6 +440,7 @@ export default function Diagnostics() {
                   <th className="p-2">Barcode</th>
                   <th className="p-2 text-right">Stock</th>
                   <th className="p-2 text-right">Oversold by</th>
+                  <th className="p-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -449,6 +455,16 @@ export default function Diagnostics() {
                     </td>
                     <td className="p-2 text-sm text-right text-slate-300">
                       {-p.stock_quantity}
+                    </td>
+                    <td className="p-2 text-right">
+                      <button
+                        onClick={() => setAdjustingProduct(p)}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 rounded text-xs transition-colors"
+                        title="Adjust stock"
+                      >
+                        <PackagePlus size={12} />
+                        Adjust
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -752,6 +768,19 @@ export default function Diagnostics() {
         onConfirm={doChangeDbPath}
         onCancel={() => setShowRestartConfirm(false)}
       />
+
+      {/* LIRA-077: adjust-stock shortcut straight from the negative-stock
+          report — reuses the same modal as Inventory's product-row action. */}
+      {adjustingProduct && (
+        <AdjustStockModal
+          product={adjustingProduct}
+          onClose={() => setAdjustingProduct(null)}
+          onSuccess={() => {
+            setAdjustingProduct(null);
+            checkNegativeStock();
+          }}
+        />
+      )}
     </div>
   );
 }

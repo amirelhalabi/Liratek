@@ -70,6 +70,28 @@ export async function printReceipt({
     return;
   }
 
+  // E2E capture hook: when a spec installs __LIRATEK_E2E_PRINT_STUB__, hand
+  // it the HTML instead of printing (lets specs assert WHAT would print).
+  const w = window as unknown as {
+    __LIRATEK_E2E_PRINT_STUB__?: (html: string) => void;
+  };
+  if (typeof w.__LIRATEK_E2E_PRINT_STUB__ === "function") {
+    w.__LIRATEK_E2E_PRINT_STUB__(fullHtml);
+    return;
+  }
+
+  // Under automation (Playwright/e2e), `printWindow.print()` raises the
+  // NATIVE print dialog, which blocks worker teardown and poisoned whole e2e
+  // workers when auto-print (LIRA-069) started firing on every module submit
+  // (found 2026-07-19: "Worker teardown timeout of 90000ms exceeded" across
+  // recharge/lira-095/lira-124). Same NODE_ENV=test discipline as main.ts's
+  // openDevTools/auto-backup gates, detected renderer-side via
+  // navigator.webdriver (set by the automation harness).
+  if (navigator.webdriver) {
+    logger.info("Automation detected — skipping native print dialog");
+    return;
+  }
+
   // Fallback (no silent printer configured, or web mode): print window.
   const printWindow = window.open("", "", "width=400,height=600");
   if (printWindow) {
