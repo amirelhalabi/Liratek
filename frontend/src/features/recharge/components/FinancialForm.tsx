@@ -12,6 +12,7 @@ import {
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import { ensureRechargeClient } from "../utils/ensureClient";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
@@ -94,6 +95,11 @@ export function FinancialForm({
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
+  // LIRA-069 W1.d — auto-print on a successful STANDALONE submit (skipped
+  // when a session is active; the session gets its own Print button at
+  // checkout, W1.b). Never fires from handleForPartnerSubmit — a partner
+  // order collects no cash from a walk-in customer, so there's no receipt.
+  const autoPrintReceipt = useAutoPrintReceipt();
   const [cart, setCart] = useState<Map<string, CartLineItem>>(new Map());
   // Report selection counts to the provider tabs (quantities, keyed by each
   // cart item's own provider).
@@ -415,6 +421,22 @@ export function FinancialForm({
       return sum + (line.item.catalogSellPrice ?? 0) * line.quantity;
     }, 0);
 
+    // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): stamp ONE shared uuid
+    // across every unit of a multi-unit checkout so the void path can find
+    // and guard the whole group — voiding a single unit alone would leave
+    // the checkout's money non-zero (the carrier owns ALL the legs; siblings
+    // only defer cost/commission). Only when there's an actual carrier
+    // (paymentsPayload !== undefined) — a no-legs checkout (session-deferred
+    // mode) never hits this asymmetry. Single-unit checkouts get no split
+    // metadata (no noise).
+    const totalCheckoutUnits = cartItems.reduce(
+      (sum, line) => sum + line.quantity,
+      0,
+    );
+    const useSplitGroup =
+      totalCheckoutUnits > 1 && paymentsPayload !== undefined;
+    const splitGroupId = useSplitGroup ? crypto.randomUUID() : undefined;
+
     // Kept change attaches to the FIRST transaction only (the lira-095
     // legs-carrying convention) — voiding that txn reverses it with the legs.
     let keptPending =
@@ -428,6 +450,11 @@ export function FinancialForm({
     // this same trap). Single-payment submits (no legs array) keep the
     // per-unit price booking untouched.
     let legsCarried = false;
+    // LIRA-069 W1.d — the carrier is the one transaction whose payment legs
+    // (and therefore whose printed receipt) actually reflect what the
+    // customer paid; siblings are deferPayment (cost/commission only, no
+    // legs) so printing one of THOSE would show no payment lines at all.
+    let carrierSourceId: number | undefined;
     for (const line of cartItems) {
       const sellPrice = line.item.catalogSellPrice ?? 0;
       const cost = line.item.catalogCost ?? 0;
@@ -464,6 +491,17 @@ export function FinancialForm({
             ...(paymentsPayload !== undefined && !isCarrier
               ? { deferPayment: true }
               : {}),
+            // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — see the top of
+            // handleSubmit for the full rationale.
+            ...(useSplitGroup
+              ? {
+                  split_group: splitGroupId,
+                  split_role: isCarrier
+                    ? ("carrier" as const)
+                    : ("sibling" as const),
+                  split_units: totalCheckoutUnits,
+                }
+              : {}),
             ...(keptPending
               ? (() => {
                   const k = keptPending;
@@ -484,6 +522,7 @@ export function FinancialForm({
           });
 
           if (result?.success) {
+            if (isCarrier) carrierSourceId = result.id;
             // Link to active customer session
             if (activeSession && result.id) {
               try {
@@ -520,6 +559,14 @@ export function FinancialForm({
         "Transactions processed successfully",
         "success",
       );
+      void autoPrintReceipt({
+        type: "FINANCIAL_SERVICE",
+        provider: activeProvider,
+        itemKey: cartItems[0]?.item.key,
+        sourceTable: "financial_services",
+        sourceId: carrierSourceId,
+        hasActiveSession: !!activeSession,
+      });
       setCart(new Map());
       setKeptChange(null);
       setReturnLegs([]);
@@ -1213,6 +1260,8 @@ export function FinancialForm({
           onRefresh={loadFinancialData}
           formatAmount={formatAmount}
           showFeeAndProfit
+          sourceTable="financial_services"
+          transactionType="FINANCIAL_SERVICE"
           onUpdateMetadata={async (id, data) => {
             const result = await window.api.financial.updateMetadata({
               id,

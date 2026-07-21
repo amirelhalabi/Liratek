@@ -1020,6 +1020,8 @@ function OmtWhishAppTransferFormInner({
           onRefresh={loadFinancialData}
           formatAmount={formatAmount}
           showFeeAndProfit
+          sourceTable="financial_services"
+          transactionType="FINANCIAL_SERVICE"
           onUpdateMetadata={async (id, data) => {
             const result = await window.api.financial.updateMetadata({
               id,

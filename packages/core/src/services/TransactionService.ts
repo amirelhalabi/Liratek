@@ -14,6 +14,7 @@ import {
   type TransactionEntity,
   type TransactionFilters,
   type TransactionWithUser,
+  type VoidCheckoutGroupResult,
   TransactionRepository,
   getTransactionRepository,
 } from "../repositories/TransactionRepository.js";
@@ -190,6 +191,24 @@ export class TransactionService {
       logger.error(
         { error, id, userId },
         "TransactionService.refundTransaction error",
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Void every non-voided member of a multi-unit split checkout in ONE
+   * transaction (CARRIER_LEGS_VOID_ASYMMETRY.md, design B+). A single void
+   * of one member alone is blocked by the repository guard — see
+   * voidTransaction/refundTransaction.
+   */
+  voidCheckoutGroup(groupId: string, userId: number): VoidCheckoutGroupResult {
+    try {
+      return this.repo.voidCheckoutGroup(groupId, userId);
+    } catch (error) {
+      logger.error(
+        { error, groupId, userId },
+        "TransactionService.voidCheckoutGroup error",
       );
       throw error;
     }

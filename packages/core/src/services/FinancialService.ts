@@ -227,17 +227,20 @@ export class FinancialService {
       for (const txn of sorted) {
         // Batch-settled via old settle flow → always paid
         if (txn.settlement_id !== null) {
-          const owed = txn.cost > 0 ? txn.cost : Math.abs(txn.amount);
-          statusMap.set(txn.id, { fifo_status: "paid", fifo_paid_usd: owed });
+          statusMap.set(txn.id, {
+            fifo_status: "paid",
+            fifo_paid_usd: txn.supplier_owed,
+          });
           continue;
         }
 
+        // supplier_owed is the repository's ONE owed-per-row definition
+        // (SUPPLIER_OWED_EXPR): 0 for wallet-provider transfers (prepaid
+        // balance — nothing to pay the supplier, Fix B), cost for cost-flow
+        // rows, amount + fee for OMT/WHISH SEND, amount + commission for
+        // RECEIVE.
         const isReceive = txn.service_type === "RECEIVE";
-        const owed = isReceive
-          ? Math.abs(txn.amount) + (txn.commission ?? 0)
-          : txn.cost > 0
-            ? txn.cost
-            : Math.abs(txn.amount);
+        const owed = txn.supplier_owed;
 
         if (owed === 0) {
           statusMap.set(txn.id, { fifo_status: "paid", fifo_paid_usd: 0 });

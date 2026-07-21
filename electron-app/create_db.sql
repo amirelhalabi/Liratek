@@ -418,6 +418,11 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   is_auto INTEGER NOT NULL DEFAULT 0,
   is_refunded INTEGER NOT NULL DEFAULT 0,
   refunded_at DATETIME,
+  -- LIRA-091 (v136): back-link from an auto-generated sibling row to the
+  -- PARENT transaction's own source row (mirrors source_ref_table/id to
+  -- transactions.source_table/source_id, e.g. 'financial_services'/<fs id>).
+  source_ref_table TEXT DEFAULT NULL,
+  source_ref_id INTEGER DEFAULT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
   FOREIGN KEY (transaction_id) REFERENCES transactions(id),
@@ -738,6 +743,10 @@ CREATE TABLE IF NOT EXISTS mobile_service_items (
     sell_lbp REAL NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
+    -- v135: structured validity/credits (nullable — most catalog items have
+    -- neither; mtc Prepaid vouchers/cards carry one or the other).
+    validity_days INTEGER,
+    credits REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tenant_id, provider, category, subcategory, label)
@@ -745,6 +754,27 @@ CREATE TABLE IF NOT EXISTS mobile_service_items (
 CREATE INDEX IF NOT EXISTS idx_msi_provider ON mobile_service_items(provider);
 CREATE INDEX IF NOT EXISTS idx_msi_provider_category ON mobile_service_items(provider, category);
 CREATE INDEX IF NOT EXISTS idx_msi_active ON mobile_service_items(is_active);
+
+-- Carrier Lines (v135 — LIRA W6.a): the shop's own alfa/mtc SIM numbers,
+-- tracked for remaining credits + validity expiry. Informational only — no
+-- drawer legs, no checkout/closing involvement. Stores the expiry DATE
+-- (validity_expires_at); days-remaining is derived at render time so the
+-- figure never goes stale.
+CREATE TABLE IF NOT EXISTS carrier_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    carrier TEXT NOT NULL CHECK(carrier IN ('alfa', 'mtc')),
+    phone_number TEXT NOT NULL,
+    label TEXT,
+    credits REAL NOT NULL DEFAULT 0,
+    validity_expires_at TEXT,
+    notes TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_carrier_lines_carrier ON carrier_lines(carrier);
+CREATE INDEX IF NOT EXISTS idx_carrier_lines_tenant_id ON carrier_lines(tenant_id);
 
 -- =============================================================================
 -- 4. Financial Management (Drawers & Closings)
@@ -905,6 +935,7 @@ CREATE INDEX IF NOT EXISTS idx_payments_drawer_currency ON payments(drawer_name,
 CREATE INDEX IF NOT EXISTS idx_payments_session_id ON payments(session_id);
 CREATE INDEX IF NOT EXISTS idx_drawer_balances_drawer ON drawer_balances(drawer_name);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id);
 
 -- Multi-tenancy indexes (high-volume tables)
 CREATE INDEX IF NOT EXISTS idx_sales_tenant_id ON sales(tenant_id);
@@ -1313,6 +1344,30 @@ CREATE INDEX IF NOT EXISTS idx_hold_money_status ON hold_money(status);
 CREATE INDEX IF NOT EXISTS idx_hold_money_created_at ON hold_money(created_at);
 
 -- =============================================================================
+-- 13. Stock Adjustments (LIRA-077 audit trail)
+-- =============================================================================
+
+-- Audit trail for manual stock corrections (InventoryService.adjustStock /
+-- adjustStockDelta). Written in the SAME transaction as the products
+-- stock_quantity UPDATE — see ProductRepository.adjustStock/adjustStockDelta.
+CREATE TABLE IF NOT EXISTS stock_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    delta INTEGER NOT NULL,
+    old_quantity INTEGER NOT NULL,
+    new_quantity INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_adjustments_product_id ON stock_adjustments(product_id);
+CREATE INDEX IF NOT EXISTS idx_stock_adjustments_created_at ON stock_adjustments(created_at);
+CREATE INDEX IF NOT EXISTS idx_stock_adjustments_tenant_id ON stock_adjustments(tenant_id);
+
+-- =============================================================================
 -- 12. Migration Tracking
 -- =============================================================================
 
@@ -1446,4 +1501,11 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (128, 'add_partner_ledger_covered_amount'),
     (129, 'add_debt_ledger_covered_amounts'),
     (130, 'backfill_supplier_payment_is_auto_metadata'),
-    (131, 'add_discount_entry_type_supplier_ledger');
+    (131, 'add_discount_entry_type_supplier_ledger'),
+    (132, 'add_stock_adjustments_table'),
+    -- v133/v134 are data-only repairs (phantom wallet-provider ledger rows /
+    -- C3-era under-booked OMT/WHISH SEND debt) — nothing to do on a fresh DB.
+    (133, 'delete_wallet_provider_phantom_ledger'),
+    (134, 'trueup_omt_whish_send_ledger_fee'),
+    (135, 'add_carrier_lines_and_mobile_item_validity'),
+    (136, 'add_supplier_ledger_source_ref');

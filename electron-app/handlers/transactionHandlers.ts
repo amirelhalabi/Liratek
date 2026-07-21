@@ -3,7 +3,11 @@ import { getTransactionService, getReportingService } from "@liratek/core";
 import type { TransactionFilters } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import { PositiveIdSchema, validatePayload } from "../schemas/index.js";
+import {
+  PositiveIdSchema,
+  VoidCheckoutGroupSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerTransactionHandlers(): void {
   const txnService = getTransactionService();
@@ -33,6 +37,20 @@ export function registerTransactionHandlers(): void {
   ipcMain.handle("transactions:get-by-id", (_e, id: number) => {
     return txnService.getById(id);
   });
+
+  /**
+   * Resolve the unified transaction for a module row (LIRA-069 W1.c/d): the
+   * History-modal Print button and the auto-print-on-success hook only know
+   * the module's own PK (recharges.id, financial_services.id, …) — this
+   * finds the transaction that wraps it, so the shared
+   * printServiceReceiptByTransaction(txnId) path can be reused unchanged.
+   */
+  ipcMain.handle(
+    "transactions:get-by-source",
+    (_e, sourceTable: string, sourceId: number) => {
+      return txnService.getBySourceId(sourceTable, sourceId);
+    },
+  );
 
   ipcMain.handle("transactions:get-customer-legs", (_e, id: number) => {
     return txnService.getCustomerFacingLegs(id);
@@ -102,6 +120,40 @@ export function registerTransactionHandlers(): void {
         metadata: { refundId },
       });
       return { success: true, refundId };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  /**
+   * Void every non-voided member of a multi-unit split checkout in ONE
+   * transaction (CARRIER_LEGS_VOID_ASYMMETRY.md, design B+). A single void
+   * of one member alone is refused by `transactions:void`/`transactions:refund`
+   * above — this is the only legitimate way to reverse one.
+   */
+  ipcMain.handle("transactions:void-checkout-group", (e, data: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+      const v = validatePayload(VoidCheckoutGroupSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+      const userId = auth.userId ?? 1;
+      const result = txnService.voidCheckoutGroup(v.data.groupId, userId);
+      audit(e.sender.id, {
+        action: "void",
+        entity_type: "transaction_group",
+        entity_id: v.data.groupId,
+        summary: `Voided checkout group ${v.data.groupId} (${result.memberCount} units)`,
+        metadata: {
+          memberCount: result.memberCount,
+          voidedTransactionIds: result.voidedTransactionIds,
+          reversalIds: result.reversalIds,
+        },
+      });
+      return { success: true, ...result };
     } catch (err) {
       return {
         success: false,

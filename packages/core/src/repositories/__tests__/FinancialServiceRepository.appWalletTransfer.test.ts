@@ -17,6 +17,8 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext";
+import { resetSupplierRepository } from "../SupplierRepository";
+import { resetTransactionRepository } from "../TransactionRepository";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -694,5 +696,103 @@ describe("FinancialServiceRepository — catalog-item on-account debt note", () 
     const debt = lastServiceDebt();
     expect(debt.note).toBe("Katsh service: MTC Prepaid 1");
     expect(debt.amount_lbp).toBeCloseTo(150000, 2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fix B — app-wallet transfers book NO supplier ledger entries.
+//
+// OMT_APP / WHISH_APP / BINANCE are prepaid wallets: the shop consumes balance
+// it already owns, so a transfer creates no debt in either direction. The auto
+// supplier-ledger block used to book TOP_UP (SEND, "we owe them") / PAYMENT
+// (RECEIVE, "they owe us") whenever a supplier row for the provider existed —
+// which it does in production (create_db.sql seeds 'OMT App'/'Whish App').
+// The main C4 suite never caught this because its fixture seeds NO supplier
+// rows, so getByProvider() returned nothing and the block silently no-oped.
+//
+// Rule 17: these tests FAIL on the pre-fix code (phantom rows appear).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Fix B — app-wallet transfers book NO supplier ledger entries", () => {
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  function ledgerRows(d: Database.Database) {
+    return d
+      .prepare(
+        `SELECT s.provider, sl.entry_type, sl.amount_usd
+           FROM supplier_ledger sl JOIN suppliers s ON s.id = sl.supplier_id
+          ORDER BY sl.id`,
+      )
+      .all() as Array<{
+      provider: string;
+      entry_type: string;
+      amount_usd: number;
+    }>;
+  }
+
+  beforeEach(() => {
+    db = createTestDb();
+    // Production seeds system supplier rows for the app-wallet providers —
+    // exactly the condition under which the phantom entries were written.
+    db.exec(`
+      INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT App', 'OMT_APP', 1);
+      INSERT INTO suppliers (name, provider, is_system) VALUES ('Whish App', 'WHISH_APP', 1);
+      INSERT INTO suppliers (name, provider, is_system) VALUES ('Binance', 'BINANCE', 1);
+    `);
+    setDb(db);
+    initFixedTenantContext(1);
+    resetSupplierRepository();
+    resetTransactionRepository();
+    repo = new FinancialServiceRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+    resetSupplierRepository();
+    resetTransactionRepository();
+  });
+
+  it("OMT_APP SEND books no supplier debt (pre-fix: TOP_UP +amount)", () => {
+    repo.createTransaction({
+      provider: "OMT_APP",
+      serviceType: "SEND",
+      amount: 20,
+      currency: "USD",
+      commission: 2,
+      omtFee: 2,
+      paidByMethod: "CASH",
+      exchangeRate: 90000,
+    });
+    expect(ledgerRows(db)).toHaveLength(0);
+  });
+
+  it("WHISH_APP RECEIVE books no supplier credit (pre-fix: PAYMENT −amount)", () => {
+    repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "RECEIVE",
+      amount: 100,
+      currency: "USD",
+      commission: 0.1,
+      cashoutMethod: "CASH",
+      exchangeRate: 90000,
+    });
+    expect(ledgerRows(db)).toHaveLength(0);
+  });
+
+  it("BINANCE SEND books no supplier debt", () => {
+    repo.createTransaction({
+      provider: "BINANCE",
+      serviceType: "SEND",
+      amount: 50,
+      currency: "USD",
+      commission: 0,
+      paidByMethod: "CASH",
+      exchangeRate: 90000,
+    });
+    expect(ledgerRows(db)).toHaveLength(0);
   });
 });

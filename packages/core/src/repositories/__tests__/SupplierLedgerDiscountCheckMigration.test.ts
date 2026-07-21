@@ -93,9 +93,13 @@ describe("migration v131 — add_discount_entry_type_supplier_ledger", () => {
     db.close();
   });
 
-  it("exists, is the highest version, and has a down()", () => {
+  it("exists and has a down()", () => {
     expect(v131).toBeDefined();
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(131);
+    // Not pinned to "the highest version" — that assertion broke on every
+    // subsequent migration (v132+). The chain being monotonic is enough.
+    expect(
+      Math.max(...MIGRATIONS.map((m) => m.version)),
+    ).toBeGreaterThanOrEqual(131);
     expect(typeof v131.down).toBe("function");
   });
 

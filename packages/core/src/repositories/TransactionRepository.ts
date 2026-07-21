@@ -244,6 +244,23 @@ export interface TransactionWithUser extends TransactionEntity {
    */
   session_id: number | null;
   /**
+   * The id of the ACTIVE REFUND row whose `reverses_id` points back at this
+   * row, or null if this row has never been refunded (note 21d). Computed
+   * via a correlated subquery over `reverses_id` (indexed —
+   * idx_transactions_reverses) so the Transactions viewer can gate
+   * Void/Refund WITHOUT needing that REFUND row loaded on the same
+   * page/filter window: refundTransaction() deliberately leaves the
+   * ORIGINAL row status=ACTIVE (so SALE/module + REFUND profit nets to
+   * zero — see `_markSourceRefunded`), so `status`/`reverses_id` alone
+   * can never reveal "this was refunded" on the original row. Mirrors
+   * refundTransaction's own double-refund guard exactly (`reverses_id = id
+   * AND type = 'REFUND'`, no status filter needed — a REFUND row's
+   * `reverses_id` is always set, so `_assertReversible` already forbids it
+   * from ever being voided/refunded itself, meaning it can never end up
+   * non-ACTIVE).
+   */
+  reversed_by_id: number | null;
+  /**
    * Structured in/out payment legs joined from the `payments` table (LIRA-064).
    * Computed read-only; never persisted into the stored `summary` text.
    * For session rows with no own customer-cash legs, the session's basket legs
@@ -279,6 +296,20 @@ export interface OverdueDebtEntry {
   oldest_due_date: string;
   max_days_overdue: number;
   entry_count: number;
+}
+
+/**
+ * Result of `voidCheckoutGroup` — CARRIER_LEGS_VOID_ASYMMETRY.md (design B+).
+ */
+export interface VoidCheckoutGroupResult {
+  groupId: string;
+  /** Total members found for this group (voided + already-voided-and-skipped). */
+  memberCount: number;
+  /** Original transaction ids that were voided by THIS call (excludes any
+   *  already VOIDED before the call). */
+  voidedTransactionIds: number[];
+  /** Reversal transaction ids created, one per entry in voidedTransactionIds. */
+  reversalIds: number[];
 }
 
 // =============================================================================
@@ -510,7 +541,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               t.device_id, t.created_at,
               u.username,
               COALESCE(t.client_name, c.full_name) AS client_name,
-              cst.session_id AS session_id
+              cst.session_id AS session_id,
+              (SELECT r.id FROM transactions r
+                WHERE r.reverses_id = t.id
+                  AND r.type = 'REFUND'
+                  AND r.tenant_id = t.tenant_id
+                LIMIT 1) AS reversed_by_id
        FROM transactions t
        LEFT JOIN users u ON u.id = t.user_id AND u.tenant_id = ?
        LEFT JOIN clients c ON c.id = t.client_id AND c.tenant_id = ?
@@ -807,6 +843,90 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Returns the reversal transaction's ID.
    */
   voidTransaction(id: number, userId: number): number {
+    return this._voidTransactionInternal(id, userId, {});
+  }
+
+  /**
+   * Void every non-voided member of a multi-unit split checkout
+   * (CARRIER_LEGS_VOID_ASYMMETRY.md, design B+) in ONE db transaction —
+   * siblings first, carrier last. Reuses `_voidTransactionInternal` per
+   * member (with the split-group guard bypassed for THIS call only) so
+   * drawer/debt/profit/partner-ledger reversal all run through the exact
+   * same code a single `voidTransaction` uses — nothing new to keep in sync.
+   * better-sqlite3 nests `db.transaction()` calls via savepoints, so the
+   * whole group is genuinely atomic: a failure partway through rolls back
+   * every member already voided in this call.
+   *
+   * Members already VOIDED (e.g. a re-run after a partial failure) are
+   * skipped, not errored — idempotent re-invocation is safe. An unknown or
+   * empty group throws NotFoundError. Legacy pre-fix rows carry no
+   * `split_group` marker and can never be found by this method — see the
+   * doc's legacy-row limitation.
+   */
+  voidCheckoutGroup(groupId: string, userId: number): VoidCheckoutGroupResult {
+    if (!groupId || groupId.trim() === "") {
+      throw new DatabaseError("groupId is required");
+    }
+    const tenantId = getCurrentTenantId();
+    // json_extract (not a `metadata_json LIKE '%"split_group":"<id>"%'` scan)
+    // — already the established pattern for querying this exact column in
+    // this exact file (see the provider/service_type filters in getRecent
+    // below), exact-match rather than substring, and safe: metadata_json is
+    // always either NULL or `JSON.stringify`-produced (createTransaction),
+    // so json_extract never sees malformed JSON, and `groupId` is a bound
+    // parameter, never concatenated.
+    const members = this.query<{
+      id: number;
+      status: TransactionStatus;
+      metadata_json: string | null;
+    }>(
+      `SELECT id, status, metadata_json FROM transactions
+       WHERE tenant_id = ? AND reverses_id IS NULL
+         AND json_extract(metadata_json, '$.split_group') = ?
+       ORDER BY id ASC`,
+      tenantId,
+      groupId,
+    );
+    if (members.length === 0) {
+      throw new NotFoundError("split checkout group", groupId);
+    }
+
+    // Siblings first, carrier last (see method doc).
+    const ranked = members
+      .map((m) => ({
+        ...m,
+        role: this._getSplitGroup(m.metadata_json)?.role ?? null,
+      }))
+      .sort((a, b) => {
+        const rank = (r: string | null) => (r === "carrier" ? 1 : 0);
+        return rank(a.role) - rank(b.role);
+      });
+
+    return this.transaction(() => {
+      const voidedTransactionIds: number[] = [];
+      const reversalIds: number[] = [];
+      for (const m of ranked) {
+        if (m.status === "VOIDED") continue;
+        const reversalId = this._voidTransactionInternal(m.id, userId, {
+          allowSplitGroupMember: true,
+        });
+        voidedTransactionIds.push(m.id);
+        reversalIds.push(reversalId);
+      }
+      return {
+        groupId,
+        memberCount: members.length,
+        voidedTransactionIds,
+        reversalIds,
+      };
+    });
+  }
+
+  private _voidTransactionInternal(
+    id: number,
+    userId: number,
+    opts: { allowSplitGroupMember?: boolean },
+  ): number {
     const original = this.findById(id);
     if (!original) {
       throw new NotFoundError("transactions", id);
@@ -816,7 +936,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         entityId: id,
       });
     }
-    this._assertReversible(original);
+    this._assertReversible(original, opts);
+    // LIRA-091: refuse up-front (before any write) if this transaction's own
+    // auto supplier-ledger sibling has already been swept into a settlement —
+    // see the method doc for why cascading through a settled sibling is
+    // blocked rather than silently corrupting the settlement's netted math.
+    this._assertSupplierSiblingsVoidable(original);
     const tenantId = getCurrentTenantId();
     // A transaction that already has an ACTIVE REFUND reverser had its cash
     // reversed once — voiding it too would double-reverse the drawers.
@@ -887,6 +1012,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // pre-existing FOR_OMT/THROUGH_* void gap uniformly.
       this._reversePartnerLedger(original, userId, "void");
 
+      // 5c. LIRA-091 — cascade-void any auto supplier-ledger sibling this
+      // transaction's own event created (FinancialServiceRepository's BILL
+      // commission / SEND-RECEIVE TOP_UP-PAYMENT auto rows). No-op when
+      // there is none, or on a legacy (pre-v136) row with no link.
+      this._cascadeSupplierSiblingVoid(original, userId);
+
       // 6. If SALE: cancel sale, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
@@ -946,6 +1077,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       });
     }
     this._assertReversible(original);
+    // LIRA-091: same up-front settled-sibling guard as voidTransaction — see
+    // _assertSupplierSiblingsVoidable's doc.
+    this._assertSupplierSiblingsVoidable(original);
     const tenantId = getCurrentTenantId();
 
     // Guard: prevent double-refund
@@ -1011,6 +1145,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // pre-existing FOR_OMT/THROUGH_* refund gap uniformly.
       this._reversePartnerLedger(original, userId, "refund");
 
+      // 4c. LIRA-091 — cascade-void any auto supplier-ledger sibling this
+      // transaction's own event created. See voidTransaction's identical step.
+      this._cascadeSupplierSiblingVoid(original, userId);
+
       // 5. If SALE: mark sale & items as refunded, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
@@ -1038,7 +1176,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * reversal cannot undo, and refuse reversing a reversal row (a VOID
    * reversal keeps the original type but carries reverses_id).
    */
-  private _assertReversible(original: TransactionEntity): void {
+  private _assertReversible(
+    original: TransactionEntity,
+    opts: { allowSplitGroupMember?: boolean } = {},
+  ): void {
     if (NON_REVERSIBLE_TRANSACTION_TYPES.has(original.type)) {
       throw new DatabaseError(
         `${original.type} transactions cannot be voided or refunded — reverse them from their own module`,
@@ -1050,6 +1191,58 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         entityId: original.id,
       });
     }
+    // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): a row stamped with
+    // `split_group` is one unit of a multi-unit split-payment checkout
+    // (KatchForm bills / FinancialForm catalog units) — the customer's full
+    // tender + any CUSTOMER_ACCOUNT debt books against exactly ONE unit (the
+    // carrier); every sibling defers its own price/cost only. Voiding ANY
+    // single member alone (carrier OR sibling) leaves the checkout's money
+    // non-zero across drawers/debt_ledger/profit. Blocked here for BOTH void
+    // and refund; `voidCheckoutGroup` is the only legitimate way to reverse
+    // one, and passes `allowSplitGroupMember: true` to bypass this check
+    // per-member while it does so under one shared db transaction. Legacy
+    // rows created before this fix carry no `split_group` marker and are NOT
+    // covered by this guard — see the doc's legacy-row limitation.
+    if (!opts.allowSplitGroupMember) {
+      const group = this._getSplitGroup(original.metadata_json);
+      if (group) {
+        const size = group.units != null ? `${group.units}-unit` : "multi-unit";
+        throw new DatabaseError(
+          `This transaction is part of a ${size} checkout; void the whole checkout instead.`,
+          { entityId: original.id },
+        );
+      }
+    }
+  }
+
+  /**
+   * Parse the `split_group` linkage a multi-unit split checkout stamps into
+   * `metadata_json` at create time (CARRIER_LEGS_VOID_ASYMMETRY.md, design
+   * B+: FinancialServiceRepository.createTransaction). Returns null for
+   * ordinary rows and for legacy pre-fix split rows that predate this
+   * marker (undetectable by design — see the doc).
+   */
+  private _getSplitGroup(metadataJson: string | null): {
+    id: string;
+    role: "carrier" | "sibling" | null;
+    units: number | null;
+  } | null {
+    if (!metadataJson) return null;
+    let meta: Record<string, unknown>;
+    try {
+      meta = JSON.parse(metadataJson) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+    const id = meta.split_group;
+    if (typeof id !== "string" || id.length === 0) return null;
+    const role =
+      meta.split_role === "carrier" || meta.split_role === "sibling"
+        ? meta.split_role
+        : null;
+    const units =
+      typeof meta.split_units === "number" ? meta.split_units : null;
+    return { id, role, units };
   }
 
   // ---------------------------------------------------------------------------
@@ -1190,6 +1383,140 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         tenantId,
       );
       remaining -= giveBack;
+    }
+  }
+
+  /**
+   * True when the connected `supplier_ledger` table already carries the v136
+   * source_ref_table/source_ref_id columns. Mirrors `_reversePartnerLedger`'s
+   * `sqlite_master` existence check — some hand-rolled test-fixture DBs (and,
+   * defensively, any DB caught mid-upgrade) predate this migration; querying
+   * a column that doesn't exist would throw and break every void/refund on
+   * that connection, not just the supplier-sibling cascade. Absent columns
+   * means "no siblings can possibly be linked" — genuinely no-op, not a
+   * swallowed error.
+   */
+  private _supplierLedgerHasSourceRefColumns(): boolean {
+    const hasTable = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplier_ledger'`,
+      )
+      .get();
+    if (!hasTable) return false;
+    const cols = this.db
+      .prepare(`PRAGMA table_info(supplier_ledger)`)
+      .all() as { name: string }[];
+    return (
+      cols.some((c) => c.name === "source_ref_table") &&
+      cols.some((c) => c.name === "source_ref_id")
+    );
+  }
+
+  /**
+   * LIRA-091 — refuse a void/refund up-front (before any write) if this
+   * transaction's own event booked an auto supplier-ledger sibling
+   * (FinancialServiceRepository's is_auto:true BILL-commission /
+   * SEND-RECEIVE TOP_UP-PAYMENT rows, linked via
+   * supplier_ledger.source_ref_table/source_ref_id — migration v136) that has
+   * ALREADY been swept into a supplier settlement
+   * (SupplierRepository.settleTransactions). Cascading the sibling's void
+   * anyway would unwind its TOP_UP/PAYMENT contribution to a settlement whose
+   * SETTLEMENT/SUPPLIER_PAYS_US rows were computed assuming it stayed — the
+   * ledger would no longer net to 0 for that batch and nothing here can
+   * compensate for it. Blocking beats corrupting (mirrors the split-group
+   * void guard's philosophy) — the owner corrects a mis-settled sibling with
+   * a manual supplier adjustment instead. A no-op when there is no unrefunded
+   * sibling at all (nothing to protect), so a settled WALLET-provider FS row
+   * (which never books a sibling) stays voidable.
+   */
+  private _assertSupplierSiblingsVoidable(original: TransactionEntity): void {
+    if (!original.source_table || original.source_id == null) return;
+    if (!this._supplierLedgerHasSourceRefColumns()) return;
+    const tenantId = getCurrentTenantId();
+    const hasUnrefundedSibling = this.queryOne<{ id: number }>(
+      `SELECT id FROM supplier_ledger
+        WHERE source_ref_table = ? AND source_ref_id = ? AND tenant_id = ?
+          AND is_auto = 1 AND COALESCE(is_refunded, 0) = 0
+        LIMIT 1`,
+      original.source_table,
+      original.source_id,
+      tenantId,
+    );
+    if (!hasUnrefundedSibling) return;
+
+    const settlementId = this._supplierSourceSettlementId(
+      original.source_table,
+      original.source_id,
+    );
+    if (settlementId != null) {
+      throw new DatabaseError(
+        `Cannot void/refund — its auto supplier-ledger entry has already been included in settlement #${settlementId}; correct the supplier balance with a manual adjustment instead.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /**
+   * Settlement marker for the row a source_ref_table/source_ref_id link
+   * points at. Only `financial_services` stamps a settlement marker today
+   * (SupplierRepository.settleTransactions sets settlement_id) — other
+   * source tables have no settlement concept yet and are treated as never
+   * settled (returns null), same honest-default shape as
+   * `_markSourceRefunded`'s explicit supported-tables list.
+   */
+  private _supplierSourceSettlementId(
+    sourceTable: string,
+    sourceId: number,
+  ): number | null {
+    if (sourceTable !== "financial_services") return null;
+    const row = this.queryOne<{ settlement_id: number | null }>(
+      `SELECT settlement_id FROM financial_services WHERE id = ? AND tenant_id = ?`,
+      sourceId,
+      getCurrentTenantId(),
+    );
+    return row?.settlement_id ?? null;
+  }
+
+  /**
+   * LIRA-091 — cascade-void every auto supplier-ledger sibling this
+   * transaction's own event created. Reuses `_voidTransactionInternal` per
+   * sibling (its own separate hidden SUPPLIER_PAYMENT transaction) so
+   * drawer/ledger reversal runs through the EXACT same mechanics a manual
+   * supplier-payment void uses (rule 14/20, not a second reversal path) —
+   * soft-voiding the ledger row is already `_markSourceRefunded`'s job, fired
+   * naturally when that recursive call reaches its own step 4 (the sibling's
+   * source_table is 'supplier_ledger'). Filtered to `is_auto = 1` so this can
+   * only ever touch genuine separate-hidden-transaction siblings, never a
+   * link-mode row (whose supplier_ledger.transaction_id IS the caller's own
+   * in-flight parent transaction — recursing into that would self-void).
+   * Already-refunded siblings (voided independently beforehand, or by an
+   * earlier pass of this same cascade) are excluded — idempotent re-entry.
+   * A no-op for legacy (pre-v136) rows: they carry no source_ref link and can
+   * never be found here — undetectable by design, same limitation LIRA-094
+   * documented for its split_group marker. The settled-sibling case never
+   * reaches this method — `_assertSupplierSiblingsVoidable` already blocked
+   * it before the enclosing db.transaction() began.
+   */
+  private _cascadeSupplierSiblingVoid(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    if (!original.source_table || original.source_id == null) return;
+    if (!this._supplierLedgerHasSourceRefColumns()) return;
+    const tenantId = getCurrentTenantId();
+    const siblings = this.query<{ transaction_id: number | null }>(
+      `SELECT transaction_id FROM supplier_ledger
+        WHERE source_ref_table = ? AND source_ref_id = ? AND tenant_id = ?
+          AND is_auto = 1 AND COALESCE(is_refunded, 0) = 0`,
+      original.source_table,
+      original.source_id,
+      tenantId,
+    );
+    for (const sibling of siblings) {
+      if (sibling.transaction_id == null) continue;
+      this._voidTransactionInternal(sibling.transaction_id, userId, {
+        allowSplitGroupMember: true,
+      });
     }
   }
 

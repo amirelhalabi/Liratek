@@ -6519,6 +6519,441 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v132 — stock_adjustments audit trail (LIRA-077)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 132,
+    name: "add_stock_adjustments_table",
+    description:
+      "Add stock_adjustments — the audit trail for manual stock corrections made via InventoryService.adjustStock (set-absolute) / adjustStockDelta (increment/decrement). Every row is written by ProductRepository in the SAME db transaction as the products.stock_quantity UPDATE (rule 13/20 discipline: a mid-failure can never leave one without the other). reason is NOT NULL — every manual correction must be justified. product_id CASCADEs (deleting a product drops its adjustment history with it); user_id SET NULLs (deleting a user keeps the historical row, just anonymizes who made it). New table — CREATE TABLE defaults are safe (no ALTER-with-CURRENT_TIMESTAMP prod-brick risk, v104 lesson).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS stock_adjustments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          delta INTEGER NOT NULL,
+          old_quantity INTEGER NOT NULL,
+          new_quantity INTEGER NOT NULL,
+          reason TEXT NOT NULL,
+          user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_stock_adjustments_product_id ON stock_adjustments(product_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_stock_adjustments_created_at ON stock_adjustments(created_at)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_stock_adjustments_tenant_id ON stock_adjustments(tenant_id)`,
+      );
+      console.log(
+        "Migration v132: stock_adjustments table created (LIRA-077 audit trail)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS stock_adjustments`);
+      console.log(
+        "Migration v132 rolled back: stock_adjustments table dropped",
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v133 — delete phantom wallet-provider supplier ledger entries (Fix B)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 133,
+    name: "delete_wallet_provider_phantom_ledger",
+    description:
+      "OMT_APP / WHISH_APP / BINANCE are prepaid wallets the shop owns balance in — a transfer consumes/grows the wallet drawer and creates NO supplier debt in either direction (owner-confirmed 2026-07-19). The auto supplier-ledger block nonetheless booked TOP_UP ('we owe them') on every SEND and PAYMENT ('they owe us') on every RECEIVE whenever a supplier row for the provider existed — which production seeds ('OMT App'/'Whish App'). Those phantom rows corrupted the app suppliers' balances and the page's Total Owed tiles. Deletes exactly the auto transfer rows (is_auto=1, entry_type TOP_UP/PAYMENT) for wallet-provider suppliers; manual entries (is_auto=0), BILL commissions (SUPPLIER_PAYS_US), and legacy cost-flow SALE_COST rows are untouched. Safe to delete rather than soft-flag: each row is 1:1 re-derivable from its financial_services transfer (down() reconstructs them).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const res = db
+        .prepare(
+          `DELETE FROM supplier_ledger
+            WHERE is_auto = 1
+              AND entry_type IN ('TOP_UP', 'PAYMENT')
+              AND supplier_id IN (
+                SELECT id FROM suppliers
+                 WHERE provider IN ('OMT_APP', 'WHISH_APP', 'BINANCE')
+              )`,
+        )
+        .run();
+      console.log(
+        `Migration v133: deleted ${res.changes} phantom wallet-provider supplier ledger entries`,
+      );
+    },
+    down(db: Database.Database) {
+      // Best-effort inverse: re-book one auto entry per wallet-provider
+      // transfer row, exactly as the pre-fix code did (SEND → TOP_UP +amount,
+      // RECEIVE → PAYMENT −amount, service currency column only; cost-flow
+      // SEND rows excluded — they never booked a transfer entry). Notes lose
+      // any original [item_key] suffix; created_at is restored from the
+      // financial_services row.
+      const res = db
+        .prepare(
+          `INSERT INTO supplier_ledger
+             (tenant_id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto, created_at)
+           SELECT
+             fs.tenant_id,
+             s.id,
+             CASE WHEN fs.service_type = 'RECEIVE' THEN 'PAYMENT' ELSE 'TOP_UP' END,
+             CASE WHEN fs.currency = 'USD'
+                  THEN CASE WHEN fs.service_type = 'RECEIVE' THEN -ABS(fs.amount) ELSE ABS(fs.amount) END
+                  ELSE 0 END,
+             CASE WHEN fs.currency = 'LBP'
+                  THEN CASE WHEN fs.service_type = 'RECEIVE' THEN -ABS(fs.amount) ELSE ABS(fs.amount) END
+                  ELSE 0 END,
+             'Auto: ' || fs.service_type || ' via ' || fs.provider,
+             fs.created_by,
+             1,
+             fs.created_at
+           FROM financial_services fs
+           JOIN suppliers s
+             ON s.provider = fs.provider AND s.tenant_id = fs.tenant_id AND s.is_active = 1
+           WHERE fs.provider IN ('OMT_APP', 'WHISH_APP', 'BINANCE')
+             AND fs.service_type IN ('SEND', 'RECEIVE')
+             AND NOT (fs.service_type = 'SEND' AND fs.cost > 0)`,
+        )
+        .run();
+      console.log(
+        `Migration v133 rolled back: re-booked ${res.changes} wallet-provider auto ledger entries`,
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v134 — true-up under-booked OMT/WHISH SEND supplier debt (Fix C repair)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 134,
+    name: "trueup_omt_whish_send_ledger_fee",
+    description:
+      "The short-lived original C3 booked the auto TOP_UP for an OMT/WHISH system SEND at the bare transfer amount. Owner-confirmed model (2026-07-19): the shop owes the provider amount + fee (it collected both on the provider's behalf; its cut is the commission, netted at settlement) — the revised code books the gross. This repairs rows written by C3-era builds: for every UNSETTLED (settlement_id IS NULL) OMT/WHISH SEND with a provider fee, the matching auto TOP_UP (same supplier, service-currency amount equal to the BARE transfer, created within 2s) gets the fee added. The bare-amount equality is the guard: pre-C3 rows already include the fee and never match, so the repair is idempotent and no-ops on databases that never ran a C3 build. Already-settled rows are deliberately untouched — their ledger netted at the bare amount; the real-world underpayment to the provider is a reconciliation matter, not a DB repair.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const rows = db
+        .prepare(
+          `SELECT fs.id, fs.tenant_id, fs.provider, fs.currency, fs.created_at,
+                  ABS(fs.amount) AS bare,
+                  COALESCE(CASE WHEN fs.provider = 'OMT' THEN fs.omt_fee ELSE fs.whish_fee END, 0) AS fee,
+                  s.id AS supplier_id
+             FROM financial_services fs
+             JOIN suppliers s
+               ON s.provider = fs.provider AND s.tenant_id = fs.tenant_id
+            WHERE fs.provider IN ('OMT', 'WHISH')
+              AND fs.service_type = 'SEND'
+              AND fs.settlement_id IS NULL
+              AND COALESCE(CASE WHEN fs.provider = 'OMT' THEN fs.omt_fee ELSE fs.whish_fee END, 0) > 0
+            ORDER BY fs.id`,
+        )
+        .all() as Array<{
+        id: number;
+        tenant_id: number;
+        currency: string;
+        created_at: string;
+        bare: number;
+        fee: number;
+        supplier_id: number;
+      }>;
+
+      const findMatch = db.prepare(
+        `SELECT id FROM supplier_ledger
+          WHERE supplier_id = ?
+            AND is_auto = 1
+            AND entry_type = 'TOP_UP'
+            AND ABS((CASE WHEN ? = 'LBP' THEN amount_lbp ELSE amount_usd END) - ?) < 0.005
+            AND ABS(julianday(created_at) - julianday(?)) * 86400.0 <= 2.0
+            AND id NOT IN (SELECT value FROM json_each(?))
+          ORDER BY id LIMIT 1`,
+      );
+      const addFeeUsd = db.prepare(
+        `UPDATE supplier_ledger SET amount_usd = amount_usd + ? WHERE id = ?`,
+      );
+      const addFeeLbp = db.prepare(
+        `UPDATE supplier_ledger SET amount_lbp = amount_lbp + ? WHERE id = ?`,
+      );
+
+      const consumed: number[] = [];
+      let repaired = 0;
+      for (const r of rows) {
+        const match = findMatch.get(
+          r.supplier_id,
+          r.currency,
+          r.bare,
+          r.created_at,
+          JSON.stringify(consumed),
+        ) as { id: number } | undefined;
+        if (!match) continue; // pre-C3 row (already gross) or manual cleanup
+        if (r.currency === "LBP") addFeeLbp.run(r.fee, match.id);
+        else addFeeUsd.run(r.fee, match.id);
+        consumed.push(match.id);
+        repaired++;
+      }
+      console.log(
+        `Migration v134: trued-up ${repaired}/${rows.length} unsettled OMT/WHISH SEND ledger entries (+fee)`,
+      );
+    },
+    down(db: Database.Database) {
+      // Inverse heuristic: subtract the fee from entries that now match the
+      // GROSS (bare + fee) for the same unsettled SEND rows.
+      const rows = db
+        .prepare(
+          `SELECT fs.id, fs.currency, fs.created_at,
+                  ABS(fs.amount) AS bare,
+                  COALESCE(CASE WHEN fs.provider = 'OMT' THEN fs.omt_fee ELSE fs.whish_fee END, 0) AS fee,
+                  s.id AS supplier_id
+             FROM financial_services fs
+             JOIN suppliers s
+               ON s.provider = fs.provider AND s.tenant_id = fs.tenant_id
+            WHERE fs.provider IN ('OMT', 'WHISH')
+              AND fs.service_type = 'SEND'
+              AND fs.settlement_id IS NULL
+              AND COALESCE(CASE WHEN fs.provider = 'OMT' THEN fs.omt_fee ELSE fs.whish_fee END, 0) > 0
+            ORDER BY fs.id`,
+        )
+        .all() as Array<{
+        id: number;
+        currency: string;
+        created_at: string;
+        bare: number;
+        fee: number;
+        supplier_id: number;
+      }>;
+
+      const findMatch = db.prepare(
+        `SELECT id FROM supplier_ledger
+          WHERE supplier_id = ?
+            AND is_auto = 1
+            AND entry_type = 'TOP_UP'
+            AND ABS((CASE WHEN ? = 'LBP' THEN amount_lbp ELSE amount_usd END) - ?) < 0.005
+            AND ABS(julianday(created_at) - julianday(?)) * 86400.0 <= 2.0
+            AND id NOT IN (SELECT value FROM json_each(?))
+          ORDER BY id LIMIT 1`,
+      );
+      const subFeeUsd = db.prepare(
+        `UPDATE supplier_ledger SET amount_usd = amount_usd - ? WHERE id = ?`,
+      );
+      const subFeeLbp = db.prepare(
+        `UPDATE supplier_ledger SET amount_lbp = amount_lbp - ? WHERE id = ?`,
+      );
+
+      const consumed: number[] = [];
+      let reverted = 0;
+      for (const r of rows) {
+        const match = findMatch.get(
+          r.supplier_id,
+          r.currency,
+          r.bare + r.fee,
+          r.created_at,
+          JSON.stringify(consumed),
+        ) as { id: number } | undefined;
+        if (!match) continue;
+        if (r.currency === "LBP") subFeeLbp.run(r.fee, match.id);
+        else subFeeUsd.run(r.fee, match.id);
+        consumed.push(match.id);
+        reverted++;
+      }
+      console.log(
+        `Migration v134 rolled back: removed the fee from ${reverted} entries`,
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v135 — carrier_lines (shop SIM tracking) + mobile_service_items validity/credits
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 135,
+    name: "add_carrier_lines_and_mobile_item_validity",
+    description:
+      "LIRA W6 (owner ask 2026-07-19, informational only — no drawer legs, no checkout/closing involvement): (a) new `carrier_lines` table so the shop can track its own alfa/mtc SIM numbers' remaining credits + validity expiry date (days-remaining is DERIVED from the stored date at render time — a stored day-count would go stale daily); (b) `mobile_service_items` gains nullable `validity_days` (INTEGER) and `credits` (REAL) — plain nullable ALTERs, no CURRENT_TIMESTAMP defaults (v104 prod-brick lesson: this is a column add on an EXISTING table, unlike v132's new-table CREATE). Folds in W2's pending iPick mtc Prepaid rename (LIRA-072 follow-up): the OLD verbose labels ('10 days 3.79$', 'credit only 1$', …) encoded validity/credit information that the card-face-value rename (mirroring v117/118) would otherwise strip, so THIS migration backfills validity_days/credits from the old label BEFORE renaming it, scoped exactly like v117 (provider='iPick' AND category='mtc' AND subcategory='Prepaid'). It also stamps the SAME structured values onto Katsh/WHISH_APP mtc Prepaid rows wherever their (already v117-renamed) label matches one of these shared card face values — those two providers resell the identical physical cards, so the face value alone identifies the validity/credit meaning. Fresh installs never carry the old verbose labels (the static catalog + seed path were already renamed by W2 before this shipped) — for those, `frontend/src/data/mobileServices.ts` carries the same validity_days/credits directly so seeding populates the columns without this backfill ever matching a row; this migration exists for upgrades of already-seeded shops.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // ---------------------------------------------------------------------
+      // (a) carrier_lines — shop-owned SIM lines per carrier
+      // ---------------------------------------------------------------------
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS carrier_lines (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          carrier TEXT NOT NULL CHECK(carrier IN ('alfa', 'mtc')),
+          phone_number TEXT NOT NULL,
+          label TEXT,
+          credits REAL NOT NULL DEFAULT 0,
+          validity_expires_at TEXT,
+          notes TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_carrier_lines_carrier ON carrier_lines(carrier)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_carrier_lines_tenant_id ON carrier_lines(tenant_id)`,
+      );
+
+      // ---------------------------------------------------------------------
+      // (b) mobile_service_items — structured validity/credits columns
+      // ---------------------------------------------------------------------
+      db.exec(
+        `ALTER TABLE mobile_service_items ADD COLUMN validity_days INTEGER`,
+      );
+      db.exec(`ALTER TABLE mobile_service_items ADD COLUMN credits REAL`);
+
+      // ---------------------------------------------------------------------
+      // (c) iPick mtc Prepaid: backfill validity_days/credits from the OLD
+      // verbose label, then rename to the card face value in the SAME row
+      // write (the rename this migration performs mirrors v117/118's A1
+      // card-face-value convention, applied to iPick per LIRA-072 follow-up).
+      // Old label -> [newLabel, validity_days, credits].
+      // ---------------------------------------------------------------------
+      const IPICK_PREPAID_RENAMES: Array<
+        [string, string, number | null, number | null]
+      > = [
+        ["credit only 1$", "1", null, 1],
+        ["credit only 1.67$", "1.67", null, 1.67],
+        ["10 days 3.79$", "3.79", 10, null],
+        ["30 days 4.5$", "4.5", 30, null],
+        ["30 days 7.58$", "7.58", 30, null],
+        ["30 days 10$", "10", 30, null],
+        ["60 days 15.15$", "15.15", 60, null],
+        ["90 days 22.73$", "22.73", 90, null],
+        ["365 days 77.28$", "77.28", 365, null],
+        ["start 4.5$", "start", null, null],
+      ];
+      const renameIPickStmt = db.prepare(`
+        UPDATE mobile_service_items
+           SET label = ?, validity_days = ?, credits = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE provider = 'iPick' AND category = 'mtc' AND subcategory = 'Prepaid'
+           AND label = ?
+      `);
+      let renamed = 0;
+      for (const [
+        oldLabel,
+        newLabel,
+        validityDays,
+        credits,
+      ] of IPICK_PREPAID_RENAMES) {
+        renamed += renameIPickStmt.run(
+          newLabel,
+          validityDays,
+          credits,
+          oldLabel,
+        ).changes;
+      }
+
+      // ---------------------------------------------------------------------
+      // (d) Stamp validity_days/credits by the shared card-face-value LABEL
+      // for every mtc Prepaid row (iPick/Katsh/WHISH_APP) that is already on
+      // the new label — covers (i) iPick rows seeded post-W2-rename (never
+      // had the old verbose label to match step (c)), and (ii) Katsh/
+      // WHISH_APP rows v117 already renamed to these same face values. Only
+      // fills rows that don't already carry a value (idempotent / leaves any
+      // manual edit alone).
+      // ---------------------------------------------------------------------
+      const FACE_VALUE_META: Array<[string, number | null, number | null]> = [
+        ["1", null, 1],
+        ["1.67", null, 1.67],
+        ["3.79", 10, null],
+        ["4.5", 30, null],
+        ["7.58", 30, null],
+        ["10", 30, null],
+        ["15.15", 60, null],
+        ["22.73", 90, null],
+        ["77.28", 365, null],
+      ];
+      const stampStmt = db.prepare(`
+        UPDATE mobile_service_items
+           SET validity_days = ?, credits = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE provider IN ('iPick', 'Katsh', 'WHISH_APP')
+           AND category = 'mtc' AND subcategory = 'Prepaid'
+           AND label = ?
+           AND validity_days IS NULL AND credits IS NULL
+      `);
+      let stamped = 0;
+      for (const [label, validityDays, credits] of FACE_VALUE_META) {
+        stamped += stampStmt.run(validityDays, credits, label).changes;
+      }
+
+      console.log(
+        `Migration v135: carrier_lines table created; renamed ${renamed} iPick mtc Prepaid item(s); stamped validity/credits on ${stamped} mtc Prepaid row(s) (iPick/Katsh/WHISH_APP)`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS carrier_lines`);
+
+      // Best-effort inverse of the iPick rename (validity_days/credits are
+      // left as-is — SQLite DROP COLUMN is intentionally not used here,
+      // matching this file's prevailing down() convention of leaving added
+      // nullable columns in place rather than rebuilding the table).
+      const IPICK_PREPAID_REVERSE: Array<[string, string]> = [
+        ["1", "credit only 1$"],
+        ["1.67", "credit only 1.67$"],
+        ["3.79", "10 days 3.79$"],
+        ["4.5", "30 days 4.5$"],
+        ["7.58", "30 days 7.58$"],
+        ["10", "30 days 10$"],
+        ["15.15", "60 days 15.15$"],
+        ["22.73", "90 days 22.73$"],
+        ["77.28", "365 days 77.28$"],
+        ["start", "start 4.5$"],
+      ];
+      const revertStmt = db.prepare(`
+        UPDATE mobile_service_items
+           SET label = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE provider = 'iPick' AND category = 'mtc' AND subcategory = 'Prepaid'
+           AND label = ?
+      `);
+      for (const [newLabel, oldLabel] of IPICK_PREPAID_REVERSE) {
+        revertStmt.run(oldLabel, newLabel);
+      }
+      console.log(
+        "Migration v135 rolled back: carrier_lines dropped, iPick mtc Prepaid labels reverted (validity_days/credits columns left in place)",
+      );
+    },
+  },
+  {
+    version: 136,
+    name: "add_supplier_ledger_source_ref",
+    description:
+      "LIRA-091: supplier_ledger gains source_ref_table/source_ref_id — a generic back-link from an auto-generated ledger row (FinancialServiceRepository's is_auto:true BILL-commission / SEND-RECEIVE TOP_UP-PAYMENT siblings) to the PARENT unified transaction's own source row (source_ref_table/source_ref_id mirror the parent's own transactions.source_table/source_id, e.g. 'financial_services'/<fs id>) — so TransactionRepository can find and cascade-void the sibling when the parent is voided/refunded (FEATURE_GUIDE §9 standing gap: 'voiding a FINANCIAL_SERVICE/RECHARGE row leaves its auto supplier sibling standing'). Mirrors the existing partner_ledger.reference_table/reference_id pattern used for the exact same purpose. Nullable, DEFAULT NULL only — never CURRENT_TIMESTAMP (v104 prod-brick lesson) — and guarded by a PRAGMA table_info check so replaying up() on an already-migrated DB is a safe no-op (mirrors the debt_ledger/supplier_ledger unified_transaction_id guard in the v83-era migration above). Pre-link (legacy) rows are NOT backfilled — no heuristic data repair, the same limitation LIRA-094 documented for its split_group marker.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db
+        .prepare("PRAGMA table_info(supplier_ledger)")
+        .all() as { name: string }[];
+      if (!cols.some((c) => c.name === "source_ref_table")) {
+        db.exec(
+          `ALTER TABLE supplier_ledger ADD COLUMN source_ref_table TEXT DEFAULT NULL`,
+        );
+      }
+      if (!cols.some((c) => c.name === "source_ref_id")) {
+        db.exec(
+          `ALTER TABLE supplier_ledger ADD COLUMN source_ref_id INTEGER DEFAULT NULL`,
+        );
+      }
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_supplier_ledger_source_ref ON supplier_ledger(source_ref_table, source_ref_id)`,
+      );
+      console.log(
+        "Migration v136: added supplier_ledger.source_ref_table/source_ref_id + index",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_supplier_ledger_source_ref`);
+      db.exec(`ALTER TABLE supplier_ledger DROP COLUMN source_ref_id`);
+      db.exec(`ALTER TABLE supplier_ledger DROP COLUMN source_ref_table`);
+      console.log(
+        "Migration v136 rolled back: supplier_ledger source_ref_table/source_ref_id + index removed",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

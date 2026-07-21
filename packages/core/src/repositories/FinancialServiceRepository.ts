@@ -31,6 +31,10 @@ import {
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import {
+  isWalletProvider,
+  WALLET_PROVIDERS_SQL_LIST,
+} from "../constants/walletProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import {
   calculateCommission,
@@ -109,6 +113,13 @@ export interface FinancialServiceEntity {
   edited_at: string | null;
   partner_id: number | null;
   partner_mode: "THROUGH" | "FOR" | null;
+  /**
+   * Computed (SUPPLIER_OWED_EXPR): what this row adds to the supplier
+   * payable — 0 for wallet-provider transfers, sale cost for cost-flow rows,
+   * amount + provider fee for OMT/WHISH SEND, amount + commission for
+   * RECEIVE, bare amount otherwise.
+   */
+  supplier_owed: number;
 }
 
 export interface UnsettledSummary {
@@ -265,6 +276,25 @@ export interface CreateFinancialServiceData {
    * so the FK never fails on a DB whose admin isn't id 1.
    */
   userId?: number;
+  /**
+   * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): identifies which multi-unit
+   * split checkout this unit belongs to. The frontend (KatchForm bills /
+   * FinancialForm catalog units) generates ONE uuid per checkout and sends
+   * it with EVERY unit — carrier and siblings alike — so the void path can
+   * find and guard the whole group (TransactionRepository._getSplitGroup /
+   * voidCheckoutGroup). Omitted on single-unit checkouts (no metadata
+   * noise). Snake_case to match the metadata_json key it's stored under
+   * (same convention as kept_change_usd/lbp above).
+   */
+  split_group?: string;
+  /**
+   * Whether THIS unit carries the checkout's payment legs ('carrier') or
+   * deferred them to the carrier ('sibling', i.e. `deferPayment: true`).
+   * Only meaningful alongside split_group.
+   */
+  split_role?: "carrier" | "sibling";
+  /** Total unit count in the checkout this split_group belongs to (≥ 2). */
+  split_units?: number;
 }
 
 export interface ProviderStats {
@@ -360,6 +390,31 @@ function walletSendDebtNote(
 // Financial Service Repository Class
 // =============================================================================
 
+/**
+ * The ONE definition (CLAUDE.md rule 14) of "what this financial_services row
+ * adds to the supplier's payable" — consumed by the row projections
+ * (Settle tab, Suppliers Outstanding/FIFO status via FinancialService) and
+ * getUnsettledSummaryByProvider (Dashboard/Profits pending):
+ *
+ *  - Wallet-provider transfers (OMT_APP / WHISH_APP / BINANCE, prepaid
+ *    balance the shop owns) owe NOTHING — Fix B.
+ *  - Cost-flow SEND rows (legacy per-sale supplier debt) owe the sale cost.
+ *  - OMT/WHISH system SEND owes amount + provider fee: the fee belongs to
+ *    the provider; the shop's cut is the commission, netted off at
+ *    settlement (owner-confirmed 2026-07-19) — Fix C.
+ *  - RECEIVE keeps amount + commission (existing behavior, pending the
+ *    owner's answer on how provider statements treat receives).
+ *  - Anything else owes the bare amount.
+ */
+const SUPPLIER_OWED_EXPR = `CASE
+  WHEN provider IN (${WALLET_PROVIDERS_SQL_LIST}) AND cost <= 0 THEN 0
+  WHEN service_type = 'SEND' AND cost > 0 THEN cost
+  WHEN service_type = 'RECEIVE' THEN ABS(amount) + COALESCE(commission, 0)
+  WHEN provider = 'OMT' AND service_type = 'SEND' THEN ABS(amount) + COALESCE(omt_fee, 0)
+  WHEN provider = 'WHISH' AND service_type = 'SEND' THEN ABS(amount) + COALESCE(whish_fee, 0)
+  ELSE ABS(amount)
+END`;
+
 export class FinancialServiceRepository extends BaseRepository<FinancialServiceEntity> {
   constructor() {
     super("financial_services", { softDelete: false });
@@ -367,7 +422,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode";
+    return `id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
   }
 
   // ---------------------------------------------------------------------------
@@ -885,6 +940,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           paid_amount: paidAmount,
           paid_currency: paidCurrency,
           item_key: data.itemKey,
+          // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): multi-unit split
+          // checkouts (KatchForm bills / FinancialForm catalog units) stamp
+          // these so the generic void/refund guard can detect and block a
+          // single-unit void, and voidCheckoutGroup can find every sibling.
+          // Absent on single-unit checkouts (no metadata noise).
+          ...(data.split_group
+            ? {
+                split_group: data.split_group,
+                split_role: data.split_role,
+                split_units: data.split_units,
+              }
+            : {}),
         },
         exchange_rate: data.exchangeRate ?? getUsdLbpSellRate(this.db),
         transaction_time: data.transaction_time,
@@ -2395,14 +2462,30 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             `Skipping supplier ledger for inactive provider: ${data.provider}`,
           );
         } else {
-          // Ledger amount (C3): the TRANSACTION amount only — never the
-          // customer-paid total. Fees and commissions are NOT part of the
-          // supplier balance: the provider fee is remitted/reconciled through
-          // the commission-settlement flow (Settle tab nets `owed − commission
-          // = amount`), so booking amount+fee/amount+commission here left a
-          // phantom fee/commission residue on the supplier balance after every
-          // settlement.
-          const ledgerAmount = Math.abs(data.amount);
+          // Ledger amount (C3 revised — owner-confirmed 2026-07-19):
+          //   SEND → amount + provider fee. The shop collects BOTH on the
+          //     provider's behalf; its cut is only the commission, which
+          //     settlement nets off (settleTransactions pays owed − commission
+          //     and books a SUPPLIER_PAYS_US credit, so the ledger still zeroes:
+          //     TOP_UP(amount+fee) − SETTLEMENT(amount+fee−comm) − comm = 0).
+          //     The original C3 booked the bare amount, which made settlement
+          //     remit only the transfer amount — silently keeping the
+          //     provider's fee share (~90% of the fee) in the shop's drawers.
+          //   RECEIVE → bare amount, unchanged (pending the owner's answer on
+          //     how provider statements treat receives).
+          // The fee mirrors the SEND drawer flow exactly (OMT: data.omtFee,
+          // WHISH: storedWhishFee) so OMT_System/Whish_System and the ledger
+          // always carry the same gross.
+          const sendProviderFee =
+            data.provider === "OMT"
+              ? (data.omtFee ?? 0)
+              : data.provider === "WHISH"
+                ? (storedWhishFee ?? 0)
+                : 0;
+          const ledgerAmount =
+            data.serviceType === "SEND"
+              ? Math.abs(data.amount) + sendProviderFee
+              : Math.abs(data.amount);
 
           // Ledger entry_type (C5 prepaid-units model):
           //   RECEIVE                  → PAYMENT (supplier settles with shop, reduces debt)
@@ -2424,10 +2507,24 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 note: `Auto: BILL commission from ${data.provider}`,
                 created_by: createdBy,
                 is_auto: true,
+                // LIRA-091: back-link to THIS financial_services row so
+                // TransactionRepository can cascade-void this auto sibling
+                // (its own separate hidden SUPPLIER_PAYMENT transaction) when
+                // the parent BILL is voided/refunded.
+                source_ref_table: "financial_services",
+                source_ref_id: id,
               });
             }
           } else if (data.serviceType === "SEND" && useCostPriceFlow) {
             // Prepaid-units sale: drawer draw-down only — no supplier ledger entry.
+          } else if (isWalletProvider(data.provider)) {
+            // Fix B: wallet providers (OMT_APP / WHISH_APP / BINANCE) are
+            // prepaid balances the shop owns — a transfer consumes/grows the
+            // wallet drawer and creates NO debt in either direction. Booking
+            // TOP_UP ("we owe them") on SEND / PAYMENT ("they owe us") on
+            // RECEIVE here wrote phantom rows into the app suppliers'
+            // balances (owner-confirmed model, 2026-07-19; see
+            // FinancialServiceRepository.appWalletTransfer.test.ts "Fix B").
           } else {
             const isReceive = data.serviceType === "RECEIVE";
             const entryType: "PAYMENT" | "TOP_UP" = isReceive
@@ -2442,6 +2539,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
                 created_by: createdBy,
                 is_auto: true,
+                // LIRA-091: back-link to THIS financial_services row so
+                // TransactionRepository can cascade-void this auto sibling
+                // (its own separate hidden SUPPLIER_PAYMENT transaction) when
+                // the parent SEND/RECEIVE is voided/refunded.
+                source_ref_table: "financial_services",
+                source_ref_id: id,
               });
             }
           }
@@ -2525,11 +2628,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Get all unsettled financial_services rows for a given supplier (by provider name).
    *
    * Two kinds of rows are returned, both shaped as FinancialServiceEntity so the
-   * Settle tab's "total owed − commission = net pay" math nets correctly:
+   * Settle tab's "total owed − commission = net pay" math nets correctly
+   * (owed per row = supplier_owed, the SUPPLIER_OWED_EXPR projection):
    *
-   *  1. OMT/WHISH commission settlement — RECEIVE rows with commission > 0 and
-   *     is_settled = 0. Here owed = amount + commission and the shop keeps the
-   *     commission, so net pay = amount.
+   *  1. OMT/WHISH commission settlement — rows with commission > 0 and
+   *     is_settled = 0. SEND: owed = amount + provider fee, so
+   *     net pay = amount + fee − commission (the fee belongs to the provider;
+   *     the commission is the shop's cut of it — owner-confirmed 2026-07-19).
+   *     RECEIVE: owed = amount + commission, net pay = amount (unchanged,
+   *     pending the owner's answer on receive statements).
    *
    *  2. LEGACY cost/price-flow sale costs — SEND rows written through a cost/price
    *     provider (iPick / Katsh / Whish App / OMT App) BEFORE the C5 prepaid-units
@@ -2580,7 +2687,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * net = cost.
    */
   private getSaleCostSettleColumns(): string {
-    return "id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode";
+    return "id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, cost AS supplier_owed";
   }
 
   /**
@@ -2630,9 +2737,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
            COUNT(*) as count,
            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_usd,
            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_lbp,
-           -- total_owed = amount + commission (OMT owes the shop the full amount plus its commission)
-           COALESCE(SUM(CASE WHEN currency != 'LBP' THEN ABS(amount) + commission ELSE 0 END), 0) as total_owed_usd,
-           COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN ABS(amount) + commission ELSE 0 END), 0) as total_owed_lbp
+           -- total_owed per row = SUPPLIER_OWED_EXPR (SEND: amount + provider
+           -- fee; RECEIVE: amount + commission) — same definition the Settle
+           -- tab nets against (net pay = owed − commission).
+           COALESCE(SUM(CASE WHEN currency != 'LBP' THEN ${SUPPLIER_OWED_EXPR} ELSE 0 END), 0) as total_owed_usd,
+           COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN ${SUPPLIER_OWED_EXPR} ELSE 0 END), 0) as total_owed_lbp
          FROM financial_services
          WHERE is_settled = 0
            AND commission > 0

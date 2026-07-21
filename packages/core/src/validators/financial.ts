@@ -135,6 +135,17 @@ export const createFinancialServiceSchema = z
      * behavior.
      */
     tender_exchange_rate: z.number().positive().optional(),
+    /**
+     * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): identifies which
+     * multi-unit split checkout this unit belongs to — sent with EVERY unit
+     * (carrier and siblings alike) by KatchForm/FinancialForm. Omitted on
+     * single-unit checkouts. Keep in sync with the LOCAL duplicate in
+     * electron-app/schemas/index.ts's FinancialServiceSchema (rule-14 debt,
+     * same trap as checkoutTotal/deferPayment above).
+     */
+    split_group: z.string().uuid().optional(),
+    split_role: z.enum(["carrier", "sibling"]).optional(),
+    split_units: z.number().int().min(2).optional(),
   })
   .refine(
     (data) => {

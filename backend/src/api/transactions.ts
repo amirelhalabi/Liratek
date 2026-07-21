@@ -10,7 +10,12 @@ import {
   requireRole,
   type AuthRequest,
 } from "../middleware/auth.js";
-import { getTransactionService, getReportingService } from "@liratek/core";
+import {
+  getTransactionService,
+  getReportingService,
+  voidCheckoutGroupSchema,
+} from "@liratek/core";
+import { validateParams } from "../middleware/validation.js";
 import { logger } from "../server.js";
 
 const router = Router();
@@ -43,6 +48,30 @@ router.get("/recent", requireAuth, async (req, res) => {
       .json({ success: false, error: "Failed to get transactions" });
   }
 });
+
+// GET /api/transactions/by-source/:sourceTable/:sourceId
+// LIRA-069 W1.c/d: resolve the unified transaction for a module row (the
+// History-modal Print button and auto-print-on-success hook only know the
+// module's own PK). Static path — placed before /:id so it can never be
+// swallowed by that single-segment route.
+router.get(
+  "/by-source/:sourceTable/:sourceId",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const { sourceTable } = req.params;
+      const sourceId = parseInt(req.params.sourceId, 10);
+      const txnService = getTransactionService();
+      const transaction = txnService.getBySourceId(sourceTable, sourceId);
+      res.json({ success: true, transaction });
+    } catch (error) {
+      logger.error({ error }, "Get transaction by source error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to get transaction" });
+    }
+  },
+);
 
 // GET /api/transactions/:id
 router.get("/:id", requireAuth, async (req, res) => {
@@ -112,6 +141,32 @@ router.post(
       res.json({ success: true, refundId });
     } catch (error) {
       logger.error({ error }, "Refund transaction error");
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  },
+);
+
+// POST /api/transactions/checkout-group/:groupId/void
+// CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided member of
+// a multi-unit split checkout in ONE transaction. A single void/refund of one
+// member alone is refused by /:id/void and /:id/refund above — this is the
+// only legitimate way to reverse one. Static "checkout-group" segment, so
+// this can never collide with /:id/void (different segment count, and Express
+// routes GET/POST independently regardless).
+router.post(
+  "/checkout-group/:groupId/void",
+  requireAuth,
+  requireRole(["admin"]),
+  validateParams(voidCheckoutGroupSchema),
+  async (req: AuthRequest, res) => {
+    try {
+      const { groupId } = req.params as unknown as { groupId: string };
+      const userId = req.user?.userId ?? 1;
+      const txnService = getTransactionService();
+      const result = txnService.voidCheckoutGroup(groupId, userId);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error({ error }, "Void checkout group error");
       res.status(500).json({ success: false, error: (error as Error).message });
     }
   },

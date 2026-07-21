@@ -1,12 +1,21 @@
 /**
- * FinancialServiceRepository — C3: supplier ledger books the TRANSACTION amount
+ * FinancialServiceRepository — C3 (revised): supplier ledger books the GROSS
+ * owed for SEND, the bare amount for RECEIVE.
  *
- * The auto supplier_ledger entry written for an OMT/WHISH system transaction
- * must equal the transfer amount — NOT the customer-paid total. Pre-C3 the
- * entry added the provider fee (SEND: amount + omtFee) or the commission
- * (RECEIVE: amount + commission), i.e. exactly what the customer paid, which
- * left a phantom fee/commission residue on the supplier balance after every
- * settlement (the Settle tab nets `owed − commission = amount`).
+ * Owner-confirmed model (2026-07-19): the provider fee belongs to the
+ * provider — the shop collects amount + fee on its behalf and keeps only the
+ * commission (its cut of the fee), netted off at settlement. So:
+ *
+ *   SEND    → TOP_UP of amount + provider fee (the gross the shop owes).
+ *             Settlement pays owed − commission and books a SUPPLIER_PAYS_US
+ *             credit, netting the ledger to zero
+ *             (SupplierRepository.settlement.test.ts, "Fix C").
+ *   RECEIVE → PAYMENT of the bare transfer amount, unchanged (pending the
+ *             owner's answer on how provider statements treat receives).
+ *
+ * The original C3 booked the bare amount for SEND too, which made settlement
+ * remit only the transfer amount — silently keeping the provider's ~90% fee
+ * share in the shop's drawers.
  *
  * Cost/price-flow sales are unchanged: they book the sale `cost`.
  */
@@ -259,8 +268,9 @@ describe("FinancialServiceRepository — C3: supplier ledger = transaction amoun
     resetTransactionRepository();
   });
 
-  it("SEND: books the transfer amount, NOT amount + provider fee (customer-paid)", () => {
-    // Customer pays 100 + 5 fee = 105; the ledger must record 100.
+  it("SEND: books the GROSS owed (amount + provider fee)", () => {
+    // Customer pays 100 + 5 fee = 105; the shop owes OMT the full 105 —
+    // its commission comes back at settlement, not here.
     repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
@@ -276,7 +286,7 @@ describe("FinancialServiceRepository — C3: supplier ledger = transaction amoun
     const entries = omtLedgerEntries(db);
     expect(entries).toHaveLength(1);
     expect(entries[0].entry_type).toBe("TOP_UP");
-    expect(entries[0].amount_usd).toBeCloseTo(100, 2); // pre-C3: 105
+    expect(entries[0].amount_usd).toBeCloseTo(105, 2); // original C3: 100
     expect(entries[0].amount_lbp).toBe(0);
   });
 
@@ -301,16 +311,13 @@ describe("FinancialServiceRepository — C3: supplier ledger = transaction amoun
     expect(entries[0].amount_lbp).toBeCloseTo(0, 2);
   });
 
-  it("SEND split-pay: ledger stays the transfer amount even when the paid legs total differs", () => {
+  it("SEND split-pay: ledger books amount + fee in the SERVICE currency, never the tender legs", () => {
     // $50 transfer + $2 fee; customer split-pays $30 cash + 1,980,000 LBP —
-    // a paid total unrelated to the TRANSFER amount (data.amount = $50) even
-    // though it reconciles exactly against the TRUE customer-owed total
-    // (transfer + fee = $52 = $30 + 1,980,000/90,000). The repository now
-    // hard-rejects legs that don't cover the customer's real total (S2,
-    // Payment-Legs Integrity plan); 1,980,000 (not the original 2,000,000,
-    // which was $0.22 short of $52 at this rate) is the number that both
-    // reconciles AND keeps this test's point intact: the ledger books $50
-    // (the bare transfer), never $52 (transfer + fee) or $30 (one leg).
+    // legs that reconcile exactly against the customer-owed total
+    // ($52 = $30 + 1,980,000/90,000; S2 hard-reject, Payment-Legs Integrity
+    // plan). The ledger books the gross owed in the service currency: $52 —
+    // never $30 (one leg), never a tender-converted mixture, and never the
+    // bare $50 (the original C3 under-booking).
     repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
@@ -329,7 +336,7 @@ describe("FinancialServiceRepository — C3: supplier ledger = transaction amoun
     const entries = omtLedgerEntries(db);
     expect(entries).toHaveLength(1);
     expect(entries[0].entry_type).toBe("TOP_UP");
-    expect(entries[0].amount_usd).toBeCloseTo(50, 2); // never the paid total
+    expect(entries[0].amount_usd).toBeCloseTo(52, 2); // gross owed, service currency
     expect(entries[0].amount_lbp).toBe(0);
   });
 });
