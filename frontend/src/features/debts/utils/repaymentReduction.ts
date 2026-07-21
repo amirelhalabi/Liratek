@@ -8,8 +8,11 @@
  * is what stops an overpayment being counted twice: without it, a customer who
  * hands over more than the debt (e.g. round LBP notes) has the excess BOTH
  * returned as change AND cleared from the debt, over-reducing it into a phantom
- * store credit and quietly draining the drawer. Change can come back in either
- * currency, so both are netted.
+ * store credit and quietly draining the drawer. Change can come back in EITHER
+ * currency regardless of which currency it was tendered in (e.g. paid all-USD,
+ * change given in LBP), so a currency's net is allowed to go negative and is
+ * then settled against the other currency at `rate` before either side is
+ * clamped at 0 — both are netted, cross-currency included.
  *
  * USD paid settles USD debt, LBP paid settles LBP debt; only the cross-currency
  * remainder converts at `rate`, keeping the documented smart-rounding (paying
@@ -39,8 +42,22 @@ export function computeRepaymentReduction({
   rate,
 }: RepaymentReductionInput): { reduceUsd: number; reduceLbp: number } {
   // Net the change back out first — this is the whole point (see file header).
-  const netPaidUsd = Math.max(0, paidUsd - returnedUsd);
-  const netPaidLbp = Math.max(0, paidLbp - returnedLbp);
+  // A same-currency net is allowed to go negative here: that means more was
+  // returned in that currency than was tendered in it, i.e. the change came
+  // from the OTHER currency's payment. Settle that deficit against the other
+  // currency's net at `rate` before either side is clamped at 0.
+  let netUsd = paidUsd - returnedUsd;
+  let netLbp = paidLbp - returnedLbp;
+  if (netUsd < 0) {
+    netLbp += netUsd * rate;
+    netUsd = 0;
+  }
+  if (netLbp < 0) {
+    netUsd += netLbp / rate;
+    netLbp = 0;
+  }
+  const netPaidUsd = Math.max(0, netUsd);
+  const netPaidLbp = Math.max(0, netLbp);
 
   let reduceUsd = Math.min(netPaidUsd, dueUsd);
   let reduceLbp = Math.min(netPaidLbp, dueLbp);

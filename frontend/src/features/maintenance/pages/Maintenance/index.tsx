@@ -17,6 +17,7 @@ import { HistoryModal } from "./components/HistoryModal";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 
 type MaintenanceJob = {
   id: number;
@@ -36,6 +37,7 @@ type MaintenanceJob = {
   discount_usd?: number;
   final_amount_usd?: number;
   final_amount_lbp?: number;
+  is_refunded?: number;
 };
 
 /** Status tabs for the jobs list (client-side filtered). */
@@ -95,6 +97,10 @@ function statusBadge(status: string): { label: string; className: string } {
 export default function Maintenance() {
   const api = useApi();
   const { activeSession, addToCart: addToSessionCart } = useSession();
+  // LIRA-069 W1.d — auto-print on a successful STANDALONE checkout (skipped
+  // when a session is active; the session gets its own Print button at
+  // checkout, W1.b).
+  const autoPrintReceipt = useAutoPrintReceipt();
   const deviceNameRef = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [filter, _setFilter] = useState("All");
@@ -375,6 +381,12 @@ export default function Maintenance() {
         "Maintenance payment processed successfully",
         "success",
       );
+      void autoPrintReceipt({
+        type: "MAINTENANCE",
+        sourceTable: "maintenance",
+        sourceId: result.id,
+        hasActiveSession: !!activeSession,
+      });
       setIsCheckoutOpen(false);
       handleNewJob();
       const data = await api.getMaintenanceJobs(filter);
@@ -445,6 +457,7 @@ export default function Maintenance() {
                 <div className="space-y-2 max-h-64 overflow-auto custom-scrollbar">
                   {filteredJobs.map((job) => {
                     const badge = statusBadge(job.status);
+                    const isRefunded = Boolean(job.is_refunded);
                     const canTransition =
                       job.status === "Received" || job.status === "In_Progress";
                     return (
@@ -455,7 +468,7 @@ export default function Maintenance() {
                           editingJob?.id === job.id
                             ? "bg-violet-600/20 border border-violet-500/50"
                             : "bg-slate-900/50 border border-slate-700/40"
-                        }`}
+                        }${isRefunded ? " opacity-50" : ""}`}
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
@@ -467,6 +480,11 @@ export default function Maintenance() {
                             >
                               {badge.label}
                             </span>
+                            {isRefunded && (
+                              <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                Refunded
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             {job.client_name && (

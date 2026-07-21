@@ -73,8 +73,15 @@ export function getCashFlowDirection(
       if (metaJson) {
         try {
           const m = JSON.parse(metaJson) as {
-            counterparty?: { flow?: "IN" | "OUT" };
+            counterparty?: { flow?: "IN" | "OUT"; method?: string };
           };
+          // LIRA-066 residual fix: a CLIENT_ACCOUNT settlement moves no real
+          // drawer cash (PartnerRepository.recordSettlementMoneyMovement
+          // skips the payments row/drawer delta for this method) — same
+          // "no badge" treatment as PARTNER_ADJUSTMENT/COUNTERPARTY_DISCOUNT,
+          // checked ahead of `flow` (which is still stamped for contract
+          // completeness but would otherwise misrepresent cash movement).
+          if (m.counterparty?.method === "CLIENT_ACCOUNT") return null;
           const flow = m.counterparty?.flow;
           if (flow === "IN") return "in";
           if (flow === "OUT") return "out";
@@ -92,6 +99,30 @@ export function getCashFlowDirection(
       }
       return null;
     }
+    // LIRA-066: a paper (no-cash) manual partner_ledger correction — the
+    // general Partners-page "Record Tx" entry with "Cash moved" OFF. Unlike
+    // PARTNER_SETTLEMENT/PARTNER_PAYMENT (which always move a real drawer),
+    // this type never does — an explicit null here (rather than falling
+    // through to default) is the deliberate choice, same treatment as
+    // COUNTERPARTY_DISCOUNT: a green/red cash arrow would misrepresent a row
+    // where no cash moved.
+    case "PARTNER_ADJUSTMENT":
+      return null;
+    // LIRA-080: a paper (no-cash) manual debt_ledger correction — the
+    // Accounts-page "Add Credit / Debt" entry with "Cash moved" OFF. Unlike
+    // CREDIT_CASH_IN/DEBT_CASH_OUT (which always move a real drawer), this
+    // type never does — same deliberate blank-badge treatment as
+    // PARTNER_ADJUSTMENT/COUNTERPARTY_DISCOUNT.
+    case "ACCOUNT_ADJUSTMENT":
+      return null;
+    // LIRA-080: a paper (no-cash) manual supplier_ledger correction — the
+    // Suppliers-page "Add Credit / Debt" entry with "Cash moved" OFF. Its
+    // cash-moved counterpart is a SUPPLIER_PAYMENT (which has its own "in"
+    // mapping above); this paper variant never moves a drawer, so the badge is
+    // deliberately blank — same treatment as PARTNER_ADJUSTMENT/
+    // ACCOUNT_ADJUSTMENT.
+    case "SUPPLIER_ADJUSTMENT":
+      return null;
     case "EXPENSE":
     case "LOTO_MONTHLY_FEE":
     case "LOTO_SETTLEMENT":

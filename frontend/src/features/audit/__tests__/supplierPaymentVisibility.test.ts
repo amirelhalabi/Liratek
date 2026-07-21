@@ -89,25 +89,29 @@ describe("isSupplierPaymentVisible — D2 default-view hide rule", () => {
 });
 
 describe("FILTER_GROUPS — Suppliers and Partners are first-class groups (CQ-8)", () => {
-  it("has a 'Suppliers' group with settlement, payment, and credit options", () => {
+  it("has a 'Suppliers' group with settlement, payment, credit, and adjustment options", () => {
     const suppliers = FILTER_GROUPS.find((g) => g.group === "Suppliers");
     expect(suppliers?.options.map((o) => o.label)).toEqual([
       "Supplier Settlement",
       "Supplier Payment",
       "Supplier Credit",
+      // LIRA-080: the paper (no-cash) "Add Credit / Debt" entry.
+      "Supplier Adjustment",
     ]);
     expect(suppliers?.options.every((o) => !!o.type)).toBe(true);
   });
 
-  it("has a 'Partners' group with settlement and payment options", () => {
+  it("has a 'Partners' group with settlement, payment, and adjustment options", () => {
     const partners = FILTER_GROUPS.find((g) => g.group === "Partners");
     expect(partners?.options.map((o) => o.label)).toEqual([
       "Partner Settlement",
       "Partner Payment",
+      "Partner Adjustment",
     ]);
     expect(partners?.options).toEqual([
       { label: "Partner Settlement", type: "PARTNER_SETTLEMENT" },
       { label: "Partner Payment", type: "PARTNER_PAYMENT" },
+      { label: "Partner Adjustment", type: "PARTNER_ADJUSTMENT" },
     ]);
   });
 });

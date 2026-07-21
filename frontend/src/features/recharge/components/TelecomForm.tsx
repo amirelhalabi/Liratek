@@ -20,6 +20,7 @@ import { HistoryModal } from "./HistoryModal";
 import { useSellRate } from "@/hooks/useSellRate";
 import { PaymentSheet } from "./PaymentSheet";
 import { CardGridPayView, type CardGridPayItem } from "./CardGridPayView";
+import { CarrierLinesPanel } from "./CarrierLinesPanel";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { convertLBPToUSD } from "@/utils/paymentUtils";
@@ -359,6 +360,11 @@ export function TelecomForm({
 
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
+      {/* W6.a: compact panel of the shop's own SIM lines for this carrier —
+          credits + days-remaining, inline quick-update. Informational only
+          (no drawer legs, no checkout/closing involvement). */}
+      <CarrierLinesPanel carrier={isMTC ? "mtc" : "alfa"} />
+
       {/* Service Type Tabs */}
       <ServiceTypeTabs
         options={
@@ -401,6 +407,7 @@ export function TelecomForm({
           onClientNameChange={setTelecomClientName}
           transactionTime={transactionTime}
           onTransactionTimeChange={handleCardTransactionTime}
+          hasActiveSession={!!activeSession}
         />
       ) : (
         /* Recharge Form */
@@ -1023,6 +1030,8 @@ export function TelecomForm({
           amountLabel="Credits"
           amountAlwaysUsd
           marginAlertThreshold={marginAlertThreshold}
+          sourceTable="recharges"
+          transactionType="RECHARGE"
           onClose={() => setShowHistory(false)}
           onRefresh={onRefreshHistory ?? (() => {})}
           formatAmount={(val, currency) =>

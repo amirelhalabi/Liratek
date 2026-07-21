@@ -67,6 +67,14 @@ interface CardGridPayViewProps {
   onClientNameChange: (value: string) => void;
   transactionTime: string | undefined;
   onTransactionTimeChange: (time: string | undefined) => void;
+  /**
+   * A customer session is active — the basket owns the single payment at
+   * checkout, so this swaps the trigger button to "Add to Cart" and confirms
+   * directly instead of opening the PaymentSheet. Mirrors the sibling
+   * TelecomForm/KatchForm gating pattern. Defaults to false (unchanged
+   * standalone Pay-and-open-sheet behavior).
+   */
+  hasActiveSession?: boolean;
 }
 
 /**
@@ -95,6 +103,7 @@ export function CardGridPayView({
   onClientNameChange,
   transactionTime,
   onTransactionTimeChange,
+  hasActiveSession = false,
 }: CardGridPayViewProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const theme = ACCENTS[accent];
@@ -190,7 +199,15 @@ export function CardGridPayView({
           </div>
 
           <button
-            onClick={() => setSheetOpen(true)}
+            onClick={() => {
+              // Session mode: add to cart directly (basket owns the payment),
+              // skipping the PaymentSheet. Non-session: open the PaymentSheet.
+              if (hasActiveSession) {
+                onConfirm();
+              } else {
+                setSheetOpen(true);
+              }
+            }}
             disabled={!selected}
             className={`px-6 py-3 rounded-lg font-bold text-white transition-all flex items-center gap-2 ${
               !selected
@@ -199,7 +216,7 @@ export function CardGridPayView({
             }`}
           >
             <CreditCard size={18} />
-            Pay
+            {hasActiveSession ? "Add to Cart" : "Pay"}
           </button>
         </div>
       </div>

@@ -86,6 +86,107 @@ describe("computeRepaymentReduction", () => {
   });
 });
 
+describe("cross-currency change netting (the header's promise: 'both are netted')", () => {
+  // Owner-reported (2026-07-20): debt due $30. Customer pays $40 cash, shop
+  // returns 900,000 LBP as change (rate 90,000 = exactly $10). Pre-fix, the
+  // LBP return only nets against LBP paid (0), so the $10 given back in a
+  // DIFFERENT currency than it was tendered in is dropped entirely and the
+  // full $40 clears the $30 debt — a $10 phantom customer credit.
+  const RATE = 90_000;
+
+  it("owner scenario: LBP change against USD-only payment nets to the exact due", () => {
+    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
+      paidUsd: 40,
+      paidLbp: 0,
+      returnedUsd: 0,
+      returnedLbp: 900_000, // = $10 at RATE, change for a currency never tendered
+      dueUsd: 30,
+      dueLbp: 0,
+      rate: RATE,
+    });
+    expect(reduceUsd).toBeCloseTo(30, 5);
+    expect(reduceLbp).toBe(0);
+  });
+
+  it("mirror: USD change against LBP-only payment nets to the exact due", () => {
+    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
+      paidUsd: 0,
+      paidLbp: 3_600_000,
+      returnedUsd: 10, // = 900,000 LBP at RATE
+      returnedLbp: 0,
+      dueUsd: 0,
+      dueLbp: 2_700_000,
+      rate: RATE,
+    });
+    expect(reduceUsd).toBe(0);
+    expect(reduceLbp).toBeCloseTo(2_700_000, 5);
+  });
+
+  it("control: same-currency change (already correct pre-fix) still nets correctly", () => {
+    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
+      paidUsd: 40,
+      paidLbp: 0,
+      returnedUsd: 10,
+      returnedLbp: 0,
+      dueUsd: 30,
+      dueLbp: 0,
+      rate: RATE,
+    });
+    expect(reduceUsd).toBeCloseTo(30, 5);
+    expect(reduceLbp).toBe(0);
+  });
+
+  it("degenerate: change returned (in any mix of currencies) worth more than was paid never reduces the debt by a negative amount", () => {
+    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
+      paidUsd: 5,
+      paidLbp: 0,
+      returnedUsd: 0,
+      returnedLbp: 900_000, // worth $10 at RATE — more than the $5 paid
+      dueUsd: 30,
+      dueLbp: 0,
+      rate: RATE,
+    });
+    expect(reduceUsd).toBe(0);
+    expect(reduceLbp).toBe(0);
+  });
+
+  it("cross-currency netting cascades into the leftover-USD branch when both currencies are due", () => {
+    // Due in BOTH currencies, paid all-USD, change given in LBP. netUsd
+    // collapses from 40 to 30 first (LBP deficit settled against it), THEN
+    // the existing leftover-USD branch (line ~63) spills the remainder into
+    // the LBP due — proving the two mechanisms compose correctly.
+    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
+      paidUsd: 40,
+      paidLbp: 0,
+      returnedUsd: 0,
+      returnedLbp: 900_000, // = $10 at RATE
+      dueUsd: 20,
+      dueLbp: 900_000,
+      rate: RATE,
+    });
+    expect(reduceUsd).toBeCloseTo(20, 5);
+    expect(reduceLbp).toBeCloseTo(900_000, 5);
+  });
+
+  it("smart-rounding branch is unaffected when there is no cross-currency return", () => {
+    // No returns at all — this must behave identically before and after the
+    // netting fix, proving the fix doesn't disturb the existing LBP-remainder
+    // smart-rounding logic (paying the rounded fractional part in LBP clears
+    // the exact fractional USD debt).
+    const { reduceUsd, reduceLbp } = computeRepaymentReduction({
+      paidUsd: 10,
+      paidLbp: 25_000, // rounded fractional part of $0.25 @ RATE
+      returnedUsd: 0,
+      returnedLbp: 0,
+      dueUsd: 10.25,
+      dueLbp: 0,
+      rate: RATE,
+    });
+    expect(reduceUsd).toBeCloseTo(10.25, 5);
+    expect(reduceLbp).toBe(0);
+  });
+});
+
 describe("applyDebtDiscount", () => {
   it("caps the discount per currency at what's actually due", () => {
     const result = applyDebtDiscount({

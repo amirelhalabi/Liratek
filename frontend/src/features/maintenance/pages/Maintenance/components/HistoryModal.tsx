@@ -1,10 +1,14 @@
-import { Wrench, RefreshCw, X, Ban, Pencil } from "lucide-react";
+import { Wrench, RefreshCw, X, Ban, Pencil, Printer } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { useShopInfo } from "@/hooks/useShopName";
+import { getTransactionBySource } from "@/api/backendApi";
+import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
+import { isReceiptableTransaction } from "@/features/audit/receiptGating";
 
 type MaintenanceJob = {
   id: number;
@@ -67,6 +71,19 @@ export function HistoryModal({
     jobs,
     "created_at",
   );
+  const shopInfo = useShopInfo();
+
+  async function handlePrint(job: MaintenanceJob) {
+    try {
+      const txn = await getTransactionBySource("maintenance", job.id);
+      const txnId = (txn as { id?: number } | null)?.id;
+      if (!txnId) return; // voided rows resolve to null — nothing to print
+      await printServiceReceiptByTransaction(txnId, shopInfo);
+    } catch {
+      // Best-effort reprint — never throw into the table's click handler.
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
@@ -252,6 +269,15 @@ export function HistoryModal({
                         >
                           <Ban size={16} />
                         </button>
+                        {isReceiptableTransaction({ type: "MAINTENANCE" }) && (
+                          <button
+                            onClick={() => handlePrint(job)}
+                            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded"
+                            title="Print receipt"
+                          >
+                            <Printer size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -10,15 +10,13 @@ import {
   getRecentTransactions,
   voidTransaction,
   refundTransaction,
+  voidCheckoutGroup,
   type TransactionFiltersParam,
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
-import {
-  ACTIONABLE_TYPES,
-  FILTER_GROUPS,
-  RECEIPTABLE_TYPES,
-  isSupplierPaymentVisible,
-} from "../auditConstants";
+import { FILTER_GROUPS, isSupplierPaymentVisible } from "../auditConstants";
+import { isReceiptableRow } from "../receiptGating";
+import { isReversibleRow } from "../actionGating";
 import {
   getCashFlowDirection,
   isCashTransaction,
@@ -57,6 +55,12 @@ type TransactionRow = {
   // WS8: set when the row belongs to a customer-session basket. Drives the
   // per-session colored left-border accent below. Null for non-session rows.
   session_id: number | null;
+  // note 21d: the ACTIVE REFUND row's id that reverses THIS row, or null.
+  // The original row stays status=ACTIVE/reverses_id=null after a refund
+  // (deliberate — see TransactionRepository), so this is the ONLY signal
+  // that tells the UI "already refunded" without the REFUND row itself
+  // being loaded on the same page/filter. See actionGating.ts.
+  reversed_by_id?: number | null;
   // LIRA-064: structured payment breakdown (may be absent on legacy rows).
   payments?: TransactionPaymentLeg[];
   // CUSTOMER_ACCOUNT settlement of a session basket, sourced from debt_ledger
@@ -122,6 +126,12 @@ const STATIC_TYPE_LABELS: Record<string, string> = {
   DEBT_CASH_OUT: "Cash Advance",
   PARTNER_SETTLEMENT: "Partner Settlement",
   PARTNER_PAYMENT: "Partner Payment",
+  // LIRA-066: the paper (no-cash) "Record Tx" entry.
+  PARTNER_ADJUSTMENT: "Partner Adjustment",
+  // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
+  ACCOUNT_ADJUSTMENT: "Account Adjustment",
+  // LIRA-080: the paper (no-cash) Suppliers-page "Add Credit / Debt" entry.
+  SUPPLIER_ADJUSTMENT: "Supplier Adjustment",
   // CQ-10: one label for all three counterparty kinds (debt/supplier/
   // partner) — the row's metadata.counterparty identifies which.
   COUNTERPARTY_DISCOUNT: "Discount",
@@ -204,11 +214,19 @@ const TYPE_COLORS: Record<string, string> = {
   DEBT_CASH_OUT: "text-rose-400",
   SUPPLIER_PAYMENT: "text-indigo-400",
   SUPPLIER_SETTLEMENT: "text-indigo-300",
+  // LIRA-080: paper (no-cash) supplier adjustment — one shade lighter than the
+  // supplier-payment family (mirrors PARTNER_ADJUSTMENT's sky-200 approach).
+  SUPPLIER_ADJUSTMENT: "text-indigo-200",
+  // LIRA-080: paper (no-cash) account adjustment — muted emerald, the Accounts
+  // family colour (CREDIT_CASH_IN emerald-400) one shade lighter.
+  ACCOUNT_ADJUSTMENT: "text-emerald-300",
   // Partners get their own family — teal/cyan are already taken by
   // CLIENT_* (teal) and CUSTOM_SERVICE (cyan), so "sky" keeps them visually
   // distinct while staying in the same cool-hue neighbourhood.
   PARTNER_SETTLEMENT: "text-sky-400",
   PARTNER_PAYMENT: "text-sky-300",
+  // LIRA-066: same sky family, one shade lighter — a paper (no-cash) entry.
+  PARTNER_ADJUSTMENT: "text-sky-200",
   // CQ-10: fuchsia is otherwise unused — keeps "Discount" visually distinct
   // from every other family (green/blue/purple/indigo/sky/lime/rose/teal…).
   COUNTERPARTY_DISCOUNT: "text-fuchsia-400",
@@ -454,6 +472,36 @@ function isSupplierCredit(type: string, metaJson?: string | null): boolean {
  */
 function isSignedPartnerType(type: string): boolean {
   return type === "PARTNER_SETTLEMENT" || type === "PARTNER_PAYMENT";
+}
+
+/**
+ * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): a row stamped with
+ * `split_group` is one unit of a multi-unit split-payment checkout
+ * (KatchForm bills / FinancialForm catalog units). Voiding a single member
+ * alone is refused by the repository guard — the operator must void the
+ * whole checkout via `voidCheckoutGroup`. Returns null for ordinary rows and
+ * for legacy pre-fix split rows that predate this marker (undetectable by
+ * design — see the doc).
+ */
+function getSplitGroupInfo(
+  metaJson: string | null,
+): { groupId: string; units: number | null } | null {
+  if (!metaJson) return null;
+  try {
+    const m = JSON.parse(metaJson) as {
+      split_group?: unknown;
+      split_units?: unknown;
+    };
+    if (typeof m.split_group !== "string" || m.split_group.length === 0) {
+      return null;
+    }
+    return {
+      groupId: m.split_group,
+      units: typeof m.split_units === "number" ? m.split_units : null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 interface CashFlowBadgeProps {
@@ -743,6 +791,32 @@ export default function TransactionsViewer({
     [load],
   );
 
+  /**
+   * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided member
+   * of the multi-unit split checkout in ONE transaction. This is the ONLY
+   * void action offered on a split_group row — a lone member's void/refund
+   * throws the repository guard's error, so it is never wired to a button.
+   */
+  const handleVoidCheckoutGroup = useCallback(
+    async (groupId: string, units: number | null) => {
+      const label = units ? `${units}-unit` : "multi-unit";
+      if (
+        !confirm(
+          `Void the entire ${label} checkout? Every unit's money, cost, and profit will be reversed. This cannot be undone.`,
+        )
+      )
+        return;
+      try {
+        const res = await voidCheckoutGroup(groupId);
+        if (res.success) load();
+        else alert("Failed: " + (res.error || "Unknown error"));
+      } catch {
+        alert("Failed to void checkout group");
+      }
+    },
+    [load],
+  );
+
   useEffect(() => {
     load();
   }, [load]);
@@ -768,6 +842,7 @@ export default function TransactionsViewer({
     const credit = isSupplierCredit(row.type, row.metadata_json);
     const partnerSigned = isSignedPartnerType(row.type);
     const tender = saleTenderTotals(row.type, row.payments);
+    const splitGroup = getSplitGroupInfo(row.metadata_json);
     return (
       <tr
         key={trKey ?? row.id}
@@ -882,6 +957,20 @@ export default function TransactionsViewer({
             <span className="bg-red-900/50 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
               VOIDED
             </span>
+          ) : row.reversed_by_id ? (
+            // note 21d: an ACTIVE original that has already been refunded —
+            // gets the same small badge treatment as VOIDED (and, below,
+            // loses its Void/Refund buttons the same way), but deliberately
+            // NOT the line-through styling VOIDED rows get on the
+            // type/summary cells: a void means "this transaction is
+            // cancelled, its amount doesn't count" (the source record itself
+            // is voided), whereas a refunded row's sale/service genuinely
+            // happened — the amount stays real history, only the money was
+            // reversed via a separate REFUND row. Badge-only, distinct color
+            // so the two states still read apart.
+            <span className="bg-rose-900/50 text-rose-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
+              REFUNDED
+            </span>
           ) : (
             <span className="text-green-500/80 text-[10px] font-medium">
               ACTIVE
@@ -894,8 +983,11 @@ export default function TransactionsViewer({
         <td className="p-2" style={{ width: 110 }}>
           <div className="flex items-center gap-1">
             {/* Reprint a detailed service receipt (RCP-3) — available on any
-                service transaction, including voided/older ones. */}
-            {RECEIPTABLE_TYPES.has(row.type) && (
+                service transaction, including voided/older ones. Provider-
+                aware gate (LIRA-069 W1.a) — excludes OMT/Whish System,
+                OMT App / Whish App transfers, and Binance even though
+                they're FINANCIAL_SERVICE rows. */}
+            {isReceiptableRow(row) && (
               <button
                 onClick={() => handlePrintReceipt(row.id)}
                 title="Print receipt"
@@ -904,25 +996,44 @@ export default function TransactionsViewer({
                 Print
               </button>
             )}
-            {ACTIONABLE_TYPES.has(row.type) &&
-            row.status !== "VOIDED" &&
-            row.type !== "REFUND" &&
-            !row.reverses_id ? (
-              <>
+            {isReversibleRow(row) ? (
+              splitGroup ? (
+                // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): this row is one
+                // unit of a multi-unit split checkout — a lone void/refund is
+                // blocked by the repository guard (the customer's full
+                // tender/debt books against only ONE unit, the carrier).
+                // Offer the whole-checkout action instead of a button that
+                // would just surface the guard's error.
                 <button
-                  onClick={() => handleVoid(row.id)}
+                  onClick={() =>
+                    handleVoidCheckoutGroup(
+                      splitGroup.groupId,
+                      splitGroup.units,
+                    )
+                  }
+                  title="This transaction is part of a multi-unit checkout — void them all together"
                   className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
                 >
-                  Void
+                  Void entire checkout
+                  {splitGroup.units ? ` (${splitGroup.units} units)` : ""}
                 </button>
-                <button
-                  onClick={() => handleRefund(row.id)}
-                  className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
-                >
-                  Refund
-                </button>
-              </>
-            ) : RECEIPTABLE_TYPES.has(row.type) ? null : (
+              ) : (
+                <>
+                  <button
+                    onClick={() => handleVoid(row.id)}
+                    className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
+                  >
+                    Void
+                  </button>
+                  <button
+                    onClick={() => handleRefund(row.id)}
+                    className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+                  >
+                    Refund
+                  </button>
+                </>
+              )
+            ) : isReceiptableRow(row) ? null : (
               "—"
             )}
           </div>

@@ -13,6 +13,7 @@
 import { X } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { formatPaidAmount } from "../utils/salePaidFormat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,13 @@ export interface FinancialServiceData {
 interface Props {
   financialService: FinancialServiceData;
   payments: PaymentRowData[];
-  debtAmount: number;
+  /** The debt/account-charge amount, split per-currency (mirrors the
+   *  debt_ledger row's own `amount_usd`/`amount_lbp` columns — a service
+   *  debt can be denominated in either currency, independent of the
+   *  service's own `fs.currency`). Render both via `formatPaidAmount`,
+   *  never by picking one and formatting it with `fs.currency`. */
+  debtAmountUsd: number;
+  debtAmountLbp: number;
   /** True when the client holds a credit in THIS entry's currency — changes
    *  debt language to "Account Charge". Callers must derive it from the
    *  balance of the entry's own currency, never the account's USD sign (a
@@ -87,7 +94,8 @@ const INTERNAL_METHODS = new Set([
 export function ServiceDebtDetailModal({
   financialService: fs,
   payments,
-  debtAmount,
+  debtAmountUsd,
+  debtAmountLbp,
   isCreditor = false,
   onClose,
 }: Props) {
@@ -101,24 +109,44 @@ export function ServiceDebtDetailModal({
   const pmFee = fs.payment_method_fee ?? 0;
   const totalCharged = fs.amount + providerFee;
 
-  /** Format amount with the correct currency symbol */
-  const fmtCurrency = (amount: number, currencyCode?: string): string => {
-    const curr = currencyCode || fs.currency;
-    if (curr === "LBP") {
+  /**
+   * Format an amount in an EXPLICIT currency. Never infer the currency from
+   * the parent service's own denomination (`fs.currency`) — a payment leg or
+   * a debt/account-charge amount can be in a DIFFERENT currency than the
+   * service it's attached to (e.g. a USD leg on an LBP-denominated service).
+   * Defaulting to `fs.currency` was exactly the bug: "$15 paid + $3 debt" on
+   * an LBP service rendered as "15 LBP" / "3 LBP" (verified owner report).
+   */
+  const fmtCurrency = (amount: number, currencyCode: string): string => {
+    if (currencyCode === "LBP") {
       return `${Math.abs(amount).toLocaleString()} LBP`;
     }
     return `$${Math.abs(amount).toFixed(2)}`;
   };
 
-  // Customer-facing payment rows — filter out internal accounting entries
+  // Customer-facing payment rows — filter out internal accounting entries.
+  // `p.amount > 0` also excludes OUT/return legs: change returned to the
+  // customer is stored as a NEGATIVE amount (same sign convention as
+  // TransactionRepository.getCustomerFacingLegs — negative = OUT, i.e.
+  // "paid out to the customer"), so a change leg never inflates "paid".
   const customerPayments = payments.filter(
     (p) => !INTERNAL_METHODS.has(p.method) && p.amount > 0,
   );
 
-  // Total actually paid (non-debt legs)
-  const totalPaid = customerPayments
-    .filter((p) => p.method !== "CUSTOMER_ACCOUNT" && p.method !== "PM_FEE")
+  // Total actually paid (non-debt legs), PER CURRENCY. Legs can span both
+  // USD and LBP in one transaction (mixed tender) — summing them into one
+  // number before formatting was the other half of the bug.
+  const paidLegs = customerPayments.filter(
+    (p) => p.method !== "CUSTOMER_ACCOUNT" && p.method !== "PM_FEE",
+  );
+  const totalPaidUsd = paidLegs
+    .filter((p) => p.currency_code === "USD")
     .reduce((s, p) => s + p.amount, 0);
+  const totalPaidLbp = paidLegs
+    .filter((p) => p.currency_code === "LBP")
+    .reduce((s, p) => s + p.amount, 0);
+
+  const hasDebt = debtAmountUsd > 0 || debtAmountLbp > 0;
 
   return (
     <div
@@ -161,28 +189,28 @@ export function ServiceDebtDetailModal({
             <div className="flex justify-between text-sm">
               <span className="text-slate-400">Send Amount</span>
               <span className="font-mono text-white font-semibold">
-                {fmtCurrency(fs.amount)}
+                {fmtCurrency(fs.amount, fs.currency)}
               </span>
             </div>
             {providerFee > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-amber-400">{fs.provider} Fee</span>
                 <span className="font-mono text-amber-300">
-                  +{fmtCurrency(providerFee)}
+                  +{fmtCurrency(providerFee, fs.currency)}
                 </span>
               </div>
             )}
             <div className="flex justify-between text-sm border-t border-slate-700/50 pt-1.5 mt-1">
               <span className="text-slate-300 font-medium">Total Charged</span>
               <span className="font-mono text-white font-bold">
-                {fmtCurrency(totalCharged)}
+                {fmtCurrency(totalCharged, fs.currency)}
               </span>
             </div>
             {pmFee > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-violet-400">Shop Surcharge (PM fee)</span>
                 <span className="font-mono text-violet-300">
-                  +{fmtCurrency(pmFee)}
+                  +{fmtCurrency(pmFee, fs.currency)}
                 </span>
               </div>
             )}
@@ -268,7 +296,7 @@ export function ServiceDebtDetailModal({
                 );
               })}
               {/* Debt/Account charge row (from debt_ledger — not in payments table) */}
-              {debtAmount > 0 &&
+              {hasDebt &&
                 !customerPayments.some(
                   (p) => p.method === "CUSTOMER_ACCOUNT",
                 ) && (
@@ -299,27 +327,37 @@ export function ServiceDebtDetailModal({
                     <span
                       className={`font-mono text-sm font-bold ${isCreditor ? "text-sky-400" : "text-red-400"}`}
                     >
-                      {fmtCurrency(debtAmount)}
+                      {formatPaidAmount(debtAmountUsd, debtAmountLbp)}
                     </span>
                   </div>
                 )}
             </div>
 
             {/* Summary line */}
-            {totalPaid > 0 && (
+            {(totalPaidUsd > 0 || totalPaidLbp > 0) && (
               <div className="flex justify-between text-xs text-slate-500 mt-2 px-1">
                 <span>Paid (excl. account)</span>
-                <span className="font-mono">{fmtCurrency(totalPaid)}</span>
+                <span
+                  className="font-mono"
+                  data-testid="service-debt-paid-total"
+                >
+                  {formatPaidAmount(totalPaidUsd, totalPaidLbp)}
+                </span>
               </div>
             )}
-            {debtAmount > 0 && (
+            {hasDebt && (
               <div
                 className={`flex justify-between text-xs px-1 ${isCreditor ? "text-sky-400" : "text-red-400"}`}
               >
                 <span>
                   {isCreditor ? "Charged to account" : "Remaining debt"}
                 </span>
-                <span className="font-mono">{fmtCurrency(debtAmount)}</span>
+                <span
+                  className="font-mono"
+                  data-testid="service-debt-remaining"
+                >
+                  {formatPaidAmount(debtAmountUsd, debtAmountLbp)}
+                </span>
               </div>
             )}
           </div>

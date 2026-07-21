@@ -75,7 +75,7 @@ export type FilterOption = {
 // default hide. Extracted as pure, dependency-free helpers so the rule is
 // unit-testable without rendering TransactionsViewer.
 
-function parseMetaSafe(
+export function parseMetaSafe(
   metaJson: string | null | undefined,
 ): Record<string, unknown> {
   if (!metaJson) return {};
@@ -247,16 +247,23 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         type: "SUPPLIER_PAYMENT",
         supplier_credit_only: true,
       },
+      // LIRA-080: the paper (no-cash) "Add Credit / Debt" entry — manual, so
+      // visible by default (no is_auto flag involved), same as Partner
+      // Adjustment.
+      { label: "Supplier Adjustment", type: "SUPPLIER_ADJUSTMENT" },
     ],
   },
   {
     // PARTNER_SETTLEMENT / PARTNER_PAYMENT (CQ-8) — always visible by
     // default, same as any other counterparty transaction; these
     // type-only filters just let the operator narrow to them.
+    // PARTNER_ADJUSTMENT (LIRA-066) — the paper (no-cash) "Record Tx" entry;
+    // manual, so it's visible by default too (no is_auto flag involved).
     group: "Partners",
     options: [
       { label: "Partner Settlement", type: "PARTNER_SETTLEMENT" },
       { label: "Partner Payment", type: "PARTNER_PAYMENT" },
+      { label: "Partner Adjustment", type: "PARTNER_ADJUSTMENT" },
     ],
   },
   {
@@ -268,6 +275,10 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "Maintenance", type: "MAINTENANCE" },
       { label: "Expense", type: "EXPENSE" },
       { label: "Debt Repayment", type: "DEBT_REPAYMENT" },
+      // LIRA-080: the paper (no-cash) Accounts-page "Add Credit / Debt" entry.
+      // Its cash-moved siblings (CREDIT_CASH_IN/DEBT_CASH_OUT) have no filter
+      // entry; the paper rows are the ones an operator most needs to find.
+      { label: "Account Adjustment", type: "ACCOUNT_ADJUSTMENT" },
       // CQ-10: one type spans all three counterparty kinds (debt/supplier/
       // partner) — amounts are always 0 (the value lives in signed
       // profit_usd/lbp), no dedicated group needed for a single filter.
