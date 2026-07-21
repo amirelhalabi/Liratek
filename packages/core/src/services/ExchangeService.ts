@@ -36,6 +36,9 @@ export interface AddExchangeInput {
   clientName?: string;
   note?: string;
   transaction_time?: string;
+  /** LIRA-081: for-partner exchange — see CreateExchangeData for the model. */
+  partnerId?: number;
+  partnerMode?: "FOR";
 }
 
 // =============================================================================
@@ -102,6 +105,8 @@ export class ExchangeService {
         clientName: input.clientName,
         note: input.note,
         transaction_time: input.transaction_time,
+        partnerId: input.partnerId,
+        partnerMode: input.partnerMode,
       };
 
       const { id } = this.exchangeRepo.createTransaction(txData);

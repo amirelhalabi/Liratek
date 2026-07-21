@@ -25,6 +25,10 @@ import {
   CURRENCY_NAMES,
 } from "@/utils/liveExchangeRates";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -291,6 +295,16 @@ export default function Exchange() {
   );
   const [clientName, setClientName] = useState("");
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+
+  // LIRA-081 (PFT-R): "For Partner" — the partner stands in for the walk-in
+  // customer, no counter cash is taken, and the toCurrency amount is still
+  // disbursed for real. Partner debt is booked in fromCurrency, so it is
+  // restricted to USD/LBP (same restriction the repository enforces).
+  const [forPartner, setForPartner] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
+  const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
 
   // Live calculation result (auto from DB rates)
   const [calcResult, setCalcResult] = useState<CurrencyExchangeResult | null>(
@@ -622,11 +636,16 @@ export default function Exchange() {
       alert("Please enter a valid amount.");
       return;
     }
+    if (forPartner && !selectedPartnerId) {
+      alert("Select a partner for this exchange.");
+      return;
+    }
 
     try {
       const leg1 = effectiveResult.legs[0];
       const leg2 = effectiveResult.legs[1];
 
+      setIsSubmittingPartner(forPartner);
       const result = await api.addExchangeTransaction({
         fromCurrency,
         toCurrency,
@@ -646,10 +665,16 @@ export default function Exchange() {
         fromCurrencyName: CURRENCY_NAMES[fromCurrency] ?? fromCurrency,
         toCurrencyName: CURRENCY_NAMES[toCurrency] ?? toCurrency,
         transaction_time: transactionTime,
+        ...(forPartner && selectedPartnerId
+          ? { partnerId: selectedPartnerId, partnerMode: "FOR" as const }
+          : {}),
       });
 
       if (result.success) {
-        if (activeSession && result.id) {
+        // LIRA-081: a for-partner exchange has no walk-in customer — never
+        // link it into the active session basket (mirrors every other FOR_%
+        // form, which bypasses the session entirely in partner mode).
+        if (activeSession && result.id && !forPartner) {
           try {
             await linkTransaction({
               transactionType: "exchange",
@@ -681,6 +706,8 @@ export default function Exchange() {
     } catch (error) {
       logger.error("Operation failed", { error });
       alert("Transaction failed");
+    } finally {
+      setIsSubmittingPartner(false);
     }
   };
 
@@ -973,19 +1000,46 @@ export default function Exchange() {
             </div>
           </div>
 
-          {/* Client Name */}
+          {/* LIRA-081 (PFT-R): "For Partner" — takes no counter cash; the
+              partner owes the exchange's fromCurrency amount instead. */}
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-              Client Name (Optional)
-            </label>
-            <input
-              type="text"
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
-              placeholder="Walk-in Client"
+            <ForPartnerToggle
+              testId="exchange-for-partner-toggle"
+              checked={forPartner}
+              onChange={setForPartner}
+              selectedPartnerId={selectedPartnerId}
+              onPartnerChange={setSelectedPartnerId}
+              checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
             />
           </div>
+
+          {/* Client Name — hidden in for-partner mode (no walk-in customer) */}
+          {forPartner ? (
+            <ForPartnerNotice
+              testId="exchange-partner-no-payment-notice"
+              className="text-sm text-violet-200 bg-violet-500/10 border border-violet-500/30 rounded-xl px-4 py-4"
+            >
+              No payment is collected for a partner exchange. The full{" "}
+              <span className="font-bold">
+                {amountIn.toLocaleString()} {fromCurrency}
+              </span>{" "}
+              goes on the selected partner&apos;s account, settled later on the
+              Partners page.
+            </ForPartnerNotice>
+          ) : (
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                Client Name (Optional)
+              </label>
+              <input
+                type="text"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
+                placeholder="Walk-in Client"
+              />
+            </div>
+          )}
 
           <TransactionTimeOverride
             value={transactionTime}
@@ -994,10 +1048,16 @@ export default function Exchange() {
 
           <button
             onClick={handleProcess}
-            disabled={!effectiveResult || !!calcError || !!profitWarning}
+            disabled={
+              !effectiveResult ||
+              !!calcError ||
+              !!profitWarning ||
+              isSubmittingPartner ||
+              (forPartner && !selectedPartnerId)
+            }
             className="w-full py-4 mt-2 rounded-xl font-bold text-lg bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Confirm Exchange
+            {forPartner ? "Submit to Partner" : "Confirm Exchange"}
           </button>
         </div>
       </div>

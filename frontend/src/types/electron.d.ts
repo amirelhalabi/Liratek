@@ -33,6 +33,12 @@ export interface SupplierTransaction {
   omt_fee: number | null;
   settlement_id: number | null;
   is_settled: number;
+  /**
+   * Repository-computed owed-per-row (SUPPLIER_OWED_EXPR): 0 for
+   * wallet-provider transfers, cost for cost-flow rows, amount + provider
+   * fee for OMT/WHISH SEND, amount + commission for RECEIVE.
+   */
+  supplier_owed: number;
   fifo_status: "paid" | "partial" | "unpaid";
   fifo_paid_usd: number;
   created_at: string;
@@ -102,6 +108,24 @@ export interface MobileServiceItem {
   cost_lbp: number;
   sell_lbp: number;
   sort_order: number;
+  is_active: number;
+  /** Structured validity (days) — LIRA W6.b. Null when not applicable. */
+  validity_days: number | null;
+  /** Structured credit amount (USD) — LIRA W6.b. Null when not applicable. */
+  credits: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A shop-owned alfa/mtc SIM line (LIRA W6.a) — informational only. */
+export interface CarrierLine {
+  id: number;
+  carrier: "alfa" | "mtc";
+  phone_number: string;
+  label: string | null;
+  credits: number;
+  validity_expires_at: string | null;
+  notes: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -361,10 +385,26 @@ export interface ElectronAPI {
     batchDelete: (
       ids: number[],
     ) => Promise<{ success: boolean; deleted?: number; error?: string }>;
-    adjustStock: (
-      id: number,
-      quantity: number,
-    ) => Promise<{ success: boolean; error?: string }>;
+    adjustStock: (payload: {
+      id: number;
+      newQuantity?: number;
+      delta?: number;
+      reason: string;
+    }) => Promise<{ success: boolean; error?: string }>;
+    getStockAdjustments: (productId?: number) => Promise<
+      Array<{
+        id: number;
+        product_id: number;
+        delta: number;
+        old_quantity: number;
+        new_quantity: number;
+        reason: string;
+        user_id: number | null;
+        username: string | null;
+        created_at: string;
+        updated_at: string;
+      }>
+    >;
     getStockStats: () => Promise<{
       stock_budget_usd: number;
       stock_count: number;
@@ -643,6 +683,8 @@ export interface ElectronAPI {
       }>;
       note?: string;
       transaction_time?: string;
+      /** LIRA-080 — "Cash moved" toggle; default true when omitted. */
+      moveCash?: boolean;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getClientBalance: (clientId: number) => Promise<{
       success: boolean;
@@ -732,6 +774,8 @@ export interface ElectronAPI {
       clientName?: string;
       note?: string;
       transaction_time?: string;
+      partnerId?: number;
+      partnerMode?: "FOR";
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: () => Promise<
       Array<{
@@ -1012,6 +1056,8 @@ export interface ElectronAPI {
         omt_fee: number | null;
         omt_service_type: string | null;
         client_name: string | null;
+        /** Repository-computed owed-per-row (SUPPLIER_OWED_EXPR). */
+        supplier_owed: number;
         created_at: string;
       }>
     >;
@@ -1819,6 +1865,9 @@ export interface ElectronAPI {
     list: (filter?: { date?: string; type?: string }) => Promise<any[]>;
     get: (id: number) => Promise<any | null>;
     getById: (id: number) => Promise<any | null>;
+    /** LIRA-069 W1.c/d: resolve the unified transaction for a module row
+     *  (e.g. sourceTable "recharges", sourceId recharges.id). */
+    getBySource: (sourceTable: string, sourceId: number) => Promise<any | null>;
     /** RCP-3: customer-facing payment legs for one transaction (service receipts). */
     getCustomerLegs: (id: number) => Promise<
       Array<{
@@ -1846,6 +1895,17 @@ export interface ElectronAPI {
         total_out: number;
       }>
     >;
+    /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
+     *  member of a multi-unit split checkout in ONE transaction. A single
+     *  void/refund of one member alone is refused (see the guard error). */
+    voidCheckoutGroup: (groupId: string) => Promise<{
+      success: boolean;
+      groupId?: string;
+      memberCount?: number;
+      voidedTransactionIds?: number[];
+      reversalIds?: number[];
+      error?: string;
+    }>;
   };
 
   // Profits
@@ -2090,6 +2150,8 @@ export interface ElectronAPI {
       sell_lbp: number;
       sort_order?: number;
       is_active?: number;
+      validity_days?: number | null;
+      credits?: number | null;
     }) => Promise<{
       success: boolean;
       data?: MobileServiceItem;
@@ -2103,6 +2165,8 @@ export interface ElectronAPI {
         sell_lbp?: number;
         sort_order?: number;
         is_active?: number;
+        validity_days?: number | null;
+        credits?: number | null;
       },
     ) => Promise<{
       success: boolean;
@@ -2127,6 +2191,8 @@ export interface ElectronAPI {
         cost_lbp: number;
         sell_lbp: number;
         sort_order?: number;
+        validity_days?: number | null;
+        credits?: number | null;
       }[],
     ) => Promise<{
       success: boolean;
@@ -2138,6 +2204,55 @@ export interface ElectronAPI {
       data?: number;
       error?: string;
     }>;
+  };
+
+  // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)
+  carrierLines: {
+    getActiveByCarrier: (carrier: "alfa" | "mtc") => Promise<{
+      success: boolean;
+      data?: CarrierLine[];
+      error?: string;
+    }>;
+    getAllActive: () => Promise<{
+      success: boolean;
+      data?: CarrierLine[];
+      error?: string;
+    }>;
+    getAllAdmin: () => Promise<{
+      success: boolean;
+      data?: CarrierLine[];
+      error?: string;
+    }>;
+    create: (data: {
+      carrier: "alfa" | "mtc";
+      phone_number: string;
+      label?: string | null;
+      credits?: number;
+      validity_expires_at?: string | null;
+      notes?: string | null;
+    }) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
+    update: (
+      id: number,
+      data: {
+        carrier?: "alfa" | "mtc";
+        phone_number?: string;
+        label?: string | null;
+        credits?: number;
+        validity_expires_at?: string | null;
+        notes?: string | null;
+        is_active?: number;
+      },
+    ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
+    updateBalance: (
+      id: number,
+      data: { credits?: number; validity_expires_at?: string | null },
+    ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
+    archive: (
+      id: number,
+    ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
+    toggleActive: (
+      id: number,
+    ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
   };
 
   // Display / Zoom
@@ -2228,6 +2343,8 @@ export interface ElectronAPI {
         direction?: "IN" | "OUT";
       }>;
       transaction_time?: string;
+      partnerId?: number;
+      partnerMode?: "FOR";
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
     updateMetadata: (data: {

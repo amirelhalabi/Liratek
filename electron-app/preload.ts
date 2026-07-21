@@ -66,8 +66,14 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("inventory:delete-product", id),
     batchDelete: (ids: number[]) =>
       ipcRenderer.invoke("inventory:batch-delete", ids),
-    adjustStock: (id: number, quantity: number) =>
-      ipcRenderer.invoke("inventory:adjust-stock", id, quantity),
+    adjustStock: (payload: {
+      id: number;
+      newQuantity?: number;
+      delta?: number;
+      reason: string;
+    }) => ipcRenderer.invoke("inventory:adjust-stock", payload),
+    getStockAdjustments: (productId?: number) =>
+      ipcRenderer.invoke("inventory:get-stock-adjustments", productId),
     getLowStockProducts: () =>
       ipcRenderer.invoke("inventory:get-low-stock-products"),
     getNegativeStock: () => ipcRenderer.invoke("inventory:get-negative-stock"),
@@ -196,6 +202,8 @@ contextBridge.exposeInMainWorld("api", {
       }>;
       note?: string;
       transaction_time?: string;
+      /** LIRA-080 — "Cash moved" toggle; default true when omitted. */
+      moveCash?: boolean;
     }) => ipcRenderer.invoke("debt:add-account-entry", data),
     updateMetadata: (data: { id: number; note?: string }) =>
       ipcRenderer.invoke("debts:update-metadata", data),
@@ -273,6 +281,8 @@ contextBridge.exposeInMainWorld("api", {
       totalProfitUsd: number;
       clientName?: string;
       note?: string;
+      partnerId?: number;
+      partnerMode?: "FOR";
     }) => ipcRenderer.invoke("exchange:add-transaction", data),
     getHistory: () => ipcRenderer.invoke("exchange:get-history"),
     updateMetadata: (data: {
@@ -345,6 +355,14 @@ contextBridge.exposeInMainWorld("api", {
        *  transaction's stamped rate-of-record) — reconciliation uses this
        *  when present. See CreateFinancialServiceData in @liratek/core. */
       tender_exchange_rate?: number;
+      /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): identifies which
+       *  multi-unit split checkout this unit belongs to — sent with EVERY
+       *  unit (carrier and siblings alike) by KatchForm/FinancialForm.
+       *  Omitted on single-unit checkouts. See CreateFinancialServiceData
+       *  in @liratek/core. */
+      split_group?: string;
+      split_role?: "carrier" | "sibling";
+      split_units?: number;
     }) => ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),
@@ -893,6 +911,10 @@ contextBridge.exposeInMainWorld("api", {
     getCashFlowByDate: (from: string, to: string) =>
       ipcRenderer.invoke("transactions:cash-flow-by-date", from, to),
     getById: (id: number) => ipcRenderer.invoke("transactions:get-by-id", id),
+    /** LIRA-069 W1.c/d: resolve the unified transaction for a module row
+     *  (e.g. sourceTable "recharges", sourceId recharges.id). */
+    getBySource: (sourceTable: string, sourceId: number) =>
+      ipcRenderer.invoke("transactions:get-by-source", sourceTable, sourceId),
     getCustomerLegs: (id: number) =>
       ipcRenderer.invoke("transactions:get-customer-legs", id),
     getByClient: (clientId: number, limit?: number) =>
@@ -901,6 +923,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("transactions:get-by-date-range", from, to, type),
     void: (id: number) => ipcRenderer.invoke("transactions:void", id),
     refund: (id: number) => ipcRenderer.invoke("transactions:refund", id),
+    /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
+     *  member of a multi-unit split checkout in ONE transaction. */
+    voidCheckoutGroup: (groupId: string) =>
+      ipcRenderer.invoke("transactions:void-checkout-group", { groupId }),
     dailySummary: (date: string) =>
       ipcRenderer.invoke("transactions:daily-summary", date),
     debtAging: (clientId: number) =>
@@ -1181,6 +1207,9 @@ contextBridge.exposeInMainWorld("api", {
       sell_lbp: number;
       sort_order?: number;
       is_active?: number;
+      // W6.b: structured validity/credits (nullable, both optional).
+      validity_days?: number | null;
+      credits?: number | null;
     }) => ipcRenderer.invoke("mobile-service-items:create", data),
     update: (
       id: number,
@@ -1190,6 +1219,9 @@ contextBridge.exposeInMainWorld("api", {
         sell_lbp?: number;
         sort_order?: number;
         is_active?: number;
+        // W6.b: structured validity/credits (nullable, both optional).
+        validity_days?: number | null;
+        credits?: number | null;
       },
     ) => ipcRenderer.invoke("mobile-service-items:update", id, data),
     toggleActive: (id: number) =>
@@ -1205,9 +1237,47 @@ contextBridge.exposeInMainWorld("api", {
         cost_lbp: number;
         sell_lbp: number;
         sort_order?: number;
+        validity_days?: number | null;
+        credits?: number | null;
       }[],
     ) => ipcRenderer.invoke("mobile-service-items:seed", items),
     count: () => ipcRenderer.invoke("mobile-service-items:count"),
+  },
+
+  // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only,
+  // no drawer legs, no checkout/closing involvement)
+  carrierLines: {
+    getActiveByCarrier: (carrier: "alfa" | "mtc") =>
+      ipcRenderer.invoke("carrier-lines:get-active-by-carrier", carrier),
+    getAllActive: () => ipcRenderer.invoke("carrier-lines:get-all-active"),
+    getAllAdmin: () => ipcRenderer.invoke("carrier-lines:get-all-admin"),
+    create: (data: {
+      carrier: "alfa" | "mtc";
+      phone_number: string;
+      label?: string | null;
+      credits?: number;
+      validity_expires_at?: string | null;
+      notes?: string | null;
+    }) => ipcRenderer.invoke("carrier-lines:create", data),
+    update: (
+      id: number,
+      data: {
+        carrier?: "alfa" | "mtc";
+        phone_number?: string;
+        label?: string | null;
+        credits?: number;
+        validity_expires_at?: string | null;
+        notes?: string | null;
+        is_active?: number;
+      },
+    ) => ipcRenderer.invoke("carrier-lines:update", id, data),
+    updateBalance: (
+      id: number,
+      data: { credits?: number; validity_expires_at?: string | null },
+    ) => ipcRenderer.invoke("carrier-lines:update-balance", id, data),
+    archive: (id: number) => ipcRenderer.invoke("carrier-lines:archive", id),
+    toggleActive: (id: number) =>
+      ipcRenderer.invoke("carrier-lines:toggle-active", id),
   },
 
   // Custom Services
@@ -1236,6 +1306,8 @@ contextBridge.exposeInMainWorld("api", {
         voucher_code?: string;
         direction?: "IN" | "OUT";
       }>;
+      partnerId?: number;
+      partnerMode?: "FOR";
     }) => ipcRenderer.invoke("custom-services:add", data),
     delete: (id: number) => ipcRenderer.invoke("custom-services:delete", id),
     updateMetadata: (data: {

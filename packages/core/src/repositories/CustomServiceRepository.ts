@@ -17,11 +17,14 @@ import type { CreateCustomServiceInput } from "../validators/customService.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
+import { getPartnerRepository } from "./PartnerRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  assertPartnerIdRequired,
+  assertNoCounterPayment,
 } from "./moneyPosting.js";
 
 // =============================================================================
@@ -110,6 +113,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         );
         const serviceId = Number(serviceResult.lastInsertRowid);
 
+        // LIRA-081 (PFT-R): a "for partner" custom service takes no counter
+        // payment at all — the FULL price books to the partner's tab.
+        // Computed before the unified transaction row so the client_name
+        // stamp below can label it, mirroring Recharge/Loto.
+        const isForPartner = data.partnerMode === "FOR";
+
         // 1b. Create unified transaction row
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.CUSTOM_SERVICE,
@@ -132,7 +141,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // Rule 11: the name/phone must reach the unified row too — a walk-in
           // (name+phone, no clients row) otherwise shows "—" in the
           // transactions table and session sweeps (lira-094).
-          client_name: data.client_name ?? null,
+          // For-partner services label the row with the partner (owner ask,
+          // matches Recharge/Loto: "<partner> [partner]").
+          client_name:
+            isForPartner && data.partnerId
+              ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
+              : (data.client_name ?? null),
           client_phone: data.phone_number ?? null,
           summary: `Custom Service: ${data.description}`,
           metadata_json: {
@@ -190,7 +204,89 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             }),
         };
 
-        if (data.deferPayment) {
+        if (isForPartner) {
+          // LIRA-081 (PFT-R, mirrors FOR_RECHARGE/FOR_IPICK/FOR_KATSH): the
+          // shop's own cost still posts for real (a genuine resource the shop
+          // spends regardless of who the counterparty is); only the PRICE
+          // collection from a walk-in customer is diverted to the partner's
+          // tab. No counter payment at all — reject any leaked leg (defense
+          // in depth; the frontend never sends one in this mode).
+          assertPartnerIdRequired(data.partnerId);
+          assertNoCounterPayment(
+            (data.payments?.length ?? 0) > 0,
+            "custom service",
+          );
+
+          if ((data.cost_usd ?? 0) > 0) {
+            insertPayment.run(
+              tenantId,
+              txnId,
+              "CASH",
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+              `${noteText} (cost outflow)`,
+              createdBy,
+            );
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+            );
+          }
+          if ((data.cost_lbp ?? 0) > 0) {
+            insertPayment.run(
+              tenantId,
+              txnId,
+              "CASH",
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+              `${noteText} (cost outflow)`,
+              createdBy,
+            );
+            upsertBalance.run(
+              tenantId,
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+            );
+          }
+
+          // The FULL price books to partner_ledger (FOR_CUSTOM_SERVICE DEBIT)
+          // against data.partnerId — per currency component, never a converted
+          // sum (mirrors RechargeRepository's S7 per-leg-currency booking).
+          // Once the partner settles, the shop's net position (cost spent now,
+          // price collected later) matches a normal walk-in service exactly,
+          // realizing the profit_usd/profit_lbp already stamped above.
+          if ((data.price_usd ?? 0) > 0) {
+            getPartnerRepository().addLedgerEntry({
+              partner_id: data.partnerId as number,
+              transaction_type: "FOR_CUSTOM_SERVICE",
+              reference_table: "custom_services",
+              reference_id: serviceId,
+              amount: data.price_usd!,
+              currency: "USD",
+              direction: "DEBIT",
+              user_id: createdBy,
+              notes: noteText,
+            });
+          }
+          if ((data.price_lbp ?? 0) > 0) {
+            getPartnerRepository().addLedgerEntry({
+              partner_id: data.partnerId as number,
+              transaction_type: "FOR_CUSTOM_SERVICE",
+              reference_table: "custom_services",
+              reference_id: serviceId,
+              amount: data.price_lbp!,
+              currency: "LBP",
+              direction: "DEBIT",
+              user_id: createdBy,
+              notes: noteText,
+            });
+          }
+        } else if (data.deferPayment) {
           // Session-basket deferred mode: the basket owns the customer-cash price
           // inflow + any on-account debt. The shop's own cost is still spent
           // out-of-pocket from the General drawer, so book ONLY the cost outflow.

@@ -103,6 +103,8 @@ import partnersRoutes from "./api/partners.js";
 import vouchersRoutes from "./api/vouchers.js";
 import voiceRoutes, { initVoiceWebSocketServer } from "./api/voice.js";
 import adminRoutes from "./api/admin.js";
+import carrierLinesRoutes from "./api/carrierLines.js";
+import mobileServiceItemsRoutes from "./api/mobileServiceItems.js";
 
 // Health checks (no /api prefix for easier monitoring)
 app.use("/health", healthRoutes);
@@ -144,6 +146,8 @@ app.use("/api/partners", partnersRoutes);
 app.use("/api/vouchers", vouchersRoutes);
 app.use("/api/voice", voiceRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/carrier-lines", carrierLinesRoutes);
+app.use("/api/mobile-service-items", mobileServiceItemsRoutes);
 
 // Initialize WebSocket server for voice transcription
 initVoiceWebSocketServer(httpServer);

@@ -25,6 +25,20 @@ export type DebtorSummary = {
   total_debt_lbp: number;
 };
 
+/** LIRA-077 — one row of the `stock_adjustments` audit trail. */
+export type StockAdjustmentEntity = {
+  id: number;
+  product_id: number;
+  delta: number;
+  old_quantity: number;
+  new_quantity: number;
+  reason: string;
+  user_id: number | null;
+  username: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type DebtLedgerEntity = {
   id: number;
   client_id: number;
@@ -134,6 +148,43 @@ export type PaymentMethodEntity = {
   is_active: number;
   is_system: number;
   created_at: string;
+};
+
+/** LIRA W6.a — a shop-owned alfa/mtc SIM line. Informational only. */
+export type CarrierLineEntity = {
+  id: number;
+  carrier: "alfa" | "mtc";
+  phone_number: string;
+  label: string | null;
+  credits: number;
+  validity_expires_at: string | null;
+  notes: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CarrierLineWriteResult = {
+  success: boolean;
+  data?: CarrierLineEntity;
+  error?: string;
+};
+
+/** LIRA W6.b — a mobile service catalog item (dynamic pricing catalog). */
+export type MobileServiceItemEntity = {
+  id: number;
+  provider: string;
+  category: string;
+  subcategory: string;
+  label: string;
+  cost_lbp: number;
+  sell_lbp: number;
+  sort_order: number;
+  is_active: number;
+  validity_days: number | null;
+  credits: number | null;
+  created_at: string;
+  updated_at: string;
 };
 
 // =============================================================================
@@ -354,6 +405,17 @@ export type ApiAdapter = {
   updateProduct: (id: number, payload: any) => Promise<ProductWriteResult>;
   deleteProduct: (id: number) => Promise<ProductWriteResult>;
   getLowStockProducts: () => Promise<any[]>;
+  /** LIRA-077: set-absolute (newQuantity) or delta stock correction, always
+   *  with a reason for the stock_adjustments audit trail. */
+  adjustStock: (payload: {
+    id: number;
+    newQuantity?: number;
+    delta?: number;
+    reason: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  /** LIRA-077: adjustment history — one product, or the most recent across
+   *  all products when productId is omitted. */
+  getStockAdjustments: (productId?: number) => Promise<StockAdjustmentEntity[]>;
 
   // ---------------------------------------------------------------------------
   // Sales
@@ -715,6 +777,63 @@ export type ApiAdapter = {
   reorderPaymentMethods: (ids: number[]) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
+  // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)
+  // ---------------------------------------------------------------------------
+  getActiveCarrierLines: (
+    carrier: "alfa" | "mtc",
+  ) => Promise<CarrierLineEntity[]>;
+  getAllActiveCarrierLines: () => Promise<CarrierLineEntity[]>;
+  getAdminCarrierLines: () => Promise<CarrierLineEntity[]>;
+  createCarrierLine: (data: {
+    carrier: "alfa" | "mtc";
+    phone_number: string;
+    label?: string | null;
+    credits?: number;
+    validity_expires_at?: string | null;
+    notes?: string | null;
+  }) => Promise<CarrierLineWriteResult>;
+  updateCarrierLine: (
+    id: number,
+    data: {
+      carrier?: "alfa" | "mtc";
+      phone_number?: string;
+      label?: string | null;
+      credits?: number;
+      validity_expires_at?: string | null;
+      notes?: string | null;
+      is_active?: number;
+    },
+  ) => Promise<CarrierLineWriteResult>;
+  /** Recharge-tab inline quick-update: credits and/or a new expiry date. */
+  updateCarrierLineBalance: (
+    id: number,
+    data: { credits?: number; validity_expires_at?: string | null },
+  ) => Promise<CarrierLineWriteResult>;
+  archiveCarrierLine: (id: number) => Promise<CarrierLineWriteResult>;
+  toggleCarrierLineActive: (id: number) => Promise<CarrierLineWriteResult>;
+
+  // ---------------------------------------------------------------------------
+  // Mobile Service Items — admin (LIRA W6.b)
+  // ---------------------------------------------------------------------------
+  getAdminMobileServiceItems: () => Promise<MobileServiceItemEntity[]>;
+  updateMobileServiceItem: (
+    id: number,
+    data: {
+      label?: string;
+      cost_lbp?: number;
+      sell_lbp?: number;
+      sort_order?: number;
+      is_active?: number;
+      validity_days?: number | null;
+      credits?: number | null;
+    },
+  ) => Promise<{
+    success: boolean;
+    data?: MobileServiceItemEntity;
+    error?: string;
+  }>;
+
+  // ---------------------------------------------------------------------------
   // Currency–Module & Currency–Drawer mapping
   // ---------------------------------------------------------------------------
   getModulesForCurrency: (code: string) => Promise<string[]>;
@@ -1066,6 +1185,10 @@ export type ApiAdapter = {
     note?: string;
     category?: string;
     transaction_time?: string;
+    /** LIRA-081: for-partner custom service — no counter payment, the FULL
+     *  price books to the partner's tab instead. */
+    partnerId?: number;
+    partnerMode?: "FOR";
   }) => Promise<ApiResult & { id?: number }>;
   deleteCustomService: (id: number) => Promise<ApiResult>;
 
@@ -1077,9 +1200,24 @@ export type ApiAdapter = {
     filters?: Record<string, unknown>,
   ) => Promise<any[]>;
   getTransactionById: (id: number) => Promise<any>;
+  /** LIRA-069 W1.c/d: resolve the unified transaction for a module row. */
+  getTransactionBySource: (
+    sourceTable: string,
+    sourceId: number,
+  ) => Promise<any>;
   getClientTransactions: (clientId: number, limit?: number) => Promise<any[]>;
   voidTransaction: (id: number) => Promise<ApiResult & { reversalId?: number }>;
   refundTransaction: (id: number) => Promise<ApiResult & { refundId?: number }>;
+  /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
+   *  member of a multi-unit split checkout in ONE transaction. */
+  voidCheckoutGroup: (groupId: string) => Promise<
+    ApiResult & {
+      groupId?: string;
+      memberCount?: number;
+      voidedTransactionIds?: number[];
+      reversalIds?: number[];
+    }
+  >;
   getTransactionDailySummary: (date: string) => Promise<any>;
   getDebtAging: (clientId: number) => Promise<any>;
   getOverdueDebts: () => Promise<any[]>;

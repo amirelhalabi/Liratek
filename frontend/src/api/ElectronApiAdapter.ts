@@ -38,6 +38,14 @@ export class ElectronApiAdapter implements ApiAdapter {
   updateProduct = (id: number, payload: any) => api.updateProduct(id, payload);
   deleteProduct = (id: number) => api.deleteProduct(id);
   getLowStockProducts = () => api.getLowStockProducts();
+  adjustStock = (payload: {
+    id: number;
+    newQuantity?: number;
+    delta?: number;
+    reason: string;
+  }) => api.adjustStock(payload);
+  getStockAdjustments = (productId?: number) =>
+    api.getStockAdjustments(productId);
 
   // ---------------------------------------------------------------------------
   // Sales
@@ -278,10 +286,13 @@ export class ElectronApiAdapter implements ApiAdapter {
     filters?: api.TransactionFiltersParam,
   ) => api.getRecentTransactions(limit, filters);
   getTransactionById = (id: number) => api.getTransactionById(id);
+  getTransactionBySource = (sourceTable: string, sourceId: number) =>
+    api.getTransactionBySource(sourceTable, sourceId);
   getClientTransactions = (clientId: number, limit?: number) =>
     api.getClientTransactions(clientId, limit);
   voidTransaction = (id: number) => api.voidTransaction(id);
   refundTransaction = (id: number) => api.refundTransaction(id);
+  voidCheckoutGroup = (groupId: string) => api.voidCheckoutGroup(groupId);
   getTransactionDailySummary = (date: string) =>
     api.getTransactionDailySummary(date);
   getDebtAging = (clientId: number) => api.getDebtAging(clientId);
@@ -353,6 +364,57 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.updatePaymentMethod(id, data);
   deletePaymentMethod = (id: number) => api.deletePaymentMethod(id);
   reorderPaymentMethods = (ids: number[]) => api.reorderPaymentMethods(ids);
+
+  // ---------------------------------------------------------------------------
+  // Carrier Lines (LIRA W6.a — shop SIM-line tracking)
+  // ---------------------------------------------------------------------------
+  getActiveCarrierLines = (carrier: "alfa" | "mtc") =>
+    api.getActiveCarrierLines(carrier);
+  getAllActiveCarrierLines = () => api.getAllActiveCarrierLines();
+  getAdminCarrierLines = () => api.getAdminCarrierLines();
+  createCarrierLine = (data: {
+    carrier: "alfa" | "mtc";
+    phone_number: string;
+    label?: string | null;
+    credits?: number;
+    validity_expires_at?: string | null;
+    notes?: string | null;
+  }) => api.createCarrierLine(data);
+  updateCarrierLine = (
+    id: number,
+    data: {
+      carrier?: "alfa" | "mtc";
+      phone_number?: string;
+      label?: string | null;
+      credits?: number;
+      validity_expires_at?: string | null;
+      notes?: string | null;
+      is_active?: number;
+    },
+  ) => api.updateCarrierLine(id, data);
+  updateCarrierLineBalance = (
+    id: number,
+    data: { credits?: number; validity_expires_at?: string | null },
+  ) => api.updateCarrierLineBalance(id, data);
+  archiveCarrierLine = (id: number) => api.archiveCarrierLine(id);
+  toggleCarrierLineActive = (id: number) => api.toggleCarrierLineActive(id);
+
+  // ---------------------------------------------------------------------------
+  // Mobile Service Items — admin (LIRA W6.b)
+  // ---------------------------------------------------------------------------
+  getAdminMobileServiceItems = () => api.getAdminMobileServiceItems();
+  updateMobileServiceItem = (
+    id: number,
+    data: {
+      label?: string;
+      cost_lbp?: number;
+      sell_lbp?: number;
+      sort_order?: number;
+      is_active?: number;
+      validity_days?: number | null;
+      credits?: number | null;
+    },
+  ) => api.updateMobileServiceItem(id, data);
 
   // ---------------------------------------------------------------------------
   // Currency–Module & Currency–Drawer mapping
@@ -650,6 +712,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     note?: string;
     category?: string;
     transaction_time?: string;
+    partnerId?: number;
+    partnerMode?: "FOR";
   }) => api.addCustomService(data);
   deleteCustomService = (id: number) => api.deleteCustomService(id);
 

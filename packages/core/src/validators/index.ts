@@ -5,6 +5,7 @@
 
 export * from "./client.js";
 export * from "./product.js";
+export * from "./inventory.js";
 export * from "./sale.js";
 export * from "./auth.js";
 export * from "./common.js";
@@ -26,3 +27,6 @@ export * from "./partner.js";
 export * from "./voucher.js";
 export * from "./counterparty.js";
 export * from "./supplier.js";
+export * from "./transaction.js";
+export * from "./carrierLine.js";
+export * from "./mobileServiceItem.js";

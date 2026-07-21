@@ -47,7 +47,12 @@ import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { Client } from "@liratek/ui";
+import {
+  ForPartnerToggle,
+  ForPartnerNotice,
+} from "@/features/partners/components/ForPartnerToggle";
 
 // =============================================================================
 // Helper
@@ -101,6 +106,10 @@ export default function CustomServices() {
   const api = useApi();
   const { methods } = usePaymentMethods();
   const { activeSession, addToCart: addToSessionCart } = useSession();
+  // LIRA-069 W1.d — auto-print on a successful STANDALONE submit (skipped
+  // when a session is active; the session gets its own Print button at
+  // checkout, W1.b).
+  const autoPrintReceipt = useAutoPrintReceipt();
   const {
     history,
     summary,
@@ -129,6 +138,13 @@ export default function CustomServices() {
     usd: number;
     lbp: number;
   } | null>(null);
+
+  // LIRA-081 (PFT-R): "For Partner" — no counter payment; the FULL price
+  // (per currency) books to the selected partner's tab instead.
+  const [forPartner, setForPartner] = useState(false);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
 
   // ─── Item Selector ───
   const [selectedProduct, setSelectedProduct] = useState<{
@@ -247,8 +263,12 @@ export default function CustomServices() {
     const hasDebtLine = paymentLines.some(
       (l) => l.method === "CUSTOMER_ACCOUNT",
     );
-    if (hasDebtLine && !clientId) {
+    if (!forPartner && hasDebtLine && !clientId) {
       alert("Please select a client for debt payment.");
+      return;
+    }
+    if (forPartner && !selectedPartnerId) {
+      alert("Select a partner for this service.");
       return;
     }
 
@@ -256,7 +276,7 @@ export default function CustomServices() {
     try {
       // Auto-create client if "Save as client" is checked and no existing client selected
       let finalClientId = clientId;
-      if (!clientId && clientName.trim()) {
+      if (!forPartner && !clientId && clientName.trim()) {
         const result = await trySaveAsClient();
         if (result.clientId) finalClientId = result.clientId;
       }
@@ -272,7 +292,12 @@ export default function CustomServices() {
         price_usd: priceUsdVal,
         price_lbp: priceLbpVal,
         paid_by: primaryMethod,
-        ...(paymentLines.length > 0 || returnLegs.length > 0
+        // LIRA-081: a for-partner service takes NO counter payment at all —
+        // never forward payment legs even if stale state lingers from before
+        // the toggle was checked (PartnerRepository/CustomServiceRepository
+        // reject any leg in partner mode; this keeps the payload consistent
+        // with what the UI actually shows).
+        ...(!forPartner && (paymentLines.length > 0 || returnLegs.length > 0)
           ? { payments: toSnakeLegs(paymentLines, returnLegs) }
           : {}),
         // Voucher code for the GIFT_CARD leg (custom services use one primary method)
@@ -280,16 +305,21 @@ export default function CustomServices() {
           const voucherLeg = paymentLines.find(
             (p) => p.method === "GIFT_CARD" && p.voucherCode,
           );
-          return voucherLeg?.voucherCode
+          return !forPartner && voucherLeg?.voucherCode
             ? { voucher_code: voucherLeg.voucherCode }
             : {};
         })(),
         // T3 keep-change: kept amounts join the service's profit stamp.
-        ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
+        ...(!forPartner &&
+        keptChange &&
+        (keptChange.usd > 0 || keptChange.lbp > 0)
           ? {
               kept_change_usd: keptChange.usd,
               kept_change_lbp: keptChange.lbp,
             }
+          : {}),
+        ...(forPartner && selectedPartnerId
+          ? { partnerId: selectedPartnerId, partnerMode: "FOR" as const }
           : {}),
       };
       if (finalClientId) payload.client_id = finalClientId;
@@ -299,8 +329,10 @@ export default function CustomServices() {
       if (category) payload.category = category;
       if (transactionTime) payload.transaction_time = transactionTime;
 
-      // If session is active, add to cart instead of submitting
-      if (activeSession) {
+      // If session is active, add to cart instead of submitting — never for a
+      // for-partner service (no walk-in customer, mirrors every other FOR_%
+      // form: TelecomForm/KatchForm/etc. all bypass the session entirely).
+      if (activeSession && !forPartner) {
         const amountLabel =
           priceUsdVal > 0
             ? `$${priceUsdVal.toFixed(2)}`
@@ -352,6 +384,12 @@ export default function CustomServices() {
           "Custom service recorded successfully",
           "success",
         );
+        void autoPrintReceipt({
+          type: "CUSTOM_SERVICE",
+          sourceTable: "custom_services",
+          sourceId: result.id,
+          hasActiveSession: !!activeSession,
+        });
         // Reset form
         setDescription("");
         setCostUsd("");
@@ -364,6 +402,8 @@ export default function CustomServices() {
         setReturnLegs([]);
         setKeptChange(null);
         setTransactionTime(undefined);
+        setForPartner(false);
+        setSelectedPartnerId(null);
         clearProduct();
         clearClient();
         reload();
@@ -876,51 +916,91 @@ export default function CustomServices() {
                   </div>
                 </div>
 
-                {/* Payment Method */}
+                {/* LIRA-081 (PFT-R): "For Partner" — no counter payment; the
+                    FULL price (per currency) books to the selected partner's
+                    tab instead. Hides the Payment Method section below. */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-                    Payment Method
-                  </label>
-                  <MultiPaymentInput
-                    // Currency in the key: the seeded line currency is
-                    // mount-only, so toggling USD/LBP must remount the widget.
-                    key={`${paymentInputKey}-${currency}`}
-                    // Single-currency model: the toggle clears the other
-                    // currency's fields, so the owed total lives entirely in
-                    // the active currency. Hardcoding the USD pair here made
-                    // an LBP-priced service show a $0 payment total.
-                    totals={[
-                      currency === "USD"
-                        ? { amount: priceUsdVal || costUsdVal, currency: "USD" }
-                        : {
-                            amount: priceLbpVal || costLbpVal,
-                            currency: "LBP",
-                          },
-                    ]}
-                    currency={currency}
-                    totalAmountCurrency={currency}
-                    onChange={setPaymentLines}
-                    onReturnChange={setReturnLegs}
-                    onKeptChange={setKeptChange}
-                    requiresClientForDebt={true}
-                    hasClient={!!clientId || !!clientName}
-                    // Auto-debt needs a RESOLVED client here: the submit
-                    // guard rejects debt legs without clientId (name-only
-                    // would auto-split and then dead-end at that alert).
-                    autoDebtRemainder={!!clientId}
-                    paymentMethods={methods}
-                    currencies={[
-                      { code: "USD", symbol: "$" },
-                      { code: "LBP", symbol: "LBP" },
-                    ]}
-                    exchangeRate={exchangeRate}
-                    clientId={clientId}
-                    fetchClientVouchers={fetchClientVouchers}
-                    {...(paymentInitialMethod
-                      ? { initialMethod: paymentInitialMethod }
-                      : {})}
+                  <ForPartnerToggle
+                    testId="custom-service-for-partner-toggle"
+                    checked={forPartner}
+                    onChange={(next) => {
+                      setForPartner(next);
+                      if (next) {
+                        // Clear any lingering payment state so a leftover
+                        // leg from before toggling on is never submitted.
+                        setPaymentLines([]);
+                        setReturnLegs([]);
+                        setKeptChange(null);
+                      }
+                    }}
+                    selectedPartnerId={selectedPartnerId}
+                    onPartnerChange={setSelectedPartnerId}
+                    checkboxClassName="w-4 h-4 rounded border-slate-600 bg-slate-900 text-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
                   />
                 </div>
+
+                {/* Payment Method — replaced by a notice in for-partner mode */}
+                {forPartner ? (
+                  <ForPartnerNotice
+                    testId="custom-service-partner-no-payment-notice"
+                    className="text-sm text-teal-200 bg-teal-500/10 border border-teal-500/30 rounded-xl px-4 py-4"
+                  >
+                    No payment is collected for a partner service. The full{" "}
+                    <span className="font-bold">
+                      {formatCurrency(priceUsdVal, priceLbpVal)}
+                    </span>{" "}
+                    goes on the selected partner&apos;s account, settled later
+                    on the Partners page.
+                  </ForPartnerNotice>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
+                      Payment Method
+                    </label>
+                    <MultiPaymentInput
+                      // Currency in the key: the seeded line currency is
+                      // mount-only, so toggling USD/LBP must remount the widget.
+                      key={`${paymentInputKey}-${currency}`}
+                      // Single-currency model: the toggle clears the other
+                      // currency's fields, so the owed total lives entirely in
+                      // the active currency. Hardcoding the USD pair here made
+                      // an LBP-priced service show a $0 payment total.
+                      totals={[
+                        currency === "USD"
+                          ? {
+                              amount: priceUsdVal || costUsdVal,
+                              currency: "USD",
+                            }
+                          : {
+                              amount: priceLbpVal || costLbpVal,
+                              currency: "LBP",
+                            },
+                      ]}
+                      currency={currency}
+                      totalAmountCurrency={currency}
+                      onChange={setPaymentLines}
+                      onReturnChange={setReturnLegs}
+                      onKeptChange={setKeptChange}
+                      requiresClientForDebt={true}
+                      hasClient={!!clientId || !!clientName}
+                      // Auto-debt needs a RESOLVED client here: the submit
+                      // guard rejects debt legs without clientId (name-only
+                      // would auto-split and then dead-end at that alert).
+                      autoDebtRemainder={!!clientId}
+                      paymentMethods={methods}
+                      currencies={[
+                        { code: "USD", symbol: "$" },
+                        { code: "LBP", symbol: "LBP" },
+                      ]}
+                      exchangeRate={exchangeRate}
+                      clientId={clientId}
+                      fetchClientVouchers={fetchClientVouchers}
+                      {...(paymentInitialMethod
+                        ? { initialMethod: paymentInitialMethod }
+                        : {})}
+                    />
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -935,7 +1015,7 @@ export default function CustomServices() {
               {/* Submit */}
               <button
                 onClick={handleSubmit}
-                disabled={isSubmitting}
+                disabled={isSubmitting || (forPartner && !selectedPartnerId)}
                 className="w-full py-4 mt-6 rounded-xl font-bold text-lg bg-teal-600 hover:bg-teal-500 text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
@@ -945,7 +1025,8 @@ export default function CustomServices() {
                   </>
                 ) : (
                   <>
-                    <Plus size={18} /> Submit Service
+                    <Plus size={18} />{" "}
+                    {forPartner ? "Submit to Partner" : "Submit Service"}
                   </>
                 )}
               </button>

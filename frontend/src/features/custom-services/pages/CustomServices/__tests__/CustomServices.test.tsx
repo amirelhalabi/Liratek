@@ -21,6 +21,12 @@ jest.mock("@liratek/ui", () => ({
     deleteCustomService: mockDeleteCustomService,
     getClients: mockGetClients,
     getRates: jest.fn().mockResolvedValue([]),
+    // useAutoPrintReceipt (LIRA-069 W1.d) pulls shop info via useShopInfo(),
+    // which calls this on mount.
+    getAllSettings: jest.fn().mockResolvedValue([]),
+    // PartnerSelector (rendered by ForPartnerToggle once checked) fetches
+    // the partner list on mount — LIRA-081.
+    partners: { getAll: jest.fn().mockResolvedValue([]) },
   }),
   DecimalInput: ({
     id,
@@ -487,6 +493,48 @@ describe("CustomServices Page", () => {
         }),
       );
     });
+  });
+
+  it("should render the For Partner toggle and hide the payment section when checked", () => {
+    render(<CustomServices />);
+
+    // LIRA-081: the toggle is present (shared ForPartnerToggle component —
+    // same pattern as every other money form).
+    const toggle = screen.getByTestId("custom-service-for-partner-toggle");
+    expect(toggle).toBeInTheDocument();
+
+    // Payment Method (MultiPaymentInput) is visible by default...
+    expect(screen.getByTestId("multi-payment-input")).toBeInTheDocument();
+
+    // ...and replaced by the no-payment notice once "For Partner" is checked.
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("multi-payment-input")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("custom-service-partner-no-payment-notice"),
+    ).toBeInTheDocument();
+  });
+
+  it("should relabel the submit button and keep it disabled until a partner is selected", () => {
+    render(<CustomServices />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Phone screen repair/), {
+      target: { value: "Partner paperwork" },
+    });
+    const usdInputs = screen.getAllByPlaceholderText("0.00");
+    fireEvent.change(usdInputs[0], { target: { value: "2" } }); // cost USD
+    fireEvent.change(usdInputs[1], { target: { value: "10" } }); // price USD
+
+    fireEvent.click(screen.getByTestId("custom-service-for-partner-toggle"));
+
+    // Button relabels for the partner flow (mirrors TelecomForm's precedent).
+    const submitButton = screen
+      .getByText("Submit to Partner")
+      .closest("button");
+    expect(submitButton).toBeInTheDocument();
+    // No partner selected yet (mocked partner list is empty) — blocked,
+    // never a silent submit with a missing partnerId.
+    expect(submitButton).toBeDisabled();
+    expect(mockAddCustomService).not.toHaveBeenCalled();
   });
 
   it("should handle API error on submit", async () => {

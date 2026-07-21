@@ -9,7 +9,12 @@ import { BaseRepository } from "./BaseRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
-import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import {
+  applyDrawerDelta,
+  insertPaymentRow,
+  assertPartnerIdRequired,
+} from "./moneyPosting.js";
+import { getPartnerRepository } from "./PartnerRepository.js";
 
 // =============================================================================
 // Entity Types
@@ -62,6 +67,22 @@ export interface CreateExchangeData {
   fromCurrencyName?: string;
   toCurrencyName?: string;
   transaction_time?: string;
+  /**
+   * LIRA-081 (PFT-R, "partner stands in for the customer" — the model every
+   * other FOR_% flow uses): a "for partner" exchange takes NO counter cash
+   * from a walk-in customer. The partner owes exactly what a customer would
+   * have paid — `amountIn` of `fromCurrency` — settled later on the Partners
+   * page. The shop still disburses `amountOut` of `toCurrency` for real (the
+   * value genuinely leaves the till); only the customer-paid IN leg is
+   * replaced by the partner debt. This is what makes the stamped
+   * `totalProfitUsd` real once the partner settles: the shop's net cash
+   * position after create+settle is byte-identical to a normal walk-in
+   * exchange of the same amounts (proven by
+   * ExchangeRepository.forPartner.test.ts).
+   */
+  partnerId?: number;
+  /** Only "FOR" is valid for exchanges — the partner analog of a walk-in customer. */
+  partnerMode?: "FOR";
 }
 
 // =============================================================================
@@ -123,6 +144,24 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
     return this.db.transaction(() => {
       const tenantId = getCurrentTenantId();
+
+      // LIRA-081 (PFT-R): a "for partner" exchange takes no counter cash —
+      // the partner stands in for the walk-in customer. Guarded before any
+      // row is written (throwing here rolls back the whole db.transaction).
+      const isForPartner = data.partnerMode === "FOR";
+      if (isForPartner) {
+        assertPartnerIdRequired(data.partnerId);
+        // Partner debt lives in partner_ledger (USD/LBP/USDT buckets only —
+        // getBalance/getBalanceBreakdown sum exactly those three). fromCurrency
+        // becomes the ledger currency below, so it must be one of the two the
+        // shop actually carries partner debt in (mirrors FinancialServiceRepository's
+        // "Partner debt must be USD or LBP" rule for FOR_OMT_SEND/FOR_BINANCE_SEND).
+        if (data.fromCurrency !== "USD" && data.fromCurrency !== "LBP") {
+          throw new Error(
+            "Partner debt must be USD or LBP — pick a USD/LBP source currency",
+          );
+        }
+      }
 
       // Auto-register currencies that don't exist (e.g. API currencies like GBP, AED)
       const ensureCurrency = this.db.prepare(
@@ -226,7 +265,12 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         // Rule 11: the (optional) client name must reach the unified row —
         // without it every exchange showed "—" in the transactions table
         // even when a name was entered (lira-094 sweep).
-        client_name: data.clientName ?? null,
+        // For-partner exchanges label the row with the partner (owner ask,
+        // matches Recharge/Loto: the transactions table shows "<partner> [partner]").
+        client_name:
+          isForPartner && data.partnerId
+            ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
+            : (data.clientName ?? null),
         summary: `Exchange: ${data.amountIn} ${data.fromCurrency} → ${data.amountOut} ${data.toCurrency}${data.viaCurrency ? ` (via ${data.viaCurrency})` : ""}`,
         metadata_json: {
           type,
@@ -242,26 +286,31 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         transaction_time: data.transaction_time,
       });
 
-      // Inflow: customer gives fromCurrency → shop drawer increases
-      const fromDelta = Math.abs(data.amountIn);
-      insertPaymentRow(this.db, {
-        transactionId: txnId,
-        method: "CASH",
-        drawerName,
-        currencyCode: data.fromCurrency,
-        amount: fromDelta,
-        note,
-        createdBy,
-        tenantId,
-      });
-      applyDrawerDelta(this.db, {
-        drawerName,
-        currencyCode: data.fromCurrency,
-        delta: fromDelta,
-        tenantId,
-      });
+      // Inflow: customer gives fromCurrency → shop drawer increases.
+      // LIRA-081: skipped entirely in for-partner mode — there is no walk-in
+      // customer handing over cash; the partner owes it instead (booked below).
+      if (!isForPartner) {
+        const fromDelta = Math.abs(data.amountIn);
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: "CASH",
+          drawerName,
+          currencyCode: data.fromCurrency,
+          amount: fromDelta,
+          note,
+          createdBy,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName,
+          currencyCode: data.fromCurrency,
+          delta: fromDelta,
+          tenantId,
+        });
+      }
 
-      // Outflow: shop gives toCurrency to customer → shop drawer decreases
+      // Outflow: shop gives toCurrency to customer → shop drawer decreases.
+      // Real regardless of partner mode — this value genuinely leaves the till.
       const toDelta = -Math.abs(data.amountOut);
       insertPaymentRow(this.db, {
         transactionId: txnId,
@@ -279,6 +328,31 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         delta: toDelta,
         tenantId,
       });
+
+      // LIRA-081 (PFT-R): the partner owes exactly what a walk-in customer
+      // would have paid — amountIn, in fromCurrency (already guarded above to
+      // be USD or LBP). Once the partner settles this FOR_EXCHANGE row, the
+      // shop's net cash position (General −toCurrency at creation, +fromCurrency
+      // at settlement) is byte-identical to a normal walk-in exchange, which is
+      // what makes the stamped profitUsd real only after settlement (PFT-6
+      // deferral — see notPartnerPending("exchange_transactions", ...) in
+      // ProfitRepository).
+      if (isForPartner) {
+        getPartnerRepository().addLedgerEntry({
+          partner_id: data.partnerId as number,
+          transaction_type: "FOR_EXCHANGE",
+          reference_table: "exchange_transactions",
+          reference_id: id,
+          amount: Math.abs(data.amountIn),
+          currency: data.fromCurrency,
+          direction: "DEBIT",
+          user_id: createdBy,
+          notes:
+            note ??
+            `Exchange ${data.amountIn} ${data.fromCurrency} → ${data.amountOut} ${data.toCurrency}`,
+          created_at: data.transaction_time ?? undefined,
+        });
+      }
 
       return { id };
     })();

@@ -320,6 +320,70 @@ export async function deleteProduct(id: number): Promise<ProductWriteResult> {
   });
 }
 
+export type StockAdjustPayload = {
+  id: number;
+  newQuantity?: number;
+  delta?: number;
+  reason: string;
+};
+
+export type StockAdjustmentEntity = {
+  id: number;
+  product_id: number;
+  delta: number;
+  old_quantity: number;
+  new_quantity: number;
+  reason: string;
+  user_id: number | null;
+  username: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * LIRA-077: adjust a product's stock (absolute set via `newQuantity`, or a
+ * +/- correction via `delta`), always with a `reason` for the
+ * `stock_adjustments` audit trail. `userId` is injected server-side (IPC:
+ * auth.userId; REST: req.user) — never sent from here (rule 19c).
+ */
+export async function adjustStock(
+  payload: StockAdjustPayload,
+): Promise<{ success: boolean; error?: string }> {
+  if (isElectron()) {
+    return getElectronApi().inventory.adjustStock(payload);
+  }
+  try {
+    const { id, ...body } = payload;
+    return await requestJson<{ success: boolean; error?: string }>(
+      `/api/inventory/products/${id}/stock`,
+      { method: "POST", body },
+    );
+  } catch (err) {
+    const e = err as { message?: string };
+    return { success: false, error: e.message ?? "Failed to adjust stock" };
+  }
+}
+
+/** LIRA-077: adjustment audit history — one product, or the most recent
+ *  across all products when productId is omitted. */
+export async function getStockAdjustments(
+  productId?: number,
+): Promise<StockAdjustmentEntity[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.getStockAdjustments(productId),
+    async () => {
+      const qs = new URLSearchParams();
+      if (productId != null) qs.set("productId", String(productId));
+      const res = await requestJson<{
+        success: boolean;
+        adjustments?: StockAdjustmentEntity[];
+        data?: { adjustments?: StockAdjustmentEntity[] };
+      }>(`/api/inventory/stock-adjustments?${qs.toString()}`);
+      return (res.data ?? res).adjustments ?? [];
+    },
+  );
+}
+
 export async function getLowStockProducts() {
   return ipcOrHttp(
     async () => getElectronApi().inventory.getLowStockProducts(),
@@ -1796,6 +1860,25 @@ export async function getTransactionById(id: number) {
   return res.transaction || null;
 }
 
+/**
+ * Resolve the unified transaction for a module row (LIRA-069 W1.c/d) — the
+ * History-modal Print button and the auto-print-on-success hook only know
+ * the module's own PK (e.g. recharges.id, financial_services.id), never the
+ * unified transactions.id `printServiceReceiptByTransaction` needs.
+ */
+export async function getTransactionBySource(
+  sourceTable: string,
+  sourceId: number,
+) {
+  if (isElectron()) {
+    return (window as any).api.transactions.getBySource(sourceTable, sourceId);
+  }
+  const res = await requestJson<{ success: boolean; transaction: any }>(
+    `/api/transactions/by-source/${encodeURIComponent(sourceTable)}/${sourceId}`,
+  );
+  return res.transaction || null;
+}
+
 export async function getClientTransactions(
   clientId: number,
   limit: number = 100,
@@ -1825,6 +1908,34 @@ export async function refundTransaction(id: number) {
   }
   return requestJson<{ success: boolean; refundId?: number; error?: string }>(
     `/api/transactions/${id}/refund`,
+    { method: "POST" },
+  );
+}
+
+export interface VoidCheckoutGroupResult {
+  success: boolean;
+  groupId?: string;
+  memberCount?: number;
+  voidedTransactionIds?: number[];
+  reversalIds?: number[];
+  error?: string;
+}
+
+/**
+ * Void every non-voided member of a multi-unit split checkout in ONE
+ * transaction (CARRIER_LEGS_VOID_ASYMMETRY.md, design B+). A single void of
+ * one member alone (via `voidTransaction`/`refundTransaction` above) is
+ * refused by the repository guard — this is the only legitimate way to
+ * reverse one.
+ */
+export async function voidCheckoutGroup(
+  groupId: string,
+): Promise<VoidCheckoutGroupResult> {
+  if (isElectron()) {
+    return (window as any).api.transactions.voidCheckoutGroup(groupId);
+  }
+  return requestJson<VoidCheckoutGroupResult>(
+    `/api/transactions/checkout-group/${encodeURIComponent(groupId)}/void`,
     { method: "POST" },
   );
 }
@@ -3162,6 +3273,8 @@ export async function addCustomService(data: {
   note?: string;
   category?: string;
   transaction_time?: string;
+  partnerId?: number;
+  partnerMode?: "FOR";
 }): Promise<{ success: boolean; id?: number; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.add(data),
@@ -3886,4 +3999,224 @@ export async function adminImpersonate(
     throw new Error(res.error || "Failed to start impersonation");
   }
   return res.data;
+}
+
+// ==================== Carrier Line API (LIRA W6.a) ====================
+// Shop-owned alfa/mtc SIM lines: remaining credits + validity expiry date.
+// Informational only — no drawer legs, no checkout/closing involvement.
+
+export type CarrierLineEntity = {
+  id: number;
+  carrier: "alfa" | "mtc";
+  phone_number: string;
+  label: string | null;
+  credits: number;
+  validity_expires_at: string | null;
+  notes: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CarrierLineWriteResult = {
+  success: boolean;
+  data?: CarrierLineEntity;
+  error?: string;
+};
+
+export async function getActiveCarrierLines(
+  carrier: "alfa" | "mtc",
+): Promise<CarrierLineEntity[]> {
+  return ipcOrHttp(
+    async () => {
+      const res =
+        await getElectronApi().carrierLines.getActiveByCarrier(carrier);
+      return res.success ? (res.data ?? []) : [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: CarrierLineEntity[];
+      }>(`/api/carrier-lines/active/${carrier}`);
+      return res.success ? (res.data ?? []) : [];
+    },
+  );
+}
+
+export async function getAllActiveCarrierLines(): Promise<CarrierLineEntity[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().carrierLines.getAllActive();
+      return res.success ? (res.data ?? []) : [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: CarrierLineEntity[];
+      }>(`/api/carrier-lines/active`);
+      return res.success ? (res.data ?? []) : [];
+    },
+  );
+}
+
+export async function getAdminCarrierLines(): Promise<CarrierLineEntity[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().carrierLines.getAllAdmin();
+      return res.success ? (res.data ?? []) : [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: CarrierLineEntity[];
+      }>(`/api/carrier-lines`);
+      return res.success ? (res.data ?? []) : [];
+    },
+  );
+}
+
+export async function createCarrierLine(data: {
+  carrier: "alfa" | "mtc";
+  phone_number: string;
+  label?: string | null;
+  credits?: number;
+  validity_expires_at?: string | null;
+  notes?: string | null;
+}): Promise<CarrierLineWriteResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.create(data),
+    async () =>
+      requestJson<CarrierLineWriteResult>(`/api/carrier-lines`, {
+        method: "POST",
+        body: data,
+      }),
+  );
+}
+
+export async function updateCarrierLine(
+  id: number,
+  data: {
+    carrier?: "alfa" | "mtc";
+    phone_number?: string;
+    label?: string | null;
+    credits?: number;
+    validity_expires_at?: string | null;
+    notes?: string | null;
+    is_active?: number;
+  },
+): Promise<CarrierLineWriteResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.update(id, data),
+    async () =>
+      requestJson<CarrierLineWriteResult>(`/api/carrier-lines/${id}`, {
+        method: "PUT",
+        body: data,
+      }),
+  );
+}
+
+/** Recharge-tab inline quick-update: credits and/or a new expiry date. */
+export async function updateCarrierLineBalance(
+  id: number,
+  data: { credits?: number; validity_expires_at?: string | null },
+): Promise<CarrierLineWriteResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.updateBalance(id, data),
+    async () =>
+      requestJson<CarrierLineWriteResult>(`/api/carrier-lines/${id}/balance`, {
+        method: "PUT",
+        body: data,
+      }),
+  );
+}
+
+export async function archiveCarrierLine(
+  id: number,
+): Promise<CarrierLineWriteResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.archive(id),
+    async () =>
+      requestJson<CarrierLineWriteResult>(`/api/carrier-lines/${id}/archive`, {
+        method: "PUT",
+      }),
+  );
+}
+
+export async function toggleCarrierLineActive(
+  id: number,
+): Promise<CarrierLineWriteResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.toggleActive(id),
+    async () =>
+      requestJson<CarrierLineWriteResult>(
+        `/api/carrier-lines/${id}/toggle-active`,
+        { method: "PUT" },
+      ),
+  );
+}
+
+// ==================== Mobile Service Item API — admin (LIRA W6.b) ====================
+// Scoped to the ops the Settings manager's validity-days/credits editing
+// exercises. create/delete/toggle/seed/public-list stay desktop-IPC-only
+// (pre-existing gap predating this ticket).
+
+export type MobileServiceItemEntity = {
+  id: number;
+  provider: string;
+  category: string;
+  subcategory: string;
+  label: string;
+  cost_lbp: number;
+  sell_lbp: number;
+  sort_order: number;
+  is_active: number;
+  validity_days: number | null;
+  credits: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getAdminMobileServiceItems(): Promise<
+  MobileServiceItemEntity[]
+> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().mobileServiceItems.getAllAdmin();
+      return res.success ? (res.data ?? []) : [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: MobileServiceItemEntity[];
+      }>(`/api/mobile-service-items/admin`);
+      return res.success ? (res.data ?? []) : [];
+    },
+  );
+}
+
+export async function updateMobileServiceItem(
+  id: number,
+  data: {
+    label?: string;
+    cost_lbp?: number;
+    sell_lbp?: number;
+    sort_order?: number;
+    is_active?: number;
+    validity_days?: number | null;
+    credits?: number | null;
+  },
+): Promise<{
+  success: boolean;
+  data?: MobileServiceItemEntity;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().mobileServiceItems.update(id, data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: MobileServiceItemEntity;
+        error?: string;
+      }>(`/api/mobile-service-items/${id}`, { method: "PUT", body: data }),
+  );
 }

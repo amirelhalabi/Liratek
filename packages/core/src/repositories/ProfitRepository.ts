@@ -659,6 +659,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
         WHERE cs.status = 'completed'
           AND t.status = 'ACTIVE'
           AND ${notRefunded("cs")}
+          AND ${notPartnerPending("custom_services", "cs.id")}
           AND ${notDebtPending("t.id")}
           AND ${dateRange("cs.created_at")}
           AND cs.tenant_id = ? AND t.tenant_id = ?`,
@@ -774,6 +775,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           COUNT(*) AS count
         FROM exchange_transactions
         WHERE ${notRefunded("exchange_transactions")}
+          AND ${notPartnerPending("exchange_transactions", "id")}
           AND ${dateRange("created_at")}
           AND tenant_id = ?`,
       )
@@ -1026,6 +1028,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           WHERE cs.status = 'completed'
             AND t.status = 'ACTIVE'
             AND ${notRefunded("cs")}
+          AND ${notPartnerPending("custom_services", "cs.id")}
           AND ${notDebtPending("t.id")}
             AND ${dateRange("cs.created_at")}
             AND cs.tenant_id = ? AND t.tenant_id = ?
@@ -1083,6 +1086,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
             COALESCE(SUM(${EXCHANGE_LEG_PROFIT}), 0) AS profit_usd
           FROM exchange_transactions
           WHERE ${notRefunded("exchange_transactions")}
+            AND ${notPartnerPending("exchange_transactions", "id")}
             AND ${dateRange("created_at")}
             AND tenant_id = ?
           GROUP BY DATE(created_at, 'localtime')

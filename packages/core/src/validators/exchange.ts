@@ -19,6 +19,10 @@ export const createExchangeSchema = z
     clientName: z.string().max(255).optional(),
     note: z.string().max(500).optional(),
     transaction_time: transactionTimeSchema,
+    // LIRA-081 (PFT-R): a "for partner" exchange — the partner stands in for
+    // the walk-in customer. See ExchangeRepository.createTransaction.
+    partnerId: z.number().int().positive().optional(),
+    partnerMode: z.enum(["FOR"]).optional(),
   })
   .refine((data) => data.fromCurrency !== data.toCurrency, {
     message: "From and To currencies must be different",

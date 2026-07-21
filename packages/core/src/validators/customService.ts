@@ -44,6 +44,12 @@ export const createCustomServiceSchema = z
     // Operator-edited USD↔LBP rate of record, threaded by the session checkout so
     // the unified transaction stores it (the viewer's "@ <rate>" + USD/LBP display).
     exchange_rate: z.coerce.number().positive().optional(),
+    // LIRA-081 (PFT-R): a "for partner" custom service — mirrors FOR_RECHARGE.
+    // No counter payment; the FULL price (per currency) books to the
+    // partner's tab instead. See CustomServiceRepository.createService.
+    partnerId: z.number().int().positive().optional(),
+    /** Only "FOR" is valid for custom services — the partner analog of CUSTOMER_ACCOUNT. */
+    partnerMode: z.enum(["FOR"]).optional(),
   })
   .refine(
     (data) =>

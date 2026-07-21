@@ -31,6 +31,18 @@ import {
   partnerRecordTransactionSchema,
   partnerSettleSchema,
   partnerWriteOffSchema,
+  stockAdjustSchema,
+  voidCheckoutGroupSchema,
+  carrierLineCreateSchema,
+  carrierLineUpdateSchema,
+  carrierLineUpdateBalanceSchema,
+  mobileServiceItemUpdateSchema,
+  type StockAdjustInput,
+  type VoidCheckoutGroupInput,
+  type CarrierLineCreateInput,
+  type CarrierLineUpdateInput,
+  type CarrierLineUpdateBalanceInput,
+  type MobileServiceItemUpdateInput,
   type VoucherCreateInput,
   type DebtCashOutInput,
   type DebtAccountEntryInput,
@@ -133,10 +145,12 @@ export const BatchUpdateSchema = z.object({
   supplier: z.string().optional().nullable(),
 });
 
-export const StockAdjustSchema = z.object({
-  id: z.number().int().positive(),
-  newQuantity: z.number().int().nonnegative(),
-});
+// The stock-adjustment contract lives in packages/core/src/validators/inventory.ts
+// so the Electron IPC handler and the REST route validate against ONE schema
+// (CLAUDE.md rule 14). Cast bridges the zod major mismatch (core types against
+// zod 4, this workspace types against zod 3); the runtime API used is identical.
+export const StockAdjustSchema =
+  stockAdjustSchema as unknown as z.ZodSchema<StockAdjustInput>;
 
 // =============================================================================
 // Auth / Users
@@ -378,6 +392,15 @@ export const FinancialServiceSchema = z.object({
   // instead of the stamped rate-of-record. Fields must exist in BOTH or the
   // desktop path silently strips it.
   tender_exchange_rate: z.number().positive().optional(),
+  // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — LOCAL duplicate of the core
+  // createFinancialServiceSchema field (rule-14 debt, same trap as
+  // checkoutTotal/deferPayment above): identifies which multi-unit split
+  // checkout this unit belongs to, sent with EVERY unit (carrier and
+  // siblings alike) by KatchForm/FinancialForm. Fields must exist in BOTH or
+  // the desktop path silently strips them.
+  split_group: z.string().uuid().optional(),
+  split_role: z.enum(["carrier", "sibling"]).optional(),
+  split_units: z.number().int().min(2).optional(),
   // Acting user id; the handler overrides this with the authenticated user,
   // but allowing it through keeps validatePayload from stripping a supplied one.
   userId: z.number().int().optional(),
@@ -404,6 +427,11 @@ export const ExchangeTransactionSchema = z.object({
   note: z.string().optional(),
   fromCurrencyName: z.string().optional(),
   toCurrencyName: z.string().optional(),
+  // LIRA-081 — LOCAL duplicate of the core createExchangeSchema field (rule-14
+  // debt, same trap documented elsewhere in this file): fields must exist in
+  // BOTH or the desktop path silently strips them.
+  partnerId: z.number().int().positive().optional(),
+  partnerMode: z.enum(["FOR"]).optional(),
 });
 
 // =============================================================================
@@ -431,6 +459,30 @@ export const LotoCheckpointsSettleBatchSchema =
 
 /** Bare positive-integer id (transactions:void/refund, loto:update). */
 export const PositiveIdSchema = z.number().int().positive();
+
+// The group-void contract lives in packages/core/src/validators/transaction.ts
+// so the Electron IPC handler and the REST route validate against ONE schema
+// (CLAUDE.md rule 14). CARRIER_LEGS_VOID_ASYMMETRY.md (design B+).
+export const VoidCheckoutGroupSchema =
+  voidCheckoutGroupSchema as unknown as z.ZodSchema<VoidCheckoutGroupInput>;
+
+// =============================================================================
+// Carrier Lines (LIRA W6.a) / Mobile Service Items (LIRA W6.b)
+// =============================================================================
+
+// Shared contracts live in packages/core/src/validators/carrierLine.ts and
+// mobileServiceItem.ts so the IPC handler and the REST route validate
+// against ONE schema (CLAUDE.md rule 14/19). Casts bridge the zod major
+// mismatch (core built against zod 4, this workspace against zod 3) — the
+// runtime API used is identical.
+export const CarrierLineCreateSchema =
+  carrierLineCreateSchema as unknown as z.ZodSchema<CarrierLineCreateInput>;
+export const CarrierLineUpdateSchema =
+  carrierLineUpdateSchema as unknown as z.ZodSchema<CarrierLineUpdateInput>;
+export const CarrierLineUpdateBalanceSchema =
+  carrierLineUpdateBalanceSchema as unknown as z.ZodSchema<CarrierLineUpdateBalanceInput>;
+export const MobileServiceItemUpdateSchema =
+  mobileServiceItemUpdateSchema as unknown as z.ZodSchema<MobileServiceItemUpdateInput>;
 
 // =============================================================================
 // Custom Services
@@ -467,6 +519,11 @@ export const CustomServiceCreateSchema = z.object({
   kept_change_usd: z.number().nonnegative().optional(),
   kept_change_lbp: z.number().nonnegative().optional(),
   transaction_time: z.string().optional(),
+  // LIRA-081 — LOCAL duplicate of the core createCustomServiceSchema field
+  // (rule-14 debt, same trap documented elsewhere in this file): fields must
+  // exist in BOTH or the desktop path silently strips them.
+  partnerId: z.number().int().positive().optional(),
+  partnerMode: z.enum(["FOR"]).optional(),
 });
 
 // =============================================================================
