@@ -4,6 +4,7 @@ import {
   getInventoryService,
   createProductSchema,
   searchProductsSchema,
+  stockAdjustSchema,
   createErrorResponse,
   createSuccessResponse,
   ErrorCodes,
@@ -109,24 +110,61 @@ router.delete("/products/:id", requireRole(["admin"]), (req, res) => {
   res.status(result.success ? 200 : 400).json(result);
 });
 
-// POST /api/inventory/products/:id/stock (admin)
-router.post("/products/:id/stock", requireRole(["admin"]), (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid id" });
-    return;
+// POST /api/inventory/products/:id/stock (admin/staff — matches the IPC
+// handler's roles per rule 19b). Validates against the SAME
+// `stockAdjustSchema` the IPC handler uses (rule 14/19) by merging the URL
+// `:id` param into the body before parsing — REST callers never send `id`
+// in the body, only the transport-agnostic {newQuantity|delta, reason}.
+// `userId` comes from the JWT (req.user), never the client body (rule 19c).
+router.post(
+  "/products/:id/stock",
+  requireRole(["admin", "staff"]),
+  (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ success: false, error: "Invalid id" });
+      return;
+    }
+
+    const parsed = stockAdjustSchema.safeParse({ ...req.body, id });
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      res.status(400).json({
+        success: false,
+        error: firstIssue?.message ?? "Invalid stock adjustment payload",
+      });
+      return;
+    }
+    const { newQuantity, delta, reason } = parsed.data;
+    const userId = req.user!.userId;
+
+    const service = getInventoryService();
+    const result =
+      delta !== undefined
+        ? service.adjustStockDelta(id, delta, reason, userId)
+        : service.adjustStock(id, newQuantity as number, reason, userId);
+
+    res.status(result.success ? 200 : 400).json(result);
+  },
+);
+
+// GET /api/inventory/stock-adjustments?productId=123 — audit history for one
+// product, or the most recent adjustments across all products when
+// productId is omitted.
+router.get("/stock-adjustments", (req, res) => {
+  const productIdRaw = req.query.productId;
+  let productId: number | undefined;
+  if (productIdRaw != null) {
+    productId = Number(productIdRaw);
+    if (!Number.isFinite(productId)) {
+      res.status(400).json({ success: false, error: "Invalid productId" });
+      return;
+    }
   }
 
-  const quantity = Number(req.body?.quantity);
-  const delta = req.body?.delta != null ? Number(req.body.delta) : null;
-
   const service = getInventoryService();
-  const result =
-    delta != null && Number.isFinite(delta)
-      ? service.adjustStockDelta(id, delta)
-      : service.adjustStock(id, quantity);
-
-  res.status(result.success ? 200 : 400).json(result);
+  const adjustments = service.getStockAdjustments(productId);
+  res.json(createSuccessResponse({ adjustments }));
 });
 
 export default router;

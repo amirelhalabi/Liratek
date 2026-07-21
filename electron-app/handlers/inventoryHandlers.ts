@@ -263,29 +263,64 @@ export function registerInventoryHandlers(): void {
   // Stock Management (Admin only)
   // ---------------------------------------------------------------------------
 
-  // Adjust stock (absolute set)
+  // Adjust stock — absolute set (newQuantity) or delta, always with a reason
+  // (LIRA-077 audit trail). userId is injected from the authenticated
+  // session, never trusted from the payload (rule 19c).
   ipcMain.handle(
     "inventory:adjust-stock",
-    (e, id: number, newQuantity: number) => {
+    (
+      e,
+      payload: {
+        id: number;
+        newQuantity?: number;
+        delta?: number;
+        reason: string;
+      },
+    ) => {
       // Auth check
+      let userId: number | null = null;
       try {
         const auth = requireRole(e.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
+        userId = auth.userId;
       } catch {}
 
       // Validation
-      const v = validatePayload(StockAdjustSchema, { id, newQuantity });
+      const v = validatePayload(StockAdjustSchema, payload);
       if (!v.ok) return { success: false, error: v.error };
+      const { id, newQuantity, delta, reason } = v.data;
 
-      const result = service.adjustStock(v.data.id, v.data.newQuantity);
+      const result =
+        delta !== undefined
+          ? service.adjustStockDelta(id, delta, reason, userId)
+          : service.adjustStock(id, newQuantity as number, reason, userId);
+
       audit(e.sender.id, {
         action: "update",
         entity_type: "product",
-        entity_id: String(v.data.id),
-        summary: `Adjusted stock for product #${v.data.id} to ${v.data.newQuantity}`,
-        new_values: { stock_quantity: v.data.newQuantity },
+        entity_id: String(id),
+        summary:
+          delta !== undefined
+            ? `Adjusted stock for product #${id} by ${delta > 0 ? "+" : ""}${delta} (${reason})`
+            : `Adjusted stock for product #${id} to ${newQuantity} (${reason})`,
+        new_values: { newQuantity, delta, reason },
       });
       return result;
+    },
+  );
+
+  // Stock adjustment audit history — one product, or the most recent across
+  // all products when productId is omitted. Read-only: raw array, no
+  // {success,data} envelope (mirrors getLowStockProducts/getNegativeStock).
+  ipcMain.handle(
+    "inventory:get-stock-adjustments",
+    (_event, productId?: number) => {
+      try {
+        return service.getStockAdjustments(productId);
+      } catch (error) {
+        inventoryLogger.error({ error }, "Failed to get stock adjustments");
+        return [];
+      }
     },
   );
 

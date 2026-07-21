@@ -12,6 +12,7 @@ import {
 } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { getStockAdjustmentRepository } from "./StockAdjustmentRepository.js";
 
 // =============================================================================
 // Types
@@ -472,17 +473,50 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   }
 
   /**
-   * Adjust stock quantity (set to absolute value)
+   * Adjust stock quantity (set to absolute value).
+   *
+   * LIRA-077: writes a `stock_adjustments` audit row (old/new quantity,
+   * delta, reason, acting user) in the SAME db transaction as the
+   * stock_quantity UPDATE — repo-level transaction so a mid-failure can
+   * never leave the audit trail out of sync with the actual quantity
+   * (rule 13/20 discipline: services never touch the DB, this is where the
+   * atomicity lives).
    */
-  adjustStock(id: number, newQuantity: number): boolean {
+  adjustStock(
+    id: number,
+    newQuantity: number,
+    reason: string,
+    userId: number | null,
+  ): boolean {
     try {
-      const result = this.execute(
-        `UPDATE ${this.tableName} SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
-        newQuantity,
-        id,
-        getCurrentTenantId(),
-      );
-      return result.changes > 0;
+      const tenantId = getCurrentTenantId();
+      return this.transaction(() => {
+        const current = this.db
+          .prepare(
+            `SELECT stock_quantity FROM ${this.tableName} WHERE id = ? AND tenant_id = ?`,
+          )
+          .get(id, tenantId) as { stock_quantity: number } | undefined;
+        if (!current) return false;
+
+        const oldQuantity = current.stock_quantity;
+        const result = this.execute(
+          `UPDATE ${this.tableName} SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
+          newQuantity,
+          id,
+          tenantId,
+        );
+        if (result.changes > 0) {
+          getStockAdjustmentRepository().create({
+            product_id: id,
+            delta: newQuantity - oldQuantity,
+            old_quantity: oldQuantity,
+            new_quantity: newQuantity,
+            reason,
+            user_id: userId,
+          });
+        }
+        return result.changes > 0;
+      });
     } catch (error) {
       throw new DatabaseError("Failed to adjust stock", {
         cause: error,
@@ -492,17 +526,46 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   }
 
   /**
-   * Increment/decrement stock quantity
+   * Increment/decrement stock quantity.
+   *
+   * LIRA-077: same audit-in-transaction contract as {@link adjustStock}.
    */
-  adjustStockDelta(id: number, delta: number): boolean {
+  adjustStockDelta(
+    id: number,
+    delta: number,
+    reason: string,
+    userId: number | null,
+  ): boolean {
     try {
-      const result = this.execute(
-        `UPDATE ${this.tableName} SET stock_quantity = stock_quantity + ?, updated_at = datetime('now') WHERE id = ? AND is_active = 1 AND is_deleted = 0 AND tenant_id = ?`,
-        delta,
-        id,
-        getCurrentTenantId(),
-      );
-      return result.changes > 0;
+      const tenantId = getCurrentTenantId();
+      return this.transaction(() => {
+        const current = this.db
+          .prepare(
+            `SELECT stock_quantity FROM ${this.tableName} WHERE id = ? AND is_active = 1 AND is_deleted = 0 AND tenant_id = ?`,
+          )
+          .get(id, tenantId) as { stock_quantity: number } | undefined;
+        if (!current) return false;
+
+        const oldQuantity = current.stock_quantity;
+        const newQuantity = oldQuantity + delta;
+        const result = this.execute(
+          `UPDATE ${this.tableName} SET stock_quantity = stock_quantity + ?, updated_at = datetime('now') WHERE id = ? AND is_active = 1 AND is_deleted = 0 AND tenant_id = ?`,
+          delta,
+          id,
+          tenantId,
+        );
+        if (result.changes > 0) {
+          getStockAdjustmentRepository().create({
+            product_id: id,
+            delta,
+            old_quantity: oldQuantity,
+            new_quantity: newQuantity,
+            reason,
+            user_id: userId,
+          });
+        }
+        return result.changes > 0;
+      });
     } catch (error) {
       throw new DatabaseError("Failed to adjust stock delta", {
         cause: error,

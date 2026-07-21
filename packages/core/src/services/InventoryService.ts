@@ -14,12 +14,15 @@
 import {
   ProductRepository,
   getProductRepository,
+  StockAdjustmentRepository,
+  getStockAdjustmentRepository,
   type ProductDTO,
   type CreateProductData,
   type UpdateProductData,
   type StockStats,
   type LowStockProduct,
   type NegativeStockProduct,
+  type StockAdjustmentWithUser,
 } from "../repositories/index.js";
 import { ValidationError, NotFoundError } from "../utils/errors.js";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors.js";
@@ -52,9 +55,15 @@ export interface StockAdjustmentResult {
 
 export class InventoryService {
   private productRepo: ProductRepository;
+  private stockAdjustmentRepo: StockAdjustmentRepository;
 
-  constructor(productRepo?: ProductRepository) {
+  constructor(
+    productRepo?: ProductRepository,
+    stockAdjustmentRepo?: StockAdjustmentRepository,
+  ) {
     this.productRepo = productRepo ?? getProductRepository();
+    this.stockAdjustmentRepo =
+      stockAdjustmentRepo ?? getStockAdjustmentRepository();
   }
 
   // ---------------------------------------------------------------------------
@@ -321,18 +330,41 @@ export class InventoryService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Set stock to absolute value
+   * Set stock to absolute value.
+   *
+   * LIRA-077: `reason` and `userId` are required — every manual correction
+   * is written to the `stock_adjustments` audit trail (ProductRepository
+   * owns the repo-level transaction; this service never touches the DB).
+   * `userId` is null only when the caller genuinely couldn't attribute one
+   * (e.g. auth lookup failed) — the FK is ON DELETE SET NULL, so the column
+   * itself is nullable, but every real caller should supply a userId.
    */
-  adjustStock(id: number, newQuantity: number): StockAdjustmentResult {
+  adjustStock(
+    id: number,
+    newQuantity: number,
+    reason: string,
+    userId: number | null,
+  ): StockAdjustmentResult {
     if (!id) {
       return { success: false, error: "Product ID required" };
     }
     if (newQuantity < 0) {
       return { success: false, error: "Stock quantity cannot be negative" };
     }
+    if (!reason?.trim()) {
+      return { success: false, error: "Reason is required" };
+    }
 
     try {
-      this.productRepo.adjustStock(id, newQuantity);
+      const changed = this.productRepo.adjustStock(
+        id,
+        newQuantity,
+        reason.trim(),
+        userId ?? null,
+      );
+      if (!changed) {
+        return { success: false, error: "Product not found" };
+      }
       return { success: true };
     } catch (error) {
       return { success: false, error: toErrorString(error) };
@@ -340,19 +372,48 @@ export class InventoryService {
   }
 
   /**
-   * Increment or decrement stock by a delta
+   * Increment or decrement stock by a delta.
+   *
+   * LIRA-077: same reason/userId + audit-trail contract as {@link adjustStock}.
    */
-  adjustStockDelta(id: number, delta: number): StockAdjustmentResult {
+  adjustStockDelta(
+    id: number,
+    delta: number,
+    reason: string,
+    userId: number | null,
+  ): StockAdjustmentResult {
     if (!id) {
       return { success: false, error: "Product ID required" };
     }
+    if (!reason?.trim()) {
+      return { success: false, error: "Reason is required" };
+    }
 
     try {
-      this.productRepo.adjustStockDelta(id, delta);
+      const changed = this.productRepo.adjustStockDelta(
+        id,
+        delta,
+        reason.trim(),
+        userId ?? null,
+      );
+      if (!changed) {
+        return { success: false, error: "Product not found" };
+      }
       return { success: true };
     } catch (error) {
       return { success: false, error: toErrorString(error) };
     }
+  }
+
+  /**
+   * Stock adjustment audit history — scoped to one product, or the most
+   * recent adjustments across all products when productId is omitted.
+   */
+  getStockAdjustments(productId?: number): StockAdjustmentWithUser[] {
+    if (productId) {
+      return this.stockAdjustmentRepo.getByProduct(productId);
+    }
+    return this.stockAdjustmentRepo.getRecent();
   }
 
   /**

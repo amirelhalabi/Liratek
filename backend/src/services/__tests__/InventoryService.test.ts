@@ -373,20 +373,25 @@ describe("InventoryService", () => {
     it("adjusts stock to absolute value", () => {
       mockRepo.adjustStock.mockReturnValue(true);
 
-      const result = service.adjustStock(1, 50);
+      const result = service.adjustStock(1, 50, "Physical recount", 3);
 
-      expect(mockRepo.adjustStock).toHaveBeenCalledWith(1, 50);
+      expect(mockRepo.adjustStock).toHaveBeenCalledWith(
+        1,
+        50,
+        "Physical recount",
+        3,
+      );
       expect(result).toEqual({ success: true });
     });
 
     it("returns error for missing product ID", () => {
-      const result = service.adjustStock(0, 50);
+      const result = service.adjustStock(0, 50, "recount", 1);
 
       expect(result).toEqual({ success: false, error: "Product ID required" });
     });
 
     it("returns error for negative quantity", () => {
-      const result = service.adjustStock(1, -10);
+      const result = service.adjustStock(1, -10, "recount", 1);
 
       expect(result).toEqual({
         success: false,
@@ -394,12 +399,19 @@ describe("InventoryService", () => {
       });
     });
 
+    it("returns error for a missing reason (LIRA-077 audit trail)", () => {
+      const result = service.adjustStock(1, 50, "   ", 1);
+
+      expect(result).toEqual({ success: false, error: "Reason is required" });
+      expect(mockRepo.adjustStock).not.toHaveBeenCalled();
+    });
+
     it("handles repository error", () => {
       mockRepo.adjustStock.mockImplementation(() => {
         throw new Error("DB error");
       });
 
-      const result = service.adjustStock(1, 50);
+      const result = service.adjustStock(1, 50, "recount", 1);
 
       expect(result).toEqual({ success: false, error: "DB error" });
     });
@@ -409,25 +421,42 @@ describe("InventoryService", () => {
     it("increments stock", () => {
       mockRepo.adjustStockDelta.mockReturnValue(true);
 
-      const result = service.adjustStockDelta(1, 10);
+      const result = service.adjustStockDelta(1, 10, "Restock delivery", 3);
 
-      expect(mockRepo.adjustStockDelta).toHaveBeenCalledWith(1, 10);
+      expect(mockRepo.adjustStockDelta).toHaveBeenCalledWith(
+        1,
+        10,
+        "Restock delivery",
+        3,
+      );
       expect(result).toEqual({ success: true });
     });
 
     it("decrements stock", () => {
       mockRepo.adjustStockDelta.mockReturnValue(true);
 
-      const result = service.adjustStockDelta(1, -5);
+      const result = service.adjustStockDelta(1, -5, "Damaged units", 3);
 
-      expect(mockRepo.adjustStockDelta).toHaveBeenCalledWith(1, -5);
+      expect(mockRepo.adjustStockDelta).toHaveBeenCalledWith(
+        1,
+        -5,
+        "Damaged units",
+        3,
+      );
       expect(result).toEqual({ success: true });
     });
 
     it("returns error for missing product ID", () => {
-      const result = service.adjustStockDelta(0, 10);
+      const result = service.adjustStockDelta(0, 10, "recount", 1);
 
       expect(result).toEqual({ success: false, error: "Product ID required" });
+    });
+
+    it("returns error for a missing reason (LIRA-077 audit trail)", () => {
+      const result = service.adjustStockDelta(1, 10, "", 1);
+
+      expect(result).toEqual({ success: false, error: "Reason is required" });
+      expect(mockRepo.adjustStockDelta).not.toHaveBeenCalled();
     });
   });
 

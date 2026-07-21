@@ -10,11 +10,13 @@ import {
   Upload,
   X,
   Layers,
+  PackagePlus,
 } from "lucide-react";
 import { PageHeader, useApi, appEvents } from "@liratek/ui";
 import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
 import { DataTable, ConfirmModal } from "@liratek/ui";
+import AdjustStockModal from "../../components/AdjustStockModal";
 
 interface BatchUpdateFields {
   category?: string;
@@ -156,6 +158,9 @@ export default function ProductList() {
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(
+    null,
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -837,6 +842,16 @@ export default function ProductList() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        setAdjustingProduct(product);
+                      }}
+                      className="p-2 text-slate-400 hover:text-violet-400 hover:bg-violet-400/10 rounded transition-colors"
+                      title="Adjust stock"
+                    >
+                      <PackagePlus size={16} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         handleEdit(product);
                       }}
                       className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
@@ -991,6 +1006,19 @@ export default function ProductList() {
           product={editingProduct}
           onMinimize={handleMinimizeProduct}
           initialFormData={initialFormData}
+        />
+      )}
+
+      {adjustingProduct && (
+        <AdjustStockModal
+          product={adjustingProduct}
+          onClose={() => setAdjustingProduct(null)}
+          onSuccess={() => {
+            setAdjustingProduct(null);
+            loadProducts();
+            // Windows focus fix
+            window.api?.display?.fixFocus();
+          }}
         />
       )}
 
