@@ -10,6 +10,19 @@
 export interface ItemPricing {
   cost: string;
   sell: string;
+  /**
+   * Structured validity (days) — LIRA W6.b. Only mtc Prepaid card items carry
+   * this; omitted everywhere else. Seeded straight into
+   * `mobile_service_items.validity_days` by parseCatalogToSeedData so a
+   * fresh install shows the same structured data migration v135 backfills
+   * for upgraded shops (see that migration's description for the full
+   * derivation — same numbers, same source: the old verbose "N days $X"
+   * labels this catalog dropped under the A1/LIRA-072 card-face-value rename).
+   */
+  validity_days?: number;
+  /** Structured credit amount (USD) — LIRA W6.b. Mutually exclusive with
+   *  validity_days on every card that carries one of the two. */
+  credits?: number;
 }
 export type ServiceItems = Record<string, ItemPricing> | string[];
 export type ServiceSubcategory = ServiceItems | Record<string, ServiceItems>;
@@ -76,6 +89,13 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
     },
     mtc: {
       Credits: {
+        // NOT renamed under A1 (reviewed 2026-07-19, LIRA-072 follow-up):
+        // cost/sell scale linearly with the dollar figure (cost = 93,333.33
+        // LBP/$, sell = 50,000 LBP/$), unlike Prepaid's fixed odd-numbered
+        // card denominations (3.03/4.5/7.58/…). No card-face-value precedent
+        // exists for this category anywhere else in the catalog — looks like
+        // a direct credit top-up rather than a physical card. Leave as-is
+        // pending owner confirmation.
         "3$": { cost: "280000", sell: "150000" },
         "6$": { cost: "560000", sell: "300000" },
         "9$": { cost: "840000", sell: "450000" },
@@ -83,6 +103,12 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         "15$": { cost: "1400000", sell: "750000" },
       },
       Validity: {
+        // NOT renamed under A1 (reviewed 2026-07-19, LIRA-072 follow-up):
+        // day-count validity extensions, not physical cards — cost scales
+        // linearly with days (65,000 LBP per 10-day unit). Matches the
+        // untouched top-level "Validity vouchers" category from the same
+        // 2026-07-03 (A1) commit, which also kept its day-count labels.
+        // Leave as-is pending owner confirmation.
         "10 days": { cost: "65000", sell: "100000" },
         "30 days": { cost: "195000", sell: "250000" },
         "60 days": { cost: "390000", sell: "450000" },
@@ -91,16 +117,24 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         "360 days": { cost: "2340000", sell: "2500000" },
       },
       Prepaid: {
-        "credit only 1$": { cost: "120000", sell: "150000" },
-        "credit only 1.67$": { cost: "186000", sell: "220000" },
-        "10 days 3.79$": { cost: "379000", sell: "430000" },
-        "30 days 4.5$": { cost: "450000", sell: "520000" },
-        "30 days 7.58$": { cost: "758000", sell: "850000" },
-        "30 days 10$": { cost: "1000000", sell: "1100000" },
-        "60 days 15.15$": { cost: "1526000", sell: "1650000" },
-        "90 days 22.73$": { cost: "2273000", sell: "2450000" },
-        "365 days 77.28$": { cost: "7728000", sell: "8200000" },
-        "start 4.5$": { cost: "450000", sell: "520000" },
+        // Named by the CARD FACE VALUE (what's printed on the card), with
+        // the day-count/"credit only" descriptor prefix dropped — owner
+        // decision 2026-07-03 (A1), applied to iPick mtc 2026-07-19
+        // (LIRA-072 follow-up). The dollar figure already embedded in each
+        // old label matched the face values owner-confirmed for Katsh/
+        // WHISH_APP mtc Prepaid (migration v117) — only the descriptor
+        // prefix is new information here, not the number. Costs/sells
+        // unchanged.
+        "1": { cost: "120000", sell: "150000", credits: 1 },
+        "1.67": { cost: "186000", sell: "220000", credits: 1.67 },
+        "3.79": { cost: "379000", sell: "430000", validity_days: 10 },
+        "4.5": { cost: "450000", sell: "520000", validity_days: 30 },
+        "7.58": { cost: "758000", sell: "850000", validity_days: 30 },
+        "10": { cost: "1000000", sell: "1100000", validity_days: 30 },
+        "15.15": { cost: "1526000", sell: "1650000", validity_days: 60 },
+        "22.73": { cost: "2273000", sell: "2450000", validity_days: 90 },
+        "77.28": { cost: "7728000", sell: "8200000", validity_days: 365 },
+        start: { cost: "450000", sell: "520000" },
       },
     },
     internet: {
@@ -329,15 +363,15 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
       Prepaid: {
         // Named by the CARD FACE VALUE (what's printed on the card), not the
         // sell price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
-        "1": { cost: "119617", sell: "150000" },
-        "1.67": { cost: "186071", sell: "235000" },
-        "3.79": { cost: "398723", sell: "440000" },
-        "4.5": { cost: "462518", sell: "500000" },
-        "7.58": { cost: "765007", sell: "800000" },
-        "10": { cost: "1003274 ", sell: "1100000" },
-        "15.15": { cost: "1509829", sell: "1600000" },
-        "22.73": { cost: "2255883", sell: "2400000" },
-        "77.28": { cost: "7620030", sell: "8000000" },
+        "1": { cost: "119617", sell: "150000", credits: 1 },
+        "1.67": { cost: "186071", sell: "235000", credits: 1.67 },
+        "3.79": { cost: "398723", sell: "440000", validity_days: 10 },
+        "4.5": { cost: "462518", sell: "500000", validity_days: 30 },
+        "7.58": { cost: "765007", sell: "800000", validity_days: 30 },
+        "10": { cost: "1003274 ", sell: "1100000", validity_days: 30 },
+        "15.15": { cost: "1509829", sell: "1600000", validity_days: 60 },
+        "22.73": { cost: "2255883", sell: "2400000", validity_days: 90 },
+        "77.28": { cost: "7620030", sell: "8000000", validity_days: 365 },
         start: { cost: "464290", sell: "500000" },
         startSOS: { cost: "141768", sell: "2000000" },
         smart: { cost: "765547", sell: "800000" },
@@ -532,15 +566,15 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
       Prepaid: {
         // Named by the CARD FACE VALUE (what's printed on the card), not the
         // sell price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
-        "1": { cost: "119617", sell: "150000" },
-        "1.67": { cost: "186071", sell: "235000" },
-        "3.79": { cost: "398723", sell: "440000" },
-        "4.5": { cost: "462518", sell: "500000" },
-        "7.58": { cost: "765007", sell: "800000" },
-        "10": { cost: "1003274 ", sell: "1100000" },
-        "15.15": { cost: "1509829", sell: "1600000" },
-        "22.73": { cost: "2255883", sell: "2400000" },
-        "77.28": { cost: "7620030", sell: "8000000" },
+        "1": { cost: "119617", sell: "150000", credits: 1 },
+        "1.67": { cost: "186071", sell: "235000", credits: 1.67 },
+        "3.79": { cost: "398723", sell: "440000", validity_days: 10 },
+        "4.5": { cost: "462518", sell: "500000", validity_days: 30 },
+        "7.58": { cost: "765007", sell: "800000", validity_days: 30 },
+        "10": { cost: "1003274 ", sell: "1100000", validity_days: 30 },
+        "15.15": { cost: "1509829", sell: "1600000", validity_days: 60 },
+        "22.73": { cost: "2255883", sell: "2400000", validity_days: 90 },
+        "77.28": { cost: "7620030", sell: "8000000", validity_days: 365 },
         start: { cost: "464290", sell: "500000" },
         startSOS: { cost: "141768", sell: "2000000" },
         smart: { cost: "765547", sell: "800000" },

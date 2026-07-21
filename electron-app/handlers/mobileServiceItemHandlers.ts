@@ -14,6 +14,10 @@ import {
 import { financialLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import {
+  validatePayload,
+  MobileServiceItemUpdateSchema,
+} from "../schemas/index.js";
 
 export function registerMobileServiceItemHandlers(): void {
   const service = getMobileServiceItemService();
@@ -170,7 +174,17 @@ export function registerMobileServiceItemHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) throw new Error(auth.error);
 
-        const result = service.update(id, data);
+        // W6.b: validated against the SAME schema the REST mirror uses
+        // (rule 14/19) — closes the pre-existing missing-Zod gap on this
+        // specific (now dual-transport) path.
+        const v = validatePayload(MobileServiceItemUpdateSchema, {
+          ...data,
+          id,
+        });
+        if (!v.ok) return { success: false, error: v.error };
+        const { id: _id, ...validatedData } = v.data;
+
+        const result = service.update(id, validatedData);
         audit(e.sender.id, {
           action: "update",
           entity_type: "mobile_service_item",

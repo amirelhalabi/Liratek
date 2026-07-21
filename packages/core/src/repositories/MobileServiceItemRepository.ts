@@ -23,6 +23,10 @@ export interface MobileServiceItemEntity {
   sell_lbp: number;
   sort_order: number;
   is_active: number;
+  /** Structured validity (days) — LIRA W6.b. Null when not applicable. */
+  validity_days: number | null;
+  /** Structured credit amount (USD) — LIRA W6.b. Null when not applicable. */
+  credits: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -36,6 +40,8 @@ export interface CreateMobileServiceItemData {
   sell_lbp: number;
   sort_order?: number;
   is_active?: number;
+  validity_days?: number | null;
+  credits?: number | null;
 }
 
 export interface UpdateMobileServiceItemData {
@@ -44,6 +50,8 @@ export interface UpdateMobileServiceItemData {
   sell_lbp?: number;
   sort_order?: number;
   is_active?: number;
+  validity_days?: number | null;
+  credits?: number | null;
 }
 
 // =============================================================================
@@ -56,7 +64,7 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
   }
 
   protected getColumns(): string {
-    return "id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, created_at, updated_at";
+    return "id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, created_at, updated_at";
   }
 
   /**
@@ -154,8 +162,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
   createItem(data: CreateMobileServiceItemData): MobileServiceItemEntity {
     const stmt = this.db.prepare(
       `INSERT INTO mobile_service_items
-       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
     const result = stmt.run(
       data.provider,
@@ -166,6 +174,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
       data.sell_lbp,
       data.sort_order ?? 0,
       data.is_active ?? 1,
+      data.validity_days ?? null,
+      data.credits ?? null,
       getCurrentTenantId(),
     );
     return this.getById(result.lastInsertRowid as number)!;
@@ -179,7 +189,7 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     data: UpdateMobileServiceItemData,
   ): MobileServiceItemEntity | null {
     const sets: string[] = [];
-    const values: (string | number)[] = [];
+    const values: (string | number | null)[] = [];
 
     if (data.label !== undefined) {
       sets.push("label = ?");
@@ -200,6 +210,14 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     if (data.is_active !== undefined) {
       sets.push("is_active = ?");
       values.push(data.is_active);
+    }
+    if (data.validity_days !== undefined) {
+      sets.push("validity_days = ?");
+      values.push(data.validity_days);
+    }
+    if (data.credits !== undefined) {
+      sets.push("credits = ?");
+      values.push(data.credits);
     }
 
     if (sets.length === 0) return this.getById(id);
@@ -250,8 +268,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     const tenantId = getCurrentTenantId();
     const stmt = this.db.prepare(
       `INSERT OR IGNORE INTO mobile_service_items
-       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
 
     let inserted = 0;
@@ -267,6 +285,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
             item.sell_lbp,
             item.sort_order ?? 0,
             item.is_active ?? 1,
+            item.validity_days ?? null,
+            item.credits ?? null,
             tenantId,
           );
           if (result.changes > 0) inserted++;

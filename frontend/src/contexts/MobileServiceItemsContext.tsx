@@ -31,6 +31,10 @@ export interface ServiceItem {
   savedCost?: number;
   imageData?: string;
   sortOrder: number;
+  /** Structured validity (days) — LIRA W6.b. Undefined when not applicable. */
+  validityDays?: number;
+  /** Structured credit amount (USD) — LIRA W6.b. Undefined when not applicable. */
+  credits?: number;
 }
 
 interface ItemCostRow {
@@ -169,6 +173,10 @@ export function MobileServiceItemsProvider({
       catalogCost: item.cost_lbp,
       catalogSellPrice: item.sell_lbp,
       sortOrder: item.sort_order,
+      ...(item.validity_days != null
+        ? { validityDays: item.validity_days }
+        : {}),
+      ...(item.credits != null ? { credits: item.credits } : {}),
     }));
 
     if (!itemCosts.length && !voucherImages.length) return baseItems;

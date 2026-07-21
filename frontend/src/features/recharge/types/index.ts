@@ -49,6 +49,11 @@ export interface FinancialTransaction {
   edited_at?: string | null;
   /** The auto-calculated default price before any manual override (theft detection) */
   default_price_to_client?: number | null;
+  /** LIRA-069 W1.c — set for card-grid catalog items/bills (Katsh/iPick/Whish
+   *  App Bills), null for a plain SEND/RECEIVE transfer. Already selected by
+   *  the repository's standard column list; just wasn't typed here before.
+   *  Drives the History-modal Print button's receipt gating. */
+  item_key?: string | null;
 }
 
 export interface BinanceTransaction {

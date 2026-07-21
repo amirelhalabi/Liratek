@@ -30,6 +30,9 @@ jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
   useApi: () => ({
     getRates: mockGetRates,
+    // useAutoPrintReceipt (LIRA-069 W1.d) pulls shop info via useShopInfo(),
+    // which calls this on mount.
+    getAllSettings: jest.fn().mockResolvedValue([]),
   }),
 }));
 

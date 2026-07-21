@@ -16,6 +16,9 @@ export interface SeedItem {
   cost_lbp: number;
   sell_lbp: number;
   sort_order: number;
+  /** Structured validity (days) / credit amount — LIRA W6.b. */
+  validity_days?: number;
+  credits?: number;
 }
 
 /** Map of provider keys in mobileServices.ts → canonical DB provider name */
@@ -89,6 +92,12 @@ export function parseCatalogToSeedData(): SeedItem[] {
                 cost_lbp: Number(obj.cost),
                 sell_lbp: Number(obj.sell),
                 sort_order: globalSortOrder++,
+                ...(typeof obj.validity_days === "number"
+                  ? { validity_days: obj.validity_days }
+                  : {}),
+                ...(typeof obj.credits === "number"
+                  ? { credits: obj.credits }
+                  : {}),
               });
             } else {
               // One level deeper — group of items

@@ -14,6 +14,7 @@ import {
 } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import {
   ForPartnerToggle,
@@ -191,6 +192,22 @@ const ItemCard = memo(function ItemCard({
               {sellPrice.toLocaleString()} LBP
             </span>
           </div>
+          {/* W6.b: structured validity/credits, when present on the catalog
+              row. Not shown at checkout, not on receipts — display-only here. */}
+          {(item.validityDays != null || item.credits != null) && (
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-[10px] text-slate-500">
+                {item.validityDays != null
+                  ? `${item.validityDays}d validity`
+                  : "Credit only"}
+              </span>
+              {item.credits != null && (
+                <span className="text-[10px] text-slate-500 font-mono">
+                  ${item.credits}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -304,6 +321,11 @@ function KatchFormInner({
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
+  // LIRA-069 W1.d — auto-print on a successful STANDALONE submit (skipped
+  // when a session is active; the session gets its own Print button at
+  // checkout, W1.b). Never fires from handleForPartnerSubmit — a partner
+  // order collects no cash from a walk-in customer, so there's no receipt.
+  const autoPrintReceipt = useAutoPrintReceipt();
   const [cart, setCart] = useState<Map<string, CartLineItem>>(new Map());
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
@@ -972,8 +994,26 @@ function KatchFormInner({
         ? { usd: checkoutTotalNative, lbp: 0 }
         : { usd: 0, lbp: checkoutTotalNative };
 
+    // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): stamp ONE shared uuid
+    // across every unit of a multi-unit checkout (the aggregated items SEND,
+    // plus each bill) so the void path can find and guard the whole group —
+    // voiding a single unit alone would leave the checkout's money non-zero
+    // (the carrier owns ALL the legs; siblings only defer cost/commission).
+    // Only when there's an actual carrier (paymentsPayload !== undefined) —
+    // a no-legs checkout (session-deferred mode) never hits this asymmetry.
+    // Single-unit checkouts get no split metadata (no noise).
+    const totalCheckoutUnits = (cart.size > 0 ? 1 : 0) + pendingBills.length;
+    const useSplitGroup =
+      totalCheckoutUnits > 1 && paymentsPayload !== undefined;
+    const splitGroupId = useSplitGroup ? crypto.randomUUID() : undefined;
+
     // true when there are no catalog items to process (bill-only flow)
     let allSucceeded = cart.size === 0;
+    // LIRA-069 W1.d — the carrier is the one transaction whose payment legs
+    // (and therefore whose printed receipt) actually reflect what the
+    // customer paid; siblings are deferPayment (no legs) so printing one of
+    // THOSE would show no payment lines at all.
+    let carrierSourceId: number | undefined;
 
     if (cart.size > 0) {
       const cartItems = Array.from(cart.values());
@@ -1045,6 +1085,17 @@ function KatchFormInner({
                 kept_change_lbp: keptChange.lbp,
               }
             : {}),
+          // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): the aggregated items
+          // call is always the checkout's carrier when it exists (bills only
+          // ever carry legs when there are NO items — see itemsCarriedLegs
+          // below).
+          ...(useSplitGroup
+            ? {
+                split_group: splitGroupId,
+                split_role: "carrier" as const,
+                split_units: totalCheckoutUnits,
+              }
+            : {}),
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
           note,
@@ -1053,6 +1104,7 @@ function KatchFormInner({
 
         if (result?.success) {
           allSucceeded = true;
+          carrierSourceId = result.id;
           if (activeSession && result.id) {
             try {
               await linkTransaction({
@@ -1119,11 +1171,24 @@ function KatchFormInner({
                 }
               : {}),
             deferPayment: isCarrier ? undefined : true,
+            // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — see the items
+            // branch above for the full rationale.
+            ...(useSplitGroup
+              ? {
+                  split_group: splitGroupId,
+                  split_role: isCarrier
+                    ? ("carrier" as const)
+                    : ("sibling" as const),
+                  split_units: totalCheckoutUnits,
+                }
+              : {}),
             clientId: resolvedClientId || undefined,
             clientName: clientName || undefined,
             transaction_time: transactionTime,
           });
-          if (!billResult?.success) {
+          if (billResult?.success) {
+            if (isCarrier) carrierSourceId = billResult.id;
+          } else {
             allSucceeded = false;
             setPendingBills(pendingBills.slice(i));
             logger.error("Bill submit failed:", billResult?.error);
@@ -1149,6 +1214,13 @@ function KatchFormInner({
         "Bills processed successfully",
         "success",
       );
+      void autoPrintReceipt({
+        type: "FINANCIAL_SERVICE",
+        provider: activeProvider,
+        sourceTable: "financial_services",
+        sourceId: carrierSourceId,
+        hasActiveSession: !!activeSession,
+      });
       setCart(new Map());
       setClientName("");
       setClientPhone("");
@@ -1701,6 +1773,8 @@ function KatchFormInner({
           onClose={() => setShowHistory(false)}
           onRefresh={loadFinancialData}
           formatAmount={formatAmount}
+          sourceTable="financial_services"
+          transactionType="FINANCIAL_SERVICE"
           onUpdateMetadata={async (id, data) => {
             const result = await window.api.financial.updateMetadata({
               id,

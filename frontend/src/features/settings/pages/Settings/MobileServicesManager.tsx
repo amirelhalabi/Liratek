@@ -18,7 +18,7 @@ import {
   FolderPlus,
 } from "lucide-react";
 import type { MobileServiceItem } from "@/types/electron";
-import { DecimalInput, Select } from "@liratek/ui";
+import { DecimalInput, Select, useApi } from "@liratek/ui";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
 
 const PROVIDERS = [
@@ -66,6 +66,9 @@ interface EditingState {
   cost_lbp: string;
   sell_lbp: string;
   sort_order: string;
+  /** Structured validity (days) / credits — LIRA W6.b. Empty string = null. */
+  validity_days: string;
+  credits: string;
 }
 
 interface NewItemForm {
@@ -76,6 +79,8 @@ interface NewItemForm {
   cost_lbp: string;
   sell_lbp: string;
   sort_order: string;
+  validity_days: string;
+  credits: string;
 }
 
 const EMPTY_NEW_ITEM: NewItemForm = {
@@ -86,6 +91,8 @@ const EMPTY_NEW_ITEM: NewItemForm = {
   cost_lbp: "",
   sell_lbp: "",
   sort_order: "0",
+  validity_days: "",
+  credits: "",
 };
 
 /** Grouped data structure */
@@ -101,6 +108,7 @@ interface GroupedData {
 }
 
 export default function MobileServicesManager() {
+  const api = useApi();
   const [items, setItems] = useState<MobileServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -136,6 +144,10 @@ export default function MobileServicesManager() {
   } | null>(null);
 
   // ── Load ────────────────────────────────────────────────────────────
+  // Seeding + the admin list read: seeding stays IPC-only (window.api) — a
+  // pre-existing gap in this feature's dual-transport coverage, not
+  // introduced here (see the W6 report). The list + update paths below ARE
+  // dual-transport (LIRA W6.b) since this ticket touches them directly.
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -144,18 +156,14 @@ export default function MobileServicesManager() {
         const seedData = parseCatalogToSeedData();
         await window.api.mobileServiceItems.seed(seedData);
       }
-      const res = await window.api.mobileServiceItems.getAllAdmin();
-      if (res.success) {
-        setItems(res.data ?? []);
-      } else {
-        setError(res.error ?? "Failed to load items");
-      }
+      const data = await api.getAdminMobileServiceItems();
+      setItems(data as unknown as MobileServiceItem[]);
     } catch {
       setError("Failed to load mobile service items");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     load();
@@ -250,11 +258,17 @@ export default function MobileServicesManager() {
       return;
     }
     try {
-      const res = await window.api.mobileServiceItems.update(editing.id, {
+      const res = await api.updateMobileServiceItem(editing.id, {
         label: editing.label.trim(),
         cost_lbp: costLbp,
         sell_lbp: sellLbp,
         sort_order: parseInt(editing.sort_order, 10) || 0,
+        validity_days:
+          editing.validity_days.trim() === ""
+            ? null
+            : parseInt(editing.validity_days, 10),
+        credits:
+          editing.credits.trim() === "" ? null : parseFloat(editing.credits),
       });
       if (!res.success) {
         setError(res.error ?? "Failed to update");
@@ -358,6 +372,14 @@ export default function MobileServicesManager() {
         cost_lbp: costLbp,
         sell_lbp: sellLbp,
         sort_order: parseInt(newItemForm.sort_order, 10) || 0,
+        validity_days:
+          newItemForm.validity_days.trim() === ""
+            ? null
+            : parseInt(newItemForm.validity_days, 10),
+        credits:
+          newItemForm.credits.trim() === ""
+            ? null
+            : parseFloat(newItemForm.credits),
       });
       if (!res.success) {
         setError(res.error ?? "Failed to create item");
@@ -530,6 +552,40 @@ export default function MobileServicesManager() {
                 onChange={(e) =>
                   setNewItemForm({ ...newItemForm, sort_order: e.target.value })
                 }
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-slate-400 text-xs block mb-1">
+                Validity (d)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={newItemForm.validity_days}
+                onChange={(e) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    validity_days: e.target.value,
+                  })
+                }
+                placeholder="—"
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-slate-400 text-xs block mb-1">
+                Credits ($)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={newItemForm.credits}
+                onChange={(e) =>
+                  setNewItemForm({ ...newItemForm, credits: e.target.value })
+                }
+                placeholder="—"
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
@@ -912,14 +968,66 @@ export default function MobileServicesManager() {
                                                   className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
                                                 />
                                               </div>
+                                              <div className="flex items-center gap-1">
+                                                <span className="text-xs text-slate-500">
+                                                  Val(d):
+                                                </span>
+                                                <input
+                                                  type="number"
+                                                  min="0"
+                                                  value={editing.validity_days}
+                                                  onChange={(e) =>
+                                                    setEditing({
+                                                      ...editing,
+                                                      validity_days:
+                                                        e.target.value,
+                                                    })
+                                                  }
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === "Enter")
+                                                      handleSaveEdit();
+                                                    if (e.key === "Escape")
+                                                      setEditing(null);
+                                                  }}
+                                                  placeholder="—"
+                                                  className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                />
+                                              </div>
+                                              <div className="flex items-center gap-1">
+                                                <span className="text-xs text-slate-500">
+                                                  Cred($):
+                                                </span>
+                                                <input
+                                                  type="number"
+                                                  step="0.01"
+                                                  min="0"
+                                                  value={editing.credits}
+                                                  onChange={(e) =>
+                                                    setEditing({
+                                                      ...editing,
+                                                      credits: e.target.value,
+                                                    })
+                                                  }
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === "Enter")
+                                                      handleSaveEdit();
+                                                    if (e.key === "Escape")
+                                                      setEditing(null);
+                                                  }}
+                                                  placeholder="—"
+                                                  className="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                />
+                                              </div>
                                               <button
                                                 onClick={handleSaveEdit}
+                                                aria-label="Save item"
                                                 className="text-emerald-400 hover:text-emerald-300 p-1 transition-colors"
                                               >
                                                 <Check size={13} />
                                               </button>
                                               <button
                                                 onClick={() => setEditing(null)}
+                                                aria-label="Cancel edit"
                                                 className="text-slate-500 hover:text-slate-300 p-1 transition-colors"
                                               >
                                                 <X size={13} />
@@ -961,6 +1069,16 @@ export default function MobileServicesManager() {
                                               >
                                                 P: {profit.toLocaleString()}
                                               </span>
+                                              {item.validity_days != null && (
+                                                <span className="text-[10px] text-slate-500">
+                                                  {item.validity_days}d
+                                                </span>
+                                              )}
+                                              {item.credits != null && (
+                                                <span className="text-[10px] text-slate-500">
+                                                  ${item.credits} credit
+                                                </span>
+                                              )}
                                             </div>
                                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                               <button
@@ -986,6 +1104,16 @@ export default function MobileServicesManager() {
                                                       item.sell_lbp.toString(),
                                                     sort_order:
                                                       item.sort_order.toString(),
+                                                    validity_days:
+                                                      item.validity_days != null
+                                                        ? String(
+                                                            item.validity_days,
+                                                          )
+                                                        : "",
+                                                    credits:
+                                                      item.credits != null
+                                                        ? String(item.credits)
+                                                        : "",
                                                   })
                                                 }
                                                 className="text-slate-500 hover:text-blue-400 p-1 transition-colors"
