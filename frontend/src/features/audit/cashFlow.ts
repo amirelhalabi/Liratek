@@ -130,6 +130,7 @@ export function getCashFlowDirection(
     case "SUPPLIER_SETTLEMENT":
     case "CREDIT_CASH_OUT": // shop pays the client their credit
     case "DEBT_CASH_OUT": // shop hands the client a cash advance (new debt)
+    case "DRAWER_CASHOUT": // owner's draw — cash physically leaves the General drawer
       return "out";
     case "EXCHANGE":
       return "both";

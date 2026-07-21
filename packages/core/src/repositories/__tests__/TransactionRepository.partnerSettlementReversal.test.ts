@@ -176,7 +176,11 @@ function forPosRow(
     .get(partnerId) as { amount: number; covered_amount: number };
 }
 
-function drawerBalance(db: Database.Database, drawer: string, ccy = "USD"): number {
+function drawerBalance(
+  db: Database.Database,
+  drawer: string,
+  ccy = "USD",
+): number {
   const row = db
     .prepare(
       `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
@@ -185,18 +189,24 @@ function drawerBalance(db: Database.Database, drawer: string, ccy = "USD"): numb
   return row?.balance ?? 0;
 }
 
-function seedForPos(db: Database.Database, partnerId: number, amount: number): void {
+function seedForPos(
+  db: Database.Database,
+  partnerId: number,
+  amount: number,
+): void {
   db.prepare(
     `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id)
      VALUES (?, 'FOR_POS', 'sales', 1, ?, 'USD', 'DEBIT', 1)`,
   ).run(partnerId, amount);
 }
 
-function discountTxnRow(db: Database.Database): {
-  id: number;
-  profit_usd: number;
-  status: string;
-} | undefined {
+function discountTxnRow(db: Database.Database):
+  | {
+      id: number;
+      profit_usd: number;
+      status: string;
+    }
+  | undefined {
   return db
     .prepare(
       `SELECT id, profit_usd, status FROM transactions
@@ -307,7 +317,9 @@ describe("LIRA-085 — PARTNER_SETTLEMENT / PARTNER_PAYMENT reversal", () => {
     it("second VOID is blocked (already voided)", () => {
       const txnId = makeSettlement();
       txnRepo.voidTransaction(txnId, 1);
-      expect(() => txnRepo.voidTransaction(txnId, 1)).toThrow(/already voided/i);
+      expect(() => txnRepo.voidTransaction(txnId, 1)).toThrow(
+        /already voided/i,
+      );
     });
 
     it("refuses voiding an already-refunded settlement", () => {

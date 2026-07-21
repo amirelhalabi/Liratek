@@ -649,6 +649,10 @@ export class ElectronApiAdapter implements ApiAdapter {
       amount_usd: number;
       amount_lbp: number;
       notes?: string;
+      /** External (Cash In) mode only — top-ups in currencies other than
+       *  USD/LBP already enabled for the General drawer. Never sent by
+       *  createFromDrawer (transfer mode). */
+      extra_currencies?: { currency_code: string; amount: number }[];
     }) => api.drawerTopUpCreate(data),
     createFromDrawer: (data: {
       amount_usd: number;
@@ -658,6 +662,13 @@ export class ElectronApiAdapter implements ApiAdapter {
     }) => api.drawerTopUpCreateFromDrawer(data),
     getSourceDrawers: () => api.drawerTopUpSourceDrawers(),
     getHistory: (limit?: number) => api.drawerTopUpHistory(limit),
+  };
+
+  // Nested namespace mirroring window.api.drawerCashout (dual-mode).
+  drawerCashout = {
+    create: (data: { amount_usd: number; amount_lbp: number; notes: string }) =>
+      api.drawerCashoutCreate(data),
+    getHistory: (limit?: number) => api.drawerCashoutHistory(limit),
   };
 
   // ---------------------------------------------------------------------------

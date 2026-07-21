@@ -19,6 +19,14 @@ export interface CreateDrawerTopUpData {
   amount_lbp: number;
   notes?: string;
   transaction_time?: string;
+  /** External (Cash In) only — top-ups in currencies other than USD/LBP that
+   *  are already enabled for the General drawer (Settings → Currencies).
+   *  Deliberately NOT on CreateDrawerTopUpFromDrawerData — see the CQ-3
+   *  survey note on `deductBalance` below: a from-drawer transfer's debit
+   *  silently no-ops on a missing source-drawer currency row, which would
+   *  fabricate money for a brand-new currency. External mode has no debit
+   *  side, so it's the only safe path for this. */
+  extra_currencies?: Array<{ currency_code: string; amount: number }>;
 }
 
 export interface CreateDrawerTopUpFromDrawerData {
@@ -35,7 +43,7 @@ export interface SourceDrawerBalance {
   balance_lbp: number;
 }
 
-const GENERAL_DRAWER = "General";
+export const GENERAL_DRAWER = "General";
 const TOPUP_METHOD = "CASH";
 
 export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
@@ -87,6 +95,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         metadata_json: {
           drawer: GENERAL_DRAWER,
           notes: data.notes ?? null,
+          extra_currencies: data.extra_currencies ?? null,
         },
         transaction_time: txTime,
       });
@@ -129,6 +138,32 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
           drawerName: GENERAL_DRAWER,
           currencyCode: "LBP",
           delta: data.amount_lbp,
+          tenantId,
+        });
+      }
+
+      // 5. Extra-currency inflows (External mode only — see
+      // CreateDrawerTopUpData.extra_currencies doc). Same posting pattern as
+      // the USD/LBP legs above; the breakdown was already stamped into
+      // metadata_json at step 2, mirroring ExchangeRepository's use of
+      // metadata_json for non-USD/LBP detail. amount_usd/amount_lbp on the
+      // transaction row stay USD/LBP-only.
+      for (const entry of data.extra_currencies ?? []) {
+        if (!entry.amount || entry.amount <= 0) continue;
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: TOPUP_METHOD,
+          drawerName: GENERAL_DRAWER,
+          currencyCode: entry.currency_code,
+          amount: entry.amount,
+          note,
+          createdBy: userId,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName: GENERAL_DRAWER,
+          currencyCode: entry.currency_code,
+          delta: entry.amount,
           tenantId,
         });
       }

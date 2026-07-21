@@ -30,6 +30,11 @@ export const TRANSACTION_TYPES = {
 
   // Drawer adjustments
   DRAWER_TOPUP: "DRAWER_TOPUP",
+  /** Cash Out: the owner pulls physical cash OUT of the General drawer for a
+   *  reason that is neither a business expense (EXPENSE, which reduces
+   *  net_profit) nor a drawer-to-drawer transfer (DRAWER_TOPUP's
+   *  from-drawer mode). Mirrors DRAWER_TOPUP with the sign flipped. */
+  DRAWER_CASHOUT: "DRAWER_CASHOUT",
 
   // Hold Money (cash held on behalf of a client, returned on collection)
   HOLD_MONEY: "HOLD_MONEY",
@@ -206,6 +211,13 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // General-side payments leg — a void would restore General and strand the
     // source drawer's deduction. Rule-20 owner: an opposite transfer.
     TRANSACTION_TYPES.DRAWER_TOPUP,
+    // DRAWER_CASHOUT: _reversePayments could mechanically restore General (it's
+    // a single-drawer negative leg, no stranded second drawer like topup's
+    // from-drawer mode), but drawer_cashouts has no is_refunded soft-void column
+    // and isn't in _markSourceRefunded — and a shrinkage-sensitive cash
+    // withdrawal should be corrected append-only for audit-trail reasons anyway.
+    // Rule-20 owner: an opposite external Drawer Top-Up from the Dashboard.
+    TRANSACTION_TYPES.DRAWER_CASHOUT,
     // HOLD_MONEY / HOLD_MONEY_COLLECT: hold_money.status ('held'/'collected')
     // is not reset by the generic reversal (hold_money is not in
     // _markSourceRefunded) — voiding a hold then collecting it pays out twice.

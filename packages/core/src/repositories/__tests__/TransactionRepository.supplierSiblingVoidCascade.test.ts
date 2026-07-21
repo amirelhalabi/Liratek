@@ -327,9 +327,9 @@ function ledgerRowsForSupplier(
 }
 
 function txnStatus(db: Database.Database, id: number): string {
-  const row = db.prepare(`SELECT status FROM transactions WHERE id = ?`).get(
-    id,
-  ) as { status: string };
+  const row = db
+    .prepare(`SELECT status FROM transactions WHERE id = ?`)
+    .get(id) as { status: string };
   return row.status;
 }
 
@@ -491,17 +491,16 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     const before = ledgerRowsForSupplier(db, supplierId);
     expect(before).toHaveLength(1);
     const siblingTxnId = before[0].transaction_id!;
-    expect(getSupplierRepository().getSupplierBalance(supplierId).balance_usd).toBeCloseTo(
-      40,
-      2,
-    );
+    expect(
+      getSupplierRepository().getSupplierBalance(supplierId).balance_usd,
+    ).toBeCloseTo(40, 2);
 
     txnRepo.voidTransaction(parentTxnId, 1);
 
     expect(txnStatus(db, siblingTxnId)).toBe("VOIDED");
-    expect(getSupplierRepository().getSupplierBalance(supplierId).balance_usd).toBe(
-      0,
-    );
+    expect(
+      getSupplierRepository().getSupplierBalance(supplierId).balance_usd,
+    ).toBe(0);
   });
 
   // ── (c) already-settled sibling ────────────────────────────────────────────
@@ -644,9 +643,9 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     }
     const ledgerAfter = ledgerRowsForSupplier(db, katshId);
     expect(ledgerAfter.every((r) => r.is_refunded === 1)).toBe(true);
-    expect(getSupplierRepository().getSupplierBalance(katshId).balance_lbp).toBe(
-      0,
-    );
+    expect(
+      getSupplierRepository().getSupplierBalance(katshId).balance_lbp,
+    ).toBe(0);
 
     // Sanity: the carrier/sibling FS rows themselves were voided too (the
     // pre-existing voidCheckoutGroup behavior, untouched by this fix) — read

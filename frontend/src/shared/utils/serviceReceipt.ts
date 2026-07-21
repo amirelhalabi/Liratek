@@ -18,6 +18,7 @@
  */
 
 import { printReceipt } from "./printReceipt";
+import { rechargeDetailLabel } from "./rechargeLabels";
 
 const WIDTH = 42;
 
@@ -78,9 +79,27 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
   const { shop, txn, legs, operator } = input;
   const meta = txn.metadata ?? {};
   const provider = String(meta.provider ?? "");
-  const serviceType = String(meta.service_type ?? "");
+  // RECHARGE has no metadata.service_type — its subtype + dollar face value
+  // (e.g. "Credits $6") lives in metadata.type + metadata.amount instead,
+  // matching the audit table's own "MTC Credits $6 — 720,000 LBP" summary.
+  const serviceType =
+    txn.type === "RECHARGE" && meta.type
+      ? rechargeDetailLabel(String(meta.type), Number(meta.amount ?? 0))
+      : String(meta.service_type ?? "");
   const currency = String(meta.currency ?? "USD");
-  const amount = Number(meta.amount ?? 0);
+  // RECHARGE's metadata.amount is NEVER a currency figure — for CREDIT_TRANSFER/
+  // VOUCHER/ALFA_GIFT it's the recharge's dollar face value (e.g. "$6 credits",
+  // RechargeRepository's describeRechargeAmount) and for DAYS it's a day count —
+  // both independent of `currency`/`price` (what the customer actually paid,
+  // e.g. 720,000 LBP for a "$6" MTC package at a shop-set rate). Pairing
+  // `amount` with `currency` printed "6 LBP" instead of "720,000 LBP". Every
+  // other module (FINANCIAL_SERVICE, etc.) keeps `amount` — there it's the
+  // real customer-facing base figure and `price` is 0/absent outside the
+  // cost+price catalog flow.
+  const amount =
+    txn.type === "RECHARGE" && meta.price != null
+      ? Number(meta.price)
+      : Number(meta.amount ?? 0);
   const commission = Number(meta.commission ?? 0);
   const itemKey = meta.item_key;
 
@@ -160,15 +179,15 @@ export function buildServiceReceiptText(input: ServiceReceiptInput): string {
 }
 
 /**
- * Fetch a persisted transaction + its customer-facing legs and print a
- * service receipt (RCP-3). ONE path for both print-after-success and
- * reprint-from-history — the caller only needs the transaction id.
- * Resolves the configured silent printer and the shop logo itself.
+ * Fetch a persisted transaction + its customer-facing legs and build the
+ * receipt text (RCP-3), without printing. Shared by the print path below
+ * and by any preview UI (e.g. TransactionsViewer's Print button) that needs
+ * to show the receipt before committing to a print.
  */
-export async function printServiceReceiptByTransaction(
+export async function buildServiceReceiptTextByTransaction(
   transactionId: number,
-  shop: { name: string; phone?: string; location?: string; logo?: string },
-): Promise<{ ok: boolean; error?: string }> {
+  shop: { name: string; phone?: string; location?: string },
+): Promise<{ ok: boolean; text?: string; error?: string }> {
   try {
     const txn = await window.api.transactions.getById(transactionId);
     if (!txn) return { ok: false, error: "Transaction not found" };
@@ -205,28 +224,51 @@ export async function printServiceReceiptByTransaction(
       legs: legs ?? [],
     });
 
-    let printer = "";
-    try {
-      const settings = await window.api.settings.getAll();
-      printer =
-        (settings?.find(
-          (s: { key_name: string; value: string }) =>
-            s.key_name === "receipt_printer",
-        )?.value as string) || "";
-    } catch {
-      // no configured printer — printReceipt falls back to a print window
-    }
-
-    await printReceipt({
-      text,
-      printer,
-      ...(shop.logo ? { logo: shop.logo } : {}),
-    });
-    return { ok: true };
+    return { ok: true, text };
   } catch (e) {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Print failed",
+      error: e instanceof Error ? e.message : "Failed to build receipt",
     };
   }
+}
+
+/** Look up the configured silent-print target printer (empty when none set). */
+export async function getConfiguredReceiptPrinter(): Promise<string> {
+  try {
+    const settings = await window.api.settings.getAll();
+    return (
+      (settings?.find(
+        (s: { key_name: string; value: string }) =>
+          s.key_name === "receipt_printer",
+      )?.value as string) || ""
+    );
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Fetch a persisted transaction + its customer-facing legs and print a
+ * service receipt (RCP-3). ONE path for both print-after-success and
+ * reprint-from-history — the caller only needs the transaction id.
+ * Resolves the configured silent printer and the shop logo itself.
+ */
+export async function printServiceReceiptByTransaction(
+  transactionId: number,
+  shop: { name: string; phone?: string; location?: string; logo?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const built = await buildServiceReceiptTextByTransaction(transactionId, shop);
+  if (!built.ok || !built.text) {
+    return { ok: false, ...(built.error ? { error: built.error } : {}) };
+  }
+
+  const printer = await getConfiguredReceiptPrinter();
+
+  await printReceipt({
+    text: built.text,
+    printer,
+    ...(shop.logo ? { logo: shop.logo } : {}),
+  });
+  return { ok: true };
 }

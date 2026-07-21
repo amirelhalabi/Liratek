@@ -6925,9 +6925,9 @@ export const MIGRATIONS: Migration[] = [
       "LIRA-091: supplier_ledger gains source_ref_table/source_ref_id — a generic back-link from an auto-generated ledger row (FinancialServiceRepository's is_auto:true BILL-commission / SEND-RECEIVE TOP_UP-PAYMENT siblings) to the PARENT unified transaction's own source row (source_ref_table/source_ref_id mirror the parent's own transactions.source_table/source_id, e.g. 'financial_services'/<fs id>) — so TransactionRepository can find and cascade-void the sibling when the parent is voided/refunded (FEATURE_GUIDE §9 standing gap: 'voiding a FINANCIAL_SERVICE/RECHARGE row leaves its auto supplier sibling standing'). Mirrors the existing partner_ledger.reference_table/reference_id pattern used for the exact same purpose. Nullable, DEFAULT NULL only — never CURRENT_TIMESTAMP (v104 prod-brick lesson) — and guarded by a PRAGMA table_info check so replaying up() on an already-migrated DB is a safe no-op (mirrors the debt_ledger/supplier_ledger unified_transaction_id guard in the v83-era migration above). Pre-link (legacy) rows are NOT backfilled — no heuristic data repair, the same limitation LIRA-094 documented for its split_group marker.",
     type: "typescript" as const,
     up(db: Database.Database) {
-      const cols = db
-        .prepare("PRAGMA table_info(supplier_ledger)")
-        .all() as { name: string }[];
+      const cols = db.prepare("PRAGMA table_info(supplier_ledger)").all() as {
+        name: string;
+      }[];
       if (!cols.some((c) => c.name === "source_ref_table")) {
         db.exec(
           `ALTER TABLE supplier_ledger ADD COLUMN source_ref_table TEXT DEFAULT NULL`,
@@ -6952,6 +6952,38 @@ export const MIGRATIONS: Migration[] = [
       console.log(
         "Migration v136 rolled back: supplier_ledger source_ref_table/source_ref_id + index removed",
       );
+    },
+  },
+  {
+    version: 137,
+    name: "add_drawer_cashouts_table",
+    description:
+      "Cash Out feature (mirrors Drawer Top-Up with the sign flipped): the owner pulls physical cash OUT of the General drawer for reasons that are neither a business expense (must not touch net_profit — no row in `expenses`) nor a drawer-to-drawer transfer. `drawer_cashouts` is the source-of-record table for DrawerCashoutRepository.createCashout, which negates amount_usd/amount_lbp on the unified transaction row (ExpenseRepository's outflow sign convention) and posts a negative-amount payments leg + negative applyDrawerDelta against General. No `modules`/`currency_modules`/`currency_drawers` inserts — this isn't a new module or drawer, exactly like drawer_topups.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS drawer_cashouts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          amount_usd REAL DEFAULT 0,
+          amount_lbp REAL DEFAULT 0,
+          notes TEXT NOT NULL,
+          created_by INTEGER,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_drawer_cashouts_tenant_id ON drawer_cashouts(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_drawer_cashouts_created_at ON drawer_cashouts(created_at)`,
+      );
+      console.log("Migration v137: Created drawer_cashouts table");
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS drawer_cashouts`);
+      console.log("Migration v137 rolled back: dropped drawer_cashouts table");
     },
   },
 ];

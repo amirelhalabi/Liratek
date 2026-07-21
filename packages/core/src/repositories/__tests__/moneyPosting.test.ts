@@ -169,24 +169,27 @@ describe("reconcileLegs", () => {
       expect(TENDER_RATE_BAND_PCT).toBe(0.1);
     });
 
-    it("owner repro: MTC CREDIT_TRANSFER, 720,000 LBP price, $10 IN, 170,000 LBP OUT — " +
-      "THROWS at the server sell rate (90,000)", () => {
-      // $10 tendered, 170,000 LBP change — the till computed change at its
-      // own (buy) rate of 89,000: 720,000/89,000 = $8.09, 10 - 8.09 = $1.91
-      // change in USD-equivalent -> 1.91 * 89,000 ~= 170,000 LBP. Reconciling
-      // at the STAMPED sell rate (90,000) instead makes the same legs look
-      // like they undershoot by ~$0.11 — the exact false-reject this fix
-      // kills, reproduced with NO tenderExchangeRate supplied (pre-fix shape).
-      expect(() =>
-        reconcileLegs({
-          inLegs: [leg("USD", 10)],
-          outLegs: [leg("LBP", 170_000, { direction: "OUT" })],
-          expectedTotals: expectedTotalIn(720_000, "LBP"),
-          exchangeRate: 90_000,
-          context: "MTC CREDIT_TRANSFER recharge",
-        }),
-      ).toThrow(/do not reconcile/);
-    });
+    it(
+      "owner repro: MTC CREDIT_TRANSFER, 720,000 LBP price, $10 IN, 170,000 LBP OUT — " +
+        "THROWS at the server sell rate (90,000)",
+      () => {
+        // $10 tendered, 170,000 LBP change — the till computed change at its
+        // own (buy) rate of 89,000: 720,000/89,000 = $8.09, 10 - 8.09 = $1.91
+        // change in USD-equivalent -> 1.91 * 89,000 ~= 170,000 LBP. Reconciling
+        // at the STAMPED sell rate (90,000) instead makes the same legs look
+        // like they undershoot by ~$0.11 — the exact false-reject this fix
+        // kills, reproduced with NO tenderExchangeRate supplied (pre-fix shape).
+        expect(() =>
+          reconcileLegs({
+            inLegs: [leg("USD", 10)],
+            outLegs: [leg("LBP", 170_000, { direction: "OUT" })],
+            expectedTotals: expectedTotalIn(720_000, "LBP"),
+            exchangeRate: 90_000,
+            context: "MTC CREDIT_TRANSFER recharge",
+          }),
+        ).toThrow(/do not reconcile/);
+      },
+    );
 
     it("FIXED: the same legs reconcile when tenderExchangeRate (89,000, the till's own rate) is supplied", () => {
       expect(() =>

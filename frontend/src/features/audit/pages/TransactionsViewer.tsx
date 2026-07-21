@@ -27,8 +27,13 @@ import {
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
-import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
+import {
+  buildServiceReceiptTextByTransaction,
+  getConfiguredReceiptPrinter,
+} from "@/shared/utils/serviceReceipt";
+import { RECHARGE_SUBTYPE_LABELS } from "@/shared/utils/rechargeLabels";
 import { appEvents } from "@liratek/ui";
+import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
 import type { RefundLegOverride } from "../refundLegOverride";
 
@@ -104,14 +109,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   Alfa: "Alfa",
 };
 
-const RECHARGE_SUBTYPE_LABELS: Record<string, string> = {
-  CREDIT_TRANSFER: "Credits",
-  VOUCHER: "Voucher",
-  DAYS: "Days",
-  TOP_UP: "Top-up",
-  ALFA_GIFT: "Gift",
-};
-
 const STATIC_TYPE_LABELS: Record<string, string> = {
   LOTO: "Loto",
   LOTO_CASH_PRIZE: "Loto Prize",
@@ -120,6 +117,7 @@ const STATIC_TYPE_LABELS: Record<string, string> = {
   MTC_TOPUP: "MTC Top-up",
   ALFA_TOPUP: "Alfa Top-up",
   DRAWER_TOPUP: "General Top-up",
+  DRAWER_CASHOUT: "General Cash-Out",
   CHECKPOINT: "Checkpoint",
   SUPPLIER_SETTLEMENT: "Supplier Settlement",
   HOLD_MONEY: "Money Held",
@@ -238,6 +236,7 @@ const TYPE_COLORS: Record<string, string> = {
   LOTO_MONTHLY_FEE: "text-lime-400",
   LOTO_SETTLEMENT: "text-lime-300",
   DRAWER_TOPUP: "text-slate-300",
+  DRAWER_CASHOUT: "text-rose-300",
   HOLD_MONEY: "text-orange-400",
   HOLD_MONEY_COLLECT: "text-orange-300",
   REFUND: "text-rose-400",
@@ -749,16 +748,27 @@ export default function TransactionsViewer({
     }
   }, [limit, selectedFilter, search]);
 
+  // Print button opens an in-app preview first (same UX as the POS
+  // CheckoutModal's "Receipt Preview") instead of invoking the OS print
+  // flow directly — the modal's own Print button does that.
+  const [receiptPreview, setReceiptPreview] = useState<{
+    text: string;
+    printer: string;
+  } | null>(null);
+
   const handlePrintReceipt = useCallback(
     async (id: number) => {
-      const res = await printServiceReceiptByTransaction(id, shopInfo);
-      if (!res.ok) {
+      const built = await buildServiceReceiptTextByTransaction(id, shopInfo);
+      if (!built.ok || !built.text) {
         appEvents.emit(
           "notification:show",
-          "Could not print receipt: " + (res.error || "Unknown error"),
+          "Could not print receipt: " + (built.error || "Unknown error"),
           "error",
         );
+        return;
       }
+      const printer = await getConfiguredReceiptPrinter();
+      setReceiptPreview({ text: built.text, printer });
     },
     [shopInfo],
   );
@@ -1327,6 +1337,14 @@ export default function TransactionsViewer({
           isSubmitting={isRefunding}
           onCancel={() => setRefundModalRow(null)}
           onConfirm={handleConfirmRefundOverride}
+        />
+      )}
+      {receiptPreview && (
+        <ReceiptPreviewModal
+          text={receiptPreview.text}
+          printer={receiptPreview.printer}
+          logo={shopInfo.logo}
+          onClose={() => setReceiptPreview(null)}
         />
       )}
     </>

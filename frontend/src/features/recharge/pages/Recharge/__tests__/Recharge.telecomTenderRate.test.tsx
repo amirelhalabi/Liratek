@@ -39,7 +39,9 @@ const mockGetClients = jest.fn().mockResolvedValue([]);
 const mockGetHistory = jest.fn().mockResolvedValue([]);
 const mockGetDrawerBalances = jest.fn().mockResolvedValue({});
 const mockGetStock = jest.fn().mockResolvedValue({ mtc: 0, alfa: 0 });
-const mockProcessRecharge = jest.fn().mockResolvedValue({ success: true, id: 1 });
+const mockProcessRecharge = jest
+  .fn()
+  .mockResolvedValue({ success: true, id: 1 });
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
@@ -144,14 +146,16 @@ jest.mock("../../../components", () => ({
           setGiftPriceLbp("450000");
           setGiftCostLbp("400000");
           setPaymentLines([
-            { id: "G1", method: "CASH", currencyCode: "USD", amount: 5 } as PaymentLine,
+            {
+              id: "G1",
+              method: "CASH",
+              currencyCode: "USD",
+              amount: 5,
+            } as PaymentLine,
           ]);
         }}
       />
-      <button
-        data-testid="gift-submit"
-        onClick={handleAlfaGiftSubmit}
-      />
+      <button data-testid="gift-submit" onClick={handleAlfaGiftSubmit} />
     </div>
   ),
 }));

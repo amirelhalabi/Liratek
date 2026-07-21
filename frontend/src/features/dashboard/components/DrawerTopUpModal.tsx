@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, PlusCircle, ArrowRightLeft } from "lucide-react";
+import { X, PlusCircle, ArrowRightLeft, Plus } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 
@@ -7,6 +7,17 @@ interface SourceDrawer {
   drawer_name: string;
   balance_usd: number;
   balance_lbp: number;
+}
+
+interface AvailableCurrency {
+  code: string;
+  name: string;
+  symbol?: string;
+}
+
+interface ExtraCurrencyRow {
+  currency_code: string;
+  amount: string;
 }
 
 type TopUpMode = "external" | "from_drawer";
@@ -31,12 +42,25 @@ export function DrawerTopUpModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sourceDrawers, setSourceDrawers] = useState<SourceDrawer[]>([]);
   const [selectedDrawer, setSelectedDrawer] = useState("");
+  const [extraCurrencies, setExtraCurrencies] = useState<ExtraCurrencyRow[]>(
+    [],
+  );
+  const [availableExtraCurrencies, setAvailableExtraCurrencies] = useState<
+    AvailableCurrency[]
+  >([]);
 
   useEffect(() => {
     if (isOpen && mode === "from_drawer") {
       loadSourceDrawers();
     }
   }, [isOpen, mode]);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadExtraCurrencies();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   async function loadSourceDrawers() {
     const result = await api.drawerTopUp.getSourceDrawers();
@@ -48,6 +72,19 @@ export function DrawerTopUpModal({
     }
   }
 
+  async function loadExtraCurrencies() {
+    try {
+      const currencies = await api.getFullCurrenciesByDrawer("General");
+      setAvailableExtraCurrencies(
+        (currencies ?? [])
+          .filter((c) => c.code !== "USD" && c.code !== "LBP")
+          .map((c) => ({ code: c.code, name: c.name, symbol: c.symbol })),
+      );
+    } catch {
+      setAvailableExtraCurrencies([]);
+    }
+  }
+
   if (!isOpen) return null;
 
   function handleClose() {
@@ -56,14 +93,46 @@ export function DrawerTopUpModal({
     setNotes("");
     setMode("external");
     setSelectedDrawer("");
+    setExtraCurrencies([]);
     onClose();
+  }
+
+  function addCurrencyRow() {
+    const used = new Set(extraCurrencies.map((row) => row.currency_code));
+    const next = availableExtraCurrencies.find((c) => !used.has(c.code));
+    if (!next) return;
+    setExtraCurrencies((prev) => [
+      ...prev,
+      { currency_code: next.code, amount: "" },
+    ]);
+  }
+
+  function removeCurrencyRow(index: number) {
+    setExtraCurrencies((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateCurrencyRow(index: number, patch: Partial<ExtraCurrencyRow>) {
+    setExtraCurrencies((prev) =>
+      prev.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    );
   }
 
   async function handleSubmit() {
     const usd = parseFloat(amountUsd) || 0;
     const lbp = parseFloat(amountLbp) || 0;
+    const extraLegs =
+      mode === "external"
+        ? extraCurrencies
+            .filter(
+              (row) => row.currency_code && (parseFloat(row.amount) || 0) > 0,
+            )
+            .map((row) => ({
+              currency_code: row.currency_code,
+              amount: parseFloat(row.amount) || 0,
+            }))
+        : [];
 
-    if (usd <= 0 && lbp <= 0) {
+    if (usd <= 0 && lbp <= 0 && extraLegs.length === 0) {
       alert("Please enter at least one amount greater than 0.");
       return;
     }
@@ -90,6 +159,7 @@ export function DrawerTopUpModal({
           amount_usd: usd,
           amount_lbp: lbp,
           ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+          ...(extraLegs.length > 0 ? { extra_currencies: extraLegs } : {}),
         });
       }
 
@@ -102,6 +172,7 @@ export function DrawerTopUpModal({
         setAmountUsd("");
         setAmountLbp("");
         setNotes("");
+        setExtraCurrencies([]);
         onSuccess();
       } else {
         alert(result.error ?? "Failed to top up drawer.");
@@ -226,6 +297,85 @@ export function DrawerTopUpModal({
               />
             </div>
           </div>
+
+          {/* Extra currencies (External mode only) */}
+          {mode === "external" && (
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">
+                Other Currencies{" "}
+                <span className="text-slate-600">(optional)</span>
+              </label>
+
+              {availableExtraCurrencies.length === 0 ? (
+                <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5">
+                  No additional currencies enabled for the General drawer — add
+                  and enable them in Settings → Currencies.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {extraCurrencies.map((row, index) => {
+                    const usedElsewhere = new Set(
+                      extraCurrencies
+                        .filter((_, i) => i !== index)
+                        .map((r) => r.currency_code),
+                    );
+                    const rowOptions = availableExtraCurrencies
+                      .filter((c) => !usedElsewhere.has(c.code))
+                      .map((c) => ({
+                        value: c.code,
+                        label: c.symbol ? `${c.code} (${c.symbol})` : c.code,
+                      }));
+
+                    return (
+                      <div key={index} className="flex items-center gap-2">
+                        <Select
+                          value={row.currency_code}
+                          onChange={(v) =>
+                            updateCurrencyRow(index, { currency_code: v })
+                          }
+                          options={rowOptions}
+                          className="w-28 shrink-0"
+                          buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                        />
+                        <div className="flex-1 flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
+                          <DecimalInput
+                            value={parseFloat(row.amount) || 0}
+                            onChange={(n) =>
+                              updateCurrencyRow(index, {
+                                amount: n ? String(n) : "",
+                              })
+                            }
+                            placeholder="0.00"
+                            className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeCurrencyRow(index)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                          aria-label="Remove currency"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={addCurrencyRow}
+                    disabled={
+                      extraCurrencies.length >= availableExtraCurrencies.length
+                    }
+                    className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Plus size={14} />
+                    Add currency
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Notes */}
           <div>

@@ -318,7 +318,12 @@ describe("supplier-payment void/refund reversal", () => {
     // (TransactionRepository._reverseSupplierSettlement). See
     // TransactionRepository.supplierSettlementReversal.test.ts for its
     // create+reverse+nets-to-0 coverage.
-    for (const type of ["LOTO", "LOTO_CASH_PRIZE", "RECHARGE_TOPUP", "REFUND"]) {
+    for (const type of [
+      "LOTO",
+      "LOTO_CASH_PRIZE",
+      "RECHARGE_TOPUP",
+      "REFUND",
+    ]) {
       const id = insertTxn(type);
       // Pre-fix: both calls happily reversed the drawers.
       expect(() => txns.voidTransaction(id, 1)).toThrow(/cannot be voided/);

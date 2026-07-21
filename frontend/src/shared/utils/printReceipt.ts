@@ -92,43 +92,41 @@ export async function printReceipt({
     return;
   }
 
-  // Fallback (no silent printer configured, or web mode): print window.
-  //
-  // Navigate to a data: URL (same technique as printHandlers.ts's silent
-  // print path) instead of `window.open("") + document.write()`. The latter
-  // writes into an empty about:blank shell, which has a known Electron bug
-  // (electron/electron#24356): the paint/`ready-to-show` step never fires
-  // for a SMALL amount of injected content (a receipt qualifies), leaving
-  // the window visibly blank/white even though its DOM has content. A real
-  // navigation avoids that path entirely.
-  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(fullHtml)}`;
-  const printWindow = window.open(dataUrl, "", "width=400,height=600");
+  // Electron (no printer configured, or silent print unavailable): delegate
+  // to the main process, same recipe as silentPrint but with the native
+  // dialog shown. A renderer-side `window.open("data:...")` popup can't do
+  // this reliably in Electron — Chromium blocks script-initiated top-frame
+  // navigation to data: URLs (anti-phishing restriction since Chrome 61),
+  // and `window.open("") + document.write()` into the resulting about:blank
+  // hits a separate Electron bug (electron/electron#24356) where the
+  // paint/`ready-to-show` step never fires for a small amount of injected
+  // content — either way the popup stays blank. The main process's own
+  // loadURL() is a privileged navigation exempt from both.
+  if (window.api?.print?.printWithDialog) {
+    const result = await window.api.print.printWithDialog(fullHtml);
+    if (!result?.success && result?.error) {
+      logger.error(`Receipt print-with-dialog failed: ${result.error}`);
+      appEvents.emit(
+        "notification:show",
+        "Receipt printing failed: " + result.error,
+        "error",
+      );
+    }
+    // Windows focus fix: closing the (now main-process-owned) print window
+    // can leave focus on the wrong window.
+    setTimeout(() => window.api?.display?.fixFocus?.(), 100);
+    return;
+  }
+
+  // Web-mode fallback (no Electron bridge): plain print window. Unlike
+  // Electron, `window.print()` blocks here until the browser's own print
+  // preview/dialog is dismissed, so the immediate close afterward is safe.
+  const printWindow = window.open("", "", "width=400,height=600");
   if (printWindow) {
-    const cleanup = (): void => {
-      printWindow.close();
-      // Windows focus fix (Electron): restore focus to the app window.
-      setTimeout(() => {
-        (
-          window as unknown as {
-            api?: { display?: { fixFocus?: () => void } };
-          }
-        ).api?.display?.fixFocus?.();
-      }, 100);
-    };
-    printWindow.addEventListener(
-      "load",
-      () => {
-        printWindow.focus();
-        // `window.print()` is non-blocking in Chromium/Electron — it
-        // returns immediately instead of waiting for the dialog to be
-        // dismissed like older browsers. Closing right after print() raced
-        // the popup's own teardown against the OS building the print job,
-        // so defer the close to `afterprint` (fires once Print/Cancel is
-        // chosen) instead of closing unconditionally.
-        printWindow.addEventListener("afterprint", cleanup, { once: true });
-        printWindow.print();
-      },
-      { once: true },
-    );
+    printWindow.document.write(fullHtml);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
   }
 }

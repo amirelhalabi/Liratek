@@ -52,9 +52,18 @@ router.get("/history", (req, res) => {
 });
 
 // POST /api/drawer-topup — cash top-up into a drawer (service validates amounts)
+// extra_currencies (External/Cash-In only) is passed through as-is — the core
+// DrawerTopUpService validates each entry's currency_code/amount (no
+// duplicate parallel validation here, matching this route's existing style).
 router.post("/", writeGate, (req, res) => {
   try {
-    const { amount_usd, amount_lbp, notes, transaction_time } = req.body ?? {};
+    const {
+      amount_usd,
+      amount_lbp,
+      notes,
+      transaction_time,
+      extra_currencies,
+    } = req.body ?? {};
     const userId = (req as AuthRequest).user!.userId;
     res.json(
       getDrawerTopUpService().addTopUp(
@@ -63,6 +72,9 @@ router.post("/", writeGate, (req, res) => {
           amount_lbp: Number(amount_lbp) || 0,
           notes,
           transaction_time,
+          extra_currencies: Array.isArray(extra_currencies)
+            ? extra_currencies
+            : undefined,
         },
         userId,
       ),

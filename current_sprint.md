@@ -1510,15 +1510,15 @@ sequential (`-A`) so the local full-suite run no longer OOMs (CI runs per-worksp
 
 ## LIRA-078: Refund Tender-Selection Modal
 
-| Field                | Value                      |
-| -------------------- | -------------------------- |
-| **Epic**             | Transactions               |
-| **Type**             | Feature / UX               |
-| **Priority**         | High                       |
+| Field                | Value                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| **Epic**             | Transactions                                                                            |
+| **Type**             | Feature / UX                                                                            |
+| **Priority**         | High                                                                                    |
 | **Status**           | DONE (2026-07-21 — method-override modal, 33 unit tests + lira-126 e2e transport guard) |
-| **Affected Modules** | Audit > TransactionsViewer |
-| **Assigned To**      | —                          |
-| **Depends On**       | —                          |
+| **Affected Modules** | Audit > TransactionsViewer                                                              |
+| **Assigned To**      | —                                                                                       |
+| **Depends On**       | —                                                                                       |
 
 ### Summary
 
@@ -1774,15 +1774,15 @@ of a 140,000 LBP change, return 100,000 LBP and keep 40,000 on the customer's ac
 
 ## LIRA-085: Undo/Reverse for Partner & Supplier Ledger Transactions
 
-| Field                | Value                |
-| -------------------- | -------------------- |
-| **Epic**             | Partners / Suppliers |
-| **Type**             | Bug / Enhancement    |
-| **Priority**         | High                 |
+| Field                | Value                                                        |
+| -------------------- | ------------------------------------------------------------ |
+| **Epic**             | Partners / Suppliers                                         |
+| **Type**             | Bug / Enhancement                                            |
+| **Priority**         | High                                                         |
 | **Status**           | DONE (2026-07-21 — module-owned reversals, 27 netting tests) |
-| **Affected Modules** | Partners, Suppliers  |
-| **Assigned To**      | —                    |
-| **Depends On**       | —                    |
+| **Affected Modules** | Partners, Suppliers                                          |
+| **Assigned To**      | —                                                            |
+| **Depends On**       | —                                                            |
 
 ### Summary
 
@@ -1990,15 +1990,15 @@ the full scope, current-state facts, and the open owner questions blocking imple
 
 ## LIRA-091: Void Cascade for Auto Supplier-Ledger Siblings (FS/RECHARGE)
 
-| Field                | Value                                        |
-| -------------------- | -------------------------------------------- |
-| **Epic**             | Transactions / Suppliers                     |
-| **Type**             | Bug                                          |
-| **Priority**         | High                                         |
-| **Status**           | DONE (2026-07-21)                            |
-| **Affected Modules** | Transactions, Financial Services, Recharge   |
-| **Assigned To**      | —                                            |
-| **Depends On**       | —                                            |
+| Field                | Value                                      |
+| -------------------- | ------------------------------------------ |
+| **Epic**             | Transactions / Suppliers                   |
+| **Type**             | Bug                                        |
+| **Priority**         | High                                       |
+| **Status**           | DONE (2026-07-21)                          |
+| **Affected Modules** | Transactions, Financial Services, Recharge |
+| **Assigned To**      | —                                          |
+| **Depends On**       | —                                          |
 
 ### Summary
 

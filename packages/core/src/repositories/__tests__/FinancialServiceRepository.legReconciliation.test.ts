@@ -491,7 +491,9 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
       expect(counts(db).transactions).toBe(before.transactions + 1);
       // The stamp uses the SERVER rate, never the tender rate.
       const txn = db
-        .prepare(`SELECT exchange_rate FROM transactions ORDER BY id DESC LIMIT 1`)
+        .prepare(
+          `SELECT exchange_rate FROM transactions ORDER BY id DESC LIMIT 1`,
+        )
         .get() as { exchange_rate: number };
       expect(txn.exchange_rate).toBe(90000);
     });

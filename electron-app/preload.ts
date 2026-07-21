@@ -727,6 +727,10 @@ contextBridge.exposeInMainWorld("api", {
       amount_usd: number;
       amount_lbp: number;
       notes?: string;
+      /** External (Cash In) mode only — top-ups in currencies other than
+       *  USD/LBP already enabled for the General drawer (Settings →
+       *  Currencies). Not accepted by createFromDrawer (transfer mode). */
+      extra_currencies?: { currency_code: string; amount: number }[];
     }) => ipcRenderer.invoke("drawer-topup:create", data),
     createFromDrawer: (data: {
       amount_usd: number;
@@ -737,6 +741,14 @@ contextBridge.exposeInMainWorld("api", {
     getSourceDrawers: () => ipcRenderer.invoke("drawer-topup:source-drawers"),
     getHistory: (limit?: number) =>
       ipcRenderer.invoke("drawer-topup:history", { limit }),
+  },
+
+  // Drawer Cash-Out
+  drawerCashout: {
+    create: (data: { amount_usd: number; amount_lbp: number; notes: string }) =>
+      ipcRenderer.invoke("drawer-cashout:create", data),
+    getHistory: (limit?: number) =>
+      ipcRenderer.invoke("drawer-cashout:history", { limit }),
   },
 
   // Partners
@@ -1406,6 +1418,8 @@ contextBridge.exposeInMainWorld("api", {
     getPrinters: () => ipcRenderer.invoke("print:get-printers"),
     silentPrint: (html: string, printerName: string, options?: any) =>
       ipcRenderer.invoke("print:silent", html, printerName, options),
+    printWithDialog: (html: string) =>
+      ipcRenderer.invoke("print:with-dialog", html),
   },
 });
 

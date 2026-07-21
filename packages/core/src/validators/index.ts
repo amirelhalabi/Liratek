@@ -30,3 +30,4 @@ export * from "./supplier.js";
 export * from "./transaction.js";
 export * from "./carrierLine.js";
 export * from "./mobileServiceItem.js";
+export * from "./drawerCashout.js";

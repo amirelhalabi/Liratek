@@ -196,7 +196,7 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     ],
   },
   {
-    group: "Top-ups",
+    group: "Drawer & Top-ups",
     options: [
       { label: "MTC Top-up", type: "MTC_TOPUP" },
       { label: "Alfa Top-up", type: "ALFA_TOPUP" },
@@ -219,6 +219,7 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
         provider: "WHISH_SYSTEM",
       },
       { label: "General Top-up", type: "DRAWER_TOPUP" },
+      { label: "General Cash-Out", type: "DRAWER_CASHOUT" },
     ],
   },
   {

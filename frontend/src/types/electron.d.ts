@@ -1617,6 +1617,8 @@ export interface ElectronAPI {
       amount_lbp: number;
       notes?: string;
       transaction_time?: string;
+      /** External (Cash In) mode only — see preload.ts doc. */
+      extra_currencies?: { currency_code: string; amount: number }[];
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     createFromDrawer: (data: {
       amount_usd: number;
@@ -1643,6 +1645,28 @@ export interface ElectronAPI {
         notes: string | null;
         created_by: number;
         created_at: string;
+      }>;
+      error?: string;
+    }>;
+  };
+
+  // Drawer Cash-Out
+  drawerCashout: {
+    create: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      notes: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getHistory: (limit?: number) => Promise<{
+      success: boolean;
+      data?: Array<{
+        id: number;
+        amount_usd: number;
+        amount_lbp: number;
+        notes: string;
+        created_by: number | null;
+        created_at: string;
+        updated_at: string;
       }>;
       error?: string;
     }>;
@@ -2295,6 +2319,9 @@ export interface ElectronAPI {
       html: string,
       printerName: string,
       options?: any,
+    ) => Promise<{ success: boolean; error?: string }>;
+    printWithDialog: (
+      html: string,
     ) => Promise<{ success: boolean; error?: string }>;
   };
 

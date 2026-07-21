@@ -38,6 +38,7 @@ import {
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
   mobileServiceItemUpdateSchema,
+  createDrawerCashoutSchema,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
   type RefundLegsInput,
@@ -69,6 +70,7 @@ import {
   type PartnerRecordTransactionInput,
   type PartnerSettleInput,
   type PartnerWriteOffInput,
+  type CreateDrawerCashoutInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -551,6 +553,80 @@ export const CustomServiceCreateSchema = z.object({
 // zod-major mismatch (core=zod4, this workspace=zod3); runtime API identical.
 export const HoldMoneyCreateSchema =
   holdMoneyCreateSchema as unknown as z.ZodSchema<HoldMoneyCreateInput>;
+
+// =============================================================================
+// Drawer Top-Up
+// =============================================================================
+
+// External (Cash In) mode only accepts extra_currencies — the from-drawer
+// transfer create has no schema here (out of scope, see
+// DrawerTopUpRepository.CreateDrawerTopUpFromDrawerData: a debit against a
+// missing source-drawer currency row silently no-ops, so only External mode
+// is safe for a brand-new currency).
+export interface DrawerTopUpCreateInput {
+  amount_usd: number;
+  amount_lbp: number;
+  extra_currencies?: { currency_code: string; amount: number }[];
+  notes?: string;
+  transaction_time?: string;
+}
+
+// Explicit `z.ZodSchema<DrawerTopUpCreateInput>` cast: `validatePayload`'s
+// generic infers T from BOTH the schema's Output (amount_usd/lbp non-optional
+// thanks to `.default(0)`) and Input (optional, since `.default()` makes a
+// field omittable) positions of the ZodEffects chain the two `.refine()`s
+// produce — TS widens T to include `| undefined` on amount_usd/lbp when left
+// to infer on its own, which then fails CreateDrawerTopUpData's
+// `amount_usd: number` at the handler's `svc.addTopUp(validation.data, …)`
+// call. Pinning T explicitly (same mechanism as this file's core-schema
+// `as unknown as z.ZodSchema<...>` casts elsewhere) sidesteps that inference
+// ambiguity.
+export const DrawerTopUpCreateSchema = z
+  .object({
+    amount_usd: z.number().nonnegative().default(0),
+    amount_lbp: z.number().nonnegative().default(0),
+    extra_currencies: z
+      .array(
+        z.object({
+          currency_code: z.string().trim().min(1).max(10),
+          amount: z.number().positive(),
+        }),
+      )
+      .optional(),
+    notes: z.string().optional(),
+    transaction_time: z.string().optional(),
+  })
+  .refine(
+    (d) =>
+      d.amount_usd > 0 ||
+      d.amount_lbp > 0 ||
+      (d.extra_currencies?.some((e) => e.amount > 0) ?? false),
+    {
+      message:
+        "At least one amount (USD, LBP, or another currency) must be greater than zero.",
+    },
+  )
+  .refine(
+    (d) => {
+      const codes = (d.extra_currencies ?? []).map((e) =>
+        e.currency_code.toUpperCase(),
+      );
+      return new Set(codes).size === codes.length;
+    },
+    { message: "Duplicate currency in extra_currencies." },
+  ) as unknown as z.ZodSchema<DrawerTopUpCreateInput>;
+
+// =============================================================================
+// Drawer Cash-Out
+// =============================================================================
+
+// The cash-out contract lives in packages/core/src/validators/drawerCashout.ts
+// so the Electron IPC handler and the REST route (when added) validate against
+// ONE schema (CLAUDE.md rule 14). Cast bridges the zod major mismatch (core
+// types against zod 4, this workspace against zod 3); the runtime API used is
+// identical.
+export const DrawerCashoutSchema =
+  createDrawerCashoutSchema as unknown as z.ZodSchema<CreateDrawerCashoutInput>;
 
 // =============================================================================
 // Debt Repayment

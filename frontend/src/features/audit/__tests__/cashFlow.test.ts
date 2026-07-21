@@ -44,6 +44,8 @@ describe("getCashFlowDirection — unchanged types (guard against regressions)",
     // B7: loto rows were unmapped → blank badge on every ticket sale / payout
     ["LOTO", "in"],
     ["LOTO_CASH_PRIZE", "out"],
+    // Cash Out — owner's draw pulls physical cash OUT of the General drawer.
+    ["DRAWER_CASHOUT", "out"],
   ] as const)("%s → %s", (type, expected) => {
     expect(getCashFlowDirection(type)).toBe(expected);
   });

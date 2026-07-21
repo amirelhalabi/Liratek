@@ -9,6 +9,7 @@ import { ipcMain } from "electron";
 import { getDrawerTopUpService, financialLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import { validatePayload, DrawerTopUpCreateSchema } from "../schemas/index.js";
 
 let service: ReturnType<typeof getDrawerTopUpService> | null = null;
 
@@ -27,23 +28,37 @@ export function registerDrawerTopUpHandlers(): void {
     "drawer-topup:create",
     async (
       e,
-      data: { amount_usd: number; amount_lbp: number; notes?: string },
+      data: {
+        amount_usd: number;
+        amount_lbp: number;
+        notes?: string;
+        extra_currencies?: { currency_code: string; amount: number }[];
+      },
     ) => {
       try {
         const auth = requireRole(e.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
 
+        const validation = validatePayload(DrawerTopUpCreateSchema, data);
+        if (!validation.ok) {
+          return { success: false, error: validation.error };
+        }
+
         const svc = getServiceInstance();
-        const result = svc.addTopUp(data, auth.userId);
+        const result = svc.addTopUp(validation.data, auth.userId);
         if ((result as { success?: boolean }).success !== false) {
+          const extraCount = validation.data.extra_currencies?.length ?? 0;
           audit(e.sender.id, {
             action: "create",
             entity_type: "drawer_topup",
-            summary: `Drawer top-up: $${data.amount_usd} USD + ${data.amount_lbp} LBP`,
+            summary:
+              `Drawer top-up: $${validation.data.amount_usd} USD + ${validation.data.amount_lbp} LBP` +
+              (extraCount > 0 ? ` + ${extraCount} other currencies` : ""),
             metadata: {
-              amount_usd: data.amount_usd,
-              amount_lbp: data.amount_lbp,
-              notes: data.notes,
+              amount_usd: validation.data.amount_usd,
+              amount_lbp: validation.data.amount_lbp,
+              extra_currencies: validation.data.extra_currencies,
+              notes: validation.data.notes,
             },
           });
         }

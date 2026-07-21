@@ -177,6 +177,47 @@ describe("buildServiceReceiptText", () => {
     expect(r).toContain("1,800,000 LBP");
   });
 
+  it("prints the LBP price charged, not the dollar face-value amount, for a RECHARGE", () => {
+    // Owner repro (2026-07-21): MTC Credits "$6" package priced at 720,000
+    // LBP. metadata.amount (6) is the dollar face value of the credits
+    // package (RechargeRepository's describeRechargeAmount) — completely
+    // unrelated to metadata.currency ("LBP", the currency of what the
+    // customer actually paid, in metadata.price). Pairing amount+currency
+    // printed the nonsensical "6 LBP" instead of "720,000 LBP".
+    const r = build({
+      txn: {
+        id: 507,
+        type: "RECHARGE",
+        summary: null,
+        note: null,
+        client_name: null,
+        client_phone: null,
+        created_at: "2026-07-21T14:00:00Z",
+        metadata: {
+          provider: "MTC",
+          type: "CREDIT_TRANSFER",
+          amount: 6,
+          cost: 5,
+          price: 720000,
+          currency: "LBP",
+        },
+      },
+      legs: [
+        { method: "CASH", currency_code: "USD", amount: 10, direction: "IN" },
+        {
+          method: "CASH",
+          currency_code: "LBP",
+          amount: 170000,
+          direction: "OUT",
+        },
+      ],
+    });
+    expect(r).toContain("Service: MTC Credits $6");
+    expect(r).toContain("720,000 LBP");
+    expect(r).not.toContain("6 LBP");
+    expect(r.indexOf("Credits $6")).toBeLessThan(r.indexOf("720,000 LBP"));
+  });
+
   it("handles an LBP-only recharge with no legs", () => {
     const r = build({
       txn: {

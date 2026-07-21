@@ -220,7 +220,11 @@ function drawerBal(db: Database.Database, name: string, ccy = "USD"): number {
 function fsRow(
   db: Database.Database,
   id: number,
-): { is_settled: number; settled_at: string | null; settlement_id: number | null } {
+): {
+  is_settled: number;
+  settled_at: string | null;
+  settlement_id: number | null;
+} {
   return db
     .prepare(
       `SELECT is_settled, settled_at, settlement_id FROM financial_services WHERE id = ?`,
@@ -324,9 +328,7 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
       expect(ledgerSum(db, omtId)).toBeCloseTo(105, 2);
 
       const settlementRow = db
-        .prepare(
-          `SELECT is_refunded FROM supplier_ledger WHERE id = ?`,
-        )
+        .prepare(`SELECT is_refunded FROM supplier_ledger WHERE id = ?`)
         .get(settlementLedgerId) as { is_refunded: number };
       expect(settlementRow.is_refunded).toBe(1);
 

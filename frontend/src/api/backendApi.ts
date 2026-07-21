@@ -3081,6 +3081,8 @@ export async function drawerTopUpCreate(data: {
   amount_usd: number;
   amount_lbp: number;
   notes?: string;
+  /** External (Cash In) mode only — see ElectronApiAdapter's drawerTopUp doc. */
+  extra_currencies?: { currency_code: string; amount: number }[];
 }) {
   return ipcOrHttp(
     async () => getElectronApi().drawerTopUp.create(data),
@@ -3105,6 +3107,35 @@ export async function drawerTopUpCreateFromDrawer(data: {
         "/api/drawer-topup/from-drawer",
         { method: "POST", body: data },
       ),
+  );
+}
+
+// ── Drawer cash-out (dual-mode) — pull physical cash OUT of the General drawer ──
+
+export async function drawerCashoutCreate(data: {
+  amount_usd: number;
+  amount_lbp: number;
+  notes: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().drawerCashout.create(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        "/api/drawer-cashout",
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+export async function drawerCashoutHistory(limit?: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().drawerCashout.getHistory(limit),
+    async () => {
+      const qs = limit ? `?limit=${limit}` : "";
+      return requestJson<{ success: boolean; data?: any[]; error?: string }>(
+        `/api/drawer-cashout/history${qs}`,
+      );
+    },
   );
 }
 

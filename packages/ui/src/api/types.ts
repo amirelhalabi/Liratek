@@ -1104,6 +1104,10 @@ export type ApiAdapter = {
       amount_usd: number;
       amount_lbp: number;
       notes?: string;
+      /** External (Cash In) mode only — top-ups in currencies other than
+       *  USD/LBP already enabled for the General drawer. Not accepted by
+       *  createFromDrawer (transfer mode). */
+      extra_currencies?: { currency_code: string; amount: number }[];
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     createFromDrawer: (data: {
       amount_usd: number;
@@ -1116,6 +1120,18 @@ export type ApiAdapter = {
       data?: any[];
       error?: string;
     }>;
+    getHistory: (
+      limit?: number,
+    ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+  };
+
+  /** Drawer cash-out — pull physical cash OUT of the General drawer (owner's draw). */
+  drawerCashout: {
+    create: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      notes: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: (
       limit?: number,
     ) => Promise<{ success: boolean; data?: any[]; error?: string }>;

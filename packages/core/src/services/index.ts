@@ -338,6 +338,14 @@ export {
 } from "./DrawerTopUpService.js";
 export type { DrawerTopUpResult } from "./DrawerTopUpService.js";
 
+// Drawer Cash-Out Service
+export {
+  DrawerCashoutService,
+  getDrawerCashoutService,
+  resetDrawerCashoutService,
+} from "./DrawerCashoutService.js";
+export type { DrawerCashoutResult } from "./DrawerCashoutService.js";
+
 export {
   ServicePresetService,
   getServicePresetService,

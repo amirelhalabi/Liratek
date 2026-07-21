@@ -843,6 +843,23 @@ CREATE TABLE IF NOT EXISTS drawer_topups (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Drawer Cash-Outs (v137): the owner pulls physical cash OUT of the General
+-- drawer for a reason that is neither a business expense (no `expenses` row,
+-- so net_profit never moves) nor a drawer-to-drawer transfer. Mirrors
+-- drawer_topups with the sign flipped — see DrawerCashoutRepository.
+CREATE TABLE IF NOT EXISTS drawer_cashouts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  amount_usd REAL DEFAULT 0,
+  amount_lbp REAL DEFAULT 0,
+  notes TEXT NOT NULL,
+  created_by INTEGER,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_drawer_cashouts_tenant_id ON drawer_cashouts(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_drawer_cashouts_created_at ON drawer_cashouts(created_at);
+
 -- Daily Closings
 CREATE TABLE IF NOT EXISTS daily_closings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1508,4 +1525,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (133, 'delete_wallet_provider_phantom_ledger'),
     (134, 'trueup_omt_whish_send_ledger_fee'),
     (135, 'add_carrier_lines_and_mobile_item_validity'),
-    (136, 'add_supplier_ledger_source_ref');
+    (136, 'add_supplier_ledger_source_ref'),
+    (137, 'add_drawer_cashouts_table');

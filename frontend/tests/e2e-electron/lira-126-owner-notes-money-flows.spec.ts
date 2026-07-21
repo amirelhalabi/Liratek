@@ -479,7 +479,8 @@ test.describe("LIRA-126 — owner-notes money flows", () => {
         // fresh DB's payment_methods rows, read at runtime (never hardcoded).
         const methods = await w.api.paymentMethods.list();
         const wallet = methods.find(
-          (m) => m.code !== "CASH" && m.affects_drawer === 1 && m.is_active === 1,
+          (m) =>
+            m.code !== "CASH" && m.affects_drawer === 1 && m.is_active === 1,
         );
         if (!wallet) throw new Error("no active wallet payment method found");
 
@@ -569,8 +570,7 @@ test.describe("LIRA-126 — owner-notes money flows", () => {
           refund1Error: refund1.error ?? null,
           generalDeltaAfterRefund1:
             generalAfterRefund1.usd - generalAfterSale.usd,
-          walletDeltaAfterRefund1:
-            walletAfterRefund1.usd - walletAfterSale.usd,
+          walletDeltaAfterRefund1: walletAfterRefund1.usd - walletAfterSale.usd,
           stockAfterRefund1: productAfterRefund1?.stock_quantity ?? null,
           refund2Ok: refund2.success === true,
           refund2Error: refund2.error ?? null,

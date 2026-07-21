@@ -122,6 +122,7 @@ const GATED: Array<[TransactionType, string]> = [
   ["MTC_TOPUP", "recharges"],
   ["ALFA_TOPUP", "recharges"],
   ["DRAWER_TOPUP", "drawer_topups"],
+  ["DRAWER_CASHOUT", "drawer_cashouts"],
   ["HOLD_MONEY", "hold_money"],
   ["HOLD_MONEY_COLLECT", "hold_money"],
   ["LOTO_MONTHLY_FEE", "loto_monthly_fees"],
@@ -209,9 +210,7 @@ describe("TransactionRepository — non-reversible gate (rule 20)", () => {
     expect(NON_REVERSIBLE_TRANSACTION_TYPES.has("PARTNER_SETTLEMENT")).toBe(
       false,
     );
-    expect(NON_REVERSIBLE_TRANSACTION_TYPES.has("PARTNER_PAYMENT")).toBe(
-      false,
-    );
+    expect(NON_REVERSIBLE_TRANSACTION_TYPES.has("PARTNER_PAYMENT")).toBe(false);
     expect(NON_REVERSIBLE_TRANSACTION_TYPES.has("SUPPLIER_SETTLEMENT")).toBe(
       false,
     );

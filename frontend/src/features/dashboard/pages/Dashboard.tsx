@@ -16,15 +16,18 @@ import {
   AlertTriangle,
   LayoutDashboard,
   Plus,
+  Minus,
   ClipboardCheck,
   Banknote,
   HandCoins,
 } from "lucide-react";
 import { DrawerTopUpModal } from "../components/DrawerTopUpModal";
+import { DrawerCashoutModal } from "../components/DrawerCashoutModal";
 import { InitialDrawerAmountsModal } from "../../closing/components/InitialDrawerAmountsModal";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localMonth } from "@/shared/utils/localDay";
 
@@ -178,6 +181,7 @@ function stalenessTextColor(iso: string | null): string {
 
 export default function Dashboard() {
   const api = useApi();
+  const { user } = useAuth();
   const { formatAmount, getSymbol } = useCurrencyContext();
   const { isModuleEnabled } = useModules();
   const { flags } = useFeatureFlags();
@@ -301,6 +305,7 @@ export default function Dashboard() {
     [],
   );
   const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [showCashOutModal, setShowCashOutModal] = useState(false);
   const [initialBalancesSet, setInitialBalancesSet] = useState(true);
   const [showInitialDrawerModal, setShowInitialDrawerModal] = useState(false);
   const [startingCheckpointSet, setStartingCheckpointSet] = useState(true);
@@ -947,13 +952,24 @@ export default function Dashboard() {
                   <Wallet className="text-sky-400" />
                   Drawer Balances
                 </h2>
-                <button
-                  onClick={() => setShowTopUpModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors"
-                >
-                  <Plus size={14} />
-                  Top Up
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowTopUpModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors"
+                  >
+                    <Plus size={14} />
+                    Top Up
+                  </button>
+                  {user?.role === "admin" && (
+                    <button
+                      onClick={() => setShowCashOutModal(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      <Minus size={14} />
+                      Cash Out
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 {drawerCards.map((stat) => {
@@ -1246,6 +1262,15 @@ export default function Dashboard() {
         onClose={() => setShowTopUpModal(false)}
         onSuccess={() => {
           setShowTopUpModal(false);
+          loadData();
+        }}
+      />
+
+      <DrawerCashoutModal
+        isOpen={showCashOutModal}
+        onClose={() => setShowCashOutModal(false)}
+        onSuccess={() => {
+          setShowCashOutModal(false);
           loadData();
         }}
       />

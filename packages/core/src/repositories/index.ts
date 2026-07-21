@@ -487,6 +487,17 @@ export type {
   SourceDrawerBalance,
 } from "./DrawerTopUpRepository.js";
 
+// Drawer Cash-Out Repository
+export {
+  DrawerCashoutRepository,
+  getDrawerCashoutRepository,
+  resetDrawerCashoutRepository,
+} from "./DrawerCashoutRepository.js";
+export type {
+  DrawerCashoutEntity,
+  CreateDrawerCashoutData,
+} from "./DrawerCashoutRepository.js";
+
 export {
   ServicePresetRepository,
   getServicePresetRepository,
