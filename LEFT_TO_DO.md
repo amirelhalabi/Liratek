@@ -185,3 +185,10 @@ here. New tickets are filed in `current_sprint.md` as **Sprint 4 — Owner Notes
 **Not itemized above (already tracked elsewhere, no new ticket):** partner/supplier record-txn
 visibility in the Transactions page (note 2, general case) extends the existing **LIRA-066**
 rather than getting a new number.
+
+**E2E guard for the batch (2026-07-21):** `lira-126-owner-notes-money-flows.spec.ts` proves the
+three newest flows end-to-end through the real app — LIRA-080 paper entries (account + supplier:
+ledger delta, drawer exactly unchanged, ADJUSTMENT rows with no legs, cash-ON control), LIRA-085
+partner-payment refund netting drawer + balance to exactly 0 with double-refund blocked, and
+LIRA-078 refund-legs override through the real IPC transport (wallet debited, General flat,
+mismatched totals rejected). Full suite after adding it: 228 passed.

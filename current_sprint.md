@@ -1515,7 +1515,7 @@ sequential (`-A`) so the local full-suite run no longer OOMs (CI runs per-worksp
 | **Epic**             | Transactions               |
 | **Type**             | Feature / UX               |
 | **Priority**         | High                       |
-| **Status**           | DONE (2026-07-21 — method-override modal, 33 new tests) |
+| **Status**           | DONE (2026-07-21 — method-override modal, 33 unit tests + lira-126 e2e transport guard) |
 | **Affected Modules** | Audit > TransactionsViewer |
 | **Assigned To**      | —                          |
 | **Depends On**       | —                          |
