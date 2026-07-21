@@ -13,6 +13,16 @@ import {
   bookClientDebtCharge,
 } from "./moneyPosting.js";
 
+/**
+ * note 14 — caps an appended free-text detail (e.g. issue_description) so a
+ * long note doesn't blow up the transactions summary column. Truncates on a
+ * character boundary with an ellipsis; never throws on empty/short input.
+ */
+function truncateSummaryDetail(text: string, maxLength = 60): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 export interface MaintenancePaymentLine {
   method: string;
   currency_code: string;
@@ -69,6 +79,12 @@ export interface MaintenanceRow {
   updated_at: string;
   edited_by: string | null;
   edited_at: string | null;
+  /** Set by TransactionRepository._markSourceRefunded on refund/void
+   *  (migration v68). Drives the jobs-list and HistoryModal "Refunded"
+   *  badges — dormant until getColumns() below carried it (note 21d
+   *  follow-up). */
+  is_refunded: number;
+  refunded_at: string | null;
 }
 
 export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
@@ -78,7 +94,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, cost_lbp, price_lbp, discount_usd, final_amount_usd, final_amount_lbp, currency, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at, edited_by, edited_at";
+    return "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, cost_lbp, price_lbp, discount_usd, final_amount_usd, final_amount_lbp, currency, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at, edited_by, edited_at, is_refunded, refunded_at";
   }
 
   /**
@@ -214,6 +230,11 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
        * are skipped — the basket recorder owns those.
        */
       defer?: boolean;
+      /** note 14 — thin-summary enrichment: the job's device/issue, appended
+       *  after the existing "Maintenance Job #N: $X" prefix so prefix-matching
+       *  tests/e2e specs stay intact. */
+      deviceName?: string | null;
+      issueDescription?: string | null;
     },
   ): void {
     const createdBy = 1;
@@ -221,9 +242,16 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const defer = opts.defer === true;
     const isLbp = opts.currency === "LBP";
     const profit = opts.profit ?? 0;
-    const summary = isLbp
+    const prefix = isLbp
       ? `Maintenance Job #${jobId}: ${opts.finalAmount.toLocaleString()} LBP`
       : `Maintenance Job #${jobId}: $${opts.finalAmount}`;
+    const deviceLabel = opts.deviceName?.trim()
+      ? ` — ${opts.deviceName.trim()}`
+      : "";
+    const issueLabel = opts.issueDescription?.trim()
+      ? ` — ${truncateSummaryDetail(opts.issueDescription.trim())}`
+      : "";
+    const summary = `${prefix}${deviceLabel}${issueLabel}`;
 
     // Create unified transaction row — record the amount in the job's currency
     const txnId = getTransactionRepository().createTransaction({

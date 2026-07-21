@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { PartnerRepository } from "../../repositories/PartnerRepository";
 import { PartnerService } from "../PartnerService";
 import { NotFoundError } from "../../utils/errors";
+import { TRANSACTION_TYPES } from "../../constants/transactionTypes";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -52,10 +53,12 @@ function createTestDb(): Database.Database {
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- PFT-6b: PartnerService.settle() now writes a real money movement (unless
-    -- settlementMethod === 'CLIENT_ACCOUNT') via
+    -- PFT-6b: PartnerService.settle() writes a real money movement via
     -- PartnerRepository.recordSettlementMoneyMovement(), which needs the
     -- unified transactions/payments journal + a live drawer_balances row.
+    -- LIRA-066 residual: CLIENT_ACCOUNT settlements now ALSO call this
+    -- method (for the unified transactions row) but skip the payments/
+    -- drawer effect internally -- no schema change needed for that case.
     CREATE TABLE users (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       username   TEXT NOT NULL,
@@ -463,6 +466,219 @@ describe("PartnerService", () => {
       service.deactivatePartner(p2.id);
 
       expect(service.getAllBalances(true)).toHaveLength(2);
+    });
+  });
+
+  // ── LIRA-066 — paper Record Tx unified-transaction visibility ──────────────
+
+  describe("recordPartnerTransaction() — LIRA-066 unified transaction visibility", () => {
+    function txnRowsFor(entryId: number): Array<{
+      type: string;
+      amount_usd: number;
+      amount_lbp: number;
+      summary: string;
+      profit_usd: number;
+      profit_lbp: number;
+      client_id: number | null;
+    }> {
+      return db
+        .prepare(
+          `SELECT type, amount_usd, amount_lbp, summary, profit_usd, profit_lbp, client_id
+           FROM transactions WHERE source_table = 'partner_ledger' AND source_id = ?`,
+        )
+        .all(entryId) as Array<{
+        type: string;
+        amount_usd: number;
+        amount_lbp: number;
+        summary: string;
+        profit_usd: number;
+        profit_lbp: number;
+        client_id: number | null;
+      }>;
+    }
+
+    it("a paper (no cash) CREDIT entry posts exactly one PARTNER_ADJUSTMENT transaction row", () => {
+      const p = service.createPartner({ name: "PaperCredit" });
+      const entry = service.recordPartnerTransaction({
+        partnerId: p.id,
+        amount: 250,
+        currency: "USD",
+        direction: "CREDIT",
+        userId: 1,
+        notes: "owner note",
+        // moveCash omitted — the general "Record Tx" paper path.
+      });
+
+      const rows = txnRowsFor(entry.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].type).toBe(TRANSACTION_TYPES.PARTNER_ADJUSTMENT);
+      expect(rows[0].summary).toBeTruthy();
+      expect(rows[0].summary).toContain("250");
+      expect(rows[0].summary).toContain("USD");
+      expect(rows[0].summary).toContain("PaperCredit");
+      expect(rows[0].amount_usd).toBeCloseTo(250, 2);
+      expect(rows[0].amount_lbp).toBe(0);
+      expect(rows[0].profit_usd).toBe(0);
+      expect(rows[0].profit_lbp).toBe(0);
+      expect(rows[0].client_id).toBeNull();
+
+      // No cash moved — no payments row, no drawer delta.
+      const payments = db.prepare(`SELECT * FROM payments`).all();
+      expect(payments).toHaveLength(0);
+      const drawers = db.prepare(`SELECT * FROM drawer_balances`).all();
+      expect(drawers).toHaveLength(0);
+    });
+
+    it("a paper (no cash) DEBIT entry also posts exactly one PARTNER_ADJUSTMENT row (negative signed value)", () => {
+      const p = service.createPartner({ name: "PaperDebit" });
+      const entry = service.recordPartnerTransaction({
+        partnerId: p.id,
+        amount: 100000,
+        currency: "LBP",
+        direction: "DEBIT",
+        userId: 1,
+      });
+
+      const rows = txnRowsFor(entry.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].type).toBe(TRANSACTION_TYPES.PARTNER_ADJUSTMENT);
+      expect(rows[0].amount_lbp).toBeCloseTo(-100000, 2);
+      expect(rows[0].amount_usd).toBe(0);
+
+      const payments = db.prepare(`SELECT * FROM payments`).all();
+      expect(payments).toHaveLength(0);
+    });
+
+    it("moveCash=true still posts exactly ONE transactions row (no double-posting)", () => {
+      const p = service.createPartner({ name: "CashMovedOnce" });
+      const entry = service.recordPartnerTransaction({
+        partnerId: p.id,
+        amount: 60,
+        currency: "USD",
+        direction: "DEBIT",
+        userId: 1,
+        moveCash: true,
+      });
+
+      const rows = txnRowsFor(entry.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].type).toBe(TRANSACTION_TYPES.PARTNER_PAYMENT);
+
+      // Cash-moved path still writes its real payments/drawer effect.
+      const payments = db.prepare(`SELECT * FROM payments`).all();
+      expect(payments).toHaveLength(1);
+    });
+  });
+
+  // ── LIRA-066 residual — settle() CLIENT_ACCOUNT unified-transaction
+  //    visibility ───────────────────────────────────────────────────────────
+  //
+  // Verified fact (2026-07-20): settle()'s CLIENT_ACCOUNT method has NO
+  // client_id anywhere in the flow (partnerSettleSchema carries no such
+  // field) — it is a "no cash moved" flag, structurally identical to
+  // recordPartnerTransaction's moveCash=false paper path, NOT a charge
+  // against any specific client's debt_ledger. Previously
+  // PartnerService.settle() skipped recordSettlementMoneyMovement entirely
+  // for this method, so the settlement wrote a partner_ledger row with NO
+  // unified `transactions` row at all — invisible on the Transactions page.
+
+  describe("settle() — CLIENT_ACCOUNT unified-transaction visibility (LIRA-066 residual)", () => {
+    function txnRowsFor(entryId: number): Array<{
+      type: string;
+      amount_usd: number;
+      amount_lbp: number;
+      summary: string;
+      profit_usd: number;
+      profit_lbp: number;
+      metadata_json: string;
+    }> {
+      return db
+        .prepare(
+          `SELECT type, amount_usd, amount_lbp, summary, profit_usd, profit_lbp, metadata_json
+           FROM transactions WHERE source_table = 'partner_ledger' AND source_id = ?`,
+        )
+        .all(entryId) as Array<{
+        type: string;
+        amount_usd: number;
+        amount_lbp: number;
+        summary: string;
+        profit_usd: number;
+        profit_lbp: number;
+        metadata_json: string;
+      }>;
+    }
+
+    it("a CLIENT_ACCOUNT settlement posts exactly ONE PARTNER_SETTLEMENT transaction row, no cash moved", () => {
+      const p = service.createPartner({ name: "ClientAcctSettle" });
+      // Partner owes us $100 (DEBIT from partner's perspective via the
+      // manual entry helper) so the settlement direction resolves to CREDIT.
+      service.recordPartnerTransaction({
+        partnerId: p.id,
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+        userId: 1,
+      });
+
+      const entry = service.settle({
+        partnerId: p.id,
+        amount: 40,
+        currency: "USD",
+        settlementMethod: "CLIENT_ACCOUNT",
+        userId: 1,
+      });
+
+      const rows = txnRowsFor(entry.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].type).toBe(TRANSACTION_TYPES.PARTNER_SETTLEMENT);
+      expect(rows[0].summary).toContain("ClientAcctSettle");
+      expect(rows[0].summary).toContain("40");
+      expect(rows[0].summary).toContain("USD");
+      expect(rows[0].summary.toLowerCase()).toContain(
+        "settled via client account",
+      );
+      expect(rows[0].profit_usd).toBe(0);
+      expect(rows[0].profit_lbp).toBe(0);
+
+      const meta = JSON.parse(rows[0].metadata_json) as {
+        counterparty?: { method?: string; flow?: string };
+      };
+      expect(meta.counterparty?.method).toBe("CLIENT_ACCOUNT");
+
+      // No cash moved — no payments row, no drawer delta (ledger effect —
+      // the partner_ledger row + its FIFO coverage — is unchanged; this is
+      // a visibility-only fix).
+      const payments = db.prepare(`SELECT * FROM payments`).all();
+      expect(payments).toHaveLength(0);
+      const drawers = db.prepare(`SELECT * FROM drawer_balances`).all();
+      expect(drawers).toHaveLength(0);
+    });
+
+    it("a cash-method (CASH) settlement still posts exactly ONE transaction row (no regression)", () => {
+      const p = service.createPartner({ name: "CashSettleOnce" });
+      service.recordPartnerTransaction({
+        partnerId: p.id,
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+        userId: 1,
+      });
+
+      const entry = service.settle({
+        partnerId: p.id,
+        amount: 40,
+        currency: "USD",
+        settlementMethod: "CASH",
+        userId: 1,
+      });
+
+      const rows = txnRowsFor(entry.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].type).toBe(TRANSACTION_TYPES.PARTNER_SETTLEMENT);
+
+      // Cash settlement still writes its real payments/drawer effect.
+      const payments = db.prepare(`SELECT * FROM payments`).all();
+      expect(payments).toHaveLength(1);
     });
   });
 

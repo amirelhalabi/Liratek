@@ -338,6 +338,23 @@ describe("D3 — DEBT_REPAYMENT void/refund restores debt + unwinds coverage", (
       // Cash given back — drawer returns to its pre-repayment balance.
       expect(drawer(db, "General", "USD")).toBeCloseTo(generalBefore, 2);
     });
+
+    // note 14 — thin-summary enrichment: append the client's name after the
+    // existing "Debt Repayment: $X + Y LBP" prefix (byte-identical prefix).
+    it("the DEBT_REPAYMENT transaction summary includes the client's name", () => {
+      const { id: repaymentId } = debtRepo.addRepayment({
+        client_id: CLIENT_ID,
+        amount_usd: 60,
+        amount_lbp: 0,
+        created_by: 1,
+      });
+      const txnId = repaymentTxnId(db, repaymentId);
+      const txn = db
+        .prepare(`SELECT summary FROM transactions WHERE id = ?`)
+        .get(txnId) as { summary: string };
+      expect(txn.summary.startsWith("Debt Repayment: $60 + 0 LBP")).toBe(true);
+      expect(txn.summary).toContain("Repayment Client");
+    });
   });
 
   // ── REFUND ────────────────────────────────────────────────────────────────
@@ -483,7 +500,9 @@ describe("D3 — DEBT_REPAYMENT void/refund restores debt + unwinds coverage", (
       // REFUND transaction row carrying the SAME source_table='sales',
       // source_id=saleId, client_id.
       const saleTxn = db
-        .prepare(`SELECT id FROM transactions WHERE type = 'SALE' AND source_id = ?`)
+        .prepare(
+          `SELECT id FROM transactions WHERE type = 'SALE' AND source_id = ?`,
+        )
         .get(saleId) as { id: number };
       txnRepo.refundTransaction(saleTxn.id, 1);
       const saleAfterSaleRefund = db
@@ -636,7 +655,9 @@ describe("D3 — DEBT_REPAYMENT void/refund restores debt + unwinds coverage", (
     it("refuses voiding an already-voided repayment", () => {
       const txnId = makeRepayment();
       txnRepo.voidTransaction(txnId, 1);
-      expect(() => txnRepo.voidTransaction(txnId, 1)).toThrow(/already voided/i);
+      expect(() => txnRepo.voidTransaction(txnId, 1)).toThrow(
+        /already voided/i,
+      );
     });
 
     it("refuses voiding a repayment that has already been refunded", () => {

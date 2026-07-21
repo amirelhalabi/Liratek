@@ -55,6 +55,15 @@ export const TRANSACTION_TYPES = {
    *  Accounts-page CREDIT_CASH_IN/DEBT_CASH_OUT analog (add debt = cash OUT
    *  to the partner, add credit = cash IN from the partner). */
   PARTNER_PAYMENT: "PARTNER_PAYMENT",
+  /** LIRA-066: the general Partners-page "Record Tx" entry with "Cash moved"
+   *  OFF — a paper (no-cash) partner_ledger correction. Previously this wrote
+   *  ONLY partner_ledger with no unified-transaction visibility at all; this
+   *  type exists so the owner can see it on the Transactions page. Posts NO
+   *  payments row / drawer delta (that's the entire distinction from
+   *  PARTNER_PAYMENT) — amount_usd/amount_lbp carry the signed ledger value
+   *  for report-readability, but the Transactions viewer badge is
+   *  deliberately blank (getCashFlowDirection) since no cash moved. */
+  PARTNER_ADJUSTMENT: "PARTNER_ADJUSTMENT",
   /** CQ-10 — a counterparty (client/supplier/partner) forgives part of a
    *  balance, or the shop forgives part of what a counterparty owes. Posted
    *  once per discount (bundled with a settlement or standalone), on top of
@@ -62,6 +71,28 @@ export const TRANSACTION_TYPES = {
    *  'DISCOUNT'). amount_usd/amount_lbp are always 0 (no cash moves);
    *  profit_usd/profit_lbp carry the SIGNED discount (D1). */
   COUNTERPARTY_DISCOUNT: "COUNTERPARTY_DISCOUNT",
+  /** LIRA-080: the Accounts (Debts) page's "Add Credit / Debt" entry with
+   *  "Cash moved" OFF — a paper (no-cash) debt_ledger correction, the
+   *  client-side sibling of PARTNER_ADJUSTMENT. Posts NO payments row /
+   *  drawer delta (that's the entire distinction from CREDIT_CASH_IN/
+   *  DEBT_CASH_OUT). amount_usd/amount_lbp carry the SIGNED debt_ledger
+   *  value (same sign convention as the CREDIT_DEPOSIT/Manual Debt row it
+   *  wraps) for report-readability; the Transactions viewer badge is
+   *  deliberately blank (getCashFlowDirection) since no cash moved. */
+  ACCOUNT_ADJUSTMENT: "ACCOUNT_ADJUSTMENT",
+  /** LIRA-080: the Suppliers page's "Add Credit / Debt" entry with "Cash
+   *  moved" OFF — a paper (no-cash) supplier_ledger correction, the
+   *  supplier-side sibling of PARTNER_ADJUSTMENT/ACCOUNT_ADJUSTMENT. Written by
+   *  SupplierRepository.addLedgerEntry's no-drawer ADJUSTMENT branch (distinct
+   *  from the cash-moved path, which reuses recordSupplierCashflow →
+   *  SUPPLIER_PAYMENT). Posts NO payments row / drawer delta; amount_usd/
+   *  amount_lbp carry the SIGNED supplier_ledger value (CREDIT +, "shop owes
+   *  supplier more"; DEBIT −) for report-readability, and the Transactions
+   *  viewer badge is deliberately blank (getCashFlowDirection) since no cash
+   *  moved. NOTE this is the unified-transaction TYPE only — the
+   *  supplier_ledger.entry_type stays the pre-existing 'ADJUSTMENT' enum value
+   *  (no migration). */
+  SUPPLIER_ADJUSTMENT: "SUPPLIER_ADJUSTMENT",
 
   // Closing / Checkpoint
   CHECKPOINT: "CHECKPOINT",
@@ -125,6 +156,29 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // PARTNER_PAYMENT (PFT-7b): same rationale — the cash-moved manual entry
     // applies coverage stamps the generic reversal cannot un-apply.
     TRANSACTION_TYPES.PARTNER_PAYMENT,
+    // PARTNER_ADJUSTMENT (LIRA-066): a paper (no-cash) manual partner_ledger
+    // entry — no payments row exists to reverse, and the generic path has no
+    // partner_ledger reversal owner at all (same gap PARTNER_SETTLEMENT/
+    // PARTNER_PAYMENT already have). Rule-20 owner: correct with an opposite
+    // manual Record Tx entry on the Partners page.
+    TRANSACTION_TYPES.PARTNER_ADJUSTMENT,
+    // ACCOUNT_ADJUSTMENT (LIRA-080): a paper (no-cash) manual debt_ledger
+    // entry — no payments row exists to reverse, and the generic path has no
+    // debt_ledger reversal owner for CREDIT_DEPOSIT/Manual Debt rows either
+    // (the exact same gap that already makes this type's cash-moved siblings,
+    // CREDIT_CASH_IN/DEBT_CASH_OUT, non-reversible above). Rule-20 owner:
+    // correct with an opposite manual Add Credit/Debt entry on the Accounts
+    // page — same story as CREDIT_CASH_IN/DEBT_CASH_OUT.
+    TRANSACTION_TYPES.ACCOUNT_ADJUSTMENT,
+    // SUPPLIER_ADJUSTMENT (LIRA-080): a paper (no-cash) manual supplier_ledger
+    // entry — no payments row exists to reverse, and the generic path has no
+    // supplier_ledger reversal owner for a bare ADJUSTMENT row. Its cash-moved
+    // counterpart takes the DIFFERENT type SUPPLIER_PAYMENT (via
+    // recordSupplierCashflow) which STAYS generically reversible (soft-void +
+    // drawer reversal) — only the paper variant is non-reversible. Rule-20
+    // owner: correct with an opposite manual Add Credit/Debt entry on the
+    // Suppliers page (same story as PARTNER_ADJUSTMENT/ACCOUNT_ADJUSTMENT).
+    TRANSACTION_TYPES.SUPPLIER_ADJUSTMENT,
     // COUNTERPARTY_DISCOUNT (CQ-10): no drawer/legs to reverse (amount_usd/lbp
     // are always 0) and the FIFO coverage it applied (sales.paid_usd /
     // debt_ledger.covered_* / partner_ledger.covered_amount /

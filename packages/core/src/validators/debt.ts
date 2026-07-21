@@ -109,6 +109,13 @@ export const debtAccountEntrySchema = z
     payments: z.array(debtPaymentLegSchema).optional(),
     note: z.string().max(500).optional(),
     transaction_time: z.string().optional(),
+    /** LIRA-080: "Cash moved" toggle — default ON (true), preserving today's
+     *  always-moves-the-drawer behavior when the caller omits it entirely.
+     *  false = a paper (no-cash) entry: the debt_ledger row is written
+     *  exactly as today, but the wrapping transaction is ACCOUNT_ADJUSTMENT
+     *  with no payments row / drawer delta, instead of CREDIT_CASH_IN/
+     *  DEBT_CASH_OUT. */
+    moveCash: z.boolean().optional(),
   })
   .refine((data) => data.amountUSD > 0 || data.amountLBP > 0, {
     message: "At least one amount (USD or LBP) must be greater than 0",

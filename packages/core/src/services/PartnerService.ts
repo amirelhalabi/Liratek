@@ -147,6 +147,12 @@ export class PartnerService {
           data.userId,
           "PARTNER_PAYMENT",
         );
+      } else {
+        // LIRA-066: the paper path (no cash) previously wrote ONLY the
+        // partner_ledger row above — invisible on the Transactions page.
+        // Post the visibility-only PARTNER_ADJUSTMENT row now, so exactly
+        // ONE transactions row exists either way (cash-moved or paper).
+        this.repo.recordAdjustmentTransaction(entry, data.userId);
       }
       partnerLogger.info(
         {
@@ -290,16 +296,23 @@ export class PartnerService {
       // the method's drawer is credited when the partner pays the shop and
       // debited when the shop pays the partner, with a unified
       // PARTNER_SETTLEMENT transaction for audit. CLIENT_ACCOUNT settlements
-      // stay bookkeeping-only (no drawer involved).
-      if (data.settlementMethod !== "CLIENT_ACCOUNT") {
-        this.repo.recordSettlementMoneyMovement(
-          entry,
-          data.userId,
-          undefined,
-          data.discount,
-          data.payments,
-        );
-      }
+      // stay bookkeeping-only (no drawer involved) — LIRA-066 residual fix
+      // (2026-07-20): this used to SKIP recordSettlementMoneyMovement
+      // entirely for CLIENT_ACCOUNT, so that settlement wrote ONLY the
+      // partner_ledger row above with no unified `transactions` row at all
+      // (invisible on the Transactions page). Now the call always happens —
+      // PartnerRepository.recordSettlementMoneyMovement itself skips the
+      // payments row + drawer delta when the method is CLIENT_ACCOUNT (a
+      // no-drawer variant of PARTNER_SETTLEMENT, same visibility-only
+      // treatment PARTNER_ADJUSTMENT already gets), so drawers/ledgers are
+      // completely unaffected — only visibility changes.
+      this.repo.recordSettlementMoneyMovement(
+        entry,
+        data.userId,
+        undefined,
+        data.discount,
+        data.payments,
+      );
 
       // CQ-10 — bundled discount: ONE more partner_ledger row, SAME direction
       // as the settlement (both reduce the same obligation), which triggers

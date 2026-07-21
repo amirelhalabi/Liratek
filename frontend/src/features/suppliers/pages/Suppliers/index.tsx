@@ -5,7 +5,7 @@ import {
   PageHeader,
   type PaymentLine,
 } from "@liratek/ui";
-import { Truck, Eraser } from "lucide-react";
+import { Truck, Eraser, Plus, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -20,6 +20,7 @@ import {
   useSupplierLedgerQuery,
   useAllTransactionsQuery,
   useSupplierCashflowMutation,
+  useSupplierLedgerEntryMutation,
   useSupplierWriteOffMutation,
   useUnsettledTransactionsQuery,
   useSettleTransactionsMutation,
@@ -78,6 +79,13 @@ type SupplierTxn = {
   omt_service_type: string | null;
   settlement_id: number | null;
   is_settled: number;
+  /**
+   * Computed by the repository (SUPPLIER_OWED_EXPR — the ONE owed-per-row
+   * definition): 0 for wallet-provider transfers, cost for cost-flow rows,
+   * amount + provider fee for OMT/WHISH SEND, amount + commission for
+   * RECEIVE. All owed math on this page sums this — never re-derive it.
+   */
+  supplier_owed: number;
   fifo_status: "paid" | "partial" | "unpaid";
   fifo_paid_usd: number;
   created_at: string;
@@ -190,6 +198,22 @@ export default function SuppliersPage() {
   const [writeOffAmountLbp, setWriteOffAmountLbp] = useState("");
   const [writeOffReason, setWriteOffReason] = useState("");
   const [writeOffSubmitting, setWriteOffSubmitting] = useState(false);
+
+  // LIRA-080: "Add Credit / Debt" modal (admin+staff). CREDIT = shop owes the
+  // supplier more (ledger +); DEBIT = reduces what we owe / they owe us
+  // (ledger −). "Cash moved" default ON: cash-ON routes through the existing
+  // Pay/Receive plumbing (recordSupplierCashflow — CREDIT→RECEIVE cash in,
+  // DEBIT→PAY cash out); OFF posts a paper ADJUSTMENT (no drawer/payments).
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  useModalFocusFix(showAdjustModal);
+  const [adjustDirection, setAdjustDirection] = useState<"CREDIT" | "DEBIT">(
+    "CREDIT",
+  );
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustCurrency, setAdjustCurrency] = useState<"USD" | "LBP">("USD");
+  const [adjustNote, setAdjustNote] = useState("");
+  const [adjustMoveCash, setAdjustMoveCash] = useState(true);
+  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
   // D5 — batch settlement (resurrected from the orphaned
   // Settings/SupplierLedger.tsx, admin-only, built on the shared
@@ -475,6 +499,75 @@ export default function SuppliersPage() {
   );
   const supplierWriteOff = useSupplierWriteOffMutation(selectedSupplierId);
 
+  // LIRA-080 — the paper (no-cash) side of "Add Credit / Debt".
+  const supplierLedgerEntry = useSupplierLedgerEntryMutation(
+    selectedSupplierId,
+    selectedSupplier?.provider ?? null,
+  );
+
+  const resetAdjustForm = () => {
+    setAdjustDirection("CREDIT");
+    setAdjustAmount("");
+    setAdjustCurrency("USD");
+    setAdjustNote("");
+    setAdjustMoveCash(true);
+  };
+
+  const handleSupplierAdjust = async () => {
+    if (!selectedSupplierId) return;
+    const amount = parseFloat(adjustAmount.replace(/,/g, "")) || 0;
+    if (amount <= 0) {
+      alert("Enter an amount greater than 0");
+      return;
+    }
+    const isCredit = adjustDirection === "CREDIT";
+    const trimmedNote = adjustNote.trim();
+    setAdjustSubmitting(true);
+    try {
+      let result: { success: boolean; error?: string };
+      if (adjustMoveCash) {
+        // Cash-moved: reuse the existing Pay/Receive plumbing.
+        //   CREDIT (we owe supplier more) → RECEIVE: cash IN, ledger +
+        //   DEBIT  (reduces what we owe)  → PAY:     cash OUT, ledger −
+        result = (await supplierCashflow.mutateAsync({
+          supplier_id: selectedSupplierId,
+          direction: isCredit ? "RECEIVE" : "PAY",
+          payments: [{ method: "CASH", currency_code: adjustCurrency, amount }],
+          exchange_rate: exchangeRate,
+          ...(trimmedNote ? { note: trimmedNote } : {}),
+        })) as { success: boolean; error?: string };
+      } else {
+        // Paper: signed ADJUSTMENT (CREDIT +, DEBIT −), no drawer/payments.
+        // Moves the ledger the SAME way as the cash-moved path per direction.
+        const signed = isCredit ? amount : -amount;
+        result = (await supplierLedgerEntry.mutateAsync({
+          supplier_id: selectedSupplierId,
+          entry_type: "ADJUSTMENT",
+          amount_usd: adjustCurrency === "USD" ? signed : 0,
+          amount_lbp: adjustCurrency === "LBP" ? signed : 0,
+          ...(trimmedNote ? { note: trimmedNote } : {}),
+        })) as { success: boolean; error?: string };
+      }
+      if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          `${isCredit ? "Credit" : "Debit"} recorded${
+            adjustMoveCash ? "" : " (paper, no cash moved)"
+          }.`,
+          "success",
+        );
+        setShowAdjustModal(false);
+        resetAdjustForm();
+      } else {
+        alert(result.error || "Failed");
+      }
+    } catch {
+      alert("Failed to record entry");
+    } finally {
+      setAdjustSubmitting(false);
+    }
+  };
+
   const handleSupplierWriteOff = async () => {
     if (!selectedSupplierId) return;
     const amountUsd = Math.min(
@@ -516,10 +609,12 @@ export default function SuppliersPage() {
     selectedSupplier?.provider ?? null,
   );
 
-  // Same owed/commission math the deleted Settings/SupplierLedger.tsx used:
-  // RECEIVE rows owe |amount| + commission; LBP rows are excluded from the
-  // batch-settle money math (neither the orphan nor this page's own
-  // Outstanding footer handled an LBP settle amount — out of scope here).
+  // Owed per row = supplier_owed, computed by the repository's single
+  // SUPPLIER_OWED_EXPR (OMT/WHISH SEND: amount + provider fee — the fee
+  // belongs to the provider, the shop's cut is the commission netted below;
+  // RECEIVE: amount + commission, unchanged). Net you pay = owed − commission.
+  // LBP rows are excluded from the batch-settle money math (no LBP settle
+  // amount handled here — out of scope).
   const selectedUnsettled = useMemo(
     () => unsettledTxns.filter((t) => selectedSettleIds.has(t.id)),
     [unsettledTxns, selectedSettleIds],
@@ -528,7 +623,7 @@ export default function SuppliersPage() {
     () =>
       selectedUnsettled
         .filter((t) => t.currency !== "LBP")
-        .reduce((s, t) => s + Math.abs(t.amount) + t.commission, 0),
+        .reduce((s, t) => s + t.supplier_owed, 0),
     [selectedUnsettled],
   );
   const settleCommissionUsd = useMemo(
@@ -772,6 +867,27 @@ export default function SuppliersPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* LIRA-080: Add Credit / Debt — a manual supplier_ledger
+                      correction with a "Cash moved" toggle (default ON).
+                      Admin-only: it reuses the addLedgerEntry / cashflow
+                      plumbing, both of which are requireRole(["admin"]) on IPC
+                      AND REST — a staff user would only hit an auth rejection.
+                      Active company suppliers only. */}
+                  {isAdmin &&
+                    selectedSupplier.is_active !== 0 &&
+                    !isProductSupplier && (
+                      <button
+                        onClick={() => {
+                          resetAdjustForm();
+                          setShowAdjustModal(true);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
+                        title="Manually record a credit or debt against this supplier"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Credit / Debt
+                      </button>
+                    )}
                   {/* CQ-10 (D4): standalone write-off — admin-only, only when
                       we owe the supplier something left to forgive. */}
                   {isAdmin && canWriteOffSupplier && (
@@ -1099,7 +1215,13 @@ export default function SuppliersPage() {
                               )}
                             </div>
                             <div className="col-span-2 text-right">
-                              {t.settlement_id != null ? (
+                              {t.supplier_owed === 0 &&
+                              t.settlement_id == null ? (
+                                // Wallet-provider transfer (prepaid balance):
+                                // nothing is owed to the supplier, so a
+                                // paid/unpaid status is meaningless here.
+                                <span className="text-slate-600">—</span>
+                              ) : t.settlement_id != null ? (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-900/50 text-blue-300">
                                   Settled
                                 </span>
@@ -1125,35 +1247,50 @@ export default function SuppliersPage() {
                       </div>
                       <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
                         <span>
+                          {/* Rows that owe nothing (wallet-provider transfers)
+                              carry no payment status — exclude them from the
+                              counts, matching the "—" status cell above. */}
                           {
-                            allTxns.filter((t) => t.fifo_status === "paid")
-                              .length
+                            allTxns.filter(
+                              (t) =>
+                                t.supplier_owed > 0 && t.fifo_status === "paid",
+                            ).length
                           }{" "}
                           paid ·{" "}
                           {
-                            allTxns.filter((t) => t.fifo_status === "partial")
-                              .length
+                            allTxns.filter(
+                              (t) =>
+                                t.supplier_owed > 0 &&
+                                t.fifo_status === "partial",
+                            ).length
                           }{" "}
                           partial ·{" "}
                           {
-                            allTxns.filter((t) => t.fifo_status === "unpaid")
-                              .length
+                            allTxns.filter(
+                              (t) =>
+                                t.supplier_owed > 0 &&
+                                t.fifo_status === "unpaid",
+                            ).length
                           }{" "}
                           unpaid
                         </span>
                         <span className="font-mono font-bold text-white">
                           {(() => {
+                            // supplier_owed is the repository's single
+                            // owed-per-row definition — wallet-provider
+                            // transfers contribute 0 (nothing is owed for
+                            // consuming the shop's own prepaid balance).
                             const outstandingUsd = allTxns
                               .filter((t) => t.currency !== "LBP")
-                              .reduce((s, t) => {
-                                const owed =
-                                  t.service_type === "RECEIVE"
-                                    ? Math.abs(t.amount) + t.commission
-                                    : t.cost > 0
-                                      ? t.cost
-                                      : Math.abs(t.amount);
-                                return s + Math.max(0, owed - t.fifo_paid_usd);
-                              }, 0);
+                              .reduce(
+                                (s, t) =>
+                                  s +
+                                  Math.max(
+                                    0,
+                                    t.supplier_owed - t.fifo_paid_usd,
+                                  ),
+                                0,
+                              );
                             return outstandingUsd > 0
                               ? `Outstanding: $${outstandingUsd.toFixed(2)}`
                               : "Fully covered";
@@ -1317,6 +1454,164 @@ export default function SuppliersPage() {
           )}
         </div>
       </div>
+
+      {/* LIRA-080: "Add Credit / Debt" modal — a manual supplier_ledger
+          correction. CREDIT = shop owes the supplier more (ledger +); DEBIT =
+          reduces what we owe / they owe us (ledger −). "Cash moved" default ON
+          routes through the Pay/Receive plumbing; OFF posts a paper
+          SUPPLIER_ADJUSTMENT (no drawer/payments). */}
+      {showAdjustModal && selectedSupplier && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowAdjustModal(false);
+          }}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+            role="presentation"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-white mb-1">
+              Add Credit / Debt
+            </h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Manual ledger correction for {selectedSupplier.name}.
+            </p>
+            <div className="space-y-4">
+              {/* Direction */}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                  Direction
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setAdjustDirection("CREDIT")}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                      adjustDirection === "CREDIT"
+                        ? "bg-red-900/40 border-red-600 text-red-300"
+                        : "bg-slate-800 border-slate-600 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <ArrowDownLeft className="w-3.5 h-3.5" />
+                    CREDIT (we owe them)
+                  </button>
+                  <button
+                    onClick={() => setAdjustDirection("DEBIT")}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                      adjustDirection === "DEBIT"
+                        ? "bg-emerald-900/40 border-emerald-600 text-emerald-300"
+                        : "bg-slate-800 border-slate-600 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                    DEBIT (they owe us)
+                  </button>
+                </div>
+              </div>
+
+              {/* Amount + currency */}
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Amount
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={adjustAmount}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/,/g, "");
+                      if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                        setAdjustAmount(raw);
+                      }
+                    }}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
+                    placeholder="0.00"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Currency
+                  </label>
+                  <div className="flex gap-1">
+                    {(["USD", "LBP"] as const).map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setAdjustCurrency(c)}
+                        className={`px-3 py-2.5 rounded-lg text-sm font-medium border ${
+                          adjustCurrency === c
+                            ? "bg-indigo-900/40 border-indigo-600 text-indigo-200"
+                            : "bg-slate-800 border-slate-600 text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Note */}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                  Note
+                </label>
+                <input
+                  type="text"
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
+                  placeholder="Optional note..."
+                />
+              </div>
+
+              {/* Cash moved toggle — default ON */}
+              <label
+                className="flex items-start gap-2 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer"
+                data-testid="supplier-cash-moved-toggle"
+              >
+                <input
+                  type="checkbox"
+                  checked={adjustMoveCash}
+                  onChange={(e) => setAdjustMoveCash(e.target.checked)}
+                  className="mt-0.5 accent-indigo-500"
+                />
+                <span className="text-xs text-slate-300">
+                  <span className="font-medium text-white">Cash moved</span> —
+                  this entry moves the drawer:{" "}
+                  {adjustDirection === "CREDIT"
+                    ? "cash IN from the supplier"
+                    : "cash OUT to the supplier"}
+                  . Untick for a paper-only ledger correction (no drawer
+                  change).
+                </span>
+              </label>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  onClick={() => setShowAdjustModal(false)}
+                  className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={
+                    adjustSubmitting ||
+                    !(parseFloat(adjustAmount.replace(/,/g, "")) > 0)
+                  }
+                  onClick={handleSupplierAdjust}
+                  className="flex-1 py-3 rounded-xl font-bold disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 shadow-indigo-900/20"
+                >
+                  {adjustSubmitting ? "Processing..." : "Save entry"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CQ-10 (D4): standalone "Write off" modal — admin-only, pure
           forgiveness (the supplier forgives what we owe them), no cash

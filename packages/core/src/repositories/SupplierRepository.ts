@@ -64,6 +64,13 @@ export interface SupplierLedgerEntryEntity {
   /** 1 = soft-voided (its transaction was voided/refunded) — excluded from every balance/pool aggregate. */
   is_refunded: number;
   refunded_at: string | null;
+  /** LIRA-091 (v136): back-link to the PARENT transaction's own source row
+   *  (mirrors transactions.source_table/source_id) for an auto-generated
+   *  sibling row — lets TransactionRepository cascade-void this row when the
+   *  parent is voided/refunded. NULL for manual entries and for rows created
+   *  before the migration (legacy, not backfilled). */
+  source_ref_table: string | null;
+  source_ref_id: number | null;
   created_at: string;
 }
 
@@ -162,6 +169,21 @@ export interface CreateSupplierLedgerEntryData {
    * journal transaction row, as before.
    */
   transaction_id?: number;
+  /**
+   * LIRA-091 (v136): stamp this auto-generated row with a back-link to the
+   * PARENT transaction's own source row (e.g. `source_ref_table:
+   * "financial_services", source_ref_id: <fs id>`) so TransactionRepository
+   * can find and cascade-void it when the parent is voided/refunded. Only
+   * meaningful for is_auto:true, separate-hidden-transaction callers
+   * (FinancialServiceRepository's BILL/SEND/RECEIVE auto rows) — link-mode
+   * callers (transaction_id set) already share the parent's own transaction
+   * row and must NOT set this (their supplier_ledger.transaction_id already
+   * points AT the parent's transaction, so stamping source_ref too would
+   * make the generic cascade call _voidTransactionInternal on its own
+   * in-flight parent transaction).
+   */
+  source_ref_table?: string;
+  source_ref_id?: number;
 }
 
 export interface SupplierBalance {
@@ -267,6 +289,29 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     return row?.name ?? `Supplier #${supplierId}`;
   }
 
+  /**
+   * True when the connected `supplier_ledger` table already carries the v136
+   * source_ref_table/source_ref_id columns. `packages/core` jest specs
+   * hand-roll a fresh in-memory schema per file (dozens of pre-existing
+   * fixtures predate this migration); writing an INSERT that references a
+   * column the connected schema doesn't have would throw — and this
+   * particular INSERT is wrapped by every caller's own non-critical try/catch
+   * (`FinancialServiceRepository`'s "Supplier auto-record is non-critical"),
+   * so the whole ledger row would silently vanish instead of erroring loudly.
+   * Checked once per call (PRAGMA is cheap; this is not a hot path) rather
+   * than cached, mirroring `TransactionRepository`'s identical guard for the
+   * void-cascade side of this same migration.
+   */
+  private _supplierLedgerHasSourceRefColumns(): boolean {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(supplier_ledger)`)
+      .all() as { name: string }[];
+    return (
+      cols.some((c) => c.name === "source_ref_table") &&
+      cols.some((c) => c.name === "source_ref_id")
+    );
+  }
+
   addLedgerEntry(data: CreateSupplierLedgerEntryData): { id: number } {
     // CQ-7 dead corner: a drawer_name only ever makes sense on a PAYMENT row
     // (the only branch that has ever consumed it — verified against every
@@ -275,6 +320,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     if (data.drawer_name && data.entry_type !== "PAYMENT") {
       throw new DatabaseError(
         `addLedgerEntry: drawer_name is only valid with entry_type "PAYMENT" (got "${data.entry_type}")`,
+      );
+    }
+    // LIRA-091: link-mode (transaction_id set) means this row shares the
+    // CALLER's own transaction — source_ref would make the void cascade call
+    // _voidTransactionInternal on that same in-flight parent (self-void).
+    // Only is_auto:true, separate-hidden-transaction callers set source_ref.
+    if (data.transaction_id != null && data.source_ref_table) {
+      throw new DatabaseError(
+        `addLedgerEntry: source_ref_table/source_ref_id cannot be combined with link-mode (transaction_id) — link-mode rows already share the parent's own transaction`,
       );
     }
 
@@ -288,23 +342,45 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         amountLbp = -Math.abs(amountLbp);
       }
 
-      const stmt = this.db.prepare(`
+      const hasSourceRef = this._supplierLedgerHasSourceRefColumns();
+      const stmt = hasSourceRef
+        ? this.db.prepare(`
+        INSERT INTO supplier_ledger (
+          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto,
+          transaction_id, source_ref_table, source_ref_id, tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `)
+        : this.db.prepare(`
         INSERT INTO supplier_ledger (
           supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto,
           transaction_id, tenant_id, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
-      const res = stmt.run(
-        data.supplier_id,
-        data.entry_type,
-        amountUsd,
-        amountLbp,
-        data.note ?? null,
-        data.created_by,
-        data.is_auto ? 1 : 0,
-        data.transaction_id ?? null,
-        tenantId,
-      );
+      const res = hasSourceRef
+        ? stmt.run(
+            data.supplier_id,
+            data.entry_type,
+            amountUsd,
+            amountLbp,
+            data.note ?? null,
+            data.created_by,
+            data.is_auto ? 1 : 0,
+            data.transaction_id ?? null,
+            data.source_ref_table ?? null,
+            data.source_ref_id ?? null,
+            tenantId,
+          )
+        : stmt.run(
+            data.supplier_id,
+            data.entry_type,
+            amountUsd,
+            amountLbp,
+            data.note ?? null,
+            data.created_by,
+            data.is_auto ? 1 : 0,
+            data.transaction_id ?? null,
+            tenantId,
+          );
       const entryId = Number(res.lastInsertRowid);
 
       // Link-mode (CQ-7): the caller's OWN flow already created a unified
@@ -327,7 +403,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           user_id: data.created_by,
           amount_usd: Math.abs(amountUsd),
           amount_lbp: Math.abs(amountLbp),
-          summary: `Supplier Payment: $${Math.abs(amountUsd)} + ${Math.abs(amountLbp)} LBP`,
+          summary: `Supplier Payment: $${Math.abs(amountUsd)} + ${Math.abs(amountLbp)} LBP — paid to ${this._getSupplierName(data.supplier_id)}`,
           metadata_json: {
             supplier_id: data.supplier_id,
             drawer_name: data.drawer_name,
@@ -389,7 +465,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           TOP_UP: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
           SALE_COST: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
           PAYMENT: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
-          ADJUSTMENT: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+          // LIRA-080: a manual (no-drawer) ADJUSTMENT is a paper (no-cash)
+          // supplier_ledger correction — the Suppliers-page "Add Credit / Debt"
+          // toggle-OFF entry. It gets its OWN unified type so the Transactions
+          // viewer renders NO cash-flow badge (getCashFlowDirection returns
+          // null for SUPPLIER_ADJUSTMENT); routing it through SUPPLIER_PAYMENT
+          // would paint a misleading green "in" arrow on a row where no cash
+          // moved. The cash-moved counterpart never reaches here — it goes
+          // through recordSupplierCashflow (→ SUPPLIER_PAYMENT). Sibling of
+          // PARTNER_ADJUSTMENT/ACCOUNT_ADJUSTMENT.
+          ADJUSTMENT: TRANSACTION_TYPES.SUPPLIER_ADJUSTMENT,
           SETTLEMENT: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
         };
         const txnType =
@@ -417,7 +502,17 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           if (journalLbp) parts.push(`${journalLbp.toLocaleString()} LBP`);
           summary = `Supplier credit: ${parts.join(" + ") || "$0"}`;
         } else if (data.entry_type === "PAYMENT") {
-          summary = `Supplier Payment: $${journalUsd} + ${journalLbp} LBP`;
+          summary = `Supplier Payment: $${journalUsd} + ${journalLbp} LBP — paid to ${this._getSupplierName(data.supplier_id)}`;
+        } else if (data.entry_type === "ADJUSTMENT") {
+          // LIRA-080 — paper (no-cash) manual adjustment. Sign carries the
+          // direction: CREDIT (+) = shop owes supplier more; DEBIT (−) =
+          // reduces what we owe. Mirrors the Accounts-page paper wording.
+          const isCredit = (amountUsd || amountLbp) >= 0;
+          summary = `Supplier ${
+            isCredit ? "Credit" : "Debit"
+          } (paper, no cash moved): $${Math.abs(amountUsd)} + ${Math.abs(
+            amountLbp,
+          )} LBP — ${this._getSupplierName(data.supplier_id)}`;
         } else {
           summary = `Supplier ${data.entry_type}: $${amountUsd} + ${amountLbp} LBP`;
         }
@@ -493,8 +588,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     limit = 200,
   ): SupplierLedgerEntryEntity[] {
     try {
+      // LIRA-091: source_ref_table/source_ref_id only selected when present
+      // (see _supplierLedgerHasSourceRefColumns) — same schema-drift guard as
+      // addLedgerEntry's INSERT, so this stays safe against pre-v136 fixtures.
+      const cols = this._supplierLedgerHasSourceRefColumns()
+        ? "id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, created_at"
+        : "id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at";
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at FROM supplier_ledger WHERE supplier_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT ${cols} FROM supplier_ledger WHERE supplier_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT ?`,
         supplierId,
         getCurrentTenantId(),
         limit,
@@ -613,10 +714,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * Atomically settle a batch of financial_services transactions with a supplier.
    *
    * In a single DB transaction:
-   * 1. Insert a SETTLEMENT supplier_ledger entry (negative = shop paying out)
+   * 1. Insert a SETTLEMENT-typed supplier_ledger entry (negative = shop paying out
+   *    the net = owed − commission)
    * 2. Mark all specified financial_services rows as is_settled = 1
-   * 3. Credit commission to General drawer (commission was pending until now)
-   * 4. Debit net payment from drawer (shop pays OMT the net amount)
+   * 3. Realize the commission — FUNDED (Fix C): General +commission,
+   *    settle drawer −commission, plus a SUPPLIER_PAYS_US ledger credit so the
+   *    supplier balance nets to zero against the gross TOP_UPs (amount + fee)
+   * 4. Debit net payment from drawer(s) (shop pays the provider the net)
    * 5. Create unified transactions row for audit trail
    */
   settleTransactions(data: SettleTransactionsData): { id: number } {
@@ -673,7 +777,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           )
           .run(ledgerEntryId, ...data.financial_service_ids, tenantId);
 
-        // ── 3. Credit commission to General drawer ─────────────────────────
+        // ── 3. Realize the commission (funded, Fix C) ──────────────────────
+        // The shop keeps its commission by paying the supplier owed − net —
+        // physically the cash comes OUT of the settle drawer (which reserved
+        // the gross amount + fee per SEND) INTO General. The old code credited
+        // General with no funding debit (minting drawer money) and left the
+        // commission stranded on both the settle drawer and the supplier
+        // balance. A SUPPLIER_PAYS_US ledger credit offsets the gross TOP_UPs
+        // so the supplier balance nets to zero:
+        //   TOP_UP(amount+fee) − SETTLEMENT(owed−comm) − SUPPLIER_PAYS_US(comm) = 0
         const upsertBalance = {
           run: (
             drawerName: string,
@@ -691,9 +803,37 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
         if (data.commission_usd > 0) {
           upsertBalance.run("General", "USD", data.commission_usd, tenantId);
+          upsertBalance.run(
+            data.drawer_name,
+            "USD",
+            -data.commission_usd,
+            tenantId,
+          );
         }
         if (data.commission_lbp > 0) {
           upsertBalance.run("General", "LBP", data.commission_lbp, tenantId);
+          upsertBalance.run(
+            data.drawer_name,
+            "LBP",
+            -data.commission_lbp,
+            tenantId,
+          );
+        }
+        if (data.commission_usd > 0 || data.commission_lbp > 0) {
+          this.db
+            .prepare(
+              `INSERT INTO supplier_ledger
+                 (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+               VALUES (?, 'SUPPLIER_PAYS_US', ?, ?, ?, ?, ?, datetime('now'))`,
+            )
+            .run(
+              data.supplier_id,
+              -Math.abs(data.commission_usd),
+              -Math.abs(data.commission_lbp),
+              `Commission earned — settlement of ${data.financial_service_ids.length} txns`,
+              data.created_by,
+              tenantId,
+            );
         }
 
         // ── 4. Create unified transaction for audit trail ──────────────────
@@ -872,9 +1012,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
         const money = `$${usd.toFixed(2)}${lbp ? ` + ${lbp.toLocaleString()} LBP` : ""}`;
+        // note 14 — thin-summary enrichment: append the supplier's name
+        // (paid TO them vs received FROM them), after the existing prefix.
+        const supplierName = this._getSupplierName(data.supplier_id);
         const summary = isPay
-          ? `Supplier Payment: ${money}`
-          : `Supplier Payment Received: ${money}`;
+          ? `Supplier Payment: ${money} — paid to ${supplierName}`
+          : `Supplier Payment Received: ${money} — received from ${supplierName}`;
         // CQ-7: funneled through createTransaction() instead of a raw INSERT
         // — gains the completeness guards and exchange-rate snapshot.
         const cashflowMethod =

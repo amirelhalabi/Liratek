@@ -157,6 +157,8 @@ export function registerDebtHandlers(): void {
         }>;
         note?: string;
         transaction_time?: string;
+        /** LIRA-080 — "Cash moved" toggle; default true when omitted. */
+        moveCash?: boolean;
       },
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
@@ -174,12 +176,13 @@ export function registerDebtHandlers(): void {
         audit(event.sender.id, {
           action: "create",
           entity_type: "account_cash_entry",
-          summary: `Account ${v.data.direction} for client #${v.data.clientId}: $${v.data.amountUSD} + ${v.data.amountLBP} LBP`,
+          summary: `Account ${v.data.direction} for client #${v.data.clientId}: $${v.data.amountUSD} + ${v.data.amountLBP} LBP${v.data.moveCash === false ? " (paper, no cash moved)" : ""}`,
           metadata: {
             direction: v.data.direction,
             clientId: v.data.clientId,
             amountUSD: v.data.amountUSD,
             amountLBP: v.data.amountLBP,
+            moveCash: v.data.moveCash !== false,
           },
         });
       }

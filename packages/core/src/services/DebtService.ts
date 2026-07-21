@@ -430,6 +430,9 @@ export class DebtService {
     note?: string;
     userId: number;
     transaction_time?: string;
+    /** LIRA-080 — "Cash moved" toggle; default true (absent/undefined) keeps
+     *  today's always-moves-the-drawer behavior byte-identical. */
+    moveCash?: boolean;
   }): RepaymentResult {
     const { direction, clientId, amountUSD, amountLBP, transaction_time } =
       data;
@@ -466,6 +469,7 @@ export class DebtService {
         note: data.note || null,
         created_by: data.userId,
         transaction_time,
+        move_cash: data.moveCash,
       });
 
       debtLogger.info(

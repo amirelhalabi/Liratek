@@ -145,6 +145,11 @@ export default function Debts() {
   const [creditDirection, setCreditDirection] = useState<"credit" | "debt">(
     "credit",
   );
+  // LIRA-080: "Cash moved" toggle — default ON, preserving today's
+  // always-moves-the-drawer behavior. When OFF the entry posts a paper
+  // (no-cash) ACCOUNT_ADJUSTMENT: the debt_ledger row is written exactly as
+  // today, but with no payments row / drawer delta.
+  const [creditMoveCash, setCreditMoveCash] = useState(true);
 
   const [debtFilter, setDebtFilter] = useState<DebtFilter>("ongoing");
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
@@ -157,7 +162,8 @@ export default function Debts() {
   const [serviceDetail, setServiceDetail] = useState<{
     fs: FinancialServiceData;
     payments: PaymentRowData[];
-    debtAmount: number;
+    debtAmountUsd: number;
+    debtAmountLbp: number;
   } | null>(null);
 
   // Session Debt detail modal state. `mode` selects which side of the basket
@@ -520,7 +526,8 @@ export default function Debts() {
 
   const loadServiceDebtDetails = async (
     transactionId: number,
-    debtAmount: number,
+    debtAmountUsd: number,
+    debtAmountLbp: number,
   ) => {
     try {
       if (!window.api) return;
@@ -539,7 +546,7 @@ export default function Debts() {
         transactionId,
       )) as PaymentRowData[];
 
-      setServiceDetail({ fs, payments, debtAmount });
+      setServiceDetail({ fs, payments, debtAmountUsd, debtAmountLbp });
       setShowServiceDetail(true);
     } catch (error) {
       logger.error("Failed to load service debt details:", error);
@@ -1171,7 +1178,10 @@ export default function Debts() {
         actions={
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowCreditModal(true)}
+              onClick={() => {
+                setCreditMoveCash(true);
+                setShowCreditModal(true);
+              }}
               className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium transition-all"
             >
               <Plus size={18} />
@@ -1654,6 +1664,7 @@ export default function Debts() {
                                             loadServiceDebtDetails(
                                               item.transaction_id!,
                                               item.amount_usd,
+                                              item.amount_lbp,
                                             )
                                           }
                                           className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
@@ -1913,7 +1924,8 @@ export default function Debts() {
           <ServiceDebtDetailModal
             financialService={serviceDetail.fs}
             payments={serviceDetail.payments}
-            debtAmount={serviceDetail.debtAmount}
+            debtAmountUsd={serviceDetail.debtAmountUsd}
+            debtAmountLbp={serviceDetail.debtAmountLbp}
             // Frame by the client's balance in the ENTRY's own currency — the
             // account's USD sign painted a genuine LBP debt entry as a sky
             // "Account Charge" whenever the client held a USD credit.
@@ -2435,6 +2447,29 @@ export default function Debts() {
                   />
                 </div>
 
+                {/* LIRA-080: "Cash moved" toggle — default ON (current
+                    behavior). OFF = paper (no-cash) ledger correction. */}
+                <label
+                  className="flex items-start gap-2 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer"
+                  data-testid="account-cash-moved-toggle"
+                >
+                  <input
+                    type="checkbox"
+                    checked={creditMoveCash}
+                    onChange={(e) => setCreditMoveCash(e.target.checked)}
+                    className="mt-0.5 accent-emerald-500"
+                  />
+                  <span className="text-xs text-slate-300">
+                    <span className="font-medium text-white">Cash moved</span> —
+                    this entry moves the drawer:{" "}
+                    {creditDirection === "credit"
+                      ? "cash IN from the customer"
+                      : "cash OUT to the customer (advance)"}
+                    . Untick for a paper-only ledger correction (no drawer
+                    change).
+                  </span>
+                </label>
+
                 <div className="pt-2 flex gap-3">
                   <button
                     onClick={() => setShowCreditModal(false)}
@@ -2458,6 +2493,10 @@ export default function Debts() {
                         amountLBP:
                           parseFloat(creditAmountLbp.replace(/,/g, "")) || 0,
                         ...(creditNote ? { note: creditNote } : {}),
+                        // LIRA-080: default ON preserves today's behavior;
+                        // sent explicit so a future default flip can't silently
+                        // change the drawer effect.
+                        moveCash: creditMoveCash,
                       });
                       if (result.success) {
                         appEvents.emit(
@@ -2474,6 +2513,7 @@ export default function Debts() {
                         setCreditAmountLbp("");
                         setCreditNote("");
                         setCreditDirection("credit");
+                        setCreditMoveCash(true);
                         loadDebtors();
                         if (selectedClient) {
                           loadHistory(selectedClient.id);

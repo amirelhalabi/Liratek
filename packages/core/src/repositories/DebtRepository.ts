@@ -314,6 +314,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         uniqueMethods.length === 1 ? uniqueMethods[0] : "SPLIT";
 
       // Create unified transaction row
+      const clientName = this._getClientName(data.client_id);
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.DEBT_REPAYMENT,
         source_table: "debt_ledger",
@@ -327,7 +328,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         profit_usd: data.kept_change_usd || 0,
         profit_lbp: data.kept_change_lbp || 0,
         client_id: data.client_id,
-        summary: `Debt Repayment: $${data.amount_usd} + ${data.amount_lbp} LBP`,
+        // note 14 — thin-summary enrichment: client's name appended after
+        // the existing "Debt Repayment: $X + Y LBP" prefix.
+        summary: `Debt Repayment: $${data.amount_usd} + ${data.amount_lbp} LBP — ${clientName}`,
         metadata_json: {
           paid_by: primaryMethod,
           legs: paymentLegs.length > 1 ? paymentLegs : undefined,
@@ -339,7 +342,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           counterparty: buildCounterpartyMetadata({
             kind: "client",
             id: data.client_id,
-            name: this._getClientName(data.client_id),
+            name: clientName,
             flow: "IN",
             method: primaryMethod,
             ledgerEntryId: repaymentId,
@@ -1147,6 +1150,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * movement). This is NOT a repayment, so _markSalesPaidFIFO is deliberately
    * NOT called.
    *
+   * LIRA-080 — `move_cash` (default true, preserving the above byte-for-byte
+   * when the caller omits it): false posts a PAPER entry — the SAME
+   * debt_ledger row (CREDIT_DEPOSIT/Manual Debt, same sign), but the wrapping
+   * transaction is ACCOUNT_ADJUSTMENT with NO payments row / drawer delta
+   * (mirrors PartnerRepository.recordAdjustmentTransaction's PARTNER_ADJUSTMENT
+   * — same "visible, no-cash" contract, same signed-amount convention for
+   * report-readability since there's no IN/OUT badge to carry direction).
+   * `data.payments` is ignored on the paper path — a toggle-off entry never
+   * moves cash regardless of what legs the caller supplies.
+   *
    * Do NOT fold this into addCredit: that method is a pure ledger write reused
    * by internal change-returned-as-credit callers whose parent transaction
    * already booked the cash — moving the drawer there would double-count.
@@ -1160,9 +1173,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     note?: string | null;
     created_by: number;
     transaction_time?: string;
+    move_cash?: boolean;
   }): { id: number } {
     const tenantId = getCurrentTenantId();
     const isCredit = data.direction === "credit";
+    const moveCash = data.move_cash !== false;
     const ledgerSign = isCredit ? -1 : 1;
     const drawerSign = isCredit ? 1 : -1;
     const ledgerType = isCredit ? "CREDIT_DEPOSIT" : "Manual Debt";
@@ -1186,6 +1201,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       // Default to CASH legs matching the entry PER CURRENCY when none given.
       // A USD-only default would silently skip the LBP drawer movement.
+      // Never consulted on the paper (move_cash: false) path.
       const legs: RepaymentPaymentLine[] =
         data.payments && data.payments.length > 0
           ? data.payments
@@ -1211,33 +1227,62 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             ];
 
       const txnId = getTransactionRepository().createTransaction({
-        type: isCredit
-          ? TRANSACTION_TYPES.CREDIT_CASH_IN
-          : TRANSACTION_TYPES.DEBT_CASH_OUT,
+        type: moveCash
+          ? isCredit
+            ? TRANSACTION_TYPES.CREDIT_CASH_IN
+            : TRANSACTION_TYPES.DEBT_CASH_OUT
+          : TRANSACTION_TYPES.ACCOUNT_ADJUSTMENT,
         source_table: "debt_ledger",
         source_id: ledgerId,
         user_id: data.created_by,
-        amount_usd: Math.abs(data.amount_usd),
-        amount_lbp: Math.abs(data.amount_lbp),
+        // Cash-moved: always positive/abs, direction lives in the type.
+        // Paper: SIGNED (ledgerSign) so the report stays readable even though
+        // there's no IN/OUT badge to carry direction (matches
+        // PARTNER_ADJUSTMENT's convention).
+        amount_usd: moveCash
+          ? Math.abs(data.amount_usd)
+          : ledgerSign * Math.abs(data.amount_usd),
+        amount_lbp: moveCash
+          ? Math.abs(data.amount_lbp)
+          : ledgerSign * Math.abs(data.amount_lbp),
         client_id: data.client_id,
-        summary: isCredit
-          ? `Account Credit: $${Math.abs(data.amount_usd)} + ${Math.abs(
-              data.amount_lbp,
-            )} LBP`
-          : `Cash Advance (Debt): $${Math.abs(data.amount_usd)} + ${Math.abs(
-              data.amount_lbp,
-            )} LBP`,
+        summary: moveCash
+          ? isCredit
+            ? `Account Credit: $${Math.abs(data.amount_usd)} + ${Math.abs(
+                data.amount_lbp,
+              )} LBP`
+            : `Cash Advance (Debt): $${Math.abs(
+                data.amount_usd,
+              )} + ${Math.abs(data.amount_lbp)} LBP`
+          : isCredit
+            ? `Account Credit (paper, no cash moved): $${Math.abs(
+                data.amount_usd,
+              )} + ${Math.abs(data.amount_lbp)} LBP`
+            : `Cash Advance (Debt, paper, no cash moved): $${Math.abs(
+                data.amount_usd,
+              )} + ${Math.abs(data.amount_lbp)} LBP`,
         metadata_json: {
-          legs: legs.length > 1 ? legs : undefined,
-          paid_by: legs.length === 1 ? legs[0].method : "SPLIT",
+          legs: moveCash && legs.length > 1 ? legs : undefined,
+          paid_by: moveCash
+            ? legs.length === 1
+              ? legs[0].method
+              : "SPLIT"
+            : undefined,
           // CQ-8 counterparty contract: "credit" = customer hands the shop
           // cash (IN); "debt" = shop hands the customer a cash advance (OUT).
+          // Paper entries keep the same flow direction (no cash moved either
+          // way) — method: 'LEDGER' is the documented journal-only marker
+          // (no payments leg), same as PARTNER_ADJUSTMENT.
           counterparty: buildCounterpartyMetadata({
             kind: "client",
             id: data.client_id,
             name: this._getClientName(data.client_id),
             flow: isCredit ? "IN" : "OUT",
-            method: legs.length === 1 ? legs[0].method : "SPLIT",
+            method: moveCash
+              ? legs.length === 1
+                ? legs[0].method
+                : "SPLIT"
+              : "LEDGER",
             ledgerEntryId: ledgerId,
           }),
         },
@@ -1249,6 +1294,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           `UPDATE debt_ledger SET transaction_id = ? WHERE id = ? AND tenant_id = ?`,
         )
         .run(txnId, ledgerId, tenantId);
+
+      // Paper path: no payments row, no drawer delta — stop here.
+      if (!moveCash) {
+        return { id: ledgerId };
+      }
 
       const insertPayment = {
         run: (

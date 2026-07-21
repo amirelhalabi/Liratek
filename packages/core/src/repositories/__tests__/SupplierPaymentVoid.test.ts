@@ -220,6 +220,16 @@ describe("supplier-payment void/refund reversal", () => {
     expect(balanceOf(db, suppliers).usd).toBeCloseTo(40, 2); // 100 − 60
     const drawerAfterPay = drawer(db, "USD"); // 1000 − 60 = 940
 
+    // note 14 — thin-summary enrichment: supplier name appended after the
+    // existing "Supplier Payment: $X + Y LBP" prefix (prefix stays intact).
+    const paidTxn = db
+      .prepare(`SELECT summary FROM transactions WHERE id = ?`)
+      .get(txnIdForLedger(db, paid.id)) as { summary: string };
+    expect(paidTxn.summary.startsWith("Supplier Payment: $60 + 0 LBP")).toBe(
+      true,
+    );
+    expect(paidTxn.summary).toContain("Acme");
+
     txns.voidTransaction(txnIdForLedger(db, paid.id), 1);
 
     // Pre-fix: drawer restored but balance stayed 40 — understating the debt.

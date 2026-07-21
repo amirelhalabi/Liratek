@@ -39,7 +39,7 @@ function createTestDb(): Database.Database {
     CREATE TABLE supplier_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       supplier_id INTEGER NOT NULL,
-      entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','PAYMENT','ADJUSTMENT','SETTLEMENT')),
+      entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT')),
       amount_usd REAL NOT NULL DEFAULT 0,
       amount_lbp REAL NOT NULL DEFAULT 0,
       note TEXT,
@@ -358,7 +358,7 @@ describe("SupplierRepository.settleTransactions()", () => {
     expect(general.balance).toBeCloseTo(0.1, 4); // was 0, now +0.1
   });
 
-  it("debits net amount_usd from the specified drawer", () => {
+  it("debits net + commission (the gross owed) from the specified drawer", () => {
     const supplierId = seedSupplier(db);
     const txnId = seedUnsettledTransaction(db, "OMT", 100, 0.1);
 
@@ -389,7 +389,11 @@ describe("SupplierRepository.settleTransactions()", () => {
         .get() as any
     ).balance;
 
-    expect(after).toBeCloseTo(before - 99.9, 2);
+    // −99.9 net paid to the supplier PLUS −0.1 funding the commission credit
+    // to General: the system drawer gives up the full gross it reserved.
+    // Pre-fix only the net left, stranding the commission in the drawer while
+    // General was credited from nowhere.
+    expect(after).toBeCloseTo(before - 100, 2);
   });
 
   it("creates a unified SUPPLIER_SETTLEMENT transaction row", () => {
@@ -442,6 +446,80 @@ describe("SupplierRepository.settleTransactions()", () => {
       .get() as any;
 
     expect(ledgerEntry.transaction_id).toBe(unifiedTxn.id);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fix C: settlement books a funded commission and nets the ledger to zero
+  //
+  // Owner-confirmed model (2026-07-19): an OMT system SEND owes the provider
+  // amount + fee (booked as the auto TOP_UP); at settlement the shop pays
+  // owed − commission and keeps the commission — realized by moving it from
+  // the system drawer (which reserved the gross) into General, with a
+  // SUPPLIER_PAYS_US ledger credit so the supplier balance nets to 0.
+  //
+  // Rule 17: FAILS pre-fix — the old code paid only the net, credited the
+  // commission to General from nowhere, and left +commission on the ledger
+  // (masked pre-C3-revision by under-booking the TOP_UP at the bare amount).
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("full cycle: TOP_UP(amount+fee) → settle(owed−comm) nets ledger to 0, commission funded from the settle drawer", () => {
+    const supplierId = seedSupplier(db);
+    // $100 SEND with $5 provider fee, $0.50 commission (shop's cut of the fee).
+    const txnId = seedUnsettledTransaction(db, "OMT", 100, 0.5);
+    // The auto ledger entry the repository books at transaction time (C3
+    // revised): the GROSS owed, amount + fee = 105.
+    db.prepare(
+      `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, note)
+       VALUES (?, 'TOP_UP', 105, 0, 1, 'Auto: SEND via OMT')`,
+    ).run(supplierId);
+
+    const drawerBefore = (name: string) =>
+      (
+        db
+          .prepare(
+            "SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = 'USD'",
+          )
+          .get(name) as any
+      ).balance as number;
+    const omtBefore = drawerBefore("OMT_System");
+    const genBefore = drawerBefore("General");
+
+    repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [txnId],
+      amount_usd: 104.5, // owed 105 − commission 0.5 (what the UI sends)
+      amount_lbp: 0,
+      commission_usd: 0.5,
+      commission_lbp: 0,
+      drawer_name: "OMT_System",
+      created_by: 1,
+    });
+
+    // Supplier ledger nets to zero per currency:
+    // TOP_UP 105 + SETTLEMENT −104.5 + SUPPLIER_PAYS_US −0.5 = 0.
+    const bal = db
+      .prepare(
+        "SELECT COALESCE(SUM(amount_usd),0) usd, COALESCE(SUM(amount_lbp),0) lbp FROM supplier_ledger WHERE supplier_id = ?",
+      )
+      .get(supplierId) as any;
+    expect(bal.usd).toBeCloseTo(0, 4);
+    expect(bal.lbp).toBeCloseTo(0, 4);
+
+    // The commission credit row exists and is negative (supplier's fee share
+    // offset — the shop keeps it).
+    const commRow = db
+      .prepare(
+        "SELECT amount_usd FROM supplier_ledger WHERE supplier_id = ? AND entry_type = 'SUPPLIER_PAYS_US'",
+      )
+      .get(supplierId) as any;
+    expect(commRow).toBeDefined();
+    expect(commRow.amount_usd).toBeCloseTo(-0.5, 4);
+
+    // Drawers: the system drawer gives up the full gross it reserved (105);
+    // General gains exactly the commission. Money is conserved: total drawer
+    // delta = −104.5 = cash physically handed to the provider.
+    expect(drawerBefore("OMT_System")).toBeCloseTo(omtBefore - 105, 2);
+    expect(drawerBefore("General")).toBeCloseTo(genBefore + 0.5, 2);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -597,13 +675,14 @@ describe("SupplierRepository.settleTransactions()", () => {
       .get() as any;
     expect(general.balance).toBeCloseTo(0.1, 4);
 
-    // Verify OMT_System deducted $99.90
+    // Verify OMT_System deducted the full gross ($99.90 net to the supplier
+    // + $0.10 funding the commission credit to General — Fix C).
     const omtSystem = db
       .prepare(
         "SELECT balance FROM drawer_balances WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'",
       )
       .get() as any;
-    expect(omtSystem.balance).toBeCloseTo(500 - 99.9, 2); // was 500
+    expect(omtSystem.balance).toBeCloseTo(500 - 100, 2); // was 500
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -667,7 +746,7 @@ function createExtendedTestDb(): Database.Database {
     CREATE TABLE supplier_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       supplier_id INTEGER NOT NULL,
-      entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','PAYMENT','ADJUSTMENT','SETTLEMENT')),
+      entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US', 'DISCOUNT')),
       amount_usd REAL NOT NULL DEFAULT 0,
       amount_lbp REAL NOT NULL DEFAULT 0,
       note TEXT,

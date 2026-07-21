@@ -74,6 +74,12 @@ export interface UnsettledSupplierTransaction {
   omt_fee: number | null;
   omt_service_type: string | null;
   client_name: string | null;
+  /**
+   * Repository-computed owed-per-row (SUPPLIER_OWED_EXPR): the Settle tab
+   * sums THIS (net you pay = Σ supplier_owed − Σ commission) — never
+   * re-derives owed from amount/fee/commission locally.
+   */
+  supplier_owed: number;
   created_at: string;
 }
 
@@ -201,6 +207,51 @@ export function useSupplierCashflowMutation(
           queryClient.invalidateQueries({
             queryKey: SUPPLIER_KEYS.unsettled(provider),
           });
+          queryClient.invalidateQueries({
+            queryKey: SUPPLIER_KEYS.allTransactions(provider),
+          });
+        }
+      }
+    },
+  });
+}
+
+/**
+ * LIRA-080 — post a manual supplier_ledger entry (the paper/no-cash side of the
+ * Suppliers-page "Add Credit / Debt" action). Used only for `entry_type:
+ * "ADJUSTMENT"` with NO drawer_name, so the core writes ONE paper
+ * SUPPLIER_ADJUSTMENT transaction with no drawer/payments. The cash-moved side
+ * of that action goes through `useSupplierCashflowMutation` instead.
+ */
+export function useSupplierLedgerEntryMutation(
+  supplierId: number | null,
+  provider: string | null,
+) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: {
+      supplier_id: number;
+      entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
+      amount_usd: number;
+      amount_lbp: number;
+      note?: string;
+    }) => {
+      const { supplier_id, ...rest } = data;
+      return api.addSupplierLedgerEntry(supplier_id, rest);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
+      queryClient.invalidateQueries({
+        queryKey: SUPPLIER_KEYS.productBalances,
+      });
+      if (supplierId) {
+        queryClient.invalidateQueries({
+          queryKey: SUPPLIER_KEYS.ledger(supplierId),
+        });
+        if (provider) {
           queryClient.invalidateQueries({
             queryKey: SUPPLIER_KEYS.allTransactions(provider),
           });

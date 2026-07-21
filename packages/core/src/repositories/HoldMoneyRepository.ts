@@ -99,7 +99,12 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
 
       const clientName = data.client_name.trim();
       const phone = data.phone_number?.trim() || null;
-      const noteText = `Hold Money: ${clientName}`;
+      // note 14 — append the held amount+currency after the existing prefix
+      // (prefix stays exact for any test/e2e matching "Hold Money: {name}").
+      const amountParts: string[] = [];
+      if (usd > 0) amountParts.push(`$${usd.toLocaleString()}`);
+      if (lbp > 0) amountParts.push(`${lbp.toLocaleString()} LBP`);
+      const noteText = `Hold Money: ${clientName} — ${amountParts.join(" + ")}`;
 
       const result = this.db.transaction(() => {
         // 1. Insert the hold record

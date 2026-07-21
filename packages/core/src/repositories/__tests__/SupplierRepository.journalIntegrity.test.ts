@@ -307,6 +307,49 @@ describe("SupplierRepository — CQ-7 journal integrity", () => {
       expect(txn.exchange_rate).toBe(90_000);
     });
 
+    // note 14 — thin-summary enrichment: recordSupplierCashflow's summary
+    // already branches PAY vs RECEIVE wording but was missing the supplier's
+    // name; appended after the existing prefix in both directions.
+    it("PAY cashflow summary reads 'Supplier Payment: ... — paid to <name>'", () => {
+      const supplierId = seedSupplier(db, "Acme Corp");
+
+      repo.recordSupplierCashflow({
+        supplier_id: supplierId,
+        direction: "PAY",
+        payments: [{ method: "CASH", currency_code: "USD", amount: 50 }],
+        created_by: 1,
+      });
+
+      const txn = db
+        .prepare(
+          "SELECT summary FROM transactions WHERE type = 'SUPPLIER_PAYMENT'",
+        )
+        .get() as { summary: string };
+      expect(txn.summary.startsWith("Supplier Payment: $50.00")).toBe(true);
+      expect(txn.summary).toContain("paid to Acme Corp");
+    });
+
+    it("RECEIVE cashflow summary reads 'Supplier Payment Received: ... — received from <name>'", () => {
+      const supplierId = seedSupplier(db, "Beta Ltd");
+
+      repo.recordSupplierCashflow({
+        supplier_id: supplierId,
+        direction: "RECEIVE",
+        payments: [{ method: "CASH", currency_code: "USD", amount: 30 }],
+        created_by: 1,
+      });
+
+      const txn = db
+        .prepare(
+          "SELECT summary FROM transactions WHERE type = 'SUPPLIER_PAYMENT'",
+        )
+        .get() as { summary: string };
+      expect(txn.summary.startsWith("Supplier Payment Received: $30.00")).toBe(
+        true,
+      );
+      expect(txn.summary).toContain("received from Beta Ltd");
+    });
+
     it("still fails soft to NULL when no LBP rate is configured (no regression)", () => {
       const supplierId = seedSupplier(db);
       const txnId = seedUnsettledTransaction(db, "OMT", 100, 0.1);
@@ -371,6 +414,12 @@ describe("SupplierRepository — CQ-7 journal integrity", () => {
       expect(txn.source_table).toBe("supplier_ledger");
       expect(txn.source_id).toBe(result.id);
       expect(txn.summary).toBeTruthy();
+      // note 14 — thin-summary enrichment: supplier name appended after the
+      // existing "Supplier Payment: $X + Y LBP" prefix.
+      expect(txn.summary.startsWith("Supplier Payment: $40 + 0 LBP")).toBe(
+        true,
+      );
+      expect(txn.summary).toContain("OMT");
     });
 
     it("shows the paid magnitude (positive) on the transaction row, not the negated ledger sign", () => {

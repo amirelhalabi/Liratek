@@ -177,7 +177,7 @@ describe("HoldMoneyRepository (LIRA-060)", () => {
 
     const txn = db
       .prepare(
-        `SELECT type, amount_usd, amount_lbp, profit_usd, profit_lbp, client_name, client_phone FROM transactions WHERE source_table = 'hold_money' AND source_id = ?`,
+        `SELECT type, amount_usd, amount_lbp, profit_usd, profit_lbp, client_name, client_phone, summary FROM transactions WHERE source_table = 'hold_money' AND source_id = ?`,
       )
       .get(res.id) as {
       type: string;
@@ -187,6 +187,7 @@ describe("HoldMoneyRepository (LIRA-060)", () => {
       profit_lbp: number;
       client_name: string | null;
       client_phone: string | null;
+      summary: string;
     };
     expect(txn.type).toBe("HOLD_MONEY");
     expect(txn.amount_usd).toBe(40);
@@ -196,6 +197,10 @@ describe("HoldMoneyRepository (LIRA-060)", () => {
     // Customer surfaces in the Transactions viewer (rule 11) — not "—"
     expect(txn.client_name).toBe("Sami");
     expect(txn.client_phone).toBe("03 123 456");
+    // note 14 — the prefix stays byte-identical, amount+currency appended.
+    expect(txn.summary.startsWith("Hold Money: Sami")).toBe(true);
+    expect(txn.summary).toContain("$40");
+    expect(txn.summary).toContain("200,000 LBP");
 
     // Cash-in legs are positive (General +)
     const legs = db

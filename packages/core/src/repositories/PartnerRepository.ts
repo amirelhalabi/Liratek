@@ -98,6 +98,18 @@ export interface UpdatePartnerData {
   system_association?: string | null;
 }
 
+/**
+ * LIRA-081 additions to the FOR_%/THROUGH_% catalog below:
+ * - "FOR_EXCHANGE": a "for partner" currency exchange — the partner stands in
+ *   for the walk-in customer (mirrors every other FOR_% flow). The partner
+ *   owes exactly what a customer would have paid (`amountIn` in
+ *   `fromCurrency`); the shop still disburses `amountOut` of `toCurrency` for
+ *   real. See ExchangeRepository.createTransaction.
+ * - "FOR_CUSTOM_SERVICE": a "for partner" custom service — mirrors
+ *   FOR_RECHARGE: the shop's own cost still posts for real, the FULL price
+ *   (per currency component) books to the partner's tab instead of a walk-in
+ *   payment. See CustomServiceRepository.createService.
+ */
 export interface CreateLedgerEntryData {
   partner_id: number;
   transaction_type?:
@@ -124,6 +136,8 @@ export interface CreateLedgerEntryData {
     | "FOR_BINANCE_SEND"
     | "FOR_BINANCE_RECEIVE"
     | "FOR_LOTO"
+    | "FOR_EXCHANGE"
+    | "FOR_CUSTOM_SERVICE"
     | "CUSTOM_SERVICE"
     | "WHISH_TOPUP"
     | "SETTLEMENT"
@@ -442,6 +456,22 @@ export class PartnerRepository extends BaseRepository<Partner> {
    * equal `entry.currency`; the BINANCE→USDT drawer-currency override is
    * preserved per leg exactly like the single-leg path. Omitting `legs`
    * keeps the original single-leg behavior byte-identical.
+   *
+   * LIRA-066 residual fix (2026-07-20) — CLIENT_ACCOUNT is a no-drawer
+   * variant: `entry.settlement_method === 'CLIENT_ACCOUNT'` settles no real
+   * cash (the CHECK constraint + `partnerSettleSchema` both keep it
+   * legacy-field-only and reject combining it with split `legs`). This
+   * method used to never even be CALLED for that method (see
+   * PartnerService.settle) — the settlement wrote a partner_ledger row with
+   * no unified `transactions` row at all, invisible on the Transactions
+   * page. It is now always called: the unified transaction + source link
+   * are always written, but the payments row / drawer delta are skipped for
+   * CLIENT_ACCOUNT (bookkeeping only) — the same "no cash, still visible"
+   * contract `recordAdjustmentTransaction` (PARTNER_ADJUSTMENT) already
+   * proved out. `amount_usd`/`amount_lbp` still carry the SIGNED value for
+   * report-readability (matching PARTNER_ADJUSTMENT's convention); the
+   * Transactions viewer keeps the cash-flow badge blank for this case via
+   * `getCashFlowDirection` keying off `metadata.counterparty.method`.
    */
   recordSettlementMoneyMovement(
     entry: PartnerLedgerEntry,
@@ -460,6 +490,11 @@ export class PartnerRepository extends BaseRepository<Partner> {
   ): number {
     const tenantId = getCurrentTenantId();
     const method = entry.settlement_method ?? "CASH";
+    // LIRA-066 residual: CLIENT_ACCOUNT moves no drawer cash at all — skip
+    // the payments row + drawer delta below entirely (see the doc comment
+    // above). `partnerSettleSchema` already refuses to combine CLIENT_ACCOUNT
+    // with split `legs`, so `legs` is always undefined on this branch.
+    const isClientAccount = method === "CLIENT_ACCOUNT";
     const drawerName = paymentMethodToDrawerName(method);
     const drawerCurrency = method === "BINANCE" ? "USDT" : entry.currency;
     // CREDIT settlement = partner pays the shop → money IN (+drawer).
@@ -501,7 +536,11 @@ export class PartnerRepository extends BaseRepository<Partner> {
             : "Partner settlement"
         }: ${
           entry.direction === "CREDIT" ? "received from" : "paid to"
-        } ${label} — ${Math.abs(entry.amount)} ${entry.currency} via ${effectiveMethod}`,
+        } ${label} — ${Math.abs(entry.amount)} ${entry.currency} ${
+          isClientAccount
+            ? "(settled via client account, no cash moved)"
+            : `via ${effectiveMethod}`
+        }`,
         metadata_json: {
           partner_id: entry.partner_id,
           settlement_method: effectiveMethod,
@@ -527,53 +566,121 @@ export class PartnerRepository extends BaseRepository<Partner> {
         },
       });
 
-      if (legs && legs.length > 0) {
-        for (const leg of legs) {
-          const legDrawerName = paymentMethodToDrawerName(leg.method);
-          const legDrawerCurrency =
-            leg.method === "BINANCE" ? "USDT" : leg.currency_code;
-          const legSigned =
-            entry.direction === "CREDIT"
-              ? Math.abs(leg.amount)
-              : -Math.abs(leg.amount);
+      // LIRA-066 residual: CLIENT_ACCOUNT writes the transactions row above
+      // for visibility but NO payments row / drawer delta — no real cash
+      // moved, so there is nothing to post here (mirrors PARTNER_ADJUSTMENT).
+      if (!isClientAccount) {
+        if (legs && legs.length > 0) {
+          for (const leg of legs) {
+            const legDrawerName = paymentMethodToDrawerName(leg.method);
+            const legDrawerCurrency =
+              leg.method === "BINANCE" ? "USDT" : leg.currency_code;
+            const legSigned =
+              entry.direction === "CREDIT"
+                ? Math.abs(leg.amount)
+                : -Math.abs(leg.amount);
+            insertPaymentRow(this.db, {
+              transactionId: txnId,
+              method: leg.method,
+              drawerName: legDrawerName,
+              currencyCode: legDrawerCurrency,
+              amount: legSigned,
+              note: `Partner settlement (${label})`,
+              createdBy: userId,
+              tenantId,
+            });
+            applyDrawerDelta(this.db, {
+              drawerName: legDrawerName,
+              currencyCode: legDrawerCurrency,
+              delta: legSigned,
+              tenantId,
+            });
+          }
+        } else {
           insertPaymentRow(this.db, {
             transactionId: txnId,
-            method: leg.method,
-            drawerName: legDrawerName,
-            currencyCode: legDrawerCurrency,
-            amount: legSigned,
+            method,
+            drawerName,
+            currencyCode: drawerCurrency,
+            amount: signed,
             note: `Partner settlement (${label})`,
             createdBy: userId,
             tenantId,
           });
           applyDrawerDelta(this.db, {
-            drawerName: legDrawerName,
-            currencyCode: legDrawerCurrency,
-            delta: legSigned,
+            drawerName,
+            currencyCode: drawerCurrency,
+            delta: signed,
             tenantId,
           });
         }
-      } else {
-        insertPaymentRow(this.db, {
-          transactionId: txnId,
-          method,
-          drawerName,
-          currencyCode: drawerCurrency,
-          amount: signed,
-          note: `Partner settlement (${label})`,
-          createdBy: userId,
-          tenantId,
-        });
-        applyDrawerDelta(this.db, {
-          drawerName,
-          currencyCode: drawerCurrency,
-          delta: signed,
-          tenantId,
-        });
       }
       return txnId;
     });
     return txn();
+  }
+
+  /**
+   * LIRA-066 — post ONE PARTNER_ADJUSTMENT transaction for a paper (no-cash)
+   * manual Record Tx entry ("Cash moved" toggle OFF). Unlike
+   * recordSettlementMoneyMovement, this writes NO payments row / drawer
+   * delta — the entry is bookkeeping-only, so its unified-transaction
+   * visibility side effect must be too. `entry` must already have been
+   * written via addLedgerEntry() — this only adds the missing Transactions-
+   * page row (the previously reported gap: paper entries wrote
+   * partner_ledger only, never a `transactions` row).
+   *
+   * amount_usd/amount_lbp carry the SIGNED ledger value (same accrual-sign
+   * convention as recordSettlementMoneyMovement/recordDiscount: CREDIT = we
+   * owe the partner more → positive; DEBIT = they owe us more → negative) so
+   * the value stays report-readable even though no cash moved. The
+   * Transactions viewer deliberately renders NO cash-flow badge for this
+   * type (getCashFlowDirection) — a green/red arrow would misrepresent a row
+   * with zero real drawer movement.
+   */
+  recordAdjustmentTransaction(
+    entry: PartnerLedgerEntry,
+    userId: number,
+  ): number {
+    const partner = this.getById(entry.partner_id);
+    const label = partner?.name ?? `partner #${entry.partner_id}`;
+    const magnitude = Math.abs(entry.amount);
+    const signed = entry.direction === "CREDIT" ? magnitude : -magnitude;
+
+    return getTransactionRepository().createTransaction({
+      type: TRANSACTION_TYPES.PARTNER_ADJUSTMENT,
+      source_table: "partner_ledger",
+      source_id: entry.id,
+      user_id: userId,
+      amount_usd: entry.currency === "USD" ? signed : 0,
+      amount_lbp: entry.currency === "LBP" ? signed : 0,
+      profit_usd: 0,
+      profit_lbp: 0,
+      client_id: null,
+      summary: `Partner adjustment: ${entry.direction} ${magnitude.toLocaleString()} ${entry.currency} — ${label}${entry.notes ? ` (${entry.notes})` : ""}`,
+      metadata_json: {
+        partner_id: entry.partner_id,
+        direction: entry.direction,
+        // The raw partner_ledger sub-classification the operator picked in
+        // the Record Tx dropdown (ADJUSTMENT/SETTLEMENT/OMT_SEND/…) — kept
+        // for detail; the unified type above is always PARTNER_ADJUSTMENT
+        // for every paper entry regardless of this value.
+        raw_transaction_type: entry.transaction_type,
+        // CQ-8 counterparty contract: stamped for contract-completeness
+        // (every counterparty transaction carries it) even though
+        // cashFlow.ts's blank badge for this type never reads `flow` —
+        // same treatment as COUNTERPARTY_DISCOUNT's metadata. method:
+        // 'LEDGER' — the documented journal-only value (no payments leg).
+        counterparty: buildCounterpartyMetadata({
+          kind: "partner",
+          id: entry.partner_id,
+          name: label,
+          flow: entry.direction === "CREDIT" ? "IN" : "OUT",
+          method: "LEDGER",
+          ledgerEntryId: entry.id,
+        }),
+      },
+    });
   }
 
   /**

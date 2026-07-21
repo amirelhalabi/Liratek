@@ -132,6 +132,10 @@ const GATED: Array<[TransactionType, string]> = [
   // membership. Closing that coverage gap here.
   ["PARTNER_SETTLEMENT", "partner_ledger"],
   ["PARTNER_PAYMENT", "partner_ledger"],
+  // LIRA-066: the paper (no-cash) "Record Tx" entry — same rationale as
+  // PARTNER_SETTLEMENT/PARTNER_PAYMENT above (no generic partner_ledger
+  // reversal owner exists).
+  ["PARTNER_ADJUSTMENT", "partner_ledger"],
   // CQ-10: a COUNTERPARTY_DISCOUNT row has no drawer/legs to reverse and its
   // FIFO coverage stamps can't be un-applied either — same rationale as
   // PARTNER_SETTLEMENT above, just for the discount row itself.

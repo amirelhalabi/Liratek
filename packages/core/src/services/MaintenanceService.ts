@@ -158,6 +158,8 @@ export class MaintenanceService {
               keptChangeLbp: params.kept_change_lbp,
               note: params.note,
               defer,
+              deviceName: jobData.device_name,
+              issueDescription: jobData.issue_description,
             });
           }
 
@@ -194,6 +196,8 @@ export class MaintenanceService {
               keptChangeLbp: params.kept_change_lbp,
               note: params.note,
               defer,
+              deviceName: jobData.device_name,
+              issueDescription: jobData.issue_description,
             });
           }
 

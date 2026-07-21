@@ -66,7 +66,11 @@ function createTestDb(): Database.Database {
       note TEXT,
       transaction_time DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      edited_by TEXT DEFAULT NULL,
+      edited_at TEXT DEFAULT NULL,
+      is_refunded INTEGER DEFAULT 0,
+      refunded_at TEXT DEFAULT NULL
     );
 
     CREATE TABLE debt_ledger (
@@ -318,5 +322,134 @@ describe("MaintenanceService — deleteJob semantics (owner feedback 2026-07-03)
       .prepare(`SELECT COUNT(*) n FROM transactions WHERE amount_usd < 0`)
       .get() as { n: number };
     expect(reversals.n).toBe(0);
+  });
+});
+
+// ─── note 14 — thin-summary enrichment ────────────────────────────────────────
+//
+// MaintenanceRepository.processPayments used to stamp only
+// "Maintenance Job #N: $X" / "...LBP" — the job's device/issue never made it
+// into the Transactions page summary even though `maintenance.device_name`/
+// `issue_description` are right there on the row. Appended after the existing
+// prefix (never restructured — some test/e2e specs may match on the prefix).
+
+describe("MaintenanceService — thin summary enrichment (note 14)", () => {
+  let db: Database.Database;
+  let service: MaintenanceService;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    resetTransactionRepository();
+    service = new MaintenanceService(new MaintenanceRepository());
+  });
+
+  afterEach(() => {
+    db.close();
+    resetTransactionRepository();
+  });
+
+  function summaryFor(jobId: number): string {
+    const row = db
+      .prepare(
+        `SELECT summary FROM transactions WHERE source_table='maintenance' AND source_id = ?`,
+      )
+      .get(jobId) as { summary: string };
+    return row.summary;
+  }
+
+  it("appends device name + issue description after the existing prefix", () => {
+    const res = service.saveJob({
+      device_name: "iPhone 12",
+      issue_description: "screen replacement",
+      client_name: "Summary Client",
+      client_phone: "70999888",
+      cost_usd: 20,
+      price_usd: 40,
+      final_amount_usd: 40,
+      currency: "USD",
+      exchange_rate: 90000,
+      status: "Delivered_Paid",
+      payments: [{ method: "CASH", currency_code: "USD", amount: 40 }],
+    });
+    expect(res.success).toBe(true);
+
+    const summary = summaryFor(res.id!);
+    // Prefix stays byte-identical (prefix-matching specs must not break).
+    expect(summary.startsWith("Maintenance Job #")).toBe(true);
+    expect(summary).toContain("$40");
+    expect(summary).toContain("iPhone 12");
+    expect(summary).toContain("screen replacement");
+  });
+
+  it("LBP job appends device + issue after the LBP prefix", () => {
+    const res = service.saveJob({
+      device_name: "Samsung A52",
+      issue_description: "battery swap",
+      client_name: "LBP Client",
+      client_phone: "70999777",
+      cost_lbp: 900000,
+      price_lbp: 1800000,
+      final_amount_lbp: 1800000,
+      currency: "LBP",
+      exchange_rate: 90000,
+      status: "Delivered_Paid",
+      payments: [{ method: "CASH", currency_code: "LBP", amount: 1800000 }],
+    });
+    expect(res.success).toBe(true);
+
+    const summary = summaryFor(res.id!);
+    expect(summary.startsWith("Maintenance Job #")).toBe(true);
+    expect(summary).toContain("LBP");
+    expect(summary).toContain("Samsung A52");
+    expect(summary).toContain("battery swap");
+  });
+
+  it("handles a missing issue_description gracefully — no dangling separator", () => {
+    const res = service.saveJob({
+      device_name: "No-issue phone",
+      client_name: "NoIssue Client",
+      client_phone: "70999666",
+      cost_usd: 5,
+      price_usd: 15,
+      final_amount_usd: 15,
+      currency: "USD",
+      exchange_rate: 90000,
+      status: "Delivered_Paid",
+      payments: [{ method: "CASH", currency_code: "USD", amount: 15 }],
+    });
+    expect(res.success).toBe(true);
+
+    const summary = summaryFor(res.id!);
+    expect(summary).toBe(
+      "Maintenance Job #" + res.id + ": $15 — No-issue phone",
+    );
+    expect(summary.endsWith("—")).toBe(false);
+  });
+
+  it("truncates a long issue_description to a sensible length", () => {
+    const longIssue =
+      "This is a very long issue description that goes on and on describing every tiny detail of the phone problem";
+    const res = service.saveJob({
+      device_name: "Verbose phone",
+      issue_description: longIssue,
+      client_name: "Verbose Client",
+      client_phone: "70999555",
+      cost_usd: 5,
+      price_usd: 15,
+      final_amount_usd: 15,
+      currency: "USD",
+      exchange_rate: 90000,
+      status: "Delivered_Paid",
+      payments: [{ method: "CASH", currency_code: "USD", amount: 15 }],
+    });
+    expect(res.success).toBe(true);
+
+    const summary = summaryFor(res.id!);
+    // The full (113-char) description must not ride verbatim into the summary.
+    expect(summary).not.toContain(longIssue);
+    expect(summary.length).toBeLessThan(longIssue.length);
   });
 });
