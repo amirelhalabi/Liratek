@@ -14,6 +14,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useSellRate } from "@/hooks/useSellRate";
+import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import {
@@ -53,6 +54,10 @@ export default function MobileRecharge() {
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
+  // LIRA-069 W1.d — auto-print on a successful STANDALONE submit (skipped
+  // entirely when a session is active; the session gets its own Print
+  // button at checkout, W1.b).
+  const autoPrintReceipt = useAutoPrintReceipt();
   const {
     getCategoriesForProvider,
     getItems: getServiceItems,
@@ -497,6 +502,12 @@ export default function MobileRecharge() {
         `${activeProvider} recharge processed successfully`,
         "success",
       );
+      void autoPrintReceipt({
+        type: "RECHARGE",
+        sourceTable: "recharges",
+        sourceId: result?.id,
+        hasActiveSession: !!activeSession,
+      });
       setTelecomAmount("");
       setTelecomPrice("");
       setTelecomDaysCostUsd("");
@@ -533,6 +544,7 @@ export default function MobileRecharge() {
     linkTransaction,
     loadDrawerBalances,
     telecomTransactionTime,
+    autoPrintReceipt,
   ]);
 
   const loadRechargeHistory = useCallback(async () => {
@@ -880,6 +892,12 @@ export default function MobileRecharge() {
         "Alfa Gift recharge processed successfully",
         "success",
       );
+      void autoPrintReceipt({
+        type: "RECHARGE",
+        sourceTable: "recharges",
+        sourceId: result?.id,
+        hasActiveSession: !!activeSession,
+      });
       resetGiftForm();
       loadFinancialData();
       loadDrawerBalances();
@@ -906,6 +924,7 @@ export default function MobileRecharge() {
     loadDrawerBalances,
     telecomTransactionTime,
     resetGiftForm,
+    autoPrintReceipt,
   ]);
 
   const handleCryptoSubmit = useCallback(async () => {

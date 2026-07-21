@@ -40,6 +40,18 @@ export type {
   NegativeStockProduct,
 } from "./ProductRepository.js";
 
+// Stock Adjustment Repository (LIRA-077 audit trail)
+export {
+  StockAdjustmentRepository,
+  getStockAdjustmentRepository,
+  resetStockAdjustmentRepository,
+} from "./StockAdjustmentRepository.js";
+export type {
+  StockAdjustmentEntity,
+  StockAdjustmentWithUser,
+  CreateStockAdjustmentData,
+} from "./StockAdjustmentRepository.js";
+
 // Client Repository
 export {
   ClientRepository,
@@ -327,6 +339,7 @@ export type {
   DailySummary,
   DebtAgingBuckets,
   OverdueDebtEntry,
+  VoidCheckoutGroupResult,
 } from "./TransactionRepository.js";
 
 // Category Repository
@@ -433,6 +446,20 @@ export type {
   CreateMobileServiceItemData,
   UpdateMobileServiceItemData,
 } from "./MobileServiceItemRepository.js";
+
+// Carrier Line Repository (LIRA W6.a)
+export {
+  CarrierLineRepository,
+  getCarrierLineRepository,
+  resetCarrierLineRepository,
+} from "./CarrierLineRepository.js";
+export type {
+  CarrierKey,
+  CarrierLineEntity,
+  CreateCarrierLineData,
+  UpdateCarrierLineData,
+  UpdateBalanceData,
+} from "./CarrierLineRepository.js";
 
 // Audit Repository
 export {

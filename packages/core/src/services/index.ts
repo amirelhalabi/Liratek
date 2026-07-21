@@ -306,6 +306,14 @@ export type {
   MobileServiceItemBulkResult,
 } from "./MobileServiceItemService.js";
 
+// Carrier Line Service (LIRA W6.a)
+export {
+  CarrierLineService,
+  getCarrierLineService,
+  resetCarrierLineService,
+} from "./CarrierLineService.js";
+export type { CarrierLineResult } from "./CarrierLineService.js";
+
 // Audit Service
 export {
   AuditService,
