@@ -24,6 +24,7 @@ import { SettlementVerification } from "../../components/SettlementVerification"
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
+import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import {
   ForPartnerToggle,
   ForPartnerNotice,
@@ -45,6 +46,12 @@ interface TodayStats {
 export function LotoPage() {
   const api = useApi();
   const { activeSession, addToCart: addToSessionCart } = useSession();
+  // LIRA-069 W1.d — auto-print on a successful STANDALONE ticket sale
+  // (skipped when a session is active; the session gets its own Print
+  // button at checkout, W1.b). Never fires for a "for partner" ticket — no
+  // cash is collected from a walk-in customer, so there's no one to hand a
+  // receipt to.
+  const autoPrintReceipt = useAutoPrintReceipt();
   // Tab state: "sell" or "cashPrize"
   const [activeTab, setActiveTab] = useState<"sell" | "cashPrize">("sell");
 
@@ -345,6 +352,14 @@ export function LotoPage() {
           "Ticket sold successfully!",
           "success",
         );
+        if (!forPartner) {
+          void autoPrintReceipt({
+            type: "LOTO",
+            sourceTable: "loto_tickets",
+            sourceId: result.ticket?.id,
+            hasActiveSession: !!activeSession,
+          });
+        }
         setSaleAmount("");
         setPaymentLines([]);
         setReturnLegs([]);

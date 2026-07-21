@@ -476,7 +476,9 @@ export default function Dashboard() {
       setStartingCheckpointSet(true);
       return;
     }
-    api.hasStartingCheckpoint().then((isSet) => setStartingCheckpointSet(isSet));
+    api
+      .hasStartingCheckpoint()
+      .then((isSet) => setStartingCheckpointSet(isSet));
   }, [checkpointsEnabled, api]);
 
   useEffect(() => {

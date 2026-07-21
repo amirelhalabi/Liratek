@@ -340,15 +340,13 @@ export class LotoCheckpointRepository {
         null,
       );
 
-      // 4. Credit commission to General drawer.
-      if (totalCommission > 0) {
-        applyDrawerDelta(this.db, {
-          drawerName: "General",
-          currencyCode: "LBP",
-          delta: totalCommission,
-          tenantId,
-        });
-      }
+      // 4. NO separate commission drawer credit. The settlement payment leg is
+      // the NET amount (commission − sales, negative when the shop pays), i.e.
+      // the commission is already kept back from the cash handed over — the
+      // ticket sales deposited it into General at sale time. Crediting it
+      // again here minted the commission a second time (full cycle drawer
+      // delta was 2× commission vs the 1× stamped profit); see
+      // LotoCheckpointRepository.settleDrawer.test.ts.
 
       // 5. Record payment legs and update drawer balances
       if (payments && payments.length > 0) {
@@ -504,15 +502,10 @@ export class LotoCheckpointRepository {
           null,
         );
 
-      // 4. Credit commission to General drawer once.
-      if (totalCommission > 0) {
-        applyDrawerDelta(this.db, {
-          drawerName: "General",
-          currencyCode: "LBP",
-          delta: totalCommission,
-          tenantId,
-        });
-      }
+      // 4. NO separate commission drawer credit — same reasoning as
+      // settleCheckpoint: the payment leg below is already the net
+      // (commission kept back), so a standalone credit double-counts the
+      // commission. See LotoCheckpointRepository.settleDrawer.test.ts.
 
       // 5. Record net payment and update drawer balance
       if (payment && payment.amount !== 0) {

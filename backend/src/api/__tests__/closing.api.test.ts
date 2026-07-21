@@ -129,9 +129,7 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
     });
 
     it("200s with {success:true, isSet:true} when set", async () => {
-      jest
-        .spyOn(closingService, "hasInitialBalancesSet")
-        .mockReturnValue(true);
+      jest.spyOn(closingService, "hasInitialBalancesSet").mockReturnValue(true);
 
       const res = await request(app)
         .get("/api/closing/has-initial-balances-set")

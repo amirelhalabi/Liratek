@@ -1,11 +1,15 @@
 /**
- * E2E: LIRA-076 (C3) — supplier ledger books the TRANSACTION amount
+ * E2E: LIRA-076 (C3 revised) — supplier ledger books the GROSS owed on SEND,
+ * the bare amount on RECEIVE.
  *
- * The auto supplier_ledger entry for an OMT/WHISH system transaction must equal
- * the transfer amount — never the customer-paid total. Pre-C3 it booked
- * amount + omtFee on SEND (exactly what the customer paid) and
- * amount + commission on RECEIVE, leaving a phantom fee/commission residue on
- * the supplier balance after settlement.
+ * Owner-confirmed model (2026-07-19): the provider fee belongs to the
+ * provider — the shop collects amount + fee on its behalf and keeps only the
+ * commission, netted off at settlement (settle pays owed − commission and
+ * books a SUPPLIER_PAYS_US credit; the ledger nets to zero). So a SEND books
+ * TOP_UP amount + fee; a RECEIVE keeps booking the bare amount (pending the
+ * owner's answer on receive statements). The original C3 booked the bare
+ * amount on SEND too — settlement then remitted only the transfer amount,
+ * silently keeping the provider's fee share.
  *
  * IPC-driven; shared accumulating DB → all assertions are DELTAS on the OMT
  * supplier balance (snapshot immediately before each action), never absolutes.
@@ -72,14 +76,15 @@ async function omtBalance(
   });
 }
 
-test.describe("LIRA-076 (C3) — supplier ledger = transaction amount", () => {
-  test("SEND split-pay: ledger delta is the transfer amount, not the paid total or amount+fee", async ({
+test.describe("LIRA-076 (C3 revised) — supplier ledger = gross owed on SEND", () => {
+  test("SEND split-pay: ledger delta is amount + fee (gross owed), never a tender leg", async ({
     appPage,
   }) => {
     const before = await omtBalance(appPage);
 
     // $80 transfer + $5 fee; customer split-pays $30 cash + an LBP leg.
-    // Neither 30, nor the LBP-converted total, nor 85 may reach the ledger.
+    // The ledger books the gross owed in the SERVICE currency: exactly +85 —
+    // never 30 (one leg), never an LBP-converted mixture, never the bare 80.
     const res = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
       return w.api.omt.addTransaction({
@@ -100,8 +105,9 @@ test.describe("LIRA-076 (C3) — supplier ledger = transaction amount", () => {
     expect(res.success).toBe(true);
 
     const after = await omtBalance(appPage);
-    // TOP_UP is positive (shop owes OMT): exactly +80 — pre-C3 this was +85.
-    expect(after.usd - before.usd).toBeCloseTo(80, 2);
+    // TOP_UP is positive (shop owes OMT): exactly +85 (amount + fee) — the
+    // original C3 under-booked this at +80.
+    expect(after.usd - before.usd).toBeCloseTo(85, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(0, 2);
   });
 
