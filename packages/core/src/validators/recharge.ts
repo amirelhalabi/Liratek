@@ -30,6 +30,17 @@ export const createRechargeSchema = z.object({
   // is valid for recharges.
   partnerId: z.number().int().positive().optional(),
   partnerMode: z.enum(["FOR"]).optional(),
+  // Payment-Legs Integrity plan (false-reject fix, 2026-07-2x): the USD→LBP
+  // rate MultiPaymentInput actually converted the customer's tender at (may
+  // differ from the stamped sell-rate-of-record — see RechargeRepository's
+  // `tender_exchange_rate` doc). Used ONLY for leg reconciliation, never to
+  // stamp `transactions.exchange_rate`. NOTE: this schema has no `payments`
+  // field yet (REST /api/recharge/process doesn't accept multi-payment legs
+  // — a separate, pre-existing parity gap, see WEB_PARITY_ROADMAP.md), so
+  // this field is inert over REST until that gap closes; added here so the
+  // desktop IPC schema (electron-app/schemas/index.ts's RechargeSchema,
+  // which DOES have `payments`) has a canonical source to mirror.
+  tender_exchange_rate: z.number().positive().optional(),
 });
 
 export const getRechargeStockSchema = z.object({

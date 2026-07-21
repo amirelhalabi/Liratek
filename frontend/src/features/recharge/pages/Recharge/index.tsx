@@ -121,6 +121,14 @@ export default function MobileRecharge() {
     usd: number;
     lbp: number;
   } | null>(null);
+  // Payment-Legs Integrity plan (false-reject fix): the rate the
+  // PaymentSheet is ACTUALLY using (default, or the operator's own edit of
+  // the sheet's header field) — sent as tender_exchange_rate so the backend
+  // reconciles legs at the SAME rate the till used instead of the stamped
+  // sell rate.
+  const [telecomTenderRate, setTelecomTenderRate] = useState<
+    number | undefined
+  >();
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoFeeIncluded, setCryptoFeeIncluded] = useState(false);
@@ -466,6 +474,14 @@ export default function MobileRecharge() {
           paymentLines.length > 0
             ? toCamelLegs(paymentLines, returnLegs)
             : undefined,
+        // Payment-Legs Integrity plan (false-reject fix): the rate the
+        // PaymentSheet actually used for its conversions — falls back to the
+        // static buyRate if the sheet never fired an update (e.g. no legs).
+        // Only meaningful (and only sent) when there are legs to reconcile.
+        tender_exchange_rate:
+          paymentLines.length > 0
+            ? (telecomTenderRate ?? exchangeRate)
+            : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
         // T3 keep-change: kept amounts join the recharge profit stamp.
@@ -545,6 +561,8 @@ export default function MobileRecharge() {
     loadDrawerBalances,
     telecomTransactionTime,
     autoPrintReceipt,
+    telecomTenderRate,
+    exchangeRate,
   ]);
 
   const loadRechargeHistory = useCallback(async () => {
@@ -879,6 +897,15 @@ export default function MobileRecharge() {
           paymentLines.length > 0
             ? toCamelLegs(paymentLines, returnLegs)
             : undefined,
+        // Payment-Legs Integrity plan (false-reject fix): same rate-capture
+        // as handleTelecomSubmit — the PaymentSheet (via CardGridPayView)
+        // reports its actual rate through the same onEffectiveRateChange/
+        // telecomTenderRate wiring, since only one of the two flows is ever
+        // mounted at a time (gated by rechargeType).
+        tender_exchange_rate:
+          paymentLines.length > 0
+            ? (telecomTenderRate ?? exchangeRate)
+            : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
         transaction_time: telecomTransactionTime,
@@ -925,6 +952,8 @@ export default function MobileRecharge() {
     telecomTransactionTime,
     resetGiftForm,
     autoPrintReceipt,
+    telecomTenderRate,
+    exchangeRate,
   ]);
 
   const handleCryptoSubmit = useCallback(async () => {
@@ -1299,6 +1328,7 @@ export default function MobileRecharge() {
             activeConfig={activeConfig}
             handleTelecomSubmit={handleTelecomSubmit}
             onKeptChange={setKeptChange}
+            onEffectiveRateChange={setTelecomTenderRate}
             giftTierKey={giftTierKey}
             setGiftTierKey={setGiftTierKey}
             giftAmountUsd={giftAmountUsd}

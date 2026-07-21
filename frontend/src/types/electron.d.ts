@@ -912,6 +912,10 @@ export interface ElectronAPI {
       paid_by_method?: string;
       phoneNumber?: string;
       transaction_time?: string;
+      /** Payment-Legs Integrity plan (false-reject fix): the rate the
+       *  payment sheet actually converted the customer's tender at — used
+       *  only for leg reconciliation, never the stamped exchange_rate. */
+      tender_exchange_rate?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     topUp: (data: {
       provider: "MTC" | "Alfa";

@@ -62,6 +62,13 @@ interface CardGridPayViewProps {
   onPaymentChange: (lines: PaymentLine[]) => void;
   /** Change/return legs (shop hands money back) — forwarded to the PaymentSheet. */
   onReturnChange?: (legs: PaymentLine[]) => void;
+  /** Payment-Legs Integrity plan (false-reject fix): fires with the rate the
+   *  PaymentSheet is ACTUALLY using — the `exchangeRate` prop default, or the
+   *  operator's own edit of the sheet's header rate field. The caller should
+   *  send this as `tender_exchange_rate` on submit instead of re-sending the
+   *  static `exchangeRate` prop, which is wrong the moment the operator edits
+   *  the field. */
+  onExchangeRateChange?: (rate: number) => void;
   onDiscountChange: (discount: number) => void;
   clientName: string;
   onClientNameChange: (value: string) => void;
@@ -98,6 +105,7 @@ export function CardGridPayView({
   exchangeRate,
   onPaymentChange,
   onReturnChange,
+  onExchangeRateChange,
   onDiscountChange,
   clientName,
   onClientNameChange,
@@ -237,6 +245,7 @@ export function CardGridPayView({
         clientId={clientId}
         fetchClientVouchers={fetchClientVouchers}
         exchangeRate={exchangeRate}
+        {...(onExchangeRateChange ? { onExchangeRateChange } : {})}
         showDiscount={true}
         maxDiscount={Math.max(
           0,

@@ -547,17 +547,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
     return this.db.transaction(() => {
       const currency = data.currency ?? "USD";
-      // Payment-Legs Integrity plan: every reconcileLegs call site in this
-      // method compares legs at this ONE rate — the caller's tender rate
-      // when supplied (the till's own conversion, may be buy-side), else the
-      // stamped rate-of-record, else a live sell-rate lookup. This is
-      // reconciliation-only; the `transactions.exchange_rate` stamp below
-      // always uses `data.exchangeRate ?? getUsdLbpSellRate` directly and is
-      // never affected by `tender_exchange_rate`.
-      const reconciliationRate =
-        data.tender_exchange_rate ??
-        data.exchangeRate ??
-        getUsdLbpSellRate(this.db);
+      // Payment-Legs Integrity plan (false-reject fix, 2026-07-2x):
+      // `stampedExchangeRate` is the server rate-of-record — the SAME value
+      // the `transactions.exchange_rate` stamp below uses, and never
+      // affected by `tender_exchange_rate`. Every reconcileLegs call site in
+      // this method passes BOTH this rate (as `exchangeRate`) and
+      // `data.tender_exchange_rate` (as `tenderExchangeRate`) — the gate
+      // itself (moneyPosting.ts's reconcileLegs/resolveReconciliationRate)
+      // decides which one to reconcile at, banding the tender rate against
+      // this one (±10%) so an implausible tender value can't launder a real
+      // leg discrepancy as "just a rate difference".
+      const stampedExchangeRate =
+        data.exchangeRate ?? getUsdLbpSellRate(this.db);
       const cost = data.cost ?? 0;
       const price = data.price ?? (useCostPriceFlow ? data.amount : 0);
       const paidBy =
@@ -953,7 +954,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               }
             : {}),
         },
-        exchange_rate: data.exchangeRate ?? getUsdLbpSellRate(this.db),
+        // Stamped rate-of-record — deliberately `stampedExchangeRate`, never
+        // `tender_exchange_rate` (see the field's doc and the comment at
+        // this method's top): the two diverge on purpose when the till used
+        // a different rate for change than the day's server rate.
+        exchange_rate: stampedExchangeRate,
         transaction_time: data.transaction_time,
       });
 
@@ -1377,7 +1382,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               usd: data.checkoutTotal.usd,
               lbp: data.checkoutTotal.lbp,
             },
-            exchangeRate: reconciliationRate,
+            exchangeRate: stampedExchangeRate,
+            tenderExchangeRate: data.tender_exchange_rate,
             context: `${data.provider} ${data.serviceType} checkout`,
           });
         }
@@ -1562,9 +1568,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // that, the check is skipped entirely (no guess) — matching every
           // other `reconcileLegs` site's no-op-on-absence contract; every
           // legacy/scripted caller (incl. this repo's own jest fixtures) is
-          // unaffected. `reconciliationRate` prefers the caller's tender
-          // rate (`tender_exchange_rate`) over the stamped rate, same as the
-          // checkout branch above.
+          // unaffected. Passes both `stampedExchangeRate` and
+          // `data.tender_exchange_rate` — the gate bands the tender rate
+          // against the stamped one, same as the checkout branch above.
           if (
             data.serviceType === "SEND" &&
             !deferPayment &&
@@ -1578,7 +1584,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 lbp: data.kept_change_lbp,
               },
               expectedTotals: data.checkoutTotal,
-              exchangeRate: reconciliationRate,
+              exchangeRate: stampedExchangeRate,
+              tenderExchangeRate: data.tender_exchange_rate,
               context: `${data.provider} SEND`,
             });
           }
@@ -1829,7 +1836,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 lbp: data.kept_change_lbp,
               },
               expectedTotals: expectedTotalIn(totalCustomerPays, currency),
-              exchangeRate: reconciliationRate,
+              exchangeRate: stampedExchangeRate,
+              tenderExchangeRate: data.tender_exchange_rate,
               context: `${data.provider} SEND`,
             });
           }
@@ -2357,7 +2365,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               reconcileLegs({
                 inLegs: data.payments,
                 expectedTotals: expectedTotalIn(receiveAmount, currency),
-                exchangeRate: reconciliationRate,
+                exchangeRate: stampedExchangeRate,
+                tenderExchangeRate: data.tender_exchange_rate,
                 context: `${data.provider} RECEIVE cashout`,
               });
 

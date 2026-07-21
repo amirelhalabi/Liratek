@@ -79,12 +79,18 @@ jest.mock("@/shared/utils/clientVouchers", () => ({
   fetchClientVouchers: jest.fn().mockResolvedValue([]),
 }));
 
-// PaymentSheet stub: exposes the callbacks the test drives.
+// PaymentSheet stub: exposes the callbacks the test drives, including
+// onExchangeRateChange — the operator-editable header rate field the real
+// MultiPaymentInput exposes (packages/ui/src/components/ui/MultiPaymentInput.tsx).
+// A "stub-edit-rate" button lets tests simulate the operator typing a
+// different rate into the sheet, proving the EDITED value (not just the
+// static exchangeRate prop) reaches the submit payload.
 jest.mock("../PaymentSheet", () => ({
   PaymentSheet: (props: {
     open: boolean;
     onPaymentChange: (lines: unknown[]) => void;
     onReturnChange?: (legs: unknown[]) => void;
+    onExchangeRateChange?: (rate: number) => void;
     onConfirm: () => void;
   }) =>
     props.open ? (
@@ -110,6 +116,10 @@ jest.mock("../PaymentSheet", () => ({
               },
             ])
           }
+        />
+        <button
+          data-testid="stub-edit-rate"
+          onClick={() => props.onExchangeRateChange?.(89000)}
         />
         <button data-testid="stub-confirm" onClick={props.onConfirm} />
       </div>
@@ -272,5 +282,28 @@ describe("KatchForm — checkoutTotal on the legs-carrying transaction", () => {
       unknown
     >;
     expect(payload.tender_exchange_rate).toBeUndefined();
+  });
+
+  // False-reject fix (2026-07-2x): the owner's repro showed the operator
+  // EDITING the sheet's header rate field away from the static exchangeRate
+  // prop (89,000 vs. the page's 90,000). Pre-fix, this form re-sent the
+  // static prop regardless of the edit, so the backend reconciled at the
+  // WRONG rate — this test fails on that code (rule 17): the payload would
+  // read 90000, not 89000.
+  it("sends the OPERATOR-EDITED sheet rate, not the static exchangeRate prop, when the rate was edited", async () => {
+    renderForm();
+    await cartTwoUnitsAndOpenSheet();
+
+    fireEvent.click(screen.getByTestId("stub-edit-rate")); // sheet reports 89000
+    fireEvent.click(screen.getByTestId("stub-inject-single"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.tender_exchange_rate).toBe(89000);
   });
 });

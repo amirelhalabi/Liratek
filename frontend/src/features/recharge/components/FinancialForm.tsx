@@ -128,6 +128,12 @@ export function FinancialForm({
     usd: number;
     lbp: number;
   } | null>(null);
+  // Payment-Legs Integrity plan (false-reject fix): the rate the
+  // PaymentSheet is ACTUALLY using — the `exchangeRate` prop default, or the
+  // operator's own edit of the sheet's header rate field. Sent as
+  // tender_exchange_rate instead of re-sending the static prop, which is
+  // wrong the moment the operator edits the field.
+  const [effectiveRate, setEffectiveRate] = useState<number | undefined>();
 
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const isSplitPayment = paymentLines.length > 1;
@@ -480,14 +486,18 @@ export function FinancialForm({
             paidByMethod: finalPaymentMethod,
             payments: isCarrier ? paymentsPayload : undefined,
             checkoutTotal: isCarrier ? checkoutTotal : undefined,
-            // Payment-Legs Integrity plan (Wave 9): the rate this form's own
-            // PaymentSheet/MultiPaymentInput actually converted tender at
-            // (`exchangeRate` above, `isMoneyIn ? sellRate : buyRate`) — may
-            // differ from the repository's stamped/live rate lookup, so
+            // Payment-Legs Integrity plan (Wave 9 + false-reject fix): the
+            // rate this form's own PaymentSheet/MultiPaymentInput actually
+            // converted tender at — captured live via onExchangeRateChange
+            // (falls back to `exchangeRate` — `isMoneyIn ? sellRate :
+            // buyRate` — if the sheet never fired, e.g. no legs). May differ
+            // from the repository's stamped/live rate lookup, so
             // reconciliation must compare at the SAME rate the till used
             // (lira-095). Rides only the carrier call, same gating as
             // checkoutTotal.
-            tender_exchange_rate: isCarrier ? exchangeRate : undefined,
+            tender_exchange_rate: isCarrier
+              ? (effectiveRate ?? exchangeRate)
+              : undefined,
             ...(paymentsPayload !== undefined && !isCarrier
               ? { deferPayment: true }
               : {}),
@@ -1177,6 +1187,7 @@ export function FinancialForm({
           clientId={clientId}
           fetchClientVouchers={fetchClientVouchers}
           exchangeRate={exchangeRate}
+          onExchangeRateChange={setEffectiveRate}
           requiresClientForDebt={true}
           hasClient={
             !!clientId ||

@@ -192,3 +192,9 @@ ledger delta, drawer exactly unchanged, ADJUSTMENT rows with no legs, cash-ON co
 partner-payment refund netting drawer + balance to exactly 0 with double-refund blocked, and
 LIRA-078 refund-legs override through the real IPC transport (wallet debited, General flat,
 mismatched totals rejected). Full suite after adding it: 228 passed.
+
+**Parked (2026-07-21):** a print-window teardown change (close on `afterprint` instead of
+immediately after `print()`, to avoid a blank window lingering behind the native dialog) was
+proposed inside the tender-rate fix but reverted — it broke the lira-069 auto-print spec under
+the e2e print stub. If the blank-window race is real on production Windows machines, it needs
+its own ticket + a stub-compatible design, not a ride-along.

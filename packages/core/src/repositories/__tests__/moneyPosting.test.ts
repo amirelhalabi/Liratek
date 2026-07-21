@@ -12,6 +12,7 @@ import {
   reconcileLegs,
   expectedTotalIn,
   LEG_RECONCILIATION_EPSILON_USD,
+  TENDER_RATE_BAND_PCT,
   assertPartnerIdRequired,
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
@@ -160,6 +161,131 @@ describe("reconcileLegs", () => {
 
     it("epsilon constant is exactly 0.05", () => {
       expect(LEG_RECONCILIATION_EPSILON_USD).toBe(0.05);
+    });
+  });
+
+  describe("tenderExchangeRate — reconcile at the till's own rate, banded against the server rate", () => {
+    it("band constant is exactly 0.10 (±10%)", () => {
+      expect(TENDER_RATE_BAND_PCT).toBe(0.1);
+    });
+
+    it("owner repro: MTC CREDIT_TRANSFER, 720,000 LBP price, $10 IN, 170,000 LBP OUT — " +
+      "THROWS at the server sell rate (90,000)", () => {
+      // $10 tendered, 170,000 LBP change — the till computed change at its
+      // own (buy) rate of 89,000: 720,000/89,000 = $8.09, 10 - 8.09 = $1.91
+      // change in USD-equivalent -> 1.91 * 89,000 ~= 170,000 LBP. Reconciling
+      // at the STAMPED sell rate (90,000) instead makes the same legs look
+      // like they undershoot by ~$0.11 — the exact false-reject this fix
+      // kills, reproduced with NO tenderExchangeRate supplied (pre-fix shape).
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("USD", 10)],
+          outLegs: [leg("LBP", 170_000, { direction: "OUT" })],
+          expectedTotals: expectedTotalIn(720_000, "LBP"),
+          exchangeRate: 90_000,
+          context: "MTC CREDIT_TRANSFER recharge",
+        }),
+      ).toThrow(/do not reconcile/);
+    });
+
+    it("FIXED: the same legs reconcile when tenderExchangeRate (89,000, the till's own rate) is supplied", () => {
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("USD", 10)],
+          outLegs: [leg("LBP", 170_000, { direction: "OUT" })],
+          expectedTotals: expectedTotalIn(720_000, "LBP"),
+          exchangeRate: 90_000,
+          tenderExchangeRate: 89_000,
+          context: "MTC CREDIT_TRANSFER recharge",
+        }),
+      ).not.toThrow();
+    });
+
+    it("a genuinely broken payment (dropped OUT leg) STILL throws at the tender rate", () => {
+      // Same owner scenario, but the 170,000 LBP change leg never got
+      // recorded at all — reconciling at 89,000 must still reject this; the
+      // tender rate fixes a rate MISMATCH, not a real leg-dropping bug.
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("USD", 10)],
+          expectedTotals: expectedTotalIn(720_000, "LBP"),
+          exchangeRate: 90_000,
+          tenderExchangeRate: 89_000,
+          context: "MTC CREDIT_TRANSFER recharge",
+        }),
+      ).toThrow(/do not reconcile/);
+    });
+
+    it("passes at exactly the +10% band boundary (single-currency legs, rate-independent math)", () => {
+      // USD-only legs: the chosen rate never enters the arithmetic (division
+      // by rate on a zero LBP amount), isolating the band decision itself.
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("USD", 100)],
+          expectedTotals: expectedTotalIn(100, "USD"),
+          exchangeRate: 90_000,
+          tenderExchangeRate: 99_000, // exactly +10%
+          context: "test",
+        }),
+      ).not.toThrow();
+    });
+
+    it("passes at exactly the -10% band boundary", () => {
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("USD", 100)],
+          expectedTotals: expectedTotalIn(100, "USD"),
+          exchangeRate: 90_000,
+          tenderExchangeRate: 81_000, // exactly -10%
+          context: "test",
+        }),
+      ).not.toThrow();
+    });
+
+    it("REJECTS a tender rate just outside the +10% band with a DISTINCT error (not 'do not reconcile')", () => {
+      let message = "";
+      expect(() => {
+        try {
+          reconcileLegs({
+            inLegs: [leg("USD", 100)],
+            expectedTotals: expectedTotalIn(100, "USD"),
+            exchangeRate: 90_000,
+            tenderExchangeRate: 99_001, // just over +10%
+            context: "test",
+          });
+        } catch (e) {
+          message = (e as Error).message;
+          throw e;
+        }
+      }).toThrow();
+      expect(message).not.toMatch(/do not reconcile/);
+      expect(message).toMatch(/outside the accepted/);
+      expect(message).toContain("99001");
+      expect(message).toContain("90000");
+    });
+
+    it("REJECTS a wildly implausible tender rate (e.g. 40,000 vs. a 90,000 server rate)", () => {
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("USD", 10)],
+          outLegs: [leg("LBP", 170_000, { direction: "OUT" })],
+          expectedTotals: expectedTotalIn(720_000, "LBP"),
+          exchangeRate: 90_000,
+          tenderExchangeRate: 40_000,
+          context: "MTC CREDIT_TRANSFER recharge",
+        }),
+      ).toThrow(/outside the accepted/);
+    });
+
+    it("no tenderExchangeRate at all: reconciles at exchangeRate exactly as before (backward compatible)", () => {
+      expect(() =>
+        reconcileLegs({
+          inLegs: [leg("LBP", 900000)],
+          expectedTotals: expectedTotalIn(10, "USD"),
+          exchangeRate: RATE,
+          context: "test",
+        }),
+      ).not.toThrow();
     });
   });
 

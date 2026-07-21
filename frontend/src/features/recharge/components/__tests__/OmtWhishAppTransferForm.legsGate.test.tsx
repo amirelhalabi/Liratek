@@ -25,11 +25,15 @@ const mockAddOMTTransaction = jest
 
 // PaymentSheet stub: exposes onPaymentChange/onConfirm so the test can inject
 // a single (non-split) leg and confirm — mirrors FinancialForm.legsCarrier's
-// stub pattern.
+// stub pattern. Also exposes onExchangeRateChange — the operator-editable
+// header rate field the real MultiPaymentInput fires on mount and on every
+// edit — so tests can prove the EDITED rate (not just the static prop)
+// reaches the submit payload.
 jest.mock("../PaymentSheet", () => ({
   PaymentSheet: (props: {
     open: boolean;
     onPaymentChange: (lines: unknown[]) => void;
+    onExchangeRateChange?: (rate: number) => void;
     onConfirm: () => void;
   }) =>
     props.open ? (
@@ -46,6 +50,10 @@ jest.mock("../PaymentSheet", () => ({
               },
             ])
           }
+        />
+        <button
+          data-testid="stub-edit-rate"
+          onClick={() => props.onExchangeRateChange?.(88000)}
         />
         <button data-testid="stub-confirm" onClick={props.onConfirm} />
       </div>
@@ -235,5 +243,34 @@ describe("OmtWhishAppTransferForm — payment legs never gated on split (S1)", (
     expect(payload.checkoutTotal).toEqual({ usd: 10, lbp: 0 });
     // sellRate from the mocked useSellRate above.
     expect(payload.tender_exchange_rate).toBe(89500);
+  });
+
+  // False-reject fix (2026-07-2x): pre-fix, this form re-sent the static
+  // `exchangeRate` (`serviceType === "RECEIVE" ? buyRate : sellRate`)
+  // regardless of what the operator typed into the sheet's own header rate
+  // field. This test fails on that code (rule 17): the payload would read
+  // 89500 (the mocked sellRate), not the edited 88000.
+  it("sends the OPERATOR-EDITED sheet rate, not the static exchangeRate default, when the rate was edited", async () => {
+    renderForm();
+
+    fireEvent.change(
+      document.getElementById("transfer-amount") as HTMLInputElement,
+      { target: { value: "10" } },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+    await screen.findByTestId("stub-payment-sheet");
+
+    fireEvent.click(screen.getByTestId("stub-edit-rate")); // sheet reports 88000
+    fireEvent.click(screen.getByTestId("stub-inject-single"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.tender_exchange_rate).toBe(88000);
   });
 });

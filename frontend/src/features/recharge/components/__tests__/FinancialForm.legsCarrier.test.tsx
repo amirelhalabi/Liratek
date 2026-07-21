@@ -85,6 +85,7 @@ jest.mock("../PaymentSheet", () => ({
     open: boolean;
     onPaymentChange: (lines: unknown[]) => void;
     onReturnChange?: (legs: unknown[]) => void;
+    onExchangeRateChange?: (rate: number) => void;
     onConfirm: () => void;
   }) =>
     props.open ? (
@@ -124,6 +125,10 @@ jest.mock("../PaymentSheet", () => ({
               },
             ])
           }
+        />
+        <button
+          data-testid="stub-edit-rate"
+          onClick={() => props.onExchangeRateChange?.(87500)}
         />
         <button data-testid="stub-confirm" onClick={props.onConfirm} />
       </div>
@@ -388,5 +393,26 @@ describe("FinancialForm — legs-carrier convention (split × multi-unit cart)",
     expect(first.tender_exchange_rate).toBe(89000);
     // Sibling defers payment — it must not also carry a reconciliation rate.
     expect(second.tender_exchange_rate).toBeUndefined();
+  });
+
+  // False-reject fix (2026-07-2x): pre-fix, this form re-sent the static
+  // `exchangeRate` (buyRate/sellRate) regardless of what the operator typed
+  // into the sheet's own header rate field. This test fails on that code
+  // (rule 17): the payload would read 89000 (the mocked buyRate), not the
+  // edited 87500.
+  it("sends the OPERATOR-EDITED sheet rate, not the static exchangeRate default, when the rate was edited", async () => {
+    renderForm();
+    await cartTwoUnitsAndOpenSheet();
+
+    fireEvent.click(screen.getByTestId("stub-edit-rate")); // sheet reports 87500
+    fireEvent.click(screen.getByTestId("stub-inject-split"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(2));
+
+    const [first] = mockAddOMTTransaction.mock.calls.map(
+      (c: unknown[]) => c[0] as Record<string, unknown>,
+    );
+    expect(first.tender_exchange_rate).toBe(87500);
   });
 });

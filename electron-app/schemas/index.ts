@@ -275,6 +275,13 @@ export const RechargeSchema = z.object({
   // BOTH or the desktop path silently strips them.
   partnerId: z.number().int().positive().optional(),
   partnerMode: z.enum(["FOR"]).optional(),
+  // Payment-Legs Integrity plan (false-reject fix, 2026-07-2x) — LOCAL
+  // duplicate of the core createRechargeSchema field (rule-14 debt, same
+  // trap as partnerId/partnerMode above): the USD→LBP rate MultiPaymentInput
+  // actually converted the customer's tender at, used to reconcile legs
+  // instead of the stamped rate-of-record. Fields must exist in BOTH or the
+  // desktop path silently strips it.
+  tender_exchange_rate: z.number().positive().optional(),
 });
 
 export const RechargeCustomerTopUpSchema = z.object({

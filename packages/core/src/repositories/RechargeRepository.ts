@@ -76,6 +76,23 @@ export interface RechargeData {
   kept_change_usd?: number;
   kept_change_lbp?: number;
   /**
+   * Payment-Legs Integrity plan (false-reject fix, 2026-07-2x): the USD→LBP
+   * rate the caller's own till/MultiPaymentInput actually converted the
+   * customer's tender at (e.g. the buy rate — the owner's 2026-07-06
+   * MPI-buy-rate decision — which can differ from the sell-side rate this
+   * repository stamps on `transactions.exchange_rate`). When present, leg
+   * reconciliation (`reconcileLegs`) converts cross-currency legs at THIS
+   * rate instead of the stamped rate — comparing at the SAME rate the till
+   * used, so a legitimate buy/sell-spread checkout with change doesn't
+   * false-reject (the owner's MTC CREDIT_TRANSFER repro: 720,000 LBP price,
+   * $10 IN, 170,000 LBP OUT, till rate 89,000 vs. stamped sell rate 90,000).
+   * `reconcileLegs` bands this against the stamped rate (±10%) and throws a
+   * distinct error if it's implausibly far off. Never used to stamp
+   * `transactions.exchange_rate` — only the reconciliation check. Omitted →
+   * current behavior, reconciles at the stamped sell rate alone.
+   */
+  tender_exchange_rate?: number;
+  /**
    * Session-basket deferred payment mode. When true, the customer-cash inflow,
    * its debt, and any returned change are owned by the basket recorder; only the
    * telecom stock leg (and SMS cost) is written here. Non-session callers leave
@@ -846,6 +863,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             },
             expectedTotals: expectedTotalIn(data.price, currency),
             exchangeRate: sellRate,
+            tenderExchangeRate: data.tender_exchange_rate,
             context: `${data.provider} ${data.type} recharge`,
           });
         }

@@ -380,6 +380,12 @@ function KatchFormInner({
     usd: number;
     lbp: number;
   } | null>(null);
+  // Payment-Legs Integrity plan (false-reject fix): the rate the
+  // PaymentSheet is ACTUALLY using — the `exchangeRate` prop default, or the
+  // operator's own edit of the sheet's header rate field. Sent as
+  // tender_exchange_rate instead of re-sending the static prop, which is
+  // wrong the moment the operator edits the field.
+  const [effectiveRate, setEffectiveRate] = useState<number | undefined>();
 
   const isSplitPayment = paymentLines.length > 1;
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
@@ -1070,14 +1076,17 @@ function KatchFormInner({
           payments: paymentsPayload,
           checkoutTotal:
             paymentsPayload !== undefined ? checkoutTotal : undefined,
-          // Payment-Legs Integrity plan (Wave 9, lira-095): the rate this
-          // form's own PaymentSheet/MultiPaymentInput actually converted
-          // tender at (`exchangeRate` prop — the buyRate this page passes,
-          // see Recharge/index.tsx's `buyRate: exchangeRate`), so the
-          // repository reconciles legs at the SAME rate the till used
-          // instead of falling back to its own (sell-side) stamped rate.
+          // Payment-Legs Integrity plan (Wave 9 + false-reject fix): the
+          // rate this form's own PaymentSheet/MultiPaymentInput actually
+          // converted tender at — captured live via onExchangeRateChange
+          // (falls back to the `exchangeRate` prop if the sheet never fired,
+          // e.g. no legs at all), so the repository reconciles legs at the
+          // SAME rate the till used instead of falling back to its own
+          // (sell-side) stamped rate.
           tender_exchange_rate:
-            paymentsPayload !== undefined ? exchangeRate : undefined,
+            paymentsPayload !== undefined
+              ? (effectiveRate ?? exchangeRate)
+              : undefined,
           // Kept change rides the legs-carrying items txn (lira-095 convention).
           ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)
             ? {
@@ -1155,11 +1164,11 @@ function KatchFormInner({
               isCarrier && paymentsPayload !== undefined
                 ? checkoutTotal
                 : undefined,
-            // Payment-Legs Integrity plan (Wave 9, lira-095) — see the items
-            // branch above for the full rationale.
+            // Payment-Legs Integrity plan (Wave 9 + false-reject fix) — see
+            // the items branch above for the full rationale.
             tender_exchange_rate:
               isCarrier && paymentsPayload !== undefined
-                ? exchangeRate
+                ? (effectiveRate ?? exchangeRate)
                 : undefined,
             // Kept change rides the legs-carrying first bill (no items case).
             ...(isCarrier &&
@@ -1698,6 +1707,7 @@ function KatchFormInner({
         clientId={clientId}
         fetchClientVouchers={fetchClientVouchers}
         exchangeRate={exchangeRate}
+        onExchangeRateChange={setEffectiveRate}
         showDiscount={totalItems > 0}
         maxDiscount={maxDiscount}
         onDiscountChange={setDiscount}

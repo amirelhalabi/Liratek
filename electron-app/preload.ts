@@ -390,6 +390,10 @@ contextBridge.exposeInMainWorld("api", {
       clientId?: number;
       clientName?: string;
       currency?: string;
+      /** Payment-Legs Integrity plan (false-reject fix): the rate the
+       *  payment sheet actually converted the customer's tender at — used
+       *  only for leg reconciliation, never the stamped exchange_rate. */
+      tender_exchange_rate?: number;
     }) => ipcRenderer.invoke("recharge:process", data),
     topUp: (data: {
       provider: "MTC" | "Alfa";

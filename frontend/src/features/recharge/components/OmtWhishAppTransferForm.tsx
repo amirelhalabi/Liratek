@@ -81,6 +81,12 @@ function OmtWhishAppTransferFormInner({
     usd: number;
     lbp: number;
   } | null>(null);
+  // Payment-Legs Integrity plan (false-reject fix): the rate the
+  // PaymentSheet is ACTUALLY using — the `exchangeRate` default above, or
+  // the operator's own edit of the sheet's header rate field. Sent as
+  // tender_exchange_rate instead of re-sending the static value, which is
+  // wrong the moment the operator edits the field.
+  const [effectiveRate, setEffectiveRate] = useState<number | undefined>();
   const isSplitPayment = paymentLines.length > 1;
   // Forward structured legs whenever ANY payment line exists (S1 — never gate
   // on split): a single-line payment still carries the tender's amount +
@@ -282,23 +288,26 @@ function OmtWhishAppTransferFormInner({
           ? toCamelLegs(paymentLines, returnLegs)
           : undefined,
         includingFees,
-        // Payment-Legs Integrity plan (Wave 9): SEND-only — this is the
-        // customer-owed total, not a payout. `totalAmount` is this form's own
-        // computed total (the exact figure the PaymentSheet charges); the
-        // repository's wallet-transfer SEND branch now reconciles legs
-        // against THIS instead of guessing `amount + fee` (lira-108: wrong
-        // for a fee carved OUT of the entered amount). `tender_exchange_rate`
-        // is the rate this form's PaymentSheet/MultiPaymentInput actually
-        // converted tender at, so the repository reconciles at the SAME rate
-        // the till used (lira-095's cross-currency spread bug). Sent only
-        // when legs are sent — no legs, nothing to reconcile.
+        // Payment-Legs Integrity plan (Wave 9 + false-reject fix): SEND-only
+        // — this is the customer-owed total, not a payout. `totalAmount` is
+        // this form's own computed total (the exact figure the PaymentSheet
+        // charges); the repository's wallet-transfer SEND branch now
+        // reconciles legs against THIS instead of guessing `amount + fee`
+        // (lira-108: wrong for a fee carved OUT of the entered amount).
+        // `tender_exchange_rate` is the rate this form's own
+        // PaymentSheet/MultiPaymentInput ACTUALLY converted tender at —
+        // captured live via onExchangeRateChange (falls back to
+        // `exchangeRate` if the sheet never fired), so the repository
+        // reconciles at the SAME rate the till used (lira-095's
+        // cross-currency spread bug). Sent only when legs are sent — no
+        // legs, nothing to reconcile.
         ...(serviceType === "SEND" && useStructuredPayments
           ? {
               checkoutTotal:
                 currency === "USD"
                   ? { usd: totalAmount, lbp: 0 }
                   : { usd: 0, lbp: totalAmount },
-              tender_exchange_rate: exchangeRate,
+              tender_exchange_rate: effectiveRate ?? exchangeRate,
             }
           : {}),
         // T3 keep-change: kept amounts join the profit stamp.
@@ -957,6 +966,7 @@ function OmtWhishAppTransferFormInner({
           currency={currency}
           paymentMethods={allPaymentMethods}
           exchangeRate={exchangeRate}
+          onExchangeRateChange={setEffectiveRate}
           showDiscount={true}
           maxDiscount={shopProfit}
           onDiscountChange={setDiscount}

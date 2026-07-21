@@ -489,6 +489,39 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
         tender_exchange_rate: 89000, // the till's own buy-rate conversion
       });
       expect(counts(db).transactions).toBe(before.transactions + 1);
+      // The stamp uses the SERVER rate, never the tender rate.
+      const txn = db
+        .prepare(`SELECT exchange_rate FROM transactions ORDER BY id DESC LIMIT 1`)
+        .get() as { exchange_rate: number };
+      expect(txn.exchange_rate).toBe(90000);
+    });
+
+    it("REJECTS a tender_exchange_rate outside the ±10% band with a distinct error (not a leg mismatch)", () => {
+      const before = counts(db);
+      expect(() =>
+        repo.createTransaction({
+          provider: "Katsh",
+          serviceType: "SEND",
+          amount: 313000,
+          cost: 313000,
+          price: 313000,
+          currency: "LBP",
+          commission: 0,
+          payments: [
+            { method: "CASH", currencyCode: "USD", amount: 5, direction: "IN" },
+            {
+              method: "CASH",
+              currencyCode: "LBP",
+              amount: 132000,
+              direction: "OUT",
+            },
+          ],
+          checkoutTotal: { usd: 0, lbp: 313000 },
+          exchangeRate: 90000,
+          tender_exchange_rate: 40000, // wildly off the stamped rate
+        }),
+      ).toThrow(/outside the accepted/);
+      expect(counts(db)).toEqual(before);
     });
   });
 

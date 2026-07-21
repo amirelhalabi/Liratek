@@ -87,6 +87,12 @@ interface TelecomFormProps {
   onReturnChange?: (returnLegs: PaymentLine[]) => void;
   /** T3 keep-change opt-in (plumbed to PaymentSheet → MultiPaymentInput). */
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
+  /** Payment-Legs Integrity plan (false-reject fix): fires with the rate the
+   *  PaymentSheet is ACTUALLY using for its conversions (the operator may
+   *  edit the sheet's header rate field away from the `exchangeRate` this
+   *  form passed it) — the parent should send this as `tender_exchange_rate`
+   *  on submit instead of re-deriving its own buy/sell rate. */
+  onEffectiveRateChange?: (rate: number) => void;
   /** Called after a successful metadata edit to reload the history list */
   onRefreshHistory?: () => void;
   /** Called after a successful "For Partner" submit to refresh the parent's
@@ -150,6 +156,7 @@ export function TelecomForm({
   onDiscountChange,
   onReturnChange,
   onKeptChange,
+  onEffectiveRateChange,
   onRefreshHistory,
   onRefreshBalances,
   onTransactionTimeChange,
@@ -400,6 +407,9 @@ export function TelecomForm({
           paymentMethods={methods}
           clientId={telecomClientId}
           exchangeRate={exchangeRate}
+          {...(onEffectiveRateChange
+            ? { onExchangeRateChange: onEffectiveRateChange }
+            : {})}
           onPaymentChange={handleCardPaymentChange}
           {...(onReturnChange ? { onReturnChange } : {})}
           onDiscountChange={handleDiscountChange}
@@ -772,6 +782,9 @@ export function TelecomForm({
                   clientId={telecomClientId}
                   fetchClientVouchers={fetchClientVouchers}
                   exchangeRate={exchangeRate}
+                  {...(onEffectiveRateChange
+                    ? { onExchangeRateChange: onEffectiveRateChange }
+                    : {})}
                   showDiscount={true}
                   maxDiscount={Math.max(
                     0,

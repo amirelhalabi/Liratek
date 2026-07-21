@@ -38,6 +38,14 @@ export interface PaymentSheetProps {
   currency?: string;
   paymentMethods: PaymentMethod[];
   exchangeRate?: number;
+  /** Fires with the rate MultiPaymentInput is ACTUALLY using for its
+   *  conversions — the default (`exchangeRate` prop) on mount, or the
+   *  operator's own edit of the sheet's "1 USD = X LBP" header field
+   *  whenever they type one. Payment-Legs Integrity plan (false-reject
+   *  fix): callers should capture this and send it as `tender_exchange_rate`
+   *  on submit, instead of re-sending the static `exchangeRate` prop (which
+   *  is wrong the moment the operator edits the field). */
+  onExchangeRateChange?: (rate: number) => void;
   showDiscount?: boolean;
   maxDiscount?: number;
   showPmFee?: boolean;
@@ -81,6 +89,7 @@ export function PaymentSheet({
   currency = "USD",
   paymentMethods,
   exchangeRate,
+  onExchangeRateChange,
   showDiscount = true,
   maxDiscount,
   showPmFee = false,
@@ -237,6 +246,7 @@ export function PaymentSheet({
                 { code: "LBP", symbol: "LBP" },
               ]}
               {...(exchangeRate !== undefined ? { exchangeRate } : {})}
+              {...(onExchangeRateChange ? { onExchangeRateChange } : {})}
               {...(clientId != null ? { clientId } : {})}
               {...(fetchClientVouchers ? { fetchClientVouchers } : {})}
               {...(onReturnChange ? { onReturnChange } : {})}

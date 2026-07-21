@@ -93,18 +93,42 @@ export async function printReceipt({
   }
 
   // Fallback (no silent printer configured, or web mode): print window.
-  const printWindow = window.open("", "", "width=400,height=600");
+  //
+  // Navigate to a data: URL (same technique as printHandlers.ts's silent
+  // print path) instead of `window.open("") + document.write()`. The latter
+  // writes into an empty about:blank shell, which has a known Electron bug
+  // (electron/electron#24356): the paint/`ready-to-show` step never fires
+  // for a SMALL amount of injected content (a receipt qualifies), leaving
+  // the window visibly blank/white even though its DOM has content. A real
+  // navigation avoids that path entirely.
+  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(fullHtml)}`;
+  const printWindow = window.open(dataUrl, "", "width=400,height=600");
   if (printWindow) {
-    printWindow.document.write(fullHtml);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
-    // Windows focus fix (Electron): restore focus to the app window.
-    setTimeout(() => {
-      (
-        window as unknown as { api?: { display?: { fixFocus?: () => void } } }
-      ).api?.display?.fixFocus?.();
-    }, 100);
+    const cleanup = (): void => {
+      printWindow.close();
+      // Windows focus fix (Electron): restore focus to the app window.
+      setTimeout(() => {
+        (
+          window as unknown as {
+            api?: { display?: { fixFocus?: () => void } };
+          }
+        ).api?.display?.fixFocus?.();
+      }, 100);
+    };
+    printWindow.addEventListener(
+      "load",
+      () => {
+        printWindow.focus();
+        // `window.print()` is non-blocking in Chromium/Electron — it
+        // returns immediately instead of waiting for the dialog to be
+        // dismissed like older browsers. Closing right after print() raced
+        // the popup's own teardown against the OS building the print job,
+        // so defer the close to `afterprint` (fires once Print/Cancel is
+        // chosen) instead of closing unconditionally.
+        printWindow.addEventListener("afterprint", cleanup, { once: true });
+        printWindow.print();
+      },
+      { once: true },
+    );
   }
 }

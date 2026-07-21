@@ -250,6 +250,121 @@ describe("RechargeRepository — S2 leg reconciliation wiring", () => {
     expect(result.success).toBe(true);
   });
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // Owner-reported false-reject (2026-07-2x): MTC CREDIT_TRANSFER, price
+  // 720,000 LBP, paid $10 CASH, change 170,000 LBP. The payment sheet built
+  // the legs at its own (buy) rate 89,000 — internally the legs reconcile
+  // exactly (net IN = 10 - 170,000/89,000 = 720,000/89,000). The seeded
+  // server sell rate here is 90,000 (createTestDb's exchange_rates row) —
+  // reconciling at THAT rate instead makes the same legs look ~$0.11 short,
+  // tripping the epsilon. `tender_exchange_rate` lets the caller say
+  // "reconcile at the rate the till actually used".
+  // ═══════════════════════════════════════════════════════════════════════
+  describe("owner repro — MTC CREDIT_TRANSFER, buy-rate legs vs. sell-rate reconciliation", () => {
+    it("THROWS at the server sell rate (90,000) with no tender_exchange_rate — the exact reported bug", () => {
+      const before = counts(db);
+      const result = repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 8,
+        cost: 6.0,
+        price: 720_000,
+        currency: "LBP",
+        phoneNumber: "03000095",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 10 },
+          {
+            method: "CASH",
+            currencyCode: "LBP",
+            amount: 170_000,
+            direction: "OUT",
+          },
+        ],
+        userId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/do not reconcile/);
+      expect(counts(db)).toEqual(before);
+    });
+
+    it("FIXED: reconciles and persists when tender_exchange_rate (89,000, the till's own rate) is supplied", () => {
+      const before = counts(db);
+      const result = repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 8,
+        cost: 6.0,
+        price: 720_000,
+        currency: "LBP",
+        phoneNumber: "03000094",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 10 },
+          {
+            method: "CASH",
+            currencyCode: "LBP",
+            amount: 170_000,
+            direction: "OUT",
+          },
+        ],
+        tender_exchange_rate: 89_000,
+        userId: 1,
+      });
+
+      expect(result.success).toBe(true);
+      expect(counts(db).transactions).toBe(before.transactions + 1);
+    });
+
+    it("a genuinely broken payment (dropped OUT leg) STILL rejects at the tender rate", () => {
+      const before = counts(db);
+      const result = repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 8,
+        cost: 6.0,
+        price: 720_000,
+        currency: "LBP",
+        phoneNumber: "03000093",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 10 }], // no change leg
+        tender_exchange_rate: 89_000,
+        userId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/do not reconcile/);
+      expect(counts(db)).toEqual(before);
+    });
+
+    it("REJECTS a tender_exchange_rate outside the ±10% band with a distinct error", () => {
+      const before = counts(db);
+      const result = repo.processRecharge({
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 8,
+        cost: 6.0,
+        price: 720_000,
+        currency: "LBP",
+        phoneNumber: "03000092",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 10 },
+          {
+            method: "CASH",
+            currencyCode: "LBP",
+            amount: 170_000,
+            direction: "OUT",
+          },
+        ],
+        tender_exchange_rate: 40_000, // wildly off the seeded 90,000 sell rate
+        userId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).not.toMatch(/do not reconcile/);
+      expect(result.error).toMatch(/outside the accepted/);
+      expect(counts(db)).toEqual(before);
+    });
+  });
+
   it("deferPayment: mismatched legs are ignored — the session basket owns the customer-cash side", () => {
     const result = repo.processRecharge({
       provider: "MTC",

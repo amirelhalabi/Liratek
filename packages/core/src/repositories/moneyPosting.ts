@@ -91,17 +91,36 @@ export interface ReconcileLegsInput {
   keptChange?: KeptChange;
   expectedTotals: ExpectedTotals;
   /**
-   * The rate to convert cross-currency legs at for THIS reconciliation —
-   * normally the same rate the caller stamps on `transactions.exchange_rate`
-   * (`data.exchangeRate ?? getUsdLbpSellRate(db)`). Payment-Legs Integrity
-   * plan (Wave 9, lira-095): a caller MAY instead pass the rate its own
-   * till/MultiPaymentInput actually converted the customer's tender at
-   * (`tender_exchange_rate`), when that differs from the stamped
-   * rate-of-record — reconciliation must compare at the SAME rate the till
-   * used, or a legitimate buy/sell-spread checkout false-rejects. Either way,
-   * never an independent/live lookup performed by this function itself.
+   * The server rate-of-record for THIS reconciliation — normally the same
+   * rate the caller stamps on `transactions.exchange_rate`
+   * (`data.exchangeRate ?? getUsdLbpSellRate(db)`). Used as-is when
+   * `tenderExchangeRate` is absent, and as the band anchor when it is
+   * present (see `tenderExchangeRate` below). Never an independent/live
+   * lookup performed by this function itself.
    */
   exchangeRate: number;
+  /**
+   * The rate the caller's OWN till/MultiPaymentInput actually converted the
+   * customer's cross-currency tender at (e.g. the buy rate — the owner's
+   * 2026-07-06 MPI-buy-rate decision — vs. `exchangeRate`, which is the
+   * sell-side stamped rate-of-record for money-in flows). Payment-Legs
+   * Integrity plan (Wave 9, lira-095 / the 2026-07-2x false-reject fix):
+   * reconciliation must compare at the SAME rate the till used to compute
+   * change, or a legitimate buy/sell-spread checkout with change
+   * false-rejects even though the till's own math nets to zero.
+   *
+   * When present AND within `TENDER_RATE_BAND_PCT` of `exchangeRate`,
+   * reconciliation converts cross-currency legs at THIS rate instead.
+   * When present but OUTSIDE the band, throws a distinct error naming both
+   * rates rather than silently accepting an implausible value or silently
+   * falling back to `exchangeRate` — a tender rate that far off the day's
+   * server rate is more likely a bug (wrong units, stale rate, a typo'd
+   * operator edit) than a real spread, and quietly accepting it would let a
+   * genuine leg mismatch launder itself as "just a rate difference".
+   *
+   * Omitted → current/legacy behavior, reconciles at `exchangeRate` alone.
+   */
+  tenderExchangeRate?: number;
   /** Human-readable label for the thrown error (e.g. "WHISH_APP SEND"). */
   context: string;
 }
@@ -109,6 +128,49 @@ export interface ReconcileLegsInput {
 /** $0.05 USD-equivalent — roughly 5,000 LBP at typical (~90,000-100,000)
  *  USD/LBP sell rates. Owner-specified (S2). */
 export const LEG_RECONCILIATION_EPSILON_USD = 0.05;
+
+/**
+ * ±10% sanity band for `tenderExchangeRate` against the server rate
+ * (Payment-Legs Integrity plan, false-reject fix 2026-07-2x): a real
+ * USD/LBP buy/sell spread runs ~1-2%, and an operator's manual edit of the
+ * payment sheet's rate field is a small nudge around that (the owner's
+ * repro: buy 89,000 vs. sell 90,000 — ~1.1%). A tender rate more than 10%
+ * off the server's current rate is not a legitimate spread or edit — it's
+ * either a bug (wrong units, a stale cached rate) or an attempt to launder
+ * a real leg discrepancy as "just a rate difference". Outside the band,
+ * reconciliation throws a distinct, clearly-labeled error instead of
+ * silently accepting the value or silently falling back to the server
+ * rate (either of which would hide the underlying problem).
+ */
+export const TENDER_RATE_BAND_PCT = 0.1;
+
+/**
+ * Resolves which rate `reconcileLegs` actually converts cross-currency legs
+ * at: the tender rate when supplied and within `TENDER_RATE_BAND_PCT` of the
+ * server rate, the server rate otherwise (when no tender rate was passed).
+ * Throws when a supplied tender rate falls outside the band — see
+ * `tenderExchangeRate`'s doc on `ReconcileLegsInput` for the rationale.
+ */
+function resolveReconciliationRate(
+  exchangeRate: number,
+  tenderExchangeRate: number | undefined,
+  context: string,
+): number {
+  if (tenderExchangeRate == null) return exchangeRate;
+  // No valid server rate to band against (e.g. a scripted caller passing 0)
+  // — nothing to compare, so trust the caller's tender rate as-is.
+  if (!(exchangeRate > 0)) return tenderExchangeRate;
+
+  const deviation = Math.abs(tenderExchangeRate - exchangeRate) / exchangeRate;
+  if (deviation > TENDER_RATE_BAND_PCT) {
+    throw new Error(
+      `${context}: tender exchange rate ${tenderExchangeRate} is outside the accepted ` +
+        `±${(TENDER_RATE_BAND_PCT * 100).toFixed(0)}% band of the server rate ${exchangeRate} ` +
+        `(diff ${(deviation * 100).toFixed(1)}%) — refusing to reconcile payment legs at an implausible rate`,
+    );
+  }
+  return tenderExchangeRate;
+}
 
 function usdEquivalent(usd: number, lbp: number, exchangeRate: number): number {
   return usd + (exchangeRate > 0 ? lbp / exchangeRate : 0);
@@ -148,9 +210,22 @@ function sumLegsByCurrency(
  * rolls back the whole write atomically.
  */
 export function reconcileLegs(input: ReconcileLegsInput): void {
-  const { inLegs, outLegs, keptChange, expectedTotals, exchangeRate, context } =
-    input;
+  const {
+    inLegs,
+    outLegs,
+    keptChange,
+    expectedTotals,
+    exchangeRate,
+    tenderExchangeRate,
+    context,
+  } = input;
   if (!inLegs || inLegs.length === 0) return;
+
+  const rate = resolveReconciliationRate(
+    exchangeRate,
+    tenderExchangeRate,
+    context,
+  );
 
   const inSums = sumLegsByCurrency(inLegs, context);
   const outSums =
@@ -158,17 +233,17 @@ export function reconcileLegs(input: ReconcileLegsInput): void {
       ? sumLegsByCurrency(outLegs, context)
       : { usd: 0, lbp: 0 };
 
-  const inUsd = usdEquivalent(inSums.usd, inSums.lbp, exchangeRate);
-  const outUsd = usdEquivalent(outSums.usd, outSums.lbp, exchangeRate);
+  const inUsd = usdEquivalent(inSums.usd, inSums.lbp, rate);
+  const outUsd = usdEquivalent(outSums.usd, outSums.lbp, rate);
   const keptUsd = usdEquivalent(
     keptChange?.usd ?? 0,
     keptChange?.lbp ?? 0,
-    exchangeRate,
+    rate,
   );
   const expectedUsd = usdEquivalent(
     expectedTotals.usd,
     expectedTotals.lbp,
-    exchangeRate,
+    rate,
   );
 
   const gotUsd = inUsd - outUsd - keptUsd;
@@ -180,7 +255,7 @@ export function reconcileLegs(input: ReconcileLegsInput): void {
       `${context}: payment legs do not reconcile — expected $${money(expectedUsd)} USD-equivalent ` +
         `($${money(expectedTotals.usd)} + ${Math.round(expectedTotals.lbp).toLocaleString()} LBP), ` +
         `got $${money(gotUsd)} USD-equivalent (IN $${money(inUsd)}, OUT $${money(outUsd)}, kept $${money(keptUsd)}), ` +
-        `diff $${money(diff)} at rate ${exchangeRate}`,
+        `diff $${money(diff)} at rate ${rate}`,
     );
   }
 }
