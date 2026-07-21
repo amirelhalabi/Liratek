@@ -116,9 +116,14 @@ export type TransactionType =
  * - LOTO / LOTO_CASH_PRIZE: their supplier_ledger rows (ticket TOP_UP carries
  *   no transaction link) and checkpoint totals are never reversed, so the
  *   loto settle-to-zero reconciliation would break.
- * - LOTO_SETTLEMENT / SUPPLIER_SETTLEMENT: settlement stamps
- *   (financial_services.settlement_id, checkpoint is_settled) stay in place,
- *   and the commission credit to General has no payments row to reverse.
+ * - LOTO_SETTLEMENT: checkpoint is_settled stamps stay in place, and the
+ *   commission credit to General has no payments row to reverse.
+ *   (SUPPLIER_SETTLEMENT used to share this rationale — LIRA-085,
+ *   2026-07-21, moved it OUT of this set: both gaps are addressable —
+ *   TransactionRepository._reverseSupplierSettlement reverses the commission
+ *   drawer legs directly from the transaction's own stamped metadata and
+ *   un-stamps financial_services.settlement_id/is_settled precisely, see its
+ *   doc comment.)
  * - RECHARGE_TOPUP: the provider-drawer credit has no payments row either.
  * - REFUND: reversing a reversal double-moves the drawers.
  * - CREDIT_CASH_OUT: the generic reversal does not restore the CREDIT_USED
@@ -135,7 +140,6 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     TRANSACTION_TYPES.LOTO,
     TRANSACTION_TYPES.LOTO_CASH_PRIZE,
     TRANSACTION_TYPES.LOTO_SETTLEMENT,
-    TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
     TRANSACTION_TYPES.RECHARGE_TOPUP,
     TRANSACTION_TYPES.REFUND,
     TRANSACTION_TYPES.CREDIT_CASH_OUT,
@@ -146,45 +150,51 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // standalone void would desync profit from money. Rule-20 reversal owner:
     // none needed (the kept cash physically stays in the drawer regardless).
     TRANSACTION_TYPES.KEPT_CHANGE,
-    // PARTNER_SETTLEMENT (PFT-6b): the generic reversal would restore the
-    // drawer + partner_ledger rows but NOT the FIFO covered_amount stamps the
-    // settlement applied to FOR_% rows (profit recognition would stay
-    // realized on a voided settlement). Rule-20 owner: correct a
-    // mis-settlement with an opposite manual settlement/adjustment on the
-    // Partners page.
-    TRANSACTION_TYPES.PARTNER_SETTLEMENT,
-    // PARTNER_PAYMENT (PFT-7b): same rationale — the cash-moved manual entry
-    // applies coverage stamps the generic reversal cannot un-apply.
-    TRANSACTION_TYPES.PARTNER_PAYMENT,
     // PARTNER_ADJUSTMENT (LIRA-066): a paper (no-cash) manual partner_ledger
-    // entry — no payments row exists to reverse, and the generic path has no
-    // partner_ledger reversal owner at all (same gap PARTNER_SETTLEMENT/
-    // PARTNER_PAYMENT already have). Rule-20 owner: correct with an opposite
-    // manual Record Tx entry on the Partners page.
+    // entry — no payments row exists to reverse. LIRA-085 re-verified
+    // (2026-07-21): a partner_ledger own-row reversal mechanism now EXISTS
+    // (TransactionRepository._reversePartnerSettlementLedger, built for
+    // PARTNER_SETTLEMENT/PARTNER_PAYMENT below) and could mechanically cover
+    // this type too (no drawer, no coverage stamps to unwind) — but the
+    // owner's actual complaint (notes 25/26) was scoped to settlements/
+    // payments, so wiring ADJUSTMENT in is left as a low-risk follow-up, not
+    // done here. Rule-20 owner: correct with an opposite manual Record Tx
+    // entry on the Partners page.
     TRANSACTION_TYPES.PARTNER_ADJUSTMENT,
     // ACCOUNT_ADJUSTMENT (LIRA-080): a paper (no-cash) manual debt_ledger
     // entry — no payments row exists to reverse, and the generic path has no
     // debt_ledger reversal owner for CREDIT_DEPOSIT/Manual Debt rows either
     // (the exact same gap that already makes this type's cash-moved siblings,
-    // CREDIT_CASH_IN/DEBT_CASH_OUT, non-reversible above). Rule-20 owner:
-    // correct with an opposite manual Add Credit/Debt entry on the Accounts
-    // page — same story as CREDIT_CASH_IN/DEBT_CASH_OUT.
+    // CREDIT_CASH_IN/DEBT_CASH_OUT, non-reversible above). LIRA-085
+    // re-verified (2026-07-21): rationale still holds — out of this ticket's
+    // scope (owner's complaint was settlements/payments, not paper entries).
+    // Rule-20 owner: correct with an opposite manual Add Credit/Debt entry on
+    // the Accounts page — same story as CREDIT_CASH_IN/DEBT_CASH_OUT.
     TRANSACTION_TYPES.ACCOUNT_ADJUSTMENT,
     // SUPPLIER_ADJUSTMENT (LIRA-080): a paper (no-cash) manual supplier_ledger
     // entry — no payments row exists to reverse, and the generic path has no
     // supplier_ledger reversal owner for a bare ADJUSTMENT row. Its cash-moved
     // counterpart takes the DIFFERENT type SUPPLIER_PAYMENT (via
     // recordSupplierCashflow) which STAYS generically reversible (soft-void +
-    // drawer reversal) — only the paper variant is non-reversible. Rule-20
-    // owner: correct with an opposite manual Add Credit/Debt entry on the
-    // Suppliers page (same story as PARTNER_ADJUSTMENT/ACCOUNT_ADJUSTMENT).
+    // drawer reversal) — only the paper variant is non-reversible. LIRA-085
+    // re-verified (2026-07-21): rationale still holds, out of scope (see
+    // ACCOUNT_ADJUSTMENT). Rule-20 owner: correct with an opposite manual Add
+    // Credit/Debt entry on the Suppliers page.
     TRANSACTION_TYPES.SUPPLIER_ADJUSTMENT,
     // COUNTERPARTY_DISCOUNT (CQ-10): no drawer/legs to reverse (amount_usd/lbp
     // are always 0) and the FIFO coverage it applied (sales.paid_usd /
     // debt_ledger.covered_* / partner_ledger.covered_amount /
-    // supplier_purchases.paid_usd) cannot be un-applied generically. Rule-20
-    // owner: a correction is an OPPOSITE discount (or a manual reversing
-    // entry), never a void.
+    // supplier_purchases.paid_usd) cannot be un-applied generically as a
+    // STANDALONE reversal target. LIRA-085 (2026-07-21) re-verified this
+    // holds for a standalone discount (writeOff) — correction stays an
+    // OPPOSITE discount. A discount BUNDLED inside a PARTNER_SETTLEMENT is a
+    // different story: its own transaction_id stays out of
+    // ACTIONABLE_TYPES/never directly voidable, but reversing the SETTLEMENT
+    // it rode with now sweeps it too (see
+    // TransactionRepository._reversePartnerSettlementLedger) — its ledger
+    // row/profit stamp are negated by a dedicated compensating pair, not by
+    // removing this type from NON_REVERSIBLE (nothing changes about what a
+    // caller can do to a COUNTERPARTY_DISCOUNT row directly).
     TRANSACTION_TYPES.COUNTERPARTY_DISCOUNT,
     // MTC_TOPUP / ALFA_TOPUP (topUpFromCustomer): moves General AND the
     // provider drawer directly with NO payments legs — the generic reversal

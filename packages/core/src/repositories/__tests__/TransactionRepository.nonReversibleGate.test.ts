@@ -31,7 +31,10 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext.js";
-import type { TransactionType } from "../../constants/transactionTypes.js";
+import {
+  NON_REVERSIBLE_TRANSACTION_TYPES,
+  type TransactionType,
+} from "../../constants/transactionTypes.js";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -126,15 +129,10 @@ const GATED: Array<[TransactionType, string]> = [
   ["CLIENT_CREATED", "clients"],
   ["CLIENT_UPDATED", "clients"],
   ["CLIENT_DELETED", "clients"],
-  // Partners audit (2026-07-18): PARTNER_SETTLEMENT/PARTNER_PAYMENT were
-  // already in NON_REVERSIBLE_TRANSACTION_TYPES (their FIFO covered_amount
-  // stamps can't be un-applied) but had no DIRECT gate assertion — only set
-  // membership. Closing that coverage gap here.
-  ["PARTNER_SETTLEMENT", "partner_ledger"],
-  ["PARTNER_PAYMENT", "partner_ledger"],
-  // LIRA-066: the paper (no-cash) "Record Tx" entry — same rationale as
-  // PARTNER_SETTLEMENT/PARTNER_PAYMENT above (no generic partner_ledger
-  // reversal owner exists).
+  // LIRA-066: the paper (no-cash) "Record Tx" entry — no generic
+  // partner_ledger reversal owner exists for a bare paper ADJUSTMENT (unlike
+  // PARTNER_SETTLEMENT/PARTNER_PAYMENT below, which LIRA-085 moved OUT of
+  // this gate — see TransactionRepository.partnerSettlementReversal.test.ts).
   ["PARTNER_ADJUSTMENT", "partner_ledger"],
   // CQ-10: a COUNTERPARTY_DISCOUNT row has no drawer/legs to reverse and its
   // FIFO coverage stamps can't be un-applied either — same rationale as
@@ -197,5 +195,25 @@ describe("TransactionRepository — non-reversible gate (rule 20)", () => {
     const id = seedTxn("RECHARGE", "recharges");
     const reversalId = repo.voidTransaction(id, 1);
     expect(reversalId).toBeGreaterThan(0);
+  });
+
+  // LIRA-085: PARTNER_SETTLEMENT/PARTNER_PAYMENT/SUPPLIER_SETTLEMENT moved
+  // OUT of NON_REVERSIBLE_TRANSACTION_TYPES — a dedicated reversal owner now
+  // exists for each (TransactionRepository._reversePartnerSettlementLedger /
+  // _reverseSupplierSettlement). Full create+reverse+nets-to-0 coverage
+  // lives in TransactionRepository.partnerSettlementReversal.test.ts /
+  // TransactionRepository.supplierSettlementReversal.test.ts (this file only
+  // owns the GATE, not the reversal mechanics) — this is a fast membership
+  // check that they no longer sit in the gated set.
+  it("PARTNER_SETTLEMENT/PARTNER_PAYMENT/SUPPLIER_SETTLEMENT are no longer NON_REVERSIBLE", () => {
+    expect(NON_REVERSIBLE_TRANSACTION_TYPES.has("PARTNER_SETTLEMENT")).toBe(
+      false,
+    );
+    expect(NON_REVERSIBLE_TRANSACTION_TYPES.has("PARTNER_PAYMENT")).toBe(
+      false,
+    );
+    expect(NON_REVERSIBLE_TRANSACTION_TYPES.has("SUPPLIER_SETTLEMENT")).toBe(
+      false,
+    );
   });
 });

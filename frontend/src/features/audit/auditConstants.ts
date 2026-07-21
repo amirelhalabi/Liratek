@@ -311,6 +311,14 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   "EXPENSE",
   "DEBT_REPAYMENT",
   "SUPPLIER_PAYMENT",
+  // LIRA-085: PARTNER_SETTLEMENT/PARTNER_PAYMENT/SUPPLIER_SETTLEMENT moved
+  // out of core's NON_REVERSIBLE_TRANSACTION_TYPES — TransactionRepository
+  // now owns their reversal (_reversePartnerSettlementLedger /
+  // _reverseSupplierSettlement). Must stay in lockstep with that set — see
+  // actionGating.guard.test.ts.
+  "PARTNER_SETTLEMENT",
+  "PARTNER_PAYMENT",
+  "SUPPLIER_SETTLEMENT",
 ]);
 
 /** Service transactions that can (re)print a detailed receipt (RCP-3). POS

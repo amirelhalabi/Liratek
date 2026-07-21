@@ -1779,7 +1779,7 @@ of a 140,000 LBP change, return 100,000 LBP and keep 40,000 on the customer's ac
 | **Epic**             | Partners / Suppliers |
 | **Type**             | Bug / Enhancement    |
 | **Priority**         | High                 |
-| **Status**           | TODO                 |
+| **Status**           | DONE (2026-07-21 — module-owned reversals, 27 netting tests) |
 | **Affected Modules** | Partners, Suppliers  |
 | **Assigned To**      | —                    |
 | **Depends On**       | —                    |
@@ -2074,7 +2074,7 @@ undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2
 | LIRA-082 | Detailed summaries on all createTransaction call sites  | Medium   | DONE            |
 | LIRA-083 | Custom Services status workflow                         | Medium   | TODO            |
 | LIRA-084 | Partial keep-change                                     | Medium   | TODO            |
-| LIRA-085 | Undo/reverse for partner & supplier ledger transactions | High     | TODO            |
+| LIRA-085 | Undo/reverse for partner & supplier ledger transactions | High     | DONE            |
 | LIRA-086 | Dashboard checkpoint freshness coloring                 | Low      | TODO            |
 | LIRA-087 | Product-supplier — debt now, attach products later      | Medium   | TODO            |
 | LIRA-088 | MTC/Alfa provider-balance decrement                     | Medium   | NEEDS INTERVIEW |

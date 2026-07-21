@@ -331,6 +331,16 @@ export class PartnerService {
             const discountEntry = this.repo.addLedgerEntry({
               partner_id: data.partnerId,
               transaction_type: "DISCOUNT",
+              // LIRA-085: link the bundled discount's OWN ledger row back to
+              // the settlement's ledger row (`entry.id`) it rode with — the
+              // only way TransactionRepository._reversePartnerSettlementLedger
+              // can find and sweep it when the settlement is voided/refunded
+              // (rule 20: "bundled inside a settlement must be handled by
+              // that settlement's reversal"). Previously these two rows were
+              // linked only by time proximity, which a reversal method cannot
+              // rely on.
+              reference_table: "partner_ledger",
+              reference_id: entry.id,
               amount: discountAmount,
               currency: data.currency,
               direction,

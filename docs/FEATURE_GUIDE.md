@@ -257,11 +257,14 @@ by cashPaid with no partner row (the margin exists only as a drawer delta) — l
   amounts); the original's status becomes VOIDED. Net drawer effect across
   create + void = 0. Match originals by `source_id` + `reverses_id IS NULL`.
 - Void/refund actions live in the **Transactions table only** (owner decision 2026-07-04).
-- `NON_REVERSIBLE_TRANSACTION_TYPES` (LOTO family, SUPPLIER_SETTLEMENT, RECHARGE_TOPUP,
-  REFUND, …) are **gated in the repository** — raw IPC void returns
-  `{ success: false, error: /cannot be voided/ }`. Blocking beats corrupting.
-  A new type must decide: reversible (then prove drawer + ledger + profit all restore)
-  or listed as non-reversible.
+- `NON_REVERSIBLE_TRANSACTION_TYPES` (LOTO family, RECHARGE_TOPUP, REFUND, the paper
+  ADJUSTMENT types, standalone COUNTERPARTY_DISCOUNT, …) are **gated in the repository** —
+  raw IPC void returns `{ success: false, error: /cannot be voided/ }`. Blocking beats
+  corrupting. A new type must decide: reversible (then prove drawer + ledger + profit all
+  restore) or listed as non-reversible. LIRA-085 (2026-07-21) moved
+  `PARTNER_SETTLEMENT`/`PARTNER_PAYMENT`/`SUPPLIER_SETTLEMENT` OUT of the gate with
+  module-owned reversals (`_reversePartnerSettlementLedger` + coverage unwind,
+  `_reverseSupplierSettlement` incl. commission funding + `settlement_id` un-stamping).
 - Refund reverses profit — a refunded transaction's profit nets to 0; per-item refunds
   pro-rate the sale's discount (lira-090).
 - **Reversal symmetry (CLAUDE.md rule 20)**: every ledger row a flow writes must have a
@@ -310,9 +313,12 @@ by cashPaid with no partner row (the margin exists only as a drawer delta) — l
   precedent — and (b) unwinds the FIFO coverage the repayment applied
   (`sales.paid_usd`, `debt_ledger.covered_usd/lbp`) via newest-first reverse-FIFO
   helpers that mirror `_markSalesPaidFIFO`/`_coverServiceDebtsFIFO`. A bundled CQ-10
-  discount rides a SEPARATE, `NON_REVERSIBLE` transaction and is never touched — only
-  the cash repayment's own coverage share unwinds. See
-  `TransactionRepository.repaymentReversal.test.ts`.
+  discount rides a SEPARATE transaction and — for DEBT_REPAYMENT reversals — is never
+  touched: only the cash repayment's own coverage share unwinds. See
+  `TransactionRepository.repaymentReversal.test.ts`. Contrast LIRA-085: a PARTNER
+  settlement's reversal DOES sweep its bundled discount (ledger + profit negated), since
+  "undo the settlement" must net the whole bundle to 0 — the two behaviors are deliberate,
+  per-flow decisions, not an inconsistency.
 
 ---
 

@@ -1018,6 +1018,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // there is none, or on a legacy (pre-v136) row with no link.
       this._cascadeSupplierSiblingVoid(original, userId);
 
+      // 5d. LIRA-085 — if this transaction IS a PARTNER_SETTLEMENT/
+      // PARTNER_PAYMENT, restore its own partner_ledger row (+ any bundled
+      // CQ-10 discount) and unwind the FIFO covered_amount stamps it
+      // applied. No-op for every other type.
+      this._reversePartnerSettlementLedger(original, userId);
+
+      // 5e. LIRA-085 — if this transaction IS a SUPPLIER_SETTLEMENT, reverse
+      // the commission drawer funding, soft-void the linked SUPPLIER_PAYS_US
+      // row, and un-stamp financial_services.settlement_id/is_settled. No-op
+      // for every other type.
+      this._reverseSupplierSettlement(original, userId);
+
       // 6. If SALE: cancel sale, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
@@ -1148,6 +1160,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4c. LIRA-091 — cascade-void any auto supplier-ledger sibling this
       // transaction's own event created. See voidTransaction's identical step.
       this._cascadeSupplierSiblingVoid(original, userId);
+
+      // 4d. LIRA-085 — PARTNER_SETTLEMENT/PARTNER_PAYMENT ledger + coverage
+      // restore. See voidTransaction's identical step.
+      this._reversePartnerSettlementLedger(original, userId);
+
+      // 4e. LIRA-085 — SUPPLIER_SETTLEMENT commission/ledger/fs-stamp
+      // restore. See voidTransaction's identical step.
+      this._reverseSupplierSettlement(original, userId);
 
       // 5. If SALE: mark sale & items as refunded, restore stock
       if (original.source_table === "sales" && original.source_id) {
@@ -1882,6 +1902,22 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     reason: "void" | "refund",
   ): void {
     if (!original.source_table || original.source_id == null) return;
+    // LIRA-085: a transaction whose OWN source_table IS 'partner_ledger'
+    // (PARTNER_SETTLEMENT/PARTNER_PAYMENT — its source_id points at the
+    // settlement/payment's own ledger row) is never a legitimate target for
+    // THIS method's reference_table/reference_id scan. That scan exists to
+    // find FOR_%/THROUGH_% rows tied back to the CAUSING transaction (source
+    // tables like 'sales'/'financial_services') — never partner_ledger rows
+    // that reference ANOTHER partner_ledger row. Since LIRA-085 stamped the
+    // bundled CQ-10 discount's OWN reference_table='partner_ledger'/
+    // reference_id=<settlement row id> link (so
+    // `_reversePartnerSettlementLedger` can find and sweep it), without this
+    // guard THIS method's identical reference_table/reference_id query would
+    // match that SAME discount row and double-reverse it. No existing
+    // behavior depends on this method running for a 'partner_ledger'-sourced
+    // transaction — those types were all NON_REVERSIBLE before LIRA-085, so
+    // this method was never reached with that source_table until now.
+    if (original.source_table === "partner_ledger") return;
     const tenantId = getCurrentTenantId();
 
     // Only partner (FOR_*/THROUGH_*) transactions have rows to reverse; a void
@@ -1930,6 +1966,379 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         userId,
         tenantId,
       );
+    }
+  }
+
+  /**
+   * LIRA-085 — reversal owner for PARTNER_SETTLEMENT / PARTNER_PAYMENT (rule
+   * 20). These used to be flatly `NON_REVERSIBLE_TRANSACTION_TYPES` — the
+   * documented blocker was "the FIFO covered_amount stamps a settlement
+   * applies to FOR_% rows have no unwind mechanism." That mechanism now
+   * exists (`_unwindPartnerSettlementCoverage` below, mirroring
+   * `PartnerRepository.applySettlementCoverage` in reverse).
+   *
+   * Different lookup shape from `_reversePartnerLedger`: THIS transaction's
+   * own `source_table`/`source_id` (`'partner_ledger'`/entry.id) point AT
+   * the settlement/payment's own ledger row — it is not a row that
+   * REFERENCES the transaction being reversed (which is what
+   * `_reversePartnerLedger`'s `reference_table`/`reference_id` lookup finds
+   * for FOR_%/THROUGH_% rows). Both methods run unconditionally on every
+   * void/refund; each is a no-op unless its own shape matches.
+   *
+   * partner_ledger has no soft-void column — every reversal here is a NEW
+   * compensating row (same `transaction_type`, opposite `direction`), same
+   * convention `_reversePartnerLedger` already uses. Drawer/cash is handled
+   * for free by the generic `_reversePayments` (the settlement's own
+   * `payments` row(s) — single-leg or CQ-11 split — reverse before this
+   * method runs); a CLIENT_ACCOUNT-method settlement moved no drawer cash at
+   * all, so that step is simply a no-op for it, and this method's ledger/
+   * coverage restore is identical either way.
+   *
+   * CQ-10 bundled discount: unlike D3's DEBT_REPAYMENT precedent (a bundled
+   * discount stays untouched, a SEPARATE non-reversible transaction), THIS
+   * ticket's own acceptance text requires the opposite — "COUNTERPARTY_
+   * DISCOUNT bundled inside a settlement must be handled by that
+   * settlement's reversal (net to 0)". Found via the discount's own
+   * partner_ledger row's `reference_table='partner_ledger'`/`reference_id=
+   * <settlement row id>` link (stamped by `PartnerService.settle()`,
+   * LIRA-085 — previously these two rows were linked only by time
+   * proximity, which a reversal method cannot rely on). Its ledger row gets
+   * the same compensating-row treatment; its COUNTERPARTY_DISCOUNT
+   * transaction's signed profit is negated by a NEW reversal transaction
+   * (never mutate the original — same additive convention as
+   * `_cancelDebt`/`_restoreRepaymentDebt`). PARTNER_PAYMENT never carries a
+   * bundled discount (`recordPartnerTransaction` has no discount parameter),
+   * so this step is naturally a no-op for that type.
+   *
+   * Coverage unwind budget = |settlement.amount| + |bundled discount.amount|
+   * (both apply against the exact same targetDirection FOR_% bucket, per
+   * `PartnerRepository.addLedgerEntry`'s coverage trigger) — combined into
+   * ONE newest-covered-first give-back, mirroring the D3 repayment/
+   * service-debt reverse-FIFO shape (same accepted imprecision under
+   * interleaved settlements on the same partner — exact when reversed in
+   * LIFO order, the common case).
+   */
+  private _reversePartnerSettlementLedger(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    if (
+      (original.type !== "PARTNER_SETTLEMENT" &&
+        original.type !== "PARTNER_PAYMENT") ||
+      original.source_table !== "partner_ledger" ||
+      original.source_id == null
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+    const hasTable = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partner_ledger'`,
+      )
+      .get();
+    if (!hasTable) return;
+
+    const entry = this.queryOne<{
+      partner_id: number;
+      transaction_type: string | null;
+      amount: number;
+      currency: string;
+      direction: "DEBIT" | "CREDIT";
+    }>(
+      `SELECT partner_id, transaction_type, amount, currency, direction
+       FROM partner_ledger WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    if (!entry) return;
+
+    const insertLedgerReversal = this.db.prepare(`
+      INSERT INTO partner_ledger (
+        partner_id, transaction_type, reference_table, reference_id,
+        amount, currency, direction, notes, user_id, tenant_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+
+    // 1. Reverse the settlement/payment's own ledger row.
+    insertLedgerReversal.run(
+      entry.partner_id,
+      entry.transaction_type,
+      "partner_ledger",
+      original.source_id,
+      entry.amount,
+      entry.currency,
+      entry.direction === "DEBIT" ? "CREDIT" : "DEBIT",
+      `Reversal of settlement/payment txn #${original.id}`,
+      userId,
+      tenantId,
+    );
+
+    let coverageBudget = Math.abs(entry.amount);
+
+    // 2. Sweep a bundled CQ-10 discount, if this settlement carried one.
+    const discountEntry = this.queryOne<{
+      id: number;
+      amount: number;
+      currency: string;
+      direction: "DEBIT" | "CREDIT";
+    }>(
+      `SELECT id, amount, currency, direction FROM partner_ledger
+       WHERE reference_table = 'partner_ledger' AND reference_id = ?
+         AND transaction_type = 'DISCOUNT' AND tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    if (discountEntry) {
+      insertLedgerReversal.run(
+        entry.partner_id,
+        "DISCOUNT",
+        "partner_ledger",
+        original.source_id,
+        discountEntry.amount,
+        discountEntry.currency,
+        discountEntry.direction === "DEBIT" ? "CREDIT" : "DEBIT",
+        `Reversal of bundled discount for settlement/payment txn #${original.id}`,
+        userId,
+        tenantId,
+      );
+      coverageBudget += Math.abs(discountEntry.amount);
+
+      // Negate the discount's own COUNTERPARTY_DISCOUNT transaction's
+      // profit stamp via a NEW compensating transaction (never mutate the
+      // original).
+      const discountTxn = this.getBySourceId(
+        "partner_ledger",
+        discountEntry.id,
+      );
+      if (discountTxn) {
+        const reversalTxnId = this.createTransaction({
+          type: "COUNTERPARTY_DISCOUNT",
+          source_table: "partner_ledger",
+          source_id: discountEntry.id,
+          user_id: userId,
+          amount_usd: 0,
+          amount_lbp: 0,
+          profit_usd: -discountTxn.profit_usd,
+          profit_lbp: -discountTxn.profit_lbp,
+          client_id: null,
+          summary: `Discount reversed by settlement void/refund #${original.id}`,
+          metadata_json: { reversed_discount_txn_id: discountTxn.id },
+        });
+        this.execute(
+          `UPDATE transactions SET reverses_id = ? WHERE id = ? AND tenant_id = ?`,
+          discountTxn.id,
+          reversalTxnId,
+          tenantId,
+        );
+      }
+    }
+
+    // 3. Unwind the combined FIFO coverage both rows applied.
+    this._unwindPartnerSettlementCoverage(
+      entry.partner_id,
+      entry.currency,
+      entry.direction,
+      coverageBudget,
+      tenantId,
+    );
+  }
+
+  /**
+   * Reverse-FIFO give-back for `partner_ledger.covered_amount` — the exact
+   * mirror of `PartnerRepository.applySettlementCoverage`: newest-first
+   * (instead of oldest-first) and subtracting (instead of adding). `direction`
+   * is the settlement/payment's OWN direction (same param
+   * `applySettlementCoverage` takes) — the target bucket is derived
+   * identically (opposite direction, `FOR_%` type only; `THROUGH_%` rows are
+   * never covered by a settlement, so never unwound either).
+   */
+  private _unwindPartnerSettlementCoverage(
+    partnerId: number,
+    currency: string,
+    direction: "DEBIT" | "CREDIT",
+    budget: number,
+    tenantId: number,
+  ): void {
+    if (budget <= 0.005) return;
+    const targetDirection = direction === "CREDIT" ? "DEBIT" : "CREDIT";
+    const open = this.query<{ id: number; covered_amount: number }>(
+      `SELECT id, covered_amount FROM partner_ledger
+       WHERE partner_id = ? AND tenant_id = ? AND currency = ?
+         AND direction = ?
+         AND transaction_type LIKE 'FOR\\_%' ESCAPE '\\'
+         AND covered_amount > 0
+       ORDER BY created_at DESC, id DESC`,
+      partnerId,
+      tenantId,
+      currency,
+      targetDirection,
+    );
+    const takes = allocateFifo(
+      open.map((row) => ({ id: row.id, outstanding: row.covered_amount })),
+      budget,
+      0.005,
+    );
+    const upd = this.db.prepare(
+      `UPDATE partner_ledger SET covered_amount = covered_amount - ? WHERE id = ? AND tenant_id = ?`,
+    );
+    for (const t of takes) {
+      upd.run(t.take, t.id, tenantId);
+    }
+  }
+
+  /**
+   * LIRA-085 — reversal owner for SUPPLIER_SETTLEMENT (rule 20). This used
+   * to be flatly `NON_REVERSIBLE_TRANSACTION_TYPES` alongside
+   * LOTO_SETTLEMENT — the documented blocker was "settlement stamps stay in
+   * place, and the commission credit to General has no payments row to
+   * reverse." Both gaps are addressable because
+   * `SupplierRepository.settleTransactions` already stamps everything this
+   * method needs onto the transaction's OWN `metadata_json`
+   * (`commission_usd`/`commission_lbp`, `drawer_name`,
+   * `financial_service_ids`) — no reconstruction needed for the commission
+   * side.
+   *
+   * Three things restored:
+   * 1. Commission drawer funding (settleTransactions step 3: General +=
+   *    commission, the settle drawer −= commission) — a raw
+   *    `applyDrawerDelta` pair with NO `payments` row at creation, so the
+   *    generic `_reversePayments` cannot see it; reversed here directly,
+   *    negated.
+   * 2. The SUPPLIER_PAYS_US commission-credit ledger row settleTransactions
+   *    inserts alongside the SETTLEMENT row — found via its
+   *    `source_ref_table='supplier_ledger'`/`source_ref_id=<settlement
+   *    ledger row id>` link (stamped at creation, LIRA-085) and soft-voided
+   *    (`is_refunded=1`) directly — the same "exclude from balance
+   *    aggregates" mechanism supplier_ledger already uses for every other
+   *    reversal. Deliberately filtered to `is_auto = 0` — this row is NOT a
+   *    LIRA-091 separate-hidden-transaction sibling (it has no
+   *    `transaction_id` of its own), so it must stay outside
+   *    `_cascadeSupplierSiblingVoid`'s `is_auto = 1` scan; this method
+   *    soft-voids it directly, no cascade/recursion involved. The
+   *    SETTLEMENT row itself soft-voids for free via the generic
+   *    `_markSourceRefunded('supplier_ledger', original.source_id)` step
+   *    that already runs for every voided/refunded transaction.
+   * 3. `financial_services.settlement_id`/`is_settled` stamps — scoped by
+   *    `settlement_id = <this settlement's ledger row id>` (never the
+   *    metadata id list — only `settlement_id` proves a row STILL belongs
+   *    to exactly this settlement at reversal time). `settlement_id` always
+   *    clears to NULL. `is_settled` only resets to 0 (with `settled_at`
+   *    cleared) for rows where `provider IN ('OMT','WHISH') AND commission >
+   *    0` — the EXACT `isPendingSettlement` condition
+   *    `FinancialServiceRepository.createTransaction` used to decide
+   *    `is_settled = 0` at creation (see that method's "NOTE on is_settled
+   *    vs settlement_id" doc comment). Every other row (cost/price-flow SEND,
+   *    iPick/Katsh, commission = 0) was ALREADY `is_settled = 1` before this
+   *    settlement, independent of `settlement_id` — resetting it would
+   *    un-realize profit this settlement never gated in the first place.
+   *
+   * The net-payment legs (settleTransactions step 5) DO write real
+   * `payments` rows, so the generic `_reversePayments` already reverses them
+   * for free. `_assertSupplierSiblingsVoidable` (LIRA-091) already prevents
+   * any of this settlement's `financial_service_ids` from being
+   * independently voided/refunded while `settlement_id` stays stamped —
+   * once this method clears it, those rows become correctable again too, by
+   * design (no new guard needed for that direction).
+   */
+  private _reverseSupplierSettlement(
+    original: TransactionEntity,
+    userId: number,
+  ): void {
+    if (
+      original.type !== "SUPPLIER_SETTLEMENT" ||
+      original.source_table !== "supplier_ledger" ||
+      original.source_id == null
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+    let meta: {
+      commission_usd?: number;
+      commission_lbp?: number;
+      drawer_name?: string;
+    } = {};
+    try {
+      meta = original.metadata_json
+        ? (JSON.parse(original.metadata_json) as typeof meta)
+        : {};
+    } catch {
+      meta = {};
+    }
+
+    // 1. Reverse the commission drawer funding.
+    const commissionUsd = meta.commission_usd ?? 0;
+    const commissionLbp = meta.commission_lbp ?? 0;
+    const drawerName = meta.drawer_name;
+    if (drawerName && commissionUsd > 0) {
+      applyDrawerDelta(this.db, {
+        drawerName: "General",
+        currencyCode: "USD",
+        delta: -commissionUsd,
+        tenantId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName,
+        currencyCode: "USD",
+        delta: commissionUsd,
+        tenantId,
+      });
+    }
+    if (drawerName && commissionLbp > 0) {
+      applyDrawerDelta(this.db, {
+        drawerName: "General",
+        currencyCode: "LBP",
+        delta: -commissionLbp,
+        tenantId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName,
+        currencyCode: "LBP",
+        delta: commissionLbp,
+        tenantId,
+      });
+    }
+
+    // 2. Soft-void the linked SUPPLIER_PAYS_US commission-credit row.
+    if (this._supplierLedgerHasSourceRefColumns()) {
+      this.execute(
+        `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+         WHERE source_ref_table = 'supplier_ledger' AND source_ref_id = ?
+           AND is_auto = 0 AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+        original.source_id,
+        tenantId,
+      );
+    }
+
+    // 3. Un-stamp financial_services rows THIS exact settlement touched.
+    const settled = this.query<{
+      id: number;
+      provider: string;
+      commission: number;
+    }>(
+      `SELECT id, provider, commission FROM financial_services
+       WHERE settlement_id = ? AND tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    for (const fs of settled) {
+      const wasPendingSettlement =
+        (fs.provider === "OMT" || fs.provider === "WHISH") &&
+        fs.commission > 0;
+      if (wasPendingSettlement) {
+        this.execute(
+          `UPDATE financial_services SET settlement_id = NULL, is_settled = 0, settled_at = NULL
+           WHERE id = ? AND tenant_id = ?`,
+          fs.id,
+          tenantId,
+        );
+      } else {
+        this.execute(
+          `UPDATE financial_services SET settlement_id = NULL
+           WHERE id = ? AND tenant_id = ?`,
+          fs.id,
+          tenantId,
+        );
+      }
     }
   }
 

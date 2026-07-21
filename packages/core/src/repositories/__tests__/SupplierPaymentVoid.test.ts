@@ -302,7 +302,7 @@ describe("supplier-payment void/refund reversal", () => {
     expect(row.is_refunded).toBe(1);
   });
 
-  it("gates non-reversible types: LOTO / SUPPLIER_SETTLEMENT / RECHARGE_TOPUP / REFUND throw", () => {
+  it("gates non-reversible types: LOTO / RECHARGE_TOPUP / REFUND throw", () => {
     const insertTxn = (type: string): number =>
       Number(
         db
@@ -313,13 +313,12 @@ describe("supplier-payment void/refund reversal", () => {
           .run(type).lastInsertRowid,
       );
 
-    for (const type of [
-      "LOTO",
-      "LOTO_CASH_PRIZE",
-      "SUPPLIER_SETTLEMENT",
-      "RECHARGE_TOPUP",
-      "REFUND",
-    ]) {
+    // LIRA-085: SUPPLIER_SETTLEMENT moved OUT of NON_REVERSIBLE_TRANSACTION_TYPES
+    // — a dedicated reversal owner now exists
+    // (TransactionRepository._reverseSupplierSettlement). See
+    // TransactionRepository.supplierSettlementReversal.test.ts for its
+    // create+reverse+nets-to-0 coverage.
+    for (const type of ["LOTO", "LOTO_CASH_PRIZE", "RECHARGE_TOPUP", "REFUND"]) {
       const id = insertTxn(type);
       // Pre-fix: both calls happily reversed the drawers.
       expect(() => txns.voidTransaction(id, 1)).toThrow(/cannot be voided/);

@@ -820,13 +820,47 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           );
         }
         if (data.commission_usd > 0 || data.commission_lbp > 0) {
-          this.db
-            .prepare(
-              `INSERT INTO supplier_ledger
-                 (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-               VALUES (?, 'SUPPLIER_PAYS_US', ?, ?, ?, ?, ?, datetime('now'))`,
-            )
-            .run(
+          // LIRA-085: link this commission-credit row back to the SETTLEMENT
+          // ledger row it was born alongside (source_ref_table/source_ref_id,
+          // v136 columns) — the only way
+          // TransactionRepository._reverseSupplierSettlement can find and
+          // soft-void it when the settlement is voided/refunded. Deliberately
+          // `is_auto` stays 0 (its column default): this row is NOT a
+          // separate-hidden-transaction sibling in the LIRA-091 sense (it has
+          // no `transaction_id` of its own — it's folded into the ONE
+          // SUPPLIER_SETTLEMENT transaction below), so it must stay OUT of
+          // `_cascadeSupplierSiblingVoid`'s `is_auto = 1` scan (that method
+          // recurses into `_voidTransactionInternal(sibling.transaction_id)`,
+          // which this row has none of) and out of `getManualPaymentPools`'
+          // `is_auto = 0` pool aggregate is UNCHANGED either way. The
+          // dedicated `_reverseSupplierSettlement` step soft-voids it
+          // directly by this link, no cascade/recursion involved.
+          const hasSourceRef = this._supplierLedgerHasSourceRefColumns();
+          const insertSupplierPaysUs = hasSourceRef
+            ? this.db.prepare(
+                `INSERT INTO supplier_ledger
+                   (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
+                    source_ref_table, source_ref_id, tenant_id, created_at)
+                 VALUES (?, 'SUPPLIER_PAYS_US', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+              )
+            : this.db.prepare(
+                `INSERT INTO supplier_ledger
+                   (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
+                 VALUES (?, 'SUPPLIER_PAYS_US', ?, ?, ?, ?, ?, datetime('now'))`,
+              );
+          if (hasSourceRef) {
+            insertSupplierPaysUs.run(
+              data.supplier_id,
+              -Math.abs(data.commission_usd),
+              -Math.abs(data.commission_lbp),
+              `Commission earned — settlement of ${data.financial_service_ids.length} txns`,
+              data.created_by,
+              "supplier_ledger",
+              ledgerEntryId,
+              tenantId,
+            );
+          } else {
+            insertSupplierPaysUs.run(
               data.supplier_id,
               -Math.abs(data.commission_usd),
               -Math.abs(data.commission_lbp),
@@ -834,6 +868,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               data.created_by,
               tenantId,
             );
+          }
         }
 
         // ── 4. Create unified transaction for audit trail ──────────────────
