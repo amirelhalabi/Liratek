@@ -29,6 +29,8 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
 import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
 import { appEvents } from "@liratek/ui";
+import { RefundMethodModal } from "../components/RefundMethodModal";
+import type { RefundLegOverride } from "../refundLegOverride";
 
 // LIRA-064: structured in/out payment leg joined from the payments table.
 // Type + formatting now live in ../cashFlow (Payment-Legs Integrity plan S3 —
@@ -628,7 +630,8 @@ export default function TransactionsViewer({
   const [loading, setLoading] = useState(false);
   const shopInfo = useShopInfo();
 
-  const { methods: paymentMethods } = usePaymentMethods();
+  const { methods: paymentMethods, drawerAffectingMethods } =
+    usePaymentMethods();
   const methodLabelByCode = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of paymentMethods) map.set(m.code, m.label);
@@ -774,14 +777,10 @@ export default function TransactionsViewer({
     [load],
   );
 
-  const handleRefund = useCallback(
-    async (id: number) => {
-      if (
-        !confirm("Refund this transaction? A reversal entry will be created.")
-      )
-        return;
+  const doRefund = useCallback(
+    async (id: number, refundLegs?: RefundLegOverride[]) => {
       try {
-        const res = await refundTransaction(id);
+        const res = await refundTransaction(id, refundLegs);
         if (res.success) load();
         else alert("Failed: " + (res.error || "Unknown error"));
       } catch {
@@ -789,6 +788,60 @@ export default function TransactionsViewer({
       }
     },
     [load],
+  );
+
+  // LIRA-078: the modal that lets the operator choose the refund's return
+  // method(s), open for at most one row at a time.
+  const [refundModalRow, setRefundModalRow] = useState<TransactionRow | null>(
+    null,
+  );
+  const [isRefunding, setIsRefunding] = useState(false);
+
+  const handleRefund = useCallback(
+    (row: TransactionRow) => {
+      // Two cases fall back to the plain bare-reversal refund (today's exact
+      // behavior, no modal) instead of opening the tender-selection modal:
+      //   - no customer-facing legs at all (nothing to override — a scripted/
+      //     legacy row, or a type whose reversal is drawer-only internally);
+      //   - a session-basket row. `TransactionRepository._attachPaymentLegs`
+      //     lets a session member with no OWN legs inherit the basket's
+      //     session-scoped legs (posted with session_id set, transaction_id
+      //     NULL) for DISPLAY — but the backend's per-transaction validation
+      //     (`getCustomerFacingLegs`/`_validateRefundLegOverride`, keyed on
+      //     transaction_id) would see an EMPTY set for that same row and reject
+      //     any override with a confusing "nothing to refund" error. Documented
+      //     out of scope alongside split_group (session-basket refund-by-
+      //     method-override needing an owner decision on which member "owns"
+      //     the basket's legs is a follow-up, not this ticket).
+      if (
+        row.session_id != null ||
+        !row.payments ||
+        row.payments.length === 0
+      ) {
+        if (
+          !confirm("Refund this transaction? A reversal entry will be created.")
+        )
+          return;
+        void doRefund(row.id);
+        return;
+      }
+      setRefundModalRow(row);
+    },
+    [doRefund],
+  );
+
+  const handleConfirmRefundOverride = useCallback(
+    async (refundLegs: RefundLegOverride[] | undefined) => {
+      if (!refundModalRow) return;
+      setIsRefunding(true);
+      try {
+        await doRefund(refundModalRow.id, refundLegs);
+      } finally {
+        setIsRefunding(false);
+        setRefundModalRow(null);
+      }
+    },
+    [refundModalRow, doRefund],
   );
 
   /**
@@ -1026,7 +1079,7 @@ export default function TransactionsViewer({
                     Void
                   </button>
                   <button
-                    onClick={() => handleRefund(row.id)}
+                    onClick={() => handleRefund(row)}
                     className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
                   >
                     Refund
@@ -1043,222 +1096,239 @@ export default function TransactionsViewer({
   }
 
   return (
-    <DataTable<TransactionRow>
-      columns={[
-        {
-          header: "Time",
-          sortKey: "created_at",
-          width: "160px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "Summary",
-          sortKey: "summary",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "Type",
-          sortKey: "type",
-          width: "160px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "Client",
-          sortKey: "client_name",
-          width: "140px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "Amount",
-          sortKey: "amount_usd",
-          width: "160px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "Method",
-          sortKey: "payment_method",
-          width: "120px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "User",
-          sortKey: "username",
-          width: "90px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "Status",
-          sortKey: "status",
-          width: "80px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "Reverses",
-          sortKey: "reverses_id",
-          width: "60px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-        {
-          header: "Actions",
-          width: "80px",
-          className: "p-2 text-xs font-semibold uppercase text-slate-400",
-        },
-      ]}
-      data={filteredData}
-      loading={loading}
-      emptyMessage="No transactions found"
-      defaultSortKey="created_at"
-      defaultSortDirection="desc"
-      showRowCount
-      totalRowCount={rows.length}
-      exportExcel
-      exportPdf
-      exportFilename="transactions"
-      className="w-full text-left"
-      theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
-      tbodyClassName=""
-      getSortValue={(row, key) => {
-        if (key === "created_at")
-          return row.created_at ? parseDbDate(row.created_at).getTime() : 0;
-        if (key === "amount_usd") return row.amount_usd ?? 0;
-        if (key === "reverses_id") return row.reverses_id ?? 0;
-        if (key === "payment_method")
-          return formatPaymentMethods(methodLegsFor(row), methodLabelByCode);
-        return String((row as Record<string, unknown>)[key] ?? "");
-      }}
-      exportRow={(row) => {
-        if (sandwichedMap.has(row.id)) return null;
-        return buildTr(row, row.session_id);
-      }}
-      renderRow={(row) => {
-        const sandwichedSession = sandwichedMap.get(row.id);
+    <>
+      <DataTable<TransactionRow>
+        columns={[
+          {
+            header: "Time",
+            sortKey: "created_at",
+            width: "160px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Summary",
+            sortKey: "summary",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Type",
+            sortKey: "type",
+            width: "160px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Client",
+            sortKey: "client_name",
+            width: "140px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Amount",
+            sortKey: "amount_usd",
+            width: "160px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Method",
+            sortKey: "payment_method",
+            width: "120px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "User",
+            sortKey: "username",
+            width: "90px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Status",
+            sortKey: "status",
+            width: "80px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Reverses",
+            sortKey: "reverses_id",
+            width: "60px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Actions",
+            width: "80px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+        ]}
+        data={filteredData}
+        loading={loading}
+        emptyMessage="No transactions found"
+        defaultSortKey="created_at"
+        defaultSortDirection="desc"
+        showRowCount
+        totalRowCount={rows.length}
+        exportExcel
+        exportPdf
+        exportFilename="transactions"
+        className="w-full text-left"
+        theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
+        tbodyClassName=""
+        getSortValue={(row, key) => {
+          if (key === "created_at")
+            return row.created_at ? parseDbDate(row.created_at).getTime() : 0;
+          if (key === "amount_usd") return row.amount_usd ?? 0;
+          if (key === "reverses_id") return row.reverses_id ?? 0;
+          if (key === "payment_method")
+            return formatPaymentMethods(methodLegsFor(row), methodLabelByCode);
+          return String((row as Record<string, unknown>)[key] ?? "");
+        }}
+        exportRow={(row) => {
+          if (sandwichedMap.has(row.id)) return null;
+          return buildTr(row, row.session_id);
+        }}
+        renderRow={(row) => {
+          const sandwichedSession = sandwichedMap.get(row.id);
 
-        if (sandwichedSession != null) {
-          const isExpanded = expandedSessions.has(sandwichedSession);
-          const isFirst =
-            row.id === sandwichMeta.firstId.get(sandwichedSession);
-          const cnt = sandwichMeta.count.get(sandwichedSession) ?? 0;
+          if (sandwichedSession != null) {
+            const isExpanded = expandedSessions.has(sandwichedSession);
+            const isFirst =
+              row.id === sandwichMeta.firstId.get(sandwichedSession);
+            const cnt = sandwichMeta.count.get(sandwichedSession) ?? 0;
 
-          if (!isExpanded) {
-            // First sandwiched row in collapsed group →
-            // 1px spacer row; badge floats absolutely at the left border.
-            if (isFirst) {
-              return (
-                <tr
-                  key={row.id}
-                  data-session=""
-                  style={sessionVars(sandwichedSession)}
-                >
-                  <td
-                    colSpan={10}
-                    style={{
-                      padding: 0,
-                      height: "1px",
-                      lineHeight: "1px",
-                      overflow: "visible",
-                      position: "relative",
-                      borderTop: "1px solid rgba(30,41,59,0.35)",
-                    }}
+            if (!isExpanded) {
+              // First sandwiched row in collapsed group →
+              // 1px spacer row; badge floats absolutely at the left border.
+              if (isFirst) {
+                return (
+                  <tr
+                    key={row.id}
+                    data-session=""
+                    style={sessionVars(sandwichedSession)}
                   >
-                    <button
-                      onClick={() => toggleSandwich(sandwichedSession)}
+                    <td
+                      colSpan={10}
                       style={{
-                        position: "absolute",
-                        left: "6px",
-                        top: 0,
-                        transform: "translateY(-50%)",
-                        zIndex: 10,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "3px",
-                        padding: "1px 6px",
-                        borderRadius: "9999px",
-                        background: "hsla(var(--session-hue), 78%, 62%, 0.15)",
-                        border:
-                          "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
-                        color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
-                        fontSize: "9px",
-                        fontFamily: "monospace",
-                        cursor: "pointer",
-                        lineHeight: "1.4",
-                        whiteSpace: "nowrap",
+                        padding: 0,
+                        height: "1px",
+                        lineHeight: "1px",
+                        overflow: "visible",
+                        position: "relative",
+                        borderTop: "1px solid rgba(30,41,59,0.35)",
                       }}
                     >
-                      <span>⚙</span>
-                      <span>+{cnt}</span>
-                    </button>
-                  </td>
+                      <button
+                        onClick={() => toggleSandwich(sandwichedSession)}
+                        style={{
+                          position: "absolute",
+                          left: "6px",
+                          top: 0,
+                          transform: "translateY(-50%)",
+                          zIndex: 10,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "3px",
+                          padding: "1px 6px",
+                          borderRadius: "9999px",
+                          background:
+                            "hsla(var(--session-hue), 78%, 62%, 0.15)",
+                          border:
+                            "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
+                          color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
+                          fontSize: "9px",
+                          fontFamily: "monospace",
+                          cursor: "pointer",
+                          lineHeight: "1.4",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <span>⚙</span>
+                        <span>+{cnt}</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              }
+              // Other sandwiched rows in collapsed group → invisible placeholder
+              return (
+                <tr key={row.id} style={{ display: "none" }}>
+                  <td />
                 </tr>
               );
             }
-            // Other sandwiched rows in collapsed group → invisible placeholder
-            return (
-              <tr key={row.id} style={{ display: "none" }}>
-                <td />
-              </tr>
-            );
-          }
 
-          // Expanded — same 1px spacer with a "collapse" badge, then the data rows
-          if (isFirst) {
-            return (
-              <Fragment key={row.id}>
-                <tr
-                  key={`stoggle-${sandwichedSession}`}
-                  data-session=""
-                  style={sessionVars(sandwichedSession)}
-                >
-                  <td
-                    colSpan={10}
-                    style={{
-                      padding: 0,
-                      height: "1px",
-                      lineHeight: "1px",
-                      overflow: "visible",
-                      position: "relative",
-                      borderTop: "1px solid rgba(30,41,59,0.35)",
-                    }}
+            // Expanded — same 1px spacer with a "collapse" badge, then the data rows
+            if (isFirst) {
+              return (
+                <Fragment key={row.id}>
+                  <tr
+                    key={`stoggle-${sandwichedSession}`}
+                    data-session=""
+                    style={sessionVars(sandwichedSession)}
                   >
-                    <button
-                      onClick={() => toggleSandwich(sandwichedSession)}
+                    <td
+                      colSpan={10}
                       style={{
-                        position: "absolute",
-                        left: "6px",
-                        top: 0,
-                        transform: "translateY(-50%)",
-                        zIndex: 10,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "3px",
-                        padding: "1px 6px",
-                        borderRadius: "9999px",
-                        background: "hsla(var(--session-hue), 78%, 62%, 0.15)",
-                        border:
-                          "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
-                        color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
-                        fontSize: "9px",
-                        fontFamily: "monospace",
-                        cursor: "pointer",
-                        lineHeight: "1.4",
-                        whiteSpace: "nowrap",
+                        padding: 0,
+                        height: "1px",
+                        lineHeight: "1px",
+                        overflow: "visible",
+                        position: "relative",
+                        borderTop: "1px solid rgba(30,41,59,0.35)",
                       }}
                     >
-                      <span>⚙</span>
-                      <span>-{cnt}</span>
-                    </button>
-                  </td>
-                </tr>
-                {buildTr(row, sandwichedSession, `data-${row.id}`, true)}
-              </Fragment>
-            );
+                      <button
+                        onClick={() => toggleSandwich(sandwichedSession)}
+                        style={{
+                          position: "absolute",
+                          left: "6px",
+                          top: 0,
+                          transform: "translateY(-50%)",
+                          zIndex: 10,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "3px",
+                          padding: "1px 6px",
+                          borderRadius: "9999px",
+                          background:
+                            "hsla(var(--session-hue), 78%, 62%, 0.15)",
+                          border:
+                            "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
+                          color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
+                          fontSize: "9px",
+                          fontFamily: "monospace",
+                          cursor: "pointer",
+                          lineHeight: "1.4",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <span>⚙</span>
+                        <span>-{cnt}</span>
+                      </button>
+                    </td>
+                  </tr>
+                  {buildTr(row, sandwichedSession, `data-${row.id}`, true)}
+                </Fragment>
+              );
+            }
+            // Other expanded sandwiched rows → full data row with system mute styling
+            return buildTr(row, sandwichedSession, undefined, true);
           }
-          // Other expanded sandwiched rows → full data row with system mute styling
-          return buildTr(row, sandwichedSession, undefined, true);
-        }
 
-        // Regular row — session accent applied if it belongs to a session
-        return buildTr(row, row.session_id);
-      }}
-    />
+          // Regular row — session accent applied if it belongs to a session
+          return buildTr(row, row.session_id);
+        }}
+      />
+      {refundModalRow && (
+        <RefundMethodModal
+          legs={refundModalRow.payments ?? []}
+          paymentMethods={drawerAffectingMethods.map((m) => ({
+            code: m.code,
+            label: m.label,
+          }))}
+          exchangeRate={refundModalRow.exchange_rate ?? 89000}
+          isSubmitting={isRefunding}
+          onCancel={() => setRefundModalRow(null)}
+          onConfirm={handleConfirmRefundOverride}
+        />
+      )}
+    </>
   );
 }

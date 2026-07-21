@@ -1515,7 +1515,7 @@ sequential (`-A`) so the local full-suite run no longer OOMs (CI runs per-worksp
 | **Epic**             | Transactions               |
 | **Type**             | Feature / UX               |
 | **Priority**         | High                       |
-| **Status**           | TODO                       |
+| **Status**           | DONE (2026-07-21 — method-override modal, 33 new tests) |
 | **Affected Modules** | Audit > TransactionsViewer |
 | **Assigned To**      | —                          |
 | **Depends On**       | —                          |
@@ -2067,7 +2067,7 @@ undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2
 
 | ID       | Title                                                   | Priority | Status          |
 | -------- | ------------------------------------------------------- | -------- | --------------- |
-| LIRA-078 | Refund tender-selection modal                           | High     | TODO            |
+| LIRA-078 | Refund tender-selection modal                           | High     | DONE            |
 | LIRA-079 | Refund scope + Void button decision                     | Medium   | NEEDS INTERVIEW |
 | LIRA-080 | No-drawer paper credit/debt on Accounts + Supplier      | High     | DONE            |
 | LIRA-081 | For-Partner toggle on Exchange + Custom Services        | Medium   | DONE            |

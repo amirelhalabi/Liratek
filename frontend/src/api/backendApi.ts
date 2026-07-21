@@ -1902,13 +1902,29 @@ export async function voidTransaction(id: number) {
   );
 }
 
-export async function refundTransaction(id: number) {
+/** A single operator-chosen refund return leg (LIRA-078 method-override). */
+export interface RefundLegOverride {
+  method: string;
+  currencyCode: string;
+  amount: number;
+}
+
+/**
+ * Refund a transaction. `refundLegs` is optional — omit for the default
+ * reversal (mirrors the original payment legs verbatim, pre-LIRA-078
+ * behavior, byte-identical); pass one entry per currency to let the operator
+ * choose which drawer/method the money returns through instead.
+ */
+export async function refundTransaction(
+  id: number,
+  refundLegs?: RefundLegOverride[],
+) {
   if (isElectron()) {
-    return (window as any).api.transactions.refund(id);
+    return (window as any).api.transactions.refund(id, refundLegs);
   }
   return requestJson<{ success: boolean; refundId?: number; error?: string }>(
     `/api/transactions/${id}/refund`,
-    { method: "POST" },
+    { method: "POST", body: refundLegs ? { refundLegs } : undefined },
   );
 }
 

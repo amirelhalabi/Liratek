@@ -291,7 +291,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   getClientTransactions = (clientId: number, limit?: number) =>
     api.getClientTransactions(clientId, limit);
   voidTransaction = (id: number) => api.voidTransaction(id);
-  refundTransaction = (id: number) => api.refundTransaction(id);
+  refundTransaction = (id: number, refundLegs?: api.RefundLegOverride[]) =>
+    api.refundTransaction(id, refundLegs);
   voidCheckoutGroup = (groupId: string) => api.voidCheckoutGroup(groupId);
   getTransactionDailySummary = (date: string) =>
     api.getTransactionDailySummary(date);

@@ -1207,7 +1207,18 @@ export type ApiAdapter = {
   ) => Promise<any>;
   getClientTransactions: (clientId: number, limit?: number) => Promise<any[]>;
   voidTransaction: (id: number) => Promise<ApiResult & { reversalId?: number }>;
-  refundTransaction: (id: number) => Promise<ApiResult & { refundId?: number }>;
+  /** LIRA-078: `refundLegs` is optional — omit for the default reversal
+   *  (mirrors the original payment legs verbatim); pass one entry per
+   *  currency to let the operator choose the return method (method-override
+   *  only — amount/currencyCode must net to the original's own total). */
+  refundTransaction: (
+    id: number,
+    refundLegs?: Array<{
+      method: string;
+      currencyCode: string;
+      amount: number;
+    }>,
+  ) => Promise<ApiResult & { refundId?: number }>;
   /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
    *  member of a multi-unit split checkout in ONE transaction. */
   voidCheckoutGroup: (groupId: string) => Promise<

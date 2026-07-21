@@ -922,7 +922,16 @@ contextBridge.exposeInMainWorld("api", {
     getByDateRange: (from: string, to: string, type?: string) =>
       ipcRenderer.invoke("transactions:get-by-date-range", from, to, type),
     void: (id: number) => ipcRenderer.invoke("transactions:void", id),
-    refund: (id: number) => ipcRenderer.invoke("transactions:refund", id),
+    /** LIRA-078: refundLegs is optional — omit for the default (mirror the
+     *  original payment legs verbatim) reversal. */
+    refund: (
+      id: number,
+      refundLegs?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>,
+    ) => ipcRenderer.invoke("transactions:refund", id, refundLegs),
     /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
      *  member of a multi-unit split checkout in ONE transaction. */
     voidCheckoutGroup: (groupId: string) =>

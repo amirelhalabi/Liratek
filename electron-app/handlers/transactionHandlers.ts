@@ -6,6 +6,7 @@ import { audit } from "./auditHelper.js";
 import {
   PositiveIdSchema,
   VoidCheckoutGroupSchema,
+  RefundLegsSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -103,30 +104,50 @@ export function registerTransactionHandlers(): void {
     }
   });
 
-  /** Refund a transaction (creates refund row, original stays ACTIVE) */
-  ipcMain.handle("transactions:refund", (e, id: unknown) => {
-    try {
-      const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
-      const idV = validatePayload(PositiveIdSchema, id);
-      if (!idV.ok) return { success: false, error: idV.error };
-      const userId = auth.userId ?? 1;
-      const refundId = txnService.refundTransaction(idV.data, userId);
-      audit(e.sender.id, {
-        action: "refund",
-        entity_type: "transaction",
-        entity_id: String(id),
-        summary: `Refunded transaction #${id}`,
-        metadata: { refundId },
-      });
-      return { success: true, refundId };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-  });
+  /**
+   * Refund a transaction (creates refund row, original stays ACTIVE).
+   *
+   * LIRA-078: the optional `refundLegs` positional arg lets the operator
+   * choose the return method(s) instead of the default mirror-verbatim
+   * reversal — validated only when present (a plain refund, the common
+   * case, is byte-identical to pre-LIRA-078 behavior).
+   */
+  ipcMain.handle(
+    "transactions:refund",
+    (e, id: unknown, refundLegs?: unknown) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+        const idV = validatePayload(PositiveIdSchema, id);
+        if (!idV.ok) return { success: false, error: idV.error };
+
+        let legs: ReturnType<typeof RefundLegsSchema.parse> | undefined;
+        if (refundLegs !== undefined && refundLegs !== null) {
+          const legsV = validatePayload(RefundLegsSchema, refundLegs);
+          if (!legsV.ok) return { success: false, error: legsV.error };
+          legs = legsV.data;
+        }
+
+        const userId = auth.userId ?? 1;
+        const refundId = txnService.refundTransaction(idV.data, userId, {
+          refundLegs: legs,
+        });
+        audit(e.sender.id, {
+          action: "refund",
+          entity_type: "transaction",
+          entity_id: String(id),
+          summary: `Refunded transaction #${id}`,
+          metadata: { refundId, refundLegs: legs },
+        });
+        return { success: true, refundId };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
 
   /**
    * Void every non-voided member of a multi-unit split checkout in ONE

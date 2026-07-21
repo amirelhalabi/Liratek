@@ -15,6 +15,7 @@ import {
   type TransactionFilters,
   type TransactionWithUser,
   type VoidCheckoutGroupResult,
+  type RefundLegOverride,
   TransactionRepository,
   getTransactionRepository,
 } from "../repositories/TransactionRepository.js";
@@ -182,11 +183,22 @@ export class TransactionService {
 
   /**
    * Create a refund for a transaction. Original stays ACTIVE.
+   *
+   * LIRA-078: `opts.refundLegs` lets the operator choose the return
+   * method(s) instead of always mirroring the original payment legs —
+   * validated by the repository to net to the SAME per-currency total as the
+   * original (method-override only, see TransactionRepository's money
+   * contract doc). Omit for the pre-existing default-reversal behavior.
+   *
    * Returns the refund transaction ID.
    */
-  refundTransaction(id: number, userId: number): number {
+  refundTransaction(
+    id: number,
+    userId: number,
+    opts?: { refundLegs?: RefundLegOverride[] },
+  ): number {
     try {
-      return this.repo.refundTransaction(id, userId);
+      return this.repo.refundTransaction(id, userId, opts);
     } catch (error) {
       logger.error(
         { error, id, userId },

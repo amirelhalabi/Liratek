@@ -28,6 +28,11 @@ import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
+import {
+  isDrawerAffectingMethod,
+  paymentMethodToDrawerName,
+} from "../utils/payments.js";
+import { getPaymentMethodRepository } from "./PaymentMethodRepository.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -165,6 +170,51 @@ function customerCashLegSql(a: string): string {
       AND COALESCE(${a}.note, '') NOT LIKE 'Cost:%'
       AND COALESCE(${a}.note, '') NOT LIKE '%(cost outflow)'
       AND COALESCE(${a}.note, '') NOT LIKE 'Crypto %'`;
+}
+
+/**
+ * LIRA-078 (refund tender-selection modal): a payments row is eligible to be
+ * REPLACED by the operator's chosen return method — instead of mirrored
+ * verbatim — only when it is BOTH customer-facing (`!isInternalLegJs`, the
+ * same rule the LIRA-064 in/out summary and `getCustomerFacingLegs` use) AND
+ * itself drawer-affecting (`isDrawerAffectingMethod`). The second condition is
+ * belt-and-suspenders: every existing repository already gates
+ * `insertPaymentRow` on `isDrawerAffectingMethod` (CUSTOMER_ACCOUNT/GIFT_CARD
+ * never reach the `payments` table today), so in practice `!isInternalLegJs`
+ * alone already excludes them — but requiring both here means a future call
+ * site that regresses that gate still can't leak a non-drawer leg into the
+ * override's replace-set; it would just keep mirroring harmlessly (rule 14:
+ * ONE predicate, reused by both the validation net and the `_reversePayments`
+ * skip-set below, never copy-pasted).
+ */
+function isOverridableLeg(p: {
+  method: string;
+  drawer_name: string;
+  currency_code: string;
+  amount: number;
+  note: string | null;
+}): boolean {
+  return !isInternalLegJs(p) && isDrawerAffectingMethod(p.method);
+}
+
+/**
+ * Operator-chosen return method for ONE currency of a refund (LIRA-078). The
+ * money contract is METHOD-OVERRIDE ONLY: `amount`/`currencyCode` together
+ * must reproduce the original transaction's own net customer-facing total for
+ * that currency (see `_validateRefundLegOverride`) — the operator picks which
+ * drawer the money leaves from, never the amount or the currency. Multiple
+ * entries for the same currency are allowed (a split return, e.g. part CASH +
+ * part OMT) as long as they sum correctly.
+ */
+export interface RefundLegOverride {
+  /** A payment method code (payment_methods.code) — must be active and
+   *  drawer-affecting (CUSTOMER_ACCOUNT/GIFT_CARD rejected). */
+  method: string;
+  /** "USD" or "LBP" — cross-currency refunds are out of scope (see the
+   *  money contract doc on `refundTransaction`). */
+  currencyCode: string;
+  /** Absolute amount returned via this method, in `currencyCode`. */
+  amount: number;
 }
 
 /** One row of the D1 currency in/out by-date report. */
@@ -1078,7 +1128,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     return this.refundTransaction(txn.id, userId);
   }
 
-  refundTransaction(id: number, userId: number): number {
+  refundTransaction(
+    id: number,
+    userId: number,
+    opts?: { refundLegs?: RefundLegOverride[] },
+  ): number {
     const original = this.findById(id);
     if (!original) {
       throw new NotFoundError("transactions", id);
@@ -1104,6 +1158,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       throw new DatabaseError("Transaction has already been refunded", {
         entityId: id,
       });
+    }
+
+    // LIRA-078: validate the operator's chosen return method(s) BEFORE any
+    // row is written — a throw here never enters this.transaction(), so a
+    // rejected override leaves nothing partial behind (same discipline as
+    // reconcileLegs, moneyPosting.ts). No-op (existing mirror-verbatim
+    // behavior, byte-identical to pre-LIRA-078) when opts/refundLegs is
+    // omitted — this is what keeps every OTHER refund call site (refundBySaleId,
+    // scripted callers, tests) unchanged.
+    const refundLegs = opts?.refundLegs;
+    if (refundLegs && refundLegs.length > 0) {
+      this._validateRefundLegOverride(id, refundLegs);
     }
 
     return this.transaction(() => {
@@ -1135,8 +1201,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
       const refundId = result.lastInsertRowid as number;
 
-      // 2. Reverse drawer balances — negate every payment from the original
-      this._reversePayments(id, refundId, userId);
+      // 2. Reverse drawer balances — negate every payment from the original.
+      // LIRA-078: when refundLegs is present, the customer-facing legs are
+      // replaced by the operator's chosen return method(s) instead of being
+      // mirrored verbatim; every other (internal bookkeeping) leg still
+      // mirrors exactly as before — see _reversePayments.
+      this._reversePayments(id, refundId, userId, refundLegs);
 
       // 3. Mark source module record as refunded
       this._markSourceRefunded(original.source_table, original.source_id);
@@ -1775,10 +1845,91 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
   }
 
+  /**
+   * LIRA-078 (refund tender-selection modal, money contract): validate the
+   * operator's chosen return legs against THIS transaction's own net
+   * customer-facing total, per currency, BEFORE any row is written. Reuses
+   * `isOverridableLeg` (rule 14) — the SAME predicate `_reversePayments`
+   * below uses to decide which original rows the override replaces, so the
+   * two can never disagree about what "customer-facing" means.
+   *
+   * The rule: for every currency (USD/LBP only — cross-currency refunds are
+   * explicitly out of scope), sum(refundLegs in that currency) must equal
+   * sum(original overridable legs' signed amount in that currency) within a
+   * small per-currency epsilon. No exchange-rate conversion is ever
+   * consulted — this is a same-currency amount check, not a reconciliation
+   * (contrast `reconcileLegs`, which converts cross-currency at a stamped
+   * rate; that mechanism does not apply here by design).
+   */
+  private _validateRefundLegOverride(
+    transactionId: number,
+    refundLegs: RefundLegOverride[],
+  ): void {
+    const EPSILON: Record<string, number> = { USD: 0.01, LBP: 1 };
+
+    const originalRows = this.getPaymentsByTransactionId(transactionId);
+    const originalNet: Record<string, number> = {};
+    for (const p of originalRows) {
+      if (!isOverridableLeg(p)) continue;
+      originalNet[p.currency_code] =
+        (originalNet[p.currency_code] ?? 0) + p.amount;
+    }
+
+    const paymentMethodRepo = getPaymentMethodRepository();
+    const overrideNet: Record<string, number> = {};
+    for (const leg of refundLegs) {
+      if (!(leg.amount > 0)) {
+        throw new DatabaseError(
+          `Refund method override: leg amount must be greater than 0 (got ${leg.amount} ${leg.currencyCode})`,
+          { entityId: transactionId },
+        );
+      }
+      if (!CUSTOMER_CASH_CURRENCIES.has(leg.currencyCode)) {
+        throw new DatabaseError(
+          `Refund method override: currency "${leg.currencyCode}" is not USD or LBP — cross-currency refund is not supported`,
+          { entityId: transactionId },
+        );
+      }
+      const pm = paymentMethodRepo.getByCode(leg.method);
+      if (!pm || pm.is_active !== 1 || pm.affects_drawer !== 1) {
+        throw new DatabaseError(
+          `Refund method override: "${leg.method}" is not an active, drawer-affecting payment method`,
+          { entityId: transactionId },
+        );
+      }
+      overrideNet[leg.currencyCode] =
+        (overrideNet[leg.currencyCode] ?? 0) + leg.amount;
+    }
+
+    const currencies = new Set([
+      ...Object.keys(originalNet),
+      ...Object.keys(overrideNet),
+    ]);
+    if (currencies.size === 0) {
+      throw new DatabaseError(
+        "Refund method override: this transaction has no customer-facing payment to refund",
+        { entityId: transactionId },
+      );
+    }
+    for (const currency of currencies) {
+      const original = originalNet[currency] ?? 0;
+      const override = overrideNet[currency] ?? 0;
+      const epsilon = EPSILON[currency] ?? 0.01;
+      if (Math.abs(original - override) > epsilon) {
+        throw new DatabaseError(
+          `Refund method override: ${currency} totals do not match the original payment — ` +
+            `original ${original}, refund legs total ${override}`,
+          { entityId: transactionId },
+        );
+      }
+    }
+  }
+
   private _reversePayments(
     originalTxnId: number,
     reversalTxnId: number,
     userId: number,
+    refundLegOverride?: RefundLegOverride[],
   ): void {
     const tenantId = getCurrentTenantId();
     const payments = this.query<{
@@ -1786,14 +1937,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       drawer_name: string;
       currency_code: string;
       amount: number;
+      note: string | null;
     }>(
-      `SELECT method, drawer_name, currency_code, amount
+      `SELECT method, drawer_name, currency_code, amount, note
        FROM payments WHERE transaction_id = ? AND tenant_id = ?`,
       originalTxnId,
       tenantId,
     );
 
     for (const p of payments) {
+      // LIRA-078: when the operator chose override return method(s), skip
+      // mirroring the customer-facing legs verbatim here — they are replaced
+      // by refundLegOverride below instead. Every OTHER (internal
+      // bookkeeping) leg — provider stock/reserve drawers, fee/transfer
+      // markers, crypto legs, etc. — still mirrors exactly as before,
+      // regardless of the override, since none of those represent "how the
+      // operator hands the customer's money back."
+      if (refundLegOverride && isOverridableLeg(p)) continue;
+
       const negatedAmount = -p.amount;
       insertPaymentRow(this.db, {
         transactionId: reversalTxnId,
@@ -1811,6 +1972,29 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         delta: negatedAmount,
         tenantId,
       });
+    }
+
+    if (refundLegOverride) {
+      for (const leg of refundLegOverride) {
+        const drawerName = paymentMethodToDrawerName(leg.method);
+        const negatedAmount = -leg.amount;
+        insertPaymentRow(this.db, {
+          transactionId: reversalTxnId,
+          method: leg.method,
+          drawerName,
+          currencyCode: leg.currencyCode,
+          amount: negatedAmount,
+          note: "Refund (method override)",
+          createdBy: userId,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName,
+          currencyCode: leg.currencyCode,
+          delta: negatedAmount,
+          tenantId,
+        });
+      }
     }
   }
 
@@ -2322,8 +2506,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
     for (const fs of settled) {
       const wasPendingSettlement =
-        (fs.provider === "OMT" || fs.provider === "WHISH") &&
-        fs.commission > 0;
+        (fs.provider === "OMT" || fs.provider === "WHISH") && fs.commission > 0;
       if (wasPendingSettlement) {
         this.execute(
           `UPDATE financial_services SET settlement_id = NULL, is_settled = 0, settled_at = NULL

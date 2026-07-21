@@ -1895,6 +1895,27 @@ export interface ElectronAPI {
         total_out: number;
       }>
     >;
+    void: (id: number) => Promise<{
+      success: boolean;
+      reversalId?: number;
+      error?: string;
+    }>;
+    /** LIRA-078: refundLegs is optional — omit for the default reversal
+     *  (mirrors the original payment legs verbatim); when provided, each
+     *  entry overrides the return method for one currency (method-override
+     *  only — amount/currencyCode must net to the original's own total). */
+    refund: (
+      id: number,
+      refundLegs?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>,
+    ) => Promise<{
+      success: boolean;
+      refundId?: number;
+      error?: string;
+    }>;
     /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
      *  member of a multi-unit split checkout in ONE transaction. A single
      *  void/refund of one member alone is refused (see the guard error). */

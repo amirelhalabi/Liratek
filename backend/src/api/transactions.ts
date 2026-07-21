@@ -14,6 +14,7 @@ import {
   getTransactionService,
   getReportingService,
   voidCheckoutGroupSchema,
+  refundLegsSchema,
 } from "@liratek/core";
 import { validateParams } from "../middleware/validation.js";
 import { logger } from "../server.js";
@@ -128,6 +129,13 @@ router.post(
 );
 
 // POST /api/transactions/:id/refund
+// LIRA-078: an optional `refundLegs` body field lets the operator choose the
+// return method(s) instead of the default mirror-verbatim reversal. Validated
+// with the SAME core schema the IPC handler uses (rule 14) — but only when
+// present: a plain `POST /:id/refund` with no body must still work exactly as
+// before (`validateRequest`'s whole-body `schema.parse` would choke on an
+// undefined/empty body here, so this validates the field directly instead of
+// wrapping the route in that middleware).
 router.post(
   "/:id/refund",
   requireAuth,
@@ -136,8 +144,25 @@ router.post(
     try {
       const id = parseInt(req.params.id);
       const userId = req.user?.userId ?? 1;
+
+      let refundLegs: ReturnType<typeof refundLegsSchema.parse> | undefined;
+      if (req.body?.refundLegs !== undefined) {
+        const parsed = refundLegsSchema.safeParse(req.body.refundLegs);
+        if (!parsed.success) {
+          const firstError = parsed.error.issues[0];
+          res.status(400).json({
+            success: false,
+            error: firstError?.message ?? "Invalid refundLegs",
+          });
+          return;
+        }
+        refundLegs = parsed.data;
+      }
+
       const txnService = getTransactionService();
-      const refundId = txnService.refundTransaction(id, userId);
+      const refundId = txnService.refundTransaction(id, userId, {
+        refundLegs,
+      });
       res.json({ success: true, refundId });
     } catch (error) {
       logger.error({ error }, "Refund transaction error");

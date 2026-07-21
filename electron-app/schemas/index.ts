@@ -33,12 +33,14 @@ import {
   partnerWriteOffSchema,
   stockAdjustSchema,
   voidCheckoutGroupSchema,
+  refundLegsSchema,
   carrierLineCreateSchema,
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
   mobileServiceItemUpdateSchema,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
+  type RefundLegsInput,
   type CarrierLineCreateInput,
   type CarrierLineUpdateInput,
   type CarrierLineUpdateBalanceInput,
@@ -465,6 +467,13 @@ export const PositiveIdSchema = z.number().int().positive();
 // (CLAUDE.md rule 14). CARRIER_LEGS_VOID_ASYMMETRY.md (design B+).
 export const VoidCheckoutGroupSchema =
   voidCheckoutGroupSchema as unknown as z.ZodSchema<VoidCheckoutGroupInput>;
+
+// LIRA-078: operator-chosen refund return legs (method override). Shared with
+// the REST route the same way — packages/core/src/validators/transaction.ts,
+// rule 14. Validated only when present — a plain refund (no legs) never
+// reaches this schema.
+export const RefundLegsSchema =
+  refundLegsSchema as unknown as z.ZodSchema<RefundLegsInput>;
 
 // =============================================================================
 // Carrier Lines (LIRA W6.a) / Mobile Service Items (LIRA W6.b)

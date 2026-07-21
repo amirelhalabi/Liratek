@@ -340,6 +340,7 @@ export type {
   DebtAgingBuckets,
   OverdueDebtEntry,
   VoidCheckoutGroupResult,
+  RefundLegOverride,
 } from "./TransactionRepository.js";
 
 // Category Repository
