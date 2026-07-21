@@ -71,11 +71,48 @@ async function nativeClickByText(page: Page, tag: string, text: string) {
   );
 }
 
-/** Select an Alfa Gift tier and confirm payment on the open Recharge page. */
-async function submitAlfaGift(page: Page, tierLabel: string) {
+/** Select an Alfa Gift tier and confirm payment on the open Recharge page.
+ *  With an active session (owner note 19, 2026-07-20) the sticky trigger
+ *  reads "Add to Cart" and submits straight into the basket — no
+ *  PaymentSheet; pass `inSessionId` so the helper can wait on the basket
+ *  write (the sheet-hidden wait used to be the sync point). */
+async function submitAlfaGift(
+  page: Page,
+  tierLabel: string,
+  opts: { inSessionId?: number } = {},
+) {
   await nativeClickByText(page, "button", "Alfa"); // provider tab
   await nativeClickByText(page, "button", "Alfa Gift"); // service-type tab
   await nativeClickByText(page, "div", tierLabel); // gift tier card (bold label)
+
+  if (opts.inSessionId != null) {
+    const addTrigger = page.getByRole("button", {
+      name: "Add to Cart",
+      exact: true,
+    });
+    await expect(addTrigger).toBeEnabled({ timeout: 5_000 });
+    await nativeClickByText(page, "button", "Add to Cart");
+    await page.waitForFunction(
+      async (sessionIdArg: number) => {
+        const r = await (window as any).api.session.cartGet(sessionIdArg);
+        const items = (r.items ?? r) as Array<{
+          module: string;
+          form_data: string;
+        }>;
+        return items.some((i) => {
+          if (i.module !== "recharge_alfa") return false;
+          try {
+            return JSON.parse(i.form_data).type === "ALFA_GIFT";
+          } catch {
+            return false;
+          }
+        });
+      },
+      opts.inSessionId,
+      { timeout: 8_000 },
+    );
+    return;
+  }
 
   // Sticky trigger bar "Pay" button opens the PaymentSheet; wait for it to
   // enable (tier selected) before clicking.
@@ -204,7 +241,7 @@ test.describe("Alfa Gift recording", () => {
       return h.filter((r) => r.recharge_type === "ALFA_GIFT").length;
     });
 
-    await submitAlfaGift(appPage, "3 GB");
+    await submitAlfaGift(appPage, "3 GB", { inSessionId: sid });
 
     // The gift must land in THIS session's basket, not be submitted directly.
     const inCart = await appPage.evaluate(async (sessionIdArg: number) => {

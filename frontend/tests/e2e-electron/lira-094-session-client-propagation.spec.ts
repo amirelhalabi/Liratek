@@ -571,14 +571,14 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
       .filter({ hasText: /Alfa Gift/i })
       .first()
       .click();
-    // Flow: tier card → sticky "Pay" (opens the PaymentSheet) → sheet
-    // confirm, whose onConfirm (handleAlfaGiftSubmit) defers into the basket.
+    // Flow (owner note 19, 2026-07-20): with a session active the sticky
+    // trigger reads "Add to Cart" and hands the gift straight to the basket
+    // via handleAlfaGiftSubmit's session branch — no PaymentSheet opens.
     await expect(appPage.getByText("Select Alfa Gift")).toBeVisible({
       timeout: 8_000,
     });
     await appPage.locator("div.cursor-pointer").first().click();
-    await appPage.getByRole("button", { name: /^Pay$/ }).click();
-    await appPage.locator("button").filter({ hasText: /^Pay / }).last().click();
+    await appPage.getByRole("button", { name: /^Add to Cart$/ }).click();
     await expectCartCount(appPage, 24);
   });
 
