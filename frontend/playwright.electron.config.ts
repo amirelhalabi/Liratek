@@ -22,17 +22,17 @@ export default defineConfig({
   // Within a file, tests stay ordered (specs use test.describe.serial +
   // beforeAll seeding), so fullyParallel is left off.
   fullyParallel: false,
-  // Default 2 workers on macOS/Linux/CI — each worker gets its own DB +
-  // user-data-dir (fixtures.ts) and boots are staggered to avoid the shared
-  // macOS resource race. Windows stays at 1: Electron's
-  // requestSingleInstanceLock() can conflict when multiple instances start
-  // simultaneously there, even with different --user-data-dir values.
-  // Override with PWTEST_WORKERS=N.
-  workers: process.env.PWTEST_WORKERS
-    ? Number(process.env.PWTEST_WORKERS)
-    : process.platform === "win32"
-      ? 1
-      : 2,
+  // Default 1 worker: tried 2-by-default (2026-07-21) but reverted. The
+  // specific failure seen (lira-069's session-mode "Add to Cart" assertion)
+  // turned out to reproduce at 1 worker too in a full-suite run, so worker
+  // count is NOT its cause — ruled out by a controlled comparison, not
+  // assumed. That leaves the suite's baseline (1-worker) flake rate
+  // unquantified, so default-on multi-worker safety is unverified rather
+  // than disproven. Sequential (1 worker) stays the conservative default
+  // until that baseline is measured. Override with PWTEST_WORKERS=N to opt
+  // in; the per-worker DB/user-data-dir isolation and staggered boot
+  // (fixtures.ts) already support it.
+  workers: process.env.PWTEST_WORKERS ? Number(process.env.PWTEST_WORKERS) : 1,
   use: {
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
