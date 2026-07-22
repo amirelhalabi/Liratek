@@ -635,7 +635,7 @@ describe("PartnerService", () => {
       expect(rows[0].summary).toContain("40");
       expect(rows[0].summary).toContain("USD");
       expect(rows[0].summary.toLowerCase()).toContain(
-        "settled via client account",
+        "paper settlement, no cash moved",
       );
       expect(rows[0].profit_usd).toBe(0);
       expect(rows[0].profit_lbp).toBe(0);

@@ -538,7 +538,7 @@ export class PartnerRepository extends BaseRepository<Partner> {
           entry.direction === "CREDIT" ? "received from" : "paid to"
         } ${label} — ${Math.abs(entry.amount)} ${entry.currency} ${
           isClientAccount
-            ? "(settled via client account, no cash moved)"
+            ? "(paper settlement, no cash moved)"
             : `via ${effectiveMethod}`
         }`,
         metadata_json: {

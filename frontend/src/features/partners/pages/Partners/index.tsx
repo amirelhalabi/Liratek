@@ -110,7 +110,7 @@ function BalanceIcon({ usd, lbp }: { usd: number; lbp: number }) {
 // no money (partner_ledger.settlement_method CHECK constraint keeps it
 // legacy-field-only) and can never appear as a split-leg method (core
 // PartnerService.settle rejects it outright). CLIENT_ACCOUNT stays reachable
-// only via the modal's separate non-legs toggle below.
+// only via the modal's separate "Cash moved" checkbox below (unticked).
 const PARTNER_LEG_METHODS: PaymentMethod[] = [
   { code: "CASH", label: "Cash" },
   { code: "OMT", label: "OMT" },
@@ -352,12 +352,21 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
   // CQ-11: split-leg settlement (MultiPaymentInput) is the default path —
   // legs are locked to `currency` (the `currencies` prop below offers only
   // the one selected currency, so the operator can never build a
-  // cross-currency leg the backend would reject). CLIENT_ACCOUNT settles no
-  // money at all (partner_ledger.settlement_method CHECK + PartnerService
-  // both keep it legacy-field-only) — the toggle below swaps to a plain
-  // manual amount with no legs instead of trying to represent "no money
-  // moved" as a payment method.
-  const [useClientAccount, setUseClientAccount] = useState(false);
+  // cross-currency leg the backend would reject).
+  //
+  // LIRA-080 convention (matches the Suppliers / Accounts "Add Credit/Debt"
+  // modals): a "Cash moved" checkbox, default TICKED — ticked keeps today's
+  // default split-leg cash settlement; unticked swaps to a plain manual
+  // amount with no legs, settling the partner balance on paper only (no
+  // drawer change). `useClientAccount` is kept as the internal flag the rest
+  // of this component already branches on; CLIENT_ACCOUNT settles no money
+  // at all (partner_ledger.settlement_method CHECK + PartnerService both
+  // keep it legacy-field-only) — it's the WIRE value the paper path still
+  // sends (see the settlementMethod comment in handleSettle below), even
+  // though the UI no longer calls it "Client Account" (no client is ever
+  // involved).
+  const [cashMoved, setCashMoved] = useState(true);
+  const useClientAccount = !cashMoved;
   const [clientAccountAmount, setClientAccountAmount] = useState("");
   const [settleLines, setSettleLines] = useState<PaymentLine[]>([]);
   const [notes, setNotes] = useState("");
@@ -440,6 +449,8 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
       // multi-method split still needs ONE value for that column; the first
       // leg's method is as good a "primary method" tag as any (the legs
       // themselves, not this field, drive the actual money movement).
+      // CLIENT_ACCOUNT is a legacy wire value (CHECK-constrained column,
+      // changing it needs a migration) — the UI says "Cash moved" / paper.
       const settlementMethod = useClientAccount
         ? "CLIENT_ACCOUNT"
         : (validLines[0]?.method ?? "CASH");
@@ -542,19 +553,27 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
                 buttonClassName="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
-            <label
-              className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer pb-2.5"
-              data-testid="partner-settle-client-account-toggle"
-            >
-              <input
-                type="checkbox"
-                checked={useClientAccount}
-                onChange={(e) => setUseClientAccount(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-600 bg-slate-900 accent-violet-500"
-              />
-              Settle via Client Account (no cash)
-            </label>
           </div>
+
+          {/* LIRA-080 convention: "Cash moved" toggle — default ON (today's
+              split-leg cash settlement). OFF = paper-only settlement, no
+              drawer change. */}
+          <label
+            className="flex items-start gap-2 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer"
+            data-testid="partner-settle-cash-moved-toggle"
+          >
+            <input
+              type="checkbox"
+              checked={cashMoved}
+              onChange={(e) => setCashMoved(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-slate-600 bg-slate-900 accent-violet-500"
+            />
+            <span className="text-xs text-slate-300">
+              <span className="font-medium text-white">Cash moved</span> —
+              this settlement moves the drawer via the payment legs below.
+              Untick for a paper-only settlement (no drawer change).
+            </span>
+          </label>
 
           {useClientAccount && (
             <div>
