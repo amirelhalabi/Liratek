@@ -860,6 +860,28 @@ CREATE TABLE IF NOT EXISTS drawer_cashouts (
 CREATE INDEX IF NOT EXISTS idx_drawer_cashouts_tenant_id ON drawer_cashouts(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_drawer_cashouts_created_at ON drawer_cashouts(created_at);
 
+-- Wallet Exchanges (v138): convert a provider wallet's OWN USD balance to LBP
+-- or vice versa (OMT_App / Whish_App drawer only, never General) at an
+-- operator-entered rate — see WalletExchangeRepository.
+CREATE TABLE IF NOT EXISTS wallet_exchanges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  drawer_name TEXT NOT NULL CHECK (drawer_name IN ('OMT_App', 'Whish_App')),
+  from_currency TEXT NOT NULL CHECK (from_currency IN ('USD', 'LBP')),
+  to_currency TEXT NOT NULL CHECK (to_currency IN ('USD', 'LBP')),
+  amount_in REAL NOT NULL,
+  amount_out REAL NOT NULL,
+  rate REAL NOT NULL,
+  note TEXT,
+  created_by INTEGER,
+  is_refunded INTEGER DEFAULT 0,
+  refunded_at TEXT DEFAULT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_exchanges_tenant_id ON wallet_exchanges(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_exchanges_created_at ON wallet_exchanges(created_at);
+
 -- Daily Closings
 CREATE TABLE IF NOT EXISTS daily_closings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1526,4 +1548,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (134, 'trueup_omt_whish_send_ledger_fee'),
     (135, 'add_carrier_lines_and_mobile_item_validity'),
     (136, 'add_supplier_ledger_source_ref'),
-    (137, 'add_drawer_cashouts_table');
+    (137, 'add_drawer_cashouts_table'),
+    (138, 'add_wallet_exchanges_table');

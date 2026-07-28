@@ -751,6 +751,21 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("drawer-cashout:history", { limit }),
   },
 
+  // Wallet Exchange — convert a provider wallet's own USD balance to LBP
+  // (or vice versa), OMT App / Whish App only.
+  walletExchange: {
+    create: (data: {
+      drawerName: "OMT_App" | "Whish_App";
+      fromCurrency: "USD" | "LBP";
+      toCurrency: "USD" | "LBP";
+      amountIn: number;
+      rate: number;
+      note?: string;
+    }) => ipcRenderer.invoke("wallet-exchange:create", data),
+    getHistory: (drawerName?: "OMT_App" | "Whish_App", limit?: number) =>
+      ipcRenderer.invoke("wallet-exchange:history", { drawerName, limit }),
+  },
+
   // Partners
   partners: {
     getAll: (includeInactive?: boolean) =>

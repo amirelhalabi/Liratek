@@ -66,13 +66,19 @@ The green ↓ (in) / red ↑ (out) badge in the transactions table comes from
 
 | Direction                          | Types                                                                                                                                                                                |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **in** (customer hands us cash)    | SALE, RECHARGE, CUSTOM_SERVICE, MAINTENANCE, DEBT_REPAYMENT, SUPPLIER_PAYMENT, MTC_TOPUP, ALFA_TOPUP, LOTO, FINANCIAL_SERVICE with service_type SEND or BILL                         |
+| **in** (customer hands us cash)    | SALE, RECHARGE, CUSTOM_SERVICE, MAINTENANCE, DEBT_REPAYMENT, MTC_TOPUP, ALFA_TOPUP, LOTO, FINANCIAL_SERVICE with service_type SEND or BILL                                            |
 | **out** (shop pays out of drawers) | FINANCIAL_SERVICE with service_type RECEIVE, EXPENSE, LOTO_MONTHLY_FEE, LOTO_SETTLEMENT, LOTO_CASH_PRIZE, SUPPLIER_SETTLEMENT, CREDIT_CASH_OUT, RECHARGE_TOPUP (classic from-drawer) |
 | **in** (special case)              | RECHARGE_TOPUP with `partnerId` or `cashPaid` metadata (Whish credit acquisition — provider drawer inflow)                                                                           |
+| **metadata-resolved**              | SUPPLIER_PAYMENT, PARTNER_SETTLEMENT, PARTNER_PAYMENT — direction from `metadata.counterparty.flow` (OUT→out, IN→in); SUPPLIER_PAYMENT also accepts `metadata.direction` PAY/RECEIVE |
 | **both**                           | EXCHANGE                                                                                                                                                                             |
 
 On a system SEND the row reads as cash **in only**; on a RECEIVE as cash **out only**
 with the per-currency payout legs shown in the payment-legs subtext (lira-075).
+**A type that can move cash either way MUST resolve its direction from metadata,
+never from a fixed mapping** — SUPPLIER_PAYMENT sat in the "in" list and painted a
+green ↓ on every "paid to <supplier>" row, contradicting that same row's own
+"out: $2,000" legs subtext (owner-reported 2026-07-28). If the badge and the legs
+line can disagree, the badge is the one that's guessing.
 `isCashTransaction` (≥1 CASH leg) drives the "Cash only (till)" filter.
 
 ---

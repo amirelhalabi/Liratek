@@ -1,28 +1,18 @@
 /**
- * Auto-print-on-success (LIRA-069 W1.d).
+ * Auto-print-on-success (LIRA-069 W1.d) — DISABLED per owner request
+ * (2026-07-28): the print dialog interrupting every payment was unwanted.
  *
- * ONE implementation, called from every included module's success handler
- * (telecom recharge, iPick/Katsh, Whish App Bills, maintenance, custom
- * services, loto ticket sale) — never a hand-rolled copy per module.
- *
- * Rules:
- *  - Gated by the SAME `isReceiptableTransaction` predicate the Transactions
- *    viewer and History-modal Print buttons use (receiptGating.ts) — no
- *    second provider list.
- *  - Skipped entirely when a customer session is active: a session-basket
- *    submit doesn't get its own receipt — the session gets ONE receipt at
- *    checkout (W1.b, SessionCheckoutModal's own Print button).
- *  - Best-effort: a failed lookup/print never throws into the caller's
- *    already-succeeded submit handler.
+ * This is kept as a stable no-op, not deleted, because every included
+ * module's success handler (telecom recharge, iPick/Katsh, Whish App Bills,
+ * maintenance, custom services, loto ticket sale) already calls this ONE
+ * hook — a single early-return here disables the behavior everywhere without
+ * touching 7 call sites. Manual reprint entry points (TransactionsViewer's
+ * and each module History modal's Print button, gated by the same
+ * `isReceiptableTransaction` in receiptGating.ts) are untouched — they call
+ * `printServiceReceiptByTransaction` directly, not this hook.
  */
 import { useCallback } from "react";
-import { useShopInfo } from "@/hooks/useShopName";
-import { getTransactionBySource } from "@/api/backendApi";
-import { printServiceReceiptByTransaction } from "@/shared/utils/serviceReceipt";
-import {
-  isReceiptableTransaction,
-  type ReceiptGatingFields,
-} from "@/features/audit/receiptGating";
+import type { ReceiptGatingFields } from "@/features/audit/receiptGating";
 
 export interface AutoPrintReceiptParams extends ReceiptGatingFields {
   /** source_table for the module row just created (e.g. "recharges",
@@ -40,27 +30,7 @@ export type AutoPrintReceiptFn = (
 ) => Promise<void>;
 
 export function useAutoPrintReceipt(): AutoPrintReceiptFn {
-  const shopInfo = useShopInfo();
-
-  return useCallback(
-    async (params: AutoPrintReceiptParams) => {
-      if (params.hasActiveSession) return;
-      if (params.sourceId == null) return;
-      if (!isReceiptableTransaction(params)) return;
-
-      try {
-        const txn = await getTransactionBySource(
-          params.sourceTable,
-          params.sourceId,
-        );
-        const txnId = (txn as { id?: number } | null)?.id;
-        if (!txnId) return;
-        await printServiceReceiptByTransaction(txnId, shopInfo);
-      } catch {
-        // Best-effort — never block or surface an error for an already
-        // successful submit just because the receipt couldn't print.
-      }
-    },
-    [shopInfo],
-  );
+  return useCallback(async () => {
+    // Disabled — see file header.
+  }, []);
 }

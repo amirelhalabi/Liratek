@@ -346,6 +346,17 @@ export {
 } from "./DrawerCashoutService.js";
 export type { DrawerCashoutResult } from "./DrawerCashoutService.js";
 
+// Wallet Exchange Service
+export {
+  WalletExchangeService,
+  getWalletExchangeService,
+  resetWalletExchangeService,
+} from "./WalletExchangeService.js";
+export type {
+  WalletExchangeInput,
+  WalletExchangeResult,
+} from "./WalletExchangeService.js";
+
 export {
   ServicePresetService,
   getServicePresetService,

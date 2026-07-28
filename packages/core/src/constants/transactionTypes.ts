@@ -12,6 +12,12 @@ export const TRANSACTION_TYPES = {
   SALE: "SALE",
   FINANCIAL_SERVICE: "FINANCIAL_SERVICE",
   EXCHANGE: "EXCHANGE",
+  /** Owner req 2026-07-28: convert a provider wallet's OWN USD balance to LBP
+   *  or vice versa (OMT_App / Whish_App drawer only — never General, never a
+   *  customer). Deliberately distinct from EXCHANGE — see
+   *  WalletExchangeRepository / migration v138 for why it isn't just a
+   *  drawer-parameterized EXCHANGE row. */
+  WALLET_EXCHANGE: "WALLET_EXCHANGE",
   RECHARGE: "RECHARGE",
   RECHARGE_TOPUP: "RECHARGE_TOPUP",
   MTC_TOPUP: "MTC_TOPUP",

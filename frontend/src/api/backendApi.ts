@@ -3139,6 +3139,47 @@ export async function drawerCashoutHistory(limit?: number) {
   );
 }
 
+// ── Wallet exchange (dual-mode) — convert a provider wallet's OWN USD balance
+// to LBP or vice versa (OMT App / Whish App only, never General) ──
+
+export async function walletExchangeCreate(data: {
+  drawerName: "OMT_App" | "Whish_App";
+  fromCurrency: "USD" | "LBP";
+  toCurrency: "USD" | "LBP";
+  amountIn: number;
+  rate: number;
+  note?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().walletExchange.create(data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        id?: number;
+        amountOut?: number;
+        error?: string;
+      }>("/api/wallet-exchange", { method: "POST", body: data }),
+  );
+}
+
+export async function walletExchangeHistory(
+  drawerName?: "OMT_App" | "Whish_App",
+  limit?: number,
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().walletExchange.getHistory(drawerName, limit),
+    async () => {
+      const params = new URLSearchParams();
+      if (drawerName) params.set("drawerName", drawerName);
+      if (limit) params.set("limit", String(limit));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return requestJson<{ success: boolean; data?: any[]; error?: string }>(
+        `/api/wallet-exchange/history${qs}`,
+      );
+    },
+  );
+}
+
 // WhatsApp
 export async function sendWhatsAppTestMessage(
   recipientPhone: string,

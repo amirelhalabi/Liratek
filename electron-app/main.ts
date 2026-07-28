@@ -554,6 +554,9 @@ async function registerHandlers() {
       await import("./handlers/drawerTopUpHandlers.js");
     const drawerCashoutHandlers =
       await import("./handlers/drawerCashoutHandlers.js");
+    const walletExchangeHandlers = await import(
+      "./handlers/walletExchangeHandlers.js"
+    );
     const partnerHandlers = await import("./handlers/partnerHandlers.js");
     const voucherHandlers = await import("./handlers/voucherHandlers.js");
     const holdMoneyHandlers = await import("./handlers/holdMoneyHandlers.js");
@@ -595,6 +598,7 @@ async function registerHandlers() {
     auditHandlers.registerAuditHandlers();
     drawerTopUpHandlers.registerDrawerTopUpHandlers();
     drawerCashoutHandlers.registerDrawerCashoutHandlers();
+    walletExchangeHandlers.registerWalletExchangeHandlers();
     partnerHandlers.registerPartnerHandlers();
     voucherHandlers.registerVoucherHandlers();
     holdMoneyHandlers.registerHoldMoneyHandlers();

@@ -6,23 +6,28 @@
  *   - the Transactions viewer's per-row Print button (asserted here),
  *   - each module's History-modal Print button (same predicate, not
  *     re-asserted per-surface — see the unit-test matrix for the exhaustive
- *     include/exclude cases),
- *   - the auto-print-on-success hook (useAutoPrintReceipt), asserted here on
- *     a standalone MTC recharge submission.
+ *     include/exclude cases).
+ *
+ * The auto-print-on-success hook (useAutoPrintReceipt) was DISABLED per
+ * owner request (2026-07-28) — the print dialog interrupting every payment
+ * was unwanted. It is now asserted here to NEVER fire, on a standalone MTC
+ * recharge submission and during an active customer session, while the
+ * manual Print buttons above are unaffected (separate code path).
  *
  * Row identity (CLAUDE.md rule 15): every created row carries a unique
  * `clientName` marker (Date.now()-seeded) and is located via the /audit
  * search box — NEVER by row position (`tbody tr.first()` / `getRecent()[0]`)
  * in this shared, accumulating per-worker DB.
  *
- * Failing-first procedure (rule 17, for the verifier — this suite cannot be
- * run by the authoring agent): temporarily revert
- * `isReceiptableTransaction` in receiptGating.ts to the old type-only gate
- * (`return type === "FINANCIAL_SERVICE" || ALWAYS_RECEIPTABLE_TYPES.has(type)`)
- * and re-run this file — the "excluded provider rows show no Print button"
- * test must FAIL (OMT System / Whish System / OMT App transfer / Whish App
- * transfer / Binance rows would all wrongly show a Print button). Restore
- * the fix and confirm it passes again.
+ * Failing-first procedure (rule 17):
+ *  - Print-button tests: temporarily revert `isReceiptableTransaction` in
+ *    receiptGating.ts to the old type-only gate (`return type ===
+ *    "FINANCIAL_SERVICE" || ALWAYS_RECEIPTABLE_TYPES.has(type)`) — the
+ *    "excluded provider rows show no Print button" test must FAIL.
+ *  - Auto-print-disabled test: temporarily revert `useAutoPrintReceipt.ts`
+ *    to call `printServiceReceiptByTransaction` again (pre-2026-07-28
+ *    behavior) — the "does NOT fire" assertions must FAIL (calls > 0).
+ *  Restore the fix and confirm both pass again.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -257,7 +262,7 @@ test.describe("LIRA-069 — receipt print gating", () => {
     }
   });
 
-  test("(if feasible headless) auto-print fires on a successful standalone recharge, and is skipped when a customer session is active", async ({
+  test("auto-print-on-success is disabled — never fires, standalone or during an active session", async ({
     appPage,
   }) => {
     // Capture the print via printReceipt's own e2e hook
@@ -293,7 +298,7 @@ test.describe("LIRA-069 — receipt print gating", () => {
       await expect(mtcTab).toBeVisible({ timeout: 8_000 });
       await mtcTab.click();
 
-      // ── Standalone submit (no session) — auto-print MUST fire ──────────
+      // ── Standalone submit (no session) — auto-print must NOT fire ──────
       const phoneInput = appPage.locator("#telecom-phone");
       await expect(phoneInput).toBeVisible({ timeout: 8_000 });
       await phoneInput.fill(phone);
@@ -313,25 +318,27 @@ test.describe("LIRA-069 — receipt print gating", () => {
       await confirmBtn.click();
       await expect(confirmBtn).toBeHidden({ timeout: 8_000 });
 
-      await appPage.waitForFunction(
+      // Auto-print is disabled (owner request 2026-07-28) — give any
+      // (incorrect) async auto-print a moment to fire before asserting its
+      // absence; the timeout is expected and swallowed since the correct
+      // behavior is that it never fires.
+      await appPage
+        .waitForFunction(
+          () =>
+            (window as unknown as { __lira069PrintCalls: string[] })
+              .__lira069PrintCalls.length > 0,
+          { timeout: 1_500 },
+        )
+        .catch(() => {});
+      const callsAfterStandaloneSubmit = await appPage.evaluate(
         () =>
           (window as unknown as { __lira069PrintCalls: string[] })
-            .__lira069PrintCalls.length > 0,
-        { timeout: 8_000 },
+            .__lira069PrintCalls.length,
       );
-      const printedHtml = await appPage.evaluate(
-        () =>
-          (window as unknown as { __lira069PrintCalls: string[] })
-            .__lira069PrintCalls[0],
-      );
-      // Identity — the printed receipt is for THIS phone's recharge, not a
-      // stale/unrelated row (the receipt text includes the "Service:" line
-      // and — for a phone-tagged CREDIT_TRANSFER — the phone number/summary
-      // travels onto the transaction and, transitively, the printed note).
-      expect(printedHtml).toContain("MTC");
+      expect(callsAfterStandaloneSubmit).toBe(0);
 
-      // ── Session-active submit — auto-print must be SKIPPED (the session
-      // gets its own Print button at checkout, W1.b) ──────────────────────
+      // ── Session-active submit — auto-print must ALSO be skipped (it's
+      // disabled outright now, not just session-gated) ──────────────────
       await appPage.evaluate(
         () =>
           ((
@@ -383,10 +390,17 @@ test.describe("LIRA-069 — receipt print gating", () => {
 
         // Session mode: the button reads "Add to Cart" (no PaymentSheet) —
         // it books the item into the session basket, no direct transaction.
+        // SessionProvider sits ABOVE the router (App.tsx) so it is NOT
+        // remounted by navigateTo("/") → navigateTo("/recharge") — the raw
+        // API session start above is only picked up by SessionContext's
+        // 7s poll (refreshActiveSessions, SessionContext.tsx), not by this
+        // "fresh mount". A 5s timeout here raced that poll and flaked
+        // (found 2026-07-28: passed most runs, failed once with "element
+        // not found" at the 5s mark) — timeout must exceed the 7s cycle.
         const addToCartBtn = appPage.getByRole("button", {
           name: /Add to Cart/i,
         });
-        await expect(addToCartBtn).toBeVisible({ timeout: 5_000 });
+        await expect(addToCartBtn).toBeVisible({ timeout: 10_000 });
         await addToCartBtn.click();
         // The form resets on success — phone field clears.
         await expect(phoneInput2).toHaveValue("", { timeout: 5_000 });

@@ -39,6 +39,7 @@ import {
   carrierLineUpdateBalanceSchema,
   mobileServiceItemUpdateSchema,
   createDrawerCashoutSchema,
+  createWalletExchangeSchema,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
   type RefundLegsInput,
@@ -71,6 +72,7 @@ import {
   type PartnerSettleInput,
   type PartnerWriteOffInput,
   type CreateDrawerCashoutInput,
+  type CreateWalletExchangeInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -627,6 +629,16 @@ export const DrawerTopUpCreateSchema = z
 // identical.
 export const DrawerCashoutSchema =
   createDrawerCashoutSchema as unknown as z.ZodSchema<CreateDrawerCashoutInput>;
+
+// =============================================================================
+// Wallet Exchange
+// =============================================================================
+
+// The wallet-exchange contract lives in
+// packages/core/src/validators/walletExchange.ts so the Electron IPC handler
+// and the REST route validate against ONE schema (CLAUDE.md rule 14).
+export const WalletExchangeSchema =
+  createWalletExchangeSchema as unknown as z.ZodSchema<CreateWalletExchangeInput>;
 
 // =============================================================================
 // Debt Repayment

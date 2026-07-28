@@ -6986,6 +6986,44 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v137 rolled back: dropped drawer_cashouts table");
     },
   },
+  {
+    version: 138,
+    name: "add_wallet_exchanges_table",
+    description:
+      "Internal wallet exchange (owner req 2026-07-28): convert a provider wallet's OWN USD balance to LBP or vice versa (OMT_App / Whish_App drawer only — never General, never the customer-facing Exchange page). Both legs post against the SAME drawer at an operator-entered rate (default 89000, no spread/profit — this isn't a customer transaction). `wallet_exchanges` is deliberately its own table rather than reusing `exchange_transactions`, which has no drawer_name column and would silently pollute the General till's Exchange history/today-stats aggregates (those queries have no drawer filter). is_refunded/refunded_at (+ the _markSourceRefunded wiring in TransactionRepository) make it reversible via the generic void/refund path, matching EXCHANGE's own reversibility.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS wallet_exchanges (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          drawer_name TEXT NOT NULL CHECK (drawer_name IN ('OMT_App', 'Whish_App')),
+          from_currency TEXT NOT NULL CHECK (from_currency IN ('USD', 'LBP')),
+          to_currency TEXT NOT NULL CHECK (to_currency IN ('USD', 'LBP')),
+          amount_in REAL NOT NULL,
+          amount_out REAL NOT NULL,
+          rate REAL NOT NULL,
+          note TEXT,
+          created_by INTEGER,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_wallet_exchanges_tenant_id ON wallet_exchanges(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_wallet_exchanges_created_at ON wallet_exchanges(created_at)`,
+      );
+      console.log("Migration v138: Created wallet_exchanges table");
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS wallet_exchanges`);
+      console.log("Migration v138 rolled back: dropped wallet_exchanges table");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

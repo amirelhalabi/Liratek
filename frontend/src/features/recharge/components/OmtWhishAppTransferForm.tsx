@@ -26,8 +26,10 @@ import {
 import { ensureRechargeClient } from "../utils/ensureClient";
 import { calculateOmtWhishAppFees } from "../utils/omtWhishAppFees";
 import { toCamelLegs } from "@/utils/paymentUtils";
+import { WalletExchangePanel } from "./WalletExchangePanel";
 
 type ServiceType = "SEND" | "RECEIVE";
+type TabId = "SEND" | "RECEIVE" | "EXCHANGE";
 type ProviderKey = "OMT_APP" | "WHISH_APP";
 
 interface OmtWhishAppTransferFormProps {
@@ -39,6 +41,14 @@ interface OmtWhishAppTransferFormProps {
   customerPhone?: string | undefined;
   showHistory?: boolean;
   onCloseHistory?: () => void;
+  /** This provider's own wallet balance (OMT_App/Whish_App drawer), if
+   *  already loaded by the parent — powers the Exchange tab's "available"
+   *  display. Omitted while still loading. */
+  walletBalance?: { usd: number; lbp: number } | undefined;
+  /** Refresh drawer balances — called after a successful wallet exchange so
+   *  the "available" display updates immediately (mirrors TelecomForm's
+   *  onRefreshBalances). */
+  onRefreshBalances?: () => void;
 }
 
 function OmtWhishAppTransferFormInner({
@@ -50,6 +60,8 @@ function OmtWhishAppTransferFormInner({
   customerPhone,
   showHistory: showHistoryProp,
   onCloseHistory,
+  walletBalance,
+  onRefreshBalances,
 }: OmtWhishAppTransferFormProps) {
   const api = useApi();
   const {
@@ -60,6 +72,10 @@ function OmtWhishAppTransferFormInner({
   const { methods: allPaymentMethods, drawerAffectingMethods } =
     usePaymentMethods();
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
+  // Exchange is a separate MODE, not a third ServiceType — the entire
+  // SEND/RECEIVE render tree below assumes a customer-facing transfer and
+  // stays completely untouched; Exchange gets its own small early-return.
+  const [activeTab, setActiveTab] = useState<TabId>("SEND");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [senderName, setSenderName] = useState("");
@@ -430,21 +446,48 @@ function OmtWhishAppTransferFormInner({
     }
   };
 
+  const tabBar = (
+    <ServiceTypeTabs
+      options={[
+        { id: "SEND", label: "Send", iconKey: "Send" },
+        { id: "RECEIVE", label: "Receive", iconKey: "Package" },
+        { id: "EXCHANGE", label: "Exchange", iconKey: "ArrowLeftRight" },
+      ]}
+      value={activeTab}
+      onChange={(val) => {
+        const tab = val as TabId;
+        setActiveTab(tab);
+        if (tab !== "EXCHANGE") setServiceType(tab as ServiceType);
+      }}
+      accentColor={activeProvider === "OMT_APP" ? "amber" : "red"}
+      customColor={activeProvider === "OMT_APP" ? "#ffde00" : "#ff0a46"}
+      customTextColor={activeProvider === "OMT_APP" ? "black" : "white"}
+      size="sm"
+    />
+  );
+
+  // Exchange is a self-contained mode — none of the SEND/RECEIVE state below
+  // (payment sheet, legs, partner flow, client fields) applies to it.
+  if (activeTab === "EXCHANGE") {
+    return (
+      <div className="flex flex-col gap-5 flex-1 min-h-0">
+        {tabBar}
+        <WalletExchangePanel
+          drawerName={activeProvider === "OMT_APP" ? "OMT_App" : "Whish_App"}
+          balance={walletBalance}
+          onDone={() => {
+            loadFinancialData();
+            onRefreshBalances?.();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
-      {/* Header with SEND/RECEIVE Tabs */}
-      <ServiceTypeTabs
-        options={[
-          { id: "SEND", label: "Send", iconKey: "Send" },
-          { id: "RECEIVE", label: "Receive", iconKey: "Package" },
-        ]}
-        value={serviceType}
-        onChange={(val) => setServiceType(val as ServiceType)}
-        accentColor={activeProvider === "OMT_APP" ? "amber" : "red"}
-        customColor={activeProvider === "OMT_APP" ? "#ffde00" : "#ff0a46"}
-        customTextColor={activeProvider === "OMT_APP" ? "black" : "white"}
-        size="sm"
-      />
+      {/* Header with SEND/RECEIVE/Exchange Tabs */}
+      {tabBar}
       <div className="flex items-center justify-between -mt-3 mb-1">
         <p className="text-xs text-slate-400">
           {serviceType === "SEND"

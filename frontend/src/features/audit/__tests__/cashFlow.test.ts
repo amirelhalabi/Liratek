@@ -91,6 +91,104 @@ describe("getCashFlowDirection — unchanged types (guard against regressions)",
   });
 });
 
+/**
+ * SUPPLIER_PAYMENT direction (owner-reported 2026-07-28): a manual Suppliers-page
+ * PAY rendered the green ↓ "cash in" badge while its own payment-legs subtext read
+ * "out: $2,000" — the type was in the hardcoded "in" list, so half its rows were
+ * always wrong. Direction comes from the CQ-8 counterparty contract
+ * (SupplierRepository.recordSupplierCashflow stamps flow OUT for PAY / IN for
+ * RECEIVE) with `metadata.direction` as the secondary read. The PAY/OUT cases
+ * below fail against the pre-fix code (rule 17).
+ */
+describe("getCashFlowDirection — SUPPLIER_PAYMENT (both directions)", () => {
+  it("PAY is cash out (shop pays the supplier out of the drawer)", () => {
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_PAYMENT",
+        JSON.stringify({
+          supplier_id: 1,
+          direction: "PAY",
+          counterparty: { flow: "OUT", method: "CASH" },
+        }),
+        { usd: 2000, lbp: 0 },
+      ),
+    ).toBe("out");
+  });
+
+  it("RECEIVE is cash in (supplier pays the shop back)", () => {
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_PAYMENT",
+        JSON.stringify({
+          supplier_id: 1,
+          direction: "RECEIVE",
+          counterparty: { flow: "IN", method: "CASH" },
+        }),
+        { usd: 2000, lbp: 0 },
+      ),
+    ).toBe("in");
+  });
+
+  it("resolves from metadata.direction alone when no counterparty block exists", () => {
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_PAYMENT",
+        JSON.stringify({ supplier_id: 1, direction: "PAY" }),
+      ),
+    ).toBe("out");
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_PAYMENT",
+        JSON.stringify({ supplier_id: 1, direction: "RECEIVE" }),
+      ),
+    ).toBe("in");
+  });
+
+  it("counterparty.flow wins over metadata.direction", () => {
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_PAYMENT",
+        JSON.stringify({ direction: "RECEIVE", counterparty: { flow: "OUT" } }),
+      ),
+    ).toBe("out");
+  });
+
+  // The addLedgerEntry no-drawer branch stamps flow from the ledger sign
+  // (PAYMENT → OUT, SUPPLIER_PAYS_US → IN, other accruals by sign) — auto rows
+  // are filter-hidden by default but must still badge consistently when shown.
+  it("auto ledger rows follow their stamped flow", () => {
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_PAYMENT",
+        JSON.stringify({
+          is_auto: true,
+          entry_type: "PAYMENT",
+          counterparty: { flow: "OUT", method: "LEDGER" },
+        }),
+      ),
+    ).toBe("out");
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_PAYMENT",
+        JSON.stringify({
+          is_auto: true,
+          entry_type: "TOP_UP",
+          counterparty: { flow: "IN", method: "LEDGER" },
+        }),
+      ),
+    ).toBe("in");
+  });
+
+  it("historical rows with neither marker keep the legacy 'in' default", () => {
+    expect(getCashFlowDirection("SUPPLIER_PAYMENT")).toBe("in");
+    expect(getCashFlowDirection("SUPPLIER_PAYMENT", null)).toBe("in");
+    expect(getCashFlowDirection("SUPPLIER_PAYMENT", "not-json{")).toBe("in");
+    expect(
+      getCashFlowDirection("SUPPLIER_PAYMENT", JSON.stringify({ supplier_id: 1 })),
+    ).toBe("in");
+  });
+});
+
 describe("getCashFlowDirection — PARTNER_SETTLEMENT / PARTNER_PAYMENT (CQ-8)", () => {
   const flowMeta = (flow: "IN" | "OUT") =>
     JSON.stringify({ counterparty: { flow } });

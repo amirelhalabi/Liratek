@@ -1410,6 +1410,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "loto_tickets",
       "debt_ledger",
       "supplier_ledger",
+      "wallet_exchanges",
     ];
     if (!supported.includes(sourceTable)) return;
     // tenant_id predicate applies to every legal value of sourceTable above —

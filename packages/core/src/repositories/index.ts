@@ -498,6 +498,19 @@ export type {
   CreateDrawerCashoutData,
 } from "./DrawerCashoutRepository.js";
 
+// Wallet Exchange Repository
+export {
+  WalletExchangeRepository,
+  getWalletExchangeRepository,
+  resetWalletExchangeRepository,
+} from "./WalletExchangeRepository.js";
+export type {
+  WalletExchangeEntity,
+  CreateWalletExchangeData,
+  WalletDrawerName,
+  WalletCurrency,
+} from "./WalletExchangeRepository.js";
+
 export {
   ServicePresetRepository,
   getServicePresetRepository,

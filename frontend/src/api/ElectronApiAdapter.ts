@@ -671,6 +671,20 @@ export class ElectronApiAdapter implements ApiAdapter {
     getHistory: (limit?: number) => api.drawerCashoutHistory(limit),
   };
 
+  // Nested namespace mirroring window.api.walletExchange (dual-mode).
+  walletExchange = {
+    create: (data: {
+      drawerName: "OMT_App" | "Whish_App";
+      fromCurrency: "USD" | "LBP";
+      toCurrency: "USD" | "LBP";
+      amountIn: number;
+      rate: number;
+      note?: string;
+    }) => api.walletExchangeCreate(data),
+    getHistory: (drawerName?: "OMT_App" | "Whish_App", limit?: number) =>
+      api.walletExchangeHistory(drawerName, limit),
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

@@ -1365,6 +1365,15 @@ export default function MobileRecharge() {
               customerPhone={activeSession?.customer_phone}
               showHistory={showHistory}
               onCloseHistory={() => setShowHistory(false)}
+              onRefreshBalances={loadDrawerBalances}
+              walletBalance={
+                activeDrawerBalance
+                  ? {
+                      usd: activeDrawerBalance.usdBalance,
+                      lbp: activeDrawerBalance.lbpBalance,
+                    }
+                  : undefined
+              }
             />
           ) : activeProvider === "WHISH_APP" ? (
             // Whish App - Bills (cards) or Transfer (send/receive)
@@ -1417,6 +1426,15 @@ export default function MobileRecharge() {
                   customerPhone={activeSession?.customer_phone}
                   showHistory={showHistory}
                   onCloseHistory={() => setShowHistory(false)}
+                  onRefreshBalances={loadDrawerBalances}
+                  walletBalance={
+                    activeDrawerBalance
+                      ? {
+                          usd: activeDrawerBalance.usdBalance,
+                          lbp: activeDrawerBalance.lbpBalance,
+                        }
+                      : undefined
+                  }
                 />
               )}
             </>

@@ -5,6 +5,7 @@ import {
   useMemo,
   Fragment,
   type CSSProperties,
+  type ReactElement,
 } from "react";
 import {
   getRecentTransactions,
@@ -22,6 +23,7 @@ import {
   isCashTransaction,
   saleTenderTotals,
   formatPaymentLegs,
+  formatLegAmount,
   type TransactionPaymentLeg,
 } from "../cashFlow";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -171,6 +173,17 @@ function getTypeLabel(row: TransactionRow): string {
       return `${provLabel} Top-up`;
     }
 
+    if (row.type === "WALLET_EXCHANGE") {
+      const drawerName = meta.drawer_name as string | undefined;
+      const drawerLabel =
+        drawerName === "Whish_App"
+          ? "Whish App"
+          : drawerName === "OMT_App"
+            ? "OMT App"
+            : "Wallet";
+      return `${drawerLabel} Exchange`;
+    }
+
     // A cashless supplier credit (e.g. bill commission) — distinct from a real
     // "Supplier Payment" (cash we pay them / they pay us).
     if (row.type === "SUPPLIER_PAYMENT" && meta.is_credit === true) {
@@ -202,6 +215,7 @@ const TYPE_COLORS: Record<string, string> = {
   SALE: "text-green-400",
   FINANCIAL_SERVICE: "text-blue-400",
   EXCHANGE: "text-yellow-400",
+  WALLET_EXCHANGE: "text-yellow-300",
   RECHARGE: "text-purple-400",
   RECHARGE_TOPUP: "text-purple-300",
   MTC_TOPUP: "text-violet-400",
@@ -680,6 +694,13 @@ export default function TransactionsViewer({
     new Set(),
   );
 
+  // LIRA-067: per-row expand/collapse for the structured payment-leg detail
+  // (distinct from expandedSessions above, which groups multiple ROWS under
+  // one session sandwich — this expands a SINGLE row's own leg breakdown).
+  const [expandedLegRows, setExpandedLegRows] = useState<Set<number>>(
+    new Set(),
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -893,6 +914,49 @@ export default function TransactionsViewer({
     });
   }
 
+  function toggleLegExpand(rowId: number) {
+    setExpandedLegRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }
+
+  /**
+   * LIRA-067: the structured per-leg detail row, indented one column in
+   * (blank Time cell, everything else merged under Summary via colSpan) —
+   * printed on export unconditionally, and shown on screen only when the
+   * row is in expandedLegRows. Null when the row has no customer-facing legs
+   * (methodLegsFor already covers payments + account_payments, same set the
+   * Method column reads).
+   */
+  function buildLegDetailTr(row: TransactionRow, keySuffix: string) {
+    const legs = methodLegsFor(row);
+    if (legs.length === 0) return null;
+    return (
+      <tr
+        key={`legdetail-${row.id}-${keySuffix}`}
+        data-testid={`payment-legs-detail-${row.id}`}
+        className="border-t border-slate-800/30 text-[11px] bg-slate-900/20"
+      >
+        <td className="p-2" />
+        <td className="p-2 pl-5 text-slate-400 font-mono" colSpan={9}>
+          <div className="flex flex-col gap-0.5">
+            {legs.map((leg, i) => (
+              <div key={i}>
+                {leg.direction === "in" ? "In" : "Out"} —{" "}
+                {methodLabelByCode.get(leg.method) ??
+                  fallbackMethodLabel(leg.method)}
+                : {formatLegAmount(leg)}
+              </div>
+            ))}
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
   // Renders a full data <tr> for a transaction row. Pass sessionId to apply
   // the session accent (data-session + --session-hue); pass null for plain rows.
   // isSystem=true applies muted styling for collapsed system sub-rows.
@@ -969,6 +1033,22 @@ export default function TransactionsViewer({
                   </span>
                 );
               })()}
+            {methodLegsFor(row).length > 0 && (
+              <button
+                onClick={() => toggleLegExpand(row.id)}
+                data-testid={`toggle-legs-${row.id}`}
+                className="self-start text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+                title={
+                  expandedLegRows.has(row.id)
+                    ? "Hide payment detail"
+                    : "Show payment detail"
+                }
+              >
+                {expandedLegRows.has(row.id)
+                  ? "▾ payment detail"
+                  : "▸ payment detail"}
+              </button>
+            )}
           </div>
         </td>
         <td className="p-2 truncate" style={{ width: 160 }}>
@@ -1105,6 +1185,21 @@ export default function TransactionsViewer({
     );
   }
 
+  /** Wrap an already-built row `<tr>` with its leg-detail sub-row (screen-only,
+   *  gated on expandedLegRows) when one applies; otherwise return it as-is. */
+  function withLegDetail(row: TransactionRow, mainTr: ReactElement) {
+    const legDetail = expandedLegRows.has(row.id)
+      ? buildLegDetailTr(row, "screen")
+      : null;
+    if (!legDetail) return mainTr;
+    return (
+      <Fragment key={row.id}>
+        {mainTr}
+        {legDetail}
+      </Fragment>
+    );
+  }
+
   return (
     <>
       <DataTable<TransactionRow>
@@ -1192,7 +1287,17 @@ export default function TransactionsViewer({
         }}
         exportRow={(row) => {
           if (sandwichedMap.has(row.id)) return null;
-          return buildTr(row, row.session_id);
+          // LIRA-067: the printed/exported report always includes the leg
+          // detail (unconditionally — a static export has no "expand" state),
+          // indented one column in under the transaction row.
+          const legDetail = buildLegDetailTr(row, "export");
+          if (!legDetail) return buildTr(row, row.session_id);
+          return (
+            <Fragment key={row.id}>
+              {buildTr(row, row.session_id)}
+              {legDetail}
+            </Fragment>
+          );
         }}
         renderRow={(row) => {
           const sandwichedSession = sandwichedMap.get(row.id);
@@ -1315,15 +1420,20 @@ export default function TransactionsViewer({
                     </td>
                   </tr>
                   {buildTr(row, sandwichedSession, `data-${row.id}`, true)}
+                  {expandedLegRows.has(row.id) &&
+                    buildLegDetailTr(row, "screen")}
                 </Fragment>
               );
             }
             // Other expanded sandwiched rows → full data row with system mute styling
-            return buildTr(row, sandwichedSession, undefined, true);
+            return withLegDetail(
+              row,
+              buildTr(row, sandwichedSession, undefined, true),
+            );
           }
 
           // Regular row — session accent applied if it belongs to a session
-          return buildTr(row, row.session_id);
+          return withLegDetail(row, buildTr(row, row.session_id));
         }}
       />
       {refundModalRow && (

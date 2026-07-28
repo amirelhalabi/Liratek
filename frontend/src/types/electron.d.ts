@@ -1672,6 +1672,46 @@ export interface ElectronAPI {
     }>;
   };
 
+  // Wallet Exchange — convert a provider wallet's own USD balance to LBP
+  // (or vice versa), OMT App / Whish App only.
+  walletExchange: {
+    create: (data: {
+      drawerName: "OMT_App" | "Whish_App";
+      fromCurrency: "USD" | "LBP";
+      toCurrency: "USD" | "LBP";
+      amountIn: number;
+      rate: number;
+      note?: string;
+    }) => Promise<{
+      success: boolean;
+      id?: number;
+      amountOut?: number;
+      error?: string;
+    }>;
+    getHistory: (
+      drawerName?: "OMT_App" | "Whish_App",
+      limit?: number,
+    ) => Promise<{
+      success: boolean;
+      data?: Array<{
+        id: number;
+        drawer_name: "OMT_App" | "Whish_App";
+        from_currency: "USD" | "LBP";
+        to_currency: "USD" | "LBP";
+        amount_in: number;
+        amount_out: number;
+        rate: number;
+        note: string | null;
+        created_by: number | null;
+        is_refunded: number;
+        refunded_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      error?: string;
+    }>;
+  };
+
   // Session
   session: {
     start: (data: {

@@ -1137,6 +1137,28 @@ export type ApiAdapter = {
     ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
   };
 
+  /** Wallet exchange — convert a provider wallet's OWN USD balance to LBP
+   *  (or vice versa), OMT App / Whish App only, never General. */
+  walletExchange: {
+    create: (data: {
+      drawerName: "OMT_App" | "Whish_App";
+      fromCurrency: "USD" | "LBP";
+      toCurrency: "USD" | "LBP";
+      amountIn: number;
+      rate: number;
+      note?: string;
+    }) => Promise<{
+      success: boolean;
+      id?: number;
+      amountOut?: number;
+      error?: string;
+    }>;
+    getHistory: (
+      drawerName?: "OMT_App" | "Whish_App",
+      limit?: number,
+    ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

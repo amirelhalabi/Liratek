@@ -13,6 +13,9 @@
  *    (the customer pays nothing; the per-currency payout legs are shown by
  *    the payment-legs subtext)
  *
+ * SUPPLIER_PAYMENT likewise spans both directions and is resolved from
+ * `metadata.counterparty.flow` / `metadata.direction` — see its case below.
+ *
  * PARTNER_SETTLEMENT / PARTNER_PAYMENT are unusual: unlike every other type,
  * their `amount_usd`/`amount_lbp` are SIGNED (positive = cash into the
  * drawer, negative = out) instead of encoding direction via the type — see
@@ -44,7 +47,6 @@ export function getCashFlowDirection(
     case "CUSTOM_SERVICE":
     case "MAINTENANCE":
     case "DEBT_REPAYMENT":
-    case "SUPPLIER_PAYMENT":
     case "MTC_TOPUP":
     case "ALFA_TOPUP":
     case "CREDIT_CASH_IN": // customer hands the shop cash for account credit
@@ -67,6 +69,37 @@ export function getCashFlowDirection(
         }
       }
       return "out";
+    }
+    // SUPPLIER_PAYMENT spans BOTH cash directions, so a fixed mapping is always
+    // wrong for half its rows: paying a supplier down empties the drawer
+    // (direction PAY → out) while a supplier paying us back fills it
+    // (RECEIVE → in). The pre-fix code returned "in" for every row, so a
+    // manual "paid to <supplier>" payment rendered a green ↓ next to its own
+    // "out: $2,000" payment-legs subtext (owner-reported 2026-07-28). Every
+    // producer already stamps the CQ-8 counterparty contract
+    // (SupplierRepository.recordSupplierCashflow — flow OUT for PAY, IN for
+    // RECEIVE — and both addLedgerEntry branches), so read that first;
+    // `metadata.direction` is the secondary read. Historical rows carrying
+    // neither keep the legacy "in" default. NOTE: `is_credit` rows (cashless
+    // supplier credit) never reach here — CashFlowBadge intercepts them with
+    // the amber "+" marker.
+    case "SUPPLIER_PAYMENT": {
+      if (metaJson) {
+        try {
+          const m = JSON.parse(metaJson) as {
+            direction?: string;
+            counterparty?: { flow?: "IN" | "OUT" };
+          };
+          const flow = m.counterparty?.flow;
+          if (flow === "OUT") return "out";
+          if (flow === "IN") return "in";
+          if (m.direction === "PAY") return "out";
+          if (m.direction === "RECEIVE") return "in";
+        } catch {
+          /* fall through to the legacy "in" default */
+        }
+      }
+      return "in";
     }
     case "PARTNER_SETTLEMENT":
     case "PARTNER_PAYMENT": {
@@ -133,6 +166,7 @@ export function getCashFlowDirection(
     case "DRAWER_CASHOUT": // owner's draw — cash physically leaves the General drawer
       return "out";
     case "EXCHANGE":
+    case "WALLET_EXCHANGE": // same-drawer USD<->LBP wallet conversion (OMT App / Whish App)
       return "both";
     default:
       return null;

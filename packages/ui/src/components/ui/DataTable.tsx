@@ -358,40 +358,39 @@ function DataTableInner<T>({
   }, []);
 
   /**
-   * Walk a React element tree and collect each `<td>` child's text content
-   * into an array of strings. Handles both plain `<tr>` elements and
+   * Walk a React element tree and collect each `<td>` child's text content,
+   * per `<tr>`. Handles both a plain `<tr>` element (one entry returned) and
    * Fragment-wrapped rows (e.g. expandable rows that return <>
    *   <tr>...</tr><tr>...</tr>
-   * </>). In the Fragment case only the first `<tr>` is used for export.
+   * </>) — every `<tr>` is exported, in order, not just the first (LIRA-067;
+   * a Fragment's extra `<tr>`s are how a row attaches printed detail lines
+   * beneath itself, e.g. TransactionsViewer's payment-leg breakdown).
    */
-  const extractCells = useCallback(
-    (element: React.ReactElement): string[] => {
-      // Find the target <tr>: if the element itself is a <tr>, use it directly.
-      // Otherwise (e.g. Fragment), look for the first <tr> among its children.
-      let tr: React.ReactElement | null = null;
+  const extractRowsCells = useCallback(
+    (element: React.ReactElement): string[][] => {
+      const trs: React.ReactElement[] = [];
       if (element.type === "tr") {
-        tr = element;
+        trs.push(element);
       } else {
         const { children } = element.props as { children?: React.ReactNode };
         React.Children.forEach(children, (child) => {
-          if (!tr && React.isValidElement(child) && child.type === "tr") {
-            tr = child;
+          if (React.isValidElement(child) && child.type === "tr") {
+            trs.push(child);
           }
         });
       }
-      if (!tr) return [];
 
-      const cells: string[] = [];
-      const { children } = (tr as React.ReactElement).props as {
-        children?: React.ReactNode;
-      };
-      React.Children.forEach(children, (child) => {
-        if (!React.isValidElement(child)) return;
-        if (child.type === "td") {
-          cells.push(extractText(child).trim());
-        }
+      return trs.map((tr) => {
+        const cells: string[] = [];
+        const { children } = tr.props as { children?: React.ReactNode };
+        React.Children.forEach(children, (child) => {
+          if (!React.isValidElement(child)) return;
+          if (child.type === "td") {
+            cells.push(extractText(child).trim());
+          }
+        });
+        return cells;
       });
-      return cells;
     },
     [extractText],
   );
@@ -542,8 +541,10 @@ function DataTableInner<T>({
       const rendered = rowRenderer(item, row.index);
       if (!rendered || !React.isValidElement(rendered)) continue;
 
-      const cells = extractCells(rendered as React.ReactElement);
-      rows.push(chosenIndices.map((idx) => cells[idx] ?? ""));
+      const cellRows = extractRowsCells(rendered as React.ReactElement);
+      for (const cells of cellRows) {
+        rows.push(chosenIndices.map((idx) => cells[idx] ?? ""));
+      }
     }
 
     return { headers, rows };
@@ -553,7 +554,7 @@ function DataTableInner<T>({
     table,
     renderRow,
     exportRow,
-    extractCells,
+    extractRowsCells,
   ]);
 
   const countLabel = showRowCount

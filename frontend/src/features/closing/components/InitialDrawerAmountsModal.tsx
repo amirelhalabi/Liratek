@@ -241,11 +241,16 @@ export function InitialDrawerAmountsModal({
                       </div>
                     ))}
                   </div>
-                  {addable.length > 0 && (
+                  {/* Add currency — General till only, same restriction as
+                      the setup wizard's StepDrawerAmounts (foreign cash
+                      lives in the physical register; provider drawers keep
+                      their fixed business currency). */}
+                  {drawer === "General" && addable.length > 0 && (
                     <div className="relative mt-2">
                       <Plus className="w-3 h-3 text-slate-500 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
                       <select
                         value=""
+                        data-testid={`initial-drawer-add-currency-${drawer}`}
                         onChange={(e) =>
                           handleAddCurrency(drawer, e.target.value)
                         }
