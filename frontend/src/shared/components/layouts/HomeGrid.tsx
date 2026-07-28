@@ -22,12 +22,14 @@ import {
   UserCheck,
   Handshake,
   Truck,
+  Star,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import { useSidebarFavorites } from "@/shared/hooks/useSidebarFavorites";
 
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -213,6 +215,13 @@ export default function HomeGrid() {
   const isAdmin = user?.role === "admin";
   const { enabledModules } = useModules();
   const { flags } = useFeatureFlags();
+  // Shared with the sidebar's press-and-hold favorites (same localStorage
+  // key, same route-string identity) so pinning a tile here and pinning the
+  // same page from the sidebar are ONE list, not two. Note: the hook reads
+  // localStorage once at mount (no storage-event/live sync), so a star
+  // toggled here won't visually reorder an already-mounted Sidebar until it
+  // next mounts — acceptable for this ticket, see useSidebarFavorites.ts.
+  const { toggleFavorite, isFavorite } = useSidebarFavorites();
 
   const [columns, setColumns] = useState(
     () => Number(localStorage.getItem("home_columns")) || 5,
@@ -278,25 +287,100 @@ export default function HomeGrid() {
       >
         {navItems.map((item) => {
           const accent = accentMap[routeToKey(item.to)] || defaultAccent;
+          const favorited = isFavorite(item.to);
+          const activate = () => {
+            if (item.action) {
+              item.action();
+            } else {
+              navigate(item.to);
+            }
+          };
           return (
-            <button
+            // Tile root is a div (role="button"), not a <button>, so the
+            // favorite star below can be a real nested <button> — a
+            // <button> inside a <button> is invalid HTML and would let
+            // clicks bubble into the tile's own activation handler.
+            <div
               key={item.to}
-              onClick={() => {
-                if (item.action) {
-                  item.action();
-                } else {
-                  navigate(item.to);
+              role="button"
+              tabIndex={0}
+              onClick={activate}
+              onKeyDown={(e) => {
+                // Defense-in-depth: only the tile's OWN keydown should
+                // activate navigation. A keydown that started on a nested
+                // control (the favorite star, or any future nested button)
+                // bubbles up to this handler too — without this guard,
+                // Enter/Space on the star would preventDefault() the whole
+                // dispatch (killing the star button's native click
+                // synthesis) and then navigate away instead of toggling the
+                // star. The star also stops propagation itself, so this is
+                // a second, independent line of defense.
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  activate();
                 }
               }}
               className={clsx(
-                "flex flex-col items-center justify-center gap-4 p-6 min-h-[8rem]",
+                "relative flex flex-col items-center justify-center gap-4 p-6 min-h-[8rem] cursor-pointer",
                 "bg-slate-800/60 backdrop-blur-sm border border-slate-700/50 border-t-2 rounded-xl",
                 "transition-all duration-200 hover:scale-[1.03] hover:shadow-lg active:scale-[0.98] group",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60",
                 accent.border,
                 accent.topBorder,
                 accent.shadow,
               )}
             >
+              <button
+                type="button"
+                onClick={(e) => {
+                  // Keep the star's toggle from also activating the tile.
+                  e.stopPropagation();
+                  toggleFavorite(item.to);
+                }}
+                onKeyDown={(e) => {
+                  // Keyboard equivalent of the onClick guard above. A
+                  // keydown's default action is tied to its ORIGINAL target
+                  // (this button) for the whole dispatch — if it bubbled up
+                  // uncancelled and the tile's onKeyDown called
+                  // preventDefault() to navigate, that preventDefault()
+                  // would also cancel this button's own native
+                  // Enter/Space-to-click synthesis, so toggleFavorite would
+                  // never run. Handle Enter/Space explicitly and
+                  // stopPropagation so the tile never sees this keydown at
+                  // all, and preventDefault so the browser doesn't ALSO fire
+                  // its native synthesized click (which would double-toggle).
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleFavorite(item.to);
+                  }
+                }}
+                title={
+                  favorited ? "Remove from favorites" : "Add to favorites"
+                }
+                aria-label={
+                  favorited ? "Remove from favorites" : "Add to favorites"
+                }
+                data-testid={`grid-favorite-${routeToKey(item.to)}`}
+                className={clsx(
+                  "absolute top-2 right-2 z-10 p-1.5 rounded-lg transition-opacity",
+                  "hover:bg-slate-700/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60",
+                  favorited
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                )}
+              >
+                <Star
+                  size={16}
+                  className={clsx(
+                    favorited
+                      ? "fill-amber-400 text-amber-400"
+                      : "text-slate-500 hover:text-slate-300",
+                  )}
+                />
+              </button>
+
               <div className={clsx("p-3 rounded-xl", accent.bg)}>
                 <item.icon
                   size={28}
@@ -306,7 +390,7 @@ export default function HomeGrid() {
               <span className="text-[0.8125rem] font-medium text-slate-300 group-hover:text-white transition-colors">
                 {item.label}
               </span>
-            </button>
+            </div>
           );
         })}
       </div>

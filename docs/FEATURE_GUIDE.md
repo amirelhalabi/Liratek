@@ -290,7 +290,15 @@ by cashPaid with no partner row (the margin exists only as a drawer delta) — l
   provider routing — the outstanding computation nets `'Refund Reversal'` rows
   (DebtRepository.serviceDebtRouting.test.ts).
 - Maintenance: an unpaid draft deletes cleanly (status change, no reversal row); a paid
-  job's delete is **blocked** — go through refund/void (lira-081).
+  job's delete is **blocked** while its transaction is still ACTIVE-and-unreversed — go
+  through refund/void (lira-081). Refund/void is the **unlock**, not a second lock: once
+  `maintenance.is_refunded` is set, both delete AND the amount-edit gate (`updateJob`)
+  re-open, because the historical transaction/payment/profit rows are frozen on
+  `transactions` and never re-read from `maintenance` (owner report 2026-07-28 — a
+  refunded job used to stay permanently locked, since `getBySourceId` still finds an
+  ACTIVE sibling/REFUND row for the same `source_id` even after refund/void; the real
+  gate is `jobHasActiveTransaction(id) && !is_refunded`, shared as
+  `MaintenanceRepository.isJobMoneyLocked`, mirrored on the frontend as `isAmountLocked`).
 - **LIRA-091 (DONE, 2026-07-21)**: voiding/refunding a FINANCIAL_SERVICE (or, generically,
   any source table) row now cascades to its auto supplier-ledger sibling.
   `supplier_ledger.source_ref_table`/`source_ref_id` (v136) back-links an `is_auto:1`

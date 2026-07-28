@@ -290,16 +290,80 @@ export default function Maintenance() {
 
   type Status = "Received" | "In_Progress" | "Ready" | "Delivered";
 
-  const handleSaveDraft = async () => {
+  /**
+   * Derive the "final amount" (price − discount) for a draft resave, in the
+   * job's currency. Reproduces exactly what `handleCheckoutComplete` stored
+   * at checkout time so an unchanged price+discount round-trips to the same
+   * stored value — required for the paid-job amount-immutability guard
+   * (MaintenanceRepository.updateJob) to pass on a notes-only edit.
+   *
+   * - USD: `discount_usd` is a real persisted column → final = price − discount_usd.
+   * - LBP: there is no `discount_lbp` column (checkout only ever wrote the
+   *   post-discount LBP total into `final_amount_lbp`) → the discount is
+   *   reconstructed as `price_lbp − final_amount_lbp` from the loaded job,
+   *   then reapplied to the (possibly edited) price.
+   */
+  const computeFinalAmount = (
+    job: MaintenanceJob | null,
+    priceStr: string,
+    cur: "USD" | "LBP",
+  ): number => {
+    const p = parseFloat(priceStr) || 0;
+    if (!job) return p; // new job — no discount to preserve
+    if (cur === "LBP") {
+      const priorPrice = job.price_lbp ?? 0;
+      const priorFinal = job.final_amount_lbp ?? priorPrice;
+      const discountLbp = priorPrice - priorFinal;
+      return Math.max(0, p - discountLbp);
+    }
+    const discountUsd = job.discount_usd ?? 0;
+    return Math.max(0, p - discountUsd);
+  };
+
+  /**
+   * Save a genuine draft: status stays out of the paid set
+   * (Received/In_Progress/Ready — never Delivered/Delivered_Paid),
+   * paid_usd/paid_lbp only ever carry forward the job's existing value
+   * (0 for a new job), and no `payments` key is sent — so
+   * MaintenanceService.saveJob's `isPaidStatus` gate stays false and
+   * processPayments never runs: no drawer posting, no debt, no unified
+   * transaction. This is the ONE draft implementation (CLAUDE.md rule 14) —
+   * both the page's own "Save as Draft" button and the CheckoutModal's
+   * "Save as Draft" button (wired below) call this; neither may reuse
+   * `handleCheckoutComplete`, which hardcodes a paid checkout.
+   *
+   * `clientOverride` carries the CheckoutModal's own client-search result
+   * (its search box is independent of this page's Client Name/Phone
+   * inputs) — mirrors how `handleCheckoutComplete` merges
+   * `paymentData.client_id`/`client_name`/`client_phone`. Omitted entirely
+   * when called from the page's own button.
+   */
+  const handleSaveDraft = async (clientOverride?: {
+    // Explicit `| undefined` on each: the frontend tsconfig sets
+    // exactOptionalPropertyTypes, so a caller passing a possibly-undefined
+    // value (CheckoutModal's optional client fields) into a bare `x?: T`
+    // is a compile error.
+    client_id?: number | null | undefined;
+    client_name?: string | undefined;
+    client_phone?: string | undefined;
+  }) => {
     await trySaveAsClient();
 
     const jobData = {
       ...(editingJob?.id != null ? { id: editingJob.id } : {}),
       device_name: deviceName,
       issue_description: issue,
-      ...buildPricing(cost, price, currency),
-      client_name: clientName,
-      client_phone: clientPhone,
+      ...buildPricing(
+        cost,
+        price,
+        currency,
+        computeFinalAmount(editingJob, price, currency),
+      ),
+      ...(clientOverride?.client_id != null
+        ? { client_id: clientOverride.client_id }
+        : {}),
+      client_name: clientOverride?.client_name || clientName,
+      client_phone: clientOverride?.client_phone || clientPhone,
       status: (editingJob?.status as Status) || "Received",
       paid_usd: editingJob?.paid_usd || 0,
       paid_lbp: editingJob?.paid_lbp || 0,
@@ -309,6 +373,7 @@ export default function Maintenance() {
 
     const result = await api.saveMaintenanceJob(jobData);
     if (result.success) {
+      setIsCheckoutOpen(false);
       handleNewJob();
       const data = await api.getMaintenanceJobs(filter);
       setJobs(data);
@@ -399,6 +464,26 @@ export default function Maintenance() {
   const activeTab =
     STATUS_TABS.find((t) => t.key === statusTab) ?? STATUS_TABS[0];
   const filteredJobs = jobs.filter((job) => activeTab.match(job.status));
+
+  // Client-side proxy for "this job has ever had a real drawer/debt payment
+  // recorded against it" (mirrors jobHasActiveTransaction's intent without an
+  // IPC round-trip — paid_usd/paid_lbp are never reset by a later void or
+  // refund, so this stays true forever once a job is paid, exactly like
+  // jobHasActiveTransaction does on the backend).
+  const hasMoneyHistory = Boolean(
+    (editingJob?.paid_usd ?? 0) > 0 || (editingJob?.paid_lbp ?? 0) > 0,
+  );
+  // Already refunded/voided (MaintenanceRepository._markSourceRefunded sets
+  // this identically for either path — the record doesn't distinguish which).
+  const isRefundedOrVoided = Boolean(editingJob?.is_refunded);
+  // UX-only; the repository guard is the source of truth. MUST mirror
+  // packages/core/src/repositories/MaintenanceRepository.ts's shared
+  // `isJobMoneyLocked` predicate (has an ACTIVE-and-unreversed transaction
+  // AND not `is_refunded`) — if that predicate changes, this one must change
+  // too (CLAUDE.md rule 14: one signal, not two). Used to disable the amount
+  // inputs before the user hits Save and gets
+  // MAINTENANCE_AMOUNT_EDIT_BLOCKED_ERROR.
+  const isAmountLocked = hasMoneyHistory && !isRefundedOrVoided;
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
@@ -606,8 +691,9 @@ export default function Maintenance() {
                       <button
                         key={cur}
                         type="button"
+                        disabled={isAmountLocked}
                         onClick={() => {
-                          if (cur === currency) return;
+                          if (cur === currency || isAmountLocked) return;
                           setCurrency(cur);
                           // One currency at a time — clear amounts on switch.
                           setCost("");
@@ -617,13 +703,24 @@ export default function Maintenance() {
                           currency === cur
                             ? "bg-violet-600 text-white"
                             : "text-slate-400 hover:text-slate-200"
-                        }`}
+                        } ${isAmountLocked ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
                         {cur}
                       </button>
                     ))}
                   </div>
                 </div>
+                {isAmountLocked && (
+                  <p className="text-[10px] text-amber-400 mb-1.5">
+                    Paid job — void or refund to change the amount
+                  </p>
+                )}
+                {hasMoneyHistory && isRefundedOrVoided && (
+                  <p className="text-[10px] text-sky-400 mb-1.5">
+                    This job was voided or refunded — amounts are editable
+                    again.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label
@@ -642,7 +739,8 @@ export default function Maintenance() {
                         id="maintenance-cost"
                         value={parseFloat(cost) || 0}
                         onChange={(n) => setCost(n ? String(n) : "")}
-                        className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500`}
+                        disabled={isAmountLocked}
+                        className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500 disabled:opacity-50 disabled:cursor-not-allowed`}
                         placeholder={currency === "USD" ? "0.00" : "0"}
                       />
                     </div>
@@ -664,7 +762,8 @@ export default function Maintenance() {
                         id="maintenance-price"
                         value={parseFloat(price) || 0}
                         onChange={(n) => setPrice(n ? String(n) : "")}
-                        className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500`}
+                        disabled={isAmountLocked}
+                        className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed`}
                         placeholder={currency === "USD" ? "0.00" : "0"}
                       />
                     </div>
@@ -720,7 +819,7 @@ export default function Maintenance() {
             {/* Action Buttons */}
             <div className="flex gap-3 mt-6">
               <button
-                onClick={handleSaveDraft}
+                onClick={() => handleSaveDraft()}
                 className="flex-1 py-3 rounded-xl font-bold text-slate-300 hover:text-white hover:bg-slate-700 transition-colors border border-slate-600"
               >
                 Save as Draft
@@ -747,7 +846,14 @@ export default function Maintenance() {
             onClose={() => setIsCheckoutOpen(false)}
             onComplete={handleCheckoutComplete}
             onSaveDraft={async (data) => {
-              await handleCheckoutComplete(data);
+              // A genuine draft — NOT a checkout. See handleSaveDraft's doc
+              // comment: this must never call handleCheckoutComplete, which
+              // hardcodes status "Delivered_Paid" and forwards payments.
+              await handleSaveDraft({
+                client_id: data.client_id,
+                client_name: data.client_name,
+                client_phone: data.client_phone,
+              });
             }}
             onRestoreDraftComplete={() => {}}
           />
