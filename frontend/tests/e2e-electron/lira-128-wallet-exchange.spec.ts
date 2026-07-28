@@ -68,10 +68,28 @@ async function drawers(page: Page) {
   });
 }
 
-/** Credit the OMT App wallet with real USD via a RECEIVE (mirrors
- *  lira-077's app-drawer-movement funding pattern) so the exchange has
- *  something to convert. */
-async function fundOmtAppWallet(page: Page, amountUsd: number) {
+/**
+ * Top the OMT App wallet's USD balance up to AT LEAST `minimum` via a
+ * RECEIVE (mirrors lira-077's app-drawer-movement funding pattern).
+ *
+ * A fixed top-up amount is NOT safe here: this is the shared, accumulating
+ * per-worker DB (CLAUDE.md rule 15) — dozens of other specs run OMT_APP
+ * SEND/RECEIVE scenarios before this file in a full-suite run, and can leave
+ * the wallet's own USD balance arbitrarily negative by the time this spec
+ * runs (found 2026-07-28: a full-suite run left OMT_App at roughly -227
+ * USD, so a flat "+200" top-up here landed at -27 — still short of the $50
+ * this test converts, so the exchange correctly hit the insufficient-funds
+ * guard and never moved). Reading the CURRENT balance first and topping up
+ * only the shortfall (+ buffer) guarantees the floor regardless of prior
+ * spec history.
+ */
+async function ensureOmtAppUsdBalance(page: Page, minimum: number) {
+  const current = (await drawers(page)).omtAppUsd;
+  const shortfall = minimum - current;
+  if (shortfall <= 0) return;
+  // +50 buffer beyond the requested floor so a concurrent/later top-up in
+  // this same test still has headroom.
+  const topUp = shortfall + 50;
   const res = await page.evaluate(
     (amount) =>
       (window as unknown as Api).api.omt.addTransaction({
@@ -82,7 +100,7 @@ async function fundOmtAppWallet(page: Page, amountUsd: number) {
         commission: 0,
         cashoutMethod: "CASH",
       }),
-    amountUsd,
+    topUp,
   );
   expect(res.error ?? null).toBeNull();
   expect(res.success).toBe(true);
@@ -112,7 +130,7 @@ test.describe("Wallet Exchange — OMT App / Whish App internal USD<->LBP", () =
   test("USD -> LBP: converts at the entered rate, wallet USD down / LBP up by exactly that amount, General untouched", async ({
     appPage,
   }) => {
-    await fundOmtAppWallet(appPage, 200);
+    await ensureOmtAppUsdBalance(appPage, 300);
 
     await navigateTo(appPage, "/recharge");
     await openOmtAppExchangeTab(appPage);
@@ -147,7 +165,7 @@ test.describe("Wallet Exchange — OMT App / Whish App internal USD<->LBP", () =
   test("swap direction (LBP -> USD): divides by the rate, wallet LBP down / USD up", async ({
     appPage,
   }) => {
-    await fundOmtAppWallet(appPage, 200);
+    await ensureOmtAppUsdBalance(appPage, 300);
 
     await navigateTo(appPage, "/recharge");
     await openOmtAppExchangeTab(appPage);
