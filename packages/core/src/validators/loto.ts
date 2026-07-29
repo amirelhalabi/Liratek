@@ -60,17 +60,23 @@ export const lotoCashPrizeSchema = z.object({
   note: z.string().optional(),
 });
 
-/** loto ticket update payload — sale/commission edits feed checkpoint
- *  settlement math, so malformed values must be rejected here. */
+/**
+ * Loto ticket update payload — METADATA ONLY.
+ *
+ * `sale_amount` / `commission_rate` / `commission_amount` / `is_winner` /
+ * `prize_amount` are deliberately NOT in this schema. Ticket voiding/refunding
+ * is now a real, reversible flow (TransactionRepository._reverseLotoSupplierLedger
+ * / _assertLotoTicketVoidable) — an in-place edit of those fields would
+ * silently desync the unified transaction, the supplier_ledger TOP_UP row, and
+ * (if checkpointed) the checkpoint's frozen totals with NO rule-20 reversal
+ * owner of its own, since this endpoint has no write path back into any of
+ * them. The sanctioned way to correct a sale/commission/prize amount is now
+ * void-then-resell (or a refund); this endpoint stays for the fields that
+ * carry no downstream money math (ticket_number, payment_method/currency
+ * bookkeeping, prize_paid_date, note).
+ */
 export const lotoTicketUpdateSchema = z.object({
   ticket_number: z.string().min(1).optional(),
-  sale_amount: z.number().positive().optional(),
-  commission_rate: z.number().nonnegative().optional(),
-  commission_amount: z.number().nonnegative().optional(),
-  // Boolean accepted for caller convenience; handlers normalize to 0/1
-  // (a .transform() here breaks validatePayload's generic inference).
-  is_winner: z.union([z.boolean(), z.number().int().min(0).max(1)]).optional(),
-  prize_amount: z.number().nonnegative().optional(),
   prize_paid_date: z.string().optional(),
   payment_method: z.string().optional(),
   currency: z.string().optional(),

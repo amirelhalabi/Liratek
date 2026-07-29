@@ -124,9 +124,18 @@ export type TransactionType =
  * Types that voidTransaction/refundTransaction must REFUSE (enforced in the
  * repository so no IPC caller can bypass it). Each would leave side effects
  * the generic reversal cannot undo — blocking beats corrupting:
- * - LOTO / LOTO_CASH_PRIZE: their supplier_ledger rows (ticket TOP_UP carries
- *   no transaction link) and checkpoint totals are never reversed, so the
- *   loto settle-to-zero reconciliation would break.
+ * - LOTO_CASH_PRIZE: its supplier_ledger row and checkpoint totals are never
+ *   reversed, so the loto settle-to-zero reconciliation would break.
+ *   (LOTO used to share this rationale — this ticket, 2026-07-28, moved it OUT
+ *   of this set: the ticket TOP_UP row DOES carry a transaction link
+ *   [CQ-7, a3d09e7, 2026-07-19 — `LotoTicketRepository.createTicket` writes it
+ *   via `addLedgerEntry({ transaction_id })`, link-mode, not an is_auto
+ *   sibling], so a dedicated owner is now possible:
+ *   `TransactionRepository._reverseLotoSupplierLedger` soft-voids that row and
+ *   delta-adjusts the ticket's checkpoint [if unsettled]; the up-front guard
+ *   `_assertLotoTicketVoidable` blocks a ticket whose checkpoint has already
+ *   settled, naming the settlement, since a settled checkpoint's frozen
+ *   totals cannot be safely adjusted after the fact.)
  * - LOTO_SETTLEMENT: checkpoint is_settled stamps stay in place, and the
  *   commission credit to General has no payments row to reverse.
  *   (SUPPLIER_SETTLEMENT used to share this rationale — LIRA-085,
@@ -148,7 +157,6 @@ export type TransactionType =
  */
 export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
   new Set<TransactionType>([
-    TRANSACTION_TYPES.LOTO,
     TRANSACTION_TYPES.LOTO_CASH_PRIZE,
     TRANSACTION_TYPES.LOTO_SETTLEMENT,
     TRANSACTION_TYPES.RECHARGE_TOPUP,

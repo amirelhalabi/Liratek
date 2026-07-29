@@ -992,6 +992,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // see the method doc for why cascading through a settled sibling is
     // blocked rather than silently corrupting the settlement's netted math.
     this._assertSupplierSiblingsVoidable(original);
+    // This ticket's own guard — refuse up-front if its checkpoint has already
+    // settled (see the method doc). No-op for every non-LOTO type.
+    this._assertLotoTicketVoidable(original);
     const tenantId = getCurrentTenantId();
     // A transaction that already has an ACTIVE REFUND reverser had its cash
     // reversed once — voiding it too would double-reverse the drawers.
@@ -1080,6 +1083,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // for every other type.
       this._reverseSupplierSettlement(original, userId);
 
+      // 5f. Rule 20 — if this transaction IS a LOTO ticket sale, soft-void
+      // its supplier_ledger TOP_UP row and delta-adjust its checkpoint (if
+      // still open). No-op for every other type; a settled checkpoint was
+      // already refused by _assertLotoTicketVoidable before this transaction
+      // opened.
+      this._reverseLotoSupplierLedger(original);
+
       // 6. If SALE: cancel sale, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
@@ -1146,6 +1156,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // LIRA-091: same up-front settled-sibling guard as voidTransaction — see
     // _assertSupplierSiblingsVoidable's doc.
     this._assertSupplierSiblingsVoidable(original);
+    // Same up-front settled-checkpoint guard as voidTransaction — see
+    // _assertLotoTicketVoidable's doc. No-op for every non-LOTO type.
+    this._assertLotoTicketVoidable(original);
     const tenantId = getCurrentTenantId();
 
     // Guard: prevent double-refund
@@ -1238,6 +1251,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4e. LIRA-085 — SUPPLIER_SETTLEMENT commission/ledger/fs-stamp
       // restore. See voidTransaction's identical step.
       this._reverseSupplierSettlement(original, userId);
+
+      // 4f. Rule 20 — LOTO ticket TOP_UP soft-void + checkpoint delta-adjust.
+      // See voidTransaction's identical step.
+      this._reverseLotoSupplierLedger(original);
 
       // 5. If SALE: mark sale & items as refunded, restore stock
       if (original.source_table === "sales" && original.source_id) {
@@ -2523,6 +2540,150 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           tenantId,
         );
       }
+    }
+  }
+
+  /**
+   * Refuse a LOTO ticket void/refund up-front (before any write) if the
+   * ticket's own checkpoint has already been SETTLED. `LotoCheckpointRepository
+   * .settleCheckpoint` freezes `total_sales`/`total_commission`/`total_tickets`/
+   * `total_prizes` into the settlement's net-to-zero math (`netSettlement =
+   * totalCommission (+ totalCashPrizes) - totalSales`, stamped verbatim onto
+   * the SETTLEMENT ledger row) — adjusting a ticket's contribution after that
+   * point would desync the checkpoint's frozen totals from a settlement
+   * that's already posted, and nothing in this repository can retroactively
+   * re-post it. Blocking beats corrupting (same philosophy as
+   * `_assertSupplierSiblingsVoidable`, LIRA-091) — the owner corrects a
+   * mis-settled ticket with a manual supplier adjustment instead.
+   *
+   * A ticket that was never checkpointed (`checkpoint_id IS NULL`), or is
+   * sitting in a checkpoint that hasn't settled yet, stays reversible —
+   * `_reverseLotoSupplierLedger` (below) delta-adjusts the still-open
+   * checkpoint's totals so ITS eventual settlement stays correct.
+   */
+  private _assertLotoTicketVoidable(original: TransactionEntity): void {
+    if (
+      original.type !== "LOTO" ||
+      original.source_table !== "loto_tickets" ||
+      original.source_id == null
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+    const row = this.queryOne<{
+      checkpoint_id: number | null;
+      is_settled: number | null;
+      settlement_id: number | null;
+      checkpoint_date: string | null;
+    }>(
+      `SELECT lc.id AS checkpoint_id, lc.is_settled, lc.settlement_id, lc.checkpoint_date
+         FROM loto_tickets lt
+         LEFT JOIN loto_checkpoints lc ON lc.id = lt.checkpoint_id AND lc.tenant_id = lt.tenant_id
+        WHERE lt.id = ? AND lt.tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    if (!row || row.checkpoint_id == null) return; // never checkpointed → reversible
+    if (row.is_settled) {
+      const when = row.checkpoint_date ? ` on ${row.checkpoint_date}` : "";
+      throw new DatabaseError(
+        `Cannot void/refund — this ticket's checkpoint #${row.checkpoint_id} has already been settled${when} (settlement #${row.settlement_id ?? "?"}); correct the supplier balance with a manual adjustment instead.`,
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /**
+   * Reversal owner (rule 20) for a LOTO ticket sale's `supplier_ledger`
+   * TOP_UP row — the one gap the generic void/refund path doesn't already
+   * cover for a ticket sale. Everything else a ticket writes is handled
+   * generically: `loto_tickets.is_refunded` by `_markSourceRefunded` (v68),
+   * the `payments`/drawer legs by `_reversePayments`, the 'Loto Debt'
+   * `debt_ledger` row by `_cancelDebt` (`MODULE_DEBT_TRANSACTION_TYPES`), and
+   * any FOR_LOTO `partner_ledger` row by `_reversePartnerLedger`. Only the
+   * TOP_UP row has no owner: `LotoTicketRepository.createTicket` (CQ-7,
+   * a3d09e7, 2026-07-19) writes it in LINK mode
+   * (`addLedgerEntry({ transaction_id: txnId })`), not as an
+   * `is_auto`/`source_ref_*` sibling, so it is invisible to both
+   * `_cascadeSupplierSiblingVoid` and `_assertSupplierSiblingsVoidable` (they
+   * only ever scan `is_auto = 1` rows).
+   *
+   * By the time this runs, `_assertLotoTicketVoidable` has already refused a
+   * settled checkpoint before `this.transaction()` even opened, so everything
+   * below only ever touches an uncheckpointed ticket or a still-open one.
+   *
+   * 1. Soft-void (house convention — see `_reverseSupplierSettlement` step 2)
+   *    the TOP_UP row keyed on `transaction_id = original.id`: the id
+   *    `createTicket` stamped it with at sale time, never the new reversal
+   *    row's id — the reversal row never gets a `supplier_ledger` row of its
+   *    own, so there is nothing here to mis-target. Re-entrancy is closed
+   *    upstream, not by this predicate: voiding an already-VOIDED row throws
+   *    before reaching this method, and `_assertReversible` refuses to
+   *    void/refund a row that already carries `reverses_id`, so the reversal
+   *    row itself can never reach `_reverseLotoSupplierLedger` a second time.
+   *    `COALESCE(is_refunded, 0) = 0` is belt-and-suspenders idempotency, the
+   *    same guard `_reverseSupplierSettlement` uses.
+   *
+   * 2. If the ticket sits in a checkpoint that hasn't settled (a settled one
+   *    was already blocked above), delta-adjust that checkpoint's frozen
+   *    totals by exactly this ticket's own contribution: `total_sales`,
+   *    `total_commission`, and `total_tickets` always; `total_prizes` only
+   *    when `is_winner = 1` — mirroring
+   *    `LotoTicketRepository.getUncheckpointedTotals`'s own
+   *    `CASE WHEN is_winner = 1 THEN prize_amount ELSE 0 END` so an unwon
+   *    ticket contributes (and so subtracts) 0. This keeps that checkpoint's
+   *    OWN future `settleCheckpoint` call — which trusts caller-supplied
+   *    totals verbatim — net-to-zero against the now-void ticket's balance
+   *    contribution. `total_cash_prizes`/`total_cash_prizes_count` are left
+   *    untouched: LOTO_CASH_PRIZE is a separate table/flow, out of scope here.
+   */
+  private _reverseLotoSupplierLedger(original: TransactionEntity): void {
+    if (
+      original.type !== "LOTO" ||
+      original.source_table !== "loto_tickets" ||
+      original.source_id == null
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+
+    // 1. Soft-void the link-mode TOP_UP row this ticket sale created.
+    this.execute(
+      `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+        WHERE transaction_id = ? AND entry_type = 'TOP_UP' AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
+      original.id,
+      tenantId,
+    );
+
+    // 2. Delta-adjust an unsettled checkpoint (a settled one was already
+    // blocked by _assertLotoTicketVoidable before this transaction opened).
+    const ticket = this.queryOne<{
+      checkpoint_id: number | null;
+      sale_amount: number;
+      commission_amount: number;
+      is_winner: number;
+      prize_amount: number;
+    }>(
+      `SELECT checkpoint_id, sale_amount, commission_amount, is_winner, prize_amount
+         FROM loto_tickets WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    if (ticket?.checkpoint_id != null) {
+      this.execute(
+        `UPDATE loto_checkpoints
+            SET total_sales = total_sales - ?,
+                total_commission = total_commission - ?,
+                total_tickets = total_tickets - 1,
+                total_prizes = total_prizes - ?,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND is_settled = 0 AND tenant_id = ?`,
+        ticket.sale_amount,
+        ticket.commission_amount,
+        ticket.is_winner ? ticket.prize_amount : 0,
+        ticket.checkpoint_id,
+        tenantId,
+      );
     }
   }
 

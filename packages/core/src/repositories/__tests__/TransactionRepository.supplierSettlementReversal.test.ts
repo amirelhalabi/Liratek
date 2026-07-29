@@ -260,15 +260,24 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
 
   // ── Pre-fix block, still true for anything NOT SUPPLIER_SETTLEMENT ──────
 
-  it("sanity: a still-NON_REVERSIBLE type (LOTO) is refused by _assertReversible", () => {
+  it("sanity: a still-NON_REVERSIBLE type (LOTO_CASH_PRIZE) is refused by _assertReversible", () => {
+    // LOTO (ticket sales) moved OUT of NON_REVERSIBLE_TRANSACTION_TYPES this
+    // ticket (2026-07-28) — TransactionRepository now owns a dedicated
+    // guard/reversal pair (_assertLotoTicketVoidable / _reverseLotoSupplierLedger),
+    // so a bare "LOTO" row no longer throws here. LOTO_CASH_PRIZE stays
+    // non-reversible (no reversal owner exists for its side effects), so it's
+    // the type that still exercises this sanity case — and _assertReversible
+    // throws for it BEFORE _assertLotoTicketVoidable would ever run (that
+    // guard only fires for type === "LOTO"), so this fixture (no
+    // loto_tickets/loto_checkpoints tables) never needs them.
     const txnId = txnRepo.createTransaction({
-      type: "LOTO",
-      source_table: "loto_tickets",
+      type: "LOTO_CASH_PRIZE",
+      source_table: "loto_cash_prizes",
       source_id: 1,
       user_id: 1,
       amount_usd: 10,
       amount_lbp: 0,
-      summary: "Loto ticket",
+      summary: "Loto cash prize payout",
       metadata_json: {},
     });
     expect(() => txnRepo.voidTransaction(txnId, 1)).toThrow(

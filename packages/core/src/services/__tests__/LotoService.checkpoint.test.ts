@@ -30,6 +30,10 @@ describe("LotoService Checkpoint Functionality", () => {
         checkpoint_id INTEGER,
         edited_by TEXT,
         edited_at TEXT,
+        -- v68 added is_refunded/refunded_at to loto_tickets in production; this
+        -- fixture predated the loto aggregates gaining their notRefunded() filter.
+        is_refunded INTEGER DEFAULT 0,
+        refunded_at TEXT DEFAULT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );

@@ -10,6 +10,7 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
+import { notRefunded } from "./ProfitRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   isDrawerAffectingMethod,
@@ -43,6 +44,11 @@ export interface LotoTicket {
   checkpoint_id: number | null;
   client_id: number | null;
   client_name: string | null;
+  /** Soft-void flag set by the generic reversal (`_markSourceRefunded`) when
+   *  this ticket's sale transaction is voided/refunded. Legacy rows may be
+   *  NULL — always read through `COALESCE(is_refunded, 0)` (see `notRefunded`). */
+  is_refunded?: number | null;
+  refunded_at?: string | null;
   created_at: string;
   updated_at: string;
   edited_by: string | null;
@@ -428,6 +434,10 @@ export class LotoTicketRepository {
     return createInTxn();
   }
 
+  // Not is_refunded-filtered by design: a direct id lookup must still resolve
+  // a reversed ticket (the void/refund reversal path itself reads the ticket
+  // by id to compute checkpoint deltas, and callers displaying a single
+  // ticket need to see its refunded state, not a 404).
   getTicketById(id: number): LotoTicket | null {
     const stmt = this.db.prepare(`
       SELECT * FROM loto_tickets WHERE id = ? AND tenant_id = ?
@@ -435,6 +445,10 @@ export class LotoTicketRepository {
     return stmt.get(id, getCurrentTenantId()) as LotoTicket | null;
   }
 
+  // Not is_refunded-filtered by design: this feeds the ticket HISTORY table
+  // (`loto:get-by-date-range`), where a reversed ticket should still be
+  // visible (with its is_refunded flag) rather than silently disappearing —
+  // unlike the dashboard aggregates below, this is a record, not a running total.
   getTicketsByDateRange(from: string, to: string): LotoTicket[] {
     const stmt = this.db.prepare(`
       SELECT * FROM loto_tickets
@@ -508,10 +522,16 @@ export class LotoTicketRepository {
   // Aggregations
   // ===========================================================================
 
+  // Dashboard/settlement aggregates below all exclude reversed tickets — a
+  // void/refund soft-flags `is_refunded` on this row (`_markSourceRefunded`)
+  // but leaves the row in place, so without this filter a reversed sale keeps
+  // counting toward reported sales/commission/prizes forever (rule 14: shared
+  // `notRefunded` fragment from ProfitRepository, not a pasted predicate).
   getTotalSales(from: string, to: string): number {
     const stmt = this.db.prepare(`
-      SELECT COALESCE(SUM(sale_amount), 0) as total FROM loto_tickets
+      SELECT COALESCE(SUM(sale_amount), 0) as total FROM loto_tickets lt
       WHERE date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
+        AND ${notRefunded("lt")}
     `);
     const result = stmt.get(from, to, getCurrentTenantId()) as {
       total: number;
@@ -521,8 +541,9 @@ export class LotoTicketRepository {
 
   getTotalCommission(from: string, to: string): number {
     const stmt = this.db.prepare(`
-      SELECT COALESCE(SUM(commission_amount), 0) as total FROM loto_tickets
+      SELECT COALESCE(SUM(commission_amount), 0) as total FROM loto_tickets lt
       WHERE date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
+        AND ${notRefunded("lt")}
     `);
     const result = stmt.get(from, to, getCurrentTenantId()) as {
       total: number;
@@ -532,8 +553,9 @@ export class LotoTicketRepository {
 
   getTotalPrizes(from: string, to: string): number {
     const stmt = this.db.prepare(`
-      SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_tickets
+      SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_tickets lt
       WHERE is_winner = 1 AND date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
+        AND ${notRefunded("lt")}
     `);
     const result = stmt.get(from, to, getCurrentTenantId()) as {
       total: number;
@@ -543,8 +565,9 @@ export class LotoTicketRepository {
 
   getOutstandingPrizes(): number {
     const stmt = this.db.prepare(`
-      SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_tickets
+      SELECT COALESCE(SUM(prize_amount), 0) as total FROM loto_tickets lt
       WHERE is_winner = 1 AND (prize_paid_date IS NULL OR prize_paid_date = '') AND tenant_id = ?
+        AND ${notRefunded("lt")}
     `);
     const result = stmt.get(getCurrentTenantId()) as { total: number };
     return result.total;
@@ -552,8 +575,9 @@ export class LotoTicketRepository {
 
   getTicketCount(from: string, to: string): number {
     const stmt = this.db.prepare(`
-      SELECT COUNT(*) as count FROM loto_tickets
+      SELECT COUNT(*) as count FROM loto_tickets lt
       WHERE date(sale_date) BETWEEN date(?) AND date(?) AND tenant_id = ?
+        AND ${notRefunded("lt")}
     `);
     const result = stmt.get(from, to, getCurrentTenantId()) as {
       count: number;
@@ -567,11 +591,18 @@ export class LotoTicketRepository {
 
   /**
    * Get all tickets that have not been assigned to a checkpoint yet.
+   *
+   * Excludes reversed tickets (rule 14, shared `notRefunded` fragment) — this
+   * feeds the checkpoint-creation sweep (`LotoService.createCheckpoint` →
+   * `assignToCheckpoint`), so a voided/refunded ticket must NEVER be swept
+   * into a new checkpoint's frozen totals. Without this filter, reversing a
+   * ticket would be cosmetic: it still gets checkpointed and later settled.
    */
   getUncheckpointedTickets(): LotoTicket[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM loto_tickets
+      SELECT * FROM loto_tickets lt
       WHERE checkpoint_id IS NULL AND tenant_id = ?
+        AND ${notRefunded("lt")}
       ORDER BY sale_date DESC, id DESC
     `);
     return stmt.all(getCurrentTenantId()) as LotoTicket[];
@@ -604,6 +635,12 @@ export class LotoTicketRepository {
 
   /**
    * Get aggregated totals for uncheckpointed tickets only.
+   *
+   * Excludes reversed tickets (rule 14, shared `notRefunded` fragment) — same
+   * checkpoint-sweep gate as `getUncheckpointedTickets` above; these totals
+   * are frozen onto the new checkpoint row verbatim, so a refunded ticket
+   * counted here would permanently pollute that checkpoint's settle-to-zero
+   * math even though its supplier-ledger row was separately soft-voided.
    */
   getUncheckpointedTotals(): {
     count: number;
@@ -617,8 +654,9 @@ export class LotoTicketRepository {
         COALESCE(SUM(sale_amount), 0) as totalSales,
         COALESCE(SUM(commission_amount), 0) as totalCommission,
         COALESCE(SUM(CASE WHEN is_winner = 1 THEN prize_amount ELSE 0 END), 0) as totalPrizes
-      FROM loto_tickets
+      FROM loto_tickets lt
       WHERE checkpoint_id IS NULL AND tenant_id = ?
+        AND ${notRefunded("lt")}
     `);
     return stmt.get(getCurrentTenantId()) as {
       count: number;

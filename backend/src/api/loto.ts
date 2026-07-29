@@ -546,19 +546,12 @@ router.put("/:id", (req, res) => {
       res.json({ success: false, error: v.error });
       return;
     }
-    // Normalize is_winner (schema accepts boolean; the column is 0/1) —
-    // mirrors the loto:update IPC handler exactly.
-    const { is_winner, ...rest } = v.data;
-    const update = {
-      ...rest,
-      ...(is_winner !== undefined
-        ? {
-            is_winner:
-              typeof is_winner === "boolean" ? (is_winner ? 1 : 0) : is_winner,
-          }
-        : {}),
-    };
-    const ticket = getLotoService().updateTicket(id, update);
+    // Metadata-only passthrough — sale_amount/commission_rate/
+    // commission_amount/is_winner/prize_amount are no longer accepted here
+    // (see lotoTicketUpdateSchema's doc comment); void/refund is the
+    // sanctioned correction path for those now. Mirrors the loto:update IPC
+    // handler exactly.
+    const ticket = getLotoService().updateTicket(id, v.data);
     res.json({ success: true, ticket });
   } catch (error) {
     fail(res, error, "Failed to update ticket");

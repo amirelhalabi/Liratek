@@ -325,6 +325,17 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   "PARTNER_SETTLEMENT",
   "PARTNER_PAYMENT",
   "SUPPLIER_SETTLEMENT",
+  // Ticket sale (LOTO): reversible until its checkpoint is settled —
+  // TransactionRepository now owns a dedicated guard/reversal pair
+  // (_assertLotoTicketVoidable / _reverseLotoSupplierLedger) that blocks a
+  // settled-checkpoint ticket with a named-settlement error and, for an
+  // unsettled/uncheckpointed ticket, soft-voids the link-mode supplier_ledger
+  // TOP_UP row and delta-adjusts the checkpoint's frozen totals. That
+  // repository guard is the real gate; this entry only controls button
+  // visibility. LOTO_CASH_PRIZE and LOTO_SETTLEMENT stay OUT of scope (no
+  // reversal owner exists for either) — see core's
+  // NON_REVERSIBLE_TRANSACTION_TYPES.
+  "LOTO",
 ]);
 
 /** Service transactions that can (re)print a detailed receipt (RCP-3). POS

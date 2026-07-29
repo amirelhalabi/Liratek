@@ -315,7 +315,7 @@ function salePaidOrPartnerSettled(alias: string): string {
  * revenue AND profit forever, because the REFUND/VOID reversal transaction row
  * never enters the module joins (they join on the module's own type).
  */
-function notRefunded(alias: string): string {
+export function notRefunded(alias: string): string {
   return `COALESCE(${alias}.is_refunded, 0) = 0`;
 }
 

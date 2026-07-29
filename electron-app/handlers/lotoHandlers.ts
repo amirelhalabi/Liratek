@@ -125,24 +125,12 @@ export function registerLotoHandlers(): void {
       const dataV = validatePayload(LotoTicketUpdateSchema, data);
       if (!dataV.ok) return { success: false, error: dataV.error };
 
-      // Normalize is_winner (schema accepts boolean; the column is 0/1).
-      const { is_winner, ...rest } = dataV.data;
-      const update = {
-        ...rest,
-        ...(is_winner !== undefined
-          ? {
-              is_winner:
-                typeof is_winner === "boolean"
-                  ? is_winner
-                    ? 1
-                    : 0
-                  : is_winner,
-            }
-          : {}),
-      };
-
+      // Metadata-only passthrough — sale_amount/commission_rate/
+      // commission_amount/is_winner/prize_amount are no longer accepted here
+      // (see lotoTicketUpdateSchema's doc comment); void/refund is the
+      // sanctioned correction path for those now.
       const service = getLotoServiceInstance();
-      const ticket = service.updateTicket(idV.data, update);
+      const ticket = service.updateTicket(idV.data, dataV.data);
       audit(e.sender.id, {
         action: "update",
         entity_type: "loto_ticket",

@@ -8,14 +8,17 @@
  * a "for partner" transaction, so no counter cash is ever taken; the
  * partner owes the full amount, settled later on the Partners page.
  *
- * UNLIKE lira-113 (POS), there is NO void step: LOTO is in
- * NON_REVERSIBLE_TRANSACTION_TYPES (packages/core/src/constants/transactionTypes.ts),
- * so TransactionRepository.voidTransaction/refundTransaction THROW before
- * ever reaching a partner-ledger reversal for a LOTO transaction — there is
- * no loto void path to exercise. The FOR_LOTO row's reversal owner is
- * partner settlement, exactly like the pre-existing non-reversible
- * 'Loto Debt' row (rule 20 is satisfied because the type is already gated
- * non-reversible).
+ * UNLIKE lira-113 (POS), this spec has no void step — but note the REASON
+ * changed on 2026-07-29 and this spec was NOT extended to cover it: LOTO used
+ * to be in NON_REVERSIBLE_TRANSACTION_TYPES, so a void THREW before ever
+ * reaching a partner-ledger reversal. LOTO ticket sales are now REVERSIBLE
+ * (TransactionRepository._reverseLotoSupplierLedger + the
+ * _assertLotoTicketVoidable guard, which blocks only once the ticket's
+ * checkpoint is settled), and the generic _reversePartnerLedger already nets a
+ * FOR_LOTO row on void/refund — that path is covered by
+ * LotoTicketReversal.test.ts's for-partner case, not here. This spec stays
+ * scoped to the create-side booking; partner settlement remains the
+ * non-void correction route it exercises.
  *
  * Money invariants under guard (rule 15 — deltas + identity only):
  *   - Happy path: a partner ticket with NO payment legs books the FULL

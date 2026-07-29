@@ -302,7 +302,7 @@ describe("supplier-payment void/refund reversal", () => {
     expect(row.is_refunded).toBe(1);
   });
 
-  it("gates non-reversible types: LOTO / RECHARGE_TOPUP / REFUND throw", () => {
+  it("gates non-reversible types: LOTO_CASH_PRIZE / RECHARGE_TOPUP / REFUND throw", () => {
     const insertTxn = (type: string): number =>
       Number(
         db
@@ -318,12 +318,16 @@ describe("supplier-payment void/refund reversal", () => {
     // (TransactionRepository._reverseSupplierSettlement). See
     // TransactionRepository.supplierSettlementReversal.test.ts for its
     // create+reverse+nets-to-0 coverage.
-    for (const type of [
-      "LOTO",
-      "LOTO_CASH_PRIZE",
-      "RECHARGE_TOPUP",
-      "REFUND",
-    ]) {
+    //
+    // 2026-07-28: LOTO (ticket sales) moved OUT of this set too — a dedicated
+    // guard/reversal pair now owns it (_assertLotoTicketVoidable /
+    // _reverseLotoSupplierLedger, see TransactionRepository.ts), gated on
+    // source_table === "loto_tickets" (this fixture's insertTxn uses a bare
+    // "x" source_table, so even a "LOTO" row here would no longer throw —
+    // it's dropped rather than kept, to avoid asserting a false negative).
+    // LOTO_CASH_PRIZE has no reversal owner and stays non-reversible, so it
+    // keeps this loop's "still-gated Loto type" coverage.
+    for (const type of ["LOTO_CASH_PRIZE", "RECHARGE_TOPUP", "REFUND"]) {
       const id = insertTxn(type);
       // Pre-fix: both calls happily reversed the drawers.
       expect(() => txns.voidTransaction(id, 1)).toThrow(/cannot be voided/);

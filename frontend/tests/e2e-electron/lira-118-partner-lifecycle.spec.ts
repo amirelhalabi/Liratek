@@ -20,8 +20,9 @@
  * fail against):
  *   - POS sale for partner books the FULL sale price (lira-113/114).
  *   - Recharge (MTC/Alfa) for partner books the FULL price (lira-115).
- *   - Loto ticket for partner books the FULL sale_amount, LBP only, and has
- *     NO void path (LOTO is in NON_REVERSIBLE_TRANSACTION_TYPES) (lira-116).
+ *   - Loto ticket for partner books the FULL sale_amount, LBP only (lira-116).
+ *     (Its "no void path" note is stale as of 2026-07-29 — LOTO ticket sales
+ *     are now reversible until their checkpoint settles; see lira-116's header.)
  *   - Manual ledger entries (partners:record-transaction) and settlement
  *     (partners:settle) are exercised directly against the ledger here for
  *     the first time in an e2e spec.
