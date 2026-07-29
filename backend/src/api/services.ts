@@ -1,5 +1,5 @@
 import express from "express";
-import { authenticateJWT } from "../middleware/auth.js";
+import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import {
   getFinancialService,
@@ -48,8 +48,14 @@ router.get("/analytics", (_req, res): void => {
 });
 
 // POST /api/services/transactions - Add transaction
+// Role-parity with the desktop IPC handler (electron-app/handlers/omtHandlers.ts
+// requires ["admin", "staff"] via requireRole before validating/writing) — this
+// route previously had no role check at all, so any authenticated web user
+// (any role) could post a financial-service transaction the desktop app
+// restricts to admin/staff.
 router.post(
   "/transactions",
+  requireRole(["admin", "staff"]),
   validateRequest(createFinancialServiceSchema),
   async (req, res): Promise<void> => {
     try {
