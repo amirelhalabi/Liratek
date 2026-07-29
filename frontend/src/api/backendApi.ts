@@ -1519,7 +1519,8 @@ export async function settleTransactions(data: {
   amount_lbp: number;
   commission_usd: number;
   commission_lbp: number;
-  drawer_name: string;
+  /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
+  drawer_name?: string;
   note?: string;
   payments?: Array<{
     method: string;

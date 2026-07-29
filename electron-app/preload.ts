@@ -363,6 +363,13 @@ contextBridge.exposeInMainWorld("api", {
       split_group?: string;
       split_role?: "carrier" | "sibling";
       split_units?: number;
+      /** Rule 12: the repository reads these (FinancialServiceRepository
+       *  folds them into the drawer credit and the profit stamp), and
+       *  electron.d.ts already declared them — this type was the only link
+       *  in the chain missing them. Overpayment the customer chose to leave
+       *  with the shop rather than take back as change. */
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
     }) => ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),
@@ -491,7 +498,8 @@ contextBridge.exposeInMainWorld("api", {
       amount_lbp: number;
       commission_usd: number;
       commission_lbp: number;
-      drawer_name: string;
+      /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
+      drawer_name?: string;
       note?: string;
       payments?: Array<{
         method: string;

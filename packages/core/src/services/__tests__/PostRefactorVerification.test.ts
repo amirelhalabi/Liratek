@@ -1246,8 +1246,10 @@ describe("Post-Refactor Verification", () => {
       expect(paymentRows.length).toBeGreaterThan(0);
     });
 
-    it("OMT drawer balance is credited on OMT SEND (client pays cash, OMT_System receives)", () => {
-      // Pre-fund OMT_System with $1000
+    it("OMT_System float is DEBITED on OMT SEND (the send spends the shop's float down)", () => {
+      // Pre-fund the OMT float with $1000 — money the shop holds INSIDE the
+      // OMT system, which a SEND spends down (owner-confirmed model, 2026-07-29:
+      // "a send spends my balance down").
       db.prepare(
         `UPDATE drawer_balances SET balance = 1000 WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'`,
       ).run();
@@ -1262,13 +1264,21 @@ describe("Post-Refactor Verification", () => {
         paidByMethod: "CASH",
       });
 
-      // OMT_System balance increases — client paid cash to send money via OMT
+      // Float model: system −x. x = 200 and no provider fee is passed here
+      // (`commission` is the shop's CUT c, a different quantity from the
+      // customer-facing fee f, and c never touches a drawer at transaction
+      // time), so the float lands at exactly 1000 − 200 = 800.
+      //
+      // Pre-fix this asserted `> 1000`: the old code CREDITED the system drawer
+      // +(x+fee), treating it as "what we owe OMT" rather than as a float the
+      // shop holds. That inversion is the bug this whole change closes — a $200
+      // send used to read as $1200 of float when the real balance was $800.
       const balance = db
         .prepare(
           "SELECT balance FROM drawer_balances WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'",
         )
         .get() as { balance: number };
-      expect(balance.balance).toBeGreaterThan(1000);
+      expect(balance.balance).toBeCloseTo(800, 2);
     });
   });
 

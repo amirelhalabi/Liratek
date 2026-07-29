@@ -282,7 +282,13 @@ describe("ServiceStoreCreditReversal — CUSTOMER_ACCOUNT credit rows get a name
     const txnId = txnIdFor(db, fsId);
 
     expect(clientBalance(db, CLIENT_ID)).toEqual({ usd: -100, lbp: 0 });
-    expect(drawer(db, "OMT_System", "USD")).toBeCloseTo(omtBefore - 100, 2);
+    // float model: RECEIVE fills the float back UP by the bare principal
+    // (+receiveAmount), unconditionally — including CUSTOMER_ACCOUNT
+    // cashouts, which only skip the payout DRAWER debit, not the system
+    // posting. The old model drew the float DOWN by totalOwed here.
+    // TODO(rule-17): prove failing-first — flip the sign back to
+    // `omtBefore - 100` to make this red again.
+    expect(drawer(db, "OMT_System", "USD")).toBeCloseTo(omtBefore + 100, 2);
 
     txnRepo.voidTransaction(txnId, 1);
 

@@ -1,41 +1,40 @@
 /**
- * OMT/WHISH SYSTEM SEND/RECEIVE — fee-arithmetic CHARACTERIZATION
+ * OMT/WHISH SYSTEM SEND/RECEIVE — FLOAT-MODEL GUARD (rewritten from a
+ * diagnostic characterization into a real guard, per the owner's confirmed
+ * domain model, 2026-07-29):
  *
- * NOT A GUARD TEST. Its only job is to print what the code ACTUALLY does
- * today for the fee matrix described in the owner's bug report, so the
- * owner can compare real numbers against the report without any of us
- * "fixing" or resolving the ambiguity in the report first.
+ *   "I can put money into OMT at setup, and I can also not pre-fund. A SEND
+ *    spends my balance down, a RECEIVE gives me credit I can immediately
+ *    use for future sends — I don't have to wait for OMT to pay me or
+ *    settle. OMT tracks what each of us owes and we settle periodically,
+ *    but I can spend a received amount normally."
  *
- * Owner's report (verbatim, scope = bare OMT/WHISH SYSTEM provider, NOT
- * OMT_APP/WHISH_APP which have a separate fee contract per lira-101):
+ * Therefore OMT_System/Whish_System is a SPENDABLE FLOAT (SEND draws it
+ * down, RECEIVE fills it up, may go negative), and the periodic settlement
+ * with the provider covers ONLY the fee split (f − c), never the
+ * principal — the principal already moved through the float.
  *
- *   RECEIVE, fee NOT included:
- *     - Increase payment-drawer by fees (paid by customer)
- *     - Decrease out payment drawer by x (how we pay the customer)
- *     - Increase omt system by x (received by shop omt account)
- *   RECEIVE, fee edge case (fee included in received amount):
- *     - Increase payment drawer by fees
- *     - Decrease general drawer by x-fees
- *     - Increase omt system by x
- *   "The issue is that it's decreasing x+fees from BOTH drawers."
+ * Notation: x = principal, f = customer-facing fee, c = the shop's
+ * commission (its cut of f; c ≤ f).
  *
- *   SEND, fee NOT included:
- *     - Increase payment drawer by x+fees
- *     - Decrease omt system by x
- *   SEND, fee edge case (fee included):
- *     - Increase payment drawer by x
- *     - Decrease omt system drawer by x-fee
+ * Target drawer table (owner-specified):
+ *   SEND,    fee on top   : payment +(x+f)   system −x        Σ +f
+ *   SEND,    fee included : payment +x       system −(x−f)    Σ +f
+ *   RECEIVE, fee on top   : payment +f, payout −x   system +x  Σ +f
+ *   RECEIVE, fee included : payout −(x−f)           system +x  Σ +f
  *
- * Ambiguity flag (NOT resolved here, per instructions): the RECEIVE
- * fee-included edge case says BOTH "increase payment drawer by fees" AND
- * "decrease general drawer by x-fees" — if "payment drawer" and "general
- * drawer" are the same physical drawer, that already double-counts the fee
- * in the owner's own model, before any code is considered. No code path
- * implements a RECEIVE fee-included flag at all (see CASE 2 below) — the
- * only way to test the owner's convention today is for an operator to type
- * a gross figure into the single `amount` field, which is what CASE 2 does.
+ * The invariant every case below asserts:
+ *   Σ(drawer deltas) − Δ(supplier_ledger owed) = c + kept_change
+ * (extended to include the debt_ledger receivable for the
+ * CUSTOMER_ACCOUNT-funded SEND case, where the "payment" leg is a
+ * receivable instead of a drawer credit — see assertInvariant's
+ * `debtDeltaUsd` param.)
  *
- * All cases: USD, x = 100 (the transfer/service value), fee = 5.
+ * FAILING-FIRST (rule 17): every case here was run against the pre-fix
+ * repository (RESERVE/TRANSFER cash-reserve model, gross-amount supplier
+ * ledger, no RECEIVE fee) and FAILED with the old (broken) numbers quoted
+ * in each case's comment, then passed after the fix — see the task's final
+ * report for both captured outputs.
  */
 
 import Database from "better-sqlite3";
@@ -70,11 +69,6 @@ jest.mock("../../services/DebtService", () => ({
 }));
 
 // ─── In-memory schema — every table the SYSTEM path touches ──────────────────
-// (mirrors FinancialServiceRepository.appWalletTransfer.test.ts /
-// .crossCurrencyTender.test.ts fixtures, plus currencies/currency_drawers
-// per the task's instruction — NOT actually queried by this code path,
-// since every call below passes an explicit exchangeRate, but included for
-// schema completeness.)
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -255,7 +249,7 @@ function createTestDb(): Database.Database {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- Included per task instructions; NOT queried on this code path since
+    -- Included for schema completeness; NOT queried on this code path since
     -- every call below passes an explicit exchangeRate (getUsdLbpSellRate,
     -- the only reader, is short-circuited by the ?? operator).
     CREATE TABLE currencies (
@@ -309,9 +303,23 @@ function supplierLedgerSumUsd(db: Database.Database, provider: string): number {
   return row.total;
 }
 
+function debtLedgerSumUsd(db: Database.Database): number {
+  const row = db
+    .prepare(`SELECT COALESCE(SUM(amount_usd), 0) as total FROM debt_ledger`)
+    .get() as { total: number };
+  return row.total;
+}
+
+function rowCount(db: Database.Database, table: string): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) as c FROM ${table}`)
+    .get() as { c: number };
+  return row.c;
+}
+
 // Drawers snapshotted for every case (union of everything the map says the
 // system path can touch: General, the *_System reserve drawer, and the
-// app-wallet drawers a split payout can silently also hit).
+// app-wallet drawers a split payout/payment can also hit).
 const DRAWERS: Array<[string, string]> = [
   ["General", "USD"],
   ["OMT_System", "USD"],
@@ -321,6 +329,7 @@ const DRAWERS: Array<[string, string]> = [
 interface Snapshot {
   drawers: Record<string, number>;
   supplierUsd: number;
+  debtUsd: number;
 }
 
 function snapshot(db: Database.Database): Snapshot {
@@ -328,33 +337,46 @@ function snapshot(db: Database.Database): Snapshot {
   for (const [name, currency] of DRAWERS) {
     drawers[`${name}_${currency}`] = balance(db, name, currency);
   }
-  return { drawers, supplierUsd: supplierLedgerSumUsd(db, "OMT") };
+  return {
+    drawers,
+    supplierUsd: supplierLedgerSumUsd(db, "OMT"),
+    debtUsd: debtLedgerSumUsd(db),
+  };
 }
 
-function printDeltaReport(
-  title: string,
+function drawerDelta(before: Snapshot, after: Snapshot, key: string): number {
+  return after.drawers[key] - before.drawers[key];
+}
+
+function drawerDeltaSum(before: Snapshot, after: Snapshot): number {
+  let sum = 0;
+  for (const [name, currency] of DRAWERS) {
+    sum += drawerDelta(before, after, `${name}_${currency}`);
+  }
+  return sum;
+}
+
+/**
+ * The owner's invariant: Σ(drawer deltas) − Δ(supplier_ledger owed) =
+ * c + kept_change. `debtDeltaUsd` extends Σ to include the debt_ledger
+ * receivable for CUSTOMER_ACCOUNT-funded legs, where the "payment" leg is a
+ * receivable instead of a drawer credit (no drawer moves at all, so the
+ * bare drawer-delta sum alone would be missing the customer's side of the
+ * transaction entirely).
+ */
+function assertInvariant(
   before: Snapshot,
   after: Snapshot,
-  expectationNote: string,
+  opts: { commission: number; keptChange?: number; debtDeltaUsd?: number },
 ): void {
-  const lines: string[] = [title];
-  for (const [name, currency] of DRAWERS) {
-    const key = `${name}_${currency}`;
-    const delta = after.drawers[key] - before.drawers[key];
-    lines.push(
-      `  ${name} (${currency}): ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}`,
-    );
-  }
-  const supplierDelta = after.supplierUsd - before.supplierUsd;
-  lines.push(
-    `  supplier_ledger (OMT, USD sum): ${supplierDelta >= 0 ? "+" : ""}${supplierDelta.toFixed(2)}`,
-  );
-  lines.push(`  ${expectationNote}`);
-  // eslint-disable-next-line no-console
-  console.log(lines.join("\n"));
+  const sigma = drawerDeltaSum(before, after) + (opts.debtDeltaUsd ?? 0);
+  const owedDelta = after.supplierUsd - before.supplierUsd;
+  const lhs = sigma - owedDelta;
+  const rhs = opts.commission + (opts.keptChange ?? 0);
+  expect(lhs).toBeCloseTo(rhs, 5);
 }
 
-describe("OMT SYSTEM fee characterization (diagnostic — not a guard)", () => {
+describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only supplier ledger)", () => {
   let db: Database.Database;
   let repo: FinancialServiceRepository;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -377,76 +399,77 @@ describe("OMT SYSTEM fee characterization (diagnostic — not a guard)", () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 1 — RECEIVE, fee NOT included, single CASH leg
+  // CASE 1 — RECEIVE, fee ON TOP, single CASH leg (x=100, f=5, c=1)
+  // Pre-fix: General -105.10 (=-(x+commission)), OMT_System +105.10 — the
+  // "decreasing x+fees from BOTH drawers" bug the owner reported, plus no
+  // fee leg at all (RECEIVE had no fee field).
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 1 — RECEIVE fee-not-included, single leg (x=100, fee=5)", () => {
+  it("CASE 1 — RECEIVE fee-on-top, single leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
-    const result = repo.createTransaction({
+    repo.createTransaction({
       provider: "OMT",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 5,
+      commission: 1,
+      omtFee: 5,
       cashoutMethod: "CASH",
       exchangeRate: 90000,
     });
 
     const after = snapshot(db);
-    printDeltaReport(
-      "CASE 1 — RECEIVE fee-not-included, single leg (x=100, fee=5)",
-      before,
-      after,
-      "owner expects: General -100, OMT_System +100 (increase)",
-    );
 
-    expect(result.id).toBeGreaterThan(0);
+    // Fee leg (+f) and payout (-x) both hit General for a CASH cashout.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-95, 5); // +5 (fee) - 100 (payout)
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // +x (bare principal)
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c = 5 - 1
+    assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 2 — RECEIVE, fee "included" attempt. No `includingFees`/back-calc
-  // path exists for RECEIVE anywhere in the repo or the frontend (hardcoded
-  // false) — the ONLY way an operator could apply the SEND-style "fee
-  // included" convention is by typing the gross (x+fee=105) into the single
-  // `amount` field, since there is no second field to carry the fee
-  // separately from the payout. This case characterizes exactly that.
+  // CASE 2 — RECEIVE, fee INCLUDED, single CASH leg (x=100, f=5, c=1).
+  // Pre-fix: includingFees was NEVER read for RECEIVE at all (no field
+  // existed) — this whole mode is NEW.
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 2 — RECEIVE fee-'included' attempt, single leg (operator enters gross amount=105, fee=5)", () => {
+  it("CASE 2 — RECEIVE fee-included, single leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
-    const result = repo.createTransaction({
+    repo.createTransaction({
       provider: "OMT",
       serviceType: "RECEIVE",
-      amount: 105, // operator's only way to "include" the fee: type the gross figure
+      amount: 100,
       currency: "USD",
-      commission: 5,
+      commission: 1,
+      omtFee: 5,
+      includingFees: true,
       cashoutMethod: "CASH",
       exchangeRate: 90000,
     });
 
     const after = snapshot(db);
-    printDeltaReport(
-      "CASE 2 — RECEIVE fee-'included' attempt, single leg (amount=105, fee=5)",
-      before,
-      after,
-      "owner expects (edge case): General -(x-fee)=-95, OMT_System +100 — NO CODE PATH implements this",
-    );
 
-    expect(result.id).toBeGreaterThan(0);
+    // No separate fee leg — the payout is netted: -(x-f) = -95.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-95, 5);
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // +x, unaffected by fee mode
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 3 — SEND, fee NOT included, single CASH leg
+  // CASE 3 — SEND, fee ON TOP, single CASH leg (x=100, f=5, c=1).
+  // Pre-fix: General net 0 (the RESERVE row zeroed the customer's cash back
+  // out), OMT_System +105 (gross reserve, wrong sign for a float).
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 3 — SEND fee-not-included, single leg (x=100, fee=5)", () => {
+  it("CASE 3 — SEND fee-on-top, single leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
-    const result = repo.createTransaction({
+    repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
       amount: 100,
       currency: "USD",
-      commission: 5,
+      commission: 1,
       omtFee: 5,
       paidByMethod: "CASH",
       includingFees: false,
@@ -454,30 +477,27 @@ describe("OMT SYSTEM fee characterization (diagnostic — not a guard)", () => {
     });
 
     const after = snapshot(db);
-    printDeltaReport(
-      "CASE 3 — SEND fee-not-included, single leg (x=100, fee=5)",
-      before,
-      after,
-      "owner expects: General +(x+fee)=+105, OMT_System -100 (decrease)",
-    );
 
-    expect(result.id).toBeGreaterThan(0);
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(105, 5); // +(x+f) — cash STAYS
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5); // -x
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 4 — SEND, fee INCLUDED, single CASH leg. Identical amount/fee to
-  // CASE 3 — only `includingFees` differs, to isolate whether the flag
-  // changes ANYTHING.
+  // CASE 4 — SEND, fee INCLUDED, single CASH leg (x=100, f=5, c=1). Same
+  // inputs as CASE 3 except includingFees — isolates whether the flag
+  // changes anything (pre-fix: it did NOT — identical numbers to CASE 3).
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 4 — SEND fee-included, single leg (x=100, fee=5) — same inputs as CASE 3 except includingFees:true", () => {
+  it("CASE 4 — SEND fee-included, single leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
-    const result = repo.createTransaction({
+    repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
       amount: 100,
       currency: "USD",
-      commission: 5,
+      commission: 1,
       omtFee: 5,
       paidByMethod: "CASH",
       includingFees: true,
@@ -485,31 +505,26 @@ describe("OMT SYSTEM fee characterization (diagnostic — not a guard)", () => {
     });
 
     const after = snapshot(db);
-    printDeltaReport(
-      "CASE 4 — SEND fee-included, single leg (x=100, fee=5)",
-      before,
-      after,
-      "owner expects (edge case): General +x=+100, OMT_System -(x-fee)=-95",
-    );
 
-    expect(result.id).toBeGreaterThan(0);
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(100, 5); // +x (gross, nothing added)
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // -(x-f)
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 5 — RECEIVE, fee NOT included, SPLIT payout: CASH 60 + OMT wallet
-  // 40 (sum = 100 = receiveAmount, the contract reconcileLegs enforces for
-  // a RECEIVE cashout — commission is excluded from what the legs must sum
-  // to).
+  // CASE 5 — RECEIVE, fee = 0, SPLIT payout: CASH 60 + OMT wallet 40
+  // (x=100, c=1). Isolates split-leg payout behavior from the fee.
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 5 — RECEIVE fee-not-included, SPLIT payout: CASH 60 + OMT wallet 40 (x=100, fee=5)", () => {
+  it("CASE 5 — RECEIVE fee=0, SPLIT payout: CASH 60 + OMT wallet 40 (x=100, c=1)", () => {
     const before = snapshot(db);
 
-    const result = repo.createTransaction({
+    repo.createTransaction({
       provider: "OMT",
       serviceType: "RECEIVE",
       amount: 100,
       currency: "USD",
-      commission: 5,
+      commission: 1,
       cashoutMethod: "CASH",
       payments: [
         { method: "CASH", currencyCode: "USD", amount: 60 },
@@ -519,30 +534,31 @@ describe("OMT SYSTEM fee characterization (diagnostic — not a guard)", () => {
     });
 
     const after = snapshot(db);
-    printDeltaReport(
-      "CASE 5 — RECEIVE fee-not-included, SPLIT payout: CASH 60 + OMT wallet 40 (x=100, fee=5)",
-      before,
-      after,
-      "owner's model only names ONE payout drawer; split legs also hit OMT_App per paymentMethodToDrawerName(leg.method)",
-    );
 
-    expect(result.id).toBeGreaterThan(0);
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-60, 5);
+    expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(-40, 5);
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // +x
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-1, 5); // f(0) - c(1)
+    assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 6 — SEND, fee NOT included, SPLIT payment: CASH 60 + OMT wallet 45
-  // (sum = 105 = totalCustomerPays). This is the mixed cash+non-cash split
-  // the code map's §6 flagged as a real (different-polarity) double-count.
+  // CASE 6 — SEND, fee ON TOP, SPLIT payment: CASH 60 + OMT wallet 45
+  // (sum = 105 = totalCustomerPays; x=100, f=5, c=1). THE double-count case:
+  // pre-fix, isPaidByNonCash (any-leg-non-cash) skipped the cash leg's
+  // reserve while the system drawer still credited the FULL gross,
+  // producing General +60 (never reserved) AND OMT_System +105 (unreduced)
+  // — a genuine extra +60 nowhere accounted for.
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 6 — SEND fee-not-included, SPLIT payment: CASH 60 + OMT wallet 45 (x=100, fee=5)", () => {
+  it("CASE 6 — SEND fee-on-top, SPLIT payment: CASH 60 + OMT wallet 45 (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
-    const result = repo.createTransaction({
+    repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
       amount: 100,
       currency: "USD",
-      commission: 5,
+      commission: 1,
       omtFee: 5,
       payments: [
         { method: "CASH", currencyCode: "USD", amount: 60 },
@@ -552,13 +568,121 @@ describe("OMT SYSTEM fee characterization (diagnostic — not a guard)", () => {
     });
 
     const after = snapshot(db);
-    printDeltaReport(
-      "CASE 6 — SEND fee-not-included, SPLIT payment: CASH 60 + OMT wallet 45 (x=100, fee=5)",
-      before,
-      after,
-      "single-leg CASE 3 reserves the cash leg back out of General; check whether the split case does too",
-    );
 
-    expect(result.id).toBeGreaterThan(0);
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(60, 5);
+    expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(45, 5);
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5); // -x, NOT -100+leftover
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    assertInvariant(before, after, { commission: 1 });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CASE 7 — CUSTOMER_ACCOUNT-funded SEND (x=100, f=5, c=1). Orchestrator
+  // default: the float draws down IMMEDIATELY — no gate on funding. Pre-fix:
+  // systemDrawerCredit was forced to 0 for a single on-account payment (the
+  // float never moved even though the transfer physically happened).
+  // ═══════════════════════════════════════════════════════════════════════
+  it("CASE 7 — SEND CUSTOMER_ACCOUNT-funded, float draws immediately (x=100, f=5, c=1)", () => {
+    const before = snapshot(db);
+
+    repo.createTransaction({
+      provider: "OMT",
+      serviceType: "SEND",
+      amount: 100,
+      currency: "USD",
+      commission: 1,
+      omtFee: 5,
+      paidByMethod: "CUSTOMER_ACCOUNT",
+      clientName: "Test Client",
+      phoneNumber: "70000000",
+      includingFees: false,
+      exchangeRate: 90000,
+    });
+
+    const after = snapshot(db);
+
+    // No drawer moves for the customer's side — it's a receivable, not cash.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
+    // The float still draws down by the full principal, immediately.
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5);
+    // debt_ledger carries the full customer-owed total (x + f = 105).
+    expect(after.debtUsd - before.debtUsd).toBeCloseTo(105, 5);
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+
+    // Extended invariant: the debt receivable stands in for the missing
+    // drawer credit (no drawer moved for the customer's payment at all).
+    assertInvariant(before, after, {
+      commission: 1,
+      debtDeltaUsd: after.debtUsd - before.debtUsd,
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CASE 8 — REJECTED: walk-in transaction on the SECONDARY provider
+  // (WHISH, when shop_base_system = OMT) with no partnerId. Pre-fix: this
+  // silently skipped the supplier-ledger entry (skipSecondarySupplierLedger)
+  // and booked NOTHING anywhere — the obligation vanished into no ledger at
+  // all. Orchestrator default: reject outright.
+  // ═══════════════════════════════════════════════════════════════════════
+  it("CASE 8 — REJECTED: walk-in WHISH SEND with no partnerId writes nothing", () => {
+    const before = snapshot(db);
+    const fsCountBefore = rowCount(db, "financial_services");
+    const txnCountBefore = rowCount(db, "transactions");
+    const paymentsCountBefore = rowCount(db, "payments");
+
+    expect(() =>
+      repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "SEND",
+        amount: 50,
+        currency: "USD",
+        commission: 0,
+        paidByMethod: "CASH",
+        exchangeRate: 90000,
+      }),
+    ).toThrow(/secondary system/i);
+
+    const after = snapshot(db);
+    expect(rowCount(db, "financial_services")).toBe(fsCountBefore);
+    expect(rowCount(db, "transactions")).toBe(txnCountBefore);
+    expect(rowCount(db, "payments")).toBe(paymentsCountBefore);
+    expect(after.drawers).toEqual(before.drawers);
+  });
+
+  it("CASE 8b — REJECTED: walk-in WHISH RECEIVE with no partnerId writes nothing (symmetric)", () => {
+    const before = snapshot(db);
+    const fsCountBefore = rowCount(db, "financial_services");
+
+    expect(() =>
+      repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 50,
+        currency: "USD",
+        commission: 0,
+        cashoutMethod: "CASH",
+        exchangeRate: 90000,
+      }),
+    ).toThrow(/secondary system/i);
+
+    const after = snapshot(db);
+    expect(rowCount(db, "financial_services")).toBe(fsCountBefore);
+    expect(after.drawers).toEqual(before.drawers);
+  });
+
+  it("does NOT reject a THROUGH-partner WHISH SEND (partnerId set)", () => {
+    db.prepare(`INSERT INTO partners (name) VALUES ('Test Partner')`).run();
+
+    expect(() =>
+      repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "SEND",
+        amount: 50,
+        currency: "USD",
+        commission: 0,
+        partnerId: 1,
+        exchangeRate: 90000,
+      }),
+    ).not.toThrow();
   });
 });

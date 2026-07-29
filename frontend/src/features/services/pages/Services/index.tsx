@@ -336,7 +336,9 @@ export default function Services() {
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   const isSplitPayment = paymentLines.length > 1;
-  const [includingFees, setIncludingFees] = useState<boolean>(false); // For SEND: amount includes fees
+  // Direction-agnostic (float model, owner-confirmed 2026-07-29): SEND nets
+  // the fee out of what the customer pays; RECEIVE nets it out of the payout.
+  const [includingFees, setIncludingFees] = useState<boolean>(false);
 
   // History modal
   const [showHistory, setShowHistory] = useState(false);
@@ -524,6 +526,22 @@ export default function Services() {
       setReceiverPhone("");
     }
   }, [activeSession, serviceType, loadData]);
+
+  // Float model (owner-confirmed 2026-07-29): the RECEIVE fee UI is hidden
+  // inside an active session (the basket path doesn't wire a RECEIVE fee leg
+  // through yet — FinancialServiceRepository skips it under deferPayment).
+  // Hiding the inputs alone isn't enough — a fee typed BEFORE a session
+  // started, or before switching into RECEIVE, would otherwise sit in state
+  // invisibly and still ride along into the cart payload. Clear it the
+  // instant the combination becomes inapplicable so what's on screen always
+  // matches what will be submitted.
+  useEffect(() => {
+    if (activeSession && serviceType === "RECEIVE") {
+      setOmtFee("");
+      setWhishFee("");
+      setIncludingFees(false);
+    }
+  }, [activeSession, serviceType]);
 
   // Ref to track if we should auto-submit after voice command
   const shouldAutoSubmitRef = useRef(false);
@@ -829,7 +847,11 @@ export default function Services() {
         ...(resolvedWhishFee != null ? { whishFee: resolvedWhishFee } : {}),
         ...(payFee ? { payFee: true } : {}),
         ...(binanceSupplier ? { itemKey: binanceSupplier } : {}),
-        includingFees: serviceType === "SEND" ? includingFees : false,
+        // Float model (owner-confirmed 2026-07-29): includingFees is
+        // direction-agnostic — SEND nets it out of what the customer pays,
+        // RECEIVE nets it out of the payout. No serviceType gate here
+        // matches the (already direction-agnostic) core validator/repo.
+        includingFees,
         // S1 — never gate legs on split: forward the full leg set whenever
         // ANY payment line exists (a single-line payment still carries the
         // tender's amount + currency the backend needs). This matches the
@@ -1253,6 +1275,19 @@ export default function Services() {
                           setSenderName("");
                           setSenderPhone("");
                         }
+                        // Float model (owner-confirmed 2026-07-29): omtFee/
+                        // whishFee/includingFees now drive a REAL money leg on
+                        // a RECEIVE too (not just SEND). Without this reset, a
+                        // fee typed while on SEND silently rode along into a
+                        // RECEIVE payload the fee UI never showed the operator
+                        // (Suspected Bug B) — clear the whole fee section on
+                        // every SEND↔RECEIVE / OMT↔WHISH switch so the
+                        // operator always sees exactly what they're about to
+                        // submit.
+                        setOmtFee("");
+                        setWhishFee("");
+                        setIncludingFees(false);
+                        setOmtServiceType("INTRA" as OmtServiceType);
                       }}
                       className={`flex-1 py-3 font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-1.5 border-r border-slate-700/40 last:border-r-0 ${
                         isDisabled
@@ -1418,9 +1453,16 @@ export default function Services() {
                 </div>
               </div>
 
-              {/* Including Fees Checkbox (SEND only - OMT only, WHISH has no fees per LIRA-023) */}
-              {serviceType === "SEND" &&
-                provider !== "WHISH" &&
+              {/* Including Fees Checkbox — OMT only, WHISH has no fees per
+                  LIRA-023. Float model (owner-confirmed 2026-07-29): a
+                  RECEIVE can carry a customer-facing fee exactly like SEND,
+                  so this block now renders for BOTH directions with
+                  direction-specific arithmetic copy. RECEIVE fee entry is
+                  suppressed inside an active session/basket — the basket
+                  path doesn't wire a RECEIVE fee leg through yet
+                  (FinancialServiceRepository skips it under deferPayment). */}
+              {provider !== "WHISH" &&
+                !(serviceType === "RECEIVE" && activeSession) &&
                 (() => {
                   const amtVal = parseFloat(amount) || 0;
                   const autoFee =
@@ -1441,8 +1483,9 @@ export default function Services() {
                       : null;
                   const feeVal = userEnteredFee ?? autoFee ?? 0;
 
-                  // PM fee for breakdown display — use the live user-entered value
-                  const showPmFee = pmFeeApplies;
+                  // PM fee for breakdown display — SEND-only concept (a
+                  // wallet-payment surcharge); always 0 on RECEIVE.
+                  const showPmFee = serviceType === "SEND" && pmFeeApplies;
                   const pmFeeDisplay = showPmFee
                     ? parseFloat(pmFeeAmount) || 0
                     : 0;
@@ -1452,10 +1495,11 @@ export default function Services() {
                       ? pmFeeDisplay / amtVal
                       : PM_FEE_DEFAULT_RATE;
 
-                  // includingFees + PM fee: back-calculate sentAmount
+                  // includingFees + PM fee: back-calculate sentAmount (SEND only)
                   let breakdownSent = amtVal;
                   let breakdownPmFee = pmFeeDisplay;
                   if (
+                    serviceType === "SEND" &&
                     includingFees &&
                     feeVal > 0 &&
                     showPmFee &&
@@ -1499,7 +1543,11 @@ export default function Services() {
                         );
                       }
                     }
-                  } else if (includingFees && feeVal > 0) {
+                  } else if (
+                    serviceType === "SEND" &&
+                    includingFees &&
+                    feeVal > 0
+                  ) {
                     if (currency === "LBP" && omtServiceType === "INTRA") {
                       const lbpFee = lookupIntraLbpFee(amtVal) ?? feeVal;
                       breakdownSent = amtVal - lbpFee;
@@ -1508,6 +1556,16 @@ export default function Services() {
                     }
                     breakdownPmFee = 0;
                   }
+
+                  // RECEIVE: payout is the amount the shop hands the customer
+                  // in cash. fee-on-top → full amount (fee is a SEPARATE
+                  // customer-paid-in leg, matching FinancialServiceRepository's
+                  // "receive fee leg" booking); fee-included → amount net of
+                  // fee (mirrors the repo's payoutAmount = max(0, x - f)).
+                  const receivePayout =
+                    includingFees && feeVal > 0
+                      ? Math.max(0, amtVal - feeVal)
+                      : amtVal;
 
                   // Format helpers for LBP vs USD
                   const fmtAmt = (v: number) =>
@@ -1520,15 +1578,18 @@ export default function Services() {
                       <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
                         <input
                           type="checkbox"
+                          data-testid="service-including-fees-toggle"
                           checked={includingFees}
                           onChange={(e) => setIncludingFees(e.target.checked)}
                           className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
                         />
                         <span className="text-sm font-medium">
-                          Fee included in amount
+                          {serviceType === "RECEIVE"
+                            ? "Fee included in payout"
+                            : "Fee included in amount"}
                         </span>
                       </label>
-                      {amtVal > 0 && feeVal > 0 && (
+                      {amtVal > 0 && feeVal > 0 && serviceType === "SEND" && (
                         <div className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2">
                           {includingFees ? (
                             <>
@@ -1595,13 +1656,69 @@ export default function Services() {
                           )}
                         </div>
                       )}
+                      {/* RECEIVE: two SEPARATE cash movements in opposite
+                          directions — the operator must see both before
+                          confirming (customer receives x in cash AND, on
+                          fee-on-top, hands back f separately). */}
+                      {amtVal > 0 &&
+                        feeVal > 0 &&
+                        serviceType === "RECEIVE" && (
+                          <div
+                            data-testid="service-receive-fee-breakdown"
+                            className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2"
+                          >
+                            {includingFees ? (
+                              <>
+                                <p className="text-slate-400">
+                                  Requested amount:{" "}
+                                  <span className="text-white font-mono font-medium">
+                                    {fmtAmt(amtVal)}
+                                  </span>
+                                </p>
+                                <p className="text-slate-400">
+                                  {feeLabel} (deducted):{" "}
+                                  <span className="text-amber-400 font-mono font-medium">
+                                    -{fmtAmt(feeVal)}
+                                  </span>
+                                </p>
+                                <p className="text-slate-400">
+                                  Customer receives (net):{" "}
+                                  <span className="text-emerald-400 font-mono font-medium">
+                                    {fmtAmt(receivePayout)}
+                                  </span>
+                                </p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="text-slate-400">
+                                  Customer receives:{" "}
+                                  <span className="text-emerald-400 font-mono font-medium">
+                                    {fmtAmt(amtVal)}
+                                  </span>{" "}
+                                  in cash
+                                </p>
+                                <p className="text-slate-400">
+                                  Customer pays {feeLabel} (separately):{" "}
+                                  <span className="text-amber-400 font-mono font-medium">
+                                    +{fmtAmt(feeVal)}
+                                  </span>
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        )}
                     </div>
                   );
                 })()}
 
-              {/* OMT Fee Input — shown for all OMT SEND types except WALLET and ONLINE_BROKERAGE */}
+              {/* OMT Fee Input — shown for all OMT SEND/RECEIVE types except
+                  WALLET and ONLINE_BROKERAGE. Float model (owner-confirmed
+                  2026-07-29): the fee is direction-agnostic, so this is no
+                  longer SEND-only — see the "Including Fees Checkbox" block
+                  above for why RECEIVE is suppressed inside an active
+                  session/basket. */}
               {provider === "OMT" &&
-                serviceType === "SEND" &&
+                !(serviceType === "RECEIVE" && activeSession) &&
                 omtServiceType &&
                 omtServiceType !== "OMT_WALLET" &&
                 omtServiceType !== "ONLINE_BROKERAGE" &&
@@ -1635,6 +1752,7 @@ export default function Services() {
                         )}
                         <DecimalInput
                           id="service-omt-fee"
+                          data-testid="service-omt-fee-input"
                           value={parseFloat(omtFee) || 0}
                           onChange={(n) => setOmtFee(n ? String(n) : "")}
                           className={INPUT_CLASS + (isLbp ? "" : " pl-8")}
@@ -1869,12 +1987,30 @@ export default function Services() {
                       // On SEND:
                       // - includingFees=false: customer pays amount + fee on top
                       // - includingFees=true: fee is already inside amount, customer pays just amount
+                      // On RECEIVE (float model, owner-confirmed 2026-07-29)
+                      // this sheet books the shop's PAYOUT to the customer —
+                      // the fee-on-top leg is a separate customer-paid-IN
+                      // amount FinancialServiceRepository books itself, never
+                      // part of these payout legs:
+                      // - includingFees=false (fee on top): payout is the
+                      //   full requested amount — the fee never touches this
+                      //   sheet.
+                      // - includingFees=true (fee included): payout is netted
+                      //   down by the fee, mirroring the repository's
+                      //   payoutAmount = max(0, receiveAmount - fee) so the
+                      //   legs entered here reconcile against exactly what
+                      //   the backend expects to pay out.
                       amount:
                         serviceType === "SEND"
                           ? includingFees
                             ? parseFloat(amount) || 0
                             : (parseFloat(amount) || 0) + renderProviderFee
-                          : parseFloat(amount) || 0,
+                          : includingFees
+                            ? Math.max(
+                                0,
+                                (parseFloat(amount) || 0) - renderProviderFee,
+                              )
+                            : parseFloat(amount) || 0,
                       // The toggle denominates BOTH the amount and
                       // renderProviderFee (LBP fee table for LBP INTRA), so the
                       // sum is entirely in the entry currency. Hardcoding USD
@@ -1914,6 +2050,19 @@ export default function Services() {
                   showPmFee={multiPmFeeApplies}
                   pmFeeRate={PM_FEE_DEFAULT_RATE}
                   onPmFeesChange={setMultiPmFees}
+                  // Deliberately SEND-only (not a leftover hardcode): this
+                  // prop drives MultiPaymentInput's OWN built-in breakdown,
+                  // hardcoded inside that shared component as "Send Amount" /
+                  // "Provider Fee" / "Subtotal" — labels that are simply
+                  // wrong for a RECEIVE payout (nothing is being "sent" by
+                  // the shop here). Editing that component's copy is out of
+                  // this lane's owned files (packages/ui components, as
+                  // opposed to packages/ui/src/api/types.ts). The RECEIVE
+                  // fee arithmetic is instead shown with correct, explicit
+                  // copy in the "Including Fees Checkbox" block above
+                  // (data-testid="service-receive-fee-breakdown"), and the
+                  // payout total this sheet reconciles against is already
+                  // fee-netted via `totals` above.
                   providerFee={
                     serviceType === "SEND" && !includingFees
                       ? renderProviderFee

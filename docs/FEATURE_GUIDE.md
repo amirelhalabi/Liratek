@@ -229,10 +229,36 @@ wallets (`OMT_App`, `Whish_App`, `Binance`), plus the base-system drawer (e.g. O
 | Rule                          | Detail                                                                                                                                                                          | Guarded by              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
 | App-wallet movement           | SEND: app wallet −, General + · RECEIVE: app wallet +, General −. Binance is the reference implementation.                                                                      | lira-077                |
-| System drawer can go negative | A RECEIVE leaves the system drawer negative by the transfer amount (provider owes shop).                                                                                        | lira-074                |
+| System drawer is a spendable float (float model, 2026-07-29) | `OMT_System`/`Whish_System` holds the principal `x` the shop keeps **inside the provider's own system** — it is not a settlement holding pen. SEND draws it down (`−x`, or `−(x−f)` when the customer's fee is already included in what they handed over); RECEIVE fills it up (`+x`, bare principal — the fee never touches this leg, see §8). A CUSTOMER_ACCOUNT-funded SEND still draws it down **immediately**, since the transfer physically happened even though the shop collects the cash later. **It MAY go negative, by design**: that means the shop sent out more than it had put into the float and is temporarily spending the provider's money — an overdraft, not an error. The periodic fee-settlement in §8 does NOT clear it; only a real top-up or another RECEIVE does. Do not "fix" a negative balance back to zero — that was the job of the old (wrong) gross-reserve model this replaced. | `OmtSystemFeeCharacterization.test.ts` |
 | SMS cost                      | MTC/Alfa credit transfer debits provider drawer by amount **+ SMS cost** = `ceil(amount/3) × $0.16`; converted to LBP for LBP transfers.                                        | recharge.spec, lira-090 |
 | Currency of payment           | Book what the customer actually paid — an LBP-priced ticket paid in USD credits General **USD**, no phantom LBP.                                                                | lira-082                |
 | Read APIs                     | `dashboard.getDrawerBalances()` → general/omt only. `recharge.getDrawerBalances()` → all drawers, name-keyed. `closing.getSystemExpectedBalancesDynamic()` → expected balances. | fixtures/specs          |
+
+> **Float-model migration status as of 2026-07-30.** All core-jest specs listed here as
+> stale in an earlier draft of this box (`crossCurrencyTender`, `legReconciliation`,
+> `sessionCashoutGuard`, `partner`, `receiveSplitPayout`, `supplierLedgerAmount`) HAVE been
+> migrated to the float-model numbers, along with `PostRefactorVerification`, `saleCost` and
+> `CounterpartyMetadataContract` (three files no enumeration caught — they surfaced only when
+> the suite was actually run). The RECEIVE customer-fee UI now exists: `Services/index.tsx`
+> passes `includingFees` unconditionally and sends `omtFee`/`whishFee` on RECEIVE, so the
+> `serviceType === "SEND" ? includingFees : false` hardcode that suppressed it is gone.
+>
+> **Executed:** `packages/core` jest 1190/1190 (112 suites), `yarn typecheck` clean across all
+> workspaces, `scripts/check-tenant-scoping.mjs` 0 violations / 629 statements.
+> **NOT executed:** desktop e2e, web e2e (incl. the new
+> `frontend/tests/e2e-web/lira-web-016-omt-system-float-fee.spec.ts`), frontend/backend jest,
+> `yarn lint`. Desktop e2e needs the Electron better-sqlite3 ABI; the numbers above were
+> produced under the Node ABI.
+>
+> **Rule 17 debt — read this before trusting a guard here.** Most float-model assertions were
+> hand-derived from the target table rather than proven failing-first, because that pass ran
+> under a no-execution constraint. Every such guard carries a `// TODO(rule-17)` comment
+> naming exactly what to break to make it red. A guard that has never failed proves nothing —
+> clear that debt before treating this section as fully guarded.
+>
+> **Cutover:** the owner settles all OMT/Whish balances to zero before this ships, then
+> re-seeds the true float via Initial Drawer Amounts. That is what makes the fee-only
+> `supplier_ledger` change need no data migration.
 
 ---
 
@@ -243,17 +269,97 @@ Balance = **SUM of ledger rows**; **> 0 = shop owes supplier** ("You owe", red).
 | Rule                     | Detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Guarded by                                                            |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | Entry signs              | `TOP_UP` positive; `PAYMENT` negative; `ADJUSTMENT` signed either way (opening balances); `SUPPLIER_PAYS_US` signed by direction of obligation (a Katsh BILL books −20,000 LBP commission = supplier owes us).                                                                                                                                                                                                                                                                                                             | lira-056/059/062/084                                                  |
-| Amount = gross owed      | The auto ledger entry for an OMT/WHISH system **SEND** books **amount + provider fee** (the fee is the provider's; the shop's cut is the commission, netted at settlement: net pay = owed − commission, funded from the system drawer + a `SUPPLIER_PAYS_US` credit so the ledger zeroes). **RECEIVE** books the bare amount. **Wallet providers (OMT_APP/WHISH_APP/BINANCE) book NOTHING** — prepaid balance, no supplier debt (`WALLET_PROVIDERS`); every owed computation uses the one `SUPPLIER_OWED_EXPR` projection. | lira-076, settlement.test, appWalletTransfer.test                     |
+| Amount = **fee-only**, not gross (float model, 2026-07-29) | The auto ledger entry for an OMT/WHISH system **SEND or RECEIVE** — both directions book the SAME shape now — is `\|fee\| − \|commission\|` (the provider's fee, net of the shop's own cut), via the ONE `feeOwedDelta()` function (`FinancialServiceRepository.ts`, next to its SQL mirror `SUPPLIER_OWED_EXPR` — rule 14, single definition, both consumed by every owed read: Settle tab, Suppliers "Total Owed", `getUnsettledSummaryByProvider`). The **principal `x` never appears here** — it already moved through the system-drawer float (§7). Both directions write `entry_type: TOP_UP` (unsigned) — RECEIVE deliberately does NOT use `PAYMENT`, because `addLedgerEntry` force-negates `PAYMENT` amounts, which would make a RECEIVE's fee obligation silently *reduce* what's owed instead of increasing it like a SEND's does. **Wallet providers (OMT_APP/WHISH_APP/BINANCE) book NOTHING** — prepaid balance, no supplier debt (`WALLET_PROVIDERS`). Legacy cost/price-flow SEND (prepaid-units model, row below) is unaffected — it still books the sale `cost`, not a fee. | `OmtSystemFeeCharacterization.test.ts`, `SupplierRepository.settlement.test.ts` |
 | Prepaid-units model      | Supplier debt is booked **ONCE at top-up**; sales only draw down the provider drawer — no per-sale SALE_COST.                                                                                                                                                                                                                                                                                                                                                                                                              | lira-061, lira-078                                                    |
 | Loto exception           | Standard convention since v119: a ticket sale books **+(sale − commission)**; a cash prize books **−prize**. Checkpoint settlement's payment leg is the **NET** (commission kept back) — no separate commission drawer credit (a full sale→settle cycle nets drawers **+commission exactly once**).                                                                                                                                                                                                                        | lira-091-loto-ledger-sign, LotoCheckpointRepository.settleDrawer.test |
 | Credit top-up            | Supplier-credit top-up funds the provider drawer and touches **no** cash drawer; settle later via `PAYMENT` from a named drawer (General −).                                                                                                                                                                                                                                                                                                                                                                               | lira-056                                                              |
 | Cash both ways           | PAY (shop→supplier) and `SUPPLIER_PAYS_US` (supplier→shop) both move **General**, never the provider stock drawer.                                                                                                                                                                                                                                                                                                                                                                                                         | lira-059                                                              |
 | Void restores everything | Voiding a SUPPLIER_PAYMENT restores supplier balance AND drawer, and soft-flags the ledger row (`is_refunded`, v120); aggregates exclude flagged rows.                                                                                                                                                                                                                                                                                                                                                                     | lira-092                                                              |
 | Secondary system         | Transactions through a partner write **partner_ledger**, never supplier_ledger; the Suppliers page hides the non-base provider.                                                                                                                                                                                                                                                                                                                                                                                            | lira-supplier-secondary-system                                        |
+| Walk-in on the secondary system is rejected | A transaction on the non-base provider (e.g. WHISH when `shop_base_system = OMT`) with no `partnerId` **throws** instead of silently booking nothing — the old behavior lost the obligation into no ledger at all. Route it through a partner (`partnerId` set → THROUGH/FOR partner flow, §1). | `OmtSystemFeeCharacterization.test.ts` CASE 8/8b |
 
 Partner ledger: a Whish top-up **via partner** credits `Whish_App`, touches no cash
 drawer, and books a partner CREDIT (we owe the partner); **from client** debits General
 by cashPaid with no partner row (the margin exists only as a drawer delta) — lira-057.
+
+### 8.1 THE invariant — quote this whenever you touch OMT/WHISH money
+
+Three distinct quantities, never conflate them — that conflation is exactly what made
+the old gross-reserve bug hard to see:
+
+- **`x`** — the principal (what actually transfers, customer-to-shop or shop-to-customer).
+  Lives in the **system-drawer float** (§7) only. Never in `supplier_ledger`.
+- **`f`** — the customer-facing fee the provider charges for the transfer. Read from
+  `data.omtFee`/`storedWhishFee`; defaults to 0 on RECEIVE if omitted.
+- **`c`** — the shop's commission, its cut of `f` (`c ≤ f`; `c` is always 0 for WHISH).
+  `f − c` is what the shop actually owes the provider — this is the ONLY thing
+  `supplier_ledger` tracks for OMT/WHISH (§8 table, "Amount = fee-only" row).
+
+**The rule, quotable as-is:**
+
+> `Σ(drawer deltas) − Δ(owed to provider) = c + kept_change`
+
+stated per currency for single-currency legs, at the stamped exchange rate where a
+split payment is multi-currency. `kept_change` is named explicitly — never folded into
+`c` — because it is a customer-facing rounding leftover the shop keeps, not commission
+revenue.
+
+Target drawer table (owner-specified, four rows — every SEND/RECEIVE case reduces to
+one of these):
+
+| Case                   | Customer/payout leg      | System-drawer leg | Σ (drawer deltas) |
+| ---------------------- | ------------------------- | ------------------ | ------------------ |
+| SEND, fee on top       | payment drawer(s) `+(x+f)` | `−x`               | `+f`                |
+| SEND, fee included     | payment drawer(s) `+x`     | `−(x−f)`            | `+f`                |
+| RECEIVE, fee on top    | payment `+f`, payout `−x`  | `+x`                | `+f`                |
+| RECEIVE, fee included  | payout `−(x−f)`            | `+x`                | `+f`                |
+
+`f` defaults to 0 on RECEIVE (no fee entered) — both RECEIVE rows then collapse to
+"payout `−x`, system `+x`, Σ 0". Guarded end-to-end by `OmtSystemFeeCharacterization.test.ts`
+(CASE 1–8b), which asserts this exact invariant after every case via its own
+`assertInvariant` helper.
+
+**The settlement identity** — why a periodic fee-only settlement zeroes the ledger
+cleanly instead of double-counting the principal (the bug this whole rewrite fixes):
+
+> `TOP_UP(f) − SETTLEMENT(f−c) − SUPPLIER_PAYS_US(c) = 0`
+
+In practice `SUPPLIER_PAYS_US(c)` drops out for OMT/WHISH settlement specifically: the
+customer already handed over the full fee `f` in cash at transaction time, so paying the
+provider only the net `f − c` naturally leaves `c` sitting in General as realized
+commission — there is nothing left to separately fund or credit. `settleTransactions`
+pays the outstanding `f − c` through real payment-method legs (never a fixed
+`drawer_name`, never `OMT_System`/`Whish_System` — the float already moved at
+transaction time, not at settlement) and the ledger nets to exactly 0. Guarded by
+`SupplierRepository.settlement.test.ts` ("MIXED SEND+RECEIVE batch: supplier_ledger nets
+to EXACTLY 0, OMT_System sees ZERO delta from settlement" — the exact scenario the
+original bug report measured driving the ledger to −120.5 and the float to −121 when
+both should return to 0) and its reversal, `TransactionRepository.supplierSettlementReversal.test.ts`.
+
+**Cutover, no data migration**: the owner will settle all OMT/Whish balances to **zero**
+before this release and re-seed the true float via Initial Drawer Amounts (setup wizard).
+Do not write a `supplier_ledger`/system-drawer backfill migration for the sign/model
+change — there is nothing to migrate, by the owner's own decision.
+
+**Historical record — `OmtSystemFeeCharacterization.test.ts`**: this file started as a
+*diagnostic* (no assertions beyond logging the pre-fix numbers) and was rewritten into a
+real guard once the owner confirmed the domain model (2026-07-29). The six pre-fix
+numbers it measured, for provider OMT / USD / x=100 / fee=5 (every case's Σ should have
+been +5):
+
+| Case                              | Pre-fix General | Pre-fix OMT_System | Pre-fix Σ |
+| ---------------------------------- | ---------------- | -------------------- | ---------- |
+| RECEIVE fee-on-top, single CASH    | −100              | −105                  | −205       |
+| RECEIVE operator typed gross 105   | −105              | −110                  | −215       |
+| SEND single CASH                   | 0                 | +105                  | +105       |
+| SEND `includingFees: true`         | 0                 | +105                  | +105       |
+| RECEIVE split CASH60+wallet40      | −60 (+App −40)    | −105                  | −205       |
+| SEND split CASH60+wallet45         | +60 (+App 0)      | +105                  | +165       |
+
+Both RECEIVE rows moved cash **out of both** General and the float for the same
+transfer (double-debit); SEND's "cash reserve" branch zeroed General straight back out
+after crediting it, and the split case (CASE 6) leaked an unaccounted `+60` because the
+reserve was skipped for any non-cash leg while the system credit still ran unconditionally.
 
 ---
 
@@ -411,8 +517,11 @@ Copy this into your task when building any flow that moves money:
 7. **CUSTOMER_ACCOUNT** (§5): open debt — books a `debt_ledger` row, no prior-balance
    precondition; gate on name+phone via `canChargeToCustomerAccount`; one debt row,
    correct threshold.
-8. **Supplier/partner ledger** (§8): amount = transfer only; correct sign; prepaid-units
-   model (debt at top-up, not per sale); secondary system → partner ledger.
+8. **Supplier/partner ledger** (§8): correct sign; amount = whatever quantity is actually
+   OWED to the counterparty — for a spendable float (OMT/WHISH, §8.1) that's the
+   fee-net `f − c`, NOT the principal `x`, which already moved through the drawer;
+   prepaid-units model (debt at top-up, not per sale) still applies where there is no
+   float; secondary system → partner ledger, never supplier ledger.
 9. **Void path** (§9): reversible or gated? If reversible, prove drawer + ledger +
    profit all restore, including any supplier sibling.
 10. **Profits** (§10): stamp per-currency profit; refunds must net it to zero.
@@ -422,6 +531,17 @@ Copy this into your task when building any flow that moves money:
 13. **E2E guard**: delta + identity assertions per CLAUDE.md rule 15; prove the test
     FAILS on the pre-fix code (rule 17). See the
     [e2e suite index](../frontend/tests/e2e-electron/README.md).
+14. **One obligation, one owner — never both** (added 2026-07-29, from the OMT/WHISH
+    float-model bug): whenever a flow moves money into a provider/counterparty
+    container (a system float drawer, a wallet, an escrow), write down in the PR/task
+    which ledger owns the obligation (`supplier_ledger`? `partner_ledger`? nothing —
+    it's fully realized?) and then confirm it is not ALSO encoded in a drawer balance.
+    The OMT/WHISH bug was exactly this: the
+    principal `x` was tracked BOTH by the `OMT_System` drawer (gross reserve) AND by
+    `supplier_ledger` (gross owed) AND settlement re-debited it a third time — three
+    bookings of one number. Write the invariant for your flow (§8.1's
+    `Σ(drawer deltas) − Δ(owed) = c + kept_change` is the template) and prove it holds,
+    per currency, failing-first (rule 17), before merging.
 
 ### Counterparty checklist
 

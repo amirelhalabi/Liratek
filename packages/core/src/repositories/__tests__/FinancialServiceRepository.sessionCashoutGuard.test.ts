@@ -185,10 +185,16 @@ describe("FinancialServiceRepository — session RECEIVE credit guard", () => {
     expect(mockAddCredit).not.toHaveBeenCalled();
 
     // The provider system drawer STILL moves (provider owes the shop) — only
-    // the customer-side credit is deferred. OMT owes the shop the $100 payout
-    // PLUS the auto-derived INTRA commission ($1 fee × 10% = $0.10), so the
-    // system drawer moves by $100.10 (see totalOwed = amount + commission).
-    expect(omtSystemBalance(db)).toBeCloseTo(omtBefore - 100.1, 2);
+    // the customer-side credit is deferred.
+    // float model: RECEIVE fills the float back up by the BARE principal
+    // ($100) only — commission/fee no longer touch the float leg at all
+    // (the old `totalOwed = amount + commission` posting, and its sign, are
+    // both gone; the float posting is now `+receiveAmount`, unconditional,
+    // regardless of omtServiceType/commission/fee).
+    // TODO(rule-17): prove failing-first — restore the old
+    // `-(receiveAmount + |calculatedCommission|)` posting to make this red
+    // again.
+    expect(omtSystemBalance(db)).toBeCloseTo(omtBefore + 100, 2);
   });
 
   it("standalone CUSTOMER_ACCOUNT RECEIVE DOES self-post the credit (unchanged)", () => {

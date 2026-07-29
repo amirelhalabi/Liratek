@@ -553,7 +553,7 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
       expect(balance(db, "OMT_System", "USD")).toBe(systemBefore);
     });
 
-    it("control: the correct total reconciles and books the reserve transfer", () => {
+    it("control: the correct total reconciles and books the float transfer", () => {
       const before = counts(db);
       repo.createTransaction({
         provider: "OMT",
@@ -565,7 +565,11 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
         exchangeRate: 90000,
       });
       expect(counts(db).transactions).toBe(before.transactions + 1);
-      expect(balance(db, "OMT_System", "USD")).toBe(500 + 10);
+      // float model: SEND draws the float down by the bare principal (x);
+      // the old reserve model credited it (+10) instead.
+      // TODO(rule-17): prove failing-first — flip the sign back to
+      // `500 + 10` (the old systemDrawerCredit) to make this red again.
+      expect(balance(db, "OMT_System", "USD")).toBe(500 - 10);
     });
 
     it("a CUSTOMER_ACCOUNT leg covering the remainder reconciles (S2 owner decision: account legs count as IN)", () => {

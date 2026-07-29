@@ -512,7 +512,7 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
   //    UNCHANGED by tender currency (booked in the service currency always).
   // ═══════════════════════════════════════════════════════════════════════
   describe("OMT SYSTEM SEND (reserve transfer)", () => {
-    it("with a single LBP leg: General +900,000 LBP (tender) AND −$10 USD (reserve); OMT_System +$10 USD", () => {
+    it("with a single LBP leg: General +900,000 LBP (tender), ZERO USD (no reserve); OMT_System −$10 USD (float drawn down)", () => {
       const genUsdBefore = balance(db, "General", "USD");
       const genLbpBefore = balance(db, "General", "LBP");
       const systemBefore = balance(db, "OMT_System", "USD");
@@ -528,31 +528,43 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
       });
 
       // Physical reality: the customer's LBP cash lands in General.
-      // Accounting reality: General also reserves −$10 USD (service
-      // currency, NOT the LBP tender) to fund the System-drawer transfer —
-      // no phantom FX conversion (S4); till rebalancing is Exchange's job.
+      // Float model: the RESERVE leg is gone entirely — General never had a
+      // USD leg to begin with (the customer's only leg was LBP), so USD is
+      // untouched. The float posting now happens directly on OMT_System
+      // (−sentAmount, fee-on-top; f=0 here), never on General.
       expect(balance(db, "General", "LBP")).toBeCloseTo(
         genLbpBefore + 900000,
         2,
       );
-      expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore - 10, 2);
+      // float model: the SEND cash reserve is gone — General no longer
+      // reserves a USD leg to fund the float transfer.
+      // TODO(rule-17): prove failing-first — revert the RESERVE-leg deletion
+      // (restore the `RESERVE -sentAmount` insertPayment/upsertBalanceDelta
+      // pair off General) to make this red again.
+      expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore, 2);
+      // float model: SEND draws the float down by the bare principal (x),
+      // it no longer builds a gross reserve.
+      // TODO(rule-17): prove failing-first — flip the sign back to
+      // `+sentAmount` (the old systemDrawerCredit) to make this red again.
       expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-        systemBefore + 10,
+        systemBefore - 10,
         2,
       );
 
-      // Both legs are visible on the payments ledger: the tender leg AND
-      // the reserve leg, both tagged CASH but in different currencies.
+      // The tender leg is still visible on the payments ledger.
       const cashLegs = paymentsFor(db, "CASH");
       expect(cashLegs).toEqual(
         expect.arrayContaining([
           { drawer_name: "General", currency_code: "LBP", amount: 900000 },
         ]),
       );
+      // the SEND cash reserve is gone: no RESERVE-method payment row is ever
+      // written anymore (insertPayment.run(..., systemDrawer, ...) below
+      // tags the float leg with `data.provider`, e.g. "OMT", not "RESERVE").
+      // TODO(rule-17): prove failing-first — reintroduce the deleted RESERVE
+      // insertPayment call off General to make this red again.
       const reserveLegs = paymentsFor(db, "RESERVE");
-      expect(reserveLegs).toEqual([
-        { drawer_name: "General", currency_code: "USD", amount: -10 },
-      ]);
+      expect(reserveLegs).toEqual([]);
 
       // Value-not-tender model holds here too: the unified transaction
       // stamps the SERVICE value, uniform with the app-wallet families above.
@@ -561,13 +573,27 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
       expect(txn.amount_lbp).toBe(0);
     });
 
-    it("WHISH variant: the SAME reserve mechanism applies to WHISH (isSystemProvider = isOMT || WHISH shares one branch) — General +900,000 LBP AND −$10 USD; Whish_System +$10 USD", () => {
+    it("WHISH variant: the SAME float mechanism applies to WHISH (isSystemProvider = isOMT || WHISH shares one branch) — General +900,000 LBP, ZERO USD; Whish_System −$10 USD", () => {
       // A stale comment above this flow (FinancialServiceRepository.ts:1380-
       // 1381) describes WHISH as a "2-drawer" flow that never touches
       // General — the code does NOT special-case WHISH that way; both
       // providers run through the identical isSystemProvider branch. This
       // test pins the actual (shared) behavior so a future "fix" aligning
       // the code to the stale comment gets caught here.
+      //
+      // Float model addendum: a walk-in (no partnerId) transaction on the
+      // SECONDARY provider (provider !== shop_base_system) is now REJECTED
+      // outright (orchestrator default, 2026-07-29 — see
+      // FinancialServiceRepository.ts's walk-in-secondary-provider guard,
+      // right after isThroughPartner/isForPartner). This test's own intent
+      // is to pin WHISH sharing OMT's system-float branch, not to exercise
+      // partner routing, so we seed `shop_base_system=WHISH` to make WHISH
+      // the PRIMARY provider for this test — sidestepping the new guard
+      // without diluting what the test is actually checking.
+      db.exec(
+        `INSERT INTO system_settings (key_name, value) VALUES ('shop_base_system', 'WHISH')`,
+      );
+
       const genUsdBefore = balance(db, "General", "USD");
       const genLbpBefore = balance(db, "General", "LBP");
       const systemBefore = balance(db, "Whish_System", "USD");
@@ -587,14 +613,21 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
         genLbpBefore + 900000,
         2,
       );
-      expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore - 10, 2);
+      // float model: the SEND cash reserve is gone — General no longer
+      // reserves a USD leg (mirrors the OMT case above).
+      // TODO(rule-17): prove failing-first — restore the deleted RESERVE
+      // leg off General to make this red again.
+      expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore, 2);
+      // float model: SEND draws the float down by the bare principal (x).
+      // TODO(rule-17): prove failing-first — flip the sign back to
+      // `+sentAmount` to make this red again.
       expect(balance(db, "Whish_System", "USD")).toBeCloseTo(
-        systemBefore + 10,
+        systemBefore - 10,
         2,
       );
     });
 
-    it("FALLBACK — with NO legs at all: General +$10 USD in, then −$10 USD reserved (nets to 0); OMT_System +$10 USD", () => {
+    it("FALLBACK — with NO legs at all: General +$10 USD (cash stays, no reserve); OMT_System −$10 USD", () => {
       const genUsdBefore = balance(db, "General", "USD");
       const genLbpBefore = balance(db, "General", "LBP");
       const systemBefore = balance(db, "OMT_System", "USD");
@@ -609,12 +642,20 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
         exchangeRate: 90000,
       });
 
-      // Cash-in (+10) and reserve (−10) net General to 0 — the classic
-      // single-currency case this flow was originally built for.
-      expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore, 2);
+      // float model: the SEND cash reserve is gone — General keeps the
+      // customer's +$10 cash-in permanently; there is no longer a RESERVE
+      // leg to zero it back out (that RESERVE/net-to-0 dance was the root
+      // cause the float-model fix removes).
+      // TODO(rule-17): prove failing-first — restore the deleted RESERVE
+      // leg off General (net General back to `genUsdBefore`) to make this
+      // red again.
+      expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore + 10, 2);
       expect(balance(db, "General", "LBP")).toBeCloseTo(genLbpBefore, 2);
+      // float model: SEND draws the float down by the bare principal (x).
+      // TODO(rule-17): prove failing-first — flip the sign back to
+      // `+sentAmount` to make this red again.
       expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-        systemBefore + 10,
+        systemBefore - 10,
         2,
       );
     });
@@ -650,10 +691,15 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
         2,
       );
       expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore, 2);
-      // The System drawer tracks what the provider owes the shop — always
-      // in the SERVICE currency, unaffected by the payout tender.
+      // The System drawer tracks the shop's float, always in the SERVICE
+      // currency, unaffected by the payout tender.
+      // float model: RECEIVE fills the float back up by the bare principal
+      // (x) — the old model drew it down by totalOwed (principal+commission
+      // is 0 here, so the magnitude happens to match, but the sign flips).
+      // TODO(rule-17): prove failing-first — flip the sign back to
+      // `-100` (the old `-totalOwed` posting) to make this red again.
       expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-        systemBefore - 100,
+        systemBefore + 100,
         2,
       );
 

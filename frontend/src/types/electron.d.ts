@@ -824,6 +824,19 @@ export interface ElectronAPI {
 
   // OMT/Whish Financial Services
   omt: {
+    /**
+     * NOTE (rule 12 parity pass, float-model fix 2026-07-30): this ambient
+     * type previously described a stale `amountUSD`/`amountLBP`/
+     * `commissionUSD`/`commissionLBP` shape that never matched
+     * `electron-app/preload.ts`'s real `omt:add-transaction` signature — the
+     * only caller, `addOMTTransaction` in `frontend/src/api/backendApi.ts`,
+     * has always bypassed this type via `(window as any).api.omt
+     * .addTransaction(payload)`, so the mismatch was silently inert. Rewritten
+     * here to mirror preload.ts's actual parameter shape (including
+     * omtFee/whishFee/includingFees — direction-agnostic, SEND and RECEIVE
+     * both read them, per the owner's 2026-07-29 float-model decision) so the
+     * two no longer drift if the `any` cast is ever removed.
+     */
     addTransaction: (data: {
       provider:
         | "OMT"
@@ -833,16 +846,62 @@ export interface ElectronAPI {
         | "iPick"
         | "Katsh"
         | "WHISH_APP"
-        | "OMT_APP";
+        | "OMT_APP"
+        | "BINANCE";
       serviceType: "SEND" | "RECEIVE" | "BILL";
-      amountUSD: number;
-      amountLBP: number;
-      commissionUSD: number;
-      commissionLBP: number;
+      amount: number;
+      currency?: string;
+      commission?: number;
+      cost?: number;
+      price?: number;
+      paidByMethod?: string;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        voucherCode?: string;
+        direction?: "IN" | "OUT";
+      }>;
+      clientId?: number;
       clientName?: string;
       referenceNumber?: string;
+      phoneNumber?: string;
+      senderName?: string;
+      senderPhone?: string;
+      receiverName?: string;
+      receiverPhone?: string;
+      senderClientId?: number;
+      receiverClientId?: number;
+      omtServiceType?: string;
+      /** Fee charged by OMT (user-entered or auto-looked-up). No SEND-only
+       *  gate — a RECEIVE can carry this fee too (float model). */
+      omtFee?: number;
+      /** Fee charged by WHISH (user-entered). Same direction-agnostic note
+       *  as omtFee above. */
+      whishFee?: number;
+      profitRate?: number;
+      payFee?: boolean;
+      itemKey?: string;
+      itemCategory?: string;
       note?: string;
+      /** true = fee already netted into amount/payout; false/omitted = fee
+       *  on top. Applies to SEND and RECEIVE alike. */
+      includingFees?: boolean;
+      paymentMethodFee?: number;
+      paymentMethodFeeRate?: number;
+      returnedCreditsUsd?: number;
+      partnerId?: number;
+      partnerMode?: "THROUGH" | "FOR";
+      cashoutMethod?: string;
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
       transaction_time?: string;
+      deferPayment?: boolean;
+      checkoutTotal?: { usd: number; lbp: number };
+      tender_exchange_rate?: number;
+      split_group?: string;
+      split_role?: "carrier" | "sibling";
+      split_units?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: (provider?: string) => Promise<
       Array<{
@@ -1086,7 +1145,8 @@ export interface ElectronAPI {
       amount_lbp: number;
       commission_usd: number;
       commission_lbp: number;
-      drawer_name: string;
+      /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
+      drawer_name?: string;
       note?: string;
       payments?: Array<{
         method: string;

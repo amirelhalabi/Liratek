@@ -782,7 +782,7 @@ describe("FinancialServiceRepository — partner mode", () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe("Normal transactions — no partner (regression guard)", () => {
-    it("OMT SEND — General nets to zero and OMT_System is credited when no partner", () => {
+    it("OMT SEND — General keeps the customer cash-in (no reserve) and OMT_System is DEBITED (float drawn down) when no partner", () => {
       const generalBefore = drawerBalance(db, "General");
       const omtBefore = drawerBalance(db, "OMT_System");
 
@@ -797,12 +797,22 @@ describe("FinancialServiceRepository — partner mode", () => {
         paidByMethod: "CASH",
       });
 
-      // 3-drawer pattern: customer payment (+105) and cash reserve (-105) cancel out
-      expect(drawerBalance(db, "General")).toBe(generalBefore);
-      expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(omtBefore);
+      // float model: the SEND cash reserve is gone — General keeps the
+      // customer's +(x+f) = +105 cash-in permanently (fee-on-top: sentAmount
+      // 100 + providerFeeAmt 5); there is no longer a RESERVE leg to net it
+      // back to zero (the old "3-drawer pattern, cancels to 0" is dead).
+      // TODO(rule-17): prove failing-first — restore the deleted RESERVE
+      // leg off General (net General back to `generalBefore`) to make this
+      // red again.
+      expect(drawerBalance(db, "General")).toBeCloseTo(generalBefore + 105, 2);
+      // float model: SEND draws the float DOWN by the bare principal (x =
+      // 100, not x+f) — it no longer "credits" a gross reserve.
+      // TODO(rule-17): prove failing-first — flip the sign back to
+      // `+sentAmount` (the old systemDrawerCredit) to make this red again.
+      expect(drawerBalance(db, "OMT_System")).toBeLessThan(omtBefore);
     });
 
-    it("OMT RECEIVE debits OMT_System and General when no partner", () => {
+    it("OMT RECEIVE credits OMT_System (float fills up) and debits General when no partner", () => {
       const omtBefore = drawerBalance(db, "OMT_System");
       const generalBefore = drawerBalance(db, "General");
 
@@ -815,7 +825,14 @@ describe("FinancialServiceRepository — partner mode", () => {
         cashoutMethod: "CASH",
       });
 
-      expect(drawerBalance(db, "OMT_System")).toBeLessThan(omtBefore);
+      // float model: RECEIVE fills the float back UP by the bare principal
+      // (+receiveAmount) — the old model drew it down by totalOwed
+      // (principal+commission).
+      // TODO(rule-17): prove failing-first — flip the sign back to
+      // `-totalOwed` (the old posting) to make this red again.
+      expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(omtBefore);
+      // The payout leg (General debited for the cash handed to the
+      // customer) is unaffected by this fix — still a real cash outflow.
       expect(drawerBalance(db, "General")).toBeLessThan(generalBefore);
     });
 

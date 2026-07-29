@@ -336,7 +336,11 @@ describe("CQ-8 counterparty metadata contract", () => {
       amount_lbp: 0,
       commission_usd: 20,
       commission_lbp: 0,
-      drawer_name: "General",
+      // Float model: the net owed is paid through a real payment-method leg;
+      // the bare `drawer_name` fallback is gone (settlement no longer debits a
+      // named drawer by a ledger-derived amount). Commission is informational
+      // metadata only now — it has no drawer effect.
+      payments: [{ method: "CASH", currency_code: "USD", amount: 80 }],
       created_by: 1,
     });
     const meta = getTxnMetadata(db, supplierLedgerTxnId(db, ledgerId));

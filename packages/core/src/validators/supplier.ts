@@ -38,9 +38,17 @@ export const supplierSettleSchema = z.object({
   financial_service_ids: z.array(z.number().int().positive()).min(1),
   amount_usd: z.number(),
   amount_lbp: z.number(),
+  // Informational/audit only under the OMT/WHISH float model (owner-
+  // confirmed 2026-07-29) — the fee-only supplier_owed figure already
+  // excludes the shop's commission, so this no longer drives any drawer
+  // movement (see SupplierRepository.SettleTransactionsData doc comment).
   commission_usd: z.number(),
   commission_lbp: z.number(),
-  drawer_name: z.string(),
+  // Deprecated — no longer used to move money (OMT_System/Whish_System is
+  // the provider float, never a real cash drawer). Kept optional so older
+  // callers that still send it don't fail validation; ignored by the
+  // repository. Real cash now moves EXCLUSIVELY through `payments[]`.
+  drawer_name: z.string().optional(),
   note: z.string().optional(),
   payments: z.array(supplierPaymentLegSchema).optional(),
 });

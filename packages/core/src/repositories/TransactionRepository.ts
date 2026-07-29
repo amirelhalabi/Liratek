@@ -2414,34 +2414,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * to be flatly `NON_REVERSIBLE_TRANSACTION_TYPES` alongside
    * LOTO_SETTLEMENT — the documented blocker was "settlement stamps stay in
    * place, and the commission credit to General has no payments row to
-   * reverse." Both gaps are addressable because
-   * `SupplierRepository.settleTransactions` already stamps everything this
-   * method needs onto the transaction's OWN `metadata_json`
-   * (`commission_usd`/`commission_lbp`, `drawer_name`,
-   * `financial_service_ids`) — no reconstruction needed for the commission
-   * side.
+   * reverse."
    *
-   * Three things restored:
-   * 1. Commission drawer funding (settleTransactions step 3: General +=
-   *    commission, the settle drawer −= commission) — a raw
-   *    `applyDrawerDelta` pair with NO `payments` row at creation, so the
-   *    generic `_reversePayments` cannot see it; reversed here directly,
-   *    negated.
-   * 2. The SUPPLIER_PAYS_US commission-credit ledger row settleTransactions
-   *    inserts alongside the SETTLEMENT row — found via its
-   *    `source_ref_table='supplier_ledger'`/`source_ref_id=<settlement
-   *    ledger row id>` link (stamped at creation, LIRA-085) and soft-voided
-   *    (`is_refunded=1`) directly — the same "exclude from balance
-   *    aggregates" mechanism supplier_ledger already uses for every other
-   *    reversal. Deliberately filtered to `is_auto = 0` — this row is NOT a
-   *    LIRA-091 separate-hidden-transaction sibling (it has no
-   *    `transaction_id` of its own), so it must stay outside
-   *    `_cascadeSupplierSiblingVoid`'s `is_auto = 1` scan; this method
-   *    soft-voids it directly, no cascade/recursion involved. The
-   *    SETTLEMENT row itself soft-voids for free via the generic
-   *    `_markSourceRefunded('supplier_ledger', original.source_id)` step
-   *    that already runs for every voided/refunded transaction.
-   * 3. `financial_services.settlement_id`/`is_settled` stamps — scoped by
+   * OMT/WHISH float model (owner-confirmed 2026-07-29) — updated: under the
+   * fee-only model, `SupplierRepository.settleTransactions` no longer funds
+   * a commission credit (no `General += commission` / settle-drawer
+   * `-= commission` pair, no `SUPPLIER_PAYS_US` ledger row — see that
+   * method's doc comment) — there is nothing bespoke left to reverse on the
+   * commission side AT ALL. What's left:
+   *
+   * 1. `financial_services.settlement_id`/`is_settled` stamps — scoped by
    *    `settlement_id = <this settlement's ledger row id>` (never the
    *    metadata id list — only `settlement_id` proves a row STILL belongs
    *    to exactly this settlement at reversal time). `settlement_id` always
@@ -2455,13 +2437,21 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    *    settlement, independent of `settlement_id` — resetting it would
    *    un-realize profit this settlement never gated in the first place.
    *
-   * The net-payment legs (settleTransactions step 5) DO write real
-   * `payments` rows, so the generic `_reversePayments` already reverses them
-   * for free. `_assertSupplierSiblingsVoidable` (LIRA-091) already prevents
-   * any of this settlement's `financial_service_ids` from being
-   * independently voided/refunded while `settlement_id` stays stamped —
-   * once this method clears it, those rows become correctable again too, by
-   * design (no new guard needed for that direction).
+   * The SETTLEMENT ledger row itself soft-voids for free via the generic
+   * `_markSourceRefunded('supplier_ledger', original.source_id)` step that
+   * already runs for every voided/refunded transaction — under the fee-only
+   * model that single soft-void is now sufficient to net the ledger back to
+   * its pre-settlement (TOP_UP-only) balance, since there is no second
+   * (SUPPLIER_PAYS_US) row masking it anymore. The net-payment legs
+   * (settleTransactions step 4) DO write real `payments` rows through a real
+   * payment-method drawer (never `OMT_System`/`Whish_System` — the float is
+   * never touched by settlement), so the generic `_reversePayments` already
+   * reverses them for free, with no bespoke step needed here.
+   * `_assertSupplierSiblingsVoidable` (LIRA-091) already prevents any of
+   * this settlement's `financial_service_ids` from being independently
+   * voided/refunded while `settlement_id` stays stamped — once this method
+   * clears it, those rows become correctable again too, by design (no new
+   * guard needed for that direction).
    */
   private _reverseSupplierSettlement(
     original: TransactionEntity,
@@ -2475,64 +2465,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       return;
     }
     const tenantId = getCurrentTenantId();
-    let meta: {
-      commission_usd?: number;
-      commission_lbp?: number;
-      drawer_name?: string;
-    } = {};
-    try {
-      meta = original.metadata_json
-        ? (JSON.parse(original.metadata_json) as typeof meta)
-        : {};
-    } catch {
-      meta = {};
-    }
 
-    // 1. Reverse the commission drawer funding.
-    const commissionUsd = meta.commission_usd ?? 0;
-    const commissionLbp = meta.commission_lbp ?? 0;
-    const drawerName = meta.drawer_name;
-    if (drawerName && commissionUsd > 0) {
-      applyDrawerDelta(this.db, {
-        drawerName: "General",
-        currencyCode: "USD",
-        delta: -commissionUsd,
-        tenantId,
-      });
-      applyDrawerDelta(this.db, {
-        drawerName,
-        currencyCode: "USD",
-        delta: commissionUsd,
-        tenantId,
-      });
-    }
-    if (drawerName && commissionLbp > 0) {
-      applyDrawerDelta(this.db, {
-        drawerName: "General",
-        currencyCode: "LBP",
-        delta: -commissionLbp,
-        tenantId,
-      });
-      applyDrawerDelta(this.db, {
-        drawerName,
-        currencyCode: "LBP",
-        delta: commissionLbp,
-        tenantId,
-      });
-    }
-
-    // 2. Soft-void the linked SUPPLIER_PAYS_US commission-credit row.
-    if (this._supplierLedgerHasSourceRefColumns()) {
-      this.execute(
-        `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
-         WHERE source_ref_table = 'supplier_ledger' AND source_ref_id = ?
-           AND is_auto = 0 AND COALESCE(is_refunded, 0) = 0 AND tenant_id = ?`,
-        original.source_id,
-        tenantId,
-      );
-    }
-
-    // 3. Un-stamp financial_services rows THIS exact settlement touched.
+    // Un-stamp financial_services rows THIS exact settlement touched.
     const settled = this.query<{
       id: number;
       provider: string;

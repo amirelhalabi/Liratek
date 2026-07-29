@@ -391,27 +391,59 @@ function walletSendDebtNote(
 // =============================================================================
 
 /**
- * The ONE definition (CLAUDE.md rule 14) of "what this financial_services row
- * adds to the supplier's payable" — consumed by the row projections
- * (Settle tab, Suppliers Outstanding/FIFO status via FinancialService) and
- * getUnsettledSummaryByProvider (Dashboard/Profits pending):
+ * OMT/WHISH float-model fee-only owed (CLAUDE.md rule 14 — the ONE
+ * definition, replacing the two independent copies that used to compute
+ * "what this financial_services row adds to the supplier's payable":
+ * SUPPLIER_OWED_EXPR (the SQL projection just below, generated FROM this
+ * same shape — consumed by the row projections in getColumns/Settle tab,
+ * Suppliers Outstanding/FIFO status, and getUnsettledSummaryByProvider) and
+ * the JS `ledgerAmount` used to book the auto supplier_ledger TOP_UP/PAYMENT
+ * entry (createTransaction, "Auto-record supplier debt" below).
+ *
+ * Float model (owner-confirmed 2026-07-29): the shop's OMT_System/
+ * Whish_System DRAWER now tracks the PRINCIPAL (x) directly — SEND draws it
+ * down, RECEIVE fills it up (see the sign-flip in createTransaction's SEND/
+ * RECEIVE branches). The provider relationship therefore covers ONLY the
+ * fee split from here on: the provider charges a per-transfer fee `f`, the
+ * shop keeps a cut `c` (commission) of it, and owes the provider the rest,
+ * `f − c`, netted at periodic settlement — never the principal, which
+ * already moved through the float. This is what "supplier_ledger must book
+ * the FEE SPLIT ONLY, not the principal" (owner decision) means concretely:
  *
  *  - Wallet-provider transfers (OMT_APP / WHISH_APP / BINANCE, prepaid
- *    balance the shop owns) owe NOTHING — Fix B.
- *  - Cost-flow SEND rows (legacy per-sale supplier debt) owe the sale cost.
- *  - OMT/WHISH system SEND owes amount + provider fee: the fee belongs to
- *    the provider; the shop's cut is the commission, netted off at
- *    settlement (owner-confirmed 2026-07-19) — Fix C.
- *  - RECEIVE keeps amount + commission (existing behavior, pending the
- *    owner's answer on how provider statements treat receives).
- *  - Anything else owes the bare amount.
+ *    balance the shop owns) owe NOTHING — Fix B, unchanged.
+ *  - Cost-flow SEND rows (legacy per-sale supplier debt) owe the sale cost —
+ *    unchanged.
+ *  - OMT/WHISH SEND and RECEIVE now book the SAME shape: `|fee| − |commission|`
+ *    — the two directions no longer differ (SEND used to book the gross
+ *    principal+fee; RECEIVE used to book the bare principal — both were
+ *    booking the wrong quantity, since the principal is now the float's job).
+ *  - Anything else owes the bare amount — unchanged.
  */
+function feeOwedDelta(params: {
+  serviceType: CreateFinancialServiceData["serviceType"];
+  provider: CreateFinancialServiceData["provider"];
+  fee: number;
+  commission: number;
+  cost: number;
+  amount: number;
+}): number {
+  if (isWalletProvider(params.provider) && params.cost <= 0) return 0;
+  if (params.serviceType === "SEND" && params.cost > 0) return params.cost;
+  if (params.provider === "OMT" || params.provider === "WHISH") {
+    return Math.abs(params.fee) - Math.abs(params.commission);
+  }
+  return Math.abs(params.amount);
+}
+
+// SQL mirror of feeOwedDelta (see its doc comment for the shared shape this
+// must stay structurally identical to — rule 14: same branch order, same
+// terms, generated from the same WALLET_PROVIDERS_SQL_LIST constant).
 const SUPPLIER_OWED_EXPR = `CASE
   WHEN provider IN (${WALLET_PROVIDERS_SQL_LIST}) AND cost <= 0 THEN 0
   WHEN service_type = 'SEND' AND cost > 0 THEN cost
-  WHEN service_type = 'RECEIVE' THEN ABS(amount) + COALESCE(commission, 0)
-  WHEN provider = 'OMT' AND service_type = 'SEND' THEN ABS(amount) + COALESCE(omt_fee, 0)
-  WHEN provider = 'WHISH' AND service_type = 'SEND' THEN ABS(amount) + COALESCE(whish_fee, 0)
+  WHEN provider = 'OMT' THEN COALESCE(omt_fee, 0) - COALESCE(commission, 0)
+  WHEN provider = 'WHISH' THEN COALESCE(whish_fee, 0) - COALESCE(commission, 0)
   ELSE ABS(amount)
 END`;
 
@@ -574,6 +606,48 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const skipGeneralDrawer = isForPartner;
       const skipSystemDrawer = isThroughPartner;
 
+      // Only the shop's PRIMARY (base) system owes its provider directly. The
+      // secondary OMT/WHISH system runs via a partner, whose obligation is
+      // captured in partner_ledger — recording it as a supplier debt too
+      // double-counts it and pollutes the suppliers/settlement page.
+      // Resolved here (rule 14 — the one definition, reused unchanged by the
+      // supplier-ledger booking below) so the walk-in-secondary-provider
+      // rejection below can run BEFORE any row is written.
+      let baseSystem = "OMT";
+      try {
+        const baseSystemRow = this.db
+          .prepare(
+            "SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = ?",
+          )
+          .get(tenantId) as { value?: string } | undefined;
+        if (baseSystemRow?.value === "WHISH") baseSystem = "WHISH";
+      } catch {
+        // system_settings may be absent in minimal/test schemas — default to OMT.
+      }
+      const skipSecondarySupplierLedger =
+        (data.provider === "OMT" || data.provider === "WHISH") &&
+        data.provider !== baseSystem;
+
+      // Orchestrator default (2026-07-29): a walk-in transaction on the
+      // SECONDARY provider (provider !== shop_base_system) with no
+      // partnerId used to silently skip the supplier-ledger entry above
+      // (skipSecondarySupplierLedger) and book NOTHING anywhere — the
+      // obligation vanished into no ledger at all. Reject it outright
+      // instead: a secondary-system transfer only makes sense THROUGH a
+      // partner (whose partner_ledger entry captures the obligation).
+      // Thrown before any INSERT in this method runs, so nothing is written
+      // — and even if it weren't first, `this.db.transaction(...)` rolls
+      // back every statement executed so far on any throw.
+      if (
+        (data.provider === "OMT" || data.provider === "WHISH") &&
+        data.provider !== baseSystem &&
+        !data.partnerId
+      ) {
+        throw new Error(
+          `${data.provider} is the secondary system (shop base system is ${baseSystem}) — a walk-in transaction cannot be booked directly against it; route it through a partner (set partnerId)`,
+        );
+      }
+
       // Session-basket deferred payment: the customer-cash side is owned by the
       // basket recorder (recordBasketPayment), so this transaction must skip its
       // own customer cash-in/out legs, pmFee handling, change, and debt. Internal
@@ -664,6 +738,23 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           : data.provider === "WHISH_APP"
             ? (data.whishFee ?? null)
             : null;
+
+      // f — the provider's per-transfer customer fee, resolved ONCE and
+      // shared (rule 14) by: the SEND float posting, the new RECEIVE
+      // customer-fee leg, and the fee-only supplier-ledger booking
+      // (feeOwedDelta) below. Direction-agnostic — OMT/WHISH read the same
+      // fee field regardless of serviceType (no SEND-only gate exists on
+      // omtFee/whishFee in the validator either). Defaults to 0, which is
+      // what makes "f defaults to 0 on RECEIVE" true with no schema change:
+      // RECEIVE never had a fee field before this fix, so a RECEIVE payload
+      // that omits omtFee/whishFee resolves this to 0 and every downstream
+      // formula collapses to its pre-fix shape.
+      const resolvedProviderFee =
+        data.provider === "OMT"
+          ? (data.omtFee ?? 0)
+          : data.provider === "WHISH"
+            ? (storedWhishFee ?? 0)
+            : 0;
 
       const pmFee = data.paymentMethodFee ?? 0;
       const pmFeeRate = data.paymentMethodFeeRate ?? null;
@@ -1780,29 +1871,39 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         } else if (data.serviceType === "SEND") {
           // ─── SEND: customer gives money to shop, shop sends via provider ───
           //
+          // Float model (owner-confirmed 2026-07-29): OMT_System/Whish_System
+          // is a SPENDABLE FLOAT the shop holds inside the provider's own
+          // system — a SEND draws it DOWN by the principal actually
+          // transferred; it no longer builds a "gross reserve" the way the
+          // old cash-reserve model did (see the deleted RESERVE/TRANSFER rows
+          // and the single unconditional float posting below).
+          //
           // Fee handling:
-          //   includingFees=true  → data.amount is already the net sent amount (fee deducted by frontend).
-          //                         Customer paid (data.amount + omtFee). Payment drawer gets (amount + fee).
-          //                         OMT_System gets (amount + fee) = total OMT outflow.
-          //   includingFees=false → data.amount is the full sent amount. Fee is charged on top.
-          //                         Customer paid (data.amount + omtFee). Payment drawer gets (amount + fee).
-          //                         OMT_System gets (amount + fee).
-          // In both cases: OMT_System = sentAmount + omtFee.
+          //   includingFees=false (fee ON TOP) → data.amount IS the
+          //     principal (x) to be transferred. Customer pays x+f. The
+          //     float posts −x: the full principal moves; the fee never
+          //     routes through the float.
+          //   includingFees=true (fee INCLUDED) → data.amount IS the GROSS
+          //     figure the customer hands over (already includes the fee —
+          //     nothing added on top). Customer pays exactly data.amount.
+          //     The float posts −(x−f): only the net principal (gross minus
+          //     the fee already inside it) actually moves through the float.
+          // In both modes, Σ(customer leg + float leg) = f (the owner's
+          // target invariant) — see OmtSystemFeeCharacterization.test.ts.
           const sentAmount = Math.abs(data.amount);
-          // Resolve the fee for this provider (OMT uses omtFee, WHISH uses whishFee/auto-lookup)
-          const providerFeeAmt =
-            data.provider === "OMT"
-              ? (data.omtFee ?? 0)
-              : data.provider === "WHISH"
-                ? (storedWhishFee ?? 0)
-                : 0;
-          // Total collected from customer = sent amount + provider fee (regardless of includingFees mode,
-          // because the frontend already adjusted data.amount to be the net sent amount when includingFees=true)
-          const totalCollected = sentAmount + providerFeeAmt;
+          // f — resolved once, above (resolvedProviderFee), shared with the
+          // RECEIVE branch and the supplier-ledger booking (rule 14).
+          const providerFeeAmt = resolvedProviderFee;
+          // Amount the customer owes BEFORE any payment-method surcharge
+          // (pmFee): fee-on-top adds f on top of the entered principal;
+          // fee-included treats the entered figure as already gross (no
+          // further addition).
+          const totalCollected = data.includingFees
+            ? sentAmount
+            : sentAmount + providerFeeAmt;
 
           // Amount the customer physically hands over = totalCollected + pmFee.
           // The pmFee stays in the payment method's wallet drawer as immediate shop profit.
-          // Only totalCollected is transferred onward to the system drawer.
           const totalCustomerPays = totalCollected + pmFee;
 
           // Per-leg PM fee helper — defined here so it's available in both
@@ -2072,189 +2173,121 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           }
 
           if (useSystemDrawerFlow) {
-            // Reserve / transfer logic:
+            // ─── FLOAT MODEL (owner-confirmed 2026-07-29) ───
             //
-            // CASH payment: General received the money (+totalCollected above).
-            //   We reserve it back out of General (-totalCollected) so General nets to 0,
-            //   and OMT_System / Whish_System tracks the full outflow.
+            // OMT_System/Whish_System is a SPENDABLE FLOAT the shop holds
+            // inside the provider's own system — SEND draws it DOWN by the
+            // principal actually transferred. This is now ONE unconditional
+            // posting, independent of leg composition (cash vs wallet vs
+            // split vs CUSTOMER_ACCOUNT vs deferred session) — the old
+            // isPaidByNonCash branch (cash → RESERVE off General, non-cash →
+            // TRANSFER off the wallet drawer) is DELETED entirely. That
+            // branching was the root cause of the double-count: General kept
+            // its +(x+f) customer-in credit (correct — the cash is
+            // physically in the till) while the RESERVE row used to zero it
+            // back out, and a mixed cash+wallet split silently skipped the
+            // cash leg's reserve while the system drawer still credited the
+            // full gross (CASE 6 in OmtSystemFeeCharacterization.test.ts).
             //
-            // NON-CASH payment (OMT Wallet, WHISH Wallet, Binance, …):
-            //   The payment method wallet received the money (+totalCollected above).
-            //   We do NOT touch General at all — the shop has no cash, only wallet funds.
-            //   Instead we transfer (amount + providerFee) from the wallet drawer to the
-            //   system drawer directly, leaving any PM fee profit in the wallet naturally.
-            //
-            // In both cases the system drawer ends up with +totalCollected representing
-            // the full amount owed to / by the provider.
-
+            // A CUSTOMER_ACCOUNT-funded SEND draws the float IMMEDIATELY —
+            // the transfer physically happens the moment the shop books it;
+            // the receivable lives in debt_ledger (booked above) regardless
+            // of how much of totalCustomerPays was funded vs on-account
+            // (orchestrator default, 2026-07-29) — the old
+            // systemDrawerCredit=0 / debtTotal-subtraction gates are gone.
             const isSystemProvider = isOMT || data.provider === "WHISH";
-            if (isSystemProvider) {
-              // Deferred (session basket): the basket owns the customer cash-in,
-              // so treat this leg as a cash reserve regardless of the original
-              // payment method — General −totalCollected nets against the basket's
-              // separate cash-in, and the system drawer tracks the full outflow.
-              const isPaidByNonCash = deferPayment
-                ? false
-                : data.payments
-                  ? // multi-payment: non-cash if ANY leg is non-cash
-                    data.payments.some((p) => isNonCashDrawerMethod(p.method))
-                  : isNonCashDrawerMethod(paidBy);
-
-              if (isPaidByNonCash) {
-                // Non-cash: transfer from each wallet drawer to system drawer
-                if (data.payments && data.payments.length > 0) {
-                  // Multi-payment: transfer each non-cash leg proportionally
-                  // IMPORTANT: only transfer (leg.amount - legPmFee) to system drawer.
-                  // The pmFee portion stays in the wallet drawer as immediate shop profit.
-                  for (const p of data.payments) {
-                    if (!isNonCashDrawerMethod(p.method)) continue;
-                    const walletDrawer = paymentMethodToDrawerName(p.method);
-                    const legPmFee = perLegPmFee(p);
-                    const transferAmt = Math.abs(p.amount) - legPmFee;
-                    if (transferAmt <= 0) continue;
-                    insertPayment.run(
-                      txnId,
-                      "TRANSFER",
-                      walletDrawer,
-                      p.currencyCode,
-                      -transferAmt,
-                      `Transfer to ${systemDrawer}`,
-                      createdBy,
-                    );
-                    upsertBalanceDelta.run(
-                      walletDrawer,
-                      p.currencyCode,
-                      -transferAmt,
-                    );
-                    // Net in wallet: +p.amount (customer in) - transferAmt (out) = +legPmFee ✓
-                  }
-                } else {
-                  // Single non-cash payment: transfer only totalCollected (amount + providerFee)
-                  // from wallet to system drawer. The pmFee stays in the wallet as shop profit.
-                  const walletDrawer = paymentMethodToDrawerName(paidBy);
-                  insertPayment.run(
-                    txnId,
-                    "TRANSFER",
-                    walletDrawer,
-                    currency,
-                    -totalCollected,
-                    `Transfer to ${systemDrawer}`,
-                    createdBy,
-                  );
-                  upsertBalanceDelta.run(
-                    walletDrawer,
-                    currency,
-                    -totalCollected,
-                  );
-                  // Net in wallet drawer: +totalCustomerPays (customer in) - totalCollected (transfer out) = +pmFee ✓
-                }
-              } else if (deferPayment || paidBy !== "CUSTOMER_ACCOUNT") {
-                // Cash payment: reserve from General (net 0 for General)
-                // Skip for DEBT single payment — no cash was received, nothing to reserve
-                // Skip for FOR partner transactions — no cash flows through the shop's General drawer
-                // Deferred (session basket): always reserve — the basket's separate
-                // cash-in funds the reserve, so General nets to 0 across both.
-                if (!skipGeneralDrawer) {
-                  insertPayment.run(
-                    txnId,
-                    "RESERVE",
-                    "General",
-                    currency,
-                    -totalCollected,
-                    "Cash reserve for settlement",
-                    createdBy,
-                  );
-                  upsertBalanceDelta.run("General", currency, -totalCollected);
-                }
-              }
-            }
-
-            // System drawer credit:
-            // For single payment: +totalCollected (amount + providerFee)
-            // For multi-payment: the system drawer tracks what the shop will pay OMT.
-            //   = sentAmount + providerFee, but EXCLUDING any debt leg
-            //   (debt is owed by the customer, not yet funded — OMT_System only gets
-            //    funded portions from wallet transfers + cash reserve)
-            let systemDrawerCredit = totalCollected;
-            if (deferPayment) {
-              // Deferred (session basket): the basket funds the full outflow, so
-              // the system drawer always tracks the entire totalCollected.
-              systemDrawerCredit = totalCollected;
-            } else if (paidBy === "CUSTOMER_ACCOUNT") {
-              // Single DEBT payment: no funds received yet — OMT_System not credited
-              systemDrawerCredit = 0;
-            } else if (data.payments && data.payments.length > 0) {
-              // Multi-payment: total actually funded = totalCollected - debtTotal
-              const debtTotal = data.payments
-                .filter((p) => p.method === "CUSTOMER_ACCOUNT")
-                .reduce((s, p) => s + Math.abs(p.amount), 0);
-              systemDrawerCredit = Math.max(0, totalCollected - debtTotal);
-            }
-
-            // System drawer +(funded amount): tracks what shop will pay to/receive from provider
-            if (!skipSystemDrawer) {
+            if (isSystemProvider && !skipSystemDrawer) {
+              const floatDelta = data.includingFees
+                ? -(sentAmount - providerFeeAmt)
+                : -sentAmount;
               insertPayment.run(
                 txnId,
                 data.provider,
                 systemDrawer,
                 currency,
-                systemDrawerCredit,
-                `${data.provider} system debt`,
+                floatDelta,
+                `${data.provider} system float`,
                 createdBy,
               );
-              upsertBalanceDelta.run(
-                systemDrawer,
-                currency,
-                systemDrawerCredit,
-              );
+              upsertBalanceDelta.run(systemDrawer, currency, floatDelta);
             }
           }
         } else {
           // ─── RECEIVE: provider sends money to customer, shop pays cash out ───
           //
-          // ONLY the system drawer is affected — the shop does NOT touch General here.
+          // Float model (owner-confirmed 2026-07-29): OMT_System/Whish_System
+          // is a SPENDABLE FLOAT — RECEIVE fills it back up by the bare
+          // principal (x), never the fee/commission. Posted ONCE below,
+          // unconditionally, BEFORE the cashout-method branch — replacing
+          // the three duplicated `-totalOwed` (principal + commission)
+          // postings the pre-fix code wrote per branch (CUSTOMER_ACCOUNT
+          // cashout, wallet/CASH cashout, and the removed skipSystemDrawer
+          // no-op) — see OmtSystemFeeCharacterization.test.ts.
           //
-          // OMT owes the shop: amount + commission
-          //   - amount:     what the shop physically paid out to the customer
-          //   - commission: the shop's cut (to be realized at settlement)
-          //
-          // So OMT_System decreases by (amount + commission):
-          //   → tracks the full debt OMT has to repay the shop
-          //
-          // Example: $100 INTRA receive
-          //   - Shop pays customer: $100
-          //   - OMT owes shop: $100 + $0.10 = $100.10
-          //   - OMT_System: -$100.10
+          // Customer fee f (NEW — RECEIVE never had a fee field before this
+          // fix; owner decision 2026-07-29): resolvedProviderFee, shared
+          // with SEND and the supplier-ledger booking below (rule 14).
+          // Defaults to 0, which collapses every formula below to its
+          // pre-fix shape (bare principal, no fee leg, unchanged behavior
+          // for every existing caller that never sends omtFee/whishFee on a
+          // RECEIVE).
+          //   includingFees=false (fee ON TOP)  → the shop pays out the FULL
+          //     receiveAmount; the customer additionally PAYS the fee f via
+          //     a separate leg below.
+          //   includingFees=true (fee INCLUDED) → the fee is netted OUT of
+          //     the payout instead: the shop pays out only
+          //     (receiveAmount − f).
           const receiveAmount = Math.abs(data.amount);
-          const totalOwed = receiveAmount + Math.abs(calculatedCommission);
+          const receiveFeeAmt = resolvedProviderFee;
+          const receiveFeeIncluded = data.includingFees === true;
+          const payoutAmount = receiveFeeIncluded
+            ? Math.max(0, receiveAmount - receiveFeeAmt)
+            : receiveAmount;
           const cashoutMethod = data.cashoutMethod || "CASH";
 
+          // ONE unconditional float posting: +x (bare principal). Skipped
+          // for THROUGH-partner (the system is theirs, not ours —
+          // skipSystemDrawer, unchanged from before).
+          if (useSystemDrawerFlow && !skipSystemDrawer) {
+            insertPayment.run(
+              txnId,
+              data.provider,
+              systemDrawer,
+              currency,
+              receiveAmount,
+              `${data.provider} system float`,
+              createdBy,
+            );
+            upsertBalanceDelta.run(systemDrawer, currency, receiveAmount);
+          }
+
+          // Customer-paid fee leg (fee-on-top only): collected in the same
+          // drawer the payout itself would use (General/cash for a
+          // CUSTOMER_ACCOUNT payout too — a debt credit has no drawer of
+          // its own, but the fee is still a real cash charge). Skipped
+          // under deferPayment — no session-basket caller sends a RECEIVE
+          // fee today (new capability, not yet wired into the basket path).
+          if (!deferPayment && !receiveFeeIncluded && receiveFeeAmt > 0) {
+            const feeDrawer =
+              cashoutMethod === "CASH" || cashoutMethod === "CUSTOMER_ACCOUNT"
+                ? "General"
+                : paymentMethodToDrawerName(cashoutMethod);
+            insertPayment.run(
+              txnId,
+              "FEE",
+              feeDrawer,
+              currency,
+              receiveFeeAmt,
+              `${data.provider} RECEIVE fee (customer-paid)`,
+              createdBy,
+            );
+            upsertBalanceDelta.run(feeDrawer, currency, receiveFeeAmt);
+          }
+
           if (cashoutMethod === "CUSTOMER_ACCOUNT") {
-            // CUSTOMER_ACCOUNT: don't debit any drawer, create credit in debt_ledger
-            // The customer gets a credit on their account instead of cash payout.
-
-            // Track system drawer for OMT/WHISH settlement purposes — always,
-            // including deferred sessions (provider still owes the shop).
-            // Skip for THROUGH-partner transactions — the system is theirs, not ours.
-            if (useSystemDrawerFlow && !skipSystemDrawer) {
-              insertPayment.run(
-                txnId,
-                data.provider,
-                systemDrawer,
-                currency,
-                -totalOwed,
-                `${data.provider} credited to customer account (incl. commission)`,
-                createdBy,
-              );
-              upsertBalanceDelta.run(systemDrawer, currency, -totalOwed);
-            }
-
-            // Customer payout → account credit. Deferred (session basket): the
-            // RECEIVE is a NEGATIVE cart item that nets into the basket, and the
-            // checkout emits a CUSTOMER_ACCOUNT OUT leg the basket recorder turns
-            // into ONE session credit. Self-posting here too would DOUBLE-credit
-            // — this branch previously lacked the `!deferPayment` guard the
-            // Binance/CASH payout paths already had. Non-session callers post it.
+            // CUSTOMER_ACCOUNT: don't debit any drawer, create credit in
+            // debt_ledger — net of the fee when fee-included (payoutAmount
+            // already reflects that).
             if (!deferPayment) {
               if (!resolvedPrimaryClientId) {
                 throw new Error(
@@ -2264,8 +2297,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               const debtService = getDebtService();
               debtService.addCredit({
                 clientId: resolvedPrimaryClientId,
-                amountUsd: currency === "USD" ? receiveAmount : 0,
-                amountLbp: currency === "LBP" ? receiveAmount : 0,
+                amountUsd: currency === "USD" ? payoutAmount : 0,
+                amountLbp: currency === "LBP" ? payoutAmount : 0,
                 note: `${data.provider} RECEIVE cashout — credited to account`,
                 userId: createdBy,
                 transactionId: txnId,
@@ -2276,23 +2309,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // For CASH → General, OMT → OMT_App, WHISH → Whish_App, BINANCE → Binance
             const cashoutDrawer = paymentMethodToDrawerName(cashoutMethod);
 
-            // System drawer: track what provider owes the shop
-            if (useSystemDrawerFlow && !skipSystemDrawer) {
-              // System drawer -(amount + commission): provider owes us this total
-              insertPayment.run(
-                txnId,
-                data.provider,
-                systemDrawer,
-                currency,
-                -totalOwed,
-                `${data.provider} ${cashoutMethod} paid to customer (incl. commission)`,
-                createdBy,
-              );
-              upsertBalanceDelta.run(systemDrawer, currency, -totalOwed);
-            } else if (useSystemDrawerFlow && skipSystemDrawer) {
-              // Partner transaction: system drawer not debited — partner handles the payout
-            } else {
-              // Other providers: single drawer, positive (money coming in)
+            if (!useSystemDrawerFlow) {
+              // Other providers (BOB/OTHER/etc.): single drawer, positive
+              // (money coming in) — the float posting above never ran for
+              // these (useSystemDrawerFlow is OMT/WHISH only).
               const drawerName = data.paidByMethod
                 ? paymentMethodToDrawerName(data.paidByMethod)
                 : systemDrawer;
@@ -2309,13 +2329,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               upsertBalanceDelta.run(drawerName, currency, receiveAmount);
             }
 
-            // Debit the cashout drawer for the payout to customer.
-            // Deferred (session basket): an OMT/WHISH RECEIVE is a NEGATIVE cart
-            // item in the same cash currency, so the checkout modal already nets
-            // it into the basket total and emits the net cash-OUT leg the basket
-            // recorder posts. Skip the payout here to avoid double-counting it.
-            // (The system-drawer side above is kept so provider settlement stays
-            // correct.) Non-session callers post it normally.
+            // Debit the cashout drawer for the payout to customer — net of
+            // the fee when fee-included (payoutAmount already reflects
+            // that). Deferred (session basket): an OMT/WHISH RECEIVE is a
+            // NEGATIVE cart item in the same cash currency, so the checkout
+            // modal already nets it into the basket total and emits the net
+            // cash-OUT leg the basket recorder posts. Skip the payout here
+            // to avoid double-counting it. (The system-float side above is
+            // kept so provider settlement stays correct.) Non-session
+            // callers post it normally.
             if (
               !deferPayment &&
               cashoutMethod !== "CASH" &&
@@ -2328,11 +2350,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 cashoutMethod,
                 cashoutDrawer,
                 currency,
-                -receiveAmount,
+                -payoutAmount,
                 `${cashoutMethod} paid to customer (${data.provider} RECEIVE)`,
                 createdBy,
               );
-              upsertBalanceDelta.run(cashoutDrawer, currency, -receiveAmount);
+              upsertBalanceDelta.run(cashoutDrawer, currency, -payoutAmount);
             } else if (
               !deferPayment &&
               cashoutMethod === "CASH" &&
@@ -2356,8 +2378,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               );
 
               // S2 hard-reject reconciliation (Payment-Legs Integrity plan):
-              // the payout legs must sum to EXACTLY receiveAmount (what the
-              // shop owes the customer — NOT totalOwed, which also includes
+              // the payout legs must sum to EXACTLY payoutAmount (what the
+              // shop owes the customer after any fee-included netting —
+              // NOT receiveAmount when a RECEIVE fee is included, and never
               // the commission the shop keeps). No OUT legs are folded in
               // here: a RECEIVE payout has no "customer overpaid, return
               // change" concept the way a SEND does — any OUT-tagged leg on
@@ -2367,7 +2390,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // fallback below, still correct for legacy/scripted callers).
               reconcileLegs({
                 inLegs: data.payments,
-                expectedTotals: expectedTotalIn(receiveAmount, currency),
+                expectedTotals: expectedTotalIn(payoutAmount, currency),
                 exchangeRate: stampedExchangeRate,
                 tenderExchangeRate: data.tender_exchange_rate,
                 context: `${data.provider} RECEIVE cashout`,
@@ -2398,11 +2421,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   "CASH",
                   "General",
                   currency,
-                  -receiveAmount,
+                  -payoutAmount,
                   `Cash paid to customer (${data.provider} RECEIVE)`,
                   createdBy,
                 );
-                upsertBalanceDelta.run("General", currency, -receiveAmount);
+                upsertBalanceDelta.run("General", currency, -payoutAmount);
               }
             }
           }
@@ -2445,26 +2468,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
       }
 
-      // Only the shop's PRIMARY (base) system owes its provider directly. The
-      // secondary OMT/WHISH system runs via a partner, whose obligation is captured
-      // in partner_ledger below — recording it as a supplier debt too double-counts
-      // it and pollutes the suppliers/settlement page.
-      let baseSystem = "OMT";
-      try {
-        const baseSystemRow = this.db
-          .prepare(
-            "SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = ?",
-          )
-          .get(tenantId) as { value?: string } | undefined;
-        if (baseSystemRow?.value === "WHISH") baseSystem = "WHISH";
-      } catch {
-        // system_settings may be absent in minimal/test schemas — default to OMT.
-      }
-      const skipSecondarySupplierLedger =
-        (data.provider === "OMT" || data.provider === "WHISH") &&
-        data.provider !== baseSystem;
-
-      // Auto-record supplier debt (both flows)
+      // Auto-record supplier debt (both flows). baseSystem /
+      // skipSecondarySupplierLedger are resolved earlier (right after
+      // isThroughPartner/isForPartner, alongside the walk-in-secondary
+      // rejection) — rule 14, one definition, reused here unchanged.
       try {
         const supplierRepo = getSupplierRepository();
         const supplier = supplierRepo.getByProvider(data.provider);
@@ -2474,30 +2481,19 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             `Skipping supplier ledger for inactive provider: ${data.provider}`,
           );
         } else {
-          // Ledger amount (C3 revised — owner-confirmed 2026-07-19):
-          //   SEND → amount + provider fee. The shop collects BOTH on the
-          //     provider's behalf; its cut is only the commission, which
-          //     settlement nets off (settleTransactions pays owed − commission
-          //     and books a SUPPLIER_PAYS_US credit, so the ledger still zeroes:
-          //     TOP_UP(amount+fee) − SETTLEMENT(amount+fee−comm) − comm = 0).
-          //     The original C3 booked the bare amount, which made settlement
-          //     remit only the transfer amount — silently keeping the
-          //     provider's fee share (~90% of the fee) in the shop's drawers.
-          //   RECEIVE → bare amount, unchanged (pending the owner's answer on
-          //     how provider statements treat receives).
-          // The fee mirrors the SEND drawer flow exactly (OMT: data.omtFee,
-          // WHISH: storedWhishFee) so OMT_System/Whish_System and the ledger
-          // always carry the same gross.
-          const sendProviderFee =
-            data.provider === "OMT"
-              ? (data.omtFee ?? 0)
-              : data.provider === "WHISH"
-                ? (storedWhishFee ?? 0)
-                : 0;
-          const ledgerAmount =
-            data.serviceType === "SEND"
-              ? Math.abs(data.amount) + sendProviderFee
-              : Math.abs(data.amount);
+          // Ledger amount — feeOwedDelta (rule 14, see its doc comment):
+          // fee-only, `|fee| − |commission|` for OMT/WHISH, both directions.
+          // resolvedProviderFee is the same `f` the SEND float posting and
+          // the new RECEIVE fee leg use (hoisted earlier alongside
+          // storedWhishFee) — one resolution, three consumers.
+          const ledgerAmount = feeOwedDelta({
+            serviceType: data.serviceType,
+            provider: data.provider,
+            fee: resolvedProviderFee,
+            commission: calculatedCommission,
+            cost,
+            amount: data.amount,
+          });
 
           // Ledger entry_type (C5 prepaid-units model):
           //   RECEIVE                  → PAYMENT (supplier settles with shop, reduces debt)
@@ -2538,10 +2534,23 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // balances (owner-confirmed model, 2026-07-19; see
             // FinancialServiceRepository.appWalletTransfer.test.ts "Fix B").
           } else {
-            const isReceive = data.serviceType === "RECEIVE";
-            const entryType: "PAYMENT" | "TOP_UP" = isReceive
-              ? "PAYMENT"
-              : "TOP_UP";
+            // Float model (rule 14, feeOwedDelta doc): SEND and RECEIVE now
+            // book the SAME shape — the fee net of the shop's own cut,
+            // `|fee| − |commission|` — so both use entry_type TOP_UP
+            // (unsigned; stored as-is). RECEIVE used to use "PAYMENT" here,
+            // but `SupplierRepository.addLedgerEntry` FORCE-NEGATES every
+            // PAYMENT amount (its own sign-convention enforcement, "PAYMENT
+            // amounts stored as negative") — under the OLD gross-principal
+            // model that correctly modeled "the provider is paying the shop
+            // back," but under the fee-only model a RECEIVE's fee
+            // obligation INCREASES what the shop owes the provider exactly
+            // like a SEND's does (same c ≤ f split, same direction) — a
+            // forced-negative entry would make a RECEIVE's fee obligation
+            // silently REDUCE the running balance instead, breaking the
+            // owner's Σ(drawers) − Δ(owed) = c + kept_change invariant for
+            // RECEIVE specifically (caught by
+            // OmtSystemFeeCharacterization.test.ts CASE 1/2 failing-first).
+            const entryType: "TOP_UP" = "TOP_UP";
             if (!skipSecondarySupplierLedger) {
               supplierRepo.addLedgerEntry({
                 supplier_id: supplier.id,
@@ -2643,12 +2652,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Settle tab's "total owed − commission = net pay" math nets correctly
    * (owed per row = supplier_owed, the SUPPLIER_OWED_EXPR projection):
    *
-   *  1. OMT/WHISH commission settlement — rows with commission > 0 and
-   *     is_settled = 0. SEND: owed = amount + provider fee, so
-   *     net pay = amount + fee − commission (the fee belongs to the provider;
-   *     the commission is the shop's cut of it — owner-confirmed 2026-07-19).
-   *     RECEIVE: owed = amount + commission, net pay = amount (unchanged,
-   *     pending the owner's answer on receive statements).
+   *  1. OMT/WHISH fee settlement — rows with commission > 0 and is_settled = 0.
+   *     Owed = the FEE SPLIT ONLY: |f| − |c| (SUPPLIER_OWED_EXPR / feeOwedDelta),
+   *     for BOTH SEND and RECEIVE. The principal x is NOT owed — it already
+   *     moved through the system float at transaction time (SEND draws it down,
+   *     RECEIVE fills it), so booking it here too would charge the provider's
+   *     principal twice. That double-count is exactly what this replaced: it
+   *     drove OMT_System to −121 across one settle cycle that should net to 0.
+   *     f belongs to the provider, c is the shop's cut of f, so f − c is what
+   *     actually changes hands (owner-confirmed float model, 2026-07-29).
    *
    *  2. LEGACY cost/price-flow sale costs — SEND rows written through a cost/price
    *     provider (iPick / Katsh / Whish App / OMT App) BEFORE the C5 prepaid-units
@@ -2749,9 +2761,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
            COUNT(*) as count,
            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_usd,
            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_lbp,
-           -- total_owed per row = SUPPLIER_OWED_EXPR (SEND: amount + provider
-           -- fee; RECEIVE: amount + commission) — same definition the Settle
-           -- tab nets against (net pay = owed − commission).
+           -- total_owed per row = SUPPLIER_OWED_EXPR = the FEE SPLIT only,
+           -- |fee| − |commission|, for both SEND and RECEIVE. The principal is
+           -- NOT owed: it already moved through the system float at transaction
+           -- time. Same single definition feeOwedDelta() uses at write time.
            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN ${SUPPLIER_OWED_EXPR} ELSE 0 END), 0) as total_owed_usd,
            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN ${SUPPLIER_OWED_EXPR} ELSE 0 END), 0) as total_owed_lbp
          FROM financial_services

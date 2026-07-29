@@ -12,6 +12,19 @@
  * IPC-driven over the shared per-worker DB. Per the shared-DB rules we assert
  * DELTAS around the action (snapshot drawer balances immediately before/after),
  * never absolute totals or row position.
+ *
+ * UPDATED (float model, 2026-07-29, docs/FEATURE_GUIDE.md §7/§8.1): OMT_System
+ * is now a spendable float — RECEIVE fills it up by the BARE principal `x`
+ * only. The float posting (`+receiveAmount`) is unconditional and reads
+ * neither the provider fee `f` nor the commission `c` at all (they only ever
+ * feed the supplier-ledger booking, never this leg) — so the old loose "at
+ * least 196, commission may add more" bound is gone: there is nothing left
+ * that COULD add to it, fee/commission present or not. This suite's own
+ * fixture happens to auto-resolve a nonzero commission from the INTRA fee
+ * table for amount=196 (irrelevant here — proves the point). Hand-derived
+ * from `FinancialServiceRepository.ts`'s RECEIVE branch (`+receiveAmount`
+ * posted once, unconditionally, before the cashout-method branch) —
+ * unexecuted.
  */
 
 import { test, expect } from "./fixtures";
@@ -94,9 +107,12 @@ test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () 
     // LBP leg: −540,000 (was 0 before — the dropped leg this bug is about).
     expect(result.generalLbpDelta).toBeCloseTo(-540000, 2);
 
-    // Sanity: the provider still owes the shop (OMT system drawer went negative
-    // by at least the transfer amount). Loose bound — commission may add to it.
-    expect(result.omtUsdDelta).toBeLessThanOrEqual(-196);
+    // Float model (was: toBeLessThanOrEqual(-196) — the system drawer used to
+    // be DEBITED on RECEIVE, gross principal+commission, sign now flipped).
+    // RECEIVE fills the float back up by the bare principal x=196; no omtFee
+    // is sent here so f=0 and the fee/commission never touches this leg —
+    // the posting is now an EXACT +196, not a loose "at least" bound.
+    expect(result.omtUsdDelta).toBeCloseTo(196, 2);
   });
 
   test("single-currency cash payout still deducts exactly one currency (no regression)", async ({
