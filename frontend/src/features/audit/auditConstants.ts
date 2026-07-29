@@ -311,6 +311,11 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // and is in TransactionRepository's _markSourceRefunded supported list) —
   // reversible via the generic path, not in NON_REVERSIBLE_TRANSACTION_TYPES.
   "WALLET_EXCHANGE",
+  // Same reversal shape as WALLET_EXCHANGE — two payment legs + two drawer
+  // deltas, own side table (system_float_topups) with is_refunded/refunded_at
+  // and in TransactionRepository's _markSourceRefunded supported list —
+  // reversible via the generic path, not in NON_REVERSIBLE_TRANSACTION_TYPES.
+  "SYSTEM_FLOAT_TOPUP",
   "RECHARGE",
   "CUSTOM_SERVICE",
   "MAINTENANCE",

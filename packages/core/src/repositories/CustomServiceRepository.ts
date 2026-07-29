@@ -367,6 +367,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
                   amountLbp: leg.currency_code === "LBP" ? amt : 0,
                   note: "Change returned",
                   userId: createdBy,
+                  transactionId: txnId,
                 });
               } else {
                 // On-account (CUSTOMER_ACCOUNT) share → debt.

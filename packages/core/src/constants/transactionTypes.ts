@@ -18,6 +18,17 @@ export const TRANSACTION_TYPES = {
    *  WalletExchangeRepository / migration v138 for why it isn't just a
    *  drawer-parameterized EXCHANGE row. */
   WALLET_EXCHANGE: "WALLET_EXCHANGE",
+  /** Owner-confirmed float model (2026-07-29): the operator funds the
+   *  OMT_System / Whish_System spendable float directly — funding_drawer −,
+   *  target_drawer (OMT_System/Whish_System) + , profit always 0. This is
+   *  the missing direction next to DrawerTopUpRepository.createTopUpFromDrawer
+   *  (which only ever moves the system drawer's balance OUT to General).
+   *  Deliberately its own type rather than DRAWER_TOPUP — DRAWER_TOPUP is
+   *  permanently non-reversible (see NON_REVERSIBLE_TRANSACTION_TYPES) for a
+   *  structural reason ("two drawer movements but only the General-side
+   *  payments leg") that does not apply here: both legs of THIS flow get a
+   *  payments row, so it stays reversible, same pattern as WALLET_EXCHANGE. */
+  SYSTEM_FLOAT_TOPUP: "SYSTEM_FLOAT_TOPUP",
   RECHARGE: "RECHARGE",
   RECHARGE_TOPUP: "RECHARGE_TOPUP",
   MTC_TOPUP: "MTC_TOPUP",
@@ -258,14 +269,25 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
  * client's account (CUSTOMER_ACCOUNT / partial-payment shortfall), linked to
  * the unified transaction via debt_ledger.transaction_id = transactions.id.
  *
- * This is the exact set the generic void/refund path must reverse
- * (TransactionRepository._cancelDebt) — and nothing else. It must stay a
- * whitelist: 'Repayment' rows also carry a transaction_id (back-linked to
- * their DEBT_REPAYMENT transaction) and negating one would un-pay a debt;
- * 'CREDIT_DEPOSIT'/'CREDIT_USED'/'Manual Debt' rows are manual-ledger entries
+ * This is the exact set the generic void/refund path
+ * (TransactionRepository._cancelDebt) reverses via this exported whitelist.
+ * It must stay a whitelist: 'Repayment' rows also carry a transaction_id
+ * (back-linked to their DEBT_REPAYMENT transaction) and negating one would
+ * un-pay a debt. 'CREDIT_USED'/'Manual Debt' rows are manual-ledger entries
  * with no transaction linkage. 'Session Debt' is deliberately absent: it
  * links via session_id (transaction_id NULL) and is reversed by the session
  * flow, not the generic path.
+ *
+ * 'CREDIT_DEPOSIT' is NOT in this list (adding it here would fail
+ * moduleDebtTypes.guard.test.ts's dead-entry check — it isn't a "<Module>
+ * Debt"-named charge), but IS still reversed: `_cancelDebt` locally widens
+ * its own scan to `[...MODULE_DEBT_TRANSACTION_TYPES, 'CREDIT_DEPOSIT']` (rule
+ * 20) so change-returned-as-credit / RECEIVE-cashed-to-account / Binance
+ * credit rows — which DO carry a real transaction_id once
+ * DebtRepository.addCredit's caller passes one — get reversed on void/refund
+ * too. A 'CREDIT_DEPOSIT' row with transaction_id = NULL (standalone/manual
+ * credits, voucher deposits with no originating transaction) is untouched
+ * either way, since `transaction_id = ?` never matches NULL.
  */
 export const MODULE_DEBT_TRANSACTION_TYPES: readonly string[] = [
   "Sale Debt",

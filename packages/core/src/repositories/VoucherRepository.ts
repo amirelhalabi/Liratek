@@ -253,6 +253,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       amountLbp: isLbp ? voucher.amount : 0,
       note: `Voucher redeemed ${code}`,
       createdBy: String(userId),
+      transactionId: transactionId ?? undefined,
     });
 
     this.db

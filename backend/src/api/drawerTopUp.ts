@@ -10,12 +10,16 @@
  * via authenticateJWT → runWithTenant.
  */
 import express from "express";
-import { getDrawerTopUpService } from "@liratek/core";
+import {
+  getDrawerTopUpService,
+  createSystemFloatTopupSchema,
+} from "@liratek/core";
 import {
   authenticateJWT,
   requireRole,
   type AuthRequest,
 } from "../middleware/auth.js";
+import { validateRequest } from "../middleware/validation.js";
 
 const router = express.Router();
 
@@ -110,5 +114,24 @@ router.post("/from-drawer", writeGate, (req, res) => {
     res.json({ success: false, error: errMessage(err) });
   }
 });
+
+// POST /api/drawer-topup/fund-system — fund the OMT_System / Whish_System
+// spendable float from any drawer holding a spendable balance (owner-
+// confirmed 2026-07-29 float model). Validation (target-drawer enum,
+// required funding drawer, at-least-one-currency) lives in the shared core
+// schema (rule 14) so IPC and REST reject the exact same malformed payloads.
+router.post(
+  "/fund-system",
+  writeGate,
+  validateRequest(createSystemFloatTopupSchema),
+  (req, res) => {
+    try {
+      const userId = (req as AuthRequest).user!.userId;
+      res.json(getDrawerTopUpService().fundSystemDrawer(req.body, userId));
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
 
 export default router;

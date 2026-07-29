@@ -40,6 +40,7 @@ import {
   mobileServiceItemUpdateSchema,
   createDrawerCashoutSchema,
   createWalletExchangeSchema,
+  createSystemFloatTopupSchema,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
   type RefundLegsInput,
@@ -73,6 +74,7 @@ import {
   type PartnerWriteOffInput,
   type CreateDrawerCashoutInput,
   type CreateWalletExchangeInput,
+  type CreateSystemFloatTopupInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -639,6 +641,18 @@ export const DrawerCashoutSchema =
 // and the REST route validate against ONE schema (CLAUDE.md rule 14).
 export const WalletExchangeSchema =
   createWalletExchangeSchema as unknown as z.ZodSchema<CreateWalletExchangeInput>;
+
+// =============================================================================
+// System Float Top-Up (OMT_System / Whish_System)
+// =============================================================================
+
+// The system-float-topup contract lives in
+// packages/core/src/validators/systemFloatTopup.ts so the Electron IPC handler
+// and the REST route validate against ONE schema (CLAUDE.md rule 14). Cast
+// bridges the zod-major mismatch (core=zod4, this workspace=zod3); runtime
+// API used is identical.
+export const SystemFloatTopupSchema =
+  createSystemFloatTopupSchema as unknown as z.ZodSchema<CreateSystemFloatTopupInput>;
 
 // =============================================================================
 // Debt Repayment

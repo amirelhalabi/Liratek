@@ -738,6 +738,16 @@ contextBridge.exposeInMainWorld("api", {
       source_drawer: string;
       notes?: string;
     }) => ipcRenderer.invoke("drawer-topup:create-from-drawer", data),
+    /** Fund the OMT_System / Whish_System spendable float from any drawer
+     *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
+    fundSystem: (data: {
+      targetDrawer: "OMT_System" | "Whish_System";
+      fundingDrawer: string;
+      amount_usd: number;
+      amount_lbp: number;
+      notes?: string;
+      transaction_time?: string;
+    }) => ipcRenderer.invoke("drawer-topup:fund-system", data),
     getSourceDrawers: () => ipcRenderer.invoke("drawer-topup:source-drawers"),
     getHistory: (limit?: number) =>
       ipcRenderer.invoke("drawer-topup:history", { limit }),

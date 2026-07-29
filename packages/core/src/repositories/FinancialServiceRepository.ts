@@ -1031,6 +1031,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               amountLbp: r.currencyCode === "LBP" ? amt : 0,
               note: noteLabel,
               userId: createdBy,
+              transactionId: txnId,
             });
           } else if (isDrawerAffectingMethod(r.method)) {
             const drawerName = paymentMethodToDrawerName(r.method);
@@ -1739,6 +1740,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   amountLbp: cashCurrency === "LBP" ? payoutAmount : 0,
                   note: `${data.provider === "BINANCE" ? "Binance" : data.provider} RECEIVE cashout — credited to account`,
                   userId: createdBy,
+                  transactionId: txnId,
                 });
               } else {
                 // Debit the appropriate cash/wallet drawer based on cashout method
@@ -2266,6 +2268,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 amountLbp: currency === "LBP" ? receiveAmount : 0,
                 note: `${data.provider} RECEIVE cashout — credited to account`,
                 userId: createdBy,
+                transactionId: txnId,
               });
             }
           } else {

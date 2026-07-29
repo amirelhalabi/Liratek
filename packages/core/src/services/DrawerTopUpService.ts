@@ -3,7 +3,9 @@ import {
   DrawerTopUpEntity,
   CreateDrawerTopUpData,
   CreateDrawerTopUpFromDrawerData,
+  CreateSystemFloatTopupData,
   SourceDrawerBalance,
+  SYSTEM_FLOAT_DRAWER_NAMES,
   GENERAL_DRAWER,
   getDrawerTopUpRepository,
 } from "../repositories/DrawerTopUpRepository.js";
@@ -194,6 +196,74 @@ export class DrawerTopUpService {
       drawerTopUpLogger.error(
         { error, data },
         "DrawerTopUpService.topUpFromDrawer error",
+      );
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /**
+   * Fund the OMT_System / Whish_System spendable float (owner-confirmed
+   * 2026-07-29 float model) from any drawer holding a spendable balance.
+   */
+  fundSystemDrawer(
+    data: CreateSystemFloatTopupData,
+    userId: number,
+  ): DrawerTopUpResult {
+    try {
+      if (!SYSTEM_FLOAT_DRAWER_NAMES.includes(data.targetDrawer)) {
+        return {
+          success: false,
+          error: `Invalid target drawer "${data.targetDrawer}" — must be one of: ${SYSTEM_FLOAT_DRAWER_NAMES.join(", ")}`,
+        };
+      }
+
+      if (!data.fundingDrawer || !data.fundingDrawer.trim()) {
+        return { success: false, error: "fundingDrawer is required." };
+      }
+
+      if ((data.amount_usd ?? 0) <= 0 && (data.amount_lbp ?? 0) <= 0) {
+        return {
+          success: false,
+          error: "At least one amount (USD or LBP) must be greater than zero.",
+        };
+      }
+
+      if (data.transaction_time) {
+        const txTime = new Date(data.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          return { success: false, error: "Invalid transaction_time format" };
+        }
+        if (txTime > new Date()) {
+          return {
+            success: false,
+            error: "transaction_time cannot be in the future",
+          };
+        }
+      }
+
+      const id = this.repo.fundSystemDrawer(
+        { ...data, fundingDrawer: data.fundingDrawer.trim() },
+        userId,
+      );
+
+      drawerTopUpLogger.info(
+        {
+          id,
+          targetDrawer: data.targetDrawer,
+          fundingDrawer: data.fundingDrawer,
+          amountUSD: data.amount_usd,
+          amountLBP: data.amount_lbp,
+          notes: data.notes,
+          userId,
+        },
+        "System float top-up recorded",
+      );
+
+      return { success: true, id };
+    } catch (error) {
+      drawerTopUpLogger.error(
+        { error, data },
+        "DrawerTopUpService.fundSystemDrawer error",
       );
       return { success: false, error: toErrorString(error) };
     }

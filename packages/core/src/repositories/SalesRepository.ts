@@ -638,6 +638,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               amountLbp: r.currency_code === "LBP" ? amt : 0,
               note: "Change returned",
               userId: createdBy,
+              transactionId: txnId,
             });
           } else if (isDrawerAffectingMethod(r.method)) {
             const drawerName = paymentMethodToDrawerName(r.method);

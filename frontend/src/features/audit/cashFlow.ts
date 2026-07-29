@@ -167,6 +167,7 @@ export function getCashFlowDirection(
       return "out";
     case "EXCHANGE":
     case "WALLET_EXCHANGE": // same-drawer USD<->LBP wallet conversion (OMT App / Whish App)
+    case "SYSTEM_FLOAT_TOPUP": // funding drawer −, OMT_System/Whish_System + — same-shop transfer
       return "both";
     default:
       return null;

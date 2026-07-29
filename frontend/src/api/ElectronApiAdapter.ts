@@ -660,6 +660,16 @@ export class ElectronApiAdapter implements ApiAdapter {
       source_drawer: string;
       notes?: string;
     }) => api.drawerTopUpCreateFromDrawer(data),
+    /** Fund the OMT_System / Whish_System spendable float from any drawer
+     *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
+    fundSystem: (data: {
+      targetDrawer: "OMT_System" | "Whish_System";
+      fundingDrawer: string;
+      amount_usd: number;
+      amount_lbp: number;
+      notes?: string;
+      transaction_time?: string;
+    }) => api.drawerTopUpFundSystem(data),
     getSourceDrawers: () => api.drawerTopUpSourceDrawers(),
     getHistory: (limit?: number) => api.drawerTopUpHistory(limit),
   };

@@ -1403,7 +1403,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Mark the source module record as refunded.
    * Tables with is_refunded column: recharges, financial_services,
    * exchange_transactions, custom_services, maintenance, expenses,
-   * loto_tickets, debt_ledger, supplier_ledger.
+   * loto_tickets, debt_ledger, supplier_ledger, wallet_exchanges,
+   * system_float_topups.
    * Sales are handled separately (status + sale_items).
    *
    * supplier_ledger uses this as a SOFT-VOID: balance/pool aggregates exclude
@@ -1428,6 +1429,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "debt_ledger",
       "supplier_ledger",
       "wallet_exchanges",
+      "system_float_topups",
     ];
     if (!supported.includes(sourceTable)) return;
     // tenant_id predicate applies to every legal value of sourceTable above —
@@ -2049,7 +2051,26 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    */
   private _cancelDebt(originalTxnId: number, userId: number): void {
     const tenantId = getCurrentTenantId();
-    const typePlaceholders = MODULE_DEBT_TRANSACTION_TYPES.map(() => "?").join(
+    // Rule 20: also reverse 'CREDIT_DEPOSIT' rows carrying a REAL
+    // transaction_id — the ones a flow writes as a side effect (change
+    // returned as store credit, a RECEIVE cashed out to CUSTOMER_ACCOUNT, the
+    // Binance/app-wallet equivalent — see DebtRepository.addCredit's doc).
+    // Deliberately NOT added to the exported MODULE_DEBT_TRANSACTION_TYPES
+    // whitelist: that constant is guarded by
+    // constants/__tests__/moduleDebtTypes.guard.test.ts as "module CHARGE
+    // types named '<Module> Debt'" — a credit isn't a charge and doesn't
+    // match that naming convention, and 'CREDIT_DEPOSIT' would fail the
+    // guard's dead-entry check. Local to this method only. A row with
+    // transaction_id = NULL (standalone/manual credits, voucher deposits with
+    // no originating transaction) never matches `transaction_id = ?` below,
+    // so this stays surgical — see
+    // TransactionRepository.debtReversal.test.ts's whitelist guard test and
+    // ServiceStoreCreditReversal.test.ts's negative control.
+    const CANCELLABLE_LEDGER_TYPES = [
+      ...MODULE_DEBT_TRANSACTION_TYPES,
+      "CREDIT_DEPOSIT",
+    ];
+    const typePlaceholders = CANCELLABLE_LEDGER_TYPES.map(() => "?").join(
       ", ",
     );
     const debts = this.query<{
@@ -2061,7 +2082,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
        WHERE transaction_id = ? AND transaction_type IN (${typePlaceholders}) AND tenant_id = ?`,
       originalTxnId,
-      ...MODULE_DEBT_TRANSACTION_TYPES,
+      ...CANCELLABLE_LEDGER_TYPES,
       tenantId,
     );
 

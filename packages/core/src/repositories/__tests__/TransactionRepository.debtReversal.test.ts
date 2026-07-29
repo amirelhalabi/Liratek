@@ -18,8 +18,15 @@
  * Fix: MODULE_DEBT_TRANSACTION_TYPES whitelist (constants/transactionTypes),
  * _cancelDebt negates BOTH currencies and runs unconditionally on refund and
  * void. The whitelist is load-bearing: 'Repayment' rows are back-linked to a
- * transaction_id too and must NOT be negated by a module reversal; voucher
- * 'CREDIT_DEPOSIT' rows carry transaction_id = NULL.
+ * transaction_id too and must NOT be negated by a module reversal.
+ * 'CREDIT_DEPOSIT' rows with transaction_id = NULL (standalone/manual
+ * credits, e.g. a voucher deposited with no originating transaction) are
+ * untouched by the whitelist match below (NULL never equals a real id) —
+ * but a 'CREDIT_DEPOSIT' row that DOES carry a real transaction_id (a
+ * flow-embedded change-returned-as-credit / CUSTOMER_ACCOUNT cashout row) IS
+ * now reversed too, via `_cancelDebt`'s own locally-widened scan (see that
+ * method's doc and ServiceStoreCreditReversal.test.ts, rule 20 — the
+ * exported whitelist itself deliberately excludes 'CREDIT_DEPOSIT').
  *
  * Companion fix proven here too: CustomServiceRepository.deleteService used
  * to hard-DELETE its 'Custom Service Debt' rows AFTER calling the generic
