@@ -53,4 +53,27 @@ describe("isReversibleRow", () => {
   it("a non-actionable type (e.g. CHECKPOINT) is not reversible regardless of other fields", () => {
     expect(isReversibleRow(row({ type: "CHECKPOINT" }))).toBe(false);
   });
+
+  // ── The loto family's per-type contract (owner ask, 2026-07-29) ───────────
+  //
+  // Loto TICKET sales became reversible (see
+  // TransactionRepository._reverseLotoSupplierLedger); cash prizes and
+  // settlements deliberately did NOT. `actionGating.guard.test.ts` already
+  // pins the SET-level invariant (ACTIONABLE ∩ NON_REVERSIBLE = ∅), which
+  // catches drift between the two sets — but it cannot catch someone removing
+  // LOTO_CASH_PRIZE from BOTH sets, nor does it state the intended per-type
+  // behaviour anywhere a reader will see it. These three assert the actual
+  // button-visibility contract directly, so "cash prizes are not refundable"
+  // is a pinned fact rather than an emergent property of two other lists.
+  it("a LOTO ticket sale IS reversible (the repository guard decides settled-vs-not, not the UI)", () => {
+    expect(isReversibleRow(row({ type: "LOTO" }))).toBe(true);
+  });
+
+  it("a LOTO_CASH_PRIZE is NOT reversible — no Void/Refund button is offered", () => {
+    expect(isReversibleRow(row({ type: "LOTO_CASH_PRIZE" }))).toBe(false);
+  });
+
+  it("a LOTO_SETTLEMENT is NOT reversible — no Void/Refund button is offered", () => {
+    expect(isReversibleRow(row({ type: "LOTO_SETTLEMENT" }))).toBe(false);
+  });
 });
