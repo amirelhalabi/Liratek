@@ -34,6 +34,26 @@
  * Revert the comment-outs afterward. LOTO_CASH_PRIZE's block (case 7) is
  * unrelated to this fix and passed before and after — a stability check that
  * this ticket's scope carve-out didn't leak.
+ *
+ * "Case 3b" (added later, see git blame) composes case 2's delta-adjust with
+ * `LotoCheckpointRepository.settleCheckpoint` — the crux invariant manual
+ * test point 1 asks for: refund mid-checkpoint, THEN settle with the
+ * checkpoint's own re-read totals, and the Loto supplier ledger must net to
+ * exactly 0. Same failing-first recipe (comment out the two call sites
+ * above): the checkpoint delta-adjust never runs, so re-reading its "totals"
+ * yields the stale pre-refund numbers, settling with those leaves a
+ * non-zero balance, and the two positive-path tests fail.
+ *
+ * The negative-control test shows the OTHER failure cause, under the current
+ * (fixed) code: settling from totals captured BEFORE the refund silently
+ * strands that ticket's own contribution in the ledger. Its job is to
+ * distinguish "stale totals were used" from "the delta-adjust didn't run" —
+ * two different bugs with the same symptom. Treat the two positive-path
+ * Case-3b tests as THE regression guard for the delta-adjust; don't reason
+ * about this one's behaviour under a revert (measured 2026-07-29: commenting
+ * out both `_reverseLotoSupplierLedger` call sites does turn it red, but that
+ * is incidental to what it is asserting, not the property it was written to
+ * pin).
  */
 
 import Database from "better-sqlite3";
@@ -41,6 +61,7 @@ import {
   TransactionRepository,
   resetTransactionRepository,
 } from "../TransactionRepository";
+import { LotoCheckpointRepository } from "../LotoCheckpointRepository";
 import {
   initFixedTenantContext,
   resetTenantContext,
@@ -140,6 +161,38 @@ function createTestDb(): Database.Database {
       note TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Needed only by the settle-cycle composition tests below
+    -- (LotoCheckpointRepository.settleCheckpoint touches both).
+    CREATE TABLE loto_cash_prizes (
+      tenant_id INTEGER DEFAULT 1,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_number TEXT,
+      prize_amount REAL NOT NULL,
+      customer_name TEXT,
+      prize_date TEXT NOT NULL,
+      is_reimbursed INTEGER NOT NULL DEFAULT 0,
+      reimbursed_date TEXT,
+      reimbursed_in_settlement_id INTEGER,
+      checkpoint_id INTEGER,
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE loto_settlements (
+      tenant_id INTEGER DEFAULT 1,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      settlement_date TEXT NOT NULL,
+      checkpoint_ids TEXT NOT NULL,
+      total_sales REAL NOT NULL DEFAULT 0,
+      total_commission REAL NOT NULL DEFAULT 0,
+      total_cash_prizes REAL NOT NULL DEFAULT 0,
+      net_settlement REAL NOT NULL,
+      note TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE transactions (
@@ -568,6 +621,262 @@ describe("LOTO ticket sale reversal (void/refund) — rule 20", () => {
         .prepare(`SELECT id FROM transactions WHERE reverses_id = ?`)
         .get(txnId);
       expect(existingRefund).toBeUndefined();
+    });
+  });
+
+  // ── Case 3b: refund mid-checkpoint THEN settle — the composed crux ──────
+  //
+  // Point 1's second half (audit Q1): the checkpoint delta-adjust (case 2
+  // above) and the settle-to-zero math (LotoSupplierLedgerSign.test.ts) are
+  // each proven separately, but never chained. These three tests compose
+  // them: sell N tickets into one unsettled checkpoint, refund ONE of them
+  // (checkpoint delta-adjusts), re-read the checkpoint's now-adjusted
+  // totals, settle with THOSE totals, and assert the Loto supplier ledger
+  // nets to exactly 0.
+
+  describe("refund mid-checkpoint, THEN settle — nets to exactly 0 (Point 1 crux)", () => {
+    function seedOpenCheckpoint(
+      totals: {
+        total_sales: number;
+        total_commission: number;
+        total_tickets: number;
+        total_prizes: number;
+      },
+      checkpointRepo: LotoCheckpointRepository,
+    ): number {
+      const cp = checkpointRepo.createCheckpoint({
+        checkpoint_date: "2026-07-25",
+        period_start: "2026-07-20",
+        period_end: "2026-07-25",
+        total_sales: totals.total_sales,
+        total_commission: totals.total_commission,
+        total_tickets: totals.total_tickets,
+        total_prizes: totals.total_prizes,
+        total_cash_prizes: 0,
+        total_cash_prizes_count: 0,
+      });
+      return cp.id;
+    }
+
+    it("non-winner ticket: refund it mid-checkpoint, settle with the adjusted totals, ledger nets to 0", () => {
+      const checkpointRepo = new LotoCheckpointRepository(db);
+      const supplierId = lotoSupplierId(db);
+
+      // Named constants — three tickets, none winning.
+      const TICKET_A_SALE = 100_000;
+      const TICKET_A_COMMISSION = 4_450;
+      const TICKET_B_SALE = 50_000;
+      const TICKET_B_COMMISSION = 2_225;
+      const TICKET_C_SALE = 30_000; // this one gets refunded
+      const TICKET_C_COMMISSION = 1_335;
+
+      const checkpointId = seedOpenCheckpoint(
+        {
+          total_sales: TICKET_A_SALE + TICKET_B_SALE + TICKET_C_SALE,
+          total_commission:
+            TICKET_A_COMMISSION + TICKET_B_COMMISSION + TICKET_C_COMMISSION,
+          total_tickets: 3,
+          total_prizes: 0,
+        },
+        checkpointRepo,
+      );
+
+      seedTicket(db, txnRepo, {
+        saleAmount: TICKET_A_SALE,
+        commissionAmount: TICKET_A_COMMISSION,
+        checkpointId,
+      });
+      seedTicket(db, txnRepo, {
+        saleAmount: TICKET_B_SALE,
+        commissionAmount: TICKET_B_COMMISSION,
+        checkpointId,
+      });
+      const { txnId: txnC } = seedTicket(db, txnRepo, {
+        saleAmount: TICKET_C_SALE,
+        commissionAmount: TICKET_C_COMMISSION,
+        checkpointId,
+      });
+
+      // Pre-refund: shop owes Loto (sale − commission) for all three tickets.
+      const preRefundOwed =
+        TICKET_A_SALE -
+        TICKET_A_COMMISSION +
+        (TICKET_B_SALE - TICKET_B_COMMISSION) +
+        (TICKET_C_SALE - TICKET_C_COMMISSION);
+      expect(ledgerSumLbp(db, supplierId)).toBeCloseTo(preRefundOwed, 4);
+
+      // Refund ticket C — checkpoint delta-adjusts (case 2 above already
+      // pins this in isolation; here it feeds the next step).
+      txnRepo.refundTransaction(txnC, 1);
+
+      const adjusted = checkpointRow(db, checkpointId);
+      expect(adjusted.total_sales).toBeCloseTo(
+        TICKET_A_SALE + TICKET_B_SALE,
+        4,
+      );
+      expect(adjusted.total_commission).toBeCloseTo(
+        TICKET_A_COMMISSION + TICKET_B_COMMISSION,
+        4,
+      );
+      expect(adjusted.total_tickets).toBe(2);
+      expect(adjusted.total_prizes).toBeCloseTo(0, 4);
+
+      // Settle using the checkpoint's OWN re-read (post-refund) totals —
+      // never the stale pre-refund ones (see the negative-control test below).
+      checkpointRepo.settleCheckpoint(
+        checkpointId,
+        adjusted.total_sales,
+        adjusted.total_commission,
+        adjusted.total_prizes,
+        0, // total_cash_prizes param is deprecated, read from the checkpoint row
+        "2026-07-25T12:00:00.000Z",
+        1,
+      );
+
+      // Crux invariant: TOP_UP(A) + TOP_UP(B) + SETTLEMENT == 0.
+      // TOP_UP(A) + TOP_UP(B) = 95,550 + 47,775 = 143,325 (C's TOP_UP is
+      // excluded by the is_refunded filter in ledgerSumLbp); SETTLEMENT =
+      // adjusted.total_commission − adjusted.total_sales = 6,675 − 150,000
+      // = −143,325. Sum = 0.
+      expect(ledgerSumLbp(db, supplierId)).toBeCloseTo(0, 4);
+    });
+
+    it("WINNING ticket: refund it mid-checkpoint (total_prizes delta-adjusts too), settle nets to 0", () => {
+      const checkpointRepo = new LotoCheckpointRepository(db);
+      const supplierId = lotoSupplierId(db);
+
+      const TICKET_A_SALE = 100_000;
+      const TICKET_A_COMMISSION = 4_450;
+      const TICKET_B_SALE = 50_000;
+      const TICKET_B_COMMISSION = 2_225;
+      // Winning ticket — the one refunded. Its prize contributes to
+      // total_prizes, so the delta-adjust must subtract it too.
+      const TICKET_W_SALE = 30_000;
+      const TICKET_W_COMMISSION = 1_335;
+      const TICKET_W_PRIZE = 2_000;
+
+      const checkpointId = seedOpenCheckpoint(
+        {
+          total_sales: TICKET_A_SALE + TICKET_B_SALE + TICKET_W_SALE,
+          total_commission:
+            TICKET_A_COMMISSION + TICKET_B_COMMISSION + TICKET_W_COMMISSION,
+          total_tickets: 3,
+          total_prizes: TICKET_W_PRIZE,
+        },
+        checkpointRepo,
+      );
+
+      seedTicket(db, txnRepo, {
+        saleAmount: TICKET_A_SALE,
+        commissionAmount: TICKET_A_COMMISSION,
+        checkpointId,
+      });
+      seedTicket(db, txnRepo, {
+        saleAmount: TICKET_B_SALE,
+        commissionAmount: TICKET_B_COMMISSION,
+        checkpointId,
+      });
+      const { txnId: txnW } = seedTicket(db, txnRepo, {
+        saleAmount: TICKET_W_SALE,
+        commissionAmount: TICKET_W_COMMISSION,
+        checkpointId,
+        isWinner: true,
+        prizeAmount: TICKET_W_PRIZE,
+      });
+
+      txnRepo.refundTransaction(txnW, 1);
+
+      const adjusted = checkpointRow(db, checkpointId);
+      expect(adjusted.total_sales).toBeCloseTo(
+        TICKET_A_SALE + TICKET_B_SALE,
+        4,
+      );
+      expect(adjusted.total_commission).toBeCloseTo(
+        TICKET_A_COMMISSION + TICKET_B_COMMISSION,
+        4,
+      );
+      expect(adjusted.total_tickets).toBe(2);
+      // The refunded ticket's OWN prize is removed from the frozen total.
+      expect(adjusted.total_prizes).toBeCloseTo(0, 4);
+
+      checkpointRepo.settleCheckpoint(
+        checkpointId,
+        adjusted.total_sales,
+        adjusted.total_commission,
+        adjusted.total_prizes,
+        0,
+        "2026-07-25T12:00:00.000Z",
+        1,
+      );
+
+      expect(ledgerSumLbp(db, supplierId)).toBeCloseTo(0, 4);
+    });
+
+    it("NEGATIVE CONTROL: settling with the STALE pre-refund totals leaves a non-zero balance equal to the refunded ticket's own (sale − commission)", () => {
+      const checkpointRepo = new LotoCheckpointRepository(db);
+      const supplierId = lotoSupplierId(db);
+
+      const TICKET_A_SALE = 100_000;
+      const TICKET_A_COMMISSION = 4_450;
+      const TICKET_B_SALE = 50_000;
+      const TICKET_B_COMMISSION = 2_225;
+      const TICKET_C_SALE = 30_000;
+      const TICKET_C_COMMISSION = 1_335;
+
+      const staleTotalSales = TICKET_A_SALE + TICKET_B_SALE + TICKET_C_SALE; // 180,000
+      const staleTotalCommission =
+        TICKET_A_COMMISSION + TICKET_B_COMMISSION + TICKET_C_COMMISSION; // 8,010
+
+      const checkpointId = seedOpenCheckpoint(
+        {
+          total_sales: staleTotalSales,
+          total_commission: staleTotalCommission,
+          total_tickets: 3,
+          total_prizes: 0,
+        },
+        checkpointRepo,
+      );
+
+      seedTicket(db, txnRepo, {
+        saleAmount: TICKET_A_SALE,
+        commissionAmount: TICKET_A_COMMISSION,
+        checkpointId,
+      });
+      seedTicket(db, txnRepo, {
+        saleAmount: TICKET_B_SALE,
+        commissionAmount: TICKET_B_COMMISSION,
+        checkpointId,
+      });
+      const { txnId: txnC } = seedTicket(db, txnRepo, {
+        saleAmount: TICKET_C_SALE,
+        commissionAmount: TICKET_C_COMMISSION,
+        checkpointId,
+      });
+
+      // Refund C — the checkpoint DOES delta-adjust (this repo's own fix is
+      // intact and untouched by this test); we simply choose, on purpose, to
+      // settle with the ORIGINAL pre-refund totals instead of re-reading
+      // them, to prove such a caller mistake is NOT silently absorbed.
+      txnRepo.refundTransaction(txnC, 1);
+
+      checkpointRepo.settleCheckpoint(
+        checkpointId,
+        staleTotalSales, // WRONG: still includes refunded ticket C
+        staleTotalCommission, // WRONG: still includes refunded ticket C
+        0,
+        0,
+        "2026-07-25T12:00:00.000Z",
+        1,
+      );
+
+      const finalBalance = ledgerSumLbp(db, supplierId);
+      const refundedTicketOwed = TICKET_C_SALE - TICKET_C_COMMISSION; // 28,665
+
+      // Must NOT be zero...
+      expect(finalBalance).not.toBeCloseTo(0, 4);
+      // ...and the miss is exactly the refunded ticket's own (sale −
+      // commission) contribution, left stranded by the stale totals.
+      expect(finalBalance).toBeCloseTo(-refundedTicketOwed, 4);
     });
   });
 
