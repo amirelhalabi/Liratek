@@ -55,6 +55,12 @@ interface CryptoFormProps {
   onKeptChange?: (kept: { usd: number; lbp: number } | null) => void;
   onDiscountChange?: (discount: number) => void;
   exchangeRate: number;
+  /** Payment-Legs Integrity: fires with the rate the PaymentSheet is
+   *  ACTUALLY converting tender at (the seeded rate, or the operator's own
+   *  edit of the sheet's header field) — forwarded to the backend as
+   *  `tender_exchange_rate` so RECEIVE payout reconciliation compares at
+   *  the till's rate, not the stamped sell rate (lira-095). */
+  onExchangeRateChange?: (rate: number) => void;
   onTransactionTimeChange?: (time: string | undefined) => void;
 }
 
@@ -88,6 +94,7 @@ export function CryptoForm({
   onKeptChange,
   onDiscountChange,
   exchangeRate,
+  onExchangeRateChange,
   onTransactionTimeChange,
 }: CryptoFormProps) {
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
@@ -598,6 +605,7 @@ export function CryptoForm({
           currency="USD"
           paymentMethods={paymentMethods}
           exchangeRate={exchangeRate}
+          {...(onExchangeRateChange ? { onExchangeRateChange } : {})}
           showDiscount={true}
           maxDiscount={fee}
           onDiscountChange={(d) => {

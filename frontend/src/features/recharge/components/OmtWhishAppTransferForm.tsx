@@ -310,21 +310,26 @@ function OmtWhishAppTransferFormInner({
         // charges); the repository's wallet-transfer SEND branch now
         // reconciles legs against THIS instead of guessing `amount + fee`
         // (lira-108: wrong for a fee carved OUT of the entered amount).
-        // `tender_exchange_rate` is the rate this form's own
-        // PaymentSheet/MultiPaymentInput ACTUALLY converted tender at —
-        // captured live via onExchangeRateChange (falls back to
-        // `exchangeRate` if the sheet never fired), so the repository
-        // reconciles at the SAME rate the till used (lira-095's
-        // cross-currency spread bug). Sent only when legs are sent — no
-        // legs, nothing to reconcile.
         ...(serviceType === "SEND" && useStructuredPayments
           ? {
               checkoutTotal:
                 currency === "USD"
                   ? { usd: totalAmount, lbp: 0 }
                   : { usd: 0, lbp: totalAmount },
-              tender_exchange_rate: effectiveRate ?? exchangeRate,
             }
+          : {}),
+        // `tender_exchange_rate` is the rate this form's own
+        // PaymentSheet/MultiPaymentInput ACTUALLY converted tender at —
+        // captured live via onExchangeRateChange (falls back to
+        // `exchangeRate` if the sheet never fired), so the repository
+        // reconciles at the SAME rate the till used (lira-095's
+        // cross-currency spread bug). Sent whenever legs are sent — BOTH
+        // directions: the RECEIVE payout branch reconciles legs too now
+        // (split-payout wrong-currency fix, owner-reported 2026-07-30), and
+        // a cross-currency payout converted at the sheet's buy rate would
+        // false-reject at the stamped sell rate without this.
+        ...(useStructuredPayments
+          ? { tender_exchange_rate: effectiveRate ?? exchangeRate }
           : {}),
         // T3 keep-change: kept amounts join the profit stamp.
         ...(keptChange && (keptChange.usd > 0 || keptChange.lbp > 0)

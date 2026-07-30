@@ -73,19 +73,46 @@ jest.mock("../../../components", () => ({
   CryptoForm: ({
     cryptoAmount,
     setCryptoAmount,
+    cryptoFee,
+    setCryptoFee,
+    setCryptoType,
+    setFeeIncluded,
     handleCryptoSubmit,
     onPaymentLinesChange,
+    onExchangeRateChange,
   }: {
     cryptoAmount: string;
     setCryptoAmount: (v: string) => void;
+    cryptoFee: string;
+    setCryptoFee: (v: string) => void;
+    setCryptoType: (t: "SEND" | "RECEIVE") => void;
+    setFeeIncluded: (v: boolean) => void;
     handleCryptoSubmit: () => void;
     onPaymentLinesChange: (lines: PaymentLine[]) => void;
+    onExchangeRateChange?: (rate: number) => void;
   }) => (
     <div data-testid="stub-crypto-form">
       <input
         data-testid="crypto-amount-input"
         value={cryptoAmount}
         onChange={(e) => setCryptoAmount(e.target.value)}
+      />
+      <input
+        data-testid="crypto-fee-input"
+        value={cryptoFee}
+        onChange={(e) => setCryptoFee(e.target.value)}
+      />
+      <button
+        data-testid="crypto-switch-receive"
+        onClick={() => setCryptoType("RECEIVE")}
+      />
+      <button
+        data-testid="crypto-toggle-fee-included"
+        onClick={() => setFeeIncluded(true)}
+      />
+      <button
+        data-testid="crypto-edit-rate"
+        onClick={() => onExchangeRateChange?.(88000)}
       />
       <button
         data-testid="crypto-inject-single"
@@ -198,5 +225,101 @@ describe("Recharge page — Binance crypto submit never gates legs on split (S1)
         amount: 180000,
       }),
     ]);
+  });
+
+  // Split-payout wrong-currency fix (owner-reported 2026-07-30): the repo's
+  // Binance/app-wallet RECEIVE branch now reconciles payout legs against
+  // `amount − commission`. Two frontend contract fixes ride with it:
+  //  (a) the direct submit must send the fee-FOLDED gross amount — it sent
+  //      the raw input (`parseFloat(cryptoAmount)`), so a fee-on-top RECEIVE
+  //      booked a payout `fee` short of what the sheet collected (the
+  //      session-cart path always used the folded value);
+  //  (b) it must forward tender_exchange_rate whenever legs are sent — the
+  //      page seeds the sheet with the BUY rate, so a cross-currency payout
+  //      leg would false-reject against the stamped sell rate without it.
+  // rule 17: proven failing-first 2026-07-30 — pre-fix, payload.amount read
+  // 100 (raw) and payload.tender_exchange_rate read undefined.
+  it("RECEIVE fee-on-top sends the fee-FOLDED gross amount and the buy-rate tender fallback", async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByTestId("select-binance"));
+    await screen.findByTestId("stub-crypto-form");
+
+    fireEvent.click(screen.getByTestId("crypto-switch-receive"));
+    fireEvent.change(screen.getByTestId("crypto-amount-input"), {
+      target: { value: "100" },
+    });
+    fireEvent.change(screen.getByTestId("crypto-fee-input"), {
+      target: { value: "2" },
+    });
+
+    fireEvent.click(screen.getByTestId("crypto-inject-single"));
+    fireEvent.click(screen.getByTestId("crypto-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.serviceType).toBe("RECEIVE");
+    // Gross wallet inflow = 100 entered + 2 fee on top (repo contract:
+    // `data.amount` is the GROSS inflow; payout = amount − commission).
+    expect(payload.amount).toBe(102);
+    expect(payload.commission).toBe(2);
+    // No sheet rate edit → falls back to the page's seeded buy rate.
+    expect(payload.tender_exchange_rate).toBe(89000);
+  });
+
+  it("sends the sheet's OPERATOR-EDITED rate as tender_exchange_rate", async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByTestId("select-binance"));
+    await screen.findByTestId("stub-crypto-form");
+
+    fireEvent.click(screen.getByTestId("crypto-switch-receive"));
+    fireEvent.change(screen.getByTestId("crypto-amount-input"), {
+      target: { value: "100" },
+    });
+    fireEvent.click(screen.getByTestId("crypto-edit-rate")); // sheet reports 88000
+    fireEvent.click(screen.getByTestId("crypto-inject-single"));
+    fireEvent.click(screen.getByTestId("crypto-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.tender_exchange_rate).toBe(88000);
+  });
+
+  it("SEND with fee INCLUDED sends the netted amount (raw − fee), matching the session-cart fold", async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByTestId("select-binance"));
+    await screen.findByTestId("stub-crypto-form");
+
+    fireEvent.change(screen.getByTestId("crypto-amount-input"), {
+      target: { value: "100" },
+    });
+    fireEvent.change(screen.getByTestId("crypto-fee-input"), {
+      target: { value: "2" },
+    });
+    fireEvent.click(screen.getByTestId("crypto-toggle-fee-included"));
+
+    fireEvent.click(screen.getByTestId("crypto-inject-single"));
+    fireEvent.click(screen.getByTestId("crypto-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.serviceType).toBe("SEND");
+    // rule 17: pre-fix this read 100 — the raw input, fee not carved out.
+    expect(payload.amount).toBe(98);
+    expect(payload.commission).toBe(2);
   });
 });

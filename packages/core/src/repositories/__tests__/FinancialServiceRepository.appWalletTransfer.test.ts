@@ -37,8 +37,9 @@ jest.mock("../../db/connection", () => {
 
 // ─── Mock DebtService (only used by CUSTOMER_ACCOUNT cashout) ────────────────
 
+const mockAddCredit = jest.fn();
 jest.mock("../../services/DebtService", () => ({
-  getDebtService: () => ({ addCredit: jest.fn() }),
+  getDebtService: () => ({ addCredit: mockAddCredit }),
   resetDebtService: jest.fn(),
 }));
 
@@ -794,5 +795,254 @@ describe("Fix B — app-wallet transfers book NO supplier ledger entries", () =>
       exchangeRate: 90000,
     });
     expect(ledgerRows(db)).toHaveLength(0);
+  });
+});
+
+describe("FinancialServiceRepository — app-wallet RECEIVE split payout (owner-reported 2026-07-30)", () => {
+  // The bug: the app-wallet/Binance RECEIVE payout posted ONE lump of
+  // `payoutAmount` (a service-currency magnitude) tagged with the FIRST
+  // payment leg's currency (`payments[0].currencyCode`) — a 20,000,000 LBP
+  // Whish App RECEIVE paid out as [$100 USD, 11,050,000 LBP] booked
+  // General USD −20,000,000 and never touched General LBP. Reversal owners
+  // for everything this flow writes (rule 20): payout legs → generic
+  // _reversePayments; store credit → transaction_id-linked addCredit
+  // (ServiceStoreCreditReversal.test.ts).
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    repo = new FinancialServiceRepository();
+    mockAddCredit.mockClear();
+    db.prepare(
+      `INSERT INTO clients (id, full_name, phone_number) VALUES (1, 'amir halabi', '81077357')`,
+    ).run();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+  });
+
+  it("WHISH_APP RECEIVE 20,000,000 LBP paid out as $100 + 11,050,000 LBP debits EACH leg in its OWN currency (the owner's exact repro)", () => {
+    // rule 17: proven failing-first 2026-07-30 — pre-fix the lump posting
+    // read General USD −20,000,000 (payout magnitude × first leg's currency)
+    // and General LBP ±0.
+    const genUsdBefore = balance(db, "General", "USD");
+    const genLbpBefore = balance(db, "General", "LBP");
+
+    repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "RECEIVE",
+      amount: 20_000_000, // gross wallet inflow
+      currency: "LBP",
+      commission: 0,
+      cashoutMethod: "CASH",
+      exchangeRate: 90_000,
+      // The till converted the USD line at its own (buy) rate:
+      // 100 × 89,500 + 11,050,000 = 20,000,000 exactly.
+      tender_exchange_rate: 89_500,
+      payments: [
+        { method: "CASH", currencyCode: "USD", amount: 100 }, // USD FIRST — the trigger
+        { method: "CASH", currencyCode: "LBP", amount: 11_050_000 },
+      ],
+    });
+
+    expect(balance(db, "Whish_App", "LBP")).toBeCloseTo(20_000_000, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore - 100, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(
+      genLbpBefore - 11_050_000,
+      2,
+    );
+
+    // Identity assertions on the payout legs themselves (rule 15).
+    const payoutLegs = db
+      .prepare(
+        `SELECT currency_code, amount FROM payments
+         WHERE drawer_name = 'General' AND amount < 0 ORDER BY id ASC`,
+      )
+      .all() as Array<{ currency_code: string; amount: number }>;
+    expect(payoutLegs).toEqual([
+      expect.objectContaining({ currency_code: "USD", amount: -100 }),
+      expect.objectContaining({ currency_code: "LBP", amount: -11_050_000 }),
+    ]);
+  });
+
+  it("hard-rejects a split payout whose legs do NOT sum to the payout (S2 reconciliation), rolling back the wallet credit", () => {
+    // rule 17: proven failing-first 2026-07-30 — pre-fix this booked
+    // silently (no RECEIVE-side reconcileLegs existed in this branch).
+    expect(() =>
+      repo.createTransaction({
+        provider: "WHISH_APP",
+        serviceType: "RECEIVE",
+        amount: 20_000_000,
+        currency: "LBP",
+        commission: 0,
+        cashoutMethod: "CASH",
+        exchangeRate: 90_000,
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 100 },
+          { method: "CASH", currencyCode: "LBP", amount: 10_000_000 }, // ~1.05M LBP short
+        ],
+      }),
+    ).toThrow(/do not reconcile/);
+
+    // The throw happens inside the flow's db.transaction — nothing partial.
+    expect(balance(db, "Whish_App", "LBP")).toBe(0);
+    expect(balance(db, "General", "USD")).toBeCloseTo(1000, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(100_000_000, 2);
+    expect(
+      (
+        db.prepare(`SELECT COUNT(*) AS n FROM transactions`).get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(0);
+  });
+
+  it("CUSTOMER_ACCOUNT cashout books the store credit in the SERVICE currency, never the first leg's currency", () => {
+    // rule 17: proven failing-first 2026-07-30 — pre-fix a USD-denominated
+    // account leg made cashCurrency 'USD' and the credit booked
+    // amountUsd = 20,000,000 (an LBP magnitude as dollars).
+    repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "RECEIVE",
+      amount: 20_000_000,
+      currency: "LBP",
+      commission: 0,
+      cashoutMethod: "CUSTOMER_ACCOUNT",
+      clientId: 1,
+      clientName: "amir halabi",
+      exchangeRate: 90_000,
+      payments: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 222.22 },
+      ],
+    });
+
+    expect(mockAddCredit).toHaveBeenCalledTimes(1);
+    expect(mockAddCredit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: 1,
+        amountUsd: 0,
+        amountLbp: 20_000_000,
+      }),
+    );
+    // No drawer moved for an on-account payout.
+    expect(balance(db, "General", "USD")).toBeCloseTo(1000, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(100_000_000, 2);
+  });
+
+  it("an account payout leg under the default CASH cashout routes to store credit, not a phantom General debit (the Whish App form's shape)", () => {
+    // OmtWhishAppTransferForm never sends cashoutMethod — an on-account
+    // payout arrives as a CUSTOMER_ACCOUNT leg with cashoutMethod defaulting
+    // to CASH. rule 17: proven failing-first 2026-07-30 — pre-fix this
+    // debited General by the FULL payout (cash that never left the till)
+    // and booked NO credit at all.
+    repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "RECEIVE",
+      amount: 20_000_000,
+      currency: "LBP",
+      commission: 0,
+      clientId: 1,
+      clientName: "amir halabi",
+      exchangeRate: 90_000,
+      payments: [
+        {
+          method: "CUSTOMER_ACCOUNT",
+          currencyCode: "LBP",
+          amount: 20_000_000,
+        },
+      ],
+    });
+
+    expect(mockAddCredit).toHaveBeenCalledTimes(1);
+    expect(mockAddCredit).toHaveBeenCalledWith(
+      expect.objectContaining({ clientId: 1, amountLbp: 20_000_000 }),
+    );
+    expect(balance(db, "General", "USD")).toBeCloseTo(1000, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(100_000_000, 2);
+  });
+
+  it("mixed CASH + CUSTOMER_ACCOUNT split payout: cash leg debits its drawer, account leg becomes store credit", () => {
+    repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "RECEIVE",
+      amount: 20_000_000,
+      currency: "LBP",
+      commission: 0,
+      clientId: 1,
+      clientName: "amir halabi",
+      exchangeRate: 90_000,
+      tender_exchange_rate: 89_500,
+      payments: [
+        { method: "CASH", currencyCode: "USD", amount: 100 },
+        {
+          method: "CUSTOMER_ACCOUNT",
+          currencyCode: "LBP",
+          amount: 11_050_000,
+        },
+      ],
+    });
+
+    expect(balance(db, "General", "USD")).toBeCloseTo(1000 - 100, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(100_000_000, 2);
+    expect(mockAddCredit).toHaveBeenCalledTimes(1);
+    expect(mockAddCredit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: 1,
+        amountUsd: 0,
+        amountLbp: 11_050_000,
+      }),
+    );
+  });
+
+  it("BINANCE RECEIVE split payout debits per-currency too (shared branch)", () => {
+    // rule 17: proven failing-first 2026-07-30 — pre-fix the lump read
+    // General USD −98 / LBP ±0 (legs ignored, payout magnitude in
+    // payments[0]'s currency — which HAPPENED to be USD here, hiding the
+    // LBP leg entirely).
+    repo.createTransaction({
+      provider: "BINANCE",
+      serviceType: "RECEIVE",
+      amount: 100, // USDT gross
+      currency: "USDT",
+      commission: 2,
+      cashoutMethod: "CASH",
+      exchangeRate: 90_000,
+      payments: [
+        { method: "CASH", currencyCode: "USD", amount: 50 },
+        { method: "CASH", currencyCode: "LBP", amount: 4_320_000 }, // $48 @ 90,000
+      ],
+    });
+
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(500 + 100, 2);
+    expect(balance(db, "General", "USD")).toBeCloseTo(1000 - 50, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(
+      100_000_000 - 4_320_000,
+      2,
+    );
+  });
+
+  it("no-legs fallback still books the single lump in the SERVICE cash currency (legacy/scripted callers)", () => {
+    repo.createTransaction({
+      provider: "WHISH_APP",
+      serviceType: "RECEIVE",
+      amount: 20_000_000,
+      currency: "LBP",
+      commission: 0,
+      cashoutMethod: "CASH",
+      exchangeRate: 90_000,
+    });
+
+    expect(balance(db, "General", "LBP")).toBeCloseTo(
+      100_000_000 - 20_000_000,
+      2,
+    );
+    expect(balance(db, "General", "USD")).toBeCloseTo(1000, 2);
   });
 });

@@ -273,4 +273,41 @@ describe("OmtWhishAppTransferForm — payment legs never gated on split (S1)", (
     >;
     expect(payload.tender_exchange_rate).toBe(88000);
   });
+
+  // Split-payout wrong-currency fix (owner-reported 2026-07-30): the
+  // repository's app-wallet RECEIVE branch now reconciles payout legs (S2)
+  // — a cross-currency payout the till converted at its own rate would
+  // false-reject at the stamped rate unless the form forwards
+  // tender_exchange_rate on RECEIVE too. rule 17: proven failing-first
+  // 2026-07-30 — pre-fix the tender-rate spread was gated
+  // `serviceType === "SEND" && useStructuredPayments`, so a RECEIVE payload
+  // carried NO tender_exchange_rate (read `undefined`). `checkoutTotal`
+  // stays SEND-only: it is the customer-owed total, not a payout — the
+  // repository derives the RECEIVE payout itself.
+  it("attaches tender_exchange_rate (but NOT checkoutTotal) on a RECEIVE with legs", async () => {
+    renderForm();
+
+    fireEvent.click(screen.getByRole("button", { name: /Receive/i }));
+    fireEvent.change(
+      document.getElementById("transfer-amount") as HTMLInputElement,
+      { target: { value: "10" } },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Proceed to Pay/i }));
+    await screen.findByTestId("stub-payment-sheet");
+
+    fireEvent.click(screen.getByTestId("stub-edit-rate")); // sheet reports 88000
+    fireEvent.click(screen.getByTestId("stub-inject-single"));
+    fireEvent.click(screen.getByTestId("stub-confirm"));
+
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
+
+    const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.serviceType).toBe("RECEIVE");
+    expect(payload.tender_exchange_rate).toBe(88000);
+    expect(payload.checkoutTotal).toBeUndefined();
+  });
 });

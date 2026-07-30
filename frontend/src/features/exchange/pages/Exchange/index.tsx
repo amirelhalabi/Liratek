@@ -93,6 +93,21 @@ function formatLegRate(
 }
 
 /**
+ * Compact unit label for a leg's rate input.
+ * e.g. "LBP/USD" (LBP-like, rate = X LBP per USD) or "USD/EUR" (EUR-like).
+ */
+function legRateUnit(
+  fromCurrency: string,
+  toCurrency: string,
+  rates: CurrencyRate[],
+): string {
+  const nonUsd = fromCurrency === "USD" ? toCurrency : fromCurrency;
+  const cr = rates.find((r) => r.to_code === nonUsd);
+  if (!cr) return "";
+  return cr.is_stronger === 1 ? `${nonUsd}/USD` : `USD/${nonUsd}`;
+}
+
+/**
  * Format an amount with its currency code.
  */
 function formatAmount(amount: number, currency: string, decimals = 2): string {
@@ -733,7 +748,7 @@ export default function Exchange() {
         }
       />
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {/* ── Exchange Calculator ── */}
         <div className="w-full max-w-2xl mx-auto bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col gap-4">
           {/* Currency Selectors */}
@@ -786,84 +801,59 @@ export default function Exchange() {
             </div>
           )}
 
-          {/* Cross-Currency Leg Breakdown (2 legs, each with editable rate) */}
+          {/* Cross-Currency Leg Breakdown (2 legs, each with editable rate,
+              one compact row per leg; total profit lives in the header) */}
           {isCrossCurrency && effectiveResult && (
-            <div className="bg-slate-900/60 rounded-xl border border-amber-500/20 p-3 space-y-2">
-              <div className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
-                ⚡ Cross-Currency via USD
+            <div className="bg-slate-900/60 rounded-xl border border-amber-500/20 p-3 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
+                  ⚡ Cross-Currency via USD
+                </span>
+                <span className="text-xs text-emerald-400 font-semibold whitespace-nowrap">
+                  Total +${effectiveResult.totalProfitUsd.toFixed(4)}
+                </span>
               </div>
               {effectiveResult.legs.map((leg, i) => (
                 <div
                   key={i}
-                  className="text-xs bg-slate-800/50 rounded px-3 py-2 space-y-2"
+                  className="flex items-center gap-2 text-xs bg-slate-800/50 rounded px-2 py-1.5"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-300">
-                      Leg {i + 1}:{" "}
-                      <span className="text-violet-400">
-                        {leg.fromCurrency}
-                      </span>
-                      {" → "}
-                      <span className="text-violet-400">{leg.toCurrency}</span>
-                    </span>
-                    <span className="text-emerald-400 font-bold">
-                      +${leg.profitUsd.toFixed(4)} USD profit
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>
-                      In:{" "}
-                      <span className="text-slate-300 font-mono">
-                        {formatAmount(leg.amountIn, leg.fromCurrency)}
-                      </span>
-                    </span>
-                    <span>
-                      Out:{" "}
-                      <span className="text-slate-300 font-mono">
-                        {formatAmount(leg.amountOut, leg.toCurrency)}
-                      </span>
-                    </span>
-                  </div>
-                  {/* Editable rate input */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-500 shrink-0">Rate:</span>
-                    <input
-                      type="number"
-                      value={customRates[i] ?? leg.rate}
-                      onChange={(e) => handleRateChange(i, e.target.value)}
-                      className={`flex-1 bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
-                        rateOverridden[i]
-                          ? "border-amber-500/60 bg-amber-500/10"
-                          : "border-slate-600 focus:border-violet-500"
-                      }`}
-                    />
-                    <span className="text-slate-500 text-xs shrink-0">
-                      {formatLegRate(
-                        leg.fromCurrency,
-                        leg.toCurrency,
-                        leg.rate,
-                        effectiveRates,
-                      )
-                        .split(" ")
-                        .slice(1)
-                        .join(" ")}
-                    </span>
-                    {rateOverridden[i] && (
-                      <button
-                        onClick={() => resetRate(i)}
-                        className="text-xs text-slate-500 hover:text-white transition-colors shrink-0"
-                        title="Reset to default rate"
-                      >
-                        ↺
-                      </button>
-                    )}
-                  </div>
+                  <span className="w-4 h-4 rounded-full bg-slate-700 text-slate-400 text-[10px] font-bold flex items-center justify-center shrink-0">
+                    {i + 1}
+                  </span>
+                  <span className="font-mono text-slate-300 whitespace-nowrap">
+                    {formatAmount(leg.amountIn, leg.fromCurrency)}
+                    <span className="text-slate-500"> → </span>
+                    {formatAmount(leg.amountOut, leg.toCurrency)}
+                  </span>
+                  <input
+                    type="number"
+                    value={customRates[i] ?? leg.rate}
+                    onChange={(e) => handleRateChange(i, e.target.value)}
+                    title={`Rate (${legRateUnit(leg.fromCurrency, leg.toCurrency, effectiveRates)})`}
+                    className={`flex-1 min-w-[70px] bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
+                      rateOverridden[i]
+                        ? "border-amber-500/60 bg-amber-500/10"
+                        : "border-slate-600 focus:border-violet-500"
+                    }`}
+                  />
+                  <span className="text-[10px] text-slate-500 shrink-0">
+                    {legRateUnit(leg.fromCurrency, leg.toCurrency, effectiveRates)}
+                  </span>
+                  {rateOverridden[i] && (
+                    <button
+                      onClick={() => resetRate(i)}
+                      className="text-xs text-slate-500 hover:text-white transition-colors shrink-0"
+                      title="Reset to default rate"
+                    >
+                      ↺
+                    </button>
+                  )}
+                  <span className="text-emerald-400 font-semibold whitespace-nowrap shrink-0">
+                    +${leg.profitUsd.toFixed(4)}
+                  </span>
                 </div>
               ))}
-              <div className="flex justify-between text-xs text-emerald-400 font-semibold pt-1 border-t border-slate-700">
-                <span>Total Profit</span>
-                <span>${effectiveResult.totalProfitUsd.toFixed(4)} USD</span>
-              </div>
             </div>
           )}
 

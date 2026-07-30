@@ -1634,15 +1634,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
           // The Binance drawer always tracks the crypto denomination (USDT),
           // regardless of what `currency` was passed; app wallets track the
-          // service currency. The cash side uses the payment-leg currency,
-          // defaulting to the service currency when no legs are provided.
+          // service currency. The cash side is denominated in the SERVICE
+          // currency (Binance: USD — USDT cashes in/out in dollars). When
+          // structured legs are present each leg carries its OWN currency
+          // and is posted per-leg; `cashCurrency` is only the no-legs
+          // fallback (and store-credit) denomination. NEVER guess it from
+          // `payments[0].currencyCode`: `payoutAmount`/`cashTotal` are
+          // service-currency magnitudes, and pairing them with the first
+          // leg's currency booked a 20,000,000 LBP Whish App payout as
+          // General USD −20,000,000 when the operator entered the $100
+          // split line first (owner-reported 2026-07-30).
           const cryptoCurrency = isBINANCE ? "USDT" : currency;
-          const cashCurrency =
-            data.payments && data.payments.length > 0
-              ? data.payments[0].currencyCode
-              : isBINANCE
-                ? "USD"
-                : currency;
+          const cashCurrency = isBINANCE ? "USD" : currency;
 
           // S2 hard-reject reconciliation (Payment-Legs Integrity plan): the
           // customer's cash legs must cover the FULL amount the caller's own
@@ -1834,22 +1837,87 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   transactionId: txnId,
                 });
               } else {
-                // Debit the appropriate cash/wallet drawer based on cashout method
-                const cashoutDrawer = paymentMethodToDrawerName(cashoutMethod);
-                insertPayment.run(
-                  txnId,
-                  cashoutMethod,
-                  cashoutDrawer,
-                  cashCurrency,
-                  -payoutAmount,
-                  `${cashoutMethod} paid to customer (Binance RECEIVE)`,
-                  createdBy,
-                );
-                upsertBalanceDelta.run(
-                  cashoutDrawer,
-                  cashCurrency,
-                  -payoutAmount,
-                );
+                // Split payout (owner-reported 2026-07-30): post EACH IN leg
+                // in its OWN currency against its own drawer — §4/lira-074,
+                // the same rule the OMT/WHISH RECEIVE cash branch below
+                // follows. The old code posted ONE lump of `payoutAmount` (a
+                // service-currency magnitude) tagged with the FIRST leg's
+                // currency. Reconcile first (S2 hard-reject) so a mis-keyed
+                // split throws inside this db.transaction instead of
+                // mis-booking; the tender rate (when sent) absorbs the
+                // sheet's buy/sell spread (lira-095). `data.payments` is
+                // already the IN set (rule 16 — OUT legs were partitioned
+                // off at the top of createTransaction). CUSTOMER_ACCOUNT
+                // legs count toward the payout total but route to store
+                // credit, not a drawer — mirroring the SEND leg loop above.
+                const payoutLegs = data.payments ?? [];
+                reconcileLegs({
+                  inLegs: payoutLegs,
+                  expectedTotals: expectedTotalIn(payoutAmount, cashCurrency),
+                  exchangeRate: stampedExchangeRate,
+                  tenderExchangeRate: data.tender_exchange_rate,
+                  context: `${data.provider} RECEIVE cashout`,
+                });
+
+                if (payoutLegs.length > 0) {
+                  const providerLabel =
+                    data.provider === "BINANCE" ? "Binance" : data.provider;
+                  for (const leg of payoutLegs) {
+                    const legAmount = Math.abs(leg.amount);
+                    if (legAmount <= 0) continue;
+                    if (leg.method === "CUSTOMER_ACCOUNT") {
+                      if (!resolvedPrimaryClientId) {
+                        throw new Error(
+                          "Client is required for CUSTOMER_ACCOUNT cashout",
+                        );
+                      }
+                      getDebtService().addCredit({
+                        clientId: resolvedPrimaryClientId,
+                        amountUsd: leg.currencyCode === "USD" ? legAmount : 0,
+                        amountLbp: leg.currencyCode === "LBP" ? legAmount : 0,
+                        note: `${providerLabel} RECEIVE cashout — credited to account`,
+                        userId: createdBy,
+                        transactionId: txnId,
+                      });
+                    } else if (isDrawerAffectingMethod(leg.method)) {
+                      const legDrawer = paymentMethodToDrawerName(leg.method);
+                      insertPayment.run(
+                        txnId,
+                        leg.method,
+                        legDrawer,
+                        leg.currencyCode,
+                        -legAmount,
+                        `${leg.method} paid to customer (${providerLabel} RECEIVE)`,
+                        createdBy,
+                      );
+                      upsertBalanceDelta.run(
+                        legDrawer,
+                        leg.currencyCode,
+                        -legAmount,
+                      );
+                    }
+                  }
+                } else {
+                  // No structured legs (legacy/scripted callers): single
+                  // lump in the service cash currency via the cashout
+                  // method's drawer.
+                  const cashoutDrawer =
+                    paymentMethodToDrawerName(cashoutMethod);
+                  insertPayment.run(
+                    txnId,
+                    cashoutMethod,
+                    cashoutDrawer,
+                    cashCurrency,
+                    -payoutAmount,
+                    `${cashoutMethod} paid to customer (Binance RECEIVE)`,
+                    createdBy,
+                  );
+                  upsertBalanceDelta.run(
+                    cashoutDrawer,
+                    cashCurrency,
+                    -payoutAmount,
+                  );
+                }
               }
             }
           }

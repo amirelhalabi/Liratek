@@ -148,6 +148,13 @@ export default function MobileRecharge() {
     lbp: number;
   } | null>(null);
   const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
+  // Payment-Legs Integrity: the rate the crypto PaymentSheet is ACTUALLY
+  // converting tender at (seeded buy rate, or the operator's edit of the
+  // sheet's header field) — sent as tender_exchange_rate so the backend's
+  // RECEIVE payout reconciliation compares at the till's rate (lira-095).
+  const [cryptoTenderRate, setCryptoTenderRate] = useState<
+    number | undefined
+  >();
   const [cryptoTransactionTime, setCryptoTransactionTime] = useState<
     string | undefined
   >();
@@ -1056,7 +1063,13 @@ export default function MobileRecharge() {
       const result = await api.addOMTTransaction({
         provider: "BINANCE",
         serviceType: cryptoType,
-        amount: parseFloat(cryptoAmount),
+        // The GROSS wallet amount with the fee-included toggle already
+        // folded in (computed above) — the repo contract. The raw input
+        // (`parseFloat(cryptoAmount)`) here made a fee-on-top RECEIVE book
+        // a payout `fee` short of what the sheet collected, and a
+        // fee-included SEND overcharge the books by `fee` — the session
+        // cart path above always used the folded value.
+        amount,
         currency: "USDT",
         clientId: resolvedCryptoClientId || undefined,
         clientName: cryptoClientName,
@@ -1066,6 +1079,12 @@ export default function MobileRecharge() {
         payments: useCryptoStructuredPayments
           ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
           : undefined,
+        // The rate the sheet ACTUALLY converted tender at (this page seeds
+        // it with the BUY rate — a cross-currency payout leg would
+        // false-reject against the stamped sell rate without this).
+        ...(useCryptoStructuredPayments
+          ? { tender_exchange_rate: cryptoTenderRate ?? exchangeRate }
+          : {}),
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
           ? { cashoutMethod: derivedCashoutMethod }
           : {}),
@@ -1133,6 +1152,8 @@ export default function MobileRecharge() {
     cryptoPaymentLines,
     cryptoReturnLegs,
     cryptoPaidBy,
+    cryptoTenderRate,
+    exchangeRate,
     cryptoTransactionTime,
     api,
     loadBinanceData,
@@ -1520,6 +1541,7 @@ export default function MobileRecharge() {
             }}
             onReturnChange={setCryptoReturnLegs}
             exchangeRate={exchangeRate}
+            onExchangeRateChange={setCryptoTenderRate}
             onTransactionTimeChange={setCryptoTransactionTime}
           />
         )}
