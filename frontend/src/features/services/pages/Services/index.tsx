@@ -428,6 +428,23 @@ export default function Services() {
   const renderProviderFee = (() => {
     const amtVal = parseFloat(amount) || 0;
     if (!amtVal || provider === "WHISH") return 0;
+    // A MANUALLY ENTERED fee wins over the tier table — and it must be checked
+    // FIRST, in the same precedence order `resolvedOmtFee` uses when building
+    // the payload (`omtFee !== "" ? parseFloat(omtFee) : lookupOmtFee(...)`).
+    //
+    // This check used to sit BELOW the tier lookups, so for OMT INTRA /
+    // WESTERN_UNION it was unreachable: the tier fee always won here while the
+    // payload sent the typed fee. The seeded payment total and the amount the
+    // backend reconciles against then disagreed, and the SEND was hard
+    // rejected. Caught by lira-131 driving the real form: typing a $5 fee on a
+    // $100 INTRA send produced `payments:[{CASH,USD,101}]` (100 + the tier's
+    // $1) against a payload carrying `omtFee: 5`, so the reconciler wanted
+    // $105 and got $101.
+    //
+    // An explicitly typed "0" is authoritative too (the operator waiving the
+    // fee), which is why this tests `!== ""` rather than truthiness — matching
+    // resolvedOmtFee exactly. Same decision, one precedence (rule 14).
+    if (omtFee !== "") return parseFloat(omtFee) || 0;
     if (provider === "OMT" && omtServiceType === "INTRA") {
       if (currency === "LBP") {
         return lookupIntraLbpFee(amtVal) ?? 0;
@@ -441,8 +458,6 @@ export default function Services() {
         if (amtVal <= tier.maxAmount) return tier.fee;
       }
     }
-    // Fallback to manually entered OMT fee
-    if (omtFee && parseFloat(omtFee) > 0) return parseFloat(omtFee);
     return 0;
   })();
 
