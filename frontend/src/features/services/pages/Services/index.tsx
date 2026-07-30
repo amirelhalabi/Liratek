@@ -339,6 +339,17 @@ export default function Services() {
   // Direction-agnostic (float model, owner-confirmed 2026-07-29): SEND nets
   // the fee out of what the customer pays; RECEIVE nets it out of the payout.
   const [includingFees, setIncludingFees] = useState<boolean>(false);
+  // Payment-Legs Integrity plan (false-reject fix, pattern from
+  // FinancialForm/TelecomForm/PaymentSheet): the rate MultiPaymentInput
+  // ACTUALLY converted the tendered legs at — the operator's own edit of
+  // "1 USD = X LBP" if touched, else the buyRate default fed to it on
+  // mount. Sent as tender_exchange_rate so reconcileLegs compares
+  // change/legs at the SAME rate the till used, instead of the live
+  // stamped sell rate (false-reject: operator tendered at 89,000, repo
+  // reconciled at the live 90,000 sell rate).
+  const [effectiveRate, setEffectiveRate] = useState<number | undefined>(
+    undefined,
+  );
 
   // History modal
   const [showHistory, setShowHistory] = useState(false);
@@ -826,11 +837,29 @@ export default function Services() {
         }
       }
 
+      // Tendered rate: prefer the operator's own edit, else the buyRate
+      // MultiPaymentInput was seeded with on mount (onExchangeRateChange
+      // fires at least once either way — see effectiveRate above). Guard
+      // against ever forwarding a non-positive/non-finite value: the
+      // repository's reconcileLegs would use it as-is when the stamped
+      // rate isn't a positive number (moneyPosting.ts), and the core
+      // validator's z.number().positive() would otherwise just reject the
+      // whole transaction. Omitting it entirely on a bad value lets the
+      // repository's existing live-sell-rate fallback apply, unchanged.
+      const resolvedTenderRate = effectiveRate ?? exchangeRate;
+      const tenderExchangeRate =
+        Number.isFinite(resolvedTenderRate) && resolvedTenderRate > 0
+          ? resolvedTenderRate
+          : undefined;
+
       const apiPayload = {
         provider,
         serviceType,
         amount: sentAmount,
         currency: currency,
+        ...(tenderExchangeRate !== undefined
+          ? { tender_exchange_rate: tenderExchangeRate }
+          : {}),
         // For backward compatibility: set primary client based on service type
         ...(serviceType === "SEND"
           ? { clientName: senderName, phoneNumber: senderPhone }
@@ -1096,6 +1125,8 @@ export default function Services() {
     isSplitPayment,
     paymentLines,
     includingFees,
+    exchangeRate,
+    effectiveRate,
     pmFeeAmount,
     pmFeeApplies,
     multiPmFees,
@@ -2086,6 +2117,7 @@ export default function Services() {
                     { code: "LBP", symbol: "LBP" },
                   ]}
                   exchangeRate={exchangeRate}
+                  onExchangeRateChange={setEffectiveRate}
                   onReturnChange={setReturnLegs}
                 />
               </div>
