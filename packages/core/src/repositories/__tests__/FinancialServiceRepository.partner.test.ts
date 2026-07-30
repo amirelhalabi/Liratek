@@ -801,14 +801,15 @@ describe("FinancialServiceRepository — partner mode", () => {
       // customer's +(x+f) = +105 cash-in permanently (fee-on-top: sentAmount
       // 100 + providerFeeAmt 5); there is no longer a RESERVE leg to net it
       // back to zero (the old "3-drawer pattern, cancels to 0" is dead).
-      // TODO(rule-17): prove failing-first — restore the deleted RESERVE
-      // leg off General (net General back to `generalBefore`) to make this
-      // red again.
+      // rule 17: proven failing-first 2026-07-30 — restoring the deleted
+      // RESERVE leg off General (net General back to `generalBefore`) makes
+      // this red (General read 1000 instead of 1105).
       expect(drawerBalance(db, "General")).toBeCloseTo(generalBefore + 105, 2);
       // float model: SEND draws the float DOWN by the bare principal (x =
       // 100, not x+f) — it no longer "credits" a gross reserve.
-      // TODO(rule-17): prove failing-first — flip the sign back to
-      // `+sentAmount` (the old systemDrawerCredit) to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+      // `+totalCollected` (the old systemDrawerCredit) makes this red
+      // (OMT_System read 605, no longer less than omtBefore).
       expect(drawerBalance(db, "OMT_System")).toBeLessThan(omtBefore);
     });
 
@@ -828,8 +829,9 @@ describe("FinancialServiceRepository — partner mode", () => {
       // float model: RECEIVE fills the float back UP by the bare principal
       // (+receiveAmount) — the old model drew it down by totalOwed
       // (principal+commission).
-      // TODO(rule-17): prove failing-first — flip the sign back to
-      // `-totalOwed` (the old posting) to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+      // `-totalOwed` (the old posting) makes this red (OMT_System read 399,
+      // no longer greater than omtBefore).
       expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(omtBefore);
       // The payout leg (General debited for the cash handed to the
       // customer) is unaffected by this fix — still a real cash outflow.

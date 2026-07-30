@@ -538,14 +538,15 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
       );
       // float model: the SEND cash reserve is gone — General no longer
       // reserves a USD leg to fund the float transfer.
-      // TODO(rule-17): prove failing-first — revert the RESERVE-leg deletion
-      // (restore the `RESERVE -sentAmount` insertPayment/upsertBalanceDelta
-      // pair off General) to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — restoring the deleted
+      // `RESERVE -totalCollected` insertPayment/upsertBalanceDelta pair off
+      // General makes this red (General USD read 990 instead of 1000).
       expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore, 2);
       // float model: SEND draws the float down by the bare principal (x),
       // it no longer builds a gross reserve.
-      // TODO(rule-17): prove failing-first — flip the sign back to
-      // `+sentAmount` (the old systemDrawerCredit) to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+      // `+totalCollected` (the old systemDrawerCredit) makes this red
+      // (OMT_System read 510 instead of 490).
       expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
         systemBefore - 10,
         2,
@@ -561,8 +562,10 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
       // the SEND cash reserve is gone: no RESERVE-method payment row is ever
       // written anymore (insertPayment.run(..., systemDrawer, ...) below
       // tags the float leg with `data.provider`, e.g. "OMT", not "RESERVE").
-      // TODO(rule-17): prove failing-first — reintroduce the deleted RESERVE
-      // insertPayment call off General to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — reintroducing the deleted
+      // RESERVE insertPayment call off General makes this red (isolation run
+      // with the two assertions above neutralized: reserveLegs came back
+      // with the restored `{General, USD, -10}` row instead of `[]`).
       const reserveLegs = paymentsFor(db, "RESERVE");
       expect(reserveLegs).toEqual([]);
 
@@ -615,12 +618,14 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
       );
       // float model: the SEND cash reserve is gone — General no longer
       // reserves a USD leg (mirrors the OMT case above).
-      // TODO(rule-17): prove failing-first — restore the deleted RESERVE
-      // leg off General to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — restoring the deleted
+      // RESERVE leg off General makes this red (General USD read 990
+      // instead of 1000).
       expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore, 2);
       // float model: SEND draws the float down by the bare principal (x).
-      // TODO(rule-17): prove failing-first — flip the sign back to
-      // `+sentAmount` to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+      // `+totalCollected` makes this red (Whish_System read 510 instead of
+      // 490).
       expect(balance(db, "Whish_System", "USD")).toBeCloseTo(
         systemBefore - 10,
         2,
@@ -646,14 +651,15 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
       // customer's +$10 cash-in permanently; there is no longer a RESERVE
       // leg to zero it back out (that RESERVE/net-to-0 dance was the root
       // cause the float-model fix removes).
-      // TODO(rule-17): prove failing-first — restore the deleted RESERVE
-      // leg off General (net General back to `genUsdBefore`) to make this
-      // red again.
+      // rule 17: proven failing-first 2026-07-30 — restoring the deleted
+      // RESERVE leg off General (net General back to `genUsdBefore`) makes
+      // this red (General USD read 1000 instead of 1010).
       expect(balance(db, "General", "USD")).toBeCloseTo(genUsdBefore + 10, 2);
       expect(balance(db, "General", "LBP")).toBeCloseTo(genLbpBefore, 2);
       // float model: SEND draws the float down by the bare principal (x).
-      // TODO(rule-17): prove failing-first — flip the sign back to
-      // `+sentAmount` to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+      // `+totalCollected` makes this red (OMT_System read 510 instead of
+      // 490).
       expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
         systemBefore - 10,
         2,
@@ -696,8 +702,9 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
       // float model: RECEIVE fills the float back up by the bare principal
       // (x) — the old model drew it down by totalOwed (principal+commission
       // is 0 here, so the magnitude happens to match, but the sign flips).
-      // TODO(rule-17): prove failing-first — flip the sign back to
-      // `-100` (the old `-totalOwed` posting) to make this red again.
+      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+      // `-totalOwed` (the old posting) makes this red (OMT_System read 400
+      // instead of 600).
       expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
         systemBefore + 100,
         2,

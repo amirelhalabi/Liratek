@@ -285,8 +285,9 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
     // (+receiveAmount = +196) — the old model drew it DOWN by totalOwed
     // (principal + commission). Commission/fee never touch this leg; only
     // the payout drawer(s) above see fee-related deltas.
-    // TODO(rule-17): prove failing-first — flip the sign back to
-    // `-totalOwed` (subtract instead of add) to make this red again.
+    // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+    // `-totalOwed` (subtract instead of add) makes this red (OMT_System read
+    // 303.7, no longer >= beforeOmt + 196).
     expect(balance(db, "OMT_System", "USD")).toBeGreaterThanOrEqual(
       beforeOmt + 196,
     );

@@ -250,11 +250,15 @@ wallets (`OMT_App`, `Whish_App`, `Binance`), plus the base-system drawer (e.g. O
 > `yarn lint`. Desktop e2e needs the Electron better-sqlite3 ABI; the numbers above were
 > produced under the Node ABI.
 >
-> **Rule 17 debt — read this before trusting a guard here.** Most float-model assertions were
-> hand-derived from the target table rather than proven failing-first, because that pass ran
-> under a no-execution constraint. Every such guard carries a `// TODO(rule-17)` comment
-> naming exactly what to break to make it red. A guard that has never failed proves nothing —
-> clear that debt before treating this section as fully guarded.
+> **Rule 17 — debt CLEARED 2026-07-30.** The float-model assertions were originally
+> hand-derived under a no-execution constraint, leaving 18 `TODO(rule-17)` markers. All 18 have
+> since been proven failing-first: each production change was reverted one at a time and the
+> guards claiming it went red for the right reason (a clean assertion mismatch, not a crash).
+> Every such assertion now carries a `// rule 17: proven failing-first 2026-07-30 — …` note
+> recording the revert AND the observed wrong value, so a future reader can re-run the proof
+> without re-deriving it. Two groups were independently re-verified by a second party:
+> flipping the SEND float sign back reads `OMT_System` 510 instead of 490; reverting
+> `feeOwedDelta` to the gross `amount + fee` reads `amount_usd` 105 instead of 4.5.
 >
 > **Cutover:** the owner settles all OMT/Whish balances to zero before this ships, then
 > re-seeds the true float via Initial Drawer Amounts. That is what makes the fee-only

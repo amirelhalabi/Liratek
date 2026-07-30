@@ -286,8 +286,8 @@ describe("ServiceStoreCreditReversal — CUSTOMER_ACCOUNT credit rows get a name
     // (+receiveAmount), unconditionally — including CUSTOMER_ACCOUNT
     // cashouts, which only skip the payout DRAWER debit, not the system
     // posting. The old model drew the float DOWN by totalOwed here.
-    // TODO(rule-17): prove failing-first — flip the sign back to
-    // `omtBefore - 100` to make this red again.
+    // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+    // `omtBefore - 100` makes this red (drawer read 4900 instead of 5100).
     expect(drawer(db, "OMT_System", "USD")).toBeCloseTo(omtBefore + 100, 2);
 
     txnRepo.voidTransaction(txnId, 1);

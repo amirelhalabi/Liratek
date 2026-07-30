@@ -191,9 +191,12 @@ describe("FinancialServiceRepository — session RECEIVE credit guard", () => {
     // (the old `totalOwed = amount + commission` posting, and its sign, are
     // both gone; the float posting is now `+receiveAmount`, unconditional,
     // regardless of omtServiceType/commission/fee).
-    // TODO(rule-17): prove failing-first — restore the old
-    // `-(receiveAmount + |calculatedCommission|)` posting to make this red
-    // again.
+    // rule 17: proven failing-first 2026-07-30 — restoring the old
+    // `-(receiveAmount + |calculatedCommission|)` posting makes this red
+    // (omtSystemBalance read 399.9, not omtBefore + 100) — this also
+    // confirms the deferred/CUSTOMER_ACCOUNT branch shares the SAME
+    // unconditional float posting as every other RECEIVE branch, so no
+    // separate sessionCashoutGuard-specific revert was needed.
     expect(omtSystemBalance(db)).toBeCloseTo(omtBefore + 100, 2);
   });
 

@@ -279,9 +279,9 @@ describe("FinancialServiceRepository — float model: supplier ledger books the 
     // (INTRA's OMT_COMMISSION_RATES = 0.1, packages/core/src/utils/
     // omtFees.ts:27). feeOwedDelta = |fee| − |commission| = |5| − |0.5| = 4.5.
     // float model: supplier_ledger is now fee-only, not gross(amount+fee).
-    // TODO(rule-17): prove failing-first — revert feeOwedDelta's OMT/WHISH
-    // branch to the old `amount + fee` shape (or change this assertion back
-    // to 105) to make this red again.
+    // rule 17: proven failing-first 2026-07-30 — reverting feeOwedDelta's
+    // OMT/WHISH SEND branch to the old `amount + fee` shape makes this red
+    // (amount_usd read 105 instead of 4.5).
     repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
@@ -346,9 +346,10 @@ describe("FinancialServiceRepository — float model: supplier ledger books the 
     // SAME entry_type (TOP_UP, unsigned) as SEND — no more force-negated
     // PAYMENT entry (see FinancialServiceRepository.ts's "Float model (rule
     // 14, feeOwedDelta doc)" comment on the entry_type decision).
-    // TODO(rule-17): prove failing-first — revert the RECEIVE ledger booking
-    // to `entry_type: "PAYMENT"` / `amount_usd: -(receiveAmount + commission)`
-    // to make this red again.
+    // rule 17: proven failing-first 2026-07-30 — reverting the RECEIVE
+    // ledger booking to `entry_type: "PAYMENT"` / `amount_usd:
+    // Math.abs(data.amount)` (force-negated by addLedgerEntry) makes this
+    // red (entry_type read "PAYMENT" instead of "TOP_UP").
     const entries = omtLedgerEntries(db);
     expect(entries).toHaveLength(1);
     expect(entries[0].entry_type).toBe("TOP_UP");
@@ -370,9 +371,9 @@ describe("FinancialServiceRepository — float model: supplier ledger books the 
     // tender-converted mixture, never the bare $50, and no longer the gross
     // $52 (amount + fee) the pre-fix model booked.
     // float model: supplier_ledger is now fee-only.
-    // TODO(rule-17): prove failing-first — revert feeOwedDelta's OMT/WHISH
-    // branch to the old `amount + fee` shape (or change this assertion back
-    // to 52) to make this red again.
+    // rule 17: proven failing-first 2026-07-30 — reverting feeOwedDelta's
+    // OMT/WHISH SEND branch to the old `amount + fee` shape makes this red
+    // (amount_usd read 52 instead of 1.8).
     repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
