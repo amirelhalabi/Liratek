@@ -428,11 +428,19 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 2 — RECEIVE, fee INCLUDED, single CASH leg (x=100, f=5, c=1).
+  // CASE 2 — RECEIVE, fee INCLUDED (x=100, f=5, c=1).
   // Pre-fix: includingFees was NEVER read for RECEIVE at all (no field
   // existed) — this whole mode is NEW.
+  //
+  // Carries an explicit payout LEG (95 = x−f), so `reconcileLegs` actually
+  // runs. Without legs it no-ops, and this case would pass while the real
+  // leg-vs-total contract went unchecked — exactly how CASE 4's SEND
+  // counterpart stayed green through a defect that hard-rejected every
+  // fee-included SEND in the app. Unlike SEND, RECEIVE's `amount` is the GROSS
+  // received (the frontend does NOT pre-net it), and the branch reconciles
+  // against `payoutAmount` (x−f, :2405) — this leg pins that.
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 2 — RECEIVE fee-included, single leg (x=100, f=5, c=1)", () => {
+  it("CASE 2 — RECEIVE fee-included, explicit $95 payout leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
     repo.createTransaction({
@@ -444,6 +452,8 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
       omtFee: 5,
       includingFees: true,
       cashoutMethod: "CASH",
+      // Customer collects the NET: x − f = 95.
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 95 }],
       exchangeRate: 90000,
     });
 
@@ -485,30 +495,61 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 4 — SEND, fee INCLUDED, single CASH leg (x=100, f=5, c=1). Same
-  // inputs as CASE 3 except includingFees — isolates whether the flag
-  // changes anything (pre-fix: it did NOT — identical numbers to CASE 3).
+  // CASE 4 — SEND, fee INCLUDED, single CASH leg. Customer budget $100 with a
+  // $5 fee inside it, so the transfer principal is $95.
+  //
+  // THIS CASE USES THE REAL FRONTEND PAYLOAD SHAPE, and that is the whole
+  // point of it. `data.amount` reaching the repository is ALWAYS the net
+  // principal — Services/index.tsx back-calculates `sentAmount = budget − fee`
+  // before the IPC call when the fee-included toggle is on. So a $100 budget
+  // arrives as amount=95, omtFee=5, and the customer's CASH leg is $100.
+  //
+  // An earlier version of this case sent amount=100 (as if it were the budget)
+  // AND omitted `payments` entirely. Both flaws mattered:
+  //   - the payload shape never occurs in production, and
+  //   - with no legs, `reconcileLegs` no-ops, so the leg-vs-total hard reject
+  //     could not fire here at all.
+  // Result: this case passed green while EVERY real fee-included SEND was
+  // hard-rejected in the app (owner-reported 2026-07-30, found by hand — no
+  // suite caught it):
+  //   "OMT SEND: payment legs do not reconcile — expected $99.00 USD-equivalent
+  //    … got $100.00 … diff $1.00"
+  // A guard that drives a payload the UI never sends guards nothing.
+  //
+  // rule 17: proven failing-first 2026-07-30 — restoring either
+  // `totalCollected = includingFees ? sentAmount : …` or
+  // `floatDelta = includingFees ? -(sentAmount - providerFeeAmt) : …` makes
+  // this red (the former throws the reconcile error above; the latter reads
+  // OMT_System −90 instead of −95).
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 4 — SEND fee-included, single leg (x=100, f=5, c=1)", () => {
+  it("CASE 4 — SEND fee-included, real frontend shape: budget $100 = principal $95 + fee $5, ONE $100 CASH leg", () => {
     const before = snapshot(db);
 
     repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
-      amount: 100,
+      // Pre-netted by the frontend: budget 100 − fee 5.
+      amount: 95,
       currency: "USD",
       commission: 1,
       omtFee: 5,
-      paidByMethod: "CASH",
       includingFees: true,
+      // The customer physically hands over the full budget. Legs MUST be
+      // present or the reconciler is bypassed and this case proves nothing.
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
       exchangeRate: 90000,
     });
 
     const after = snapshot(db);
 
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(100, 5); // +x (gross, nothing added)
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // -(x-f)
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    // Customer's cash stays in the till: +budget.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(100, 5);
+    // Float pays the principal only: −95. NOT −90 — the fee is not deducted
+    // twice, since `amount` already excludes it.
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5);
+    // Owed to the provider = fee split f − c = 5 − 1.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5);
+    // Σ drawers = 100 − 95 = +5 = f; Σ − Δowed = 5 − 4 = 1 = c.
     assertInvariant(before, after, { commission: 1 });
   });
 

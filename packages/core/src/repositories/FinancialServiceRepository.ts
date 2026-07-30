@@ -1895,12 +1895,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // RECEIVE branch and the supplier-ledger booking (rule 14).
           const providerFeeAmt = resolvedProviderFee;
           // Amount the customer owes BEFORE any payment-method surcharge
-          // (pmFee): fee-on-top adds f on top of the entered principal;
-          // fee-included treats the entered figure as already gross (no
-          // further addition).
-          const totalCollected = data.includingFees
-            ? sentAmount
-            : sentAmount + providerFeeAmt;
+          // (pmFee) = principal + f, in BOTH fee modes.
+          //
+          // Do NOT branch on `data.includingFees` here. `data.amount` that
+          // reaches this repository is ALWAYS the net principal: the frontend
+          // back-calculates `sentAmount = budget − fee` before the IPC call
+          // when the fee-included toggle is on (Services/index.tsx). So a
+          // $100 budget with a $1 fee arrives as amount=99, omtFee=1, and the
+          // customer's leg is $100 — subtracting f again here made the
+          // reconciler expect $99 against a $100 leg and hard-reject every
+          // fee-included SEND (owner-reported 2026-07-30):
+          //   "expected $99.00 … got $100.00 … diff $1.00"
+          // Guarded by the fee-included cases in
+          // OmtSystemFeeCharacterization.test.ts, which send the REAL
+          // frontend payload shape (pre-netted amount + separate fee).
+          const totalCollected = sentAmount + providerFeeAmt;
 
           // Amount the customer physically hands over = totalCollected + pmFee.
           // The pmFee stays in the payment method's wallet drawer as immediate shop profit.
@@ -2197,9 +2206,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // systemDrawerCredit=0 / debtTotal-subtraction gates are gone.
             const isSystemProvider = isOMT || data.provider === "WHISH";
             if (isSystemProvider && !skipSystemDrawer) {
-              const floatDelta = data.includingFees
-                ? -(sentAmount - providerFeeAmt)
-                : -sentAmount;
+              // The float is drawn down by the PRINCIPAL, in both fee modes —
+              // same reason totalCollected above does not branch on
+              // `includingFees`: `sentAmount` is already the net principal
+              // (the frontend pre-nets it), so subtracting f again understated
+              // the draw by f (a $100 budget / $1 fee drew $98 instead of $99).
+              const floatDelta = -sentAmount;
               insertPayment.run(
                 txnId,
                 data.provider,
