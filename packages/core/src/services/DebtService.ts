@@ -289,6 +289,10 @@ export class DebtService {
     transactionTime?: string;
     /** Session basket this credit belongs to (session cash-out → account). */
     sessionId?: number;
+    /** The unified transaction this credit is a side effect of (rule 20) —
+     *  see DebtRepository.addCredit's doc. Omit for standalone/manual
+     *  credits with no originating transaction. */
+    transactionId?: number;
   }): { success: boolean; id?: number; error?: string } {
     const {
       clientId,
@@ -298,6 +302,7 @@ export class DebtService {
       userId,
       transactionTime,
       sessionId,
+      transactionId,
     } = data;
 
     if (!clientId) {
@@ -319,6 +324,7 @@ export class DebtService {
         createdBy: String(userId),
         transactionTime,
         sessionId,
+        transactionId,
       });
 
       debtLogger.info(

@@ -1,15 +1,29 @@
 /**
- * E2E: LIRA-076 (C3 revised) — supplier ledger books the GROSS owed on SEND,
- * the bare amount on RECEIVE.
+ * E2E: LIRA-076 (C3, superseded by the float model) — supplier ledger books
+ * the FEE-ONLY amount owed to the provider, on both SEND and RECEIVE.
  *
- * Owner-confirmed model (2026-07-19): the provider fee belongs to the
- * provider — the shop collects amount + fee on its behalf and keeps only the
- * commission, netted off at settlement (settle pays owed − commission and
- * books a SUPPLIER_PAYS_US credit; the ledger nets to zero). So a SEND books
- * TOP_UP amount + fee; a RECEIVE keeps booking the bare amount (pending the
- * owner's answer on receive statements). The original C3 booked the bare
- * amount on SEND too — settlement then remitted only the transfer amount,
- * silently keeping the provider's fee share.
+ * UPDATED (float model, 2026-07-29, docs/FEATURE_GUIDE.md §8/§8.1): the
+ * principal `x` no longer appears in `supplier_ledger` at all — it moved
+ * through the OMT_System float drawer instead (lira-074). The ledger now
+ * tracks ONLY the fee split: the provider charges a per-transfer fee `f`, the
+ * shop keeps a commission cut `c` of it, and owes the provider the rest,
+ * `f − c` — booked via `entry_type: TOP_UP` on BOTH directions (SEND and
+ * RECEIVE book the SAME shape now, per `feeOwedDelta()` in
+ * FinancialServiceRepository.ts). The original C3 (superseded) booked SEND at
+ * `amount + fee` (gross) and RECEIVE at the bare `amount` — both wrong under
+ * the float model, since `x` is now the float's job, not the ledger's.
+ *
+ * The RECEIVE case below now passes an EXPLICIT `omtFee` (it didn't before).
+ * Reason: `FinancialServiceRepository`'s `resolvedProviderFee` (the `f` that
+ * feeds this exact booking) reads ONLY `data.omtFee ?? 0` — it does NOT fall
+ * back to the `lookupOmtFee(omtServiceType, amount, currency)` auto-lookup
+ * the commission calc uses. A RECEIVE fixture that sets `omtServiceType`
+ * without an explicit `omtFee` would auto-resolve a nonzero commission `c`
+ * from the fee table while `f` stayed 0, producing `feeOwedDelta = 0 − c`, a
+ * negative number with no real fee behind it (flagged as "Bug A" in the
+ * float-model assess report). Sending `omtFee` explicitly sidesteps that
+ * ambiguity entirely and exercises the real formula with a fee that
+ * actually exists.
  *
  * IPC-driven; shared accumulating DB → all assertions are DELTAS on the OMT
  * supplier balance (snapshot immediately before each action), never absolutes.
@@ -76,15 +90,25 @@ async function omtBalance(
   });
 }
 
-test.describe("LIRA-076 (C3 revised) — supplier ledger = gross owed on SEND", () => {
-  test("SEND split-pay: ledger delta is amount + fee (gross owed), never a tender leg", async ({
+test.describe("LIRA-076 (float model) — supplier ledger = fee-only owed, both directions", () => {
+  test("SEND split-pay: ledger delta is the fee net of commission (f−c), never the principal or a tender leg", async ({
     appPage,
   }) => {
     const before = await omtBalance(appPage);
 
-    // $80 transfer + $5 fee; customer split-pays $30 cash + an LBP leg.
-    // The ledger books the gross owed in the SERVICE currency: exactly +85 —
-    // never 30 (one leg), never an LBP-converted mixture, never the bare 80.
+    // $80 transfer (x) + $5 OMT fee (f); customer split-pays $30 cash + an
+    // LBP leg covering the rest of x+f=85 (unchanged — the customer-facing
+    // legs still collect the full x+f, only the SUPPLIER ledger's booking
+    // changes). omtServiceType "INTRA" + a nonzero resolved fee makes
+    // FinancialServiceRepository auto-compute the commission from the fee
+    // table regardless of the `commission` field sent — so this test does
+    // NOT pass `commission` at all; it lets the real auto-calc run:
+    //   c = calculateCommission("INTRA", f=5) = 5 × OMT_COMMISSION_RATES.INTRA
+    //     = 5 × 0.10 = 0.5
+    //   ledger delta = feeOwedDelta = |f| − |c| = 5 − 0.5 = 4.5
+    // (Hand-derived from omtFees.ts + FinancialServiceRepository.ts's
+    // feeOwedDelta; unexecuted. The principal 80 never reaches the ledger —
+    // it moved through the OMT_System float instead, per lira-074.)
     const res = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
       return w.api.omt.addTransaction({
@@ -92,7 +116,6 @@ test.describe("LIRA-076 (C3 revised) — supplier ledger = gross owed on SEND", 
         serviceType: "SEND",
         amount: 80,
         currency: "USD",
-        commission: 0,
         omtServiceType: "INTRA",
         omtFee: 5,
         payments: [
@@ -105,17 +128,30 @@ test.describe("LIRA-076 (C3 revised) — supplier ledger = gross owed on SEND", 
     expect(res.success).toBe(true);
 
     const after = await omtBalance(appPage);
-    // TOP_UP is positive (shop owes OMT): exactly +85 (amount + fee) — the
-    // original C3 under-booked this at +80.
-    expect(after.usd - before.usd).toBeCloseTo(85, 2);
+    // TOP_UP is positive (shop owes OMT): exactly +4.5 (f−c) — was +85
+    // (x+f, gross) under the superseded C3 model.
+    expect(after.usd - before.usd).toBeCloseTo(4.5, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(0, 2);
   });
 
-  test("RECEIVE: ledger delta is the transfer amount, not amount+commission", async ({
+  test("RECEIVE: ledger delta is ALSO the fee net of commission (f−c), same shape as SEND, not the bare transfer amount", async ({
     appPage,
   }) => {
     const before = await omtBalance(appPage);
 
+    // $40 transfer (x) + an EXPLICIT $2 OMT fee (f) — explicit, not
+    // auto-looked-up, because `resolvedProviderFee` (the `f` that feeds this
+    // booking) reads ONLY `data.omtFee`, never the fee-table lookup (see
+    // file header). With f=2 explicit:
+    //   c = calculateCommission("INTRA", f=2) = 2 × 0.10 = 0.2
+    //   ledger delta = feeOwedDelta = |f| − |c| = 2 − 0.2 = 1.8
+    // entry_type is TOP_UP (unsigned, stored as-is) — RECEIVE no longer uses
+    // "PAYMENT" (which force-negates), because under the float model a
+    // RECEIVE's fee obligation INCREASES what's owed exactly like a SEND's
+    // does. Hand-derived from omtFees.ts + FinancialServiceRepository.ts;
+    // unexecuted. (This RECEIVE also now books a real $2 customer-paid fee
+    // leg into General — asserted by the new web spec, not duplicated here
+    // since this file only snapshots the supplier ledger.)
     const res = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
       return w.api.omt.addTransaction({
@@ -123,8 +159,8 @@ test.describe("LIRA-076 (C3 revised) — supplier ledger = gross owed on SEND", 
         serviceType: "RECEIVE",
         amount: 40,
         currency: "USD",
-        commission: 0.4,
         omtServiceType: "INTRA",
+        omtFee: 2,
         cashoutMethod: "CASH",
       });
     });
@@ -132,9 +168,10 @@ test.describe("LIRA-076 (C3 revised) — supplier ledger = gross owed on SEND", 
     expect(res.success).toBe(true);
 
     const after = await omtBalance(appPage);
-    // PAYMENT is stored negative: exactly −40 — pre-C3 this was −40.40
-    // (−(amount + commission)).
-    expect(after.usd - before.usd).toBeCloseTo(-40, 2);
+    // Was −40.4 (−(amount+commission), PAYMENT force-negated) under the
+    // superseded pre-float model; now +1.8 (f−c, TOP_UP, same sign/shape as
+    // SEND).
+    expect(after.usd - before.usd).toBeCloseTo(1.8, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(0, 2);
   });
 });

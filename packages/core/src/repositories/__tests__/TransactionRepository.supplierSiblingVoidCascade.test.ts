@@ -374,11 +374,15 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
       exchangeRate: 90000,
     });
 
-    // Auto TOP_UP sibling booked at amount + fee = 105 (C3 revised).
+    // Auto TOP_UP sibling booked fee-only (float model, 2026-07-29):
+    // |fee| − |commission|. omtServiceType "INTRA" auto-computes commission
+    // from the $5 fee (10% tier → $0.50), overriding the explicit
+    // `commission: 0` param — so owed = 5 − 0.5 = 4.5, not the old
+    // gross amount+fee = 105.
     const before = ledgerRowsForSupplier(db, omtId);
     expect(before).toHaveLength(1);
     expect(before[0].entry_type).toBe("TOP_UP");
-    expect(before[0].amount_usd).toBeCloseTo(105, 2);
+    expect(before[0].amount_usd).toBeCloseTo(4.5, 2);
     expect(before[0].is_refunded).toBe(0);
     expect(before[0].source_ref_table).toBe("financial_services");
     const siblingTxnId = before[0].transaction_id!;
@@ -386,7 +390,7 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     expect(txnStatus(db, siblingTxnId)).toBe("ACTIVE");
 
     const balanceBefore = getSupplierRepository().getSupplierBalance(omtId);
-    expect(balanceBefore.balance_usd).toBeCloseTo(105, 2);
+    expect(balanceBefore.balance_usd).toBeCloseTo(4.5, 2);
 
     // Void the PARENT financial_services transaction.
     const parentTxn = txnRepo.getBySourceId("financial_services", 1)!;
@@ -444,7 +448,7 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     expect(ledgerAfterMarkOnly[0].is_refunded).toBe(0); // sibling untouched
     const balanceStillOverstated =
       getSupplierRepository().getSupplierBalance(omtId);
-    expect(balanceStillOverstated.balance_usd).toBeCloseTo(105, 2); // bug shape
+    expect(balanceStillOverstated.balance_usd).toBeCloseTo(4.5, 2); // bug shape
   });
 
   // ── (b) RECHARGE path (synthetic — proves genericity, see header doc) ─────
@@ -526,8 +530,8 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
       amount_lbp: 0,
       commission_usd: 5,
       commission_lbp: 0,
-      drawer_name: "OMT_System",
       created_by: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 95 }],
     });
     expect(settlement.id).toBeTruthy();
 
@@ -563,13 +567,21 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
       amount_lbp: 0,
       commission_usd: 5,
       commission_lbp: 0,
-      drawer_name: "OMT_System",
       created_by: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 95 }],
     });
 
     const balanceAtSettlement =
       getSupplierRepository().getSupplierBalance(omtId);
-    expect(balanceAtSettlement.balance_usd).toBeCloseTo(0, 2); // TOP_UP(100) - SETTLEMENT(95) - SUPPLIER_PAYS_US(5) = 0
+    // TOP_UP is fee-only: `omtFee: 0` means the auto-commission block's
+    // `resolvedFee > 0` guard never fires (FinancialServiceRepository.ts
+    // :685), so the explicit `commission: 5` param is NOT overridden this
+    // time (unlike test (a), where a nonzero fee DOES trigger the
+    // auto-recalculation) — TOP_UP = |fee(0)| − |commission(5)| = −5.
+    // SETTLEMENT(-95) is the only other ledger movement: −5 − 95 = −100
+    // (this settlement was never meant to be "correct" money — just
+    // realistic enough to prove the void-block guard below).
+    expect(balanceAtSettlement.balance_usd).toBeCloseTo(-100, 2);
 
     // Bypass the guard directly (the exact code path _assertSupplierSiblingsVoidable
     // exists to block) to prove what would happen without it: cascading the
@@ -582,11 +594,11 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
 
     const balanceIfCascadedAnyway =
       getSupplierRepository().getSupplierBalance(omtId);
-    // Without the TOP_UP counted, the ledger reads as though the shop is
-    // OWED (negative) — the settlement's SETTLEMENT/SUPPLIER_PAYS_US rows no
-    // longer net against anything. This is exactly the corruption the guard
-    // prevents.
-    expect(balanceIfCascadedAnyway.balance_usd).toBeCloseTo(-100, 2);
+    // Without the TOP_UP(-5) counted, only SETTLEMENT(-95) remains: -100 -
+    // (-5) = -95 — the balance shifts by exactly the un-counted TOP_UP,
+    // desyncing from the already-computed settlement math. This is exactly
+    // the corruption the guard prevents.
+    expect(balanceIfCascadedAnyway.balance_usd).toBeCloseTo(-95, 2);
   });
 
   // ── (d) Katsh BILL inside a split group ────────────────────────────────────

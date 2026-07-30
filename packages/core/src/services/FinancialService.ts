@@ -237,8 +237,10 @@ export class FinancialService {
         // supplier_owed is the repository's ONE owed-per-row definition
         // (SUPPLIER_OWED_EXPR): 0 for wallet-provider transfers (prepaid
         // balance — nothing to pay the supplier, Fix B), cost for cost-flow
-        // rows, amount + fee for OMT/WHISH SEND, amount + commission for
-        // RECEIVE.
+        // rows, and for OMT/WHISH the FEE SPLIT ONLY (|fee| − |commission|),
+        // same for SEND and RECEIVE. The principal is NOT owed — it moved
+        // through the system float at transaction time (float model,
+        // owner-confirmed 2026-07-29).
         const isReceive = txn.service_type === "RECEIVE";
         const owed = txn.supplier_owed;
 

@@ -473,7 +473,12 @@ describe("Supplier debt reconciliation (C5 prepaid-units)", () => {
       amount_lbp: 0,
       commission_usd: 0,
       commission_lbp: 0,
-      drawer_name: "General",
+      // Float model: settlement pays the net owed through a REAL payment-method
+      // leg. The bare `drawer_name` fallback that used to debit OMT_System /
+      // General directly is gone — the float already moved at SEND/RECEIVE time
+      // and settlement covers the fee split only, so a settlement with cash owed
+      // and no legs is now rejected outright.
+      payments: [{ method: "CASH", currency_code: "USD", amount: 90 }],
       created_by: 1,
       note: "Settle legacy Katsh sale cost",
     });

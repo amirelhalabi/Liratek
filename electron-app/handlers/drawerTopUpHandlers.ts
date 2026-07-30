@@ -9,7 +9,11 @@ import { ipcMain } from "electron";
 import { getDrawerTopUpService, financialLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import { validatePayload, DrawerTopUpCreateSchema } from "../schemas/index.js";
+import {
+  validatePayload,
+  DrawerTopUpCreateSchema,
+  SystemFloatTopupSchema,
+} from "../schemas/index.js";
 
 let service: ReturnType<typeof getDrawerTopUpService> | null = null;
 
@@ -138,6 +142,60 @@ export function registerDrawerTopUpHandlers(): void {
             error instanceof Error
               ? error.message
               : "Failed to create top-up from drawer",
+        };
+      }
+    },
+  );
+
+  // Fund the OMT_System / Whish_System spendable float from any drawer
+  // holding a spendable balance (owner-confirmed 2026-07-29 float model).
+  ipcMain.handle(
+    "drawer-topup:fund-system",
+    async (
+      e,
+      data: {
+        targetDrawer: "OMT_System" | "Whish_System";
+        fundingDrawer: string;
+        amount_usd: number;
+        amount_lbp: number;
+        notes?: string;
+        transaction_time?: string;
+      },
+    ) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+
+        const validation = validatePayload(SystemFloatTopupSchema, data);
+        if (!validation.ok) {
+          return { success: false, error: validation.error };
+        }
+
+        const svc = getServiceInstance();
+        const result = svc.fundSystemDrawer(validation.data, auth.userId);
+        if ((result as { success?: boolean }).success !== false) {
+          audit(e.sender.id, {
+            action: "create",
+            entity_type: "system_float_topup",
+            summary: `Fund ${validation.data.targetDrawer.replace("_", " ")}: ${validation.data.fundingDrawer} → ${validation.data.targetDrawer} — $${validation.data.amount_usd} USD + ${validation.data.amount_lbp} LBP`,
+            metadata: {
+              target_drawer: validation.data.targetDrawer,
+              funding_drawer: validation.data.fundingDrawer,
+              amount_usd: validation.data.amount_usd,
+              amount_lbp: validation.data.amount_lbp,
+              notes: validation.data.notes,
+            },
+          });
+        }
+        return result;
+      } catch (error) {
+        financialLogger.error({ error }, "drawer-topup:fund-system failed");
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to fund system drawer",
         };
       }
     },

@@ -363,6 +363,13 @@ contextBridge.exposeInMainWorld("api", {
       split_group?: string;
       split_role?: "carrier" | "sibling";
       split_units?: number;
+      /** Rule 12: the repository reads these (FinancialServiceRepository
+       *  folds them into the drawer credit and the profit stamp), and
+       *  electron.d.ts already declared them — this type was the only link
+       *  in the chain missing them. Overpayment the customer chose to leave
+       *  with the shop rather than take back as change. */
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
     }) => ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),
@@ -491,7 +498,8 @@ contextBridge.exposeInMainWorld("api", {
       amount_lbp: number;
       commission_usd: number;
       commission_lbp: number;
-      drawer_name: string;
+      /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
+      drawer_name?: string;
       note?: string;
       payments?: Array<{
         method: string;
@@ -738,6 +746,16 @@ contextBridge.exposeInMainWorld("api", {
       source_drawer: string;
       notes?: string;
     }) => ipcRenderer.invoke("drawer-topup:create-from-drawer", data),
+    /** Fund the OMT_System / Whish_System spendable float from any drawer
+     *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
+    fundSystem: (data: {
+      targetDrawer: "OMT_System" | "Whish_System";
+      fundingDrawer: string;
+      amount_usd: number;
+      amount_lbp: number;
+      notes?: string;
+      transaction_time?: string;
+    }) => ipcRenderer.invoke("drawer-topup:fund-system", data),
     getSourceDrawers: () => ipcRenderer.invoke("drawer-topup:source-drawers"),
     getHistory: (limit?: number) =>
       ipcRenderer.invoke("drawer-topup:history", { limit }),

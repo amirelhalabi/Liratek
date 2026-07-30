@@ -88,17 +88,53 @@ export interface SettleTransactionsData {
   supplier_id: number;
   /** IDs from financial_services to mark as settled */
   financial_service_ids: number[];
-  /** Net amount paid to supplier (total owed minus commission) */
+  /**
+   * Net amount paid to the supplier. Under the OMT/WHISH float model
+   * (owner-confirmed 2026-07-29), `financial_services.supplier_owed` /
+   * `supplier_ledger` TOP_UP rows are booked FEE-ONLY — already net of the
+   * shop's commission (`feeOwedDelta` = |fee| − |commission|,
+   * FinancialServiceRepository.ts) — so this figure is simply the sum of
+   * the outstanding `supplier_owed` for `financial_service_ids`. It must
+   * NOT be further reduced by `commission_usd`/`commission_lbp` below — the
+   * commission is already excluded from the owed figure, and subtracting it
+   * again double-nets the shop's cut out of the payment (the caller's own
+   * bug this settlement redesign fixes; see Suppliers/index.tsx).
+   */
   amount_usd: number;
   amount_lbp: number;
-  /** Total commission earned (will be credited to General drawer) */
+  /**
+   * Total commission this batch represents — INFORMATIONAL ONLY (audit/
+   * display), stamped onto the settlement transaction's metadata. It has NO
+   * drawer or ledger effect: under the fee-only model the shop's cut is
+   * already excluded from `amount_usd`/`amount_lbp` (and from the TOP_UP
+   * rows being settled), so there is nothing left to "fund" or "realize"
+   * here — the commission simply falls out of General as the difference
+   * between what the customer paid (fee f, at transaction time) and what
+   * gets remitted to the provider (f − c, here). Pre-fix, this field drove a
+   * separate `General += commission` / settle-drawer `−= commission` pair
+   * plus a `SUPPLIER_PAYS_US` ledger row — both are REMOVED (they duplicated
+   * money already reflected in the fee-only TOP_UP/SETTLEMENT pair).
+   */
   commission_usd: number;
   commission_lbp: number;
-  /** Drawer cash is paid from (usually General) — ignored when payments[] is provided */
-  drawer_name: string;
+  /**
+   * @deprecated No longer used to move money. Under the float model,
+   * OMT_System/Whish_System is the provider float itself, not a real cash
+   * drawer — settlement now pays the net amount EXCLUSIVELY through
+   * `payments[]` (real payment-method legs, same as `recordSupplierCashflow`),
+   * never a bare named drawer. Kept optional for backward-compatible typing
+   * only; any value passed here is ignored.
+   */
+  drawer_name?: string;
   note?: string;
   created_by: number;
-  /** Multi-payment legs (optional; when provided, replaces drawer_name-based logic) */
+  /**
+   * Payment-method legs the net amount is actually paid through (CASH →
+   * General, wallet methods → their own drawer, …) — REQUIRED whenever
+   * `amount_usd`/`amount_lbp` is nonzero (mirrors `recordSupplierCashflow`'s
+   * own `payments` requirement). A settlement that nets to $0 (commission
+   * alone offsets what's owed) needs no legs.
+   */
   payments?: Array<{ method: string; currency_code: string; amount: number }>;
 }
 
@@ -713,19 +749,40 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   /**
    * Atomically settle a batch of financial_services transactions with a supplier.
    *
+   * OMT/WHISH float model (owner-confirmed 2026-07-29; replaces the old
+   * "Fix C funded commission" design): `supplier_ledger` TOP_UP rows for
+   * OMT/WHISH are now booked FEE-ONLY (`|fee| − |commission|` —
+   * `feeOwedDelta`, FinancialServiceRepository.ts) — the shop's commission
+   * is ALREADY excluded from what's owed. Settlement therefore does nothing
+   * but pay off that same fee-net figure and mark the rows settled; there is
+   * no separate "realize the commission" step anymore (no drawer funding,
+   * no `SUPPLIER_PAYS_US` credit row) — that machinery existed only to
+   * carve `c` back out of a GROSS TOP_UP (`amount + fee`), which no longer
+   * exists. `OMT_System`/`Whish_System` (the provider float) is NEVER
+   * touched here — it already moved by the transfer's principal at SEND/
+   * RECEIVE time and settlement covers the fee split only.
+   *
    * In a single DB transaction:
-   * 1. Insert a SETTLEMENT-typed supplier_ledger entry (negative = shop paying out
-   *    the net = owed − commission)
+   * 1. Insert a SETTLEMENT-typed supplier_ledger entry (negative = shop
+   *    paying out `amount_usd`/`amount_lbp`, the fee-net amount already
+   *    owed — nets the ledger to 0 against the TOP_UP rows being settled)
    * 2. Mark all specified financial_services rows as is_settled = 1
-   * 3. Realize the commission — FUNDED (Fix C): General +commission,
-   *    settle drawer −commission, plus a SUPPLIER_PAYS_US ledger credit so the
-   *    supplier balance nets to zero against the gross TOP_UPs (amount + fee)
-   * 4. Debit net payment from drawer(s) (shop pays the provider the net)
-   * 5. Create unified transactions row for audit trail
+   * 3. Create unified transactions row for audit trail (commission stamped
+   *    as informational metadata only — no drawer effect)
+   * 4. Debit the net payment through real payment-method legs (`payments[]`,
+   *    same mechanism as `recordSupplierCashflow`) — never a bare named
+   *    drawer (see `SettleTransactionsData.drawer_name`'s deprecation)
    */
   settleTransactions(data: SettleTransactionsData): { id: number } {
     if (!data.financial_service_ids.length) {
       throw new DatabaseError("No transactions selected for settlement");
+    }
+    const owesCash =
+      Math.abs(data.amount_usd) > 0.005 || Math.abs(data.amount_lbp) > 0.005;
+    if (owesCash && !data.payments?.length) {
+      throw new DatabaseError(
+        "Settlement requires at least one payment-method leg to pay the net amount owed",
+      );
     }
 
     try {
@@ -777,104 +834,20 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           )
           .run(ledgerEntryId, ...data.financial_service_ids, tenantId);
 
-        // ── 3. Realize the commission (funded, Fix C) ──────────────────────
-        // The shop keeps its commission by paying the supplier owed − net —
-        // physically the cash comes OUT of the settle drawer (which reserved
-        // the gross amount + fee per SEND) INTO General. The old code credited
-        // General with no funding debit (minting drawer money) and left the
-        // commission stranded on both the settle drawer and the supplier
-        // balance. A SUPPLIER_PAYS_US ledger credit offsets the gross TOP_UPs
-        // so the supplier balance nets to zero:
-        //   TOP_UP(amount+fee) − SETTLEMENT(owed−comm) − SUPPLIER_PAYS_US(comm) = 0
-        const upsertBalance = {
-          run: (
-            drawerName: string,
-            currencyCode: string,
-            delta: number,
-            tenant: number,
-          ) =>
-            applyDrawerDelta(this.db, {
-              drawerName,
-              currencyCode,
-              delta,
-              tenantId: tenant,
-            }),
-        };
-
-        if (data.commission_usd > 0) {
-          upsertBalance.run("General", "USD", data.commission_usd, tenantId);
-          upsertBalance.run(
-            data.drawer_name,
-            "USD",
-            -data.commission_usd,
-            tenantId,
-          );
-        }
-        if (data.commission_lbp > 0) {
-          upsertBalance.run("General", "LBP", data.commission_lbp, tenantId);
-          upsertBalance.run(
-            data.drawer_name,
-            "LBP",
-            -data.commission_lbp,
-            tenantId,
-          );
-        }
-        if (data.commission_usd > 0 || data.commission_lbp > 0) {
-          // LIRA-085: link this commission-credit row back to the SETTLEMENT
-          // ledger row it was born alongside (source_ref_table/source_ref_id,
-          // v136 columns) — the only way
-          // TransactionRepository._reverseSupplierSettlement can find and
-          // soft-void it when the settlement is voided/refunded. Deliberately
-          // `is_auto` stays 0 (its column default): this row is NOT a
-          // separate-hidden-transaction sibling in the LIRA-091 sense (it has
-          // no `transaction_id` of its own — it's folded into the ONE
-          // SUPPLIER_SETTLEMENT transaction below), so it must stay OUT of
-          // `_cascadeSupplierSiblingVoid`'s `is_auto = 1` scan (that method
-          // recurses into `_voidTransactionInternal(sibling.transaction_id)`,
-          // which this row has none of) and out of `getManualPaymentPools`'
-          // `is_auto = 0` pool aggregate is UNCHANGED either way. The
-          // dedicated `_reverseSupplierSettlement` step soft-voids it
-          // directly by this link, no cascade/recursion involved.
-          const hasSourceRef = this._supplierLedgerHasSourceRefColumns();
-          const insertSupplierPaysUs = hasSourceRef
-            ? this.db.prepare(
-                `INSERT INTO supplier_ledger
-                   (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
-                    source_ref_table, source_ref_id, tenant_id, created_at)
-                 VALUES (?, 'SUPPLIER_PAYS_US', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-              )
-            : this.db.prepare(
-                `INSERT INTO supplier_ledger
-                   (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, tenant_id, created_at)
-                 VALUES (?, 'SUPPLIER_PAYS_US', ?, ?, ?, ?, ?, datetime('now'))`,
-              );
-          if (hasSourceRef) {
-            insertSupplierPaysUs.run(
-              data.supplier_id,
-              -Math.abs(data.commission_usd),
-              -Math.abs(data.commission_lbp),
-              `Commission earned — settlement of ${data.financial_service_ids.length} txns`,
-              data.created_by,
-              "supplier_ledger",
-              ledgerEntryId,
-              tenantId,
-            );
-          } else {
-            insertSupplierPaysUs.run(
-              data.supplier_id,
-              -Math.abs(data.commission_usd),
-              -Math.abs(data.commission_lbp),
-              `Commission earned — settlement of ${data.financial_service_ids.length} txns`,
-              data.created_by,
-              tenantId,
-            );
-          }
-        }
-
-        // ── 4. Create unified transaction for audit trail ──────────────────
+        // ── 3. Create unified transaction for audit trail ──────────────────
         // CQ-7: funneled through the single createTransaction() gate instead
         // of a raw INSERT — the row now gains the funnel's completeness
         // guards and exchange-rate snapshot (previously always NULL here).
+        //
+        // Float model (owner-confirmed 2026-07-29): NO separate "realize the
+        // commission" step exists anymore. `commission_usd`/`commission_lbp`
+        // are stamped below purely as audit metadata — under the fee-only
+        // model the shop's cut is already excluded from `amount_usd`/
+        // `amount_lbp` (and from the TOP_UP rows being settled), so there is
+        // nothing left to fund/credit here; the old `General += commission` /
+        // settle-drawer `-= commission` pair plus the `SUPPLIER_PAYS_US`
+        // ledger row are REMOVED — they existed only to carve `c` back out of
+        // a GROSS TOP_UP that no longer exists.
         const settlementMethod =
           data.payments && data.payments.length > 0
             ? data.payments.length === 1
@@ -892,9 +865,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           metadata_json: {
             supplier_id: data.supplier_id,
             financial_service_ids: data.financial_service_ids,
+            // Informational only (audit/display) — see doc comment above and
+            // on SettleTransactionsData.commission_usd/commission_lbp.
             commission_usd: data.commission_usd,
             commission_lbp: data.commission_lbp,
-            drawer_name: data.drawer_name,
             // CQ-8 counterparty contract: a settlement pays the supplier's
             // net amount OUT of the drawer.
             counterparty: buildCounterpartyMetadata({
@@ -915,55 +889,27 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           )
           .run(txnId, ledgerEntryId, tenantId);
 
-        // ── 5. Debit net payment from drawer(s) and insert payment rows ──
+        // ── 4. Debit the net payment through real payment-method legs ─────
+        // (same mechanism recordSupplierCashflow uses) — the ONLY way money
+        // moves here. No bare `drawer_name` fallback: the constructor guard
+        // above already refused a nonzero amount with no legs, so this loop
+        // is the sole payer whenever cash actually changes hands.
         if (data.payments && data.payments.length > 0) {
           for (const p of data.payments) {
             if (!isDrawerAffectingMethod(p.method)) continue;
             const drawerName = paymentMethodToDrawerName(p.method);
-            upsertBalance.run(
+            applyDrawerDelta(this.db, {
               drawerName,
-              p.currency_code,
-              -Math.abs(p.amount),
+              currencyCode: p.currency_code,
+              delta: -Math.abs(p.amount),
               tenantId,
-            );
+            });
             insertPaymentRow(this.db, {
               transactionId: txnId,
               method: p.method,
               drawerName,
               currencyCode: p.currency_code,
               amount: -Math.abs(p.amount),
-              note: data.note ?? "Settlement payment",
-              createdBy: data.created_by,
-              tenantId,
-            });
-          }
-        } else {
-          // Legacy: single drawer
-          if (data.amount_usd > 0) {
-            upsertBalance.run(
-              data.drawer_name,
-              "USD",
-              -data.amount_usd,
-              tenantId,
-            );
-          }
-          if (data.amount_lbp > 0) {
-            upsertBalance.run(
-              data.drawer_name,
-              "LBP",
-              -data.amount_lbp,
-              tenantId,
-            );
-          }
-
-          // Insert legacy payment row
-          if (data.amount_usd > 0) {
-            insertPaymentRow(this.db, {
-              transactionId: txnId,
-              method: "CASH",
-              drawerName: data.drawer_name,
-              currencyCode: "USD",
-              amount: -data.amount_usd,
               note: data.note ?? "Settlement payment",
               createdBy: data.created_by,
               tenantId,

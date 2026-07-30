@@ -293,12 +293,16 @@ export function useSupplierWriteOffMutation(supplierId: number | null) {
 
 /**
  * D5 — batch-settle a set of pending financial_services rows with a
- * supplier (admin-only on both transports). Mirrors the shape the orphaned
- * `Settings/SupplierLedger.tsx` posted before it was resurrected here: net
- * amount = total owed (amount + commission on RECEIVE rows) minus the
- * commission the shop already earned. `supplierSettleSchema` has NO discount
- * field — a batch settle is cash/commission only, never bundled with a
- * forgiveness row.
+ * supplier (admin-only on both transports).
+ *
+ * OMT/WHISH float model (owner-confirmed 2026-07-29): `supplier_owed` per
+ * row is now fee-only (`|fee| − |commission|`, already net of the shop's
+ * cut) — `amount_usd`/`amount_lbp` sent here is simply the SUM of the
+ * outstanding `supplier_owed`, never reduced by `commission_usd` a second
+ * time (see Suppliers/index.tsx's `settleNetPayUsd`). `commission_usd`/
+ * `commission_lbp` are informational/audit only now — no drawer effect.
+ * `supplierSettleSchema` has NO discount field — a batch settle is
+ * cash/commission only, never bundled with a forgiveness row.
  */
 export function useSettleTransactionsMutation(
   supplierId: number | null,
@@ -315,7 +319,8 @@ export function useSettleTransactionsMutation(
       amount_lbp: number;
       commission_usd: number;
       commission_lbp: number;
-      drawer_name: string;
+      /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
+      drawer_name?: string;
       note?: string;
       payments?: Array<{
         method: string;

@@ -1031,6 +1031,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               amountLbp: r.currencyCode === "LBP" ? amt : 0,
               note: "Change returned",
               userId: createdBy,
+              transactionId: txnId,
             });
           } else if (isDrawerAffectingMethod(r.method)) {
             const drawer = paymentMethodToDrawerName(r.method);

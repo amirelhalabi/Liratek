@@ -82,8 +82,10 @@ type SupplierTxn = {
   /**
    * Computed by the repository (SUPPLIER_OWED_EXPR — the ONE owed-per-row
    * definition): 0 for wallet-provider transfers, cost for cost-flow rows,
-   * amount + provider fee for OMT/WHISH SEND, amount + commission for
-   * RECEIVE. All owed math on this page sums this — never re-derive it.
+   * and for OMT/WHISH the FEE SPLIT ONLY (|fee| − |commission|), same for SEND
+   * and RECEIVE — the principal moved through the system float at transaction
+   * time and is not owed. All owed math on this page sums this — never
+   * re-derive it.
    */
   supplier_owed: number;
   fifo_status: "paid" | "partial" | "unpaid";
@@ -610,9 +612,13 @@ export default function SuppliersPage() {
   );
 
   // Owed per row = supplier_owed, computed by the repository's single
-  // SUPPLIER_OWED_EXPR (OMT/WHISH SEND: amount + provider fee — the fee
-  // belongs to the provider, the shop's cut is the commission netted below;
-  // RECEIVE: amount + commission, unchanged). Net you pay = owed − commission.
+  // SUPPLIER_OWED_EXPR. OMT/WHISH float model (owner-confirmed 2026-07-29):
+  // supplier_owed is now FEE-ONLY (|fee| − |commission|, both SEND and
+  // RECEIVE) — the shop's commission is ALREADY excluded from this figure.
+  // Net you pay = supplier_owed itself, NOT owed − commission again (that
+  // was the old gross-principal model's math and would double-subtract the
+  // shop's cut under the new one). `settleCommissionUsd` below is kept for
+  // DISPLAY/audit only — it has no further effect on the net payment.
   // LBP rows are excluded from the batch-settle money math (no LBP settle
   // amount handled here — out of scope).
   const selectedUnsettled = useMemo(
@@ -633,7 +639,10 @@ export default function SuppliersPage() {
         .reduce((s, t) => s + t.commission, 0),
     [selectedUnsettled],
   );
-  const settleNetPayUsd = Math.max(0, settleTotalOwedUsd - settleCommissionUsd);
+  // Fee-only supplier_owed already nets out the shop's commission — pay
+  // exactly that (clamped at 0: a negative total means the supplier owes
+  // the shop, handled via the separate Pay/Receive cashflow instead).
+  const settleNetPayUsd = Math.max(0, settleTotalOwedUsd);
   const selectableUnsettled = useMemo(
     () => unsettledTxns.filter((t) => t.currency !== "LBP"),
     [unsettledTxns],
@@ -651,10 +660,12 @@ export default function SuppliersPage() {
     const activeLines = settlePaymentLines.filter((p) => p.amount > 0);
     setSettleSubmitting(true);
     try {
-      const drawer = selectedSupplier?.provider
-        ? (PROVIDER_DRAWER[selectedSupplier.provider] ?? "General")
-        : "General";
       const trimmedNote = settleNote.trim();
+      // No drawer_name: OMT_System/Whish_System is the provider FLOAT, never
+      // a real cash drawer — settlement pays the net amount EXCLUSIVELY
+      // through the payment-method legs the admin picks below (activeLines),
+      // matching recordSupplierCashflow's own contract. A $0 net (settleNetPayUsd
+      // === 0) needs no legs at all.
       const result = await settleTransactions.mutateAsync({
         supplier_id: selectedSupplierId,
         financial_service_ids: [...selectedSettleIds],
@@ -662,7 +673,6 @@ export default function SuppliersPage() {
         amount_lbp: 0,
         commission_usd: settleCommissionUsd,
         commission_lbp: 0,
-        drawer_name: drawer,
         ...(trimmedNote
           ? { note: trimmedNote }
           : { note: `Settlement: ${selectedSettleIds.size} txns` }),
@@ -1726,15 +1736,15 @@ export default function SuppliersPage() {
           beforeContent={
             <div className="bg-slate-800 rounded-xl p-4 space-y-2 text-sm">
               <div className="flex justify-between text-slate-300">
-                <span>Total owed to {selectedSupplier.name}:</span>
+                <span>Total owed to {selectedSupplier.name} (fee-net):</span>
                 <span className="font-mono font-bold text-white">
                   ${settleTotalOwedUsd.toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between text-slate-300">
-                <span>Your commission:</span>
+                <span>Your commission (already netted out):</span>
                 <span className="font-mono text-emerald-400">
-                  −${settleCommissionUsd.toFixed(4)}
+                  ${settleCommissionUsd.toFixed(4)}
                 </span>
               </div>
               <div className="h-px bg-slate-600" />

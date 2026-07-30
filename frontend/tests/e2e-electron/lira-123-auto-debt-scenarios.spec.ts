@@ -244,6 +244,12 @@ test.describe("LIRA-123 — auto-debt remainder scenarios", () => {
     const secondLine = sheet.locator('[data-testid^="payment-line-"]').nth(1);
     await secondLine.getByTitle("Remove").click();
     await expect(amounts(sheet)).toHaveCount(1);
+    // Deliberate wait PAST the auto-leg reveal window, to prove the leg did
+    // NOT appear. Web-first assertions are pass-seeking — they resolve the
+    // moment the condition holds — so they cannot express "stayed absent for
+    // N ms"; rewriting this as toHaveCount would pass on the first tick and
+    // stop proving anything. The assertion that follows is the real check.
+    // eslint-disable-next-line no-restricted-syntax
     await appPage.waitForTimeout(800); // well past the reveal window
     await expect(amounts(sheet)).toHaveCount(1);
 
@@ -259,6 +265,12 @@ test.describe("LIRA-123 — auto-debt remainder scenarios", () => {
     const sheet = await openWhishSendSheet(appPage, { amount: "140" });
 
     await amounts(sheet).first().fill("100");
+    // Deliberate wait PAST the auto-leg reveal window, to prove the leg did
+    // NOT appear. Web-first assertions are pass-seeking — they resolve the
+    // moment the condition holds — so they cannot express "stayed absent for
+    // N ms"; rewriting this as toHaveCount would pass on the first tick and
+    // stop proving anything. The assertion that follows is the real check.
+    // eslint-disable-next-line no-restricted-syntax
     await appPage.waitForTimeout(800);
 
     await expect(amounts(sheet)).toHaveCount(1);
@@ -296,6 +308,12 @@ test.describe("LIRA-123 — auto-debt remainder scenarios", () => {
     await methodSelect.selectOption("CASH");
 
     await amounts(sheet).first().fill("100");
+    // Deliberate wait PAST the auto-leg reveal window, to prove the leg did
+    // NOT appear. Web-first assertions are pass-seeking — they resolve the
+    // moment the condition holds — so they cannot express "stayed absent for
+    // N ms"; rewriting this as toHaveCount would pass on the first tick and
+    // stop proving anything. The assertion that follows is the real check.
+    // eslint-disable-next-line no-restricted-syntax
     await appPage.waitForTimeout(800);
 
     // Money-OUT flow: an auto IN-direction debt leg would invert the sign of
@@ -344,6 +362,12 @@ test.describe("LIRA-123 — auto-debt remainder scenarios", () => {
       ).toHaveCount(0);
 
       await amounts(sheet).first().fill("100");
+      // Deliberate wait PAST the auto-leg reveal window, to prove the leg did
+      // NOT appear. Web-first assertions are pass-seeking — they resolve the
+      // moment the condition holds — so they cannot express "stayed absent for
+      // N ms"; rewriting this as toHaveCount would pass on the first tick and
+      // stop proving anything. The assertion that follows is the real check.
+      // eslint-disable-next-line no-restricted-syntax
       await appPage.waitForTimeout(800);
 
       await expect(amounts(sheet)).toHaveCount(1);
@@ -553,6 +577,12 @@ test.describe("LIRA-123 — auto-debt remainder scenarios", () => {
     const amount = appPage.locator('[data-testid^="payment-amount-"]').first();
     await expect(amount).not.toHaveValue("", { timeout: 5_000 });
     await amount.fill("400000");
+    // Deliberate wait PAST the auto-leg reveal window, to prove the leg did
+    // NOT appear. Web-first assertions are pass-seeking — they resolve the
+    // moment the condition holds — so they cannot express "stayed absent for
+    // N ms"; rewriting this as toHaveCount would pass on the first tick and
+    // stop proving anything. The assertion that follows is the real check.
+    // eslint-disable-next-line no-restricted-syntax
     await appPage.waitForTimeout(800);
 
     // A partial repayment is the NORMAL case here — the remainder stays as

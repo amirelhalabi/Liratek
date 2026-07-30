@@ -587,6 +587,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             amountLbp: r.currencyCode === "LBP" ? amt : 0,
             note: "Change returned",
             createdBy: String(data.created_by),
+            transactionId: txnId,
             ...(data.transaction_time
               ? { transactionTime: data.transaction_time }
               : {}),
@@ -922,6 +923,18 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   /**
    * Add a credit entry (shop owes customer). Stored as NEGATIVE amounts.
+   *
+   * Rule 20: when this credit is a side effect of an enclosing unified
+   * transaction (change returned as store credit, a RECEIVE cashed out to
+   * CUSTOMER_ACCOUNT, a Binance/app-wallet payout kept on account, etc.),
+   * callers MUST pass `transactionId` — the same convention
+   * `bookClientDebtCharge` (moneyPosting.ts) uses for module-charge rows.
+   * Without it, `TransactionRepository._cancelDebt` has no way to find and
+   * reverse this row on void/refund, and the customer keeps the credit for
+   * free (owner-reported real-money leak). Standalone/manual credits (the
+   * Debts-page "add credit" action, voucher redemption with no originating
+   * transaction) correctly omit it — they have no transaction to link to and
+   * are never touched by the generic reversal.
    */
   addCredit(data: {
     clientId: number;
@@ -935,15 +948,20 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
      *  eye button that opens the basket breakdown; null for every other
      *  credit. */
     sessionId?: number;
+    /** The unified transaction this credit is a side effect of (see method
+     *  doc). Omit for standalone/manual credits with no originating
+     *  transaction. */
+    transactionId?: number;
   }): { id: number } {
     const stmt = this.db.prepare(`
-      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, session_id, tenant_id, created_at)
-      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, session_id, tenant_id, created_at)
+      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
       data.clientId,
       -Math.abs(data.amountUsd),
       -Math.abs(data.amountLbp),
+      data.transactionId ?? null,
       data.note || null,
       data.createdBy,
       data.sessionId ?? null,

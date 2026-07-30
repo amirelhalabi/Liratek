@@ -882,6 +882,28 @@ CREATE TABLE IF NOT EXISTS wallet_exchanges (
 CREATE INDEX IF NOT EXISTS idx_wallet_exchanges_tenant_id ON wallet_exchanges(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_exchanges_created_at ON wallet_exchanges(created_at);
 
+-- System Float Top-Ups (v139): operator funds the OMT_System / Whish_System
+-- spendable float directly (the missing direction — DrawerTopUpRepository
+-- only ever moved money OUT of the system drawer into General). Own table,
+-- own is_refunded/refunded_at, reversible via the generic void/refund path —
+-- see SystemFloatTopupRepository doc / DrawerTopUpRepository.fundSystemDrawer.
+CREATE TABLE IF NOT EXISTS system_float_topups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  target_drawer TEXT NOT NULL CHECK (target_drawer IN ('OMT_System', 'Whish_System')),
+  funding_drawer TEXT NOT NULL,
+  amount_usd REAL NOT NULL DEFAULT 0,
+  amount_lbp REAL NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_by INTEGER,
+  is_refunded INTEGER DEFAULT 0,
+  refunded_at TEXT DEFAULT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_system_float_topups_tenant_id ON system_float_topups(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_system_float_topups_created_at ON system_float_topups(created_at);
+
 -- Daily Closings
 CREATE TABLE IF NOT EXISTS daily_closings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1549,4 +1571,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (135, 'add_carrier_lines_and_mobile_item_validity'),
     (136, 'add_supplier_ledger_source_ref'),
     (137, 'add_drawer_cashouts_table'),
-    (138, 'add_wallet_exchanges_table');
+    (138, 'add_wallet_exchanges_table'),
+    (139, 'add_system_float_topups_table');

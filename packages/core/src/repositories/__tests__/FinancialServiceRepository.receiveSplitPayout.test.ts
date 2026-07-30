@@ -281,9 +281,15 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
     expect(balance(db, "General", "USD")).toBeCloseTo(beforeUsd - 190, 2);
     expect(balance(db, "General", "LBP")).toBeCloseTo(beforeLbp - 540000, 2);
 
-    // The provider still owes the shop the full transfer amount (in USD).
-    expect(balance(db, "OMT_System", "USD")).toBeLessThanOrEqual(
-      beforeOmt - 196,
+    // float model: RECEIVE fills the float back UP by the bare principal
+    // (+receiveAmount = +196) — the old model drew it DOWN by totalOwed
+    // (principal + commission). Commission/fee never touch this leg; only
+    // the payout drawer(s) above see fee-related deltas.
+    // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
+    // `-totalOwed` (subtract instead of add) makes this red (OMT_System read
+    // 303.7, no longer >= beforeOmt + 196).
+    expect(balance(db, "OMT_System", "USD")).toBeGreaterThanOrEqual(
+      beforeOmt + 196,
     );
   });
 

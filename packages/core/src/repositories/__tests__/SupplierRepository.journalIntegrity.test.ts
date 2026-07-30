@@ -274,8 +274,8 @@ describe("SupplierRepository — CQ-7 journal integrity", () => {
         amount_lbp: 0,
         commission_usd: 0.1,
         commission_lbp: 0,
-        drawer_name: "General",
         created_by: 1,
+        payments: [{ method: "CASH", currency_code: "USD", amount: 99.9 }],
       });
 
       const txn = db
@@ -361,8 +361,8 @@ describe("SupplierRepository — CQ-7 journal integrity", () => {
         amount_lbp: 0,
         commission_usd: 0.1,
         commission_lbp: 0,
-        drawer_name: "General",
         created_by: 1,
+        payments: [{ method: "CASH", currency_code: "USD", amount: 99.9 }],
       });
 
       const txn = db

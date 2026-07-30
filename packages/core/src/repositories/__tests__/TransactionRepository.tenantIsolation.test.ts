@@ -233,4 +233,77 @@ describe("TransactionRepository — cross-tenant isolation", () => {
     expect(rowsT2[0].username).toBe("bob");
     expect(rowsT2[0].total_usd).toBe(300);
   });
+
+  /**
+   * `_cancelDebt` (voidTransaction's rule-20 module-debt/CREDIT_DEPOSIT
+   * reversal step) — regression proof for the collateral-damage bug that
+   * dropped this method's `tenant_id = ?` predicate when
+   * `CANCELLABLE_LEDGER_TYPES` was introduced. Seeds a tenant-1 transaction
+   * and TWO debt_ledger `CREDIT_DEPOSIT` rows sharing that SAME
+   * transaction_id — one legitimately tenant 1's, one a cross-tenant
+   * collision stamped tenant_id = 2 (modeling a row that should never have
+   * been reachable from tenant 1's void). Deliberately uses a source_table
+   * value ("test_fixture_source") that is NEITHER 'sales' (the only
+   * source_table voidTransaction gives extra treatment: cancelling the sale
+   * + restoring stock via sale_items/products, tables this fixture DB
+   * doesn't have) NOR any of `_markSourceRefunded`'s supported tables (which
+   * would attempt an UPDATE against a table this fixture DB also doesn't
+   * have) — every other reversal step this test doesn't care about
+   * (_reversePartnerLedger, _cascadeSupplierSiblingVoid, etc.) already
+   * degrades to a clean no-op when its own table/type precondition isn't
+   * met, so voidTransaction() exercises exactly the `_cancelDebt` path under
+   * test.
+   *
+   * Per rule 17, this assertion was verified to FAIL (both tenants'
+   * CREDIT_DEPOSIT rows reversed, 2 'Refund Reversal' rows instead of 1) when
+   * the `AND tenant_id = ?` predicate / `tenantId` bind param were removed
+   * from `_cancelDebt`'s SELECT — confirmed by temporarily reverting the fix
+   * and rerunning this exact test file, then restoring it.
+   */
+  it("_cancelDebt (via voidTransaction): reverses ONLY the caller tenant's colliding CREDIT_DEPOSIT row", () => {
+    const userId = 1;
+    const txnT1Result = db
+      .prepare(
+        `INSERT INTO transactions
+           (tenant_id, type, status, source_table, source_id, user_id, amount_usd, amount_lbp, created_at)
+         VALUES (1, 'FINANCIAL_SERVICE', 'ACTIVE', 'test_fixture_source', 700, 1, 50, 0, ?)`,
+      )
+      .run(D);
+    const txnT1 = Number(txnT1Result.lastInsertRowid);
+
+    // Tenant 1's OWN CREDIT_DEPOSIT row for the transaction being voided.
+    db.prepare(
+      `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, tenant_id, created_at)
+       VALUES (1, 'CREDIT_DEPOSIT', 50, 0, ?, 1, ?)`,
+    ).run(txnT1, D);
+
+    // Tenant 2's row: a DIFFERENT tenant's client, colliding on the exact
+    // same transaction_id — must be untouched by tenant 1's void.
+    db.prepare(
+      `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, tenant_id, created_at)
+       VALUES (999, 'CREDIT_DEPOSIT', 12345, 0, ?, 2, ?)`,
+    ).run(txnT1, D);
+
+    runWithTenant(1, () => repo.voidTransaction(txnT1, userId));
+
+    const reversals = db
+      .prepare(
+        `SELECT client_id, tenant_id, amount_usd FROM debt_ledger WHERE transaction_type = 'Refund Reversal'`,
+      )
+      .all() as { client_id: number; tenant_id: number; amount_usd: number }[];
+
+    expect(reversals).toHaveLength(1);
+    expect(reversals[0].client_id).toBe(1);
+    expect(reversals[0].tenant_id).toBe(1);
+    expect(reversals[0].amount_usd).toBe(-50);
+
+    // Tenant 2's collision row must be untouched (still its original
+    // amount, no reversal ever inserted against it).
+    const t2Row = db
+      .prepare(
+        `SELECT amount_usd FROM debt_ledger WHERE client_id = 999 AND transaction_type = 'CREDIT_DEPOSIT'`,
+      )
+      .get() as { amount_usd: number };
+    expect(t2Row.amount_usd).toBe(12345);
+  });
 });

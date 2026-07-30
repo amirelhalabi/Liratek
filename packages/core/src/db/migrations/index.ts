@@ -7024,6 +7024,44 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v138 rolled back: dropped wallet_exchanges table");
     },
   },
+  {
+    version: 139,
+    name: "add_system_float_topups_table",
+    description:
+      "Owner-confirmed float model (2026-07-29): OMT_System / Whish_System is a spendable float the operator can fund directly — a SEND spends the balance down, a RECEIVE credits it, and periodic settlement covers only the fee split, not the principal. Nothing in the codebase could previously INCREASE that float (DrawerTopUpRepository only moves it OUT to General). `system_float_topups` backs the missing direction: operator hands real money to the provider (or transfers it in), funding_drawer −, target_drawer (OMT_System/Whish_System) +, profit always 0 — a same-shop cash move, not earned revenue. Its own table (not a column on drawer_topups) because drawer_topups.source_drawer already means 'debit source in a transfer INTO General' and every existing drawer_topups row is permanently non-reversible; is_refunded/refunded_at + the _markSourceRefunded wiring make THIS flow reversible via the generic void/refund path, mirroring wallet_exchanges (v138).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS system_float_topups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          target_drawer TEXT NOT NULL CHECK (target_drawer IN ('OMT_System', 'Whish_System')),
+          funding_drawer TEXT NOT NULL,
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          notes TEXT,
+          created_by INTEGER,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_system_float_topups_tenant_id ON system_float_topups(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_system_float_topups_created_at ON system_float_topups(created_at)`,
+      );
+      console.log("Migration v139: Created system_float_topups table");
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS system_float_topups`);
+      console.log(
+        "Migration v139 rolled back: dropped system_float_topups table",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

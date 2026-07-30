@@ -97,6 +97,21 @@ jobs:
       - name: Backend typecheck
         run: yarn workspace @liratek/backend typecheck
 
+      # The root `postinstall` runs `rebuild:native`, which builds
+      # better-sqlite3 for the ELECTRON ABI (125) — and node_modules is in
+      # CI_CACHE_PATHS, so every job restores that binary. Backend jest runs
+      # under plain Node (ABI 115 on Node 20), so the 2 suites that open a REAL
+      # database (wp2_auth_tenant.api, and its sibling) died with
+      # "compiled against NODE_MODULE_VERSION 125 … requires 115" while the
+      # other 34 suites passed because they mock the DB.
+      #
+      # The root `test` script already guards this (`npm run rebuild:node &&
+      # …`) and the E2E job does the mirror-image (`yarn rebuild:native`); this
+      # job did neither, so it invoked the workspace test directly and inherited
+      # the Electron binary.
+      - name: Ensure better-sqlite3 is built for Node (not Electron)
+        run: yarn rebuild:node
+
       - name: Backend tests with coverage
         run: yarn workspace @liratek/backend test:coverage
 

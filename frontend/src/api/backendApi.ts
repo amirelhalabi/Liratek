@@ -1519,7 +1519,8 @@ export async function settleTransactions(data: {
   amount_lbp: number;
   commission_usd: number;
   commission_lbp: number;
-  drawer_name: string;
+  /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
+  drawer_name?: string;
   note?: string;
   payments?: Array<{
     method: string;
@@ -3105,6 +3106,26 @@ export async function drawerTopUpCreateFromDrawer(data: {
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         "/api/drawer-topup/from-drawer",
+        { method: "POST", body: data },
+      ),
+  );
+}
+
+/** Fund the OMT_System / Whish_System spendable float from any drawer
+ *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
+export async function drawerTopUpFundSystem(data: {
+  targetDrawer: "OMT_System" | "Whish_System";
+  fundingDrawer: string;
+  amount_usd: number;
+  amount_lbp: number;
+  notes?: string;
+  transaction_time?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().drawerTopUp.fundSystem(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        "/api/drawer-topup/fund-system",
         { method: "POST", body: data },
       ),
   );

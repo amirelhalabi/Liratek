@@ -49,13 +49,27 @@ export const createFinancialServiceSchema = z
     itemKey: z.string().max(255).optional(),
     itemCategory: z.string().max(500).optional(),
     note: z.string().max(500).optional(),
-    // New fields for fee calculation
+    // Fee calculation — direction-agnostic (SEND and RECEIVE both read
+    // these the same way; there is no serviceType gate on any of the three
+    // fields below). Float model (owner-confirmed 2026-07-29): a RECEIVE
+    // can carry a customer-facing fee exactly like a SEND does — omtFee/
+    // whishFee/includingFees are the SAME fields either direction uses, not
+    // a SEND-only concept. Defaults to 0/false when omitted, which is what
+    // makes "RECEIVE has no fee" (the pre-fix shape) fall out for free on
+    // every existing caller that never sends these on a RECEIVE.
     omtFee: positiveDecimalSchema.optional(), // Fee charged by OMT (user-entered or auto-looked-up)
     /** Fee charged by WHISH (user-entered or auto-looked-up from WHISH_FEE_TIERS) */
     whishFee: positiveDecimalSchema.optional(),
     profitRate: z.number().min(0.001).max(0.004).optional(), // For ONLINE_BROKERAGE (0.1%-0.4%)
     payFee: z.boolean().optional(), // For BINANCE: charge fee to customer
-    /** For SEND: true = fee already deducted from amount by frontend (amount is net sent amount) */
+    /**
+     * true = the entered `amount`/fee are already netted together (fee
+     * INCLUDED — nothing added on top of what the customer pays/receives);
+     * false/omitted = fee ON TOP (added to what the customer pays on a
+     * SEND, or paid as a separate leg on a RECEIVE). Applies to SEND and
+     * RECEIVE alike — see FinancialServiceRepository's float-model comments
+     * on the SEND/RECEIVE branches for the exact per-direction formula.
+     */
     includingFees: z.boolean().optional(),
     /**
      * Surcharge collected from customer for paying via non-cash method (e.g. WHISH Wallet, Binance).

@@ -651,7 +651,8 @@ export type ApiAdapter = {
     amount_lbp: number;
     commission_usd: number;
     commission_lbp: number;
-    drawer_name: string;
+    /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
+    drawer_name?: string;
     note?: string;
     payments?: Array<{ method: string; currency_code: string; amount: number }>;
   }) => Promise<ApiResult & { id?: number }>;
@@ -1114,6 +1115,16 @@ export type ApiAdapter = {
       amount_lbp: number;
       source_drawer: string;
       notes?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** Fund the OMT_System / Whish_System spendable float from any drawer
+     *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
+    fundSystem: (data: {
+      targetDrawer: "OMT_System" | "Whish_System";
+      fundingDrawer: string;
+      amount_usd: number;
+      amount_lbp: number;
+      notes?: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getSourceDrawers: () => Promise<{
       success: boolean;
