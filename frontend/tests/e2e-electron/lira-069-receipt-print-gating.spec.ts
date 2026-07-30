@@ -46,7 +46,34 @@ type OmtPayload = {
   paidByMethod?: string;
   clientName?: string;
   itemKey?: string;
+  partnerId?: number;
+  partnerMode?: "THROUGH" | "FOR";
 };
+
+/** Create a partner, needed to book a SECONDARY-system (WHISH, when the shop's
+ *  base system is OMT) transfer — see the WHISH row in the excluded-providers
+ *  test below. */
+async function createPartner(page: Page, tag: string): Promise<number> {
+  return page.evaluate(async (t) => {
+    const created = await (
+      window as unknown as {
+        api: {
+          partners: {
+            create: (d: { name: string; phone?: string }) => Promise<{
+              success: boolean;
+              data?: { id: number };
+              error?: string;
+            }>;
+          };
+        };
+      }
+    ).api.partners.create({ name: `${t}`, phone: `${Date.now()}` });
+    if (!created.success || !created.data) {
+      throw new Error(created.error ?? "partner create failed");
+    }
+    return created.data.id;
+  }, tag);
+}
 
 async function addOmtTransaction(page: Page, payload: OmtPayload) {
   return page.evaluate(
@@ -99,6 +126,20 @@ test.describe("LIRA-069 — receipt print gating", () => {
       binance: `LIRA069 BINANCE ${ts}`,
     };
 
+    // The WHISH row needs a partner. The shop's base system is OMT here, so
+    // WHISH is the SECONDARY system, and a walk-in transfer booked directly
+    // against it is rejected by FinancialServiceRepository (float-model change,
+    // 2026-07-30): it used to skip the supplier-ledger entry and book the
+    // obligation into NO ledger at all. The UI already forbade this state
+    // (app.spec.ts:391 "WHISH disabled without partner (OMT-base)"); this spec
+    // reached it only by calling IPC directly. Routing through a partner is
+    // faithful to what the app actually permits, and the row is still a
+    // provider-WHISH FINANCIAL_SERVICE — which is all the print gate reads.
+    const whishPartnerId = await createPartner(
+      appPage,
+      `LIRA069 WhishPartner ${ts}`,
+    );
+
     const results = await Promise.all([
       addOmtTransaction(appPage, {
         provider: "OMT",
@@ -117,6 +158,8 @@ test.describe("LIRA-069 — receipt print gating", () => {
         commission: 0,
         paidByMethod: "CASH",
         clientName: markers.whishSystem,
+        partnerId: whishPartnerId,
+        partnerMode: "THROUGH",
       }),
       addOmtTransaction(appPage, {
         provider: "OMT_APP",
