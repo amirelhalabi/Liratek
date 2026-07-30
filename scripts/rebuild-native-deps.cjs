@@ -78,6 +78,21 @@ function rebuild(sqliteDir, electronVersion, prebuildBin) {
 }
 
 function main() {
+  // Escape hatch for Node-only builds (the web backend container).
+  //
+  // This script runs from the root `postinstall`, and `electron` is a root
+  // devDependency — so a plain `yarn install` inside a server image would
+  // rebuild better-sqlite3 for Electron's ABI (125) and then crash at boot
+  // under Node (ABI 115 on node:20). On linux/arm64 it's worse: no Electron
+  // prebuild exists, so rebuild() exits non-zero and fails the image build.
+  // Docker sets this to 1; nothing on a developer machine should.
+  if (process.env.LIRATEK_SKIP_NATIVE_REBUILD === "1") {
+    console.log(
+      "[REBUILD] LIRATEK_SKIP_NATIVE_REBUILD=1 — keeping the Node-ABI binary.",
+    );
+    return;
+  }
+
   const electronVersion = getElectronVersion();
   if (!electronVersion) return;
 

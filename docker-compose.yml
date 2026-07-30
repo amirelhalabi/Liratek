@@ -1,38 +1,71 @@
+# LiraTek web deployment — one backend, one nginx front door, one SQLite volume.
+#
+#   cp .env.deploy.example .env.deploy   # then fill it in
+#   docker compose up -d --build
+#
+# SQLite has exactly ONE writer, so `backend` must never be scaled past 1
+# replica. That constraint is why this stack targets a single small VPS rather
+# than anything that autoscales. See docs/DEPLOYMENT.md.
+
+name: liratek
+
 services:
   backend:
     build:
-      context: .
+      context: . # repo root — the Dockerfile needs every workspace manifest
       dockerfile: backend/Dockerfile
+    # Secrets and per-host values live on the host, never in this file or an
+    # image layer. Missing file = compose fails loudly, which is what we want.
+    env_file:
+      - .env.deploy
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 3000
-      # Persist DB in a volume mounted at /data
+      # Inside the named volume, so shop data survives image rebuilds.
       DATABASE_PATH: /data/liratek.db
-      JWT_SECRET: change-me
-      JWT_EXPIRES_IN: 7d
-      CORS_ORIGIN: http://localhost:5173
-      LOG_LEVEL: info
     volumes:
       - liratek_data:/data
-    ports:
-      - "3000:3000"
+    # Deliberately `expose`, not `ports`: the backend is reachable only through
+    # nginx. Publishing 3000 would let a client bypass the proxy and forge
+    # X-Forwarded-For, defeating the rate limiter (server.ts trusts 1 hop).
+    expose:
+      - "3000"
+    restart: unless-stopped
+    healthcheck:
+      # Node 20 has global fetch, so no curl needed in the runtime image.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # First boot bootstraps the schema from create_db.sql and runs every
+      # migration, which takes noticeably longer than a warm start.
+      start_period: 60s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
-  frontend:
+  web:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      # Runtime override read by the frontend (globalThis.__LIRATEK_BACKEND_URL)
-      # You can inject it via a small inline script later if needed.
-      # For now, frontend defaults to http://localhost:3000.
-
-      # VITE_BACKEND_URL is not used by our client yet (kept for future)
-      VITE_BACKEND_URL: http://localhost:3000
     ports:
-      - "5173:80"
+      # Host 80. Put Caddy/a TLS terminator in front of this once a domain
+      # exists (docs/DEPLOYMENT.md § TLS) and change this to 127.0.0.1:8080:80.
+      - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
 volumes:
   liratek_data:

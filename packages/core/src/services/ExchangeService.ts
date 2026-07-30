@@ -39,6 +39,9 @@ export interface AddExchangeInput {
   /** LIRA-081: for-partner exchange — see CreateExchangeData for the model. */
   partnerId?: number;
   partnerMode?: "FOR";
+  /** Split payout — see CreateExchangeData.payments for the full contract. */
+  payments?: CreateExchangeData["payments"];
+  tender_exchange_rate?: number;
 }
 
 // =============================================================================
@@ -107,6 +110,8 @@ export class ExchangeService {
         transaction_time: input.transaction_time,
         partnerId: input.partnerId,
         partnerMode: input.partnerMode,
+        payments: input.payments,
+        tender_exchange_rate: input.tender_exchange_rate,
       };
 
       const { id } = this.exchangeRepo.createTransaction(txData);

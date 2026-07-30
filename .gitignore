@@ -15,6 +15,10 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
+# Filled-in deployment env (real JWT_SECRET / DATABASE_KEY / admin password).
+# The template .env.deploy.example IS committed; this never is.
+.env.deploy
+
 # But DO commit these template files
 !.env.example
 !.env.dev

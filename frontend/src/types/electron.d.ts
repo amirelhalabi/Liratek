@@ -770,12 +770,28 @@ export interface ElectronAPI {
       toCurrency: string;
       amountIn: number;
       amountOut: number;
-      rate: number;
+      leg1Rate: number;
+      leg1MarketRate: number;
+      leg1ProfitUsd: number;
+      leg2Rate?: number;
+      leg2MarketRate?: number;
+      leg2ProfitUsd?: number;
+      viaCurrency?: string;
+      totalProfitUsd: number;
       clientName?: string;
       note?: string;
+      fromCurrencyName?: string;
+      toCurrencyName?: string;
       transaction_time?: string;
       partnerId?: number;
       partnerMode?: "FOR";
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      tender_exchange_rate?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: () => Promise<
       Array<{

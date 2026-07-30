@@ -13,8 +13,16 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   assertPartnerIdRequired,
+  reconcileLegs,
+  expectedTotalIn,
 } from "./moneyPosting.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
+import {
+  partitionLegs,
+  isDrawerAffectingMethod,
+  paymentMethodToDrawerName,
+} from "../utils/payments.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 
 // =============================================================================
 // Entity Types
@@ -83,6 +91,28 @@ export interface CreateExchangeData {
   partnerId?: number;
   /** Only "FOR" is valid for exchanges — the partner analog of a walk-in customer. */
   partnerMode?: "FOR";
+  /**
+   * Split payout (owner-requested 2026-07-30): how the shop pays the
+   * customer's `amountOut`, across several legs (e.g. $100 + 11,050,000 LBP
+   * for one 20,000,000 LBP payout). Reconciled hard-reject against
+   * `amountOut` in `toCurrency` (S2); each leg debits its OWN drawer in its
+   * OWN currency (§4 / lira-074). Omitted → the single-lump fallback.
+   * USD/LBP target only; IN legs only; drawer methods only; never combined
+   * with `partnerMode: "FOR"`.
+   */
+  payments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+    direction?: "IN" | "OUT";
+  }>;
+  /**
+   * The USD→LBP rate the payment sheet ACTUALLY converted the payout legs at
+   * (the exchange's own effective rate, or the operator's edit of the sheet's
+   * header field) — reconciliation compares at THIS rate so a legitimate
+   * spread doesn't false-reject (lira-095).
+   */
+  tender_exchange_rate?: number;
 }
 
 // =============================================================================
@@ -311,23 +341,103 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
       // Outflow: shop gives toCurrency to customer → shop drawer decreases.
       // Real regardless of partner mode — this value genuinely leaves the till.
-      const toDelta = -Math.abs(data.amountOut);
-      insertPaymentRow(this.db, {
-        transactionId: txnId,
-        method: "CASH",
-        drawerName,
-        currencyCode: data.toCurrency,
-        amount: toDelta,
-        note,
-        createdBy,
-        tenantId,
-      });
-      applyDrawerDelta(this.db, {
-        drawerName,
-        currencyCode: data.toCurrency,
-        delta: toDelta,
-        tenantId,
-      });
+      const payoutLegs = (data.payments ?? []).filter(
+        (p) => Math.abs(p.amount) > 0,
+      );
+      if (payoutLegs.length > 0) {
+        // Split payout (owner-requested 2026-07-30): the shop pays the
+        // customer's amountOut across several lines (e.g. $100 +
+        // 11,050,000 LBP for one 20,000,000 LBP payout). Same shape as the
+        // app-wallet RECEIVE payout fixed the same day: reconcile hard-reject
+        // FIRST (S2 — a mis-keyed split throws inside this db.transaction and
+        // rolls everything back), then post EACH leg in its OWN currency
+        // (§4 / lira-074). Guards up front:
+        if (isForPartner) {
+          throw new Error(
+            "A partner exchange takes no payout legs — the shop's disbursement books as the single outflow",
+          );
+        }
+        // reconcileLegs is USD/LBP-native (expectedTotalIn maps any non-LBP
+        // currency to the USD bucket) — an exotic-target split would
+        // reconcile against the wrong denomination, so it is rejected here;
+        // the frontend only offers the sheet for USD/LBP targets.
+        if (data.toCurrency !== "USD" && data.toCurrency !== "LBP") {
+          throw new Error(
+            "A split payout requires a USD or LBP target currency",
+          );
+        }
+        const { outLegs } = partitionLegs(payoutLegs);
+        if (outLegs.length > 0) {
+          throw new Error(
+            "An exchange payout has no return legs — send IN legs only",
+          );
+        }
+        for (const leg of payoutLegs) {
+          // CUSTOMER_ACCOUNT (store credit) needs a client_id, which
+          // exchange_transactions does not carry; GIFT_CARD and other
+          // non-drawer methods would silently unbalance the till.
+          if (!isDrawerAffectingMethod(leg.method)) {
+            throw new Error(
+              `Payout method "${leg.method}" is not supported for exchanges — use a cash/wallet method`,
+            );
+          }
+        }
+
+        reconcileLegs({
+          inLegs: payoutLegs,
+          expectedTotals: expectedTotalIn(
+            Math.abs(data.amountOut),
+            data.toCurrency,
+          ),
+          // Band anchor only — the stamped `rate` is the from→to exchange
+          // rate (possibly EUR-per-USD etc.), NOT a USD↔LBP rate, so the
+          // server sell rate anchors the ±10% tender-rate sanity band here.
+          exchangeRate: getUsdLbpSellRate(this.db),
+          tenderExchangeRate: data.tender_exchange_rate,
+          context: "Exchange payout",
+        });
+
+        for (const leg of payoutLegs) {
+          const legAmount = Math.abs(leg.amount);
+          const legDrawer = paymentMethodToDrawerName(leg.method);
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: leg.method,
+            drawerName: legDrawer,
+            currencyCode: leg.currencyCode,
+            amount: -legAmount,
+            note: note ?? `Paid to customer (exchange payout)`,
+            createdBy,
+            tenantId,
+          });
+          applyDrawerDelta(this.db, {
+            drawerName: legDrawer,
+            currencyCode: leg.currencyCode,
+            delta: -legAmount,
+            tenantId,
+          });
+        }
+      } else {
+        // No structured legs (legacy/scripted callers, partner mode, exotic
+        // target currencies): the single-lump fallback, unchanged.
+        const toDelta = -Math.abs(data.amountOut);
+        insertPaymentRow(this.db, {
+          transactionId: txnId,
+          method: "CASH",
+          drawerName,
+          currencyCode: data.toCurrency,
+          amount: toDelta,
+          note,
+          createdBy,
+          tenantId,
+        });
+        applyDrawerDelta(this.db, {
+          drawerName,
+          currencyCode: data.toCurrency,
+          delta: toDelta,
+          tenantId,
+        });
+      }
 
       // LIRA-081 (PFT-R): the partner owes exactly what a walk-in customer
       // would have paid — amountIn, in fromCurrency (already guarded above to

@@ -1,0 +1,65 @@
+# Docker build context exclusions.
+#
+# Without this file the context includes .claude/worktrees/ — five full copies
+# of the repo, each with its own node_modules — plus every local build output.
+# That is multiple GB shipped to the daemon on every build.
+
+# Agent worktrees (full repo copies, node_modules included)
+.claude/
+
+# Dependencies — reinstalled inside the image against the image's Node ABI.
+# Copying host node_modules would drag in a Windows/Electron-ABI better-sqlite3.
+node_modules
+**/node_modules
+.yarn/install-state.gz
+.pnp.*
+
+# Build outputs — rebuilt in the image
+dist
+dist-electron
+**/dist
+build
+out
+releases
+release
+*.asar
+
+# Local databases (never bake shop data into an image)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+phone_shop.db
+backups/
+
+# Real secrets. The .env.*/.env.deploy files stay on the host and arrive as
+# runtime environment via docker-compose `env_file`, never as image layers.
+.env
+.env.local
+.env.deploy
+**/.env
+**/.env.local
+
+# VCS & CI
+.git
+.gitignore
+.github
+
+# Tests, coverage, reports
+coverage
+**/coverage
+frontend/test-results
+frontend/playwright-report
+graphify-out
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.tsbuildinfo
+
+# Docs and plans (not needed to build either image)
+docs

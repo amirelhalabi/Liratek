@@ -25,6 +25,19 @@ validateProductionEnv();
 export { logger };
 
 const app = express();
+
+// Behind a reverse proxy (nginx in docker-compose.yml, plus Caddy once TLS is
+// terminated) every request arrives from the proxy's address. Without this,
+// `req.ip` is that single address for ALL traffic, so express-rate-limit stops
+// being per-IP and becomes one shared bucket for the entire deployment — the
+// whole shop locked out by 100 requests. Trusting exactly one hop makes it read
+// the client from X-Forwarded-For as nginx sets it.
+//
+// The safety of this depends on the backend NOT being publicly reachable: a
+// direct client could otherwise forge X-Forwarded-For and dodge the limiter.
+// That is why compose uses `expose` rather than `ports` for this service.
+app.set("trust proxy", 1);
+
 const httpServer = createServer(app);
 import type { DefaultEventsMap } from "socket.io";
 import { setIO, type SocketData } from "./websocket/io.js";

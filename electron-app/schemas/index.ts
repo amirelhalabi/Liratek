@@ -447,6 +447,19 @@ export const ExchangeTransactionSchema = z.object({
   // BOTH or the desktop path silently strips them.
   partnerId: z.number().int().positive().optional(),
   partnerMode: z.enum(["FOR"]).optional(),
+  // Split payout (2026-07-30) — LOCAL duplicate of the core
+  // createExchangeSchema fields (rule-14 debt, same trap as partnerId above).
+  payments: z
+    .array(
+      z.object({
+        method: z.string(),
+        currencyCode: z.string(),
+        amount: z.number().positive(),
+        direction: z.enum(["IN", "OUT"]).optional(),
+      }),
+    )
+    .optional(),
+  tender_exchange_rate: z.number().positive().optional(),
 });
 
 // =============================================================================

@@ -281,8 +281,18 @@ contextBridge.exposeInMainWorld("api", {
       totalProfitUsd: number;
       clientName?: string;
       note?: string;
+      fromCurrencyName?: string;
+      toCurrencyName?: string;
+      transaction_time?: string;
       partnerId?: number;
       partnerMode?: "FOR";
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: "IN" | "OUT";
+      }>;
+      tender_exchange_rate?: number;
     }) => ipcRenderer.invoke("exchange:add-transaction", data),
     getHistory: () => ipcRenderer.invoke("exchange:get-history"),
     updateMetadata: (data: {

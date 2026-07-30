@@ -8,7 +8,16 @@ import {
   History,
   ChevronDown,
 } from "lucide-react";
-import { appEvents, PageHeader, useApi, DecimalInput } from "@liratek/ui";
+import {
+  appEvents,
+  PageHeader,
+  useApi,
+  DecimalInput,
+  type PaymentLine,
+} from "@liratek/ui";
+import { PaymentSheet } from "@/features/recharge/components/PaymentSheet";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
@@ -321,6 +330,24 @@ export default function Exchange() {
   );
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
 
+  // Split payout (owner-requested 2026-07-30): every walk-in exchange with a
+  // USD/LBP target confirms through the PaymentSheet, so the payout can be
+  // split across lines (e.g. $100 + 11,050,000 LBP for one 20,000,000 LBP
+  // payout). Cash-only in v1 (owner decision); the repository reconciles the
+  // legs hard-reject against amountOut. Partner mode and exotic target
+  // currencies keep the direct one-click submit.
+  const [showPayoutSheet, setShowPayoutSheet] = useState(false);
+  const [payoutLines, setPayoutLines] = useState<PaymentLine[]>([]);
+  // The USD→LBP rate the sheet is ACTUALLY converting at (seed, or the
+  // operator's edit of the sheet's header field) — sent as
+  // tender_exchange_rate so the repository reconciles at the till's rate.
+  const [payoutTenderRate, setPayoutTenderRate] = useState<
+    number | undefined
+  >();
+  const [payoutSheetKey, setPayoutSheetKey] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { methods: allPaymentMethods } = usePaymentMethods();
+
   // Live calculation result (auto from DB rates)
   const [calcResult, setCalcResult] = useState<CurrencyExchangeResult | null>(
     null,
@@ -547,6 +574,28 @@ export default function Exchange() {
     return { usd, lbp };
   }, [effectiveResult, fromCurrency, toCurrency, effectiveRates]);
 
+  // The exchange's OWN USD↔LBP rate seeds the payout sheet (owner decision
+  // 2026-07-30): the LBP leg's effective (possibly operator-overridden) rate
+  // when the exchange touches LBP — leg rates for LBP-like currencies are
+  // always LBP-per-USD (currencyConverter, is_stronger = +1) — otherwise the
+  // rate table's LBP buy side (paying out LBP in lieu of USD converts in the
+  // same direction as a USD→LBP exchange). The operator can still edit the
+  // sheet's header rate; the edit is captured via onExchangeRateChange.
+  const payoutSeedRate = useMemo<number | undefined>(() => {
+    const lbpLeg = effectiveResult?.legs.find(
+      (l) => l.fromCurrency === "LBP" || l.toCurrency === "LBP",
+    );
+    if (lbpLeg) return lbpLeg.rate;
+    const lbpRate = effectiveRates.find((r) => r.to_code === "LBP");
+    return lbpRate?.buy_rate;
+  }, [effectiveResult, effectiveRates]);
+
+  // Split payout is USD/LBP-target only (reconciliation + MultiPaymentInput
+  // are USD/LBP-native) and never applies in partner mode (no walk-in
+  // customer). Everything else keeps the direct one-click submit.
+  const canSplitPayout =
+    !forPartner && (toCurrency === "USD" || toCurrency === "LBP");
+
   // Sync amountOut with effectiveResult
   useEffect(() => {
     if (effectiveResult) {
@@ -643,7 +692,7 @@ export default function Exchange() {
     setAmountIn(parseFloat(amountOut) || 0);
   };
 
-  const handleProcess = async () => {
+  const handleProcess = async (lines?: PaymentLine[]) => {
     const inp = amountIn;
     const out = parseFloat(amountOut);
 
@@ -660,6 +709,7 @@ export default function Exchange() {
       const leg1 = effectiveResult.legs[0];
       const leg2 = effectiveResult.legs[1];
 
+      setIsSubmitting(true);
       setIsSubmittingPartner(forPartner);
       const result = await api.addExchangeTransaction({
         fromCurrency,
@@ -682,6 +732,15 @@ export default function Exchange() {
         transaction_time: transactionTime,
         ...(forPartner && selectedPartnerId
           ? { partnerId: selectedPartnerId, partnerMode: "FOR" as const }
+          : {}),
+        // Split payout: the sheet's lines (IN legs, cash-only v1) + the rate
+        // it actually converted at — the repository reconciles hard-reject
+        // against amountOut and debits each leg per-currency.
+        ...(lines && lines.length > 0
+          ? {
+              payments: toCamelLegs(lines),
+              tender_exchange_rate: payoutTenderRate ?? payoutSeedRate,
+            }
           : {}),
       });
 
@@ -714,6 +773,9 @@ export default function Exchange() {
         setClientName("");
         setCalcResult(null);
         setTransactionTime(undefined);
+        setShowPayoutSheet(false);
+        setPayoutLines([]);
+        setPayoutTenderRate(undefined);
         loadHistory();
       } else {
         alert("Error: " + result.error);
@@ -722,6 +784,7 @@ export default function Exchange() {
       logger.error("Operation failed", { error });
       alert("Transaction failed");
     } finally {
+      setIsSubmitting(false);
       setIsSubmittingPartner(false);
     }
   };
@@ -731,6 +794,13 @@ export default function Exchange() {
     toCurrency &&
     fromCurrency !== "USD" &&
     toCurrency !== "USD";
+
+  // "Customer Gets" hierarchy: the box matching the SELECTED target currency
+  // is the actual payout; the other is only its conversion (prefixed "≈",
+  // dimmed). For an exotic target (EUR etc.) neither is the payout — both
+  // render as dimmed equivalents (the label already says "(X equivalent)").
+  const usdIsPayout = toCurrency === "USD";
+  const lbpIsPayout = toCurrency === "LBP";
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
@@ -944,45 +1014,75 @@ export default function Exchange() {
                   </span>
                 )}
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              {/* The two values are EQUIVALENTS of one payout, not a sum —
+                  the target-currency box is primary, the other is a dimmed
+                  "≈" conversion, and the "or" separator seals the reading. */}
+              <div className="flex items-center gap-2">
                 {/* USD output */}
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-red-400 font-bold">
+                <div className="relative flex-1 min-w-0">
+                  <span
+                    className={`absolute left-4 top-1/2 -translate-y-1/2 font-bold ${
+                      usdIsPayout ? "text-red-400" : "text-slate-500"
+                    }`}
+                  >
                     $
                   </span>
                   <input
                     type="text"
                     value={
                       outputDual
-                        ? outputDual.usd.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })
+                        ? `${usdIsPayout ? "" : "≈ "}${outputDual.usd.toLocaleString(
+                            undefined,
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}`
                         : ""
                     }
                     readOnly
-                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-9 pr-12 py-4 text-xl font-bold text-slate-300 cursor-not-allowed"
+                    className={`w-full rounded-lg pl-9 pr-12 py-4 text-xl font-bold cursor-not-allowed ${
+                      usdIsPayout
+                        ? "bg-slate-800/80 border border-violet-500/50 text-white"
+                        : "bg-slate-800/40 border border-slate-700/60 text-slate-500"
+                    }`}
                     placeholder="0.00"
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">
+                  <span
+                    className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
+                      usdIsPayout ? "text-violet-300" : "text-slate-600"
+                    }`}
+                  >
                     USD
                   </span>
                 </div>
 
+                <span className="text-[11px] font-semibold text-slate-500 uppercase shrink-0">
+                  or
+                </span>
+
                 {/* LBP output */}
-                <div className="relative">
+                <div className="relative flex-1 min-w-0">
                   <input
                     type="text"
                     value={
                       outputDual
-                        ? Math.round(outputDual.lbp).toLocaleString()
+                        ? `${lbpIsPayout ? "" : "≈ "}${Math.round(outputDual.lbp).toLocaleString()}`
                         : ""
                     }
                     readOnly
-                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-4 pr-12 py-4 text-xl font-bold text-slate-300 cursor-not-allowed"
+                    className={`w-full rounded-lg pl-4 pr-12 py-4 text-xl font-bold cursor-not-allowed ${
+                      lbpIsPayout
+                        ? "bg-slate-800/80 border border-violet-500/50 text-white"
+                        : "bg-slate-800/40 border border-slate-700/60 text-slate-500"
+                    }`}
                     placeholder="0"
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">
+                  <span
+                    className={`absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium ${
+                      lbpIsPayout ? "text-violet-300" : "text-slate-600"
+                    }`}
+                  >
                     LBP
                   </span>
                 </div>
@@ -1037,20 +1137,85 @@ export default function Exchange() {
           />
 
           <button
-            onClick={handleProcess}
+            onClick={() => {
+              // Split payout (2026-07-30): USD/LBP-target walk-in exchanges
+              // confirm through the PaymentSheet so the payout can be split;
+              // partner mode and exotic targets keep the direct submit.
+              if (canSplitPayout) {
+                setPayoutLines([]);
+                setPayoutTenderRate(undefined);
+                setPayoutSheetKey((k) => k + 1);
+                setShowPayoutSheet(true);
+              } else {
+                void handleProcess();
+              }
+            }}
             disabled={
               !effectiveResult ||
               !!calcError ||
               !!profitWarning ||
+              isSubmitting ||
               isSubmittingPartner ||
               (forPartner && !selectedPartnerId)
             }
             className="w-full py-4 mt-2 rounded-xl font-bold text-lg bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {forPartner ? "Submit to Partner" : "Confirm Exchange"}
+            {forPartner
+              ? "Submit to Partner"
+              : canSplitPayout
+                ? "Proceed to Payout"
+                : "Confirm Exchange"}
           </button>
         </div>
       </div>
+
+      {/* Payout Sheet — how the shop pays the customer's amountOut. Cash-only
+          in v1 (owner decision); the repository reconciles the legs
+          hard-reject against amountOut and debits each leg per-currency. */}
+      <PaymentSheet
+        open={showPayoutSheet}
+        onClose={() => setShowPayoutSheet(false)}
+        onConfirm={() => void handleProcess(payoutLines)}
+        isSubmitting={isSubmitting}
+        title="Confirm Payout"
+        {...(effectiveResult
+          ? {
+              subtitle: `Pay customer — ${formatAmount(effectiveResult.totalAmountOut, toCurrency)}`,
+              confirmLabel: `Pay ${formatAmount(effectiveResult.totalAmountOut, toCurrency)}`,
+            }
+          : {})}
+        accentColor="bg-violet-600 hover:bg-violet-500 text-white"
+        summary={[
+          {
+            label: `You receive (${fromCurrency})`,
+            value: formatAmount(amountIn, fromCurrency),
+            color: "text-emerald-400",
+          },
+          {
+            label: `Customer gets (${toCurrency})`,
+            value: effectiveResult
+              ? formatAmount(effectiveResult.totalAmountOut, toCurrency)
+              : "",
+            color: "text-red-400",
+          },
+        ]}
+        totalAmount={effectiveResult?.totalAmountOut ?? 0}
+        totalAmountCurrency={toCurrency}
+        currency={toCurrency}
+        paymentMethods={
+          allPaymentMethods.filter((m) => m.code === "CASH").length > 0
+            ? allPaymentMethods.filter((m) => m.code === "CASH")
+            : [{ code: "CASH", label: "Cash" }]
+        }
+        {...(payoutSeedRate !== undefined
+          ? { exchangeRate: payoutSeedRate }
+          : {})}
+        onExchangeRateChange={setPayoutTenderRate}
+        showDiscount={false}
+        paymentInputKey={payoutSheetKey}
+        initialPaymentMethod="CASH"
+        onPaymentChange={setPayoutLines}
+      />
 
       {/* History Modal */}
       {showHistoryModal && (

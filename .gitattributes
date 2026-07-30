@@ -1,0 +1,17 @@
+# Deliberately narrow: only the files where a CRLF line ending changes behaviour.
+# A sweeping `* text=auto` would renormalize the whole repo in one noisy commit.
+#
+# core.autocrlf=true on a Windows checkout rewrites working-tree files to CRLF.
+# For anything a Linux container or a VPS shell executes, that is not cosmetic:
+# a shell script whose shebang ends in \r fails with "bad interpreter", and
+# Docker has historically choked on CRLF line continuations. Pinning LF makes
+# the result identical no matter whose machine, or whose git config, produced it.
+
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.dockerfile    text eol=lf
+.dockerignore   text eol=lf
+nginx.conf      text eol=lf
+docker-compose.yml text eol=lf
+*.env           text eol=lf
+.env.*          text eol=lf
