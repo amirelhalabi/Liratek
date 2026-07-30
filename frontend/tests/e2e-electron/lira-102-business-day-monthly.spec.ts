@@ -29,9 +29,35 @@ import { test, expect } from "./fixtures";
 // created_at is stored verbatim; SQLite reads a naive datetime as UTC. This UTC
 // instant is 2026-06-30 22:00 → 2026-07-01 01:00 in Beirut (+3): UTC month June,
 // LOCAL month July. That gap is the whole point.
-const BOUNDARY_UTC = "2026-06-30 22:00:00";
-const LOCAL_MONTH = "2026-07";
-const UTC_MONTH = "2026-06";
+// Derived from the RUNNER's actual UTC offset, not hardcoded to Beirut (+3).
+// The old constants ("2026-06-30 22:00:00" → local month 2026-07) silently
+// encoded a machine east of UTC: on a UTC runner that instant's local month is
+// June, so the July delta was always 0 and this spec failed in CI while passing
+// on a Beirut laptop. Build the instant from a LOCAL target instead, so the
+// local-vs-UTC month gap is real on any positive-offset machine.
+//
+// Local target: the 1st of the current local month at 00:30. `new Date(y, m, 1,
+// 0, 30)` is a local-time constructor, so its UTC rendering is the same instant
+// expressed in UTC — which lands in the PREVIOUS month whenever offset > 0.
+const LOCAL_TARGET = (() => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 30, 0);
+})();
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** Naive "YYYY-MM-DD HH:MM:SS" in UTC — how SQLite reads a bare datetime. */
+const BOUNDARY_UTC = LOCAL_TARGET.toISOString()
+  .slice(0, 19)
+  .replace("T", " ");
+const LOCAL_MONTH = `${LOCAL_TARGET.getFullYear()}-${pad2(LOCAL_TARGET.getMonth() + 1)}`;
+const UTC_MONTH = BOUNDARY_UTC.slice(0, 7);
+/** The UTC calendar date of that instant — asserted below to prove the backdate. */
+const BOUNDARY_UTC_DATE = BOUNDARY_UTC.slice(0, 10);
+// At offset <= 0 (UTC runners included) a local instant can never fall in an
+// EARLIER UTC month, so there is no boundary to exercise and the whole premise
+// is unconstructible. The rigorous, TZ-independent proof lives in the core unit
+// test ClosingRepository.localBusinessDay.test.ts — this spec only adds the
+// end-to-end IPC → core → SQLite path on machines where the gap exists.
+const HAS_MONTH_GAP = LOCAL_MONTH !== UTC_MONTH;
 
 type Api = {
   api: {
@@ -52,9 +78,13 @@ type Api = {
 };
 
 test.describe("LIRA-102 — monthly P&L uses the local business month", () => {
-  test("a 00:30-Beirut commission on the 1st counts in the LOCAL month, not the UTC month", async ({
+  test("a 00:30-local commission on the 1st counts in the LOCAL month, not the UTC month", async ({
     appPage,
   }) => {
+    test.skip(
+      !HAS_MONTH_GAP,
+      `runner offset gives no local/UTC month gap (local ${LOCAL_MONTH} === utc ${UTC_MONTH}) — see ClosingRepository.localBusinessDay.test.ts`,
+    );
     const r = await appPage.evaluate(
       async ({ boundary, localMonth, utcMonth }) => {
         const w = window as unknown as Api;
@@ -99,9 +129,9 @@ test.describe("LIRA-102 — monthly P&L uses the local business month", () => {
     expect(r.error).toBeNull();
     expect(r.ok).toBe(true);
 
-    // transaction_time was honored — the row really sits on the UTC June 30
+    // transaction_time was honored — the row really sits on the derived UTC
     // instant (not "now"), so the month boundary is genuinely exercised.
-    expect(r.createdAt).toContain("2026-06-30");
+    expect(r.createdAt).toContain(BOUNDARY_UTC_DATE);
 
     // The commission is a positive amount the flow computed…
     expect(r.commission).toBeGreaterThan(0);
