@@ -496,6 +496,44 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
       expect(pcdAmount + generalAmount).toBe(10);
     });
 
+    it("two-thirds ratio (USD): rounds UP to the nearest cent — truncating would short the cash drawer", () => {
+      // rule 17: proven failing-first 2026-07-31 — changing `pcdUnits =
+      // Math.round(...)` to `Math.floor(...)` reads pcdAmount 6.66 /
+      // generalAmount 3.34 instead of 6.67 / 3.33.
+      //
+      // This case exists because the 1/3 cases above CANNOT see a truncation
+      // bug: round(333.33) and floor(333.33) are both 333. Only a ratio whose
+      // scaled product has a fractional part >= 0.5 distinguishes them.
+      // 10.00 USD @ ratio 2/3: totalUnits = 1000; pcdUnits = round(666.66..)
+      // = 667 -> $6.67; generalUnits = 1000 - 667 = 333 -> $3.33.
+      // Conservation still holds under truncation (General absorbs whatever
+      // the PCD does not take), so a conservation-only assertion is blind to
+      // this — the exact share must be asserted.
+      const { pcdAmount, generalAmount } = splitCashLegByItemShare(
+        10,
+        2 / 3,
+        "USD",
+      );
+      expect(pcdAmount).toBe(6.67);
+      expect(generalAmount).toBe(3.33);
+      expect(pcdAmount + generalAmount).toBe(10);
+    });
+
+    it("two-thirds ratio (LBP): rounds UP to the nearest whole lira", () => {
+      // rule 17: proven failing-first 2026-07-31 — with Math.floor, pcdAmount
+      // reads 666666 / generalAmount 333334 instead of 666667 / 333333.
+      // 1,000,000 LBP @ ratio 2/3: pcdUnits = round(666666.66..) = 666667;
+      // generalUnits = 1,000,000 - 666,667 = 333,333.
+      const { pcdAmount, generalAmount } = splitCashLegByItemShare(
+        1_000_000,
+        2 / 3,
+        "LBP",
+      );
+      expect(pcdAmount).toBe(666667);
+      expect(generalAmount).toBe(333333);
+      expect(pcdAmount + generalAmount).toBe(1_000_000);
+    });
+
     it("thirds ratio (LBP, whole units — no sub-unit in this codebase): remainder lands in General", () => {
       // 1,000,000 LBP @ ratio 1/3: totalUnits = 1,000,000 (scale 1);
       // pcdUnits = round(1000000/3) = round(333333.33..) = 333333;

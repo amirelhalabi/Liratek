@@ -67,11 +67,25 @@
  * This file's edit is test-only; no production line changed. The individual
  * per-case comments that recorded a live failing-first proof under the FLOAT
  * model are preserved where they still document real (pre-PR#66 / pre-#66)
- * history — each such block is now marked "[historical]". Anywhere a rule-17
- * proof specifically validated a FLOAT-model number, it is replaced with an
- * "AWAITS RE-PROOF" marker: a separate serialized pass will do the actual
- * revert-production-and-confirm-red exercise against the PCD numbers below —
- * this pass only re-derives the expected values themselves.
+ * history — each such block is now marked "[historical]".
+ *
+ * RULE 17 — PROVEN FAILING-FIRST 2026-07-31 (serialized, single-agent).
+ * Three independent sabotages of production code were each applied alone,
+ * this suite run, and reverted (tree verified clean after every one):
+ *
+ *   1. `resolveServiceCashDrawer` (utils/payments.ts) stripped of its
+ *      primary-system branch so every cash leg falls through to General:
+ *      6 of 10 cases went red, General reading -95 where 0 is expected —
+ *      i.e. the cash landed in the till instead of the cash drawer.
+ *   2. `grossOwedDelta` reverted to PR #66's fee-only `fee - commission`:
+ *      the supplier ledger read 4.5 instead of 104.5.
+ *   3. `grossOwedDelta`'s RECEIVE sign flipped positive: 6 tests across this
+ *      file, `.partner` and `.supplierLedgerAmount` went red. (Note for
+ *      whoever extends the settlement suite: `SupplierRepository.settlement`
+ *      does NOT constrain that sign — all 28 of its tests stayed green.)
+ *
+ * Do not delete these notes; they make the proof re-runnable without
+ * re-deriving it.
  */
 
 import Database from "better-sqlite3";
@@ -451,7 +465,8 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   // (RECEIVE had no fee field then). Unrelated to the PCD re-derivation
   // below; kept for the record.
   //
-  // AWAITS RE-PROOF (rule 17): the PCD-model numbers below are re-derived
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — the PCD-model numbers below are re-derived
   // from PRIMARY_CASH_DRAWER_PLAN.md §1/§8.3 against the already-landed
   // repository (confirmed by an actual `npx jest` run showing the
   // float-model expectations fail with General "Received: 0" — cash no
@@ -498,7 +513,8 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   // the GROSS received (the frontend does NOT pre-net it), and the branch
   // reconciles against `payoutAmount` (x−f) — this leg pins that.
   //
-  // AWAITS RE-PROOF (rule 17): PCD numbers re-derived per CASE 1's note.
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note.
   // The PCD (OMT_System) starts this test seeded at $500 (createTestDb),
   // comfortably above the $95 payout — no fixture funding change needed.
   // ═══════════════════════════════════════════════════════════════════════
@@ -539,7 +555,8 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   // (gross reserve, wrong sign for a float). Unrelated to the PCD
   // re-derivation below; kept for the record.
   //
-  // AWAITS RE-PROOF (rule 17): PCD numbers re-derived per CASE 1's note.
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note.
   // ═══════════════════════════════════════════════════════════════════════
   it("CASE 3 — SEND fee-on-top, single leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
@@ -587,7 +604,8 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   // SEND: payment legs do not reconcile … diff $1.00") is unrelated to the
   // PCD re-derivation below; kept for the record.
   //
-  // AWAITS RE-PROOF (rule 17): PCD numbers re-derived per CASE 1's note —
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note —
   // the FLOAT-model proof this case used to carry ("restoring
   // `totalCollected = includingFees ? sentAmount : …` … makes this red")
   // no longer applies verbatim now that the float leg it referenced
@@ -628,7 +646,8 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   // CASE 5 — RECEIVE, fee = 0, SPLIT payout: CASH 60 + OMT wallet 40
   // (x=100, c=1). Isolates split-leg payout behavior from the fee.
   //
-  // AWAITS RE-PROOF (rule 17): PCD numbers re-derived per CASE 1's note. The
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note. The
   // CASH leg (only) resolves to the PCD (provider "OMT" === baseSystem
   // "OMT", method CASH); the OMT-wallet leg falls through unchanged to
   // OMT_App (`paymentMethodToDrawerName("OMT") !== "General"`, so the
@@ -673,7 +692,8 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   // +105 (unreduced) — a genuine extra +60 nowhere accounted for. Unrelated
   // to the PCD re-derivation below; kept for the record.
   //
-  // AWAITS RE-PROOF (rule 17): PCD numbers re-derived per CASE 1's note —
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note —
   // same split-routing rule as CASE 5 (CASH leg → PCD, OMT-wallet leg →
   // OMT_App unchanged), applied to the customer-payment side instead of the
   // payout side.
@@ -723,7 +743,8 @@ describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to 
   // out its own cash; it drew on the provider relationship, tracked purely
   // in the supplier ledger).
   //
-  // AWAITS RE-PROOF (rule 17): PCD numbers re-derived per CASE 1's note. The
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note. The
   // OMT_System delta of 0 (replacing the float model's -100) was confirmed
   // by the pre-edit `npx jest` run, which showed "Received: 0" against the
   // old "-100" expectation.
