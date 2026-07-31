@@ -41,9 +41,11 @@ describe("getCashFlowDirection — unchanged types (guard against regressions)",
     ["EXPENSE", "out"],
     ["LOTO_SETTLEMENT", "out"],
     ["EXCHANGE", "both"],
-    // Same-shop transfer — funding drawer −, OMT_System/Whish_System + — has
-    // no single customer-facing direction, same "both" treatment as EXCHANGE.
-    ["SYSTEM_FLOAT_TOPUP", "both"],
+    // Same-shop transfer — renamed SYSTEM_FLOAT_TOPUP -> DRAWER_TRANSFER
+    // (Primary Cash Drawer plan §8.6): General <-> PCD, now bidirectional
+    // (either drawer can be the funding side). Still has no single
+    // customer-facing direction, same "both" treatment as EXCHANGE.
+    ["DRAWER_TRANSFER", "both"],
     // B7: loto rows were unmapped → blank badge on every ticket sale / payout
     ["LOTO", "in"],
     ["LOTO_CASH_PRIZE", "out"],

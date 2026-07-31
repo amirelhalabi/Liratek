@@ -23,6 +23,17 @@
  *
  * MUST be called INSIDE the checkout's db.transaction so it's atomic with the
  * item creation. It does NOT open its own transaction.
+ *
+ * Primary Cash Drawer plan §3 Phase D (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md,
+ * decision #7): this is the ONE seam where the money layer (this service) does
+ * not itself know which provider a basket's cash paid for — the basket is a
+ * single pooled payment across possibly-unrelated items. The owner's rule is
+ * split-by-item-share: the primary-system (shop_base_system) financial-service
+ * item's pro-rata portion of each cash-family leg routes to the primary cash
+ * drawer (PCD, `OMT_System`/`Whish_System`); the remainder routes to General,
+ * exactly as today. `SessionPaymentRepository.getSessionCashSplitContext`
+ * derives the split ratio SERVER-SIDE from the session's own linked items
+ * (never from client input) — see `splitCashLegByItemShare` below.
  */
 
 import {
@@ -35,12 +46,15 @@ import { getVoucherRepository } from "../repositories/VoucherRepository.js";
 import {
   getSessionPaymentRepository,
   type SessionPaymentRepository,
+  type SessionCashSplitContext,
 } from "../repositories/SessionPaymentRepository.js";
 import { getDebtService } from "./DebtService.js";
 import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
+  resolveServiceCashDrawer,
 } from "../utils/payments.js";
+import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 import { closingLogger } from "../utils/logger.js";
 
 // =============================================================================
@@ -93,6 +107,74 @@ export interface RecordBasketPaymentResult {
 }
 
 // =============================================================================
+// Pro-rata cash split (Primary Cash Drawer plan §3 Phase D, decision #7)
+// =============================================================================
+
+/** A cash-family leg's amount split between the primary cash drawer (PCD)
+ *  and General. Both fields are always ≥ 0 and always re-add to `amount`. */
+export interface CashLegSplit {
+  pcdAmount: number;
+  generalAmount: number;
+}
+
+/**
+ * Split a basket cash-family leg's (positive) amount between the PCD and
+ * General, pro-rata to `ratio` (the primary-system FS item share of the
+ * basket, per currency — see `SessionCashSplitContext`).
+ *
+ * Deterministic, lossless rounding: works in integer minor units (cents for
+ * USD, whole units for LBP — LBP carries no sub-unit in this codebase) so
+ * `pcdAmount + generalAmount === amount` EXACTLY, never off by a rounding
+ * cent. `Math.round` picks the PCD's integer share; whatever the rounding
+ * step drops or adds is the remainder and it always lands in `generalAmount`
+ * (plan Phase D: "rounding remainder to General") — never silently lost.
+ * A split that doesn't re-add exactly would corrupt one of the two drawers,
+ * so the reconciliation is asserted, not just assumed.
+ */
+export function splitCashLegByItemShare(
+  amount: number,
+  ratio: number,
+  currencyCode: string,
+): CashLegSplit {
+  if (amount <= 0 || ratio <= 0) {
+    return { pcdAmount: 0, generalAmount: Math.max(0, amount) };
+  }
+  const clampedRatio = Math.min(1, ratio);
+  const scale = currencyCode === "USD" ? 100 : 1;
+  const totalUnits = Math.round(amount * scale);
+  const pcdUnits = Math.round(totalUnits * clampedRatio);
+  const generalUnits = totalUnits - pcdUnits;
+  const pcdAmount = pcdUnits / scale;
+  const generalAmount = generalUnits / scale;
+
+  // Hard invariant (Phase D): the split must never lose or invent money.
+  if (Math.abs(pcdAmount + generalAmount - amount) > 1e-9) {
+    throw new Error(
+      `Basket cash-leg split failed to reconcile: pcd=${pcdAmount} + general=${generalAmount} !== amount=${amount}`,
+    );
+  }
+  return { pcdAmount, generalAmount };
+}
+
+/** Per-currency PCD ratio derived from a session's cash-split context. */
+function ratioForCurrency(
+  ctx: SessionCashSplitContext,
+  currencyCode: string,
+): number {
+  if (currencyCode === "USD") {
+    return ctx.basketTotalUsd > 0
+      ? ctx.primarySystemUsd / ctx.basketTotalUsd
+      : 0;
+  }
+  if (currencyCode === "LBP") {
+    return ctx.basketTotalLbp > 0
+      ? ctx.primarySystemLbp / ctx.basketTotalLbp
+      : 0;
+  }
+  return 0;
+}
+
+// =============================================================================
 // Service
 // =============================================================================
 
@@ -138,6 +220,13 @@ export class SessionPaymentService {
     let debtLbp = 0;
     let giftCardUsd = 0;
     let giftCardLbp = 0;
+
+    // Primary Cash Drawer plan §3 Phase D: resolve the split context ONCE,
+    // server-side, from the session's own linked items (never from the
+    // client-supplied legs) — every eligible cash-family leg below is split
+    // against these same ratios.
+    const cashSplitCtx = this.paymentRepo.getSessionCashSplitContext(sessionId);
+    const pcdDrawerName = primaryCashDrawerName(cashSplitCtx.baseSystem);
 
     for (const leg of legs) {
       const amt = Math.abs(leg.amount);
@@ -202,19 +291,87 @@ export class SessionPaymentService {
         continue;
       }
 
-      // Drawer-affecting cash/wallet leg: one payments row + one drawer delta.
-      const drawerName = paymentMethodToDrawerName(leg.method);
-      const signed = isOut ? -amt : amt;
-      this.paymentRepo.insertSessionLeg({
-        sessionId,
-        method: leg.method,
-        drawerName,
-        currencyCode: leg.currencyCode,
-        amount: signed,
-        note: isOut ? "Basket change returned" : "Basket payment",
-        userId,
-      });
-      this.paymentRepo.postDrawerDelta(drawerName, leg.currencyCode, signed);
+      // Drawer-affecting cash/wallet leg. A wallet-bound method (OMT/WHISH
+      // app, Binance, …) keeps its own drawer unchanged. A cash-family method
+      // (today bound to General) is PCD-eligible when this session ran on
+      // the primary system's provider — reuse the ONE routing resolver
+      // (`resolveServiceCashDrawer`, rule 14) with `provider === baseSystem`
+      // forced true, so it answers exactly "would a primary-system item's
+      // cash leg land in the PCD?" without re-deriving that predicate here.
+      const naturalDrawer = paymentMethodToDrawerName(leg.method);
+      const isPcdEligible =
+        resolveServiceCashDrawer(leg.method, {
+          provider: cashSplitCtx.baseSystem,
+          baseSystem: cashSplitCtx.baseSystem,
+        }) === pcdDrawerName;
+
+      if (!isPcdEligible) {
+        const signed = isOut ? -amt : amt;
+        this.paymentRepo.insertSessionLeg({
+          sessionId,
+          method: leg.method,
+          drawerName: naturalDrawer,
+          currencyCode: leg.currencyCode,
+          amount: signed,
+          note: isOut ? "Basket change returned" : "Basket payment",
+          userId,
+        });
+        this.paymentRepo.postDrawerDelta(
+          naturalDrawer,
+          leg.currencyCode,
+          signed,
+        );
+      } else {
+        // Split by item share (decision #7): the primary-system FS subtotal's
+        // share of this currency's basket total routes to the PCD, the rest
+        // to General. Two independent postings, EACH still going through
+        // insertPaymentRow + applyDrawerDelta (rule 20 — the generic void
+        // path reverses both for free, no hand-rolled UPDATE).
+        const ratio = ratioForCurrency(cashSplitCtx, leg.currencyCode);
+        const { pcdAmount, generalAmount } = splitCashLegByItemShare(
+          amt,
+          ratio,
+          leg.currencyCode,
+        );
+
+        if (pcdAmount > 0) {
+          const signed = isOut ? -pcdAmount : pcdAmount;
+          this.paymentRepo.insertSessionLeg({
+            sessionId,
+            method: leg.method,
+            drawerName: pcdDrawerName,
+            currencyCode: leg.currencyCode,
+            amount: signed,
+            note: isOut
+              ? "Basket change returned (primary-system item share)"
+              : "Basket payment (primary-system item share)",
+            userId,
+          });
+          this.paymentRepo.postDrawerDelta(
+            pcdDrawerName,
+            leg.currencyCode,
+            signed,
+          );
+        }
+
+        if (generalAmount > 0) {
+          const signed = isOut ? -generalAmount : generalAmount;
+          this.paymentRepo.insertSessionLeg({
+            sessionId,
+            method: leg.method,
+            drawerName: "General",
+            currencyCode: leg.currencyCode,
+            amount: signed,
+            note: isOut ? "Basket change returned" : "Basket payment",
+            userId,
+          });
+          this.paymentRepo.postDrawerDelta(
+            "General",
+            leg.currencyCode,
+            signed,
+          );
+        }
+      }
 
       if (isOut) {
         if (leg.currencyCode === "USD") result.drawerOutUsd += amt;

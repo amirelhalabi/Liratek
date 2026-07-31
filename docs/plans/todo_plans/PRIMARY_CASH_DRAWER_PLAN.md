@@ -23,8 +23,8 @@ see §6 below).
 | 3 | Scope | Symmetric by **primary system** (`shop_base_system`): OMT primary → `OMT_System` is the active cash drawer; Whish primary → `Whish_System`. The secondary system's drawer lies dormant. Future (out of scope now): a per-shop config to merge this drawer into General. |
 | 4 | Which cash goes in it | **Everything from primary-system SEND/RECEIVE**: customer payment `(x+f)`, RECEIVE payouts, change/return legs, the customer fee. |
 | 5 | App wallets / Binance | **General**, unchanged. Only classic system SEND/RECEIVE uses the drawer. |
-| 6 | Partner-routed (THROUGH/FOR, secondary system) | **General**, unchanged. |
-| 7 | Session-basket primary-system items | **Yes** — the basket's cash share for the FS item routes to the drawer (needs provider context in the session path, §3 Phase D). |
+| 6 | Partner flows (follow-up 2026-07-30) | **Route by the SYSTEM the transaction runs on, not the counterparty.** THROUGH-partner (secondary system, e.g. Whish when OMT is primary) → **General**. FOR-partner (runs on YOUR primary system) → **PCD**. A FOR-partner RECEIVE moves **no drawer at transaction time** — obligations only (supplier ledger: provider owes you; partner ledger: you owe the partner); the partner's later collection pays out of the **PCD**. Owner: "all my cash received or that I want to pay … related to an OMT system transaction should be affecting the OMT drawer, not the general." |
+| 7 | Session-basket primary-system items | **Yes — split by item share** (follow-up 2026-07-30): the FS item's pro-rata portion of each cash leg routes to the drawer, the remainder to General (needs provider context in the session path, §3 Phase D). |
 | 8 | Service-debt repayments (client pays an OMT debt later) | **Into the drawer.** |
 | 9 | Supplier ledger ("owed to OMT") | **Gross**: SEND books `+(x + f − c)`; RECEIVE books `−(x − (f − c))`. Replaces #66's fee-only `feeOwedDelta`. |
 | 10 | Settlement source | Settlement pays the net owed **from the drawer** (via normal payment legs whose CASH resolves to the drawer). |
@@ -88,7 +88,7 @@ insufficient-funds guards.
 | # | Change | Where |
 |---|--------|-------|
 | 1 | **Delete the float legs**: SEND `−x` (`FinancialServiceRepository.ts:2276-2293`) and RECEIVE `+x` (`:2331-2342`) are removed. | FS repo |
-| 2 | **Reroute cash legs**: every `paymentMethodToDrawerName()` call on the classic SEND/RECEIVE path resolves CASH → PCD when `provider === shop_base_system && !partnerId`. Full call-site list in §3 Phase B. | FS repo + friends |
+| 2 | **Reroute cash legs**: every `paymentMethodToDrawerName()` call on the classic SEND/RECEIVE path resolves CASH → PCD when **`provider === shop_base_system`** — partner involvement does NOT enter the predicate (THROUGH-partner flows run on the secondary provider and fall out naturally; FOR-partner flows run on the primary system and route to the PCD, per decision #6). Full call-site list in §3 Phase B. | FS repo + friends |
 | 3 | **Gross supplier ledger**: `feeOwedDelta()` and its SQL mirror `SUPPLIER_OWED_EXPR` (`FinancialServiceRepository.ts:423-448`) become `grossOwedDelta()` — one function + one SQL fragment, changed together (rule 14). RECEIVE books a signed negative entry; verify `addLedgerEntry` sign handling (`PAYMENT` force-negates — keep using signed `TOP_UP`/`ADJUSTMENT`, see #66's rationale in FEATURE_GUIDE §8). | FS repo, SupplierRepository reads |
 | 4 | **`_System` ≠ internal anymore**: drop the `endsWith("_System")` (`TransactionRepository.ts:149`) and `NOT LIKE '%\_System'` (`:168`) predicates — PCD legs ARE customer-facing cash (in/out summary, D1 cash-flow, receipts, refund-override set must all see them). `INTERNAL_LEG_METHODS` and `PROVIDER_STOCK_DRAWERS` stay. | TransactionRepository |
 | 5 | **Fund-the-float → generic cash transfer**: `fundSystemDrawer` (`DrawerTopUpRepository.ts:337-546`, v139 `system_float_topups`) is generalized into a bidirectional, reversible General↔PCD transfer (it already writes payments rows on both sides and is void-reversible — proven by `ProviderFloatTopUp.test.ts:451`). Widen/replace the `target_drawer` CHECK (`create_db.sql:893`, `migrations/index.ts:7038`). `createTopUpFromDrawer` (`:219-317`, raw-UPDATE, non-reversible, hardcoded General dest) is retired from this pair's use. | DrawerTopUp* |
@@ -110,10 +110,10 @@ rejection, partner flows, the invariant-test harness, rule-17 discipline.
 
 1. **One routing resolver** (rule 14): e.g. `resolveServiceCashDrawer(method, ctx)` in
    `packages/core/src/utils/payments.ts` (beside `paymentMethodToDrawerName`), where
-   `ctx = { provider, baseSystem, partnerId }`. Returns the PCD
+   `ctx = { provider, baseSystem }`. Returns the PCD
    (`baseSystem === "OMT" ? "OMT_System" : "Whish_System"`) for drawer-affecting cash-family
-   methods on a primary-system non-partner transaction; falls through to
-   `paymentMethodToDrawerName` otherwise. Do NOT touch `payment_methods.CASH.drawer_name`
+   methods whenever the transaction runs on the primary system (`provider === baseSystem`,
+   partner or not — decision #6); falls through to `paymentMethodToDrawerName` otherwise. Do NOT touch `payment_methods.CASH.drawer_name`
    (blocked: `is_system=1` guard `PaymentMethodRepository.ts:162-172`; and
    `isNonCashDrawerMethod` tests `drawer_name !== "General"` — `payments.ts:47-57`).
 2. **`grossOwedDelta()` + SQL mirror** replacing `feeOwedDelta`/`SUPPLIER_OWED_EXPR`
@@ -134,9 +134,13 @@ File: `packages/core/src/repositories/FinancialServiceRepository.ts`. It already
   (`processReturnLegs` change legs — needs the ctx threaded; partner disbursements at the
   same site must keep General per decision #6).
 - **Do NOT touch**: cost/price flow `:1510/:1554`, wallet flows `:1715/:1783/:1883/:1905`
-  (decision #5), FOR-partner dispatch `:1189-1434` except that its RECEIVE leg `:1403-1412`
-  currently posts to `OMT_System` — re-derive what a partner RECEIVE means with no float
-  (likely: partner ledger only, no PCD movement; owner-check if unclear).
+  (decision #5).
+- **FOR-partner dispatch** `:1189-1434` (resolved, decision #6): the RECEIVE float credit
+  at `:1403-1412` is REMOVED — a FOR-partner RECEIVE books obligations only (gross
+  supplier-ledger entry for the primary provider + the partner-ledger row; the fee split
+  between shop and partner is an implementation-time detail — owner-check if ambiguous).
+  FOR-partner SEND disbursement OUT legs (`:1431` → `processReturnLegs` `:1128`) go through
+  the resolver like every other primary-system cash leg → PCD.
 - RECEIVE insufficient-funds guard: per-currency PCD balance check before payout legs;
   throw a structured error (`code: "INSUFFICIENT_DRAWER_FUNDS"`, shortfall per currency)
   the UI can act on.
@@ -147,11 +151,17 @@ File: `packages/core/src/repositories/FinancialServiceRepository.ts`. It already
 - **`SupplierRepository.settleTransactions`** (`:893-918`): CASH legs resolve via the same
   resolver (supplier == primary provider → PCD). Settle-tab reads move to the gross
   fragment. `recordSupplierCashflow` (`:1048`) reviewed the same way.
-- **`DebtRepository`** service-debt repayment (`:440-570`): the existing RESERVE re-route
-  into `OMT_System` (`:466`, `:488`, `:544-568`) was float-reconstruction; under the new
-  model the mechanism survives but now means "move the FS-debt share of the repayment into
-  the physical drawer". Verify amounts against the gross model and lira-104's guards; the
-  destination stays `OMT_System`/`Whish_System`.
+- **`DebtRepository`** service-debt repayment (`:440-570`) — **verified 2026-07-30, keep
+  the mechanism as-is**: the leg credits its own drawer (CASH → General), then the RESERVE
+  pair moves exactly the outstanding service-debt share into `OMT_System`/`Whish_System`
+  (`:544-573`), capped per currency and net of change (`:501-505`). Under the new model
+  that IS the owner's rule (repayment's OMT share physically moves to the drawer), the
+  destination is already the PCD, and RESERVE ∈ `INTERNAL_LEG_METHODS` keeps the transfer
+  pair out of customer cash-flow. The two-step (not direct-to-PCD) is load-bearing: a
+  single leg can cover mixed debts and only the service share may route. Only the note
+  text ("Reserve for X settlement" → drawer-move wording) and re-derived test numbers
+  change. The `routedByDrawer` double-route guard (`:456-479`) keys on drawer+type and
+  stays correct.
 - **`TransactionRepository`**: predicates change (§2 #4); LIRA-078 refund-override
   replacement legs (`:1999`) re-derive drawer from method — must use the resolver for FS
   transactions or an overridden CASH refund of an OMT SEND leaks back to General.
@@ -164,21 +174,28 @@ File: `packages/core/src/repositories/FinancialServiceRepository.ts`. It already
 ### Phase D — Session basket (riskiest seam)
 
 `SessionPaymentService.recordBasketPayment` (`:205-224`) resolves drawers by method only —
-no provider context exists there today. Work: thread the basket's FS-item context
-(provider + amounts) into `BasketPaymentLeg`/the service, and split cash legs: FS-item
-share → PCD, remainder → General (deterministic order, per currency). This needs its own
-mini-design at implementation time; it is the one place the frontend/session layer knows
-something the money layer needs. Rule 16 (IN legs only) and the handover §4.1 warning
+no provider context exists there today. **Rule (owner-confirmed): split by item share** —
+the primary-system FS item's pro-rata portion of each cash leg → PCD, remainder → General
+(deterministic order, per currency, rounding remainder to General). Work: thread the
+basket's FS-item context (provider + amounts) into `BasketPaymentLeg`/the service. The
+split mechanics still need their own mini-design at implementation time; it is the one
+place the frontend/session layer knows something the money layer needs. Rule 16 (IN legs only) and the handover §4.1 warning
 (payload-built tests can't see this seam) both bite here — cover with a UI-driven spec.
 
 ### Phase E — Transfers & guards
 
 - Generalize v139 `fundSystemDrawer` into `transferBetweenDrawers(General ↔ PCD)` —
   reversible, payments rows both sides, `TRANSFER`-family method (already in
-  `INTERNAL_LEG_METHODS` so it stays out of customer cash-flow reports). Migration v140
-  (verify latest version first — v139 is current): widen/replace `system_float_topups`
-  CHECK or add a `drawer_transfers` table; update `create_db.sql` in the same change
-  (rule 10). REST + IPC parity (rule 19): `drawer-topup:fund-system` /
+  `INTERNAL_LEG_METHODS` so it stays out of customer cash-flow reports).
+  **Mechanism decided 2026-07-30**: SQLite cannot ALTER a CHECK, and
+  `system_float_topups.target_drawer CHECK IN ('OMT_System','Whish_System')`
+  (`create_db.sql:893`) forbids the PCD→General direction — so migration v140 (verify
+  latest version first — v139 is current) REBUILDS the table as `drawer_transfers` with
+  `from_drawer`/`to_drawer` (rows migrated: `funding_drawer`→`from_drawer`,
+  `target_drawer`→`to_drawer`), keeping `is_refunded`/`refunded_at` so the generic void
+  path still owns reversal (rule 20). Update `create_db.sql` in the same change (rule 10)
+  and the audit-viewer type mapping (`cashFlow.ts:170` `SYSTEM_FLOAT_TOPUP` case →
+  `DRAWER_TRANSFER`). REST + IPC parity (rule 19): `drawer-topup:fund-system` /
   `POST /api/drawer-topup/fund-system` become the transfer endpoints; Zod schema in
   `packages/core/src/validators/` shared by both.
 - `getSourceDrawerBalances` (`DrawerTopUpRepository.ts:550-564`) un-hardcode
@@ -238,7 +255,13 @@ something the money layer needs. Rule 16 (IN legs only) and the handover §4.1 w
   Follow rule 15 (identity + delta assertions, never row position).
 - Run `yarn check:tenant-scoping` after every repository SQL edit (not in CI yet —
   handover §3.3).
-- Baseline gates per handover §5.
+- Baseline gates per handover §5. **Verified green 2026-07-30 (pre-implementation), on a
+  working tree containing only unrelated uncommitted deployment changes**: core jest
+  1205/1205 (113 suites), backend 500/500 (36 suites), frontend 663 passed / 1 skipped
+  (82 suites), typecheck clean, lint 0 errors / 524 warnings (matches the documented
+  warning baseline), `check:tenant-scoping` 0 violations / 629 statements. Desktop/web
+  e2e NOT run at baseline (their OMT assertions get re-derived by this feature anyway);
+  run them once at implementation start if an untouched-spec baseline is wanted.
 
 ---
 
@@ -255,24 +278,219 @@ before upgrade — flag at release time.
 
 ## 6. Open items & risks
 
-1. **FOR-partner RECEIVE leg** (`FinancialServiceRepository.ts:1403-1412`) posts to
-   `OMT_System` today — re-derive under no-float semantics (likely partner-ledger only).
-   Owner-check if ambiguous.
+1. **Partner settlement source drawer** (`PartnerRepository.ts:498/:575`): a partner
+   balance can mix THROUGH (secondary-system, General-cash) and FOR (primary-system,
+   PCD-cash) history. Per decision #6 the FOR side's cash belongs to the PCD — give the
+   partner settle form an explicit source-drawer choice; default per provenance if
+   derivable, else PCD for primary-system partners. Confirm exact default at
+   implementation. (The FOR-partner RECEIVE question itself is RESOLVED — decision #6.)
 2. **`"FEE"` method tag audit** (handover §3.1) — still open and now MORE relevant: the
    FEE leg moves to the PCD. Fold the audit into Phase B.
 3. **RECEIVE fee tiers not direction-gated** (handover §3.4) — still awaiting owner.
 4. **OMT_App top-up default source** (`TOP_UP_PROVIDER_DEFAULT_SOURCES.OMT_APP =
    "OMT_System"`, `constants/rechargeProviders.ts:38-47`): with no float, recommend default
    General, keep PCD selectable. Owner-confirm at implementation.
-5. **Session-basket split rule** (Phase D) needs its own design pass; highest seam risk.
+5. **Session-basket split mechanics** (Phase D): the RULE is decided (split by item
+   share); the implementation design (context threading, per-currency rounding) still
+   needs its own pass; highest seam risk.
 6. **Idempotency gap** (handover §6) — unchanged, still unowned; the new transfer endpoint
    inherits it.
-7. **Gross-ledger sign handling** in `addLedgerEntry` for negative RECEIVE entries —
-   verify no clamping/force-negation surprises.
+6a. **[OWNER] FOR-partner SEND books no supplier-ledger entry** (pre-existing, unchanged).
+   Decision #6 resolved the RECEIVE side only. The transfer still runs on the real provider
+   rails, so a symmetric gross entry is arguably owed — left as-is rather than guessed.
+6b. **Session cart fee convention** (Phase D): the pro-rata split assumes a cart line's
+   `amount` for an FS SEND already INCLUDES the customer fee. If the cart stores it
+   fee-excluded, the split mechanism stays correct but the ratio's input is wrong. Confirm
+   against the frontend basket-item construction, then pin it with the Phase D spec.
+   The subtotal also counts any FS row whose provider matches the base system (including
+   BILL_PAYMENT), not just SEND/RECEIVE — confirm that is intended.
+6c. **Transfer validator accepts any drawer pair** (`validators/drawerTransfer.ts`): no
+   name enum, matching the plan's "generic transfer" language; the UI only offers
+   General↔PCD. Decide whether the backend should hard-restrict one side.
+6d. **Suppliers page stale comments + settle math under gross**
+   (`features/suppliers/**`, `hooks/useSuppliers.ts`): comments still describe the fee-only
+   model and call the PCD "never a real cash drawer". `settleNetPayUsd` sums `supplier_owed`
+   and is *probably* still correct under gross, but it was out of the labels-only agent's
+   scope — needs a money-eyes pass, not a comment fix.
+6e. **Session-basket PCD payouts have no insufficient-funds guard** — decision #11's guard is
+   scoped to the FS RECEIVE path only. Decide whether a basket-level cash-out sharing the
+   PCD needs the same block.
+7. ~~Gross-ledger sign handling~~ **VERIFIED 2026-07-30**: `addLedgerEntry`
+   (`SupplierRepository.ts:373-379`) force-negates ONLY `entry_type: "PAYMENT"`; `TOP_UP`
+   and `ADJUSTMENT` pass through signed as-is — a RECEIVE's negative gross entry books
+   correctly as signed `TOP_UP` (same convention #66 already used for its fee-only
+   entries). Also noted: `drawer_name` is rejected on non-PAYMENT entries (`:356-359`) —
+   the gross auto-entries carry no drawer, so no conflict.
 8. Docs: rewrite FEATURE_GUIDE §7/§8/§8.1 and mark the float-model handover as superseded
    (keep its traps §4 — they are process lessons, not model claims).
 
-## 7. Out of scope (recorded for later)
+## 8. Implementation contract — BINDING on every implementing agent
+
+Written 2026-07-30 before the implementation fleet launched. Parallel agents depend on these
+exact names/formulas without seeing each other's diffs. **If you must deviate, report the
+deviation loudly in your final report — do not silently pick another shape.**
+
+### 8.1 Vocabulary + naming
+
+- **PCD** = "primary cash drawer" = `OMT_System` when `shop_base_system = 'OMT'`,
+  `Whish_System` when `'WHISH'`. **Drawer-name strings never change.**
+- `packages/core/src/constants/systemFloatDrawers.ts` keeps its PATH (avoid re-export churn)
+  but its exports are renamed and re-exported from `constants/index.ts`:
+  ```ts
+  export const PRIMARY_CASH_DRAWER_NAMES = ["OMT_System", "Whish_System"] as const;
+  export type PrimaryCashDrawerName = (typeof PRIMARY_CASH_DRAWER_NAMES)[number];
+  export function primaryCashDrawerName(baseSystem: "OMT" | "WHISH"): PrimaryCashDrawerName;
+  ```
+  The old `SYSTEM_FLOAT_DRAWER_NAMES` name is removed (all consumers updated).
+
+### 8.2 The routing resolver (single definition — rule 14)
+
+```ts
+// packages/core/src/utils/payments.ts
+export type BaseSystem = "OMT" | "WHISH";
+export interface ServiceCashDrawerContext { provider: string; baseSystem: BaseSystem }
+export function resolveServiceCashDrawer(method: string, ctx: ServiceCashDrawerContext): string;
+```
+
+Returns the **PCD** iff ALL hold, else falls through to `paymentMethodToDrawerName(method)`:
+
+1. `ctx.provider === ctx.baseSystem` — string equality. `"OMT_APP"` never equals `"OMT"`, so
+   app wallets/Binance fall through automatically (decision #5). Partner involvement is NOT
+   part of the predicate (decision #6: route by the system the transaction runs on).
+2. `isDrawerAffectingMethod(method)` is true.
+3. `paymentMethodToDrawerName(method) === "General"` — i.e. a cash-family tender. A tender
+   already bound to its own drawer (wallets) keeps it.
+4. `method !== "GIFT_CARD"` — a voucher is not banknotes; preserve today's behavior.
+
+`payment_methods.CASH.drawer_name` MUST NOT be repointed (blocked by the `is_system` guard at
+`PaymentMethodRepository.ts:162-172`, and `isNonCashDrawerMethod` tests `drawer_name !== "General"`
+— a global remap would reclassify CASH as a wallet method).
+
+### 8.3 Supplier-ledger formula (single definition + SQL mirror — rule 14)
+
+Replaces `feeOwedDelta()` / `SUPPLIER_OWED_EXPR` (`FinancialServiceRepository.ts:423-448`):
+
+```
+grossOwedDelta:  SEND    → +(principal + fee − commission)
+                 RECEIVE → −(principal − fee + commission)
+```
+
+- `principal` = the repo's existing `sentAmount` (SEND) / `receiveAmount` (RECEIVE, bare).
+  **Fee-on-top vs fee-included needs no branch**: the frontend pre-nets, so `sentAmount` is
+  already the true principal and `totalCollected = sentAmount + fee` is what the customer hands.
+- `fee` = `resolvedProviderFee` (`f`); `commission` = shop's cut (`c`, always 0 for WHISH).
+- Per currency. Signed `TOP_UP` entries both directions (**verified**: `addLedgerEntry`
+  force-negates only `entry_type: "PAYMENT"`, `SupplierRepository.ts:373-379`; and it rejects
+  `drawer_name` on non-PAYMENT rows, `:356-359` — auto entries carry none).
+- `SUPPLIER_OWED_EXPR` must reproduce the identical number from `financial_services` columns;
+  change both together or the Settle tab and the ledger disagree.
+
+**Worked example** (USD, principal 100, f 5, c 0.5): SEND `+104.5`; RECEIVE `−95.5`.
+Full SEND+RECEIVE cycle: drawer `+105 − 95 = +10`, owed `+104.5 − 95.5 = +9`, difference
+`1 = 2c`. ✅ invariant holds per transaction.
+
+### 8.4 The invariant every money test asserts
+
+> `Σ(drawer deltas) + Σ(receivable deltas) − Δ(owed to provider) = c + kept_change`
+
+per currency (stamped rate for multi-currency splits). The receivable term covers
+CUSTOMER_ACCOUNT-funded legs exactly as the existing `assertInvariant` helper in
+`OmtSystemFeeCharacterization.test.ts` already models them — preserve that handling.
+
+### 8.5 Insufficient-funds contract (RECEIVE payout, decision #11)
+
+Thrown by the repository BEFORE any payout leg posts, checked per currency against the PCD:
+
+```ts
+class InsufficientDrawerFundsError extends Error {
+  code = "INSUFFICIENT_DRAWER_FUNDS";
+  details: {
+    drawer: string;
+    shortfall: { USD?: number; LBP?: number };
+    available: { USD?: number; LBP?: number };
+    required: { USD?: number; LBP?: number };
+  };
+}
+```
+
+Both transports surface it identically (rule 19c), extending the standard envelope:
+`{ success: false, error: <message>, code: "INSUFFICIENT_DRAWER_FUNDS", details: {...} }`
+(REST still HTTP 200). The Services page catches `code` — never a message-string match.
+
+### 8.6 Drawer-transfer contract (replaces fund-the-float)
+
+- **Migration v140** (`v139` is the current max, verified) —
+  `rebuild_system_float_topups_as_drawer_transfers`: SQLite cannot ALTER a CHECK, so rebuild.
+  ```sql
+  CREATE TABLE drawer_transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    from_drawer TEXT NOT NULL,
+    to_drawer   TEXT NOT NULL,          -- no CHECK: both directions must be legal
+    amount_usd REAL NOT NULL DEFAULT 0,
+    amount_lbp REAL NOT NULL DEFAULT 0,
+    notes TEXT, created_by INTEGER,
+    is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  ```
+  Migrate rows `funding_drawer → from_drawer`, `target_drawer → to_drawer`; drop the old table.
+  `down()` rebuilds the old shape. Mirror in `create_db.sql` (rule 10).
+- **Repository**: `transferBetweenDrawers({ fromDrawer, toDrawer, amountUsd, amountLbp, notes, createdBy })`
+  — both sides via `insertPaymentRow` + `applyDrawerDelta` (so the generic void path owns
+  reversal, rule 20). Guards: drawers distinct, amounts finite/non-negative, at least one > 0,
+  sufficient funds in `fromDrawer` per currency. Register the source table in the reversible
+  list alongside the old `system_float_topups` entry.
+- **Transaction type**: `TRANSACTION_TYPES.SYSTEM_FLOAT_TOPUP` → `DRAWER_TRANSFER`
+  (`constants/transactionTypes.ts:31`); leg method string likewise. Consumers to update:
+  `frontend/src/features/audit/auditConstants.ts:318`, `cashFlow.ts:170` (stays `"both"`).
+- **Validator**: `packages/core/src/validators/drawerTransfer.ts`, shared by IPC + REST.
+- **Transports**: IPC `drawer-topup:transfer` + REST `POST /api/drawer-topup/transfer`
+  (`authenticateJWT` → `requireRole(["admin","staff"])`). Adapter fn on `useApi()`:
+  `transferBetweenDrawers(data)`. The old `fund-system` channel/route is retired.
+
+### 8.7 File ownership during the implementation fleet
+
+Each agent edits ONLY its own files. If a change is needed outside your set, report it —
+do not reach across. Barrel files (`constants/index.ts`, `repositories/index.ts`,
+`services/index.ts`) belong to the core-money agent.
+
+## 8bis. Implementation status (2026-07-30, branch `feat/primary-cash-drawer`)
+
+**Phases A–G are IMPLEMENTED. Tests are NOT.** Ten agents landed the change across 44 files
+in one run; gates below were green at hand-off.
+
+| Gate | Result |
+|---|---|
+| `packages/core` build | clean |
+| `yarn typecheck` (all workspaces) | clean |
+| `yarn lint` | 0 errors / 524 warnings (baseline exactly) |
+| `yarn check:tenant-scoping` | **0 violations / 634 statements** (baseline 629; +5 from `transferBetweenDrawers`, all scoped) |
+| core jest | 99/113 suites pass; **14 suites / 55 tests fail — all classified (a) expected model change, zero suspected real bugs** |
+
+The 55 failures are the deliberate re-derivation surface (§4). Spot-check that gives real
+confidence: the failing numbers reproduce §8.3's worked example exactly — the ledger reads
+104.5 where the old fee-only model read 4.5, and −95.5 / −99.1 on RECEIVE.
+
+**Two cross-agent seam gaps were found by the agents and closed by hand afterwards** (neither
+was in any agent's file ownership — this is the predictable cost of parallel file partitioning):
+
+1. **`FinancialService.ts` swallowed `code`/`details`.** Its catch collapsed every error to a
+   bare string, so `InsufficientDrawerFundsError` reached the UI without its code — silently
+   disabling the entire owner-requested "move the shortfall from General and retry" flow over
+   BOTH transports. Now mirrors `DrawerTopUpService.transferBetweenDrawers` via `isAppError`.
+   `FinancialServiceResult` and `electron.d.ts`'s `omt.addTransaction` widened to match.
+2. **`DRAWER_TRANSFER` was missing from `INTERNAL_LEG_METHODS`.** Removing the
+   `endsWith("_System")` exclusion (§2 #4) was correct for customer cash, but it had been the
+   only thing keeping the cash-drawer side of a transfer out of the reports — so BOTH legs of
+   every General↔PCD transfer would have leaked into the D1 cash-flow report and the in/out
+   summary as customer money. Added to the set (the SQL mirror derives from it, so one edit).
+
+**Newly surfaced, unresolved** (added to §6): FOR-partner SEND ledger symmetry; the session
+cart's fee convention; the transfer validator accepting any drawer pair; the Suppliers page's
+stale fee-only comments and its settle math under gross.
+
+## 9. Out of scope (recorded for later)
 
 - Per-shop config to merge the PCD into General (owner: "later on we can make this
   configurable").

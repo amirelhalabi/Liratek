@@ -620,9 +620,14 @@ export default function MobileRecharge() {
     > = {
       MTC: { drawer: "MTC", defaultSource: "General", type: "MTC" },
       Alfa: { drawer: "Alfa", defaultSource: "General", type: "Alfa" },
+      // Primary Cash Drawer plan §6 open item #4 / §9: OMT_System is no
+      // longer a provider float, so there is nothing to draw down by
+      // defaulting the funding source to it — default to General (still
+      // selectable in the modal, including OMT_System when it holds cash).
+      // Owner has not explicitly ruled on this default; flagged for review.
       OMT_APP: {
         drawer: "OMT_App",
-        defaultSource: "OMT_System",
+        defaultSource: "General",
         type: "OMT_APP",
       },
       WHISH_APP: {

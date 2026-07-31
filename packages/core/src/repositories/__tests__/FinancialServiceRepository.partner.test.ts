@@ -26,6 +26,14 @@
 import Database from "better-sqlite3";
 import { FinancialServiceRepository } from "../FinancialServiceRepository";
 import {
+  getTransactionRepository,
+  resetTransactionRepository,
+} from "../TransactionRepository";
+import {
+  getSupplierRepository,
+  resetSupplierRepository,
+} from "../SupplierRepository";
+import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext";
@@ -136,7 +144,12 @@ function createTestDb(): Database.Database {
       paid_amount           REAL DEFAULT NULL,
       paid_currency         TEXT DEFAULT NULL,
       partner_id            INTEGER REFERENCES partners(id),
-      partner_mode          TEXT CHECK(partner_mode IN ('THROUGH', 'FOR'))
+      partner_mode          TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
+      -- v68: required by TransactionRepository._markSourceRefunded, which
+      -- every void/refund of a financial_services-sourced transaction hits
+      -- unconditionally (task B/void proof needs a real void to complete).
+      is_refunded           INTEGER NOT NULL DEFAULT 0,
+      refunded_at           TEXT DEFAULT NULL
     );
 
     -- Partner ledger (tracks debits / credits per partner)
@@ -207,20 +220,41 @@ function createTestDb(): Database.Database {
     );
 
     -- Suppliers (SupplierRepository FK target)
+    -- contact_name/phone/note are required, not cosmetic: SupplierRepository's
+    -- getColumns() override selects them explicitly, so getByProvider() (and
+    -- every other read) throws "no such column" without them — silently
+    -- swallowed by FinancialServiceRepository's try/catch, which is exactly
+    -- why the supplier-ledger side effects this file now asserts (task B)
+    -- were previously unbookable here at all.
     CREATE TABLE suppliers (
       tenant_id INTEGER DEFAULT 1,
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      name       TEXT NOT NULL,
-      provider   TEXT,
-      is_active  INTEGER DEFAULT 1,
-      is_system  INTEGER DEFAULT 0,
-      module_key TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      name         TEXT NOT NULL,
+      contact_name TEXT,
+      phone        TEXT,
+      note         TEXT,
+      provider     TEXT,
+      is_active    INTEGER DEFAULT 1,
+      is_system    INTEGER DEFAULT 0,
+      module_key   TEXT,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT',   'OMT',   1);
     INSERT INTO suppliers (name, provider, is_system) VALUES ('WHISH', 'WHISH', 1);
 
     -- Supplier ledger (SupplierRepository FK target)
+    -- v110/v120/v136 columns (is_auto / is_refunded+refunded_at /
+    -- source_ref_table+source_ref_id) are REQUIRED, not cosmetic: without
+    -- is_auto, SupplierRepository.addLedgerEntry's INSERT throws (the column
+    -- is in every INSERT variant) and FinancialServiceRepository's call site
+    -- swallows that in a try/catch — so a schema missing this column made
+    -- EVERY auto supplier-ledger booking in this file silently no-op, which
+    -- is exactly why the FOR-partner RECEIVE gross entry (task B) was
+    -- previously unprovable here. source_ref_table/id + is_refunded/
+    -- refunded_at are required for the void-reversal proof (rule 20) to run
+    -- at all (TransactionRepository._cascadeSupplierSiblingVoid /
+    -- _markSourceRefunded). Mirrors
+    -- TransactionRepository.supplierSiblingVoidCascade.test.ts's fixture.
     CREATE TABLE supplier_ledger (
       tenant_id INTEGER DEFAULT 1,
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,7 +265,30 @@ function createTestDb(): Database.Database {
       note        TEXT,
       created_by  INTEGER,
       transaction_id INTEGER,
+      is_auto     INTEGER NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0,
+      refunded_at DATETIME,
+      source_ref_table TEXT DEFAULT NULL,
+      source_ref_id    INTEGER DEFAULT NULL,
       created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Debt ledger — NOT exercised via CUSTOMER_ACCOUNT legs in this file
+    -- (DebtService is mocked at the module level for that), but
+    -- TransactionRepository._cancelDebt queries this table unconditionally
+    -- on every void/refund regardless of transaction type (no early-return
+    -- by type), so a void call crashes without it.
+    CREATE TABLE debt_ledger (
+      tenant_id INTEGER DEFAULT 1,
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id        INTEGER NOT NULL,
+      transaction_type TEXT NOT NULL,
+      amount_usd       REAL NOT NULL DEFAULT 0,
+      amount_lbp       REAL NOT NULL DEFAULT 0,
+      transaction_id   INTEGER,
+      note             TEXT,
+      created_by       INTEGER,
+      created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Seed drawer balances
@@ -287,6 +344,31 @@ function partnerLedger(db: Database.Database, partnerId: number) {
   }>;
 }
 
+function supplierIdByProvider(db: Database.Database, provider: string): number {
+  const row = db
+    .prepare("SELECT id FROM suppliers WHERE provider = ?")
+    .get(provider) as { id: number };
+  return row.id;
+}
+
+function ledgerRowsForSupplier(db: Database.Database, supplierId: number) {
+  return db
+    .prepare(
+      "SELECT * FROM supplier_ledger WHERE supplier_id = ? ORDER BY id ASC",
+    )
+    .all(supplierId) as Array<{
+    id: number;
+    entry_type: string;
+    amount_usd: number;
+    amount_lbp: number;
+    tenant_id: number;
+    is_refunded: number;
+    source_ref_table: string | null;
+    source_ref_id: number | null;
+    transaction_id: number | null;
+  }>;
+}
+
 // ─── Test suite ───────────────────────────────────────────────────────────────
 
 describe("FinancialServiceRepository — partner mode", () => {
@@ -299,6 +381,11 @@ describe("FinancialServiceRepository — partner mode", () => {
     db = createTestDb();
     setDb(db);
     initFixedTenantContext(1);
+    // Sub-repositories are singletons — reset so they don't hold any stale
+    // per-instance state across tests (mirrors
+    // TransactionRepository.supplierSiblingVoidCascade.test.ts's fixture).
+    resetSupplierRepository();
+    resetTransactionRepository();
     repo = new FinancialServiceRepository();
     mockAddCredit.mockClear();
   });
@@ -306,6 +393,8 @@ describe("FinancialServiceRepository — partner mode", () => {
   afterEach(() => {
     resetTenantContext();
     db.close();
+    resetSupplierRepository();
+    resetTransactionRepository();
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -338,7 +427,30 @@ describe("FinancialServiceRepository — partner mode", () => {
         ],
       });
 
-      it("does NOT credit OMT_System drawer (the disbursement leg IS the money movement)", () => {
+      // Primary Cash Drawer plan §8.2 (2026-07-30): the disbursement leg's
+      // drawer is resolved by `resolveServiceCashDrawer(method, ctx)`, not
+      // hardcoded to General. Since this transaction's provider ("OMT")
+      // equals the shop's base system ("OMT", the fixture's default — no
+      // system_settings row means FinancialServiceRepository's try/catch
+      // falls back to "OMT"), the CASH disbursement leg IS a primary-system
+      // cash-family leg and lands in the PCD (OMT_System), exactly like a
+      // walk-in SEND's customer-cash leg. This is a genuine behavior change
+      // from the pre-PCD model (where a FOR-partner SEND's disbursement was
+      // deliberately routed to General because the system drawer was a
+      // provider-side float, not real till cash) — under the current model
+      // there is only ONE physical cash drawer for primary-system transfers,
+      // and every cash leg on that system uses it, partner or not (decision
+      // #6: "route by the SYSTEM the transaction runs on, not the
+      // counterparty").
+      // rule 17: this file's PRE-existing assertion ("stays at `before`") was
+      // run against the implemented primary-cash-drawer production code
+      // (`npx jest FinancialServiceRepository.partner.test.ts`, 2026-07-30)
+      // and observed to FAIL — `Expected: 500, Received: 395`, i.e.
+      // OMT_System DOES move under the current implementation. 395 is what
+      // the implemented `resolveServiceCashDrawer` actually produces for
+      // these inputs (verified by running the suite, not re-derived by hand
+      // alone) — matching the arithmetic derivation in the comment below.
+      it("debits OMT_System (PCD) by the disbursed amount — the disbursement leg IS the money movement, and OMT is the primary system", () => {
         const partnerId = seedPartner(db);
         const before = drawerBalance(db, "OMT_System");
 
@@ -355,10 +467,17 @@ describe("FinancialServiceRepository — partner mode", () => {
           ...disbursementLeg(105),
         });
 
-        expect(drawerBalance(db, "OMT_System")).toBe(before);
+        // 395 = before(500) - 105 (principal 100 + fee 5, the full CASH OUT
+        // disbursement leg, routed to the PCD by resolveServiceCashDrawer).
+        expect(drawerBalance(db, "OMT_System")).toBeCloseTo(before - 105, 2);
       });
 
-      it("debits General by the disbursed amount (shop fronts the transfer via cash OUT leg)", () => {
+      // rule 17: this file's PRE-existing assertion (`before - 105`) was run
+      // against the implemented production code and observed to FAIL —
+      // `Expected: 895, Received: 1000`, i.e. General is NOT touched under
+      // the current implementation. Flipped to "unchanged" below, verified
+      // green by running the suite.
+      it("does NOT touch General (the disbursement leg now targets the PCD, not General)", () => {
         const partnerId = seedPartner(db);
         const before = drawerBalance(db, "General");
 
@@ -375,7 +494,7 @@ describe("FinancialServiceRepository — partner mode", () => {
           ...disbursementLeg(105),
         });
 
-        expect(drawerBalance(db, "General")).toBeCloseTo(before - 105, 2);
+        expect(drawerBalance(db, "General")).toBe(before);
       });
 
       it("creates a DEBIT ledger entry for exactly what the shop disbursed (partner owes us everything)", () => {
@@ -448,19 +567,63 @@ describe("FinancialServiceRepository — partner mode", () => {
         expect(row.partner_id).toBe(partnerId);
         expect(row.partner_mode).toBe("FOR");
       });
+
+      // Task C (open owner question, PRIMARY_CASH_DRAWER_PLAN.md §6 item 6a):
+      // decision #6 (2026-07-30) resolved the gross supplier-ledger question
+      // for the FOR-partner RECEIVE side only (see the "books a gross
+      // supplier-ledger TOP_UP entry" test below, in the RECEIVE block) — the
+      // SEND side was deliberately left alone. This test pins TODAY'S
+      // behavior (no entry), not an endorsement: the transfer still runs on
+      // the real OMT rails on the SEND side too, so a symmetric gross entry
+      // is arguably owed there as well — flagged as unresolved in the plan,
+      // NOT fixed here (this pass is test-only; the asymmetry is a
+      // production question for the owner, not a test bug).
+      it("[OPEN OWNER QUESTION — see plan §6 item 6a] books NO supplier-ledger entry for a FOR-partner SEND (pre-existing asymmetry, not an endorsement)", () => {
+        const partnerId = seedPartner(db);
+        const omtId = supplierIdByProvider(db, "OMT");
+
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          omtFee: 5,
+          partnerId,
+          partnerMode: "FOR",
+          ...disbursementLeg(105),
+        });
+
+        // The FOR-partner dispatch returns early (FinancialServiceRepository.ts,
+        // "PFT-3b — FOR-PARTNER DISPATCH") before the generic auto-record
+        // supplier-debt block ever runs, and the SEND arm of the dispatch
+        // itself never calls supplierRepo.addLedgerEntry — unlike the
+        // RECEIVE arm, which does (see below). Zero rows is TODAY'S
+        // behavior, asserted so nobody reads this green suite as having
+        // resolved the SEND-side question.
+        expect(ledgerRowsForSupplier(db, omtId)).toHaveLength(0);
+      });
     });
 
     // ── OMT RECEIVE ───────────────────────────────────────────────────────────
 
     describe("OMT RECEIVE for partner", () => {
-      // NOTE (PFT-3b, commit 3ad8204): FOR-mode RECEIVE now books the
-      // incoming funds as a real inflow to the service's own drawer (the
-      // shop actually received the money into its OMT wallet/account) and
-      // owes the partner a CREDIT settled later. The pre-PFT-3b model
-      // DEBITED the system drawer to simulate an immediate walk-in payout,
-      // which no longer happens in FOR mode (no walk-in customer — see
-      // lira-119's "RECEIVE (all): drawer sign" failing-first discriminator).
-      it("credits OMT_System drawer (funds arrive; shop owes partner at settlement)", () => {
+      // Primary Cash Drawer plan §2#6 / decision #6 (2026-07-30 follow-up —
+      // supersedes the PFT-3b note this test used to carry): a FOR-partner
+      // RECEIVE runs on the shop's OWN primary system but moves NO drawer at
+      // transaction time — no real cash arrived in the PCD (the partner's
+      // own customer dealt with the PARTNER's counter, not the shop's till).
+      // Obligations only: the provider still owes/is owed on the real OMT
+      // rails (gross supplier ledger — see the dedicated test below) and the
+      // partner owes the shop on their tab (partner ledger, tested further
+      // below). The partner's later collection pays out of the PCD at
+      // settlement — not here.
+      // rule 17: this file's PRE-existing assertion (`toBeGreaterThan`) was
+      // run against the implemented production code and observed to FAIL —
+      // `Expected: > 500, Received: 500` (OMT_System does NOT move). Flipped
+      // to "unchanged" below, verified green by running the suite.
+      it("does NOT move the PCD (OMT_System) at transaction time — obligations only (decision #6)", () => {
         const partnerId = seedPartner(db);
         const before = drawerBalance(db, "OMT_System");
 
@@ -475,8 +638,98 @@ describe("FinancialServiceRepository — partner mode", () => {
           partnerMode: "FOR",
         });
 
-        // OMT_System must be CREDITED — the money physically arrived in our system
-        expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(before);
+        // No drawer moves — the partner's customer dealt with the partner's
+        // own till, not ours. The obligation is captured in the supplier
+        // ledger (next test) and the partner ledger (test below), not here.
+        expect(drawerBalance(db, "OMT_System")).toBe(before);
+      });
+
+      // ── Task B: the FOR-partner RECEIVE gross supplier-ledger booking ──────
+      //
+      // This is BRAND NEW production code (FinancialServiceRepository.ts,
+      // the "isPrimarySystemProvider" branch inside the FOR-RECEIVE arm of
+      // the PFT-3b dispatch) — before decision #6 this path booked NOTHING
+      // to the supplier ledger (the old model credited the system-drawer
+      // float instead, so the provider relationship needed no separate
+      // entry). It is the least-proven thing in the whole feature, so this
+      // block asserts: the entry EXISTS, carries the GROSS amount (not
+      // fee-only, not the partner-credit amount), is tenant-scoped, and
+      // reverses to exactly 0 on void (rule 20).
+      it("books a gross supplier-ledger TOP_UP entry for the provider (obligations only, decision #6)", () => {
+        const partnerId = seedPartner(db);
+        const omtId = supplierIdByProvider(db, "OMT");
+
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "RECEIVE",
+          amount: 100, // x
+          currency: "USD",
+          commission: 0.5, // c — no omtServiceType, so this is NOT overridden
+          // by the auto-calc block (that only fires when omtServiceType is
+          // set); calculatedCommission stays exactly `data.commission`.
+          omtFee: 5, // f — resolvedProviderFee reads `data.omtFee ?? 0` directly.
+          cashoutMethod: "CASH",
+          partnerId,
+          partnerMode: "FOR",
+        });
+
+        // grossOwedDelta(RECEIVE) = -(x - f + c) = -(100 - 5 + 0.5) = -95.5.
+        // Matches PRIMARY_CASH_DRAWER_PLAN.md §8.3's worked example exactly
+        // (x=100, f=5, c=0.5 → RECEIVE books -95.5).
+        const entries = ledgerRowsForSupplier(db, omtId);
+        expect(entries).toHaveLength(1);
+        expect(entries[0].entry_type).toBe("TOP_UP"); // never PAYMENT — addLedgerEntry force-negates only PAYMENT
+        expect(entries[0].amount_usd).toBeCloseTo(-95.5, 2);
+        expect(entries[0].amount_lbp).toBe(0);
+        // Tenant-scoped: booked under initFixedTenantContext(1) — must carry
+        // that tenant, not a default/null/other tenant's row.
+        expect(entries[0].tenant_id).toBe(1);
+        // Back-linked to the parent financial_services row so the generic
+        // void/refund path can find and cascade-void this sibling (rule 20).
+        expect(entries[0].source_ref_table).toBe("financial_services");
+        expect(entries[0].is_refunded).toBe(0);
+      });
+
+      it("reverses the gross supplier-ledger entry to net exactly 0 on void (rule 20)", () => {
+        const partnerId = seedPartner(db);
+        const omtId = supplierIdByProvider(db, "OMT");
+
+        const { id: fsId } = repo.createTransaction({
+          provider: "OMT",
+          serviceType: "RECEIVE",
+          amount: 100,
+          currency: "USD",
+          commission: 0.5,
+          omtFee: 5,
+          cashoutMethod: "CASH",
+          partnerId,
+          partnerMode: "FOR",
+        });
+
+        // Sanity: the entry exists and books the gross amount before void.
+        const balanceBefore = getSupplierRepository().getSupplierBalance(omtId);
+        expect(balanceBefore.balance_usd).toBeCloseTo(-95.5, 2);
+
+        const parentTxn = getTransactionRepository().getBySourceId(
+          "financial_services",
+          fsId,
+        );
+        expect(parentTxn).not.toBeNull();
+
+        getTransactionRepository().voidTransaction(parentTxn!.id, 1);
+
+        // getSupplierBalance is the correct "nets to 0" proof (rule 20): it
+        // sums only unrefunded rows (CLAUDE.md rule 15/20 pattern — the raw
+        // SUM is NOT the right check here, since the original row stays in
+        // place, soft-flagged, not compensated by an opposite row).
+        const balanceAfter = getSupplierRepository().getSupplierBalance(omtId);
+        expect(balanceAfter.balance_usd).toBe(0);
+        expect(balanceAfter.balance_lbp).toBe(0);
+
+        // The original row itself is soft-voided, not deleted or replaced.
+        const rows = ledgerRowsForSupplier(db, omtId);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].is_refunded).toBe(1);
       });
 
       it("does NOT debit General drawer (partner pays out their own customer)", () => {
@@ -748,14 +1001,18 @@ describe("FinancialServiceRepository — partner mode", () => {
       expect(drawerBalance(db, "Whish_System")).toBe(before);
     });
 
-    // NOTE (PFT-3b, commit 3ad8204): a FOR-partner financial service has no
-    // walk-in customer, so `cashoutMethod`/`clientId` are meaningless for
-    // FOR-mode RECEIVE and are simply ignored — the service drawer is
-    // CREDITED with the incoming funds either way (see the "credits
-    // OMT_System drawer" case above). This case now proves that passing a
-    // CUSTOMER_ACCOUNT cashout hint does not change that outcome (it no
-    // longer flips the drawer to a debit, as the pre-PFT-3b model did).
-    it("still credits OMT_System for FOR RECEIVE even with a CUSTOMER_ACCOUNT cashout hint (no walk-in customer in FOR mode)", () => {
+    // Primary Cash Drawer plan §2#6 / decision #6 (2026-07-30): a FOR-partner
+    // financial service has no walk-in customer, so `cashoutMethod`/
+    // `clientId` are meaningless for FOR-mode RECEIVE and are simply
+    // ignored — but under the current model the outcome they're ignored
+    // INTO is "no drawer moves at all" (see the "does NOT move the PCD"
+    // case above), not a credit. This case proves that passing a
+    // CUSTOMER_ACCOUNT cashout hint does not change that outcome either way.
+    // rule 17: this file's PRE-existing assertion (`toBeGreaterThan`) was run
+    // against the implemented production code and observed to FAIL —
+    // `Expected: > 500, Received: 500`. Flipped to "unchanged" below,
+    // verified green by running the suite.
+    it("does NOT move OMT_System for FOR RECEIVE even with a CUSTOMER_ACCOUNT cashout hint (no walk-in customer in FOR mode, no drawer movement at all)", () => {
       const partnerId = seedPartner(db);
       const clientId = seedClient(db);
       const before = drawerBalance(db, "OMT_System");
@@ -772,8 +1029,9 @@ describe("FinancialServiceRepository — partner mode", () => {
         partnerMode: "FOR",
       });
 
-      // FOR mode: cashoutMethod is ignored; funds physically arrive, so credit.
-      expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(before);
+      // FOR mode: cashoutMethod is ignored either way — decision #6 means
+      // NO drawer moves at transaction time, regardless of the hint.
+      expect(drawerBalance(db, "OMT_System")).toBe(before);
     });
   });
 
@@ -782,7 +1040,20 @@ describe("FinancialServiceRepository — partner mode", () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe("Normal transactions — no partner (regression guard)", () => {
-    it("OMT SEND — General keeps the customer cash-in (no reserve) and OMT_System is DEBITED (float drawn down) when no partner", () => {
+    // Primary Cash Drawer plan §1/§2#1 (2026-07-30, supersedes this test's
+    // prior float-model title and comments): OMT is the primary system here
+    // (the fixture's default baseSystem), so the customer's CASH leg is a
+    // primary-system cash-family leg and routes to the PCD (OMT_System) via
+    // `resolveServiceCashDrawer`, not General — there is no "reserve" leg of
+    // any kind anymore (the float model's 3-drawer cancel-to-0 pattern is
+    // gone; so is #66's "General keeps the cash-in permanently" reading).
+    // rule 17: this file's PRE-existing assertion
+    // (`generalBefore + 105` on General) was run against the implemented
+    // production code and observed to FAIL — `Expected: 1105, Received: 1000`
+    // (General is untouched). Flipped below to "unchanged", and to OMT_System
+    // increasing by the full customer cash-in — verified green by running
+    // the suite.
+    it("OMT SEND — the customer's cash-in lands in OMT_System (PCD), General is untouched, when no partner", () => {
       const generalBefore = drawerBalance(db, "General");
       const omtBefore = drawerBalance(db, "OMT_System");
 
@@ -797,23 +1068,21 @@ describe("FinancialServiceRepository — partner mode", () => {
         paidByMethod: "CASH",
       });
 
-      // float model: the SEND cash reserve is gone — General keeps the
-      // customer's +(x+f) = +105 cash-in permanently (fee-on-top: sentAmount
-      // 100 + providerFeeAmt 5); there is no longer a RESERVE leg to net it
-      // back to zero (the old "3-drawer pattern, cancels to 0" is dead).
-      // rule 17: proven failing-first 2026-07-30 — restoring the deleted
-      // RESERVE leg off General (net General back to `generalBefore`) makes
-      // this red (General read 1000 instead of 1105).
-      expect(drawerBalance(db, "General")).toBeCloseTo(generalBefore + 105, 2);
-      // float model: SEND draws the float DOWN by the bare principal (x =
-      // 100, not x+f) — it no longer "credits" a gross reserve.
-      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
-      // `+totalCollected` (the old systemDrawerCredit) makes this red
-      // (OMT_System read 605, no longer less than omtBefore).
-      expect(drawerBalance(db, "OMT_System")).toBeLessThan(omtBefore);
+      // General is never touched by a primary-system CASH leg under this model.
+      expect(drawerBalance(db, "General")).toBe(generalBefore);
+      // 605 = omtBefore(500) + totalCustomerPays(105), where
+      // totalCustomerPays = sentAmount(100) + providerFeeAmt(5) — the whole
+      // customer cash-in (principal + fee), fee-on-top — lands in the PCD.
+      expect(drawerBalance(db, "OMT_System")).toBeCloseTo(omtBefore + 105, 2);
     });
 
-    it("OMT RECEIVE credits OMT_System (float fills up) and debits General when no partner", () => {
+    // rule 17: this file's PRE-existing assertion (`toBeGreaterThan(omtBefore)`
+    // on OMT_System) was run against the implemented production code and
+    // observed to FAIL — `Expected: > 500, Received: 400` (OMT_System
+    // DECREASES). Flipped below to reflect the payout being debited FROM the
+    // PCD, and General staying untouched — verified green by running the
+    // suite.
+    it("OMT RECEIVE — the payout is debited from OMT_System (PCD), General is untouched, when no partner", () => {
       const omtBefore = drawerBalance(db, "OMT_System");
       const generalBefore = drawerBalance(db, "General");
 
@@ -826,16 +1095,13 @@ describe("FinancialServiceRepository — partner mode", () => {
         cashoutMethod: "CASH",
       });
 
-      // float model: RECEIVE fills the float back UP by the bare principal
-      // (+receiveAmount) — the old model drew it down by totalOwed
-      // (principal+commission).
-      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
-      // `-totalOwed` (the old posting) makes this red (OMT_System read 399,
-      // no longer greater than omtBefore).
-      expect(drawerBalance(db, "OMT_System")).toBeGreaterThan(omtBefore);
-      // The payout leg (General debited for the cash handed to the
-      // customer) is unaffected by this fix — still a real cash outflow.
-      expect(drawerBalance(db, "General")).toBeLessThan(generalBefore);
+      // 400 = omtBefore(500) - payoutAmount(100); no omtFee supplied on this
+      // RECEIVE, so receiveFeeAmt=0 and payoutAmount = receiveAmount = 100.
+      // The CASH cashout is a primary-system cash-family leg and comes OUT of
+      // the PCD, not General.
+      expect(drawerBalance(db, "OMT_System")).toBeCloseTo(omtBefore - 100, 2);
+      // General is never touched by a primary-system CASH cashout under this model.
+      expect(drawerBalance(db, "General")).toBe(generalBefore);
     });
 
     it("creates NO partner_ledger entries for normal transactions", () => {
@@ -855,6 +1121,61 @@ describe("FinancialServiceRepository — partner mode", () => {
         }
       ).cnt;
       expect(count).toBe(0);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Task D: walk-in on the secondary system is rejected — this guard
+  // PRE-DATES the primary-cash-drawer model (FEATURE_GUIDE §8 "Walk-in on the
+  // secondary system is rejected") and must survive it unchanged: it lives in
+  // FinancialServiceRepository.ts BEFORE any drawer/ledger predicate this
+  // file's other tests re-derive, and is provider/baseSystem-driven, not
+  // PCD-driven, so the model swap should not touch it at all. Asserted here
+  // (not just left to OmtSystemFeeCharacterization.test.ts's CASE 8/8b)
+  // because this file is the partner-semantics owner and the guard is the
+  // hinge between "walk-in" and "route through a partner".
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("Walk-in on the secondary system (regression guard, predates this change)", () => {
+    it("throws when a walk-in transaction targets the secondary system with no partnerId", () => {
+      // Fixture default baseSystem is "OMT" (no system_settings row — see
+      // createTestDb's comment-free fallback, matching
+      // FinancialServiceRepository.ts's try/catch default). WHISH is
+      // therefore the secondary system here.
+      expect(() =>
+        repo.createTransaction({
+          provider: "WHISH",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          whishFee: 3,
+          paidByMethod: "CASH",
+          // no partnerId — this is the case that must be rejected.
+        }),
+      ).toThrow(/secondary system/i);
+    });
+
+    it("does NOT throw for the same transaction routed through a partner (THROUGH mode)", () => {
+      // Negative control: the guard is specifically about a MISSING
+      // partnerId on the secondary system, not about the secondary system
+      // itself — routing through a partner must keep working (this file's
+      // "WHISH SEND through partner" block already exercises this path; this
+      // assertion pins the boundary right next to the throw case above).
+      const partnerId = seedPartner(db);
+      expect(() =>
+        repo.createTransaction({
+          provider: "WHISH",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          whishFee: 3,
+          partnerId,
+          partnerMode: "THROUGH",
+          paidByMethod: "CASH",
+        }),
+      ).not.toThrow();
     });
   });
 

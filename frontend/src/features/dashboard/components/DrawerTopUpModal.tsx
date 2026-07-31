@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
+import { useShopBase } from "@/hooks/useShopBase";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -20,17 +21,14 @@ interface ExtraCurrencyRow {
   amount: string;
 }
 
-type TopUpMode = "external" | "from_drawer" | "fund_system";
+type TopUpMode = "external" | "from_drawer" | "transfer";
 
-type SystemFloatDrawer = "OMT_System" | "Whish_System";
-type FundCurrency = "USD" | "LBP";
+/** Which way cash moves in Transfer mode — General <-> the primary cash
+ *  drawer (OMT_System/Whish_System), both directions
+ *  (Primary Cash Drawer plan §0 decision #12). */
+type TransferDirection = "to_primary" | "to_general";
 
-const SYSTEM_FLOAT_DRAWERS: { value: SystemFloatDrawer; label: string }[] = [
-  { value: "OMT_System", label: "OMT System" },
-  { value: "Whish_System", label: "Whish System" },
-];
-
-function formatFundBalance(amount: number, currency: FundCurrency): string {
+function formatDrawerAmount(amount: number, currency: "USD" | "LBP"): string {
   return currency === "LBP"
     ? `${Math.round(amount).toLocaleString()} LBP`
     : `$${amount.toLocaleString()}`;
@@ -63,16 +61,20 @@ export function DrawerTopUpModal({
     AvailableCurrency[]
   >([]);
 
-  // Fund System Float mode — operator hands real money to the OMT/Whish
-  // provider so the shop's spendable float goes up (owner-confirmed
-  // 2026-07-29 float model). Every drawer holding a spendable balance is a
-  // valid funding source, so this loads ALL drawers, not just OMT_System.
-  const [fundTargetDrawer, setFundTargetDrawer] =
-    useState<SystemFloatDrawer>("OMT_System");
-  const [fundFundingDrawer, setFundFundingDrawer] = useState("");
-  const [fundCurrency, setFundCurrency] = useState<FundCurrency>("USD");
-  const [fundAmount, setFundAmount] = useState(0);
-  const [fundingDrawerBalances, setFundingDrawerBalances] = useState<
+  // Transfer mode — General <-> the primary cash drawer (PCD), the shop's
+  // OWN physical till at the money-transfer counter (Primary Cash Drawer
+  // plan §1 — supersedes the PR #66 "fund the float" model: there is no
+  // provider-side balance to fund, only cash moving between two of the
+  // shop's own drawers). Bidirectional per owner decision #12; the PCD is
+  // whichever of OMT_System/Whish_System is primary (shop_base_system).
+  const { baseSystem } = useShopBase();
+  const primaryDrawerName =
+    baseSystem === "WHISH" ? "Whish_System" : "OMT_System";
+  const primaryDrawerLabel =
+    baseSystem === "WHISH" ? "Whish Cash Drawer" : "OMT Cash Drawer";
+  const [transferDirection, setTransferDirection] =
+    useState<TransferDirection>("to_primary");
+  const [transferBalances, setTransferBalances] = useState<
     Record<string, Record<string, number>>
   >({});
 
@@ -80,8 +82,8 @@ export function DrawerTopUpModal({
     if (isOpen && mode === "from_drawer") {
       loadSourceDrawers();
     }
-    if (isOpen && mode === "fund_system") {
-      loadFundingDrawerBalances();
+    if (isOpen && mode === "transfer") {
+      loadTransferBalances();
     }
   }, [isOpen, mode]);
 
@@ -115,18 +117,12 @@ export function DrawerTopUpModal({
     }
   }
 
-  async function loadFundingDrawerBalances() {
+  async function loadTransferBalances() {
     try {
       const balances = await api.getSystemExpectedBalancesDynamic();
-      setFundingDrawerBalances(balances ?? {});
-      const names = Object.keys(balances ?? {}).filter(
-        (name) => name !== fundTargetDrawer,
-      );
-      if (names.length > 0 && !fundFundingDrawer) {
-        setFundFundingDrawer(names.includes("General") ? "General" : names[0]);
-      }
+      setTransferBalances(balances ?? {});
     } catch {
-      setFundingDrawerBalances({});
+      setTransferBalances({});
     }
   }
 
@@ -139,11 +135,8 @@ export function DrawerTopUpModal({
     setMode("external");
     setSelectedDrawer("");
     setExtraCurrencies([]);
-    setFundTargetDrawer("OMT_System");
-    setFundFundingDrawer("");
-    setFundCurrency("USD");
-    setFundAmount(0);
-    setFundingDrawerBalances({});
+    setTransferDirection("to_primary");
+    setTransferBalances({});
     onClose();
   }
 
@@ -168,8 +161,8 @@ export function DrawerTopUpModal({
   }
 
   async function handleSubmit() {
-    if (mode === "fund_system") {
-      await handleFundSystemSubmit();
+    if (mode === "transfer") {
+      await handleTransferSubmit();
       return;
     }
 
@@ -239,42 +232,56 @@ export function DrawerTopUpModal({
     }
   }
 
-  async function handleFundSystemSubmit() {
-    if (!(fundAmount > 0)) {
-      alert("Please enter an amount greater than 0.");
+  async function handleTransferSubmit() {
+    const usd = parseFloat(amountUsd) || 0;
+    const lbp = parseFloat(amountLbp) || 0;
+    if (usd <= 0 && lbp <= 0) {
+      alert("Please enter at least one amount greater than 0.");
       return;
     }
-    if (!fundFundingDrawer) {
-      alert("Please select a funding drawer.");
-      return;
-    }
-    if (fundFundingDrawer === fundTargetDrawer) {
-      alert("The funding drawer must be different from the target float.");
-      return;
-    }
+
+    const fromDrawer =
+      transferDirection === "to_primary" ? "General" : primaryDrawerName;
+    const toDrawer =
+      transferDirection === "to_primary" ? primaryDrawerName : "General";
 
     setIsSubmitting(true);
     try {
       const trimmedNotes = notes.trim();
-      const result = await api.drawerTopUp.fundSystem({
-        targetDrawer: fundTargetDrawer,
-        fundingDrawer: fundFundingDrawer,
-        amount_usd: fundCurrency === "USD" ? fundAmount : 0,
-        amount_lbp: fundCurrency === "LBP" ? fundAmount : 0,
+      // Primary Cash Drawer plan §8.6 — the generalized, reversible
+      // General <-> PCD cash transfer that replaces the retired
+      // one-directional "fund the system float" call.
+      const result = await api.transferBetweenDrawers({
+        fromDrawer,
+        toDrawer,
+        amount_usd: usd,
+        amount_lbp: lbp,
         ...(trimmedNotes ? { notes: trimmedNotes } : {}),
       });
 
       if (result.success) {
+        const parts = [
+          usd > 0 ? formatDrawerAmount(usd, "USD") : null,
+          lbp > 0 ? formatDrawerAmount(lbp, "LBP") : null,
+        ].filter((v): v is string => v !== null);
         appEvents.emit(
           "notification:show",
-          `${formatFundBalance(fundAmount, fundCurrency)} moved from ${fundFundingDrawer.replace(/_/g, " ")} into ${fundTargetDrawer.replace(/_/g, " ")}.`,
+          `${parts.join(" + ")} moved from ${fromDrawer.replace(/_/g, " ")} into ${toDrawer.replace(/_/g, " ")}.`,
           "success",
         );
-        setFundAmount(0);
+        setAmountUsd("");
+        setAmountLbp("");
         setNotes("");
         onSuccess();
+      } else if (result.code === "INSUFFICIENT_DRAWER_FUNDS") {
+        // Structured contract (Primary Cash Drawer plan §8.5) — switch on
+        // `code`, never a message-string match.
+        alert(
+          result.error ??
+            `${fromDrawer.replace(/_/g, " ")} does not have enough funds for this transfer.`,
+        );
       } else {
-        alert(result.error ?? "Failed to fund the system float.");
+        alert(result.error ?? "Failed to transfer funds.");
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Unexpected error.");
@@ -287,16 +294,24 @@ export function DrawerTopUpModal({
     (d) => d.drawer_name === selectedDrawer,
   );
 
-  const fundingDrawerOptions = Object.keys(fundingDrawerBalances)
-    .filter((name) => name !== fundTargetDrawer)
-    .map((name) => ({ value: name, label: name.replace(/_/g, " ") }));
-  const fundFundingBalance =
-    fundingDrawerBalances[fundFundingDrawer]?.[fundCurrency] ?? 0;
-  const fundInsufficient =
-    fundAmount > 0 && fundFundingDrawer !== "" && fundAmount > fundFundingBalance;
+  const transferFromDrawer =
+    transferDirection === "to_primary" ? "General" : primaryDrawerName;
+  const transferToDrawer =
+    transferDirection === "to_primary" ? primaryDrawerName : "General";
+  const transferUsdAmount = parseFloat(amountUsd) || 0;
+  const transferLbpAmount = parseFloat(amountLbp) || 0;
+  const transferFromBalanceUsd = transferBalances[transferFromDrawer]?.USD ?? 0;
+  const transferFromBalanceLbp = transferBalances[transferFromDrawer]?.LBP ?? 0;
+  const transferInsufficient =
+    (transferUsdAmount > 0 && transferUsdAmount > transferFromBalanceUsd) ||
+    (transferLbpAmount > 0 && transferLbpAmount > transferFromBalanceLbp);
+  const transferPreviewAmounts = [
+    transferUsdAmount > 0 ? formatDrawerAmount(transferUsdAmount, "USD") : null,
+    transferLbpAmount > 0 ? formatDrawerAmount(transferLbpAmount, "LBP") : null,
+  ].filter((v): v is string => v !== null);
 
   const modalTitle =
-    mode === "fund_system" ? "Fund System Float" : "Top Up General Drawer";
+    mode === "transfer" ? "Transfer Drawer Cash" : "Top Up General Drawer";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
@@ -304,7 +319,7 @@ export function DrawerTopUpModal({
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
-            {mode === "fund_system" ? (
+            {mode === "transfer" ? (
               <Landmark className="w-5 h-5 text-amber-400" />
             ) : (
               <PlusCircle className="w-5 h-5 text-emerald-400" />
@@ -343,138 +358,134 @@ export function DrawerTopUpModal({
             From Drawer
           </button>
           <button
-            data-testid="fund-system-mode-toggle"
-            onClick={() => setMode("fund_system")}
+            data-testid="drawer-transfer-mode-toggle"
+            onClick={() => setMode("transfer")}
             className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-              mode === "fund_system"
+              mode === "transfer"
                 ? "bg-amber-600 text-white"
                 : "bg-slate-700 text-slate-300 hover:bg-slate-600"
             }`}
           >
             <Landmark size={14} />
-            Fund System Float
+            Transfer
           </button>
         </div>
 
-        {mode === "fund_system" ? (
+        {mode === "transfer" ? (
           <div className="space-y-4">
             <p className="text-xs text-slate-400">
-              Hand real money to the OMT/Whish provider so the shop&apos;s
-              spendable float goes up. This moves cash between two of the
-              shop&apos;s own drawers — it earns no profit.
+              Move physical cash between General and the {primaryDrawerLabel}
+              — the shop&apos;s own till at the money-transfer counter. This
+              moves cash between two of the shop&apos;s own drawers; it earns
+              no profit.
             </p>
 
-            {/* Target float (fixed two options) */}
+            {/* Direction (bidirectional — owner decision #12) */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Target Float
+                Direction
               </label>
-              <div data-testid="fund-system-target-drawer-select">
-                <Select
-                  value={fundTargetDrawer}
-                  onChange={(v) => {
-                    const next = v as SystemFloatDrawer;
-                    setFundTargetDrawer(next);
-                    if (fundFundingDrawer === next) {
-                      setFundFundingDrawer("");
-                    }
-                  }}
-                  options={SYSTEM_FLOAT_DRAWERS}
-                  buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
-                />
+              <div
+                data-testid="drawer-transfer-direction-toggle"
+                className="flex gap-2"
+              >
+                <button
+                  type="button"
+                  onClick={() => setTransferDirection("to_primary")}
+                  className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-colors ${
+                    transferDirection === "to_primary"
+                      ? "bg-amber-600 text-white"
+                      : "bg-slate-900 text-slate-400 border border-slate-700 hover:text-slate-200"
+                  }`}
+                >
+                  General → {primaryDrawerLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferDirection("to_general")}
+                  className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-colors ${
+                    transferDirection === "to_general"
+                      ? "bg-amber-600 text-white"
+                      : "bg-slate-900 text-slate-400 border border-slate-700 hover:text-slate-200"
+                  }`}
+                >
+                  {primaryDrawerLabel} → General
+                </button>
               </div>
+              <p className="mt-1.5 text-xs text-slate-500">
+                {transferFromDrawer.replace(/_/g, " ")} balance:{" "}
+                {formatDrawerAmount(transferFromBalanceUsd, "USD")} /{" "}
+                {formatDrawerAmount(transferFromBalanceLbp, "LBP")}
+              </p>
             </div>
 
-            {/* Funding drawer (any drawer with a spendable balance) */}
+            {/* USD Amount */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Funding Drawer
-              </label>
-              <div data-testid="fund-system-funding-drawer-select">
-                <Select
-                  value={fundFundingDrawer}
-                  onChange={(v) => setFundFundingDrawer(v)}
-                  options={
-                    fundingDrawerOptions.length === 0
-                      ? [{ value: "", label: "No drawers available" }]
-                      : fundingDrawerOptions
-                  }
-                  buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
-                />
-              </div>
-              {fundFundingDrawer && (
-                <p className="mt-1.5 text-xs text-slate-500">
-                  Balance: {formatFundBalance(fundFundingBalance, fundCurrency)}
-                </p>
-              )}
-            </div>
-
-            {/* Currency */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                Currency
-              </label>
-              <div data-testid="fund-system-currency-select">
-                <Select
-                  value={fundCurrency}
-                  onChange={(v) => setFundCurrency(v as FundCurrency)}
-                  options={[
-                    { value: "USD", label: "USD" },
-                    { value: "LBP", label: "LBP" },
-                  ]}
-                  buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
-                />
-              </div>
-            </div>
-
-            {/* Amount */}
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">
-                Amount ({fundCurrency})
+                USD Amount
               </label>
               <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-amber-500 transition-colors">
                 <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
-                  {fundCurrency === "USD" ? "$" : "LBP"}
+                  $
                 </span>
                 <DecimalInput
-                  value={fundAmount}
-                  onChange={setFundAmount}
-                  decimals={fundCurrency === "LBP" ? 0 : 2}
-                  placeholder={fundCurrency === "USD" ? "0.00" : "0"}
-                  data-testid="fund-system-amount-input"
+                  value={parseFloat(amountUsd) || 0}
+                  onChange={(n) => setAmountUsd(n ? String(n) : "")}
+                  placeholder="0.00"
+                  data-testid="drawer-transfer-amount-usd-input"
                   className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
                 />
               </div>
-              {fundInsufficient && (
-                <p className="mt-1.5 text-xs text-red-400">
-                  {fundFundingDrawer.replace(/_/g, " ")} only has{" "}
-                  {formatFundBalance(fundFundingBalance, fundCurrency)}{" "}
-                  available.
-                </p>
-              )}
             </div>
 
+            {/* LBP Amount */}
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">
+                LBP Amount
+              </label>
+              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-amber-500 transition-colors">
+                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                  LBP
+                </span>
+                <DecimalInput
+                  value={parseFloat(amountLbp) || 0}
+                  onChange={(n) => setAmountLbp(n ? String(n) : "")}
+                  decimals={0}
+                  placeholder="0"
+                  data-testid="drawer-transfer-amount-lbp-input"
+                  className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                />
+              </div>
+            </div>
+
+            {transferInsufficient && (
+              <p className="text-xs text-red-400">
+                {transferFromDrawer.replace(/_/g, " ")} does not have enough
+                funds for this transfer.
+              </p>
+            )}
+
             {/* Before-you-confirm preview — make the money movement unambiguous */}
-            {fundAmount > 0 && fundFundingDrawer && (
+            {transferPreviewAmounts.length > 0 && (
               <div
-                data-testid="fund-system-preview"
+                data-testid="drawer-transfer-preview"
                 className="bg-slate-900/60 border border-amber-500/30 rounded-lg px-3 py-2.5 text-xs text-slate-300 space-y-1"
               >
-                <p>
-                  <span className="text-red-400 font-semibold">−</span>{" "}
-                  {formatFundBalance(fundAmount, fundCurrency)} from{" "}
-                  <span className="text-white font-medium">
-                    {fundFundingDrawer.replace(/_/g, " ")}
-                  </span>
-                </p>
-                <p>
-                  <span className="text-emerald-400 font-semibold">+</span>{" "}
-                  {formatFundBalance(fundAmount, fundCurrency)} into{" "}
-                  <span className="text-white font-medium">
-                    {fundTargetDrawer.replace(/_/g, " ")}
-                  </span>{" "}
-                  float
-                </p>
+                {transferPreviewAmounts.map((amountLabel) => (
+                  <p key={amountLabel}>
+                    <span className="text-red-400 font-semibold">−</span>{" "}
+                    {amountLabel} from{" "}
+                    <span className="text-white font-medium">
+                      {transferFromDrawer.replace(/_/g, " ")}
+                    </span>
+                    {" · "}
+                    <span className="text-emerald-400 font-semibold">+</span>{" "}
+                    {amountLabel} into{" "}
+                    <span className="text-white font-medium">
+                      {transferToDrawer.replace(/_/g, " ")}
+                    </span>
+                  </p>
+                ))}
               </div>
             )}
 
@@ -664,15 +675,15 @@ export function DrawerTopUpModal({
             Cancel
           </button>
           <button
-            data-testid="fund-system-submit"
+            data-testid="drawer-topup-submit"
             onClick={handleSubmit}
             disabled={
               isSubmitting ||
-              (mode === "fund_system" &&
-                (!(fundAmount > 0) || !fundFundingDrawer))
+              (mode === "transfer" &&
+                !(transferUsdAmount > 0 || transferLbpAmount > 0))
             }
             className={`flex-1 py-2.5 ${
-              mode === "fund_system"
+              mode === "transfer"
                 ? "bg-amber-600 hover:bg-amber-500"
                 : mode === "from_drawer"
                   ? "bg-violet-600 hover:bg-violet-500"
@@ -681,8 +692,8 @@ export function DrawerTopUpModal({
           >
             {isSubmitting
               ? "Processing..."
-              : mode === "fund_system"
-                ? "Fund Float"
+              : mode === "transfer"
+                ? "Transfer"
                 : mode === "from_drawer"
                   ? "Transfer"
                   : "Top Up"}

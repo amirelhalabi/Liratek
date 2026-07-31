@@ -1,6 +1,14 @@
 /**
  * Drawer Configuration
  * Centralized configuration for all drawer types
+ *
+ * OMT_System / Whish_System labels (Primary Cash Drawer plan §1, §8.1):
+ * these are the PHYSICAL cash drawer at the shop's money-transfer counter,
+ * not a spendable balance held inside the provider's own system (the PR #66
+ * float model the owner rejected). The drawer NAMES never change — only the
+ * label wording does. Both entries always exist (registered regardless of
+ * which system is primary); the non-primary one just lies dormant per
+ * `shop_base_system` (see useShopBase()).
  */
 
 import type { DrawerType, DrawerConfig } from "../types";
@@ -19,8 +27,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   OMT_System: {
     type: "OMT_System",
-    label: "OMT System",
-    description: "OMT system",
+    label: "OMT Cash Drawer",
+    description: "Physical cash drawer at the OMT counter",
     icon: "dollar-sign",
     color: {
       border: "border-green-500/30",
@@ -107,8 +115,8 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
   Whish_System: {
     type: "Whish_System",
-    label: "Whish System",
-    description: "Whish system services",
+    label: "Whish Cash Drawer",
+    description: "Physical cash drawer at the Whish counter",
     icon: "zap",
     color: {
       border: "border-fuchsia-500/30",

@@ -16,6 +16,7 @@ import {
 } from "../repositories/index.js";
 import { getItemCostService } from "./ItemCostService.js";
 import { financialLogger } from "../utils/logger.js";
+import { isAppError } from "../utils/errors.js";
 
 // =============================================================================
 // Types
@@ -32,6 +33,17 @@ export interface FinancialServiceResult {
   success: boolean;
   id?: number;
   error?: string;
+  /**
+   * Structured error contract (Primary Cash Drawer plan §8.5). Set alongside
+   * `details` when the repository throws an `AppError` — notably
+   * `InsufficientDrawerFundsError` from the RECEIVE payout guard, which the
+   * Services page switches on (`code === "INSUFFICIENT_DRAWER_FUNDS"`) to
+   * offer "move the shortfall from General and retry". Collapsing the error
+   * to a bare `error` string here silently disables that whole flow, so this
+   * catch deliberately mirrors `DrawerTopUpService.transferBetweenDrawers`.
+   */
+  code?: string;
+  details?: unknown;
 }
 
 // =============================================================================
@@ -108,6 +120,17 @@ export class FinancialService {
         { error, data },
         "Failed to add financial service transaction",
       );
+      // Primary Cash Drawer plan §8.5: preserve code/details so the RECEIVE
+      // insufficient-funds guard reaches the UI as a structured error over
+      // BOTH transports, instead of collapsing to an opaque message.
+      if (isAppError(error)) {
+        return {
+          success: false,
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        };
+      }
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

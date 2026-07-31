@@ -3,10 +3,11 @@ import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
-  SYSTEM_FLOAT_DRAWER_NAMES,
-  type SystemFloatDrawerName,
+  PRIMARY_CASH_DRAWER_NAMES,
+  type PrimaryCashDrawerName,
 } from "../constants/systemFloatDrawers.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import { InsufficientDrawerFundsError } from "../utils/errors.js";
 
 export interface DrawerTopUpEntity {
   id: number;
@@ -47,30 +48,27 @@ export interface SourceDrawerBalance {
   balance_lbp: number;
 }
 
-/** The only two spendable-float drawers this flow may credit (owner-confirmed
- *  2026-07-29 float model) — never General, never an arbitrary drawer name.
- *  Enforced again here at the repository layer (not just the Zod schema) so
- *  a caller bypassing validation still cannot invent money in an arbitrary
- *  drawer.
- *
- *  `SYSTEM_FLOAT_DRAWER_NAMES`/`SystemFloatDrawerName` are the single shared
- *  definition in `constants/systemFloatDrawers.ts` (CLAUDE.md rule 14) —
- *  re-exported here (not re-declared) so existing importers of this module
+/** `PRIMARY_CASH_DRAWER_NAMES`/`PrimaryCashDrawerName` (renamed from
+ *  `SYSTEM_FLOAT_DRAWER_NAMES`/`SystemFloatDrawerName` — Primary Cash Drawer
+ *  plan §8.1) are the single shared definition in
+ *  `constants/systemFloatDrawers.ts` (CLAUDE.md rule 14) — re-exported here
+ *  (not re-declared) so existing importers of this module
  *  (`DrawerTopUpService`, `repositories/index.ts`) keep working, and so
- *  `validators/systemFloatTopup.ts` can derive its `z.enum([...])` from the
- *  SAME list instead of a second hand-copied literal that could drift. */
-export { SYSTEM_FLOAT_DRAWER_NAMES, type SystemFloatDrawerName };
+ *  `getSourceDrawerBalances` below can report on both PCD names without a
+ *  second hand-copied literal that could drift. */
+export { PRIMARY_CASH_DRAWER_NAMES, type PrimaryCashDrawerName };
 
-const SYSTEM_FLOAT_DRAWERS: ReadonlySet<string> = new Set<SystemFloatDrawerName>(
-  SYSTEM_FLOAT_DRAWER_NAMES,
-);
-
+/**
+ * @deprecated Kept ONLY so `packages/core/src/repositories/index.ts`'s
+ * existing barrel export of this type (owned by a parallel agent, not this
+ * file) doesn't fail to resolve — nothing in this file constructs one
+ * anymore. The float-funding flow it described (`fundSystemDrawer`) is
+ * replaced by the generic `transferBetweenDrawers` below (Primary Cash
+ * Drawer plan §8.6); remove this stub once the barrel is updated to stop
+ * exporting it.
+ */
 export interface CreateSystemFloatTopupData {
-  targetDrawer: SystemFloatDrawerName;
-  /** Any drawer holding a spendable balance (default "General", but e.g.
-   *  "Binance" is valid too) — free text like drawer_topups.source_drawer,
-   *  validated at the service layer, no CHECK constraint (drawers are
-   *  dynamic). */
+  targetDrawer: PrimaryCashDrawerName;
   fundingDrawer: string;
   amount_usd: number;
   amount_lbp: number;
@@ -83,8 +81,26 @@ const TOPUP_METHOD = "CASH";
 /** Distinguishes these legs from real payment methods (CASH/OMT/WHISH/...) —
  *  this is an internal treasury transfer between two of the shop's own
  *  drawers, not a customer tender (mirrors WALLET_EXCHANGE_METHOD in
- *  WalletExchangeRepository). */
-const SYSTEM_FLOAT_TOPUP_METHOD = "SYSTEM_FLOAT_TOPUP";
+ *  WalletExchangeRepository). Renamed from `SYSTEM_FLOAT_TOPUP` alongside
+ *  `TRANSACTION_TYPES.DRAWER_TRANSFER` (Primary Cash Drawer plan §8.6). */
+const DRAWER_TRANSFER_METHOD = "DRAWER_TRANSFER";
+
+/** Input for {@link DrawerTopUpRepository.transferBetweenDrawers} (Primary
+ *  Cash Drawer plan §8.6, exact shape) — a generic bidirectional cash move
+ *  between any two of the shop's own drawers. `fromDrawer`/`toDrawer` are
+ *  free text (like `drawer_topups.source_drawer`); the UI only ever offers
+ *  General <-> the primary cash drawer, but the repository itself does not
+ *  special-case drawer names (decision #13's "generic drawer<->General cash
+ *  transfer" framing) — the insufficient-funds guard is the real gate. */
+export interface TransferBetweenDrawersData {
+  fromDrawer: string;
+  toDrawer: string;
+  amountUsd: number;
+  amountLbp: number;
+  notes?: string;
+  createdBy: number;
+  transactionTime?: string;
+}
 
 export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
   constructor() {
@@ -215,6 +231,18 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
   /**
    * Transfer funds from a source drawer to the General drawer.
    * Deducts from source, credits General, records the transfer.
+   *
+   * NOT the General <-> primary-cash-drawer transfer path (Primary Cash
+   * Drawer plan §8.6): this method's source-drawer debit is a raw `UPDATE`
+   * (see `deductBalance` below) with no `payments` row on that side, so it
+   * is permanently non-reversible (`TRANSACTION_TYPES.DRAWER_TOPUP` is in
+   * `NON_REVERSIBLE_TRANSACTION_TYPES` for exactly this reason). The
+   * General/OMT_System/Whish_System pair now goes through
+   * `transferBetweenDrawers` (below) instead, which posts BOTH legs via
+   * `insertPaymentRow`/`applyDrawerDelta` and stays reversible via the
+   * generic void/refund path. This method is kept for its original,
+   * different use case (an arbitrary named source drawer draining into
+   * General as an append-only, audit-trail-only move) — do not delete it.
    */
   createTopUpFromDrawer(
     data: CreateDrawerTopUpFromDrawerData,
@@ -317,78 +345,65 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
   }
 
   /**
-   * Fund the OMT_System / Whish_System spendable float (owner-confirmed
-   * 2026-07-29 float model) — the mirror image of `createTopUpFromDrawer`
-   * (General ⇄ System instead of System ⇄ General), but deliberately does
-   * NOT copy that method's asymmetric-legs pattern: both the funding-drawer
-   * debit AND the target-drawer credit go through `insertPaymentRow` +
-   * `applyDrawerDelta`, so this stays reversible via the generic void path
-   * (see TRANSACTION_TYPES.SYSTEM_FLOAT_TOPUP doc — DRAWER_TOPUP's
-   * from-drawer mode used a raw, non-payments-tracked debit and is
-   * permanently non-reversible for exactly that reason).
+   * Generic, reversible cash transfer between any two of the shop's own
+   * drawers (Primary Cash Drawer plan §8.6 — signature is contract-exact:
+   * one params object, `createdBy` inside it). Generalizes the old
+   * `fundSystemDrawer` (owner-confirmed 2026-07-29 float model, General ->
+   * OMT_System/Whish_System only) into a symmetric General <-> PCD move —
+   * the UI's only exposed pair, though this method itself does not
+   * special-case drawer names (decision #13's "generic drawer<->General
+   * cash transfer" framing). Both the `fromDrawer` debit AND the `toDrawer`
+   * credit go through `insertPaymentRow` + `applyDrawerDelta` (never the
+   * raw-UPDATE pattern `createTopUpFromDrawer` uses), so this stays
+   * reversible via the generic void path (rule 20) — same shape
+   * `fundSystemDrawer` already had, just no longer restricted to one
+   * direction or to the two PCD names on the `toDrawer` side.
    *
-   * Every top-up here names a real funding drawer that gets debited — unlike
-   * drawer_topups' External Cash-In mode, there is no no-source variant,
+   * Every transfer here names a real `fromDrawer` that gets debited — unlike
+   * `drawer_topups`' External Cash-In mode, there is no no-source variant,
    * because Σ drawer deltas must be 0 (this moves cash the shop already
-   * owns, it never invents it). The insufficient-funds guard runs FIRST,
-   * per currency, inside the same db.transaction, before any row is written
-   * (mirrors WalletExchangeRepository.createTransaction).
+   * owns, it never invents it). The insufficient-funds guard
+   * (`InsufficientDrawerFundsError`, plan §8.5's structured contract) runs
+   * FIRST, per currency, inside the same `db.transaction`, before any row is
+   * written (mirrors WalletExchangeRepository.createTransaction).
    */
-  fundSystemDrawer(data: CreateSystemFloatTopupData, userId: number): number {
-    if (!SYSTEM_FLOAT_DRAWERS.has(data.targetDrawer)) {
+  transferBetweenDrawers(data: TransferBetweenDrawersData): number {
+    // Self-transfer guard: fromDrawer === toDrawer would still write a real
+    // transactions + drawer_transfers row and two cancelling payment legs
+    // even though net balance never moves — a transfer that never happened,
+    // poisoning the audit trail. Enforced HERE (repository) in addition to
+    // the Zod `.refine()` in validators/drawerTransfer.ts, so a caller
+    // bypassing validation still cannot write this no-op row.
+    if (data.fromDrawer === data.toDrawer) {
       throw new Error(
-        `Invalid target drawer "${data.targetDrawer}" — must be one of: ${Array.from(SYSTEM_FLOAT_DRAWERS).join(", ")}`,
+        `fromDrawer and toDrawer cannot be the same drawer ("${data.toDrawer}") — this moves no money and would only pollute the audit trail with a self-transfer`,
       );
     }
 
-    // Self-funding guard (finding A): fundingDrawer === targetDrawer would
-    // still write a real transactions + system_float_topups row and two
-    // cancelling payment legs even though net balance never moves — a
-    // transfer that never happened, poisoning the audit trail. Enforced HERE
-    // (repository) in addition to the Zod `.refine()` in
-    // validators/systemFloatTopup.ts, so a caller bypassing validation still
-    // cannot write this no-op row.
-    if (data.fundingDrawer === data.targetDrawer) {
-      throw new Error(
-        `fundingDrawer and targetDrawer cannot be the same drawer ("${data.targetDrawer}") — this moves no money and would only pollute the audit trail with a self-transfer`,
-      );
-    }
-
-    // Amount guard (finding B): the repository must NOT trust the caller on
-    // what goes into the ledger row. Before this fix only the LEG-posting
-    // `if (data.amount_usd && data.amount_usd > 0)` blocks below gated
-    // whether a payment leg / drawer delta was applied — a direct call
-    // bypassing Zod (a future handler forgetting validatePayload, a
-    // migration script, a test seed) with e.g. `amount_usd: -Infinity` moved
-    // no money but still wrote `-Infinity` verbatim into
-    // `system_float_topups.amount_usd` / `transactions.amount_usd`,
-    // poisoning any future SUM() into -Infinity/NaN. Validate
-    // positive-and-finite BEFORE the INSERT and reject rather than silently
-    // clamp; also reject an all-zero top-up (both amounts 0) as another
-    // no-op row — mirrors the service-layer check but must not be the ONLY
-    // place it's enforced.
+    // Amount guard: the repository must NOT trust the caller on what goes
+    // into the ledger row. Validate positive-and-finite BEFORE the INSERT
+    // and reject rather than silently clamp; also reject an all-zero
+    // transfer (both amounts 0) as another no-op row — mirrors the
+    // service-layer check but must not be the ONLY place it's enforced.
     for (const [amount, label] of [
-      [data.amount_usd, "amount_usd"],
-      [data.amount_lbp, "amount_lbp"],
+      [data.amountUsd, "amountUsd"],
+      [data.amountLbp, "amountLbp"],
     ] as const) {
       if (!Number.isFinite(amount)) {
         throw new Error(
-          `${label} must be a finite number (got ${amount}) — refusing to write a top-up row with a non-finite amount`,
+          `${label} must be a finite number (got ${amount}) — refusing to write a transfer row with a non-finite amount`,
         );
       }
       if (amount < 0) {
-        throw new Error(
-          `${label} must not be negative (got ${amount})`,
-        );
+        throw new Error(`${label} must not be negative (got ${amount})`);
       }
     }
-    if (!(data.amount_usd > 0) && !(data.amount_lbp > 0)) {
+    if (!(data.amountUsd > 0) && !(data.amountLbp > 0)) {
       throw new Error(
-        "At least one of amount_usd or amount_lbp must be greater than zero — refusing to write an all-zero no-op top-up row",
+        "At least one of amountUsd or amountLbp must be greater than zero — refusing to write an all-zero no-op transfer row",
       );
     }
 
-    const txTime = data.transaction_time;
     const tenantId = getCurrentTenantId();
 
     return this.db.transaction(() => {
@@ -403,151 +418,166 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         return row?.balance ?? 0;
       };
 
-      const fmt = (n: number, currency: "USD" | "LBP") =>
-        currency === "LBP"
-          ? `${Math.round(n).toLocaleString()} LBP`
-          : `$${n.toFixed(2)}`;
+      // Insufficient-funds guard (plan §8.5's structured contract, reused
+      // here per task H so IPC/REST/frontend share ONE error-handling path
+      // with the RECEIVE-payout guard): per-currency, checked BEFORE any row
+      // is written.
+      const shortfall: { USD?: number; LBP?: number } = {};
+      const available: { USD?: number; LBP?: number } = {};
+      const required: { USD?: number; LBP?: number } = {};
 
-      if (data.amount_usd && data.amount_usd > 0) {
-        const available = getBalance(data.fundingDrawer, "USD");
-        if (data.amount_usd > available) {
-          throw new Error(
-            `Insufficient USD balance in ${data.fundingDrawer}: requested ${fmt(data.amount_usd, "USD")}, available ${fmt(available, "USD")}`,
-          );
+      if (data.amountUsd > 0) {
+        const bal = getBalance(data.fromDrawer, "USD");
+        if (bal < data.amountUsd) {
+          shortfall.USD = data.amountUsd - bal;
+          available.USD = bal;
+          required.USD = data.amountUsd;
         }
       }
-      if (data.amount_lbp && data.amount_lbp > 0) {
-        const available = getBalance(data.fundingDrawer, "LBP");
-        if (data.amount_lbp > available) {
-          throw new Error(
-            `Insufficient LBP balance in ${data.fundingDrawer}: requested ${fmt(data.amount_lbp, "LBP")}, available ${fmt(available, "LBP")}`,
-          );
+      if (data.amountLbp > 0) {
+        const bal = getBalance(data.fromDrawer, "LBP");
+        if (bal < data.amountLbp) {
+          shortfall.LBP = data.amountLbp - bal;
+          available.LBP = bal;
+          required.LBP = data.amountLbp;
         }
       }
+      if (Object.keys(shortfall).length > 0) {
+        throw new InsufficientDrawerFundsError(
+          `Insufficient funds in ${data.fromDrawer} to complete this transfer`,
+          { drawer: data.fromDrawer, shortfall, available, required },
+        );
+      }
 
-      // 1. Insert into system_float_topups
-      const insertTopUp = this.db.prepare(`
-        INSERT INTO system_float_topups (tenant_id, target_drawer, funding_drawer, amount_usd, amount_lbp, notes, created_by, created_at, updated_at)
+      // 1. Insert into drawer_transfers
+      const insertTransfer = this.db.prepare(`
+        INSERT INTO drawer_transfers (tenant_id, from_drawer, to_drawer, amount_usd, amount_lbp, notes, created_by, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
       `);
-      const result = insertTopUp.run(
+      const result = insertTransfer.run(
         tenantId,
-        data.targetDrawer,
-        data.fundingDrawer,
-        data.amount_usd,
-        data.amount_lbp,
+        data.fromDrawer,
+        data.toDrawer,
+        data.amountUsd,
+        data.amountLbp,
         data.notes ?? null,
-        userId,
-        txTime ?? null,
+        data.createdBy,
+        data.transactionTime ?? null,
       );
-      const topUpId = Number(result.lastInsertRowid);
+      const transferId = Number(result.lastInsertRowid);
 
       // 2. Create unified transaction row — profit is always 0 (this moves
       // the shop's own cash between two of its own containers; it doesn't
       // sell anything to anyone).
-      const targetLabel = data.targetDrawer.replace("_", " ");
       const txnId = getTransactionRepository().createTransaction({
-        type: TRANSACTION_TYPES.SYSTEM_FLOAT_TOPUP,
-        source_table: "system_float_topups",
-        source_id: topUpId,
-        user_id: userId,
-        amount_usd: data.amount_usd,
-        amount_lbp: data.amount_lbp,
+        type: TRANSACTION_TYPES.DRAWER_TRANSFER,
+        source_table: "drawer_transfers",
+        source_id: transferId,
+        user_id: data.createdBy,
+        amount_usd: data.amountUsd,
+        amount_lbp: data.amountLbp,
         profit_usd: 0,
         profit_lbp: 0,
-        summary: `Fund ${targetLabel}: ${data.fundingDrawer} → ${targetLabel}${data.notes ? ` - ${data.notes}` : ""}`,
+        summary: `Drawer Transfer: ${data.fromDrawer} → ${data.toDrawer}${data.notes ? ` - ${data.notes}` : ""}`,
         metadata_json: {
-          funding_drawer: data.fundingDrawer,
-          target_drawer: data.targetDrawer,
+          from_drawer: data.fromDrawer,
+          to_drawer: data.toDrawer,
           notes: data.notes ?? null,
         },
-        transaction_time: txTime,
+        transaction_time: data.transactionTime,
       });
 
-      const note = `Fund ${targetLabel} float${data.notes ? `: ${data.notes}` : ""} (from ${data.fundingDrawer})`;
+      const note = `Drawer Transfer: ${data.fromDrawer} → ${data.toDrawer}${data.notes ? `: ${data.notes}` : ""}`;
 
-      // 3. USD leg: funding drawer −, target drawer +
-      if (data.amount_usd && data.amount_usd > 0) {
+      // 3. USD leg: fromDrawer −, toDrawer +
+      if (data.amountUsd > 0) {
         insertPaymentRow(this.db, {
           transactionId: txnId,
-          method: SYSTEM_FLOAT_TOPUP_METHOD,
-          drawerName: data.fundingDrawer,
+          method: DRAWER_TRANSFER_METHOD,
+          drawerName: data.fromDrawer,
           currencyCode: "USD",
-          amount: -data.amount_usd,
+          amount: -data.amountUsd,
           note,
-          createdBy: userId,
+          createdBy: data.createdBy,
           tenantId,
         });
         applyDrawerDelta(this.db, {
-          drawerName: data.fundingDrawer,
+          drawerName: data.fromDrawer,
           currencyCode: "USD",
-          delta: -data.amount_usd,
+          delta: -data.amountUsd,
           tenantId,
         });
 
         insertPaymentRow(this.db, {
           transactionId: txnId,
-          method: SYSTEM_FLOAT_TOPUP_METHOD,
-          drawerName: data.targetDrawer,
+          method: DRAWER_TRANSFER_METHOD,
+          drawerName: data.toDrawer,
           currencyCode: "USD",
-          amount: data.amount_usd,
+          amount: data.amountUsd,
           note,
-          createdBy: userId,
+          createdBy: data.createdBy,
           tenantId,
         });
         applyDrawerDelta(this.db, {
-          drawerName: data.targetDrawer,
+          drawerName: data.toDrawer,
           currencyCode: "USD",
-          delta: data.amount_usd,
+          delta: data.amountUsd,
           tenantId,
         });
       }
 
-      // 4. LBP leg: funding drawer −, target drawer +
-      if (data.amount_lbp && data.amount_lbp > 0) {
+      // 4. LBP leg: fromDrawer −, toDrawer +
+      if (data.amountLbp > 0) {
         insertPaymentRow(this.db, {
           transactionId: txnId,
-          method: SYSTEM_FLOAT_TOPUP_METHOD,
-          drawerName: data.fundingDrawer,
+          method: DRAWER_TRANSFER_METHOD,
+          drawerName: data.fromDrawer,
           currencyCode: "LBP",
-          amount: -data.amount_lbp,
+          amount: -data.amountLbp,
           note,
-          createdBy: userId,
+          createdBy: data.createdBy,
           tenantId,
         });
         applyDrawerDelta(this.db, {
-          drawerName: data.fundingDrawer,
+          drawerName: data.fromDrawer,
           currencyCode: "LBP",
-          delta: -data.amount_lbp,
+          delta: -data.amountLbp,
           tenantId,
         });
 
         insertPaymentRow(this.db, {
           transactionId: txnId,
-          method: SYSTEM_FLOAT_TOPUP_METHOD,
-          drawerName: data.targetDrawer,
+          method: DRAWER_TRANSFER_METHOD,
+          drawerName: data.toDrawer,
           currencyCode: "LBP",
-          amount: data.amount_lbp,
+          amount: data.amountLbp,
           note,
-          createdBy: userId,
+          createdBy: data.createdBy,
           tenantId,
         });
         applyDrawerDelta(this.db, {
-          drawerName: data.targetDrawer,
+          drawerName: data.toDrawer,
           currencyCode: "LBP",
-          delta: data.amount_lbp,
+          delta: data.amountLbp,
           tenantId,
         });
       }
 
-      return topUpId;
+      return transferId;
     })();
   }
 
   /**
-   * Get OMT_System drawer balances for transfer source selection.
+   * Get primary-cash-drawer (OMT_System / Whish_System) balances for
+   * transfer source selection. Un-hardcoded from a single `'OMT_System'`
+   * literal (Primary Cash Drawer plan §8.6/Phase E) to both
+   * `PRIMARY_CASH_DRAWER_NAMES` — Whish_System is now just as much a
+   * countable cash drawer as OMT_System, and the caller must be able to
+   * offer either as a transfer source/destination regardless of which
+   * system is primary.
    */
   getSourceDrawerBalances(): SourceDrawerBalance[] {
+    const placeholders = PRIMARY_CASH_DRAWER_NAMES.map(() => "?").join(", ");
     const rows = this.db
       .prepare(
         `
@@ -555,11 +585,11 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         COALESCE(SUM(CASE WHEN currency_code = 'USD' THEN balance ELSE 0 END), 0) as balance_usd,
         COALESCE(SUM(CASE WHEN currency_code = 'LBP' THEN balance ELSE 0 END), 0) as balance_lbp
       FROM drawer_balances
-      WHERE drawer_name = 'OMT_System' AND tenant_id = ?
+      WHERE drawer_name IN (${placeholders}) AND tenant_id = ?
       GROUP BY drawer_name
     `,
       )
-      .all(getCurrentTenantId()) as SourceDrawerBalance[];
+      .all(...PRIMARY_CASH_DRAWER_NAMES, getCurrentTenantId()) as SourceDrawerBalance[];
     return rows;
   }
 

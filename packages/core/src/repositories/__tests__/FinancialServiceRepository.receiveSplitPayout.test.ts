@@ -212,6 +212,13 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances VALUES (1, 'General',    'USD', 1000,        CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'General',    'LBP', 100000000,   CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'OMT_System', 'USD', 500,         CURRENT_TIMESTAMP);
+    -- Primary Cash Drawer plan §8.5: OMT is the shop_base_system here, so
+    -- every CASH RECEIVE payout below now debits OMT_System (the PCD)
+    -- instead of General. Pre-fund its LBP side the same way the USD side
+    -- above already was, or InsufficientDrawerFundsError rejects the
+    -- split-currency payout (540,000 LBP leg) and the OUT-leg test's LBP
+    -- change (50,000 LBP).
+    INSERT INTO drawer_balances VALUES (1, 'OMT_System', 'LBP', 100000000,   CURRENT_TIMESTAMP);
   `);
 
   return db;
@@ -248,10 +255,15 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
     db.close();
   });
 
-  it("deducts BOTH currency legs from General on a split cash payout", () => {
-    const beforeUsd = balance(db, "General", "USD");
-    const beforeLbp = balance(db, "General", "LBP");
-    const beforeOmt = balance(db, "OMT_System", "USD");
+  it("deducts BOTH currency legs from the PCD (OMT_System) on a split cash payout — General is untouched", () => {
+    // Primary Cash Drawer plan (2026-07-30): OMT is shop_base_system here, so
+    // a CASH RECEIVE payout is real cash physically leaving the shop's own
+    // till (OMT_System), not General and not a float top-up. General must be
+    // completely unaffected by this transaction.
+    const beforeGenUsd = balance(db, "General", "USD");
+    const beforeGenLbp = balance(db, "General", "LBP");
+    const beforeOmtUsd = balance(db, "OMT_System", "USD");
+    const beforeOmtLbp = balance(db, "OMT_System", "LBP");
 
     // 196 USD INTRA receive paid out as 190 USD + 540,000 LBP.
     //
@@ -277,25 +289,33 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
       exchangeRate: 90000,
     });
 
-    // Both currency legs leave the General drawer.
-    expect(balance(db, "General", "USD")).toBeCloseTo(beforeUsd - 190, 2);
-    expect(balance(db, "General", "LBP")).toBeCloseTo(beforeLbp - 540000, 2);
+    // General never had a leg on this transaction under the PCD model.
+    expect(balance(db, "General", "USD")).toBeCloseTo(beforeGenUsd, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(beforeGenLbp, 2);
 
-    // float model: RECEIVE fills the float back UP by the bare principal
-    // (+receiveAmount = +196) — the old model drew it DOWN by totalOwed
-    // (principal + commission). Commission/fee never touch this leg; only
-    // the payout drawer(s) above see fee-related deltas.
-    // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
-    // `-totalOwed` (subtract instead of add) makes this red (OMT_System read
-    // 303.7, no longer >= beforeOmt + 196).
-    expect(balance(db, "OMT_System", "USD")).toBeGreaterThanOrEqual(
-      beforeOmt + 196,
+    // §1 table: RECEIVE fee-on-top, f=0 (no omtFee supplied), c=0
+    // (commission 0) → PCD legs = −x, split across both tendered currencies
+    // exactly as given (190 USD + 540,000 LBP ≡ $196 at the stamped 90,000
+    // rate). No more float credit (+196) — the drawer only moves via the
+    // real cash legs, and both legs here are debits.
+    // rule 17: run against the pre-this-plan float code, OMT_System USD
+    // reads beforeOmtUsd + 196 (a CREDIT, and on General instead of here) —
+    // the opposite sign and drawer — so this fails on the old code for the
+    // right reason.
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
+      beforeOmtUsd - 190,
+      2,
+    );
+    expect(balance(db, "OMT_System", "LBP")).toBeCloseTo(
+      beforeOmtLbp - 540000,
+      2,
     );
   });
 
-  it("still deducts a single-currency cash payout when no split legs are given", () => {
-    const beforeUsd = balance(db, "General", "USD");
-    const beforeLbp = balance(db, "General", "LBP");
+  it("still deducts a single-currency cash payout from the PCD when no split legs are given", () => {
+    const beforeGenUsd = balance(db, "General", "USD");
+    const beforeGenLbp = balance(db, "General", "LBP");
+    const beforeOmtUsd = balance(db, "OMT_System", "USD");
 
     repo.createTransaction({
       provider: "OMT",
@@ -308,19 +328,33 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
       exchangeRate: 89000,
     });
 
-    expect(balance(db, "General", "USD")).toBeCloseTo(beforeUsd - 100, 2);
-    // LBP untouched for a single USD payout.
-    expect(balance(db, "General", "LBP")).toBeCloseTo(beforeLbp, 2);
+    // No-legs fallback (§2#2): a primary-system CASH payout lands in the
+    // PCD, not General. General is fully unaffected; OMT_System USD absorbs
+    // the bare principal debit (f=0, c=0 → PCD leg = −x = −100).
+    expect(balance(db, "General", "USD")).toBeCloseTo(beforeGenUsd, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(beforeGenLbp, 2);
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
+      beforeOmtUsd - 100,
+      2,
+    );
   });
 
-  it("does NOT double-debit an OUT (change) leg — it is handled once by the return-leg loop", () => {
-    const beforeUsd = balance(db, "General", "USD");
-    const beforeLbp = balance(db, "General", "LBP");
+  it("does NOT double-debit an OUT (change) leg — it is handled once by the return-leg loop, and both legs land on the PCD", () => {
+    const beforeGenUsd = balance(db, "General", "USD");
+    const beforeGenLbp = balance(db, "General", "LBP");
+    const beforeOmtUsd = balance(db, "OMT_System", "USD");
+    const beforeOmtLbp = balance(db, "OMT_System", "LBP");
 
     // Payout of 100 USD (IN leg) plus a 50,000 LBP change leg tagged OUT.
-    // The OUT leg must be debited exactly once (by the shared return-leg loop),
-    // NOT also by the RECEIVE payout loop. Before the fix, General LBP moved
-    // -100,000 (the OUT leg was double-debited).
+    // The OUT leg must be debited exactly once (by the shared return-leg
+    // loop, CLAUDE.md rule 16), NOT also by the RECEIVE payout loop — the
+    // payout loop builds its set from `data.payments` AFTER the IN/OUT
+    // partition strips return legs out, so the OUT leg is invisible to it.
+    // Under the PCD model this property is MORE load-bearing than before:
+    // both the payout IN leg and the return-leg OUT leg resolve to the SAME
+    // drawer (OMT_System) now, so a double-debit here would silently drain
+    // the PCD twice as fast and could even trip the insufficient-funds guard
+    // — exactly the "confusing rejection" CLAUDE.md rule 16 warns about.
     repo.createTransaction({
       provider: "OMT",
       serviceType: "RECEIVE",
@@ -341,7 +375,21 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
       exchangeRate: 89000,
     });
 
-    expect(balance(db, "General", "USD")).toBeCloseTo(beforeUsd - 100, 2);
-    expect(balance(db, "General", "LBP")).toBeCloseTo(beforeLbp - 50000, 2);
+    // General is untouched — both the payout and the change leg are
+    // primary-system CASH and route to the PCD.
+    expect(balance(db, "General", "USD")).toBeCloseTo(beforeGenUsd, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(beforeGenLbp, 2);
+    // Payout IN leg (100 USD) debited exactly once.
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
+      beforeOmtUsd - 100,
+      2,
+    );
+    // Return-leg OUT (50,000 LBP) debited exactly once — NOT 100,000 (which
+    // is what a double-debit through both the payout loop AND the return-leg
+    // loop would produce).
+    expect(balance(db, "OMT_System", "LBP")).toBeCloseTo(
+      beforeOmtLbp - 50000,
+      2,
+    );
   });
 });

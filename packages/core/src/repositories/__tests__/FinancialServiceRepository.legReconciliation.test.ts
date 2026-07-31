@@ -228,6 +228,12 @@ function createTestDb(): Database.Database {
     INSERT INTO drawer_balances VALUES (1, 'Binance',      'USDT', 500,       CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'OMT_System',   'USD',  500,       CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'Whish_System', 'USD',  500,       CURRENT_TIMESTAMP);
+    -- Primary Cash Drawer plan §8.5: a RECEIVE payout now debits the PCD for
+    -- real — the split-currency cashout control case below pays out 540,000
+    -- LBP straight out of OMT_System, so it must be pre-funded like the
+    -- existing General LBP seed above, or InsufficientDrawerFundsError
+    -- rejects the transaction.
+    INSERT INTO drawer_balances VALUES (1, 'OMT_System',   'LBP',  100000000, CURRENT_TIMESTAMP);
   `);
 
   return db;
@@ -553,7 +559,7 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
       expect(balance(db, "OMT_System", "USD")).toBe(systemBefore);
     });
 
-    it("control: the correct total reconciles and books the float transfer", () => {
+    it("control: the correct total reconciles and books the leg directly into the PCD", () => {
       const before = counts(db);
       repo.createTransaction({
         provider: "OMT",
@@ -565,12 +571,13 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
         exchangeRate: 90000,
       });
       expect(counts(db).transactions).toBe(before.transactions + 1);
-      // float model: SEND draws the float down by the bare principal (x);
-      // the old reserve model credited it (+10) instead.
-      // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
-      // `500 + 10` (the old systemDrawerCredit) makes this red (OMT_System
-      // read 510 instead of 490).
-      expect(balance(db, "OMT_System", "USD")).toBe(500 - 10);
+      // PCD model: the customer's CASH leg lands directly in OMT_System (the
+      // PCD) — §1 table, SEND fee-on-top, f=0 (no omtFee), c=0 (commission
+      // 0) → PCD leg = +(x+f) = +10. There is no more separate float-reserve
+      // posting to distinguish from the customer leg (rule 17: run against
+      // the pre-this-plan float code, this reads 500 − 10 = 490 — the
+      // opposite sign — so it fails on the old code for the right reason).
+      expect(balance(db, "OMT_System", "USD")).toBe(500 + 10);
     });
 
     it("a CUSTOMER_ACCOUNT leg covering the remainder reconciles (S2 owner decision: account legs count as IN)", () => {
@@ -629,7 +636,7 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
       expect(balance(db, "General", "LBP")).toBe(genLbpBefore);
     });
 
-    it("control: the correct split payout (190 USD + 540,000 LBP = $196) reconciles", () => {
+    it("control: the correct split payout (190 USD + 540,000 LBP = $196) reconciles and pays out of the PCD", () => {
       const before = counts(db);
       repo.createTransaction({
         provider: "OMT",
@@ -645,8 +652,18 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
         exchangeRate: 90000,
       });
       expect(counts(db).transactions).toBe(before.transactions + 1);
-      expect(balance(db, "General", "USD")).toBe(1000 - 190);
-      expect(balance(db, "General", "LBP")).toBe(100000000 - 540000);
+      // PCD model: a CASH RECEIVE payout on the primary provider (OMT) now
+      // debits OMT_System, not General — §1 table, RECEIVE fee-on-top, f=0
+      // (no omtFee) → PCD legs = −x split across both tendered currencies
+      // (190 USD + 540,000 LBP = $196 total at the stamped 90,000 rate).
+      // General is untouched (rule 17: run against the pre-this-plan float
+      // code, this reads General USD 810 / General LBP 99,460,000 — the
+      // opposite of "General unaffected" — so it fails on the old code for
+      // the right reason).
+      expect(balance(db, "General", "USD")).toBe(1000);
+      expect(balance(db, "General", "LBP")).toBe(100000000);
+      expect(balance(db, "OMT_System", "USD")).toBe(500 - 190);
+      expect(balance(db, "OMT_System", "LBP")).toBe(100000000 - 540000);
     });
   });
 

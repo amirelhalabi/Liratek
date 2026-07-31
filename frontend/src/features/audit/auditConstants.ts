@@ -125,8 +125,12 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
   {
     group: "Cash",
     options: [
-      // B6: "what touched the till?" — transactions with a CASH payment leg
-      // (CASH legs post to the General drawer). Filtered client-side.
+      // B6: "what touched the till?" — transactions with a CASH payment leg.
+      // Method-based filter, applied client-side (isCashTransaction) — stays
+      // correct as-is under the Primary Cash Drawer model even though a CASH
+      // leg no longer always posts to the General drawer: a primary-system
+      // SEND/RECEIVE CASH leg now resolves to the PCD (OMT_System/
+      // Whish_System) instead (plan §1/§2 #4).
       { label: "Cash only (till)", cash_only: true },
     ],
   },
@@ -209,12 +213,14 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       },
       { label: "OMT App Top-up", type: "RECHARGE_TOPUP", provider: "OMT_APP" },
       {
-        label: "OMT System Top-up",
+        // Primary Cash Drawer plan §1 — OMT_System is the physical cash
+        // drawer, not a provider system balance; label follows suit.
+        label: "OMT Cash Drawer Top-up",
         type: "RECHARGE_TOPUP",
         provider: "OMT_SYSTEM",
       },
       {
-        label: "Whish System Top-up",
+        label: "Whish Cash Drawer Top-up",
         type: "RECHARGE_TOPUP",
         provider: "WHISH_SYSTEM",
       },
@@ -312,10 +318,15 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // reversible via the generic path, not in NON_REVERSIBLE_TRANSACTION_TYPES.
   "WALLET_EXCHANGE",
   // Same reversal shape as WALLET_EXCHANGE — two payment legs + two drawer
-  // deltas, own side table (system_float_topups) with is_refunded/refunded_at
-  // and in TransactionRepository's _markSourceRefunded supported list —
-  // reversible via the generic path, not in NON_REVERSIBLE_TRANSACTION_TYPES.
-  "SYSTEM_FLOAT_TOPUP",
+  // deltas, own side table (drawer_transfers, renamed from
+  // system_float_topups — Primary Cash Drawer plan §8.6) with
+  // is_refunded/refunded_at and in TransactionRepository's
+  // _markSourceRefunded supported list — reversible via the generic path,
+  // not in NON_REVERSIBLE_TRANSACTION_TYPES. Renamed from
+  // `SYSTEM_FLOAT_TOPUP` alongside `TRANSACTION_TYPES.DRAWER_TRANSFER`
+  // (plan §8.6) — this is now a generic General <-> primary-cash-drawer
+  // cash transfer, not a provider float top-up.
+  "DRAWER_TRANSFER",
   "RECHARGE",
   "CUSTOM_SERVICE",
   "MAINTENANCE",

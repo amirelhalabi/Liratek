@@ -103,6 +103,16 @@ const PROVIDER_DRAWER: Record<string, string> = {
   LOTO: "Loto",
 };
 
+/** Display label for the drawer badge next to a supplier's name. OMT_System /
+ *  Whish_System are the physical cash drawer at the shop's money-transfer
+ *  counter (Primary Cash Drawer plan §1), not a provider float balance — the
+ *  badge should read that way, not as the raw internal drawer name. */
+function drawerDisplayLabel(drawerName: string): string {
+  if (drawerName === "OMT_System") return "OMT Cash Drawer";
+  if (drawerName === "Whish_System") return "Whish Cash Drawer";
+  return drawerName;
+}
+
 function EntryTypeBadge({ type }: { type: string }) {
   const color =
     type === "TOP_UP"
@@ -793,7 +803,7 @@ export default function SuppliersPage() {
                     <div className="flex items-center gap-2">
                       {drawer && (
                         <span className="text-[10px] text-slate-500 font-mono">
-                          {drawer}
+                          {drawerDisplayLabel(drawer)}
                         </span>
                       )}
                     </div>

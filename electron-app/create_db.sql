@@ -882,16 +882,23 @@ CREATE TABLE IF NOT EXISTS wallet_exchanges (
 CREATE INDEX IF NOT EXISTS idx_wallet_exchanges_tenant_id ON wallet_exchanges(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_wallet_exchanges_created_at ON wallet_exchanges(created_at);
 
--- System Float Top-Ups (v139): operator funds the OMT_System / Whish_System
--- spendable float directly (the missing direction — DrawerTopUpRepository
--- only ever moved money OUT of the system drawer into General). Own table,
--- own is_refunded/refunded_at, reversible via the generic void/refund path —
--- see SystemFloatTopupRepository doc / DrawerTopUpRepository.fundSystemDrawer.
-CREATE TABLE IF NOT EXISTS system_float_topups (
+-- Drawer Transfers (v140, rebuilt from v139's system_float_topups): a
+-- generic, reversible cash move between any two of the shop's own drawers —
+-- General <-> the primary cash drawer (OMT_System / Whish_System, whichever
+-- is primary per shop_base_system) is the pair the UI exposes, both
+-- directions legal (Primary Cash Drawer plan §8.6). OMT_System/Whish_System
+-- are no longer a spendable float held inside the provider's system — they
+-- ARE the physical cash drawer at the counter, countable at closing like any
+-- cash box (plan §1). No CHECK on from_drawer/to_drawer: SQLite cannot ALTER
+-- a CHECK, and the old system_float_topups.target_drawer CHECK forbade the
+-- PCD->General direction this feature adds. Own is_refunded/refunded_at,
+-- reversible via the generic void/refund path — see
+-- DrawerTopUpRepository.transferBetweenDrawers.
+CREATE TABLE IF NOT EXISTS drawer_transfers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant_id INTEGER REFERENCES tenants(id),
-  target_drawer TEXT NOT NULL CHECK (target_drawer IN ('OMT_System', 'Whish_System')),
-  funding_drawer TEXT NOT NULL,
+  from_drawer TEXT NOT NULL,
+  to_drawer TEXT NOT NULL,
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   notes TEXT,
@@ -901,8 +908,8 @@ CREATE TABLE IF NOT EXISTS system_float_topups (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_system_float_topups_tenant_id ON system_float_topups(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_system_float_topups_created_at ON system_float_topups(created_at);
+CREATE INDEX IF NOT EXISTS idx_drawer_transfers_tenant_id ON drawer_transfers(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_drawer_transfers_created_at ON drawer_transfers(created_at);
 
 -- Daily Closings
 CREATE TABLE IF NOT EXISTS daily_closings (
@@ -1572,4 +1579,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (136, 'add_supplier_ledger_source_ref'),
     (137, 'add_drawer_cashouts_table'),
     (138, 'add_wallet_exchanges_table'),
-    (139, 'add_system_float_topups_table');
+    (139, 'add_system_float_topups_table'),
+    (140, 'rebuild_system_float_topups_as_drawer_transfers');

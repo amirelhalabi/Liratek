@@ -475,12 +475,17 @@ export type {
 } from "./AuditRepository.js";
 
 // Drawer Top-Up Repository
+// NOTE (Primary Cash Drawer plan §8.1/§8.7 — core-money agent, 2026-07-30):
+// renamed from SYSTEM_FLOAT_DRAWER_NAMES/SystemFloatDrawerName. The
+// DrawerTopUpRepository/Service consumers are owned by a parallel agent —
+// this barrel now expects them to re-export the renamed identifiers below;
+// see crossFileNeeds in this slice's report if that hasn't landed yet.
 export {
   DrawerTopUpRepository,
   getDrawerTopUpRepository,
   resetDrawerTopUpRepository,
   GENERAL_DRAWER,
-  SYSTEM_FLOAT_DRAWER_NAMES,
+  PRIMARY_CASH_DRAWER_NAMES,
 } from "./DrawerTopUpRepository.js";
 export type {
   DrawerTopUpEntity,
@@ -488,7 +493,7 @@ export type {
   CreateDrawerTopUpFromDrawerData,
   CreateSystemFloatTopupData,
   SourceDrawerBalance,
-  SystemFloatDrawerName,
+  PrimaryCashDrawerName,
 } from "./DrawerTopUpRepository.js";
 
 // Drawer Cash-Out Repository

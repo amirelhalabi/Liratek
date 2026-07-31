@@ -124,6 +124,20 @@ export type ApiMeResult = ApiResult & {
   user?: ApiUser;
 };
 
+/**
+ * Structured shape of `InsufficientDrawerFundsError.details` (Primary Cash
+ * Drawer plan §8.5) — thrown when a RECEIVE payout (or a manual transfer)
+ * would take a drawer negative in a given currency. Both IPC and REST are
+ * supposed to surface it verbatim on the envelope (`code: "INSUFFICIENT_DRAWER_FUNDS"`,
+ * `details`); callers MUST switch on `code`, never a message string match.
+ */
+export interface InsufficientDrawerFundsDetails {
+  drawer: string;
+  shortfall: { USD?: number; LBP?: number };
+  available: { USD?: number; LBP?: number };
+  required: { USD?: number; LBP?: number };
+}
+
 export type ProductWriteResult = {
   success: boolean;
   id?: number;
@@ -539,7 +553,32 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getOMTHistory: (provider?: string) => Promise<any[]>;
   getOMTAnalytics: (providers?: string[]) => Promise<any>;
-  addOMTTransaction: (payload: any) => Promise<ApiResult & { id?: number }>;
+  /** RECEIVE payouts can be blocked with `code: "INSUFFICIENT_DRAWER_FUNDS"`
+   *  (Primary Cash Drawer plan §8.5) when the primary cash drawer lacks
+   *  funds in the payout currency — `details` carries the shortfall so the
+   *  caller can offer a "move from General" action. Switch on `code`, never
+   *  the message string. */
+  addOMTTransaction: (
+    payload: any,
+  ) => Promise<
+    ApiResult & { id?: number; code?: string; details?: InsufficientDrawerFundsDetails }
+  >;
+  /** Generic, reversible cash transfer between any two of the shop's own
+   *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
+   *  drawer (OMT_System/Whish_System) is the pair the UI exposes. Replaces
+   *  the retired `drawerTopUp.fundSystem` (one-directional float-funding,
+   *  now-superseded 2026-07-29 model). Can itself fail with
+   *  `code: "INSUFFICIENT_DRAWER_FUNDS"` if `fromDrawer` lacks funds. */
+  transferBetweenDrawers: (data: {
+    fromDrawer: string;
+    toDrawer: string;
+    amount_usd: number;
+    amount_lbp: number;
+    notes?: string;
+    transaction_time?: string;
+  }) => Promise<
+    ApiResult & { id?: number; code?: string; details?: InsufficientDrawerFundsDetails }
+  >;
 
   // ---------------------------------------------------------------------------
   // Maintenance
@@ -1115,16 +1154,6 @@ export type ApiAdapter = {
       amount_lbp: number;
       source_drawer: string;
       notes?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    /** Fund the OMT_System / Whish_System spendable float from any drawer
-     *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
-    fundSystem: (data: {
-      targetDrawer: "OMT_System" | "Whish_System";
-      fundingDrawer: string;
-      amount_usd: number;
-      amount_lbp: number;
-      notes?: string;
-      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getSourceDrawers: () => Promise<{
       success: boolean;

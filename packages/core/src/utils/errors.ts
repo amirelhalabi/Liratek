@@ -125,6 +125,35 @@ export function getRepoConstraintCode(
 }
 
 /**
+ * RECEIVE payout blocked because the primary cash drawer (PCD — `OMT_System`/
+ * `Whish_System`) lacks funds in the payout currency
+ * (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md §8.5, decision #11).
+ * Thrown by `FinancialServiceRepository` BEFORE any payout leg posts, so the
+ * transaction never partially applies. `details` carries enough for the
+ * frontend to offer an inline "move remaining from General" action with a
+ * USD/LBP toggle. Both IPC and REST surface this identically (rule 19c) via
+ * the inherited `AppError.toJSON()` / `handleErrorV2()` path:
+ * `{ success: false, error, code: "INSUFFICIENT_DRAWER_FUNDS", details }`
+ * (REST still responds HTTP 200 — the envelope is the contract, not the
+ * status code). The Services page must switch on `code`, never a message
+ * string match.
+ */
+export interface InsufficientDrawerFundsDetails {
+  drawer: string;
+  shortfall: { USD?: number; LBP?: number };
+  available: { USD?: number; LBP?: number };
+  required: { USD?: number; LBP?: number };
+}
+
+export class InsufficientDrawerFundsError extends AppError {
+  declare readonly details: InsufficientDrawerFundsDetails;
+
+  constructor(message: string, details: InsufficientDrawerFundsDetails) {
+    super("INSUFFICIENT_DRAWER_FUNDS", message, 422, true, details);
+  }
+}
+
+/**
  * Business rule violation errors
  */
 export class BusinessRuleError extends AppError {

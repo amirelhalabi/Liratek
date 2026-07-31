@@ -3,6 +3,7 @@ export type {
   ApiUser,
   ApiResult,
   ApiMeResult,
+  InsufficientDrawerFundsDetails,
   ProductWriteResult,
   ProcessSaleResult,
   PaymentMethodEntity,

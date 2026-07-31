@@ -25,8 +25,8 @@ import {
   Select,
   useApi,
   appEvents,
-  TopUpModal,
   DecimalInput,
+  type InsufficientDrawerFundsDetails,
 } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
@@ -265,7 +265,7 @@ interface SupplierOwed {
 
 export default function Services() {
   const api = useApi();
-  const { baseSystem, partnerSystem } = useShopBase();
+  const { partnerSystem } = useShopBase();
   const {
     activeSession,
     linkTransaction,
@@ -355,12 +355,25 @@ export default function Services() {
   const [showHistory, setShowHistory] = useState(false);
   useModalFocusFix(showHistory);
 
-  // System drawer top-up modal
-  const [showTopUpModal, setShowTopUpModal] = useState(false);
-  useModalFocusFix(showTopUpModal);
-  const [topUpDrawers, setTopUpDrawers] = useState<
-    Array<{ name: string; usdBalance: number; lbpBalance: number }>
-  >([]);
+  // RECEIVE insufficient-funds flow (Primary Cash Drawer plan §8.5, owner
+  // decision #11): when a RECEIVE payout is blocked because the primary
+  // cash drawer lacks funds, this holds the shortfall + the exact payload
+  // that failed so it can be retried, unmodified, once the operator moves
+  // the missing cash from General — no retyping the transaction.
+  const [insufficientFundsError, setInsufficientFundsError] = useState<
+    (InsufficientDrawerFundsDetails & {
+      payload: Record<string, unknown>;
+      linkTotal: number;
+    }) | null
+  >(null);
+  const [transferAmounts, setTransferAmounts] = useState<{
+    USD: string;
+    LBP: string;
+  }>({ USD: "", LBP: "" });
+  const [transferCurrency, setTransferCurrency] = useState<"USD" | "LBP">(
+    "USD",
+  );
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
 
   // ── Inline edit state for history ──────────────────────────────────
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -672,6 +685,102 @@ export default function Services() {
       window.removeEventListener("voicebot:command", handleVoiceCommand);
     };
   }, [provider, activeSession, api, loadData]);
+
+  // Submits the built OMT/Whish payload and handles the result — factored
+  // out of handleSubmit (Primary Cash Drawer plan §8.5, owner decision #11)
+  // so the exact same payload can be retried, unmodified, after the operator
+  // resolves a blocked RECEIVE payout by moving cash from General. `payload`
+  // and `linkTotal` are snapshotted at call time — never recomputed from
+  // current form state — so a retry submits precisely what was rejected.
+  const submitOMTPayload = useCallback(
+    async (payload: Record<string, unknown>, linkTotal: number) => {
+      const result = await api.addOMTTransaction(payload);
+
+      if (result.success) {
+        // Link to active session if exists
+        if (activeSession && result.id) {
+          try {
+            await linkTransaction({
+              transactionType: "financial_service",
+              transactionId: result.id,
+              amountUsd: linkTotal,
+              amountLbp: 0,
+            });
+          } catch (err) {
+            logger.error("Failed to link service to session:", err);
+            // Don't block the transaction completion
+          }
+        }
+
+        appEvents.emit(
+          "notification:show",
+          `${provider} ${serviceType.toLowerCase()} recorded successfully`,
+          "success",
+        );
+
+        // Reset form
+        setAmount("");
+        setSenderName("");
+        setSenderPhone("");
+        setReceiverName("");
+        setReceiverPhone("");
+        setReferenceNumber("");
+        setOmtServiceType("INTRA" as OmtServiceType);
+        setOmtFee("");
+        setWhishFee("");
+        setPayFee(false);
+        setBinanceSupplier("");
+        setPaymentLines([]);
+        setReturnLegs([]);
+        setIncludingFees(false);
+        setPmFeeAmount("");
+        setMultiPmFees({});
+        setNote("");
+        setSelectedPartnerId(null);
+        setForPartner(false);
+        setForPartnerId(null);
+        setCashoutMethod("CASH");
+        setTransactionTime(undefined);
+        loadData();
+        resetSaveAsClient();
+        setInsufficientFundsError(null);
+        return;
+      }
+
+      // RECEIVE payout blocked because the primary cash drawer lacks funds
+      // (Primary Cash Drawer plan §8.5, owner decision #11) — branch on the
+      // structured `code`, NEVER a message string match. Surface the
+      // shortfall with an inline "move from General" action (USD/LBP
+      // toggle) instead of a bare error toast, keeping the payload so the
+      // transaction can be retried after the transfer without retyping.
+      if (result.code === "INSUFFICIENT_DRAWER_FUNDS" && result.details) {
+        const details = result.details as InsufficientDrawerFundsDetails;
+        const primaryCurrency: "USD" | "LBP" = details.shortfall.USD
+          ? "USD"
+          : "LBP";
+        setInsufficientFundsError({ ...details, payload, linkTotal });
+        setTransferAmounts({
+          USD:
+            details.shortfall.USD && details.shortfall.USD > 0
+              ? String(details.shortfall.USD)
+              : "",
+          LBP:
+            details.shortfall.LBP && details.shortfall.LBP > 0
+              ? String(details.shortfall.LBP)
+              : "",
+        });
+        setTransferCurrency(primaryCurrency);
+        return;
+      }
+
+      appEvents.emit(
+        "notification:show",
+        result.error || "Transaction failed",
+        "error",
+      );
+    },
+    [api, activeSession, linkTransaction, provider, serviceType, loadData, resetSaveAsClient],
+  );
 
   const handleSubmit = useCallback(async () => {
     // Validate: client name + phone required when debt is used (single or split)
@@ -1052,65 +1161,10 @@ export default function Services() {
         return;
       }
 
-      const result = await api.addOMTTransaction(apiPayload);
-
-      if (result.success) {
-        // Link to active session if exists
-        if (activeSession && result.id) {
-          try {
-            const linkTotal = includingFees
-              ? amtVal
-              : sentAmount + (resolvedFee ?? 0) + finalPmFee;
-            await linkTransaction({
-              transactionType: "financial_service",
-              transactionId: result.id,
-              amountUsd: linkTotal,
-              amountLbp: 0,
-            });
-          } catch (err) {
-            logger.error("Failed to link service to session:", err);
-            // Don't block the transaction completion
-          }
-        }
-
-        appEvents.emit(
-          "notification:show",
-          `${provider} ${serviceType.toLowerCase()} recorded successfully`,
-          "success",
-        );
-
-        // Reset form
-        setAmount("");
-        setSenderName("");
-        setSenderPhone("");
-        setReceiverName("");
-        setReceiverPhone("");
-        setReferenceNumber("");
-        setOmtServiceType("INTRA" as OmtServiceType);
-        setOmtFee("");
-        setWhishFee("");
-        setPayFee(false);
-        setBinanceSupplier("");
-        setPaymentLines([]);
-        setReturnLegs([]);
-        setIncludingFees(false);
-        setPmFeeAmount("");
-        setMultiPmFees({});
-        setNote("");
-        setSelectedPartnerId(null);
-        setForPartner(false);
-        setForPartnerId(null);
-        setCashoutMethod("CASH");
-        setTransactionTime(undefined);
-        loadData();
-        resetSaveAsClient();
-      } else {
-        appEvents.emit(
-          "notification:show",
-          result.error || "Transaction failed",
-          "error",
-        );
-      }
+      const linkTotal = includingFees
+        ? amtVal
+        : sentAmount + (resolvedFee ?? 0) + finalPmFee;
+      await submitOMTPayload(apiPayload, linkTotal);
     } catch (error) {
       logger.error("Operation failed", { error });
       const msg =
@@ -1158,6 +1212,7 @@ export default function Services() {
     loadData,
     trySaveAsClient,
     resetSaveAsClient,
+    submitOMTPayload,
   ]);
 
   // Close history modal on Escape key
@@ -1170,59 +1225,68 @@ export default function Services() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [showHistory]);
 
-  const systemTopUpProvider =
-    baseSystem === "OMT" ? "OMT_SYSTEM" : ("WHISH_SYSTEM" as const);
-  const systemDrawerName = baseSystem === "OMT" ? "OMT_System" : "Whish_System";
-
-  const handleSystemTopUpClick = useCallback(async () => {
-    try {
-      const drawers = await window.api.recharge.getDrawerBalances();
-      setTopUpDrawers(drawers);
-      setShowTopUpModal(true);
-    } catch (err) {
-      logger.error("Failed to load drawer balances for top-up:", err);
-      alert("Failed to load drawer balances");
+  // RECEIVE insufficient-funds recovery (Primary Cash Drawer plan §8.5/§8.6,
+  // owner decision #11): move the shortfall from General into the primary
+  // cash drawer via the generic reversible transfer, then retry the exact
+  // payload that was blocked — the operator never retypes the transaction.
+  // Replaces the old float "Top Up" affordance (see the header/JSX diff);
+  // that one-directional, non-reversible recharge.topUpApp mechanism has no
+  // place once OMT_System/Whish_System are physical cash drawers — the
+  // dashboard's DrawerTopUpModal now owns the bidirectional General <-> PCD
+  // transfer UI for the general (non-blocked) case.
+  const handleTransferAndRetry = useCallback(async () => {
+    if (!insufficientFundsError) return;
+    const amountUsd = parseFloat(transferAmounts.USD) || 0;
+    const amountLbp = parseFloat(transferAmounts.LBP) || 0;
+    if (amountUsd <= 0 && amountLbp <= 0) {
+      appEvents.emit(
+        "notification:show",
+        "Enter an amount to move from General.",
+        "warning",
+      );
+      return;
     }
-  }, []);
-
-  const handleSystemTopUpConfirm = useCallback(
-    async (data: {
-      amount: number;
-      currency: "USD" | "LBP";
-      sourceDrawer: string;
-    }) => {
-      const result = await window.api.recharge.topUpApp({
-        provider: systemTopUpProvider,
-        amount: data.amount,
-        currency: data.currency,
-        sourceDrawer: data.sourceDrawer,
+    setTransferSubmitting(true);
+    try {
+      const transferResult = await api.transferBetweenDrawers({
+        fromDrawer: "General",
+        toDrawer: insufficientFundsError.drawer,
+        amount_usd: amountUsd,
+        amount_lbp: amountLbp,
+        notes: `Cover ${provider} RECEIVE shortfall`,
       });
-      if (!result.success) throw new Error(result.error ?? "Top-up failed");
+      if (!transferResult.success) {
+        appEvents.emit(
+          "notification:show",
+          transferResult.error || "Transfer failed",
+          "error",
+        );
+        return;
+      }
       appEvents.emit(
         "notification:show",
-        `${systemTopUpProvider} topped up with ${data.amount} ${data.currency}`,
+        "Funds moved from General. Retrying transaction…",
         "success",
       );
-    },
-    [systemTopUpProvider],
-  );
-
-  const handleSystemTopUpConfirmExternal = useCallback(
-    async (data: { amount: number; currency: "USD" | "LBP" }) => {
-      const result = await window.api.recharge.topUpAppExternal({
-        provider: systemTopUpProvider,
-        amount: data.amount,
-        currency: data.currency,
-      });
-      if (!result.success) throw new Error(result.error ?? "Top-up failed");
+      const { payload, linkTotal } = insufficientFundsError;
+      setInsufficientFundsError(null);
+      setIsSubmitting(true);
+      try {
+        await submitOMTPayload(payload, linkTotal);
+      } finally {
+        setIsSubmitting(false);
+      }
+    } catch (err) {
+      logger.error("Transfer-and-retry failed:", err);
       appEvents.emit(
         "notification:show",
-        `${systemTopUpProvider} topped up with ${data.amount} ${data.currency} (external)`,
-        "success",
+        err instanceof Error ? err.message : "Transfer failed",
+        "error",
       );
-    },
-    [systemTopUpProvider],
-  );
+    } finally {
+      setTransferSubmitting(false);
+    }
+  }, [insufficientFundsError, transferAmounts, api, provider, submitOMTPayload]);
 
   // Derived accent colors based on active provider
   const providerAccent = useMemo(
@@ -1248,13 +1312,6 @@ export default function Services() {
               monthByCurrency={analytics.month.byCurrency}
               owedByProvider={owedByProvider}
             />
-            <button
-              type="button"
-              onClick={handleSystemTopUpClick}
-              className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
-            >
-              Top Up
-            </button>
             <button
               type="button"
               onClick={() => setShowHistory(true)}
@@ -2235,6 +2292,98 @@ export default function Services() {
 
             {/* Footer: Submit */}
             <div className="p-3 border-t border-slate-700/40 bg-slate-900/20 mt-auto">
+              {/* RECEIVE insufficient-funds recovery (Primary Cash Drawer
+                  plan §8.5, owner decision #11): the payout was blocked
+                  because the primary cash drawer lacks funds in the
+                  requested currency. Move the shortfall from General, then
+                  retry the exact transaction that was rejected — no
+                  retyping. */}
+              {insufficientFundsError && (
+                <div
+                  data-testid="service-insufficient-funds-panel"
+                  className="mb-3 rounded-lg bg-red-500/10 border border-red-500/30 p-3 space-y-2"
+                >
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 text-xs">
+                      <p className="font-semibold text-red-300">
+                        Insufficient funds in {insufficientFundsError.drawer}
+                      </p>
+                      <p className="mt-0.5 text-red-300/80">
+                        {insufficientFundsError.shortfall.USD
+                          ? `Short $${insufficientFundsError.shortfall.USD.toFixed(2)} USD`
+                          : ""}
+                        {insufficientFundsError.shortfall.USD &&
+                        insufficientFundsError.shortfall.LBP
+                          ? " · "
+                          : ""}
+                        {insufficientFundsError.shortfall.LBP
+                          ? `Short ${insufficientFundsError.shortfall.LBP.toLocaleString()} LBP`
+                          : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setInsufficientFundsError(null)}
+                      className="text-red-400 hover:text-red-300 flex-shrink-0"
+                      title="Dismiss"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 whitespace-nowrap">
+                      Move from General:
+                    </span>
+                    <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                      {(["USD", "LBP"] as const).map((cur) => (
+                        <button
+                          key={cur}
+                          type="button"
+                          onClick={() => setTransferCurrency(cur)}
+                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                            transferCurrency === cur
+                              ? "bg-violet-600 text-white"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          {cur}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex-1 relative">
+                      {transferCurrency === "USD" && (
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">
+                          $
+                        </span>
+                      )}
+                      <DecimalInput
+                        data-testid="service-transfer-amount-input"
+                        value={parseFloat(transferAmounts[transferCurrency]) || 0}
+                        onChange={(n) =>
+                          setTransferAmounts((prev) => ({
+                            ...prev,
+                            [transferCurrency]: n ? String(n) : "",
+                          }))
+                        }
+                        className={`w-full bg-slate-900 border border-slate-600 rounded-lg py-1.5 text-sm text-white focus:outline-none focus:border-violet-500 ${
+                          transferCurrency === "USD" ? "pl-6 pr-2" : "px-2"
+                        }`}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleTransferAndRetry}
+                      disabled={transferSubmitting}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 text-white transition-colors whitespace-nowrap"
+                    >
+                      {transferSubmitting ? "Moving…" : "Move & Retry"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <TransactionTimeOverride
                 value={transactionTime}
                 onChange={setTransactionTime}
@@ -2268,18 +2417,6 @@ export default function Services() {
           </div>
         </div>
       </div>
-
-      {/* System Drawer Top-Up Modal */}
-      <TopUpModal
-        isOpen={showTopUpModal}
-        onClose={() => setShowTopUpModal(false)}
-        onConfirm={handleSystemTopUpConfirm}
-        onConfirmExternal={handleSystemTopUpConfirmExternal}
-        provider={systemTopUpProvider}
-        allDrawers={topUpDrawers}
-        destinationDrawer={systemDrawerName}
-        defaultSourceDrawer="General"
-      />
 
       {/* History Modal — full-screen overlay, checkout-modal style */}
       {showHistory && (

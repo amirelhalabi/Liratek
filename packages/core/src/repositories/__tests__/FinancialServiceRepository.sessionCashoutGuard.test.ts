@@ -10,11 +10,20 @@
  * already guarded with `!deferPayment`; the OMT/WHISH *system* RECEIVE branch
  * was not (v1.29.0 missed it). This guards the fix.
  *
- * The provider SYSTEM-drawer movement (what the provider owes the shop) is
- * KEPT even when deferred — only the CUSTOMER-side credit is skipped.
+ * Primary-cash-drawer model (2026-07-30, re-derived): a CUSTOMER_ACCOUNT
+ * cashout never moves the PCD (OMT_System/Whish_System) at all — there is no
+ * more provider-side float balance to "keep moving" independent of the
+ * customer-side credit. The drawer only moves when real banknotes move
+ * (plan §1); CUSTOMER_ACCOUNT is by definition not that. Superseded language:
+ * this file used to say the system-drawer movement was KEPT even when
+ * deferred (true under the old float model, where RECEIVE unconditionally
+ * filled the float back up regardless of cashout method) — that is no longer
+ * the case; see the drawer-balance assertion below.
  *
  * Rule 17: proven to FAIL on the pre-fix code (addCredit was called in
- * deferred mode → the double-credit).
+ * deferred mode → the double-credit). The drawer-balance assertion was
+ * re-proven failing-first against the float-model expectation on 2026-07-30
+ * (see its own rule-17 note below).
  */
 
 import Database from "better-sqlite3";
@@ -184,20 +193,32 @@ describe("FinancialServiceRepository — session RECEIVE credit guard", () => {
     // double-credit. Post-fix: the item defers the credit to the basket.
     expect(mockAddCredit).not.toHaveBeenCalled();
 
-    // The provider system drawer STILL moves (provider owes the shop) — only
-    // the customer-side credit is deferred.
-    // float model: RECEIVE fills the float back up by the BARE principal
-    // ($100) only — commission/fee no longer touch the float leg at all
-    // (the old `totalOwed = amount + commission` posting, and its sign, are
-    // both gone; the float posting is now `+receiveAmount`, unconditional,
-    // regardless of omtServiceType/commission/fee).
-    // rule 17: proven failing-first 2026-07-30 — restoring the old
-    // `-(receiveAmount + |calculatedCommission|)` posting makes this red
-    // (omtSystemBalance read 399.9, not omtBefore + 100) — this also
-    // confirms the deferred/CUSTOMER_ACCOUNT branch shares the SAME
-    // unconditional float posting as every other RECEIVE branch, so no
-    // separate sessionCashoutGuard-specific revert was needed.
-    expect(omtSystemBalance(db)).toBeCloseTo(omtBefore + 100, 2);
+    // Primary-cash-drawer model (re-derived 2026-07-30, supersedes the float
+    // model's `+receiveAmount` unconditional posting quoted in the comment
+    // this replaces): there is no more provider-side float balance to "fill
+    // back up" — the PCD (OMT_System here, `primaryCashDrawerName("OMT")`)
+    // only moves when REAL banknotes move (plan §1, FEATURE_GUIDE §7 "PCD is
+    // physical cash, not a float"). A `CUSTOMER_ACCOUNT` cashout is, by
+    // construction, the shop paying the customer via a debt_ledger credit
+    // instead of cash — `FinancialServiceRepository.ts`'s
+    // `cashoutMethod === "CUSTOMER_ACCOUNT"` branch calls ONLY
+    // `debtService.addCredit` (itself skipped here because `deferPayment`)
+    // and posts NO payment/drawer row at all. The sibling
+    // `!useSystemDrawerFlow` incoming leg that WOULD move a drawer for
+    // non-primary providers is unreachable too, since OMT is the primary
+    // system here (`useSystemDrawerFlow === true`). And the customer-paid FEE
+    // leg (the one real-cash leg this branch can ever emit) is separately
+    // gated on `!deferPayment` — also false in this payload — and would be
+    // $0 anyway (no `omtFee` on this payload, so `resolvedProviderFee`
+    // defaults to 0). So the PCD balance must be EXACTLY unchanged:
+    // omtBefore + 0.
+    // rule 17: proven failing-first 2026-07-30 — this test originally
+    // asserted the float model's `omtBefore + 100` and read RED against the
+    // (now-current) primary-cash-drawer production code, which leaves
+    // omtSystemBalance at 500 (== omtBefore), not 600 — confirming the old
+    // float-fill posting is gone and no drawer leg substitutes for it on the
+    // CUSTOMER_ACCOUNT branch.
+    expect(omtSystemBalance(db)).toBeCloseTo(omtBefore, 2);
   });
 
   it("standalone CUSTOMER_ACCOUNT RECEIVE DOES self-post the credit (unchanged)", () => {

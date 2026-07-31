@@ -1148,13 +1148,20 @@ export async function addOMTTransaction(payload: any) {
   if (isElectron()) {
     return (window as any).api.omt.addTransaction(payload);
   }
-  return requestJson<{ success: boolean; error?: string; id?: number }>(
-    `/api/services/transactions`,
-    {
-      method: "POST",
-      body: payload,
-    },
-  );
+  // `code`/`details` surface `InsufficientDrawerFundsError` (Primary Cash
+  // Drawer plan §8.5) on a blocked RECEIVE payout — the route forwards the
+  // service result verbatim, so the fields are present on the wire whenever
+  // the core layer sets them.
+  return requestJson<{
+    success: boolean;
+    error?: string;
+    id?: number;
+    code?: string;
+    details?: unknown;
+  }>(`/api/services/transactions`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
 // Maintenance
@@ -3111,23 +3118,31 @@ export async function drawerTopUpCreateFromDrawer(data: {
   );
 }
 
-/** Fund the OMT_System / Whish_System spendable float from any drawer
- *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
-export async function drawerTopUpFundSystem(data: {
-  targetDrawer: "OMT_System" | "Whish_System";
-  fundingDrawer: string;
+/** Generic, reversible cash transfer between any two of the shop's own
+ *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
+ *  drawer (OMT_System/Whish_System) is the pair the UI exposes. Replaces the
+ *  retired `drawerTopUpFundSystem` (one-directional float-funding, now-
+ *  superseded 2026-07-29 model). Both transports return the envelope
+ *  verbatim (rule 19c) — including `code: "INSUFFICIENT_DRAWER_FUNDS"` /
+ *  `details` when `fromDrawer` can't cover the amount, per plan §8.5. */
+export async function transferBetweenDrawers(data: {
+  fromDrawer: string;
+  toDrawer: string;
   amount_usd: number;
   amount_lbp: number;
   notes?: string;
   transaction_time?: string;
 }) {
   return ipcOrHttp(
-    async () => getElectronApi().drawerTopUp.fundSystem(data),
+    async () => getElectronApi().drawerTopUp.transfer(data),
     async () =>
-      requestJson<{ success: boolean; id?: number; error?: string }>(
-        "/api/drawer-topup/fund-system",
-        { method: "POST", body: data },
-      ),
+      requestJson<{
+        success: boolean;
+        id?: number;
+        error?: string;
+        code?: string;
+        details?: unknown;
+      }>("/api/drawer-topup/transfer", { method: "POST", body: data }),
   );
 }
 

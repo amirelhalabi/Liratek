@@ -77,13 +77,19 @@ export interface DraftSaleWithItems extends SaleWithClient {
 import {
   type PaymentMethod,
   type PaymentDirection,
+  type BaseSystem,
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
   partitionLegs,
 } from "../utils/payments.js";
+import {
+  PRIMARY_CASH_DRAWER_NAMES,
+  primaryCashDrawerName,
+} from "../constants/systemFloatDrawers.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
+import { getSettingsRepository } from "./SettingsRepository.js";
 
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
@@ -170,7 +176,22 @@ export interface DrawerBalance {
 
 export interface DrawerBalances {
   generalDrawer: DrawerBalance;
+  /**
+   * The PRIMARY CASH DRAWER only (exact match on whichever of
+   * `OMT_System`/`Whish_System` is primary per `shop_base_system`) —
+   * PRIMARY_CASH_DRAWER_PLAN.md §1/§8.1. No longer a `startsWith("OMT")`
+   * fold: that used to sum `OMT_System` (now countable physical cash) with
+   * `OMT_App` (a wallet balance) into one number, and silently dropped
+   * `Whish_System`/`Whish_App` entirely when Whish was primary.
+   */
   omtDrawer: DrawerBalance;
+  /**
+   * Combined app-wallet balance (`OMT_App` + `Whish_App`) — decision #5:
+   * app wallets keep their own drawer, never merged into the PCD or
+   * General. Kept as its own key instead of folding into `omtDrawer`
+   * (PRIMARY_CASH_DRAWER_PLAN.md §1, Phase C/`SalesRepository` note).
+   */
+  appWalletDrawer: DrawerBalance;
 }
 
 export interface TopProduct {
@@ -1437,6 +1458,48 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getDrawerBalances(): DrawerBalances {
     try {
+      const tenantId = getCurrentTenantId();
+
+      // PRIMARY_CASH_DRAWER_PLAN.md §1/§8.1: the dashboard's "omt" figure
+      // must be the ACTIVE primary cash drawer only — whichever of
+      // OMT_System/Whish_System is primary per `shop_base_system` — never
+      // both drawers summed together (the old `startsWith("OMT")` fold did
+      // that, and it also silently dropped Whish_System/Whish_App whenever
+      // Whish was primary). Defaults to OMT the same way
+      // FinancialServiceRepository's inline read does: `system_settings` may
+      // be absent in minimal/test schemas.
+      let baseSystem: BaseSystem = "OMT";
+      try {
+        const value =
+          getSettingsRepository().getSettingValue("shop_base_system");
+        if (value === "WHISH") baseSystem = "WHISH";
+      } catch {
+        // system_settings may be absent in minimal/test schemas — default to OMT.
+      }
+      const pcd = primaryCashDrawerName(baseSystem);
+
+      // Explicit, tenant-scoped drawer allow-list. Kept as a static list
+      // (rather than deriving it from `currency_drawers`/`modules` via a
+      // join) so the WHERE clause binds directly against the table's
+      // `(tenant_id, drawer_name, currency_code)` primary key with plain
+      // parameters — no join, no extra index needed — and so the dashboard's
+      // curated drawer set stays explicit and reviewable here. The PCD pair
+      // is spread from the shared constant instead of re-typed as literals,
+      // so this list can never drift from `resolveServiceCashDrawer`'s own
+      // source of truth.
+      const drawerNames: readonly string[] = [
+        "General",
+        ...PRIMARY_CASH_DRAWER_NAMES, // OMT_System, Whish_System
+        "OMT_App",
+        "Whish_App",
+        "Binance",
+        "Alfa",
+        "MTC",
+        "iPick",
+        "Katsh",
+      ];
+      const placeholders = drawerNames.map(() => "?").join(", ");
+
       // Read from drawer_balances table (running totals)
       const balances = this.query<{
         drawer_name: string;
@@ -1446,17 +1509,19 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         `
         SELECT drawer_name, currency_code, balance
         FROM drawer_balances
-        WHERE drawer_name IN ('General', 'OMT_System', 'OMT_App', 'Whish_App', 'Whish_System', 'Binance', 'Alfa', 'MTC', 'iPick', 'Katsh')
+        WHERE drawer_name IN (${placeholders})
           AND tenant_id = ?
         ORDER BY drawer_name, currency_code
       `,
-        getCurrentTenantId(),
+        ...drawerNames,
+        tenantId,
       );
 
       // Transform to DrawerBalances format
       const result: DrawerBalances = {
         generalDrawer: { usd: 0, lbp: 0 },
         omtDrawer: { usd: 0, lbp: 0 },
+        appWalletDrawer: { usd: 0, lbp: 0 },
       };
 
       for (const row of balances) {
@@ -1468,15 +1533,32 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             result.generalDrawer.lbp = row.balance;
           }
         }
-        // OMT drawers (OMT_System and OMT_App)
-        else if (row.drawer_name.startsWith("OMT")) {
+        // The ACTIVE primary cash drawer only — exact match, no fold. The
+        // dormant secondary system's drawer (e.g. Whish_System while OMT is
+        // primary) is deliberately excluded, not summed in (plan §1's
+        // per-case table only ever routes cash to the ONE active PCD).
+        else if (row.drawer_name === pcd) {
           if (row.currency_code === "USD") {
-            result.omtDrawer.usd += row.balance;
+            result.omtDrawer.usd = row.balance;
           } else if (row.currency_code === "LBP") {
-            result.omtDrawer.lbp += row.balance;
+            result.omtDrawer.lbp = row.balance;
           }
         }
-        // Other drawers can be added here as needed
+        // Combined app-wallet balance (OMT_App + Whish_App) — decision #5:
+        // app wallets keep their own drawer, never merged into the PCD or
+        // General, so this is its own key rather than folded into omtDrawer.
+        else if (
+          row.drawer_name === "OMT_App" ||
+          row.drawer_name === "Whish_App"
+        ) {
+          if (row.currency_code === "USD") {
+            result.appWalletDrawer.usd += row.balance;
+          } else if (row.currency_code === "LBP") {
+            result.appWalletDrawer.lbp += row.balance;
+          }
+        }
+        // Other drawers (Binance, Alfa, MTC, iPick, Katsh) intentionally
+        // excluded from this summary, as before.
       }
 
       return result;
