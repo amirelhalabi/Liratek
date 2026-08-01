@@ -3,6 +3,8 @@ import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 import { useShopBase } from "@/hooks/useShopBase";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
+import { fetchLiveCurrencyRates } from "@/utils/liveExchangeRates";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -47,6 +49,7 @@ export function DrawerTopUpModal({
 }: DrawerTopUpModalProps) {
   const api = useApi();
   useModalFocusFix(isOpen);
+  const { activeCurrencies } = useCurrencyContext();
   const [mode, setMode] = useState<TopUpMode>("external");
   const [amountUsd, setAmountUsd] = useState("");
   const [amountLbp, setAmountLbp] = useState("");
@@ -60,6 +63,7 @@ export function DrawerTopUpModal({
   const [availableExtraCurrencies, setAvailableExtraCurrencies] = useState<
     AvailableCurrency[]
   >([]);
+  const [liveCurrencyRates, setLiveCurrencyRates] = useState<any[]>([]);
 
   // Transfer mode — General <-> the primary cash drawer (PCD), the shop's
   // OWN physical till at the money-transfer counter (Primary Cash Drawer
@@ -94,6 +98,20 @@ export function DrawerTopUpModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  useEffect(() => {
+    const loadLive = async () => {
+      try {
+        const live = await fetchLiveCurrencyRates();
+        setLiveCurrencyRates(live);
+      } catch {
+        // non-critical
+      }
+    };
+    if (isOpen) {
+      loadLive();
+    }
+  }, [isOpen]);
+
   async function loadSourceDrawers() {
     const result = await api.drawerTopUp.getSourceDrawers();
     if (result.success && result.data) {
@@ -106,11 +124,20 @@ export function DrawerTopUpModal({
 
   async function loadExtraCurrencies() {
     try {
-      const currencies = await api.getFullCurrenciesByDrawer("General");
+      // Build currency list from activeCurrencies + live rates (same as Exchange page)
+      const localCodes = new Set(activeCurrencies.map((c) => c.code));
+      const extra = liveCurrencyRates
+        .filter((r) => !localCodes.has(r.to_code))
+        .map((r) => ({
+          code: r.to_code,
+          name: r.to_code,
+        }));
+      const all = [
+        ...activeCurrencies.filter((c) => c.code !== "USD" && c.code !== "LBP"),
+        ...extra,
+      ];
       setAvailableExtraCurrencies(
-        (currencies ?? [])
-          .filter((c) => c.code !== "USD" && c.code !== "LBP")
-          .map((c) => ({ code: c.code, name: c.name, symbol: c.symbol })),
+        all.map((c) => ({ code: c.code, name: c.name } as AvailableCurrency)),
       );
     } catch {
       setAvailableExtraCurrencies([]);
@@ -273,13 +300,6 @@ export function DrawerTopUpModal({
         setAmountLbp("");
         setNotes("");
         onSuccess();
-      } else if (result.code === "INSUFFICIENT_DRAWER_FUNDS") {
-        // Structured contract (Primary Cash Drawer plan §8.5) — switch on
-        // `code`, never a message-string match.
-        alert(
-          result.error ??
-            `${fromDrawer.replace(/_/g, " ")} does not have enough funds for this transfer.`,
-        );
       } else {
         alert(result.error ?? "Failed to transfer funds.");
       }
@@ -379,6 +399,77 @@ export function DrawerTopUpModal({
               moves cash between two of the shop&apos;s own drawers; it earns
               no profit.
             </p>
+
+            {/* NEGATIVE-DRAWER PROMPT (owner decision 2026-08-01).
+                Replaces the old hard block. Nothing in the system refuses a
+                money movement any more — a drawer may go negative, which
+                means cash was physically taken from somewhere else and the
+                transfer was never recorded. A negative balance is therefore
+                not an error state, it is an unrecorded transfer, and the fix
+                is exactly one click: this panel names the drawer, the
+                currency, and pre-fills the amount that brings it back to
+                zero. Surfaced HERE (the move-money screen) because this is
+                the only place the operator can act on it. */}
+            {(() => {
+              const negatives = Object.entries(transferBalances)
+                .flatMap(([drawer, byCurrency]) =>
+                  (["USD", "LBP"] as const)
+                    .map((cur) => ({
+                      drawer,
+                      cur,
+                      bal: byCurrency?.[cur] ?? 0,
+                    }))
+                    .filter((x) => x.bal < 0),
+                )
+                .sort((a, b) => a.bal - b.bal);
+              if (negatives.length === 0) return null;
+              return (
+                <div
+                  data-testid="drawer-negative-balance-panel"
+                  className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 space-y-2"
+                >
+                  <p className="text-xs font-semibold text-red-300">
+                    {negatives.length === 1
+                      ? "A drawer is in the red"
+                      : `${negatives.length} drawer balances are in the red`}
+                  </p>
+                  <p className="text-[11px] text-red-200/80">
+                    Cash was paid out that the drawer did not hold — record the
+                    move that covers it.
+                  </p>
+                  {negatives.map(({ drawer, cur, bal }) => (
+                    <div
+                      key={`${drawer}-${cur}`}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <span className="text-xs text-slate-200">
+                        {drawer.replace(/_/g, " ")}:{" "}
+                        <span className="font-semibold text-red-300">
+                          {cur === "USD"
+                            ? `-$${Math.abs(bal).toFixed(2)}`
+                            : `-${Math.abs(bal).toLocaleString()} LBP`}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Point the transfer AT the negative drawer and
+                          // pre-fill exactly what clears it.
+                          setTransferDirection(
+                            drawer === "General" ? "to_general" : "to_primary",
+                          );
+                          if (cur === "USD") setAmountUsd(String(Math.abs(bal)));
+                          else setAmountLbp(String(Math.abs(bal)));
+                        }}
+                        className="shrink-0 text-[11px] font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors"
+                      >
+                        Cover it
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* Direction (bidirectional — owner decision #12) */}
             <div>
@@ -574,14 +665,12 @@ export function DrawerTopUpModal({
           {mode === "external" && (
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Other Currencies{" "}
-                <span className="text-slate-600">(optional)</span>
+                Currencies <span className="text-slate-600">(optional)</span>
               </label>
 
               {availableExtraCurrencies.length === 0 ? (
                 <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5">
-                  No additional currencies enabled for the General drawer — add
-                  and enable them in Settings → Currencies.
+                  Loading currencies...
                 </p>
               ) : (
                 <div className="space-y-2">

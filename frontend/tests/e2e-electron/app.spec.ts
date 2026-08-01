@@ -167,13 +167,29 @@ test("Exchange: complete USD to LBP exchange", async ({ appPage }) => {
   const youReceive = amountInputs.first();
   await youReceive.fill("100");
 
-  // Confirm
-  const confirmBtn = appPage.getByRole("button", { name: /Confirm Exchange/i });
-  await expect(confirmBtn).toBeEnabled({ timeout: 5000 });
-  await confirmBtn.click();
+  // Confirm — two steps since the split-payout feature (commit 237f460).
+  // A USD/LBP target sets `canSplitPayout`, so the page button reads
+  // "Proceed to Payout" and opens the PaymentSheet; "Confirm Exchange" now
+  // only renders for an exotic target (EUR etc.) or for-partner mode. Do NOT
+  // "fix" this back to a single click.
+  const proceedBtn = appPage.getByRole("button", {
+    name: /Proceed to Payout/i,
+  });
+  await expect(proceedBtn).toBeEnabled({ timeout: 5000 });
+  await proceedBtn.click();
+
+  // The payout sheet slides in — confirm the disbursement from there. Its
+  // button is labelled "Pay <amount> <currency>" and is gated only on
+  // isSubmitting, so an unedited (single seeded leg) sheet confirms as-is.
+  await expect(
+    appPage.getByRole("heading", { name: /Confirm Payout/i }),
+  ).toBeVisible({ timeout: 5000 });
+  const payBtn = appPage.getByRole("button", { name: /^Pay\s/i });
+  await expect(payBtn).toBeEnabled({ timeout: 5000 });
+  await payBtn.click();
 
   // Verify cleared
-  await expect(youReceive).toHaveValue("", { timeout: 5000 });
+  await expect(youReceive).toHaveValue("", { timeout: 10_000 });
 });
 
 test("Services: complete OMT send transaction", async ({ appPage }) => {
