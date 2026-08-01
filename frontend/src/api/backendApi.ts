@@ -4123,6 +4123,9 @@ export type CarrierLineEntity = {
   validity_expires_at: string | null;
   notes: string | null;
   is_active: number;
+  /** LIRA-090 (v140): 1 if this is the primary line for its carrier.
+   *  At most one primary per carrier per tenant. Set via setPrimaryCarrierLine. */
+  is_primary: number;
   created_at: string;
   updated_at: string;
 };
@@ -4281,6 +4284,14 @@ export type MobileServiceItemEntity = {
   is_active: number;
   validity_days: number | null;
   credits: number | null;
+  /** LIRA-090 (v140): LBP cost attributable to validity days alone (spec §2.3).
+   *  Null until a shop admin fills in the split. */
+  days_cost_lbp: number | null;
+  /** LIRA-090 (v140): customer-facing price when only the days are sold. */
+  sell_days_lbp: number | null;
+  /** LIRA-090 (v140): decision-aid display price for resold recovered credit
+   *  (spec §2.4). Null until configured. */
+  sell_credit_lbp: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -4303,6 +4314,55 @@ export async function getAdminMobileServiceItems(): Promise<
   );
 }
 
+export async function getActiveMobileServiceItems(): Promise<
+  MobileServiceItemEntity[]
+> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().mobileServiceItems.getAll();
+      return res.success ? (res.data ?? []) : [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: MobileServiceItemEntity[];
+      }>(`/api/mobile-service-items`);
+      return res.success ? (res.data ?? []) : [];
+    },
+  );
+}
+
+export async function createMobileServiceItem(data: {
+  provider: string;
+  category: string;
+  subcategory: string;
+  label: string;
+  cost_lbp: number;
+  sell_lbp: number;
+  sort_order?: number;
+  is_active?: number;
+  validity_days?: number | null;
+  credits?: number | null;
+  /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
+  days_cost_lbp?: number | null;
+  sell_days_lbp?: number | null;
+  sell_credit_lbp?: number | null;
+}): Promise<{
+  success: boolean;
+  data?: MobileServiceItemEntity;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().mobileServiceItems.create(data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: MobileServiceItemEntity;
+        error?: string;
+      }>(`/api/mobile-service-items`, { method: "POST", body: data }),
+  );
+}
+
 export async function updateMobileServiceItem(
   id: number,
   data: {
@@ -4313,6 +4373,10 @@ export async function updateMobileServiceItem(
     is_active?: number;
     validity_days?: number | null;
     credits?: number | null;
+    /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
+    days_cost_lbp?: number | null;
+    sell_days_lbp?: number | null;
+    sell_credit_lbp?: number | null;
   },
 ): Promise<{
   success: boolean;
@@ -4327,5 +4391,71 @@ export async function updateMobileServiceItem(
         data?: MobileServiceItemEntity;
         error?: string;
       }>(`/api/mobile-service-items/${id}`, { method: "PUT", body: data }),
+  );
+}
+
+/** LIRA-090: get the current primary line for a carrier.
+ *  Returns success:false (not an error) when no primary is configured.
+ *  Read-only, no role gate. */
+export async function getPrimaryCarrierLine(
+  carrier: "alfa" | "mtc",
+): Promise<{
+  success: boolean;
+  data?: CarrierLineEntity | null;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.getPrimary(carrier),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: CarrierLineEntity | null;
+        error?: string;
+      }>(`/api/carrier-lines/primary/${carrier}`),
+  );
+}
+
+/** LIRA-090: designate a line as the primary for its carrier (admin only).
+ *  Atomically clears the previous holder. */
+export async function setPrimaryCarrierLine(
+  id: number,
+): Promise<CarrierLineWriteResult> {
+  return ipcOrHttp(
+    async () => getElectronApi().carrierLines.setPrimary(id),
+    async () =>
+      requestJson<CarrierLineWriteResult>(
+        `/api/carrier-lines/${id}/set-primary`,
+        { method: "PUT" },
+      ),
+  );
+}
+
+export type SelfChargeTelecomItemResult = {
+  transactionId: number;
+  carrierLineId: number;
+  costLbp: number;
+  creditsAdded: number;
+  validityDaysAdded: number;
+};
+
+/** LIRA-090 §5.2: charge a telecom catalog item to the shop's own carrier line.
+ *  No customer is debited; debits the iPick/Katsh LBP drawer. Admin or staff only. */
+export async function selfChargeTelecomItem(data: {
+  mobileServiceItemId: number;
+  carrierLineId?: number;
+  transaction_time?: string;
+}): Promise<{
+  success: boolean;
+  data?: SelfChargeTelecomItemResult;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().financial.selfChargeTelecomItem(data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: SelfChargeTelecomItemResult;
+        error?: string;
+      }>(`/api/services/self-charge`, { method: "POST", body: data }),
   );
 }

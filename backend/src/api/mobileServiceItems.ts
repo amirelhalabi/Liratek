@@ -2,6 +2,7 @@ import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import {
   getMobileServiceItemService,
+  mobileServiceItemCreateSchema,
   mobileServiceItemUpdateSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
@@ -16,6 +17,19 @@ const router = express.Router();
 // larger effort.
 router.use(authenticateJWT);
 
+// GET /api/mobile-service-items — all active items (public catalog read).
+// No role gate — mirrors the IPC `mobile-service-items:get-all` handler.
+router.get("/", (_req, res): void => {
+  try {
+    const service = getMobileServiceItemService();
+    const data = service.getAll();
+    res.json({ success: true, data });
+  } catch (error) {
+    logger.error({ error }, "Get mobile service items error");
+    res.status(500).json({ success: false, error: "Failed to get items" });
+  }
+});
+
 // GET /api/mobile-service-items/admin — every item including inactive
 // (the Settings manager's list).
 router.get("/admin", requireRole(["admin"]), (_req, res): void => {
@@ -26,6 +40,30 @@ router.get("/admin", requireRole(["admin"]), (_req, res): void => {
   } catch (error) {
     logger.error({ error }, "Get mobile service items (admin) error");
     res.status(500).json({ success: false, error: "Failed to get items" });
+  }
+});
+
+// POST /api/mobile-service-items (admin) — create a new catalog item
+// (LIRA-090: mirrors the `mobile-service-items:create` IPC handler, adding
+// the three LIRA-090 split columns to the shared schema — rule 14/19).
+// Validated against `mobileServiceItemCreateSchema` from @liratek/core.
+router.post("/", requireRole(["admin"]), (req, res): void => {
+  const parsed = mobileServiceItemCreateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    res.status(400).json({
+      success: false,
+      error: firstIssue?.message ?? "Invalid mobile service item payload",
+    });
+    return;
+  }
+  try {
+    const service = getMobileServiceItemService();
+    const result = service.create(parsed.data);
+    res.status(result.success ? 201 : 400).json(result);
+  } catch (error) {
+    logger.error({ error }, "Create mobile service item error");
+    res.status(500).json({ success: false, error: "Failed to create item" });
   }
 });
 

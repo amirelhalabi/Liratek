@@ -12,6 +12,8 @@ import {
   type CreateFinancialServiceData,
   type FinancialServiceAnalytics,
   type UnsettledSummary,
+  type SelfChargeTelecomItemData,
+  type SelfChargeTelecomItemResult,
   getSupplierRepository,
 } from "../repositories/index.js";
 import { getItemCostService } from "./ItemCostService.js";
@@ -359,6 +361,51 @@ export class FinancialService {
     );
 
     return { success: true, entity: updated, oldValues };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Self-charge (LIRA-090 spec §5.2)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Service-layer wrapper around
+   * `FinancialServiceRepository.selfChargeTelecomItem` — the ONLY entry
+   * point for write paths (REST or IPC) that need to charge a telecom catalog
+   * item to the shop's own carrier line rather than a walk-in customer.
+   *
+   * Kept thin: all the economic logic (cost-LBP derivation, primary-line
+   * lookup, carrier-line movement, payment rows) lives in the repository
+   * (rule 13 — services orchestrate, repositories query/write). This wrapper
+   * adds error handling, logging, and the `{ success, ... }` envelope expected
+   * by both transports (rule 19c).
+   */
+  selfChargeTelecomItem(
+    data: SelfChargeTelecomItemData,
+  ): { success: boolean; data?: SelfChargeTelecomItemResult; error?: string } {
+    try {
+      const result = this.fsRepo.selfChargeTelecomItem(data);
+      financialLogger.info(
+        {
+          mobileServiceItemId: data.mobileServiceItemId,
+          carrierLineId: result.carrierLineId,
+          costLbp: result.costLbp,
+          creditsAdded: result.creditsAdded,
+          validityDaysAdded: result.validityDaysAdded,
+          transactionId: result.transactionId,
+        },
+        "Telecom self-charge applied",
+      );
+      return { success: true, data: result };
+    } catch (error) {
+      financialLogger.error(
+        { error, mobileServiceItemId: data.mobileServiceItemId },
+        "Telecom self-charge failed",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }
 

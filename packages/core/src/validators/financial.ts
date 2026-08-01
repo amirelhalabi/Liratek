@@ -160,6 +160,36 @@ export const createFinancialServiceSchema = z
     split_group: z.string().uuid().optional(),
     split_role: z.enum(["carrier", "sibling"]).optional(),
     split_units: z.number().int().min(2).optional(),
+    /**
+     * LIRA-090 §2/§5.1: the catalog item (`mobile_service_items.id`) this
+     * cost/price line is selling. Presence of this field is itself the
+     * "this line is an Only-Days telecom sale" signal. Drives the computed
+     * `returnedCreditsUsd` default and the primary carrier-line movement.
+     * Keep in sync with `CreateFinancialServiceData.mobileServiceItemId`
+     * (rule 14 — one definition per predicate).
+     */
+    mobileServiceItemId: z.number().int().positive().optional(),
+    /**
+     * LIRA-090 §2.2: operator override for the USD credit amount returned to
+     * the shop's carrier line. When omitted and the item's split is complete,
+     * the repository computes the default via `maxReturnableCredits`.
+     */
+    returnedCreditsUsd: z.number().nonnegative().optional(),
+    /**
+     * LIRA-090 §6.2: per-line returned-credits array for walk-in aggregated
+     * cart transactions. Each entry is one Only-Days catalog line in the cart.
+     * Use when a single `financial_services` row represents multiple catalog
+     * lines (aggregated cart total).
+     */
+    telecomCreditReturns: z
+      .array(
+        z.object({
+          itemCategory: z.string().optional(),
+          mobileServiceItemId: z.number().int().positive().optional(),
+          returnedCreditsUsd: z.number().nonnegative().optional(),
+        }),
+      )
+      .optional(),
   })
   .refine(
     (data) => {
@@ -241,4 +271,28 @@ export type CreateFinancialServiceInput = z.infer<
 >;
 export type GetFinancialServicesInput = z.infer<
   typeof getFinancialServicesSchema
+>;
+
+/**
+ * Self-charge validation schema (LIRA-090 spec §5.2).
+ *
+ * Charges a telecom catalog item to the shop's OWN carrier line rather than
+ * a customer. The `mobileServiceItemId` is the only required field — the
+ * repository resolves the carrier's primary line from the item's provider
+ * when `carrierLineId` is omitted (spec §3 decision 8, overridable per call).
+ *
+ * Shared by the IPC handler and the REST route (`/api/services/self-charge`)
+ * per rule 14/19.
+ */
+export const selfChargeTelecomItemSchema = z.object({
+  /** The catalog item (`mobile_service_items.id`) being self-charged. */
+  mobileServiceItemId: z.number().int().positive(),
+  /** Target carrier line. Defaults to the item carrier's primary line when
+   *  omitted. */
+  carrierLineId: z.number().int().positive().optional(),
+  transaction_time: transactionTimeSchema,
+});
+
+export type SelfChargeTelecomItemInput = z.infer<
+  typeof selfChargeTelecomItemSchema
 >;

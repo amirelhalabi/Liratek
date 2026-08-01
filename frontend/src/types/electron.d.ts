@@ -113,11 +113,20 @@ export interface MobileServiceItem {
   validity_days: number | null;
   /** Structured credit amount (USD) — LIRA W6.b. Null when not applicable. */
   credits: number | null;
+  /** LIRA-090 (v140): LBP cost attributable to validity days alone (spec §2.3).
+   *  Null until a shop admin fills in the split. */
+  days_cost_lbp: number | null;
+  /** LIRA-090 (v140): customer-facing price when only the days are sold.
+   *  Null until configured. */
+  sell_days_lbp: number | null;
+  /** LIRA-090 (v140): decision-aid display price for resold recovered credit
+   *  (spec §2.4). Null until configured. */
+  sell_credit_lbp: number | null;
   created_at: string;
   updated_at: string;
 }
 
-/** A shop-owned alfa/mtc SIM line (LIRA W6.a) — informational only. */
+/** A shop-owned alfa/mtc SIM line (LIRA W6.a, extended by LIRA-090 v140). */
 export interface CarrierLine {
   id: number;
   carrier: "alfa" | "mtc";
@@ -127,6 +136,11 @@ export interface CarrierLine {
   validity_expires_at: string | null;
   notes: string | null;
   is_active: number;
+  /** LIRA-090 (v140): 1 if this is the primary line for its carrier (receives
+   *  automated Only-Days credit returns and self-charges by default). At most
+   *  one primary per carrier per tenant — enforced by a partial unique index.
+   *  Set via `window.api.carrierLines.setPrimary(id)`. */
+  is_primary: number;
   created_at: string;
   updated_at: string;
 }
@@ -761,6 +775,25 @@ export interface ElectronAPI {
       receiver_phone?: string;
       note?: string;
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    /** LIRA-090 §5.2: charge a telecom catalog item to the shop's own carrier
+     *  line (no customer, no sale row, no profit). Admin only.
+     *  Debits the item's `cost_lbp` from the iPick/Katsh drawer and credits
+     *  the item's full `credits` (USD) + `validity_days` to the target line. */
+    selfChargeTelecomItem: (data: {
+      mobileServiceItemId: number;
+      carrierLineId?: number;
+      transaction_time?: string;
+    }) => Promise<{
+      success: boolean;
+      data?: {
+        transactionId: number;
+        carrierLineId: number;
+        costLbp: number;
+        creditsAdded: number;
+        validityDaysAdded: number;
+      };
+      error?: string;
+    }>;
   };
 
   // Exchange
@@ -906,6 +939,18 @@ export interface ElectronAPI {
       paymentMethodFee?: number;
       paymentMethodFeeRate?: number;
       returnedCreditsUsd?: number;
+      /** LIRA-090 (v140): catalog item id — presence signals an Only-Days
+       *  telecom sale and drives the computed returned-credit default plus
+       *  the primary carrier-line movement. See spec §5.1/§8. */
+      mobileServiceItemId?: number;
+      /** LIRA-090 (v140): per-line returned-credits array for the walk-in
+       *  aggregated cart path (spec §6 bug 2 groundwork). One entry per
+       *  Only-Days line in the cart. */
+      telecomCreditReturns?: Array<{
+        itemCategory?: string;
+        mobileServiceItemId?: number;
+        returnedCreditsUsd?: number;
+      }>;
       partnerId?: number;
       partnerMode?: "THROUGH" | "FOR";
       cashoutMethod?: string;
@@ -2327,6 +2372,10 @@ export interface ElectronAPI {
       is_active?: number;
       validity_days?: number | null;
       credits?: number | null;
+      /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
+      days_cost_lbp?: number | null;
+      sell_days_lbp?: number | null;
+      sell_credit_lbp?: number | null;
     }) => Promise<{
       success: boolean;
       data?: MobileServiceItem;
@@ -2342,6 +2391,10 @@ export interface ElectronAPI {
         is_active?: number;
         validity_days?: number | null;
         credits?: number | null;
+        /** LIRA-090 (v140) Only-Days split columns — nullable, all optional. */
+        days_cost_lbp?: number | null;
+        sell_days_lbp?: number | null;
+        sell_credit_lbp?: number | null;
       },
     ) => Promise<{
       success: boolean;
@@ -2426,6 +2479,18 @@ export interface ElectronAPI {
       id: number,
     ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
     toggleActive: (
+      id: number,
+    ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
+    /** LIRA-090: get the current primary line for a carrier (null when none
+     *  is configured). Read-only; no role gate. */
+    getPrimary: (carrier: "alfa" | "mtc") => Promise<{
+      success: boolean;
+      data?: CarrierLine | null;
+      error?: string;
+    }>;
+    /** LIRA-090: designate a line as the primary for its carrier (admin only).
+     *  Atomically clears the previous holder. */
+    setPrimary: (
       id: number,
     ) => Promise<{ success: boolean; data?: CarrierLine; error?: string }>;
   };

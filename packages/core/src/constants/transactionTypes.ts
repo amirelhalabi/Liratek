@@ -18,6 +18,37 @@ export const TRANSACTION_TYPES = {
    *  WalletExchangeRepository / migration v138 for why it isn't just a
    *  drawer-parameterized EXCHANGE row. */
   WALLET_EXCHANGE: "WALLET_EXCHANGE",
+  /** LIRA-090 §5.2 review finding M3: the self-charge flow (an internal
+   *  stock transfer between the shop's OWN drawers and its OWN carrier line
+   *  — no customer, no `financial_services` row, no profit row, per spec
+   *  §5.2/§3 decision 6) originally reused FINANCIAL_SERVICE with
+   *  `source_table: 'mobile_service_items'`. That masqueraded as a real
+   *  financial service everywhere FINANCIAL_SERVICE is assumed to be backed
+   *  by an actual `financial_services` row:
+   *   - ProfitRepository.getByUser/getByClient: `t.type IN (PROFIT_TXN_TYPES)`
+   *     includes FINANCIAL_SERVICE, but `source_table != 'financial_services'`
+   *     misses the fs.is_settled-gated CASE branch and falls to the
+   *     ungated `ELSE t.amount_usd` (revenue_usd) / unconditional
+   *     `SUM(t.amount_lbp)` (revenue_lbp) — the self-charge's full face
+   *     credit and negative cost leg both counted as phantom revenue.
+   *     Realized profit stayed correct (0) only because profit_usd/
+   *     profit_lbp are independently stamped 0 — revenue was still wrong.
+   *   - receiptGating.ts's `isReceiptableTransaction`: FINANCIAL_SERVICE +
+   *     provider iPick/Katsh is unconditionally receiptable, so a
+   *     self-charge would have offered a customer "Print Receipt" for a
+   *     transaction that never had a customer.
+   *  A dedicated type sidesteps both by construction: it is deliberately
+   *  ABSENT from ProfitRepository's `PROFIT_TXN_TYPES` (contributes zero
+   *  revenue/profit, matching "no profit row") and from every
+   *  FINANCIAL_SERVICE-specific frontend branch (no receipt, no
+   *  provider-send/recv label — those need their own Phase 6 UI case, out
+   *  of this phase's scope). It stays fully reversible via the generic
+   *  void/refund path: deliberately ABSENT from
+   *  NON_REVERSIBLE_TRANSACTION_TYPES below, since `_reversePayments`
+   *  (payment legs/drawers) and `_reverseCarrierLineMovements` (rule-20
+   *  owner for `carrier_lines`) are both type-agnostic, keyed only by
+   *  transaction_id. See `FinancialServiceRepository.selfChargeTelecomItem`. */
+  TELECOM_SELF_CHARGE: "TELECOM_SELF_CHARGE",
   /** Owner-confirmed float model (2026-07-29): the operator funds the
    *  OMT_System / Whish_System spendable float directly — funding_drawer −,
    *  target_drawer (OMT_System/Whish_System) + , profit always 0. This is

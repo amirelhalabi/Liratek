@@ -135,6 +135,9 @@ export {
 export type {
   FinancialServiceEntity,
   CreateFinancialServiceData,
+  TelecomCreditReturnLine,
+  SelfChargeTelecomItemData,
+  SelfChargeTelecomItemResult,
   ProviderStats,
   CurrencyStats,
   FinancialServiceAnalytics,
@@ -461,6 +464,17 @@ export type {
   UpdateCarrierLineData,
   UpdateBalanceData,
 } from "./CarrierLineRepository.js";
+
+// Carrier Line Movement Repository (LIRA-090 §8 — rule-20 reversal owner)
+export {
+  CarrierLineMovementRepository,
+  getCarrierLineMovementRepository,
+  resetCarrierLineMovementRepository,
+} from "./CarrierLineMovementRepository.js";
+export type {
+  CarrierLineMovementEntity,
+  CreateCarrierLineMovementData,
+} from "./CarrierLineMovementRepository.js";
 
 // Audit Repository
 export {

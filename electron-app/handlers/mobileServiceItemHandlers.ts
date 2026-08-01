@@ -17,6 +17,7 @@ import { audit } from "./auditHelper.js";
 import {
   validatePayload,
   MobileServiceItemUpdateSchema,
+  MobileServiceItemCreateSchema,
 } from "../schemas/index.js";
 
 export function registerMobileServiceItemHandlers(): void {
@@ -146,13 +147,22 @@ export function registerMobileServiceItemHandlers(): void {
     (e, data: CreateMobileServiceItemData) => {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) throw new Error(auth.error);
+        if (!auth.ok) return { success: false, error: auth.error };
 
-        const result = service.create(data);
+        // LIRA-090: add validatePayload — the pre-existing handler had no Zod
+        // guard (the handoff doc notes this explicitly as a gap to close).
+        // MobileServiceItemCreateSchema is the rule-14/19 shared schema
+        // (packages/core/src/validators/mobileServiceItem.ts), which now
+        // includes the three LIRA-090 split columns
+        // (days_cost_lbp/sell_days_lbp/sell_credit_lbp).
+        const v = validatePayload(MobileServiceItemCreateSchema, data);
+        if (!v.ok) return { success: false, error: v.error };
+
+        const result = service.create(v.data);
         audit(e.sender.id, {
           action: "create",
           entity_type: "mobile_service_item",
-          summary: `Created mobile service item: ${data.label} (${data.provider})`,
+          summary: `Created mobile service item: ${v.data.label} (${v.data.provider})`,
         });
         return result;
       } catch (error) {

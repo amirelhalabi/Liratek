@@ -14,6 +14,11 @@ import {
   type UpdateCarrierLineData,
   type UpdateBalanceData,
 } from "../repositories/CarrierLineRepository.js";
+import {
+  CarrierLineMovementRepository,
+  getCarrierLineMovementRepository,
+  type CarrierLineMovementEntity,
+} from "../repositories/CarrierLineMovementRepository.js";
 import { financialLogger } from "../utils/logger.js";
 
 // =============================================================================
@@ -26,15 +31,64 @@ export interface CarrierLineResult {
   error?: string;
 }
 
+/**
+ * Input to `applyMovement` — the ONE entry point for the money-path agent
+ * (Phase 4, FinancialServiceRepository) to mutate a carrier line's credits
+ * and/or validity. `carrierLineId` is normally the shop's primary line for
+ * the relevant carrier (`CarrierLineRepository.getPrimary`), overridable per
+ * call (spec §3 decision 8).
+ */
+export interface ApplyMovementInput {
+  carrierLineId: number;
+  /** USD credit to add (Only-Days return) or subtract. Omit or 0 for a
+   *  validity-only movement. */
+  creditsDelta?: number;
+  /** Days to extend validity by (spec §5.2's `max(today, current_expiry) +
+   *  validity_days`). Omit or 0 for a credits-only movement. */
+  validityDaysDelta?: number;
+  /** Required — `carrier_line_movements.reason` is NOT NULL. Use one
+   *  consistent vocabulary per call site (e.g. 'ONLY_DAYS_RETURN',
+   *  'SELF_CHARGE'). */
+  reason: string;
+  /** The unified `transactions.id` this movement rides on, if any. Nullable
+   *  — a movement with no transaction_id is invisible to the generic void/
+   *  refund reversal (nothing to reverse it FROM). Pass the real id
+   *  whenever the calling flow creates one. */
+  transactionId?: number | null;
+}
+
+export interface ApplyMovementData {
+  line: CarrierLineEntity;
+  movement: CarrierLineMovementEntity;
+}
+
+export interface ApplyMovementResult {
+  success: boolean;
+  data?: ApplyMovementData;
+  error?: string;
+}
+
+/** Output of {@link CarrierLineService.reverseMovement}. */
+export interface ReverseMovementResult {
+  success: boolean;
+  data?: ApplyMovementData;
+  error?: string;
+}
+
 // =============================================================================
 // Service
 // =============================================================================
 
 export class CarrierLineService {
   private repo: CarrierLineRepository;
+  private movementRepo: CarrierLineMovementRepository;
 
-  constructor(repo?: CarrierLineRepository) {
+  constructor(
+    repo?: CarrierLineRepository,
+    movementRepo?: CarrierLineMovementRepository,
+  ) {
     this.repo = repo ?? getCarrierLineRepository();
+    this.movementRepo = movementRepo ?? getCarrierLineMovementRepository();
   }
 
   /** Active lines for one carrier — the Recharge-tab compact panel. */
@@ -66,6 +120,20 @@ export class CarrierLineService {
       return this.repo.getAllIncludingInactive();
     } catch (error) {
       financialLogger.error({ error }, "Failed to get carrier lines");
+      return [];
+    }
+  }
+
+  /** A line's full movement/audit history (newest first) — every
+   *  `applyMovement`/manual `updateBalance` change, reversed or not. */
+  getMovementHistory(carrierLineId: number): CarrierLineMovementEntity[] {
+    try {
+      return this.movementRepo.getByCarrierLineId(carrierLineId);
+    } catch (error) {
+      financialLogger.error(
+        { error, carrierLineId },
+        "Failed to get carrier line movement history",
+      );
       return [];
     }
   }
@@ -127,6 +195,105 @@ export class CarrierLineService {
     }
   }
 
+  /**
+   * The movement-logged mutation API (LIRA-090 §5.2, §8, rule 20). Applies a
+   * credits delta and/or a validity-days delta to a carrier line and writes
+   * a `carrier_line_movements` row documenting exactly what changed — BOTH
+   * in ONE db transaction. Delegates the actual write to
+   * `CarrierLineRepository.applyMovement` (H3 fix, 2026-07-30 adversarial
+   * review): the atomic pairing now lives in the repository itself, where
+   * the raw delta math is a private, module-scoped helper unreachable from
+   * any other file — not just a convention this service happened to follow.
+   * This method's job is the business-rule validation in front of that
+   * write (reason required, at least one delta non-zero) plus logging.
+   *
+   * This is the ONLY entry point money-path code (Phase 4,
+   * `FinancialServiceRepository`) should use to touch a carrier line's
+   * credits/validity.
+   */
+  applyMovement(input: ApplyMovementInput): ApplyMovementResult {
+    try {
+      const creditsDelta = input.creditsDelta ?? 0;
+      const validityDaysDelta = input.validityDaysDelta ?? 0;
+
+      if (!input.reason || input.reason.trim() === "") {
+        return { success: false, error: "reason is required" };
+      }
+      if (creditsDelta === 0 && validityDaysDelta === 0) {
+        return {
+          success: false,
+          error:
+            "At least one of creditsDelta or validityDaysDelta must be non-zero",
+        };
+      }
+
+      const data = this.repo.applyMovement({
+        carrierLineId: input.carrierLineId,
+        creditsDelta,
+        validityDaysDelta,
+        reason: input.reason,
+        transactionId: input.transactionId ?? null,
+      });
+
+      financialLogger.info(
+        {
+          carrierLineId: input.carrierLineId,
+          creditsDelta,
+          validityDaysDelta,
+          reason: input.reason,
+          transactionId: input.transactionId ?? null,
+          movementId: data.movement.id,
+        },
+        "Carrier line movement applied",
+      );
+      return { success: true, data };
+    } catch (error) {
+      financialLogger.error(
+        { error, input },
+        "Failed to apply carrier line movement",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * The rule-20 reversal counterpart to `applyMovement` — the sanctioned
+   * entry point for undoing a `carrier_line_movements` row (used by
+   * `TransactionRepository._reverseCarrierLineMovements` on every void/
+   * refund). Delegates to `CarrierLineRepository.reverseMovement`, which
+   * restores `validity_expires_at` from the movement's stored
+   * `previous_validity_expires_at` verbatim (M2 fix) rather than
+   * subtracting days off whatever the line's current value happens to be.
+   */
+  reverseMovement(movementId: number): ReverseMovementResult {
+    try {
+      const data = this.repo.reverseMovement(movementId);
+      if (!data) {
+        return {
+          success: false,
+          error: `Carrier line movement #${movementId} not found`,
+        };
+      }
+      financialLogger.info(
+        { movementId, carrierLineId: data.line.id },
+        "Carrier line movement reversed",
+      );
+      return { success: true, data };
+    } catch (error) {
+      financialLogger.error(
+        { error, movementId },
+        "Failed to reverse carrier line movement",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   archive(id: number): CarrierLineResult {
     try {
       const line = this.repo.archive(id);
@@ -153,6 +320,59 @@ export class CarrierLineService {
       return { success: true, data: line };
     } catch (error) {
       financialLogger.error({ error, id }, "Failed to toggle carrier line");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Primary-line designation (LIRA-090 §3 decision 8, v140)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The primary line for a carrier — the one that receives automated
+   * Only-Days credit returns and self-charges by default. Returns `null`
+   * if no line has been designated primary yet.
+   */
+  getPrimary(carrier: CarrierKey): CarrierLineResult {
+    try {
+      const line = this.repo.getPrimary(carrier);
+      if (!line) return { success: false, error: "No primary line set" };
+      return { success: true, data: line };
+    } catch (error) {
+      financialLogger.error(
+        { error, carrier },
+        "Failed to get primary carrier line",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Make `id` the primary line for its own carrier, clearing the previous
+   * primary holder in a single DB transaction. Only an active (non-archived)
+   * line may be set primary — the partial unique index enforces at most one
+   * primary per (tenant, carrier).
+   */
+  setPrimary(id: number): CarrierLineResult {
+    try {
+      const line = this.repo.setPrimary(id);
+      if (!line) return { success: false, error: "Carrier line not found" };
+      financialLogger.info(
+        { lineId: id, carrier: line.carrier },
+        "Carrier line set as primary",
+      );
+      return { success: true, data: line };
+    } catch (error) {
+      financialLogger.error(
+        { error, id },
+        "Failed to set primary carrier line",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

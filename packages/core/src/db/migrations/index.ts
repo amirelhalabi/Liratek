@@ -7062,6 +7062,182 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 140,
+    name: "add_telecom_days_credit_validity_schema",
+    description:
+      "LIRA-090 Phase 1 (owner interview resolved 2026-07-30, TELECOM_DAYS_VALIDITY_PLAN.md §7): schema for the telecom 'Only Days' credit-return model. (a) mobile_service_items gains three nullable REAL columns — days_cost_lbp (the item's own validity-only cost component, out of the existing cost_lbp), sell_days_lbp (customer price when only the days are sold), sell_credit_lbp (display/decision-aid price for resold recovered credit) — added via defaultless ALTER TABLE ADD COLUMN (v104 prod-brick lesson: SQLite rejects a non-constant default on ALTER; these stay NULL until a per-item split is configured, so existing catalog rows are unaffected and keep today's manual returnedCreditsUsd behaviour). (b) carrier_lines gains is_primary (constant default 0 IS legal on ALTER) plus a partial unique index enforcing at most one primary line per (tenant, carrier) — the line that receives automated returns/self-charges by default. (c) new carrier_line_movements table: the rule-20 reversal owner for every automated carrier_lines credit/validity mutation (Only Days credit-return, self-charge), so the generic void/refund path can reverse a line's credits/validity by transaction_id instead of leaving it permanently decremented (carrier_lines has no is_refunded column and is absent from TransactionRepository._markSourceRefunded's whitelist). (d) seeds the 'telecom_credit_sell_price_lbp' per-tenant setting (default 100000, the plan's §2.4 worked-example price) backing the three-row resale decision-aid table — seeded the same way v125 seeded allow_out_of_stock_sales (INSERT OR IGNORE per tenant row), and named distinctly from the existing alfa_credit_sell_rate_lbp/alfa_credit_cost_rate_lbp/alfa_credit_cost_lbp keys, which belong to the separate, out-of-scope Alfa Gift recharge channel (RechargeRepository/TelecomForm.tsx).",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // ---------------------------------------------------------------------
+      // (a) mobile_service_items — Only Days split columns. Nullable,
+      // defaultless ALTER (v104 prod-brick lesson). Guarded so replaying
+      // up() on an already-migrated DB is a safe no-op.
+      // ---------------------------------------------------------------------
+      const msiCols = db
+        .prepare("PRAGMA table_info(mobile_service_items)")
+        .all() as { name: string }[];
+      if (!msiCols.some((c) => c.name === "days_cost_lbp")) {
+        db.exec(
+          `ALTER TABLE mobile_service_items ADD COLUMN days_cost_lbp REAL`,
+        );
+      }
+      if (!msiCols.some((c) => c.name === "sell_days_lbp")) {
+        db.exec(
+          `ALTER TABLE mobile_service_items ADD COLUMN sell_days_lbp REAL`,
+        );
+      }
+      if (!msiCols.some((c) => c.name === "sell_credit_lbp")) {
+        db.exec(
+          `ALTER TABLE mobile_service_items ADD COLUMN sell_credit_lbp REAL`,
+        );
+      }
+
+      // ---------------------------------------------------------------------
+      // (b) carrier_lines — is_primary flag (constant default is legal on
+      // ALTER) + partial unique index: at most one primary line per carrier
+      // per tenant.
+      // ---------------------------------------------------------------------
+      const clCols = db.prepare("PRAGMA table_info(carrier_lines)").all() as {
+        name: string;
+      }[];
+      if (!clCols.some((c) => c.name === "is_primary")) {
+        db.exec(
+          `ALTER TABLE carrier_lines ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0`,
+        );
+      }
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_carrier_lines_one_primary_per_carrier
+        ON carrier_lines(tenant_id, carrier)
+        WHERE is_primary = 1
+      `);
+
+      // ---------------------------------------------------------------------
+      // (c) carrier_line_movements — new table, so DEFAULT CURRENT_TIMESTAMP
+      // is fine (only ALTER ADD COLUMN forbids non-constant defaults).
+      // ---------------------------------------------------------------------
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS carrier_line_movements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          carrier_line_id INTEGER NOT NULL,
+          transaction_id INTEGER,
+          credits_delta REAL NOT NULL DEFAULT 0,
+          validity_days_delta INTEGER NOT NULL DEFAULT 0,
+          reason TEXT NOT NULL,
+          is_reversed INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (carrier_line_id) REFERENCES carrier_lines(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_tenant_id ON carrier_line_movements(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_carrier_line_id ON carrier_line_movements(carrier_line_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_transaction_id ON carrier_line_movements(transaction_id)`,
+      );
+
+      // ---------------------------------------------------------------------
+      // (d) Settings default — credit sell price (LBP per $1) backing the
+      // §2.4 resale decision-aid table. Same per-tenant seeding pattern as
+      // v125's allow_out_of_stock_sales.
+      // ---------------------------------------------------------------------
+      const settingsRes = db
+        .prepare(
+          `INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value)
+           SELECT id, 'telecom_credit_sell_price_lbp', '100000' FROM tenants`,
+        )
+        .run();
+
+      console.log(
+        `Migration v140: mobile_service_items split columns added; carrier_lines.is_primary + partial unique index added; carrier_line_movements table created; telecom_credit_sell_price_lbp seeded for ${settingsRes.changes} tenant(s)`,
+      );
+    },
+    down(db: Database.Database) {
+      // New table + new index — straightforward drop.
+      db.exec(
+        `DROP INDEX IF EXISTS idx_carrier_line_movements_transaction_id`,
+      );
+      db.exec(
+        `DROP INDEX IF EXISTS idx_carrier_line_movements_carrier_line_id`,
+      );
+      db.exec(`DROP INDEX IF EXISTS idx_carrier_line_movements_tenant_id`);
+      db.exec(`DROP TABLE IF EXISTS carrier_line_movements`);
+
+      // Drop the partial unique index, then the column it covers (this
+      // better-sqlite3 build's bundled SQLite supports DROP COLUMN — same
+      // precedent as v136's source_ref_table/source_ref_id rollback — but the
+      // index must go first since a column backing an index can't be dropped).
+      db.exec(`DROP INDEX IF EXISTS idx_carrier_lines_one_primary_per_carrier`);
+      const clCols = db.prepare("PRAGMA table_info(carrier_lines)").all() as {
+        name: string;
+      }[];
+      if (clCols.some((c) => c.name === "is_primary")) {
+        db.exec(`ALTER TABLE carrier_lines DROP COLUMN is_primary`);
+      }
+
+      const msiCols = db
+        .prepare("PRAGMA table_info(mobile_service_items)")
+        .all() as { name: string }[];
+      if (msiCols.some((c) => c.name === "sell_credit_lbp")) {
+        db.exec(
+          `ALTER TABLE mobile_service_items DROP COLUMN sell_credit_lbp`,
+        );
+      }
+      if (msiCols.some((c) => c.name === "sell_days_lbp")) {
+        db.exec(`ALTER TABLE mobile_service_items DROP COLUMN sell_days_lbp`);
+      }
+      if (msiCols.some((c) => c.name === "days_cost_lbp")) {
+        db.exec(`ALTER TABLE mobile_service_items DROP COLUMN days_cost_lbp`);
+      }
+
+      db.exec(
+        `DELETE FROM system_settings WHERE key_name = 'telecom_credit_sell_price_lbp'`,
+      );
+
+      console.log(
+        "Migration v140 rolled back: carrier_line_movements dropped, carrier_lines.is_primary + partial index dropped, mobile_service_items split columns dropped, telecom_credit_sell_price_lbp setting removed",
+      );
+    },
+  },
+  {
+    version: 141,
+    name: "add_carrier_line_movement_previous_validity",
+    description:
+      "LIRA-090 M2 fix (2026-07-30 adversarial review, TELECOM_DAYS_VALIDITY_PLAN.md §8): carrier_line_movements gains a nullable previous_validity_expires_at TEXT column, added via defaultless ALTER TABLE ADD COLUMN (v104 prod-brick lesson). It records the carrier line's validity_expires_at exactly as it stood immediately BEFORE the movement's mutation was applied. CarrierLineRepository.reverseMovement restores this value VERBATIM instead of subtracting validity_days_delta off whatever the line's CURRENT expiry happens to be — the pre-fix 'reverseDelta' primitive (a) silently dropped the restore whenever the CURRENT expiry was null at reversal time (guard: validityDaysDelta !== 0 && line.validity_expires_at), with no error and no log, and (b) even when non-null, could not undo the §5.2 'already-expired lines extend from today' rebasing on reversal, because a naive day-subtraction cannot recover a stale date that was never used in the forward computation. Storing the exact pre-mutation snapshot makes both cases exact. Existing rows (written before this migration) get NULL here, which reverseMovement treats as 'the line legitimately had no expiry before this movement' — the same value applyMovement stores when the line's expiry actually was null at apply time.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db
+        .prepare("PRAGMA table_info(carrier_line_movements)")
+        .all() as { name: string }[];
+      if (!cols.some((c) => c.name === "previous_validity_expires_at")) {
+        db.exec(
+          `ALTER TABLE carrier_line_movements ADD COLUMN previous_validity_expires_at TEXT`,
+        );
+      }
+      console.log(
+        "Migration v141: carrier_line_movements.previous_validity_expires_at added",
+      );
+    },
+    down(db: Database.Database) {
+      const cols = db
+        .prepare("PRAGMA table_info(carrier_line_movements)")
+        .all() as { name: string }[];
+      if (cols.some((c) => c.name === "previous_validity_expires_at")) {
+        db.exec(
+          `ALTER TABLE carrier_line_movements DROP COLUMN previous_validity_expires_at`,
+        );
+      }
+      console.log(
+        "Migration v141 rolled back: carrier_line_movements.previous_validity_expires_at dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

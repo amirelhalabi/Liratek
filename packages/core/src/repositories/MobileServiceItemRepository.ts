@@ -27,6 +27,27 @@ export interface MobileServiceItemEntity {
   validity_days: number | null;
   /** Structured credit amount (USD) — LIRA W6.b. Null when not applicable. */
   credits: number | null;
+  /**
+   * LIRA-090 (v140): the LBP cost attributable to validity days alone,
+   * subtracted from `cost_lbp` to derive the credit's cost (spec §2.3).
+   * Null until an admin configures the Only-Days split — see
+   * `isTelecomSplitComplete` (utils/telecomCredit.ts), the single shared
+   * gate predicate (rule 14). Items without this keep today's manual
+   * `returnedCreditsUsd` behaviour (plan §3 decision 5).
+   */
+  days_cost_lbp: number | null;
+  /**
+   * LIRA-090 (v140): the customer price when only the days are sold — the
+   * Only-Days sale-time default, operator-overridable (plan §5.1).
+   */
+  sell_days_lbp: number | null;
+  /**
+   * LIRA-090 (v140): decision-aid display price for resold recovered
+   * credit, feeding the §2.4 three-row table. NOT part of
+   * `isTelecomSplitComplete` — it is a pricing display field, not a split
+   * completeness input.
+   */
+  sell_credit_lbp: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -42,6 +63,12 @@ export interface CreateMobileServiceItemData {
   is_active?: number;
   validity_days?: number | null;
   credits?: number | null;
+  /** LIRA-090 (v140) — see `MobileServiceItemEntity.days_cost_lbp`. */
+  days_cost_lbp?: number | null;
+  /** LIRA-090 (v140) — see `MobileServiceItemEntity.sell_days_lbp`. */
+  sell_days_lbp?: number | null;
+  /** LIRA-090 (v140) — see `MobileServiceItemEntity.sell_credit_lbp`. */
+  sell_credit_lbp?: number | null;
 }
 
 export interface UpdateMobileServiceItemData {
@@ -52,6 +79,12 @@ export interface UpdateMobileServiceItemData {
   is_active?: number;
   validity_days?: number | null;
   credits?: number | null;
+  /** LIRA-090 (v140) — see `MobileServiceItemEntity.days_cost_lbp`. */
+  days_cost_lbp?: number | null;
+  /** LIRA-090 (v140) — see `MobileServiceItemEntity.sell_days_lbp`. */
+  sell_days_lbp?: number | null;
+  /** LIRA-090 (v140) — see `MobileServiceItemEntity.sell_credit_lbp`. */
+  sell_credit_lbp?: number | null;
 }
 
 // =============================================================================
@@ -64,7 +97,7 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
   }
 
   protected getColumns(): string {
-    return "id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, created_at, updated_at";
+    return "id, provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, created_at, updated_at";
   }
 
   /**
@@ -162,8 +195,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
   createItem(data: CreateMobileServiceItemData): MobileServiceItemEntity {
     const stmt = this.db.prepare(
       `INSERT INTO mobile_service_items
-       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
     const result = stmt.run(
       data.provider,
@@ -176,6 +209,9 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
       data.is_active ?? 1,
       data.validity_days ?? null,
       data.credits ?? null,
+      data.days_cost_lbp ?? null,
+      data.sell_days_lbp ?? null,
+      data.sell_credit_lbp ?? null,
       getCurrentTenantId(),
     );
     return this.getById(result.lastInsertRowid as number)!;
@@ -218,6 +254,18 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     if (data.credits !== undefined) {
       sets.push("credits = ?");
       values.push(data.credits);
+    }
+    if (data.days_cost_lbp !== undefined) {
+      sets.push("days_cost_lbp = ?");
+      values.push(data.days_cost_lbp);
+    }
+    if (data.sell_days_lbp !== undefined) {
+      sets.push("sell_days_lbp = ?");
+      values.push(data.sell_days_lbp);
+    }
+    if (data.sell_credit_lbp !== undefined) {
+      sets.push("sell_credit_lbp = ?");
+      values.push(data.sell_credit_lbp);
     }
 
     if (sets.length === 0) return this.getById(id);
@@ -268,8 +316,8 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
     const tenantId = getCurrentTenantId();
     const stmt = this.db.prepare(
       `INSERT OR IGNORE INTO mobile_service_items
-       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, tenant_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       (provider, category, subcategory, label, cost_lbp, sell_lbp, sort_order, is_active, validity_days, credits, days_cost_lbp, sell_days_lbp, sell_credit_lbp, tenant_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     );
 
     let inserted = 0;
@@ -287,6 +335,9 @@ export class MobileServiceItemRepository extends BaseRepository<MobileServiceIte
             item.is_active ?? 1,
             item.validity_days ?? null,
             item.credits ?? null,
+            item.days_cost_lbp ?? null,
+            item.sell_days_lbp ?? null,
+            item.sell_credit_lbp ?? null,
             tenantId,
           );
           if (result.changes > 0) inserted++;

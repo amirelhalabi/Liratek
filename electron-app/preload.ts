@@ -262,6 +262,15 @@ contextBridge.exposeInMainWorld("api", {
       receiver_phone?: string;
       note?: string;
     }) => ipcRenderer.invoke("financial:update-metadata", data),
+    // LIRA-090 §5.2 — self-charge a telecom catalog item to the shop's own
+    // carrier line. Admin only. Fields: mobileServiceItemId (required),
+    // carrierLineId (optional — defaults to the item's carrier's primary line),
+    // transaction_time (optional).
+    selfChargeTelecomItem: (data: {
+      mobileServiceItemId: number;
+      carrierLineId?: number;
+      transaction_time?: string;
+    }) => ipcRenderer.invoke("financial:self-charge-telecom-item", data),
   },
 
   // Exchange
@@ -380,6 +389,18 @@ contextBridge.exposeInMainWorld("api", {
        *  with the shop rather than take back as change. */
       kept_change_usd?: number;
       kept_change_lbp?: number;
+      /** LIRA-090 (v140) Only-Days fields — rule 12: must be present here
+       *  so the Zod schema (FinancialServiceSchema, now updated with these
+       *  three fields) does not strip them from the IPC payload and the
+       *  computed credit-return feature actually reaches the repository.
+       *  `returnedCreditsUsd` already existed above (scalar operator override).
+       *  See CreateFinancialServiceData in @liratek/core for the full contract. */
+      mobileServiceItemId?: number;
+      telecomCreditReturns?: Array<{
+        itemCategory?: string;
+        mobileServiceItemId?: number;
+        returnedCreditsUsd?: number;
+      }>;
     }) => ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),
@@ -1278,6 +1299,10 @@ contextBridge.exposeInMainWorld("api", {
       // W6.b: structured validity/credits (nullable, both optional).
       validity_days?: number | null;
       credits?: number | null;
+      // LIRA-090 (v140) Only-Days split columns — nullable, all optional.
+      days_cost_lbp?: number | null;
+      sell_days_lbp?: number | null;
+      sell_credit_lbp?: number | null;
     }) => ipcRenderer.invoke("mobile-service-items:create", data),
     update: (
       id: number,
@@ -1290,6 +1315,10 @@ contextBridge.exposeInMainWorld("api", {
         // W6.b: structured validity/credits (nullable, both optional).
         validity_days?: number | null;
         credits?: number | null;
+        // LIRA-090 (v140) Only-Days split columns — nullable, all optional.
+        days_cost_lbp?: number | null;
+        sell_days_lbp?: number | null;
+        sell_credit_lbp?: number | null;
       },
     ) => ipcRenderer.invoke("mobile-service-items:update", id, data),
     toggleActive: (id: number) =>
@@ -1346,6 +1375,11 @@ contextBridge.exposeInMainWorld("api", {
     archive: (id: number) => ipcRenderer.invoke("carrier-lines:archive", id),
     toggleActive: (id: number) =>
       ipcRenderer.invoke("carrier-lines:toggle-active", id),
+    // LIRA-090: primary-line support for Only-Days and self-charge flows.
+    getPrimary: (carrier: "alfa" | "mtc") =>
+      ipcRenderer.invoke("carrier-lines:get-primary", carrier),
+    setPrimary: (id: number) =>
+      ipcRenderer.invoke("carrier-lines:set-primary", id),
   },
 
   // Custom Services

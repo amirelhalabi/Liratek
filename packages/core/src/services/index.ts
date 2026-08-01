@@ -312,7 +312,12 @@ export {
   getCarrierLineService,
   resetCarrierLineService,
 } from "./CarrierLineService.js";
-export type { CarrierLineResult } from "./CarrierLineService.js";
+export type {
+  CarrierLineResult,
+  ApplyMovementInput,
+  ApplyMovementData,
+  ApplyMovementResult,
+} from "./CarrierLineService.js";
 
 // Audit Service
 export {

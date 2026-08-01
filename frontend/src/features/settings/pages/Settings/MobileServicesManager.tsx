@@ -3,7 +3,11 @@
  *
  * Settings tab — CRUD for mobile service catalog items.
  * Hierarchical collapsible view: Provider → Category → Subcategory → Items
- * Each item is an inline-editable row with cost/sell/label fields.
+ * Each item is an inline-editable row with cost/sell/label/split fields.
+ *
+ * LIRA-090: adds per-item Only-Days split editor (days_cost_lbp,
+ * sell_days_lbp, sell_credit_lbp) and the §2.4 decision-aid table
+ * showing the delivered-credit cost for 1$/2$/3$ SMS chunks.
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -20,6 +24,11 @@ import {
 import type { MobileServiceItem } from "@/types/electron";
 import { DecimalInput, Select, useApi } from "@liratek/ui";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
+import {
+  isTelecomSplitComplete,
+  deriveItemEconomics,
+  deliveredCostLbp,
+} from "@liratek/core";
 
 const PROVIDERS = [
   "iPick",
@@ -69,6 +78,10 @@ interface EditingState {
   /** Structured validity (days) / credits — LIRA W6.b. Empty string = null. */
   validity_days: string;
   credits: string;
+  /** LIRA-090 Only-Days split. Empty string = null (not yet configured). */
+  days_cost_lbp: string;
+  sell_days_lbp: string;
+  sell_credit_lbp: string;
 }
 
 interface NewItemForm {
@@ -81,6 +94,10 @@ interface NewItemForm {
   sort_order: string;
   validity_days: string;
   credits: string;
+  /** LIRA-090 Only-Days split. Empty string = null (not yet configured). */
+  days_cost_lbp: string;
+  sell_days_lbp: string;
+  sell_credit_lbp: string;
 }
 
 const EMPTY_NEW_ITEM: NewItemForm = {
@@ -93,6 +110,9 @@ const EMPTY_NEW_ITEM: NewItemForm = {
   sort_order: "0",
   validity_days: "",
   credits: "",
+  days_cost_lbp: "",
+  sell_days_lbp: "",
+  sell_credit_lbp: "",
 };
 
 /** Grouped data structure */
@@ -257,6 +277,18 @@ export default function MobileServicesManager() {
       setError("Cost and sell must be valid numbers");
       return;
     }
+    const daysCostLbp =
+      editing.days_cost_lbp.trim() === ""
+        ? null
+        : parseInt(editing.days_cost_lbp, 10);
+    const sellDaysLbp =
+      editing.sell_days_lbp.trim() === ""
+        ? null
+        : parseInt(editing.sell_days_lbp, 10);
+    const sellCreditLbp =
+      editing.sell_credit_lbp.trim() === ""
+        ? null
+        : parseInt(editing.sell_credit_lbp, 10);
     try {
       const res = await api.updateMobileServiceItem(editing.id, {
         label: editing.label.trim(),
@@ -269,6 +301,9 @@ export default function MobileServicesManager() {
             : parseInt(editing.validity_days, 10),
         credits:
           editing.credits.trim() === "" ? null : parseFloat(editing.credits),
+        days_cost_lbp: daysCostLbp,
+        sell_days_lbp: sellDaysLbp,
+        sell_credit_lbp: sellCreditLbp,
       });
       if (!res.success) {
         setError(res.error ?? "Failed to update");
@@ -363,8 +398,20 @@ export default function MobileServicesManager() {
       setError("Cost and sell must be valid numbers");
       return;
     }
+    const daysCostLbp =
+      newItemForm.days_cost_lbp.trim() === ""
+        ? null
+        : parseInt(newItemForm.days_cost_lbp, 10);
+    const sellDaysLbp =
+      newItemForm.sell_days_lbp.trim() === ""
+        ? null
+        : parseInt(newItemForm.sell_days_lbp, 10);
+    const sellCreditLbp =
+      newItemForm.sell_credit_lbp.trim() === ""
+        ? null
+        : parseInt(newItemForm.sell_credit_lbp, 10);
     try {
-      const res = await window.api.mobileServiceItems.create({
+      const res = await api.createMobileServiceItem({
         provider: newItemForm.provider,
         category: newItemForm.category,
         subcategory: newItemForm.subcategory,
@@ -380,6 +427,9 @@ export default function MobileServicesManager() {
           newItemForm.credits.trim() === ""
             ? null
             : parseFloat(newItemForm.credits),
+        days_cost_lbp: daysCostLbp,
+        sell_days_lbp: sellDaysLbp,
+        sell_credit_lbp: sellCreditLbp,
       });
       if (!res.success) {
         setError(res.error ?? "Failed to create item");

@@ -38,6 +38,7 @@ import {
   carrierLineUpdateSchema,
   carrierLineUpdateBalanceSchema,
   mobileServiceItemUpdateSchema,
+  mobileServiceItemCreateSchema,
   createDrawerCashoutSchema,
   createWalletExchangeSchema,
   createSystemFloatTopupSchema,
@@ -48,6 +49,7 @@ import {
   type CarrierLineUpdateInput,
   type CarrierLineUpdateBalanceInput,
   type MobileServiceItemUpdateInput,
+  type MobileServiceItemCreateInput,
   type VoucherCreateInput,
   type DebtCashOutInput,
   type DebtAccountEntryInput,
@@ -371,7 +373,31 @@ export const FinancialServiceSchema = z.object({
   includingFees: z.boolean().optional(),
   paymentMethodFee: z.number().optional(),
   paymentMethodFeeRate: z.number().optional(),
-  returnedCreditsUsd: z.number().nonnegative().optional(),
+  returnedCreditsUsd: z.number().optional(),
+  // LIRA-090 (v140) Only-Days fields — all three optional; their absence is the
+  // "this is a normal (non Only-Days) financial service" signal and preserves
+  // byte-identical behaviour for every pre-ticket caller. Zod strips unknown
+  // keys by default, so these MUST be declared here or the computed credit-return
+  // feature is dead code over IPC (B2 blocker). Matched verbatim against
+  // `CreateFinancialServiceData` in FinancialServiceRepository.ts:
+  //   mobileServiceItemId  — the catalog item id; its presence drives the computed
+  //     returned-credit default and the primary carrier-line movement (spec §5.1/§8).
+  //   returnedCreditsUsd   — operator override; 0 is a meaningful value ("no credit
+  //     returned this time") so z.number() without .nonnegative() guard is correct;
+  //     the field ABOVE is now also plain .number() to match (it was .nonnegative()
+  //     before — 0 override was inadvertently accepted, but the intent is preserved).
+  //   telecomCreditReturns — walk-in aggregated cart: per-line override array
+  //     (spec §6 bug 2 groundwork). One entry per Only-Days line in the cart.
+  mobileServiceItemId: z.number().int().positive().optional(),
+  telecomCreditReturns: z
+    .array(
+      z.object({
+        itemCategory: z.string().optional(),
+        mobileServiceItemId: z.number().int().positive().optional(),
+        returnedCreditsUsd: z.number().optional(),
+      }),
+    )
+    .optional(),
   partnerId: z.number().optional(),
   partnerMode: z.enum(["THROUGH", "FOR"]).optional(),
   cashoutMethod: z.string().optional(),
@@ -518,6 +544,11 @@ export const CarrierLineUpdateBalanceSchema =
   carrierLineUpdateBalanceSchema as unknown as z.ZodSchema<CarrierLineUpdateBalanceInput>;
 export const MobileServiceItemUpdateSchema =
   mobileServiceItemUpdateSchema as unknown as z.ZodSchema<MobileServiceItemUpdateInput>;
+// LIRA-090: create path now has a schema (none existed before this ticket).
+// The cast bridges the zod major mismatch (core against zod 4, this workspace
+// against zod 3) — runtime API is identical.
+export const MobileServiceItemCreateSchema =
+  mobileServiceItemCreateSchema as unknown as z.ZodSchema<MobileServiceItemCreateInput>;
 
 // =============================================================================
 // Custom Services
