@@ -169,7 +169,6 @@ router.put(
     try {
       const { id: _id, ...data } = parsed.data;
       void _id; // stripped from the payload — the URL param is authoritative
-      void _id; // stripped from the payload — the URL param is authoritative
       const service = getCarrierLineService();
       const result = service.updateBalance(id, data);
       res.status(result.success ? 200 : 400).json(result);

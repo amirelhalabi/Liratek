@@ -1095,7 +1095,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 5g. LIRA-090 §8, rule 20 — reverse every carrier_line_movements row
       // tied to this transaction (Only Days credit-return, self-charge).
       // Type-agnostic, keyed by transaction_id; no-op when none match.
-      /*BUG*/ // this._reverseCarrierLineMovements(original);
+      this._reverseCarrierLineMovements(original);
 
       // 6. If SALE: cancel sale, restore stock
       if (original.source_table === "sales" && original.source_id) {
@@ -1265,7 +1265,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
       // 4g. LIRA-090 §8, rule 20 — carrier_line_movements reversal. See
       // voidTransaction's identical step.
-      /*BUG*/ // this._reverseCarrierLineMovements(original);
+      this._reverseCarrierLineMovements(original);
 
       // 5. If SALE: mark sale & items as refunded, restore stock
       if (original.source_table === "sales" && original.source_id) {

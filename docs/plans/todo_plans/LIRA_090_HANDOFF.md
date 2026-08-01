@@ -1,5 +1,14 @@
 # LIRA-090 — Implementation Handoff (2026-07-31)
 
+> **STATUS 2026-08-01: COMPLETE — all gates green, adversarially reviewed, safe to merge.**
+> Full stack implemented and committed (core, transport, adapter, UI). A `git reset --hard`
+> wiped the tree mid-build; it was reconstructed faithfully from the workflow agent transcripts
+> and re-verified. Final gates: core **1362/1362**, backend **500/0**, frontend **673/0** (1 known
+> date-flake skipped), typecheck/lint clean, tenant-scoping 0 violations, schema-equivalence zero
+> diffs. Adversarial review caught + fixed one shipped BLOCKER (the void/refund reversal calls had
+> been left commented out) and one role mismatch (self-charge REST aligned to admin-only per rule
+> 19). The everything-below section is the historical remaining-work list, now all done.
+
 Progress snapshot after two agent workflows. The second workflow was cut short by the org's
 **monthly spend limit** (resets 2026-08-01), which killed 9 of 10 agents. This file is the source
 of truth for what remains. The authoritative design is `TELECOM_DAYS_VALIDITY_PLAN.md`.

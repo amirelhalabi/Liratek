@@ -83,14 +83,15 @@ router.post(
 // POST /api/services/self-charge — charge a telecom catalog item to the
 // shop's OWN carrier line (LIRA-090 spec §5.2). No customer is debited; the
 // shop's carrier-line credits and validity are updated, and an LBP drawer
-// debit records the cost. Requires admin or staff (matches the financial
-// service transaction handler role — both touch the LBP drawer).
+// debit records the cost. Admin-only — rule 19 mirrors the IPC handler
+// (`financial:self-charge-telecom-item`, which is admin-only; this internal
+// stock/credit move deliberately excludes staff on both transports).
 //
 // `userId` is injected from the JWT (never trusted from the client body).
 // HTTP 200 even on business-rule failure per rule 19c.
 router.post(
   "/self-charge",
-  requireRole(["admin", "staff"]),
+  requireRole(["admin"]),
   (req, res): void => {
     const parsed = selfChargeTelecomItemSchema.safeParse(req.body);
     if (!parsed.success) {
