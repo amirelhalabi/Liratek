@@ -7062,6 +7062,102 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 140,
+    name: "rebuild_system_float_topups_as_drawer_transfers",
+    description:
+      "Primary Cash Drawer plan §8.6 (owner verdict 2026-07-30, superseding v139's float model): OMT_System/Whish_System stop being a spendable float and become the physical primary cash drawer (PCD) at the money-transfer counter. The generic cash-move mechanism therefore needs to run BOTH directions (General→PCD funding AND PCD→General draining), but v139's `system_float_topups.target_drawer CHECK (target_drawer IN ('OMT_System','Whish_System'))` forbids a PCD→General row outright — and SQLite cannot ALTER a CHECK constraint, so the table is rebuilt rather than altered. `drawer_transfers` replaces the fixed target_drawer/funding_drawer roles with symmetric from_drawer/to_drawer columns and NO CHECK on either (a manual transfer's counterparties are shop drawer names, not a fixed provider-float pair). Existing rows carry forward 1:1 (funding_drawer -> from_drawer, target_drawer -> to_drawer) WITH their original id — transactions.source_id for every pre-existing SYSTEM_FLOAT_TOPUP/DRAWER_TRANSFER row points at this table by id, so an id-preserving copy is required for the generic void/refund path (TransactionRepository._markSourceRefunded) to keep resolving the right row.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE drawer_transfers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          from_drawer TEXT NOT NULL,
+          to_drawer TEXT NOT NULL,
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          notes TEXT,
+          created_by INTEGER,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_drawer_transfers_tenant_id ON drawer_transfers(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_drawer_transfers_created_at ON drawer_transfers(created_at)`,
+      );
+
+      // Carry forward every existing row, id-preserving (see description).
+      db.exec(`
+        INSERT INTO drawer_transfers (
+          id, tenant_id, from_drawer, to_drawer, amount_usd, amount_lbp,
+          notes, created_by, is_refunded, refunded_at, created_at, updated_at
+        )
+        SELECT
+          id, tenant_id, funding_drawer, target_drawer, amount_usd, amount_lbp,
+          notes, created_by, is_refunded, refunded_at, created_at, updated_at
+        FROM system_float_topups
+      `);
+
+      db.exec(`DROP TABLE system_float_topups`);
+
+      console.log(
+        "Migration v140: rebuilt system_float_topups as drawer_transfers (from_drawer/to_drawer, no CHECK)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE system_float_topups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          target_drawer TEXT NOT NULL CHECK (target_drawer IN ('OMT_System', 'Whish_System')),
+          funding_drawer TEXT NOT NULL,
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          notes TEXT,
+          created_by INTEGER,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_system_float_topups_tenant_id ON system_float_topups(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_system_float_topups_created_at ON system_float_topups(created_at)`,
+      );
+
+      // Only rows whose to_drawer fits the old CHECK can come back. v139's
+      // CHECK allowed target_drawer IN ('OMT_System','Whish_System') only, so
+      // General->PCD rows survive the rollback and PCD->General rows — the
+      // direction v140 exists to make possible — have no legal home in the
+      // old shape and are dropped rather than violating the CHECK.
+      db.exec(`
+        INSERT INTO system_float_topups (
+          id, tenant_id, target_drawer, funding_drawer, amount_usd, amount_lbp,
+          notes, created_by, is_refunded, refunded_at, created_at, updated_at
+        )
+        SELECT
+          id, tenant_id, to_drawer, from_drawer, amount_usd, amount_lbp,
+          notes, created_by, is_refunded, refunded_at, created_at, updated_at
+        FROM drawer_transfers
+        WHERE to_drawer IN ('OMT_System', 'Whish_System')
+      `);
+
+      db.exec(`DROP TABLE drawer_transfers`);
+
+      console.log(
+        "Migration v140 rolled back: rebuilt system_float_topups (target_drawer/funding_drawer, CHECK restored)",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

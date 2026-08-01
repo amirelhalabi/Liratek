@@ -18,17 +18,23 @@ export const TRANSACTION_TYPES = {
    *  WalletExchangeRepository / migration v138 for why it isn't just a
    *  drawer-parameterized EXCHANGE row. */
   WALLET_EXCHANGE: "WALLET_EXCHANGE",
-  /** Owner-confirmed float model (2026-07-29): the operator funds the
-   *  OMT_System / Whish_System spendable float directly — funding_drawer −,
-   *  target_drawer (OMT_System/Whish_System) + , profit always 0. This is
-   *  the missing direction next to DrawerTopUpRepository.createTopUpFromDrawer
-   *  (which only ever moves the system drawer's balance OUT to General).
-   *  Deliberately its own type rather than DRAWER_TOPUP — DRAWER_TOPUP is
-   *  permanently non-reversible (see NON_REVERSIBLE_TRANSACTION_TYPES) for a
-   *  structural reason ("two drawer movements but only the General-side
-   *  payments leg") that does not apply here: both legs of THIS flow get a
-   *  payments row, so it stays reversible, same pattern as WALLET_EXCHANGE. */
-  SYSTEM_FLOAT_TOPUP: "SYSTEM_FLOAT_TOPUP",
+  /** Primary Cash Drawer plan §8.6 (2026-07-30), superseding the owner's
+   *  2026-07-29 float-model verdict: a GENERIC, bidirectional cash transfer
+   *  between any two of the shop's own drawers — General ↔ the primary cash
+   *  drawer (`OMT_System`/`Whish_System`) is the pair the UI exposes, both
+   *  directions now legal (the old `SYSTEM_FLOAT_TOPUP` type only ever moved
+   *  General → OMT_System/Whish_System; `createTopUpFromDrawer`'s raw-UPDATE
+   *  non-reversible path covered the reverse). Renamed from
+   *  `SYSTEM_FLOAT_TOPUP` (the drawer-meaning rename — plan §1: these
+   *  drawers are physical cash, not a provider-side float — makes "float
+   *  top-up" the wrong name for its own transfer mechanism). Deliberately
+   *  its own type rather than DRAWER_TOPUP — DRAWER_TOPUP is permanently
+   *  non-reversible (see NON_REVERSIBLE_TRANSACTION_TYPES) for a structural
+   *  reason ("two drawer movements but only the General-side payments leg")
+   *  that does not apply here: both legs of THIS flow get a payments row via
+   *  `DrawerTopUpRepository.transferBetweenDrawers`, so it stays reversible,
+   *  same pattern as WALLET_EXCHANGE. */
+  DRAWER_TRANSFER: "DRAWER_TRANSFER",
   RECHARGE: "RECHARGE",
   RECHARGE_TOPUP: "RECHARGE_TOPUP",
   MTC_TOPUP: "MTC_TOPUP",

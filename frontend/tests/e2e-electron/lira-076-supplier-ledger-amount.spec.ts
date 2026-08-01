@@ -90,8 +90,8 @@ async function omtBalance(
   });
 }
 
-test.describe("LIRA-076 (float model) — supplier ledger = fee-only owed, both directions", () => {
-  test("SEND split-pay: ledger delta is the fee net of commission (f−c), never the principal or a tender leg", async ({
+test.describe("LIRA-076 (primary cash drawer model) — supplier ledger = GROSS owed, both directions", () => {
+  test("SEND split-pay: ledger delta is the GROSS obligation (x+f−c), never a tender leg", async ({
     appPage,
   }) => {
     const before = await omtBalance(appPage);
@@ -105,10 +105,12 @@ test.describe("LIRA-076 (float model) — supplier ledger = fee-only owed, both 
     // NOT pass `commission` at all; it lets the real auto-calc run:
     //   c = calculateCommission("INTRA", f=5) = 5 × OMT_COMMISSION_RATES.INTRA
     //     = 5 × 0.10 = 0.5
-    //   ledger delta = feeOwedDelta = |f| − |c| = 5 − 0.5 = 4.5
-    // (Hand-derived from omtFees.ts + FinancialServiceRepository.ts's
-    // feeOwedDelta; unexecuted. The principal 80 never reaches the ledger —
-    // it moved through the OMT_System float instead, per lira-074.)
+    //   ledger delta = grossOwedDelta(SEND) = x + f − c = 80 + 5 − 0.5 = 84.5
+    // The principal is BACK in the ledger, and that is the model change: with
+    // no provider-side float to hold it, the 80 the shop owes OMT has nowhere
+    // else to live. It is not the old double-count — the drawer holds that 80
+    // as the shop's own banknotes (a different fact), which is why
+    // Σ drawer − Δ owed still lands on the commission.
     const res = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
       return w.api.omt.addTransaction({
@@ -128,13 +130,13 @@ test.describe("LIRA-076 (float model) — supplier ledger = fee-only owed, both 
     expect(res.success).toBe(true);
 
     const after = await omtBalance(appPage);
-    // TOP_UP is positive (shop owes OMT): exactly +4.5 (f−c) — was +85
-    // (x+f, gross) under the superseded C3 model.
-    expect(after.usd - before.usd).toBeCloseTo(4.5, 2);
+    // TOP_UP is positive (shop owes OMT): exactly +84.5 = x + f − c.
+    // Read 4.5 under the superseded fee-only float model.
+    expect(after.usd - before.usd).toBeCloseTo(84.5, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(0, 2);
   });
 
-  test("RECEIVE: ledger delta is ALSO the fee net of commission (f−c), same shape as SEND, not the bare transfer amount", async ({
+  test("RECEIVE: ledger delta is the gross obligation NEGATED — the provider owes the shop, not the other way round", async ({
     appPage,
   }) => {
     const before = await omtBalance(appPage);
@@ -144,14 +146,13 @@ test.describe("LIRA-076 (float model) — supplier ledger = fee-only owed, both 
     // booking) reads ONLY `data.omtFee`, never the fee-table lookup (see
     // file header). With f=2 explicit:
     //   c = calculateCommission("INTRA", f=2) = 2 × 0.10 = 0.2
-    //   ledger delta = feeOwedDelta = |f| − |c| = 2 − 0.2 = 1.8
-    // entry_type is TOP_UP (unsigned, stored as-is) — RECEIVE no longer uses
-    // "PAYMENT" (which force-negates), because under the float model a
-    // RECEIVE's fee obligation INCREASES what's owed exactly like a SEND's
-    // does. Hand-derived from omtFees.ts + FinancialServiceRepository.ts;
-    // unexecuted. (This RECEIVE also now books a real $2 customer-paid fee
-    // leg into General — asserted by the new web spec, not duplicated here
-    // since this file only snapshots the supplier ledger.)
+    //   ledger delta = grossOwedDelta(RECEIVE) = −(x − f + c)
+    //                = −(40 − 2 + 0.2) = −38.2
+    // The SIGN is the point: on a RECEIVE the shop paid the customer out of
+    // its own drawer, so the PROVIDER now owes the shop. Booked as a signed
+    // TOP_UP (never "PAYMENT", which force-negates and would silently flip
+    // this back). A settlement batch mixing SENDs and RECEIVEs nets these
+    // against each other — that netting is what lira-059/settlement guard.
     const res = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
       return w.api.omt.addTransaction({
@@ -168,10 +169,9 @@ test.describe("LIRA-076 (float model) — supplier ledger = fee-only owed, both 
     expect(res.success).toBe(true);
 
     const after = await omtBalance(appPage);
-    // Was −40.4 (−(amount+commission), PAYMENT force-negated) under the
-    // superseded pre-float model; now +1.8 (f−c, TOP_UP, same sign/shape as
-    // SEND).
-    expect(after.usd - before.usd).toBeCloseTo(1.8, 2);
+    // −38.2: the provider owes the shop. Read +1.8 (fee-only) under the
+    // superseded float model and −40.4 under the pre-float model before that.
+    expect(after.usd - before.usd).toBeCloseTo(-38.2, 2);
     expect(after.lbp - before.lbp).toBeCloseTo(0, 2);
   });
 });

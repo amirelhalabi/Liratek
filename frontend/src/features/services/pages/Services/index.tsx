@@ -25,7 +25,6 @@ import {
   Select,
   useApi,
   appEvents,
-  TopUpModal,
   DecimalInput,
 } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
@@ -265,7 +264,7 @@ interface SupplierOwed {
 
 export default function Services() {
   const api = useApi();
-  const { baseSystem, partnerSystem } = useShopBase();
+  const { partnerSystem } = useShopBase();
   const {
     activeSession,
     linkTransaction,
@@ -354,13 +353,6 @@ export default function Services() {
   // History modal
   const [showHistory, setShowHistory] = useState(false);
   useModalFocusFix(showHistory);
-
-  // System drawer top-up modal
-  const [showTopUpModal, setShowTopUpModal] = useState(false);
-  useModalFocusFix(showTopUpModal);
-  const [topUpDrawers, setTopUpDrawers] = useState<
-    Array<{ name: string; usdBalance: number; lbpBalance: number }>
-  >([]);
 
   // ── Inline edit state for history ──────────────────────────────────
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -672,6 +664,75 @@ export default function Services() {
       window.removeEventListener("voicebot:command", handleVoiceCommand);
     };
   }, [provider, activeSession, api, loadData]);
+
+  // Submits the built OMT/Whish payload and handles the result — factored
+  // out of handleSubmit (Primary Cash Drawer plan §8.5, owner decision #11)
+  // so the exact same payload can be retried, unmodified, after the operator
+  // resolves a blocked RECEIVE payout by moving cash from General. `payload`
+  // and `linkTotal` are snapshotted at call time — never recomputed from
+  // current form state — so a retry submits precisely what was rejected.
+  const submitOMTPayload = useCallback(
+    async (payload: Record<string, unknown>, linkTotal: number) => {
+      const result = await api.addOMTTransaction(payload);
+
+      if (result.success) {
+        // Link to active session if exists
+        if (activeSession && result.id) {
+          try {
+            await linkTransaction({
+              transactionType: "financial_service",
+              transactionId: result.id,
+              amountUsd: linkTotal,
+              amountLbp: 0,
+            });
+          } catch (err) {
+            logger.error("Failed to link service to session:", err);
+            // Don't block the transaction completion
+          }
+        }
+
+        appEvents.emit(
+          "notification:show",
+          `${provider} ${serviceType.toLowerCase()} recorded successfully`,
+          "success",
+        );
+
+        // Reset form
+        setAmount("");
+        setSenderName("");
+        setSenderPhone("");
+        setReceiverName("");
+        setReceiverPhone("");
+        setReferenceNumber("");
+        setOmtServiceType("INTRA" as OmtServiceType);
+        setOmtFee("");
+        setWhishFee("");
+        setPayFee(false);
+        setBinanceSupplier("");
+        setPaymentLines([]);
+        setReturnLegs([]);
+        setIncludingFees(false);
+        setPmFeeAmount("");
+        setMultiPmFees({});
+        setNote("");
+        setSelectedPartnerId(null);
+        setForPartner(false);
+        setForPartnerId(null);
+        setCashoutMethod("CASH");
+        setTransactionTime(undefined);
+        loadData();
+        resetSaveAsClient();
+        return;
+      }
+
+      appEvents.emit(
+        "notification:show",
+        result.error || "Transaction failed",
+        "error",
+      );
+    },
+    [api, activeSession, linkTransaction, provider, serviceType, loadData, resetSaveAsClient],
+  );
 
   const handleSubmit = useCallback(async () => {
     // Validate: client name + phone required when debt is used (single or split)
@@ -1052,65 +1113,10 @@ export default function Services() {
         return;
       }
 
-      const result = await api.addOMTTransaction(apiPayload);
-
-      if (result.success) {
-        // Link to active session if exists
-        if (activeSession && result.id) {
-          try {
-            const linkTotal = includingFees
-              ? amtVal
-              : sentAmount + (resolvedFee ?? 0) + finalPmFee;
-            await linkTransaction({
-              transactionType: "financial_service",
-              transactionId: result.id,
-              amountUsd: linkTotal,
-              amountLbp: 0,
-            });
-          } catch (err) {
-            logger.error("Failed to link service to session:", err);
-            // Don't block the transaction completion
-          }
-        }
-
-        appEvents.emit(
-          "notification:show",
-          `${provider} ${serviceType.toLowerCase()} recorded successfully`,
-          "success",
-        );
-
-        // Reset form
-        setAmount("");
-        setSenderName("");
-        setSenderPhone("");
-        setReceiverName("");
-        setReceiverPhone("");
-        setReferenceNumber("");
-        setOmtServiceType("INTRA" as OmtServiceType);
-        setOmtFee("");
-        setWhishFee("");
-        setPayFee(false);
-        setBinanceSupplier("");
-        setPaymentLines([]);
-        setReturnLegs([]);
-        setIncludingFees(false);
-        setPmFeeAmount("");
-        setMultiPmFees({});
-        setNote("");
-        setSelectedPartnerId(null);
-        setForPartner(false);
-        setForPartnerId(null);
-        setCashoutMethod("CASH");
-        setTransactionTime(undefined);
-        loadData();
-        resetSaveAsClient();
-      } else {
-        appEvents.emit(
-          "notification:show",
-          result.error || "Transaction failed",
-          "error",
-        );
-      }
+      const linkTotal = includingFees
+        ? amtVal
+        : sentAmount + (resolvedFee ?? 0) + finalPmFee;
+      await submitOMTPayload(apiPayload, linkTotal);
     } catch (error) {
       logger.error("Operation failed", { error });
       const msg =
@@ -1158,6 +1164,7 @@ export default function Services() {
     loadData,
     trySaveAsClient,
     resetSaveAsClient,
+    submitOMTPayload,
   ]);
 
   // Close history modal on Escape key
@@ -1170,59 +1177,15 @@ export default function Services() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [showHistory]);
 
-  const systemTopUpProvider =
-    baseSystem === "OMT" ? "OMT_SYSTEM" : ("WHISH_SYSTEM" as const);
-  const systemDrawerName = baseSystem === "OMT" ? "OMT_System" : "Whish_System";
-
-  const handleSystemTopUpClick = useCallback(async () => {
-    try {
-      const drawers = await window.api.recharge.getDrawerBalances();
-      setTopUpDrawers(drawers);
-      setShowTopUpModal(true);
-    } catch (err) {
-      logger.error("Failed to load drawer balances for top-up:", err);
-      alert("Failed to load drawer balances");
-    }
-  }, []);
-
-  const handleSystemTopUpConfirm = useCallback(
-    async (data: {
-      amount: number;
-      currency: "USD" | "LBP";
-      sourceDrawer: string;
-    }) => {
-      const result = await window.api.recharge.topUpApp({
-        provider: systemTopUpProvider,
-        amount: data.amount,
-        currency: data.currency,
-        sourceDrawer: data.sourceDrawer,
-      });
-      if (!result.success) throw new Error(result.error ?? "Top-up failed");
-      appEvents.emit(
-        "notification:show",
-        `${systemTopUpProvider} topped up with ${data.amount} ${data.currency}`,
-        "success",
-      );
-    },
-    [systemTopUpProvider],
-  );
-
-  const handleSystemTopUpConfirmExternal = useCallback(
-    async (data: { amount: number; currency: "USD" | "LBP" }) => {
-      const result = await window.api.recharge.topUpAppExternal({
-        provider: systemTopUpProvider,
-        amount: data.amount,
-        currency: data.currency,
-      });
-      if (!result.success) throw new Error(result.error ?? "Top-up failed");
-      appEvents.emit(
-        "notification:show",
-        `${systemTopUpProvider} topped up with ${data.amount} ${data.currency} (external)`,
-        "success",
-      );
-    },
-    [systemTopUpProvider],
-  );
+  // RECEIVE insufficient-funds recovery (Primary Cash Drawer plan §8.5/§8.6,
+  // owner decision #11): move the shortfall from General into the primary
+  // cash drawer via the generic reversible transfer, then retry the exact
+  // payload that was blocked — the operator never retypes the transaction.
+  // Replaces the old float "Top Up" affordance (see the header/JSX diff);
+  // that one-directional, non-reversible recharge.topUpApp mechanism has no
+  // place once OMT_System/Whish_System are physical cash drawers — the
+  // dashboard's DrawerTopUpModal now owns the bidirectional General <-> PCD
+  // transfer UI for the general (non-blocked) case.
 
   // Derived accent colors based on active provider
   const providerAccent = useMemo(
@@ -1248,13 +1211,6 @@ export default function Services() {
               monthByCurrency={analytics.month.byCurrency}
               owedByProvider={owedByProvider}
             />
-            <button
-              type="button"
-              onClick={handleSystemTopUpClick}
-              className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
-            >
-              Top Up
-            </button>
             <button
               type="button"
               onClick={() => setShowHistory(true)}
@@ -2268,18 +2224,6 @@ export default function Services() {
           </div>
         </div>
       </div>
-
-      {/* System Drawer Top-Up Modal */}
-      <TopUpModal
-        isOpen={showTopUpModal}
-        onClose={() => setShowTopUpModal(false)}
-        onConfirm={handleSystemTopUpConfirm}
-        onConfirmExternal={handleSystemTopUpConfirmExternal}
-        provider={systemTopUpProvider}
-        allDrawers={topUpDrawers}
-        destinationDrawer={systemDrawerName}
-        defaultSourceDrawer="General"
-      />
 
       {/* History Modal — full-screen overlay, checkout-modal style */}
       {showHistory && (

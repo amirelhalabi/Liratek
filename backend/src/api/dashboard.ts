@@ -36,10 +36,29 @@ router.get("/todays-sales", (_req, res) => {
 });
 
 // GET /api/dashboard/drawer-balances
+// Rule 19c: REST must stay IPC-identical — the IPC channel
+// (`dashboard:get-drawer-balances`) has no try/catch of its own (it's a thin
+// read pass-through), so a thrown DatabaseError there surfaces to the
+// renderer as a rejected promise; here it must surface as HTTP 200 with
+// `{ success: false, error }` rather than an uncaught 500, or the two
+// transports diverge on the exact same failure (PRIMARY_CASH_DRAWER_PLAN.md
+// §3 Phase C — SalesRepository.getDrawerBalances now also reads
+// `shop_base_system`, a second query that can throw independently of the
+// drawer_balances read).
 router.get("/drawer-balances", (_req, res) => {
-  const service = getSalesService();
-  const balances = service.getDrawerBalances();
-  res.json({ success: true, balances });
+  try {
+    const service = getSalesService();
+    const balances = service.getDrawerBalances();
+    res.json({ success: true, balances });
+  } catch (error) {
+    res.json({
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to get drawer balances",
+    });
+  }
 });
 
 // GET /api/dashboard/drawer-names

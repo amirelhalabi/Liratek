@@ -1,40 +1,91 @@
 /**
- * OMT/WHISH SYSTEM SEND/RECEIVE — FLOAT-MODEL GUARD (rewritten from a
- * diagnostic characterization into a real guard, per the owner's confirmed
- * domain model, 2026-07-29):
+ * OMT/WHISH SYSTEM SEND/RECEIVE — PRIMARY CASH DRAWER (PCD) GUARD.
  *
- *   "I can put money into OMT at setup, and I can also not pre-fund. A SEND
- *    spends my balance down, a RECEIVE gives me credit I can immediately
- *    use for future sends — I don't have to wait for OMT to pay me or
- *    settle. OMT tracks what each of us owes and we settle periodically,
- *    but I can spend a received amount normally."
+ * Re-derived (2026-07-30) from the float model (PR #66, superseded) to the
+ * owner's confirmed model —
+ * `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md` §1/§8, and
+ * `docs/FEATURE_GUIDE.md` §7/§8/§8.1 (now authoritative, not historical):
  *
- * Therefore OMT_System/Whish_System is a SPENDABLE FLOAT (SEND draws it
- * down, RECEIVE fills it up, may go negative), and the periodic settlement
- * with the provider covers ONLY the fee split (f − c), never the
- * principal — the principal already moved through the float.
+ *   "we dont have omt system balance.. no need for another drawer. we can
+ *    use our omt system drawer" — `OMT_System`/`Whish_System` is the
+ *    PHYSICAL CASH DRAWER at the money-transfer counter for whichever
+ *    provider is primary (`shop_base_system`), not a balance tracked inside
+ *    the provider's own books. The float model's SEND `-x`/RECEIVE `+x`
+ *    "float" legs are DELETED — the drawer now moves only because real
+ *    banknotes move.
  *
- * Notation: x = principal, f = customer-facing fee, c = the shop's
- * commission (its cut of f; c ≤ f).
+ * Notation unchanged: x = principal, f = customer-facing fee, c = the shop's
+ * commission (its cut of f; c ≤ f, c = 0 for WHISH).
  *
- * Target drawer table (owner-specified):
- *   SEND,    fee on top   : payment +(x+f)   system −x        Σ +f
- *   SEND,    fee included : payment +x       system −(x−f)    Σ +f
- *   RECEIVE, fee on top   : payment +f, payout −x   system +x  Σ +f
- *   RECEIVE, fee included : payout −(x−f)           system +x  Σ +f
+ * PCD = "primary cash drawer" = `OMT_System` when `shop_base_system='OMT'`,
+ * `Whish_System` when `'WHISH'` (`primaryCashDrawerName()`,
+ * `constants/systemFloatDrawers.ts`). Every cash leg of a primary-system
+ * SEND/RECEIVE — customer payment, payout, change, the fee — routes to the
+ * PCD via `resolveServiceCashDrawer(method, ctx)` (`utils/payments.ts`)
+ * whenever `ctx.provider === ctx.baseSystem` (partner-or-not is NOT part of
+ * the predicate). App wallets/Binance and non-primary-system flows are
+ * untouched (General / their own wallet drawer, same as before #66).
  *
- * The invariant every case below asserts:
- *   Σ(drawer deltas) − Δ(supplier_ledger owed) = c + kept_change
- * (extended to include the debt_ledger receivable for the
- * CUSTOMER_ACCOUNT-funded SEND case, where the "payment" leg is a
- * receivable instead of a drawer credit — see assertInvariant's
- * `debtDeltaUsd` param.)
+ * Target drawer table (plan §1 / FEATURE_GUIDE §8.1) — every case nets to
+ * exactly the shop's own commission `c`, not `f` like the superseded float
+ * model's table did:
  *
- * FAILING-FIRST (rule 17): every case here was run against the pre-fix
- * repository (RESERVE/TRANSFER cash-reserve model, gross-amount supplier
- * ledger, no RECEIVE fee) and FAILED with the old (broken) numbers quoted
- * in each case's comment, then passed after the fix — see the task's final
- * report for both captured outputs.
+ *   SEND,    fee on top   : PCD +(x+f)             Δowed +(x+f−c)   PCDΣ−Δowed = +c
+ *   SEND,    fee included : PCD +x                 Δowed +(x−c)     PCDΣ−Δowed = +c
+ *   RECEIVE, fee on top   : PCD −x, +f (net −(x−f)) Δowed −(x−f+c)  PCDΣ−Δowed = +c
+ *   RECEIVE, fee included : PCD −(x−f)             Δowed −(x−f+c)   PCDΣ−Δowed = +c
+ *
+ * The invariant every case below asserts (plan §8.4 / FEATURE_GUIDE §8.1):
+ *
+ *   Σ(drawer deltas) + Σ(receivable deltas) − Δ(supplier_ledger owed)
+ *     = c + kept_change
+ *
+ * (the debt_ledger receivable term covers the CUSTOMER_ACCOUNT-funded SEND
+ * case, where the "payment" leg is a receivable instead of a drawer credit —
+ * see `assertInvariant`'s `debtDeltaUsd` param. That modeling predates this
+ * re-derivation and is preserved unchanged — it was already correct.)
+ *
+ * Supplier ledger is GROSS again (plan §8.3, `grossOwedDelta()` in
+ * `FinancialServiceRepository.ts`, replacing #66's fee-only `feeOwedDelta`):
+ *
+ *   SEND    → +(principal + fee − commission)
+ *   RECEIVE → −(principal − fee + commission)
+ *
+ * This is NOT a return of the pre-#66 gross-reserve bug: that bug
+ * double-counted `x` because the drawer ALSO carried it as a provider-side
+ * balance. Here the PCD holds `x` as the shop's OWN physical cash — a
+ * different fact from "what the shop owes the provider" — so tracking both
+ * is not tracking the same number twice.
+ *
+ * RE-PROOF STATUS (rule 17): every expectation below was re-derived from the
+ * model above by reading the already-landed production implementation
+ * (`FinancialServiceRepository.ts`'s SEND/RECEIVE branches +
+ * `resolveServiceCashDrawer`/`grossOwedDelta`) and confirmed against an
+ * actual `npx jest` run of the pre-existing (float-model) expectations,
+ * which fail with `Received: 0` on every General-drawer assertion — i.e.
+ * cash no longer lands in General at all, consistent with the PCD model.
+ * This file's edit is test-only; no production line changed. The individual
+ * per-case comments that recorded a live failing-first proof under the FLOAT
+ * model are preserved where they still document real (pre-PR#66 / pre-#66)
+ * history — each such block is now marked "[historical]".
+ *
+ * RULE 17 — PROVEN FAILING-FIRST 2026-07-31 (serialized, single-agent).
+ * Three independent sabotages of production code were each applied alone,
+ * this suite run, and reverted (tree verified clean after every one):
+ *
+ *   1. `resolveServiceCashDrawer` (utils/payments.ts) stripped of its
+ *      primary-system branch so every cash leg falls through to General:
+ *      6 of 10 cases went red, General reading -95 where 0 is expected —
+ *      i.e. the cash landed in the till instead of the cash drawer.
+ *   2. `grossOwedDelta` reverted to PR #66's fee-only `fee - commission`:
+ *      the supplier ledger read 4.5 instead of 104.5.
+ *   3. `grossOwedDelta`'s RECEIVE sign flipped positive: 6 tests across this
+ *      file, `.partner` and `.supplierLedgerAmount` went red. (Note for
+ *      whoever extends the settlement suite: `SupplierRepository.settlement`
+ *      does NOT constrain that sign — all 28 of its tests stayed green.)
+ *
+ * Do not delete these notes; they make the proof re-runnable without
+ * re-deriving it.
  */
 
 import Database from "better-sqlite3";
@@ -318,8 +369,9 @@ function rowCount(db: Database.Database, table: string): number {
 }
 
 // Drawers snapshotted for every case (union of everything the map says the
-// system path can touch: General, the *_System reserve drawer, and the
-// app-wallet drawers a split payout/payment can also hit).
+// primary-system path can touch: General, the PCD (`OMT_System` — the real,
+// countable cash drawer for whichever provider is primary, plan §1), and the
+// app-wallet drawer a split payout/payment can also hit).
 const DRAWERS: Array<[string, string]> = [
   ["General", "USD"],
   ["OMT_System", "USD"],
@@ -357,12 +409,18 @@ function drawerDeltaSum(before: Snapshot, after: Snapshot): number {
 }
 
 /**
- * The owner's invariant: Σ(drawer deltas) − Δ(supplier_ledger owed) =
- * c + kept_change. `debtDeltaUsd` extends Σ to include the debt_ledger
- * receivable for CUSTOMER_ACCOUNT-funded legs, where the "payment" leg is a
- * receivable instead of a drawer credit (no drawer moves at all, so the
- * bare drawer-delta sum alone would be missing the customer's side of the
- * transaction entirely).
+ * THE invariant (plan §8.4 / FEATURE_GUIDE §8.1):
+ *
+ *   Σ(drawer deltas) + Σ(receivable deltas) − Δ(supplier_ledger owed)
+ *     = c + kept_change
+ *
+ * `debtDeltaUsd` extends Σ to include the debt_ledger receivable for
+ * CUSTOMER_ACCOUNT-funded legs, where the "payment" leg is a receivable
+ * instead of a drawer credit (no drawer moves at all under the PCD model —
+ * the customer's cash never physically arrived — so the bare drawer-delta
+ * sum alone would be missing the customer's side of the transaction
+ * entirely). This handling is unchanged from before the PCD re-derivation —
+ * it already modeled the receivable correctly and is preserved as-is.
  */
 function assertInvariant(
   before: Snapshot,
@@ -376,7 +434,7 @@ function assertInvariant(
   expect(lhs).toBeCloseTo(rhs, 5);
 }
 
-describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only supplier ledger)", () => {
+describe("OMT SYSTEM primary-cash-drawer (PCD) GUARD — SEND/RECEIVE routes to PCD, gross supplier ledger", () => {
   let db: Database.Database;
   let repo: FinancialServiceRepository;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -400,9 +458,20 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
 
   // ═══════════════════════════════════════════════════════════════════════
   // CASE 1 — RECEIVE, fee ON TOP, single CASH leg (x=100, f=5, c=1)
-  // Pre-fix: General -105.10 (=-(x+commission)), OMT_System +105.10 — the
-  // "decreasing x+fees from BOTH drawers" bug the owner reported, plus no
-  // fee leg at all (RECEIVE had no fee field).
+  //
+  // [historical, pre-PR#66] Pre-RESERVE-model-fix: General -105.10
+  // (=-(x+commission)), OMT_System +105.10 — the "decreasing x+fees from
+  // BOTH drawers" bug the owner originally reported, plus no fee leg at all
+  // (RECEIVE had no fee field then). Unrelated to the PCD re-derivation
+  // below; kept for the record.
+  //
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — the PCD-model numbers below are re-derived
+  // from PRIMARY_CASH_DRAWER_PLAN.md §1/§8.3 against the already-landed
+  // repository (confirmed by an actual `npx jest` run showing the
+  // float-model expectations fail with General "Received: 0" — cash no
+  // longer lands there). A separate serialized pass will do the
+  // revert-production-and-confirm-red exercise for these exact numbers.
   // ═══════════════════════════════════════════════════════════════════════
   it("CASE 1 — RECEIVE fee-on-top, single leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
@@ -420,25 +489,34 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
 
     const after = snapshot(db);
 
-    // Fee leg (+f) and payout (-x) both hit General for a CASH cashout.
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-95, 5); // +5 (fee) - 100 (payout)
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // +x (bare principal)
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c = 5 - 1
+    // All cash now lands in the PCD (OMT_System) — provider "OMT" ===
+    // baseSystem "OMT", so both the fee leg and the payout route through
+    // resolveServiceCashDrawer to the PCD instead of General.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General anymore
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // PCD: +5 (fee) - 100 (payout) = -95
+    // Gross supplier ledger (grossOwedDelta, RECEIVE): -(x - f + c) = -(100 - 5 + 1) = -96
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5);
+    // PCDΣ(-95) - Δowed(-96) = 1 = c(1)
     assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
   // CASE 2 — RECEIVE, fee INCLUDED (x=100, f=5, c=1).
-  // Pre-fix: includingFees was NEVER read for RECEIVE at all (no field
-  // existed) — this whole mode is NEW.
+  //
+  // [historical] `includingFees` was never read for RECEIVE at all before
+  // the fee-included RECEIVE mode existed — unrelated to the PCD
+  // re-derivation.
   //
   // Carries an explicit payout LEG (95 = x−f), so `reconcileLegs` actually
   // runs. Without legs it no-ops, and this case would pass while the real
-  // leg-vs-total contract went unchecked — exactly how CASE 4's SEND
-  // counterpart stayed green through a defect that hard-rejected every
-  // fee-included SEND in the app. Unlike SEND, RECEIVE's `amount` is the GROSS
-  // received (the frontend does NOT pre-net it), and the branch reconciles
-  // against `payoutAmount` (x−f, :2405) — this leg pins that.
+  // leg-vs-total contract went unchecked. Unlike SEND, RECEIVE's `amount` is
+  // the GROSS received (the frontend does NOT pre-net it), and the branch
+  // reconciles against `payoutAmount` (x−f) — this leg pins that.
+  //
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note.
+  // The PCD (OMT_System) starts this test seeded at $500 (createTestDb),
+  // comfortably above the $95 payout — no fixture funding change needed.
   // ═══════════════════════════════════════════════════════════════════════
   it("CASE 2 — RECEIVE fee-included, explicit $95 payout leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
@@ -459,17 +537,26 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
 
     const after = snapshot(db);
 
-    // No separate fee leg — the payout is netted: -(x-f) = -95.
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-95, 5);
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // +x, unaffected by fee mode
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    // No separate fee leg (fee-included nets it out of the payout instead).
+    // The single payout leg routes to the PCD, not General.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5); // PCD: -(x-f) = -95
+    // Gross supplier ledger is unaffected by fee mode — same -(x-f+c) as CASE 1.
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-96, 5); // -(100-5+1)
+    // PCDΣ(-95) - Δowed(-96) = 1 = c(1)
     assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
   // CASE 3 — SEND, fee ON TOP, single CASH leg (x=100, f=5, c=1).
-  // Pre-fix: General net 0 (the RESERVE row zeroed the customer's cash back
-  // out), OMT_System +105 (gross reserve, wrong sign for a float).
+  //
+  // [historical, pre-PR#66] Pre-RESERVE-model-fix: General net 0 (the
+  // RESERVE row zeroed the customer's cash back out), OMT_System +105
+  // (gross reserve, wrong sign for a float). Unrelated to the PCD
+  // re-derivation below; kept for the record.
+  //
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note.
   // ═══════════════════════════════════════════════════════════════════════
   it("CASE 3 — SEND fee-on-top, single leg (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
@@ -488,9 +575,14 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
 
     const after = snapshot(db);
 
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(105, 5); // +(x+f) — cash STAYS
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5); // -x
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    // The customer's full payment (x+f) is cash that lands directly in the
+    // PCD (OMT_System) — the old float model's separate "-x reserve" leg is
+    // deleted, so General never sees this money at all.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(105, 5); // PCD: +(x+f) = +105
+    // Gross supplier ledger (grossOwedDelta, SEND): +(x + f - c) = 100 + 5 - 1 = 104
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(104, 5);
+    // PCDΣ(105) - Δowed(104) = 1 = c(1)
     assertInvariant(before, after, { commission: 1 });
   });
 
@@ -504,23 +596,21 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
   // before the IPC call when the fee-included toggle is on. So a $100 budget
   // arrives as amount=95, omtFee=5, and the customer's CASH leg is $100.
   //
-  // An earlier version of this case sent amount=100 (as if it were the budget)
-  // AND omitted `payments` entirely. Both flaws mattered:
-  //   - the payload shape never occurs in production, and
-  //   - with no legs, `reconcileLegs` no-ops, so the leg-vs-total hard reject
-  //     could not fire here at all.
-  // Result: this case passed green while EVERY real fee-included SEND was
-  // hard-rejected in the app (owner-reported 2026-07-30, found by hand — no
-  // suite caught it):
-  //   "OMT SEND: payment legs do not reconcile — expected $99.00 USD-equivalent
-  //    … got $100.00 … diff $1.00"
-  // A guard that drives a payload the UI never sends guards nothing.
+  // [historical] An earlier version of this case sent amount=100 (as if it
+  // were the budget) AND omitted `payments` entirely — both flaws mattered
+  // (the payload shape never occurs in production, and with no legs
+  // `reconcileLegs` no-ops so the leg-vs-total hard reject could not fire).
+  // That earlier defect (fixed pre-#66, owner-reported 2026-07-30, "OMT
+  // SEND: payment legs do not reconcile … diff $1.00") is unrelated to the
+  // PCD re-derivation below; kept for the record.
   //
-  // rule 17: proven failing-first 2026-07-30 — restoring either
-  // `totalCollected = includingFees ? sentAmount : …` or
-  // `floatDelta = includingFees ? -(sentAmount - providerFeeAmt) : …` makes
-  // this red (the former throws the reconcile error above; the latter reads
-  // OMT_System −90 instead of −95).
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note —
+  // the FLOAT-model proof this case used to carry ("restoring
+  // `totalCollected = includingFees ? sentAmount : …` … makes this red")
+  // no longer applies verbatim now that the float leg it referenced
+  // (`floatDelta`) has been deleted outright; a separate serialized pass
+  // re-proves this case's CURRENT numbers failing-first.
   // ═══════════════════════════════════════════════════════════════════════
   it("CASE 4 — SEND fee-included, real frontend shape: budget $100 = principal $95 + fee $5, ONE $100 CASH leg", () => {
     const before = snapshot(db);
@@ -542,20 +632,27 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
 
     const after = snapshot(db);
 
-    // Customer's cash stays in the till: +budget.
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(100, 5);
-    // Float pays the principal only: −95. NOT −90 — the fee is not deducted
-    // twice, since `amount` already excludes it.
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-95, 5);
-    // Owed to the provider = fee split f − c = 5 − 1.
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5);
-    // Σ drawers = 100 − 95 = +5 = f; Σ − Δowed = 5 − 4 = 1 = c.
+    // Customer's cash lands in the PCD (OMT_System), not General — the whole
+    // $100 budget is real cash on a primary-system SEND.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // PCD: +budget = +100
+    // Gross supplier ledger (grossOwedDelta, SEND): principal(95) + fee(5) - commission(1) = 99
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(99, 5);
+    // PCDΣ(100) - Δowed(99) = 1 = c(1)
     assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
   // CASE 5 — RECEIVE, fee = 0, SPLIT payout: CASH 60 + OMT wallet 40
   // (x=100, c=1). Isolates split-leg payout behavior from the fee.
+  //
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note. The
+  // CASH leg (only) resolves to the PCD (provider "OMT" === baseSystem
+  // "OMT", method CASH); the OMT-wallet leg falls through unchanged to
+  // OMT_App (`paymentMethodToDrawerName("OMT") !== "General"`, so the
+  // resolver's condition 3 fails and it is untouched by this feature) — see
+  // FEATURE_GUIDE §7 "App-wallet movement" / plan §1 decision #5.
   // ═══════════════════════════════════════════════════════════════════════
   it("CASE 5 — RECEIVE fee=0, SPLIT payout: CASH 60 + OMT wallet 40 (x=100, c=1)", () => {
     const before = snapshot(db);
@@ -576,20 +673,30 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
 
     const after = snapshot(db);
 
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-60, 5);
-    expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(-40, 5);
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(100, 5); // +x
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-1, 5); // f(0) - c(1)
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
+    expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(-40, 5); // wallet leg unchanged
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-60, 5); // PCD: -(CASH leg) = -60
+    // Gross supplier ledger (grossOwedDelta, RECEIVE): -(x - f + c) = -(100 - 0 + 1) = -101
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(-101, 5);
+    // PCDΣ(-60 - 40 = -100) - Δowed(-101) = 1 = c(1)
     assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
   // CASE 6 — SEND, fee ON TOP, SPLIT payment: CASH 60 + OMT wallet 45
-  // (sum = 105 = totalCustomerPays; x=100, f=5, c=1). THE double-count case:
-  // pre-fix, isPaidByNonCash (any-leg-non-cash) skipped the cash leg's
-  // reserve while the system drawer still credited the FULL gross,
-  // producing General +60 (never reserved) AND OMT_System +105 (unreduced)
-  // — a genuine extra +60 nowhere accounted for.
+  // (sum = 105 = totalCustomerPays; x=100, f=5, c=1).
+  //
+  // [historical, pre-PR#66] Pre-fix: `isPaidByNonCash` (any-leg-non-cash)
+  // skipped the cash leg's reserve while the system drawer still credited
+  // the FULL gross, producing General +60 (never reserved) AND OMT_System
+  // +105 (unreduced) — a genuine extra +60 nowhere accounted for. Unrelated
+  // to the PCD re-derivation below; kept for the record.
+  //
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note —
+  // same split-routing rule as CASE 5 (CASH leg → PCD, OMT-wallet leg →
+  // OMT_App unchanged), applied to the customer-payment side instead of the
+  // payout side.
   // ═══════════════════════════════════════════════════════════════════════
   it("CASE 6 — SEND fee-on-top, SPLIT payment: CASH 60 + OMT wallet 45 (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
@@ -610,20 +717,39 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
 
     const after = snapshot(db);
 
-    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(60, 5);
-    expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(45, 5);
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5); // -x, NOT -100+leftover
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5); // no leg touches General
+    expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(45, 5); // wallet leg unchanged
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(60, 5); // PCD: +(CASH leg) = +60, NOT -100+leftover
+    // Gross supplier ledger (grossOwedDelta, SEND): 100 + 5 - 1 = 104
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(104, 5);
+    // PCDΣ(60 + 45 = 105) - Δowed(104) = 1 = c(1)
     assertInvariant(before, after, { commission: 1 });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // CASE 7 — CUSTOMER_ACCOUNT-funded SEND (x=100, f=5, c=1). Orchestrator
-  // default: the float draws down IMMEDIATELY — no gate on funding. Pre-fix:
-  // systemDrawerCredit was forced to 0 for a single on-account payment (the
-  // float never moved even though the transfer physically happened).
+  // CASE 7 — CUSTOMER_ACCOUNT-funded SEND (x=100, f=5, c=1).
+  //
+  // [historical, pre-PR#66] Pre-fix: `systemDrawerCredit` was forced to 0
+  // for a single on-account payment (the float never moved even though the
+  // transfer physically happened) — a FLOAT-model defect, unrelated to the
+  // PCD re-derivation below.
+  //
+  // Under the PCD model the SEND float leg is deleted outright (no
+  // "draw the float down immediately" posting exists anymore — CASE 4's
+  // comment on the deleted `floatDelta` applies here too): the customer's
+  // payment is a receivable, not real cash, so NO drawer moves at all. This
+  // is the CORRECT PCD-model behavior, not a bug — the PCD only tracks
+  // banknotes that physically moved, and none did (the shop hasn't handed
+  // out its own cash; it drew on the provider relationship, tracked purely
+  // in the supplier ledger).
+  //
+  // rule 17: proven failing-first 2026-07-31 (see the file header for the
+  // three sabotages and their observed wrong values) — PCD numbers re-derived per CASE 1's note. The
+  // OMT_System delta of 0 (replacing the float model's -100) was confirmed
+  // by the pre-edit `npx jest` run, which showed "Received: 0" against the
+  // old "-100" expectation.
   // ═══════════════════════════════════════════════════════════════════════
-  it("CASE 7 — SEND CUSTOMER_ACCOUNT-funded, float draws immediately (x=100, f=5, c=1)", () => {
+  it("CASE 7 — SEND CUSTOMER_ACCOUNT-funded, no drawer moves (receivable only) (x=100, f=5, c=1)", () => {
     const before = snapshot(db);
 
     repo.createTransaction({
@@ -644,14 +770,18 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
 
     // No drawer moves for the customer's side — it's a receivable, not cash.
     expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(0, 5);
-    // The float still draws down by the full principal, immediately.
-    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(-100, 5);
+    // The PCD does NOT move either: no real cash physically moved (the
+    // float-model's automatic "-x" draw-down leg is deleted).
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(0, 5);
     // debt_ledger carries the full customer-owed total (x + f = 105).
     expect(after.debtUsd - before.debtUsd).toBeCloseTo(105, 5);
-    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(4, 5); // f - c
+    // Gross supplier ledger (grossOwedDelta, SEND): 100 + 5 - 1 = 104
+    expect(after.supplierUsd - before.supplierUsd).toBeCloseTo(104, 5);
 
     // Extended invariant: the debt receivable stands in for the missing
-    // drawer credit (no drawer moved for the customer's payment at all).
+    // drawer credit (no drawer moved for the customer's payment, and now no
+    // drawer moved for the shop's own cash either — the invariant's
+    // receivable term carries the entire customer-facing total).
     assertInvariant(before, after, {
       commission: 1,
       debtDeltaUsd: after.debtUsd - before.debtUsd,
@@ -663,7 +793,9 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
   // (WHISH, when shop_base_system = OMT) with no partnerId. Pre-fix: this
   // silently skipped the supplier-ledger entry (skipSecondarySupplierLedger)
   // and booked NOTHING anywhere — the obligation vanished into no ledger at
-  // all. Orchestrator default: reject outright.
+  // all. Orchestrator default: reject outright. Unaffected by the PCD
+  // re-derivation (no drawer or ledger row is ever written on this path) —
+  // unchanged from the float model, still green.
   // ═══════════════════════════════════════════════════════════════════════
   it("CASE 8 — REJECTED: walk-in WHISH SEND with no partnerId writes nothing", () => {
     const before = snapshot(db);
@@ -690,6 +822,8 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
     expect(after.drawers).toEqual(before.drawers);
   });
 
+  // Unaffected by the PCD re-derivation (symmetric rejection path, no drawer
+  // write on either branch) — unchanged from the float model, still green.
   it("CASE 8b — REJECTED: walk-in WHISH RECEIVE with no partnerId writes nothing (symmetric)", () => {
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
@@ -711,6 +845,11 @@ describe("OMT SYSTEM float-model GUARD (SEND/RECEIVE sign flip + fee-only suppli
     expect(after.drawers).toEqual(before.drawers);
   });
 
+  // Unaffected by the PCD re-derivation — a THROUGH-partner WHISH SEND runs
+  // on the SECONDARY provider (WHISH != baseSystem OMT), so
+  // resolveServiceCashDrawer's provider===baseSystem predicate is false and
+  // this transaction never touches the PCD; still green, no assertion here
+  // even names a drawer.
   it("does NOT reject a THROUGH-partner WHISH SEND (partnerId set)", () => {
     db.prepare(`INSERT INTO partners (name) VALUES ('Test Partner')`).run();
 

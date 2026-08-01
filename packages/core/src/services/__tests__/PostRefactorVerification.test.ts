@@ -777,6 +777,20 @@ describe("Post-Refactor Verification", () => {
 
     it("FinancialService.addTransaction() — OMT RECEIVE creates a financial_services row", () => {
       const service = new FinancialService();
+
+      // Primary Cash Drawer plan §8.5: a CASH RECEIVE payout now debits
+      // OMT_System (the PCD) for real — no system_settings row is seeded in
+      // this suite's schema, so baseSystem defaults to "OMT" and this
+      // provider="OMT" RECEIVE routes here. Pre-fund it the same way the
+      // sibling "OMT SEND" test below already does, or
+      // InsufficientDrawerFundsError rejects the $200 payout before any row
+      // is written (rule 17: this fixture addition is required — omitting it
+      // makes `result.success` false, which is exactly why this test was
+      // failing pre-fix).
+      db.prepare(
+        `UPDATE drawer_balances SET balance = 500 WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'`,
+      ).run();
+
       const result = service.addTransaction({
         provider: "OMT",
         serviceType: "RECEIVE",
@@ -1167,6 +1181,15 @@ describe("Post-Refactor Verification", () => {
   describe("OMT transactions — drawer balance updates", () => {
     it("OMT RECEIVE with commission stays unsettled (is_settled=0)", () => {
       const service = new FinancialService();
+
+      // Primary Cash Drawer plan §8.5: pre-fund OMT_System (the PCD) so the
+      // $300 CASH payout doesn't hit InsufficientDrawerFundsError — a RECEIVE
+      // payout is real cash out of the drawer now, not a float top-up (same
+      // pattern as the "OMT SEND" pre-fund below).
+      db.prepare(
+        `UPDATE drawer_balances SET balance = 500 WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'`,
+      ).run();
+
       const result = service.addTransaction({
         provider: "OMT",
         serviceType: "RECEIVE",
@@ -1221,6 +1244,14 @@ describe("Post-Refactor Verification", () => {
 
     it("OMT RECEIVE creates a payments journal entry for the cash inflow", () => {
       const service = new FinancialService();
+
+      // Primary Cash Drawer plan §8.5: pre-fund OMT_System (the PCD) so the
+      // $150 CASH payout doesn't hit InsufficientDrawerFundsError (same
+      // pattern as the "OMT SEND" pre-fund below).
+      db.prepare(
+        `UPDATE drawer_balances SET balance = 500 WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'`,
+      ).run();
+
       const result = service.addTransaction({
         provider: "OMT",
         serviceType: "RECEIVE",
@@ -1246,10 +1277,9 @@ describe("Post-Refactor Verification", () => {
       expect(paymentRows.length).toBeGreaterThan(0);
     });
 
-    it("OMT_System float is DEBITED on OMT SEND (the send spends the shop's float down)", () => {
-      // Pre-fund the OMT float with $1000 — money the shop holds INSIDE the
-      // OMT system, which a SEND spends down (owner-confirmed model, 2026-07-29:
-      // "a send spends my balance down").
+    it("OMT_System (PCD) is CREDITED on OMT SEND — the customer's cash lands directly in the till", () => {
+      // Pre-fund OMT_System with $1000 so the credit lands on top of a known
+      // baseline (same fixture pattern as every other pre-fund in this file).
       db.prepare(
         `UPDATE drawer_balances SET balance = 1000 WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'`,
       ).run();
@@ -1264,21 +1294,26 @@ describe("Post-Refactor Verification", () => {
         paidByMethod: "CASH",
       });
 
-      // Float model: system −x. x = 200 and no provider fee is passed here
-      // (`commission` is the shop's CUT c, a different quantity from the
-      // customer-facing fee f, and c never touches a drawer at transaction
-      // time), so the float lands at exactly 1000 − 200 = 800.
+      // Primary Cash Drawer plan (2026-07-30, supersedes PR #66's float
+      // model): OMT_System is the shop's PHYSICAL cash drawer, not a
+      // spendable balance inside OMT's own books — a SEND's CASH leg now
+      // CREDITS it directly (real banknotes landing in the till), the
+      // mirror image of the old float model's debit. §1 table: SEND
+      // fee-on-top, x=200 (principal), f=0 (no omtFee supplied, so
+      // resolvedProviderFee defaults to 0), c=2 (commission — the shop's cut
+      // of the fee — is ledger-only and never touches a drawer at
+      // transaction time) → PCD leg = +(x+f) = +200. 1000 + 200 = 1200.
       //
-      // Pre-fix this asserted `> 1000`: the old code CREDITED the system drawer
-      // +(x+fee), treating it as "what we owe OMT" rather than as a float the
-      // shop holds. That inversion is the bug this whole change closes — a $200
-      // send used to read as $1200 of float when the real balance was $800.
+      // rule 17: run against the pre-this-plan float code (PR #66), this
+      // reads 1000 − 200 = 800 — the exact number this test asserted before
+      // this change — so flipping back to the old float-model posting makes
+      // this red for the right reason.
       const balance = db
         .prepare(
           "SELECT balance FROM drawer_balances WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'",
         )
         .get() as { balance: number };
-      expect(balance.balance).toBeCloseTo(800, 2);
+      expect(balance.balance).toBeCloseTo(1200, 2);
     });
   });
 

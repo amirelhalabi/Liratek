@@ -12,7 +12,7 @@ import { audit } from "./auditHelper.js";
 import {
   validatePayload,
   DrawerTopUpCreateSchema,
-  SystemFloatTopupSchema,
+  DrawerTransferSchema,
 } from "../schemas/index.js";
 
 let service: ReturnType<typeof getDrawerTopUpService> | null = null;
@@ -147,15 +147,18 @@ export function registerDrawerTopUpHandlers(): void {
     },
   );
 
-  // Fund the OMT_System / Whish_System spendable float from any drawer
-  // holding a spendable balance (owner-confirmed 2026-07-29 float model).
+  // Generic, reversible cash transfer between any two of the shop's own
+  // drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
+  // drawer (OMT_System/Whish_System) is the pair the UI exposes. Replaces the
+  // retired "drawer-topup:fund-system" channel (one-directional, owner-
+  // confirmed 2026-07-29 float model).
   ipcMain.handle(
-    "drawer-topup:fund-system",
+    "drawer-topup:transfer",
     async (
       e,
       data: {
-        targetDrawer: "OMT_System" | "Whish_System";
-        fundingDrawer: string;
+        fromDrawer: string;
+        toDrawer: string;
         amount_usd: number;
         amount_lbp: number;
         notes?: string;
@@ -166,21 +169,29 @@ export function registerDrawerTopUpHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
 
-        const validation = validatePayload(SystemFloatTopupSchema, data);
+        const validation = validatePayload(DrawerTransferSchema, data);
         if (!validation.ok) {
           return { success: false, error: validation.error };
         }
 
         const svc = getServiceInstance();
-        const result = svc.fundSystemDrawer(validation.data, auth.userId);
+        const result = svc.transferBetweenDrawers({
+          fromDrawer: validation.data.fromDrawer,
+          toDrawer: validation.data.toDrawer,
+          amountUsd: validation.data.amount_usd,
+          amountLbp: validation.data.amount_lbp,
+          notes: validation.data.notes,
+          transactionTime: validation.data.transaction_time,
+          createdBy: auth.userId,
+        });
         if ((result as { success?: boolean }).success !== false) {
           audit(e.sender.id, {
             action: "create",
-            entity_type: "system_float_topup",
-            summary: `Fund ${validation.data.targetDrawer.replace("_", " ")}: ${validation.data.fundingDrawer} → ${validation.data.targetDrawer} — $${validation.data.amount_usd} USD + ${validation.data.amount_lbp} LBP`,
+            entity_type: "drawer_transfer",
+            summary: `Drawer Transfer: ${validation.data.fromDrawer} → ${validation.data.toDrawer} — $${validation.data.amount_usd} USD + ${validation.data.amount_lbp} LBP`,
             metadata: {
-              target_drawer: validation.data.targetDrawer,
-              funding_drawer: validation.data.fundingDrawer,
+              from_drawer: validation.data.fromDrawer,
+              to_drawer: validation.data.toDrawer,
               amount_usd: validation.data.amount_usd,
               amount_lbp: validation.data.amount_lbp,
               notes: validation.data.notes,
@@ -189,13 +200,13 @@ export function registerDrawerTopUpHandlers(): void {
         }
         return result;
       } catch (error) {
-        financialLogger.error({ error }, "drawer-topup:fund-system failed");
+        financialLogger.error({ error }, "drawer-topup:transfer failed");
         return {
           success: false,
           error:
             error instanceof Error
               ? error.message
-              : "Failed to fund system drawer",
+              : "Failed to transfer between drawers",
         };
       }
     },

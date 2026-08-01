@@ -165,9 +165,17 @@ export function getCashFlowDirection(
     case "DEBT_CASH_OUT": // shop hands the client a cash advance (new debt)
     case "DRAWER_CASHOUT": // owner's draw — cash physically leaves the General drawer
       return "out";
+    // DRAWER_TRANSFER: renamed from SYSTEM_FLOAT_TOPUP (Primary Cash Drawer
+    // plan §8.6) — a generic, reversible General <-> primary-cash-drawer
+    // (OMT_System/Whish_System) transfer, now bidirectional (either drawer
+    // can be the funding side), still a same-shop transfer with one leg
+    // each way. (Comment placed above this case group, not between the
+    // grouped case labels below — a standalone multi-line comment sitting
+    // between two grouped `case` labels defeats eslint's no-fallthrough
+    // empty-case detection even though nothing executes there.)
     case "EXCHANGE":
     case "WALLET_EXCHANGE": // same-drawer USD<->LBP wallet conversion (OMT App / Whish App)
-    case "SYSTEM_FLOAT_TOPUP": // funding drawer −, OMT_System/Whish_System + — same-shop transfer
+    case "DRAWER_TRANSFER":
       return "both";
     default:
       return null;
@@ -204,9 +212,13 @@ export function saleTenderTotals(
 
 /**
  * True when the transaction physically touched the till: at least one of its
- * (customer-facing) payment legs used the CASH method — CASH legs post to the
- * General drawer. Wallet-only transactions (OMT/WHISH app legs, on-account
- * charges) are not till cash. Drives the "Cash only (till)" filter (B6).
+ * (customer-facing) payment legs used the CASH method. Under the Primary Cash
+ * Drawer model (plan §1) a CASH leg no longer always posts to the General
+ * drawer — a primary-system SEND/RECEIVE CASH leg resolves to the PCD
+ * (OMT_System/Whish_System) instead — but this check is method-based, not
+ * drawer-based, so it stays correct either way. Wallet-only transactions
+ * (OMT/WHISH app legs, on-account charges) are not till cash. Drives the
+ * "Cash only (till)" filter (B6).
  */
 export function isCashTransaction(
   payments: Array<{ method: string }> | undefined,

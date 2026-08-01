@@ -1,24 +1,29 @@
 /**
- * FinancialServiceRepository — float model (2026-07-29): supplier ledger
- * books the FEE SPLIT ONLY, `|fee| − |commission|`, identically for SEND and
- * RECEIVE — never the principal, which now moves through the
- * OMT_System/Whish_System float drawer directly (see
- * OmtSystemFeeCharacterization.test.ts and FinancialServiceRepository.ts's
- * `feeOwedDelta` doc comment, the single source of truth this file pins).
+ * FinancialServiceRepository — primary-cash-drawer model (2026-07-30): supplier
+ * ledger books the GROSS amount owed the provider, one formula both
+ * directions (see PRIMARY_CASH_DRAWER_PLAN.md §8.3, FEATURE_GUIDE.md §8, and
+ * FinancialServiceRepository.ts's `grossOwedDelta` doc comment, the single
+ * source of truth this file pins):
  *
- *   SEND    → TOP_UP of (fee − commission). Was: TOP_UP of (amount + fee)
- *             (the gross the shop used to owe when the principal itself sat
- *             in the ledger).
- *   RECEIVE → TOP_UP of (fee − commission), the SAME shape as SEND — was:
- *             PAYMENT of the bare transfer amount (force-negated by
- *             `SupplierRepository.addLedgerEntry`'s PAYMENT sign
- *             convention). Under the float model RECEIVE's fee obligation
- *             increases what the shop owes exactly like SEND's does, so it
- *             can no longer use the force-negated PAYMENT entry type.
+ *   SEND    → TOP_UP of +(principal + fee − commission)
+ *             = +(x + f − c). Was (float model, superseded): TOP_UP of
+ *             (fee − commission) only — the principal moved through the
+ *             OMT_System/Whish_System FLOAT directly, so booking it again
+ *             here would have double-counted it. There is no float anymore:
+ *             OMT_System/Whish_System is the shop's own physical cash drawer
+ *             (the PCD), a different fact from "what the shop owes the
+ *             provider" — so the ledger is back to tracking the whole
+ *             transfer, gross.
+ *   RECEIVE → TOP_UP of −(principal − fee + commission) = −(x − f + c), the
+ *             SAME signed-TOP_UP entry type as SEND (never a force-negated
+ *             PAYMENT row — `SupplierRepository.addLedgerEntry` only
+ *             force-negates `entry_type: "PAYMENT"`, so RECEIVE's already-
+ *             negative gross number books correctly as a signed TOP_UP).
  *
- * Both directions now book the SAME shape because the principal is no
- * longer the ledger's job — it already moved through the float at
- * SEND/RECEIVE time.
+ * Both directions still use the SAME entry_type (TOP_UP) — only the AMOUNT
+ * changed shape (gross instead of fee-only); the sign convention decision
+ * from the float model survives (§8.3, "Verified 2026-07-30" note in the
+ * plan).
  *
  * Cost/price-flow sales are unchanged: they book the sale `cost`.
  */
@@ -247,7 +252,7 @@ function omtLedgerEntries(db: Database.Database) {
   }>;
 }
 
-describe("FinancialServiceRepository — float model: supplier ledger books the fee split only", () => {
+describe("FinancialServiceRepository — primary-cash-drawer model: supplier ledger books the GROSS amount", () => {
   let db: Database.Database;
   let repo: FinancialServiceRepository;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -271,17 +276,22 @@ describe("FinancialServiceRepository — float model: supplier ledger books the 
     resetTransactionRepository();
   });
 
-  it("SEND: books the FEE-ONLY owed (provider fee minus the shop's commission cut)", () => {
-    // Customer pays 100 + 5 fee = 105 total, but the $100 principal now
-    // moves through the OMT_System float directly (SEND draws it down) —
-    // the supplier ledger only tracks the fee split. omtFee=5 (explicit) →
-    // calculatedCommission = calculateCommission("INTRA", 5) = 5 × 0.1 = 0.5
-    // (INTRA's OMT_COMMISSION_RATES = 0.1, packages/core/src/utils/
-    // omtFees.ts:27). feeOwedDelta = |fee| − |commission| = |5| − |0.5| = 4.5.
-    // float model: supplier_ledger is now fee-only, not gross(amount+fee).
-    // rule 17: proven failing-first 2026-07-30 — reverting feeOwedDelta's
-    // OMT/WHISH SEND branch to the old `amount + fee` shape makes this red
-    // (amount_usd read 105 instead of 4.5).
+  it("SEND: books the GROSS owed = principal + fee − commission", () => {
+    // Customer pays 100 + 5 fee = 105 total, in cash, straight into the PCD
+    // (OMT_System) — there is no float to draw down. The supplier ledger
+    // books the WHOLE transfer, gross: principal(100) + fee(5) −
+    // commission(0.5). omtFee=5 (explicit) → calculatedCommission =
+    // calculateCommission("INTRA", 5) = 5 × 0.1 = 0.5 (INTRA's
+    // OMT_COMMISSION_RATES = 0.1, packages/core/src/utils/omtFees.ts:27).
+    // grossOwedDelta = principal + fee − commission = 100 + 5 − 0.5 = 104.5.
+    // (Was, float model, superseded: feeOwedDelta = |fee| − |commission| =
+    // 4.5 — the principal used to be tracked by the float leg instead.)
+    // rule 17: this file's PRE-existing assertion (4.5) was run against the
+    // implemented gross-ledger production code and observed to fail with
+    // `Received: 104.5` — i.e. the old fee-only expectation is red under the
+    // current implementation, and 104.5 is what the implemented
+    // `grossOwedDelta` actually returns for these inputs (verified by
+    // running this suite, not re-derived by hand alone).
     repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
@@ -297,15 +307,16 @@ describe("FinancialServiceRepository — float model: supplier ledger books the 
     const entries = omtLedgerEntries(db);
     expect(entries).toHaveLength(1);
     expect(entries[0].entry_type).toBe("TOP_UP");
-    expect(entries[0].amount_usd).toBeCloseTo(4.5, 2); // fee(5) - commission(0.5); was 105 (amount+fee)
+    // 104.5 = principal(100) + fee(5) - commission(0.5); float model read 4.5 (fee-only)
+    expect(entries[0].amount_usd).toBeCloseTo(104.5, 2);
     expect(entries[0].amount_lbp).toBe(0);
   });
 
-  it("RECEIVE: books the SAME fee-only shape as SEND (fee minus commission), NOT the bare transfer amount", () => {
-    // The original fixture set `commission: 1` with no `omtFee` and asserted
-    // the bare $100 principal. Under the float model the $100 principal no
-    // longer touches the ledger at all (RECEIVE fills OMT_System directly) —
-    // only the fee split does, via the SAME feeOwedDelta shape SEND uses.
+  it("RECEIVE: books the GROSS owed as a SIGNED NEGATIVE TOP_UP = −(principal − fee + commission)", () => {
+    // The shop pays out 100 − 1 (fee withheld) = 99 in cash from the PCD —
+    // that principal is real cash movement, not a float credit, so the
+    // ledger must reflect the FULL amount the provider now owes the shop
+    // back, net of its own commission cut.
     //
     // We add an explicit `omtFee: 1` here (equal to what
     // lookupOmtFee("INTRA", 100) would auto-resolve to anyway — see
@@ -317,16 +328,15 @@ describe("FinancialServiceRepository — float model: supplier ledger books the 
     // — it never consults the `lookupOmtFee` auto-resolution that
     // `calculatedCommission` (the `commission` param here) uses. Omitting
     // omtFee on a RECEIVE with omtServiceType set would silently produce
-    // fee=0 while commission auto-calculates to a nonzero value, making
-    // feeOwedDelta NEGATIVE (the provider appearing to owe the shop for a
-    // transfer where the customer was never charged a fee at all) — a real
-    // asymmetry bug, not the model this test exists to pin. Making omtFee
-    // explicit keeps this a clean guard for the intended fee-only symmetry;
-    // the `commission: 1` param passed below is itself superseded by the
-    // auto-calc (calculateCommission("INTRA", 1) = 0.1) the instant
-    // omtServiceType is set and the resolved fee is > 0 (see
-    // FinancialServiceRepository.ts's AUTO-CALCULATE COMMISSION block) — kept
-    // here only to document that the literal is NOT what drives the number.
+    // fee=0 while commission auto-calculates to a nonzero value, skewing
+    // grossOwedDelta by exactly that missing fee — a real asymmetry bug, not
+    // the model this test exists to pin. Making omtFee explicit keeps this a
+    // clean guard for the intended gross-ledger symmetry; the `commission: 1`
+    // param passed below is itself superseded by the auto-calc
+    // (calculateCommission("INTRA", 1) = 0.1) the instant omtServiceType is
+    // set and the resolved fee is > 0 (see FinancialServiceRepository.ts's
+    // AUTO-CALCULATE COMMISSION block) — kept here only to document that the
+    // literal is NOT what drives the number.
     repo.createTransaction({
       provider: "OMT",
       serviceType: "RECEIVE",
@@ -341,39 +351,47 @@ describe("FinancialServiceRepository — float model: supplier ledger books the 
 
     // f=1 (explicit), commission auto-calculates to
     // calculateCommission("INTRA", 1) = 1 × 0.1 = 0.1.
-    // feeOwedDelta = |fee| − |commission| = |1| − |0.1| = 0.9.
-    // float model: supplier_ledger is now fee-only, and RECEIVE uses the
-    // SAME entry_type (TOP_UP, unsigned) as SEND — no more force-negated
-    // PAYMENT entry (see FinancialServiceRepository.ts's "Float model (rule
-    // 14, feeOwedDelta doc)" comment on the entry_type decision).
-    // rule 17: proven failing-first 2026-07-30 — reverting the RECEIVE
-    // ledger booking to `entry_type: "PAYMENT"` / `amount_usd:
-    // Math.abs(data.amount)` (force-negated by addLedgerEntry) makes this
-    // red (entry_type read "PAYMENT" instead of "TOP_UP").
+    // grossOwedDelta = −(principal − fee + commission) = −(100 − 1 + 0.1) =
+    // −99.1. Still a signed TOP_UP entry (never the force-negated PAYMENT
+    // type — see FinancialServiceRepository.ts's grossOwedDelta doc comment
+    // on the entry_type decision, carried over unchanged from the float
+    // model's own sign-convention fix).
+    // (Was, float model, superseded: feeOwedDelta = |fee| − |commission| =
+    // 0.9 — the bare 100 principal never touched the ledger, it filled the
+    // float instead.)
+    // rule 17: this file's PRE-existing assertion (0.9) was run against the
+    // implemented gross-ledger production code and observed to fail with
+    // `Received: -99.1` — the old fee-only expectation is red under the
+    // current implementation, and -99.1 is what the implemented
+    // `grossOwedDelta` actually returns for these inputs (verified by
+    // running this suite, not re-derived by hand alone).
     const entries = omtLedgerEntries(db);
     expect(entries).toHaveLength(1);
     expect(entries[0].entry_type).toBe("TOP_UP");
-    expect(entries[0].amount_usd).toBeCloseTo(0.9, 2); // fee(1) - commission(0.1); was -100 (bare amount, PAYMENT)
+    // -99.1 = -(principal(100) - fee(1) + commission(0.1)); float model read 0.9 (fee-only)
+    expect(entries[0].amount_usd).toBeCloseTo(-99.1, 2);
     expect(entries[0].amount_lbp).toBeCloseTo(0, 2);
   });
 
-  it("SEND split-pay: ledger books the fee-only split in the SERVICE currency, never the tender legs", () => {
+  it("SEND split-pay: ledger books the GROSS amount in the SERVICE currency, never the tender legs", () => {
     // $50 transfer + $2 fee; customer split-pays $30 cash + 1,980,000 LBP —
     // legs that reconcile exactly against the customer-owed total
     // ($52 = $30 + 1,980,000/90,000; S2 hard-reject, Payment-Legs Integrity
-    // plan). The $50 principal now moves through the OMT_System float
-    // directly (SEND draws it down by the bare principal, unaffected by leg
-    // composition — that's exactly what "kills" the old leg-composition
-    // branching bug). omtFee=2 (explicit) → calculatedCommission =
-    // calculateCommission("INTRA", 2) = 2 × 0.1 = 0.2. feeOwedDelta =
-    // |fee| − |commission| = |2| − |0.2| = 1.8. The ledger books ONLY this
-    // fee-net split, in the service currency — never $30 (one leg), never a
-    // tender-converted mixture, never the bare $50, and no longer the gross
-    // $52 (amount + fee) the pre-fix model booked.
-    // float model: supplier_ledger is now fee-only.
-    // rule 17: proven failing-first 2026-07-30 — reverting feeOwedDelta's
-    // OMT/WHISH SEND branch to the old `amount + fee` shape makes this red
-    // (amount_usd read 52 instead of 1.8).
+    // plan). Both legs land in the PCD (OMT_System) as real cash — no float
+    // to draw down, so leg composition is irrelevant to the ledger booking
+    // (that's exactly what "kills" the old leg-composition branching bug).
+    // omtFee=2 (explicit) → calculatedCommission =
+    // calculateCommission("INTRA", 2) = 2 × 0.1 = 0.2. grossOwedDelta =
+    // principal + fee − commission = 50 + 2 − 0.2 = 51.8. The ledger books
+    // the WHOLE transfer, gross, in the service currency — never $30 (one
+    // leg), never a tender-converted mixture, and no longer just the fee
+    // split (1.8) the float model booked.
+    // rule 17: this file's PRE-existing assertion (1.8) was run against the
+    // implemented gross-ledger production code and observed to fail with
+    // `Received: 51.8` — the old fee-only expectation is red under the
+    // current implementation, and 51.8 is what the implemented
+    // `grossOwedDelta` actually returns for these inputs (verified by
+    // running this suite, not re-derived by hand alone).
     repo.createTransaction({
       provider: "OMT",
       serviceType: "SEND",
@@ -392,7 +410,8 @@ describe("FinancialServiceRepository — float model: supplier ledger books the 
     const entries = omtLedgerEntries(db);
     expect(entries).toHaveLength(1);
     expect(entries[0].entry_type).toBe("TOP_UP");
-    expect(entries[0].amount_usd).toBeCloseTo(1.8, 2); // fee(2) - commission(0.2); was 52 (amount+fee)
+    // 51.8 = principal(50) + fee(2) - commission(0.2); float model read 1.8 (fee-only)
+    expect(entries[0].amount_usd).toBeCloseTo(51.8, 2);
     expect(entries[0].amount_lbp).toBe(0);
   });
 });

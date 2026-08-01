@@ -1,7 +1,41 @@
 # OMT/Whish Float Model — Handover
 
-**Status as of 2026-07-30.** PR [#66](https://github.com/amirelhalabi/Liratek/pull/66) on branch
-`fix/omt-float-model`, 10 commits, **all 7 CI checks green**, not merged.
+> ## ⚠️ SUPERSEDED 2026-07-30 — read this box before anything below it
+>
+> The **float model** described in this file (PR #66: `OMT_System`/`Whish_System` as a
+> spendable in-system provider balance) was **rejected by the owner on 2026-07-30**, the day
+> after they first described it — verbatim: *"we dont have omt system balance.. no need for
+> another drawer. we can use our omt system drawer"* and *"I don't really care about this
+> float model … I think the float model is something wrongly implemented."* PR #66 does not
+> merge as designed; it is superseded, not abandoned mid-review.
+>
+> **Authoritative spec now:** `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md`. The
+> canonical money rules live in `docs/FEATURE_GUIDE.md` §7/§8/§8.1, already rewritten for the
+> new **primary-cash-drawer** model — read those, not §1 below, for what the system drawer
+> means today.
+>
+> **Kept LIVE from this file — process lessons, not model claims:**
+> - §3.2 REST role-gate parity sweep — still needed, still unswept.
+> - §3.3 `check:tenant-scoping` not wired into CI — still true, still worth the two-line fix.
+> - §4 (the three process traps: payload-seam blindness, better-sqlite3 ABI mixups,
+>   concurrent revert campaigns) — still real, still costly, apply to any money-code work,
+>   including the primary-cash-drawer implementation itself.
+>
+> **Resolved/changed by the new plan:**
+> - §2 (the settle-to-zero release blocker) is **MOOTED** — the owner wipes the database and
+>   starts fresh instead (`PRIMARY_CASH_DRAWER_PLAN.md` decision #14); there is no cutover
+>   balance left to settle.
+> - §3.1 (the `"FEE"` payment-method tag audit) is **FOLDED INTO** the new implementation —
+>   its routing is covered by Phase B's call-site sweep
+>   (`PRIMARY_CASH_DRAWER_PLAN.md` §3 Phase B, §6 item 2), not a separate open thread anymore.
+>
+> This file is **not deleted** — the traps in §4 and the process gaps in §3.2/§3.3 are real
+> regardless of which money model is live. Only the model itself (§1, and the specifics in
+> §2/§5) is historical.
+
+**Status as of 2026-07-30 (historical — see banner above).** PR
+[#66](https://github.com/amirelhalabi/Liratek/pull/66) on branch `fix/omt-float-model`,
+10 commits, **all 7 CI checks green**, not merged, now superseded.
 
 Read this before touching OMT/Whish money code. It exists because the work is complete and
 verified but has four open threads, and because two mistakes in this area cost real time and are
@@ -9,7 +43,7 @@ easy to repeat.
 
 ---
 
-## 1. What shipped in PR #66
+## 1. What shipped in PR #66 (SUPERSEDED — historical model description)
 
 The system drawer (`OMT_System` / `Whish_System`) became a **spendable float**, on the owner's
 description of their real provider account (2026-07-29, verbatim):
@@ -19,20 +53,35 @@ description of their real provider account (2026-07-29, verbatim):
 > to pay me or settle. OMT tracks what each of us owes and we settle periodically, but I can spend
 > a received amount normally."
 
-The canonical rules now live in `docs/FEATURE_GUIDE.md` §7, §8 and §8.1. **Read those, not this
-file, for the model itself.** The one-line invariant every guard asserts:
+**This description was superseded 2026-07-30** — the owner reviewed the shipped result against
+their actual workflow and rejected it (banner at top). The system drawer is not a provider-side
+balance; it is the physical cash drawer at the counter. See `docs/FEATURE_GUIDE.md` §7/§8/§8.1
+for the model that replaced this one, and `PRIMARY_CASH_DRAWER_PLAN.md` for the full spec.
+
+The invariant form below is the float-model version, kept for historical comparison — the
+current model adds a receivable term and inverts the ledger from fee-only to gross (same
+`Σ(drawer deltas) − Δ(owed) = c + kept_change` *shape*, different meaning per term; see
+FEATURE_GUIDE §8.1 for the exact current form):
 
 ```
 Σ(drawer deltas) − Δ(owed to provider) = c + kept_change
 ```
 
-with `f` = customer-facing fee, `c` = the shop's cut of `f`, `f − c` = owed to the provider.
-Conflating those three is what made the original bug hard to see; keep them distinct in any new
-code.
+with `f` = customer-facing fee, `c` = the shop's cut of `f`, `f − c` = owed to the provider
+**under the float model** (the current model owes the GROSS `x + f − c` instead — FEATURE_GUIDE
+§8). Conflating `x`/`f`/`c` is what made the ORIGINAL (pre-#66) bug hard to see, independent of
+which model follows; keep them distinct in any new code.
 
 ---
 
-## 2. ⚠️ Release blocker — the cutover
+## 2. ⚠️ Release blocker — the cutover — **MOOTED 2026-07-30**
+
+> **MOOTED.** The owner's decision changed: instead of settling to zero and re-seeding, they
+> **wipe the database and start fresh** (`PRIMARY_CASH_DRAWER_PLAN.md` decision #14). There is no
+> balance spanning a cutover to worry about for this install. The general point — a formula
+> change that alters what a stored balance MEANS needs either a migration or a clean cutover,
+> never silence — is still correct and is why the new plan documents its own cutover explicitly
+> (`PRIMARY_CASH_DRAWER_PLAN.md` §5). Kept below for the historical reasoning only.
 
 **Before this ships, the owner must settle all OMT/Whish balances to zero, then re-seed the true
 float via Initial Drawer Amounts.**
@@ -48,7 +97,14 @@ If you are asked to merge and release, confirm the cutover happened first. It is
 
 ## 3. Open items
 
-### 3.1 The `"FEE"` payment-method tag is unaudited downstream — highest risk
+### 3.1 The `"FEE"` payment-method tag is unaudited downstream — **FOLDED INTO the new plan**
+
+> **FOLDED IN.** No longer a standalone open thread — the FEE leg's routing is now part of
+> the new implementation's own call-site sweep. `PRIMARY_CASH_DRAWER_PLAN.md` §3 Phase B
+> names the FEE leg explicitly as one of its call sites (currently hardcoded to `"General"`),
+> and §6 item 2 folds this audit into that phase. The questions below are still the right
+> questions to ask — they just get asked and answered as part of Phase B, not as a separate
+> pass afterward.
 
 The RECEIVE customer-fee leg is written with a **new** payment-method string, `"FEE"`. Where it
 flows was never reviewed (the workflow that was going to do it was killed mid-run).
@@ -75,7 +131,11 @@ the customer's actual tender method (`CASH`)? Argue from what the consumers abov
 
 Green e2e is **weak evidence** here — no spec drives a RECEIVE fee through the till.
 
-### 3.2 REST role-gate parity sweep
+### 3.2 REST role-gate parity sweep — **STILL LIVE**
+
+> Not model-specific — applies to any REST route regardless of which OMT/Whish money model is
+> current, including the routes the primary-cash-drawer plan adds (drawer-transfer endpoint,
+> §8.6). Still unswept as of 2026-07-30.
 
 Commit `4c72e9c` fixed **one** route: `POST /api/services/transactions` had `authenticateJWT` but
 no `requireRole`, so any authenticated web user could post a financial-service transaction the
@@ -97,7 +157,11 @@ contract too.
 Rank findings by what a lower-privileged token could actually do (money movement > data mutation >
 read).
 
-### 3.3 `check:tenant-scoping` is not in CI
+### 3.3 `check:tenant-scoping` is not in CI — **STILL LIVE**
+
+> Not model-specific. Run it after every repository SQL edit made by the primary-cash-drawer
+> implementation too (`PRIMARY_CASH_DRAWER_PLAN.md` §4 says so explicitly) — still not in CI,
+> still the only reason it gets run at all is someone remembering to.
 
 `node scripts/check-tenant-scoping.mjs` (wired as `yarn check:tenant-scoping`) statically finds
 missing `tenant_id` predicates. It is **not** in `.github/workflows/ci.yml`.
@@ -110,7 +174,11 @@ stamped with the caller's tenant.
 
 Adding it to the Lint job is a two-line change.
 
-### 3.4 [OWNER] Are the fee tiers correct for the RECEIVE direction?
+### 3.4 [OWNER] Are the fee tiers correct for the RECEIVE direction? — **STILL OPEN**
+
+> Model-independent — the primary-cash-drawer model still has a customer fee on RECEIVE
+> (`PRIMARY_CASH_DRAWER_PLAN.md` §6 item 3 carries this forward verbatim: "still awaiting
+> owner"). Not resolved by the model change; still needs an answer.
 
 `INTRA_FEE_TIERS` / `WESTERN_UNION_FEE_TIERS` (`packages/core/src/utils/omtFees.ts`) were built
 for SEND. RECEIVE now has a customer fee, and the auto-lookup is **not** direction-gated — so a
@@ -121,7 +189,11 @@ time. Only the owner can answer. Asked 2026-07-30, not yet answered.
 
 ---
 
-## 4. Two traps that cost real time
+## 4. Three traps that cost real time — **STILL LIVE**
+
+> Process lessons, not model claims — none of these three depend on which OMT/Whish money
+> model is current. Apply them to the primary-cash-drawer implementation exactly as they
+> applied to PR #66.
 
 ### 4.1 Payload-constructing tests cannot see layer-seam bugs
 
@@ -183,7 +255,17 @@ into the guard permanently and every suite would still have reported green.
 
 ---
 
-## 5. Verification baseline
+## 5. Verification baseline (historical — float-model era numbers)
+
+> These are PR #66's own baseline numbers, reproduced against the float model before it was
+> superseded. The primary-cash-drawer implementation has its own baseline, verified green
+> 2026-07-30 pre-implementation on the same working tree (`PRIMARY_CASH_DRAWER_PLAN.md` §4):
+> core jest 1205/1205 (113 suites), backend 500/500 (36 suites), frontend 663 passed / 1
+> skipped (82 suites), typecheck clean, lint 0 errors / 524 warnings, `check:tenant-scoping`
+> 0 violations / 629 statements — desktop/web e2e NOT run at baseline (their OMT assertions
+> get re-derived by this feature anyway). Use that table for the current work, not this one —
+> the two suite counts already differ (112 vs 113 core-jest suites) because more tests exist
+> now than when PR #66 shipped.
 
 Reproduce this before and after any change here:
 
@@ -212,9 +294,14 @@ Two spots that are environment-sensitive, both now guarded — do not "fix" them
 
 ---
 
-## 6. One known gap with no owner
+## 6. One known gap with no owner — **STILL LIVE**
 
 No money-mutating endpoint in this codebase has an **idempotency key**, so a dropped-response retry
 double-applies. Verified against `fundSystemDrawer`: two byte-identical calls posted the transfer
 twice in full. This is architecture-wide — `createTopUp`, `createTopUpFromDrawer`, and
 `WalletExchangeRepository` share it — so fixing it in one place closes nothing. Flagged, not owned.
+
+> Model-independent, and inherited by the new transfer endpoint: `fundSystemDrawer` is being
+> generalized into `transferBetweenDrawers` (`PRIMARY_CASH_DRAWER_PLAN.md` §8.6), and the plan's
+> own risk list (§6 item 6) carries this gap forward verbatim: "unchanged, still unowned; the
+> new transfer endpoint inherits it." Still nobody's job.

@@ -7,22 +7,26 @@
  * to reverse." `TransactionRepository._reverseSupplierSettlement` is the
  * owner.
  *
- * OMT/WHISH FLOAT MODEL UPDATE (owner-confirmed 2026-07-29): `supplier_ledger`
- * TOP_UP rows are now booked FEE-ONLY (`|fee| − |commission|`) — the shop's
- * commission is already excluded from what's owed, so
- * `SupplierRepository.settleTransactions` no longer funds a commission
- * credit at all (no `General += commission` / settle-drawer `-= commission`
- * pair, no `SUPPLIER_PAYS_US` ledger row). This REMOVES most of what
+ * PRIMARY-CASH-DRAWER MODEL UPDATE
+ * (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md §1/§8, superseding the
+ * 2026-07-29 float model the day after it shipped): `supplier_ledger`
+ * TOP_UP rows are now booked GROSS (`x + f − c` SEND / `−(x−(f−c))`
+ * RECEIVE) — the shop's commission is embedded in what's owed, not carved
+ * out, so `SupplierRepository.settleTransactions` still funds no separate
+ * commission credit (no `General += commission` / settle-drawer
+ * `-= commission` pair, no `SUPPLIER_PAYS_US` ledger row) — same structural
+ * property as the float model, different reason. This REMAINS most of what
  * `_reverseSupplierSettlement` used to have to undo — the settlement ledger
- * row's own generic soft-void (`_markSourceRefunded`) now nets the ledger
+ * row's own generic soft-void (`_markSourceRefunded`) still nets the ledger
  * back to its pre-settlement TOP_UP-only balance ALL BY ITSELF (no second
  * ledger row masks it), and the net-payment leg (a real payment-method
- * drawer, NEVER `OMT_System`/`Whish_System` — the float is never touched by
- * settlement) is reversed for free by the generic `_reversePayments`. The
- * ONE thing still bespoke: un-stamping `financial_services.settlement_id`/
- * `is_settled` (mirroring the exact create-time `isPendingSettlement`
- * condition so cost/price-flow rows whose `is_settled` was already 1 before
- * the settlement are left untouched).
+ * drawer — for a PRIMARY-system supplier that is now `OMT_System`/
+ * `Whish_System` itself, decision #10; it is no longer "never touched") is
+ * reversed for free by the generic `_reversePayments`. The ONE thing still
+ * bespoke: un-stamping `financial_services.settlement_id`/`is_settled`
+ * (mirroring the exact create-time `isPendingSettlement` condition so
+ * cost/price-flow rows whose `is_settled` was already 1 before the
+ * settlement are left untouched).
  *
  * Rule-17 classification:
  *   FAILING-FIRST (verified red pre-fix by commenting out the
@@ -36,14 +40,16 @@
  *   Pre-fix, `_assertReversible` throws before any of this runs at all
  *   (SUPPLIER_SETTLEMENT was in NON_REVERSIBLE) — proven directly below.
  *
- *   INVARIANT (unrelated to this fix, proven not broken):
- *     - net-payment leg reversal via the generic `_reversePayments`
- *     - double-void/refund guards
+ *   RE-DERIVED for the primary-cash-drawer model (rule 20 — create + settle
+ *   + reverse must net to 0 across EVERY ledger touched, per currency):
+ *     - net-payment leg reversal via the generic `_reversePayments` now
+ *       restores the PCD (`OMT_System`/`Whish_System`), not General, for a
+ *       primary-system supplier — the float model's inverse
+ *     - the supplier_ledger nets back to the pre-settlement TOP_UP-only
+ *       balance exactly as before (unaffected by WHERE the cash leg lands)
+ *     - double-void/refund guards, unaffected
  *     - LIRA-091's settled-sibling void block, still protecting the OTHER
  *       direction (an individual FS row can't be voided while settled)
- *     - OMT_System (the float) is NEVER touched by settlement or its
- *       reversal — it already moved by the transfer's principal at
- *       SEND/RECEIVE time, outside this settlement's scope entirely
  */
 
 import Database from "better-sqlite3";
@@ -314,24 +320,26 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
         )
         .run();
       fsId = Number(res.lastInsertRowid);
-      // Auto TOP_UP the SEND itself would have booked — fee-only under the
-      // float model: |fee(5)| − |commission(0.5)| = 4.5. The $100 principal
-      // already moved through OMT_System at SEND time (out of this
-      // repository's scope) and is NOT part of the supplier debt anymore.
+      // Auto TOP_UP the SEND itself would have booked — GROSS under the
+      // primary-cash-drawer model (plan §8.3's own worked example):
+      // x + f − c = 100 + 5 − 0.5 = 104.5. The $100 principal now lives in
+      // the PCD (OMT_System) as the shop's own cash — a different fact from
+      // what's owed the provider (plan §8.1) — so both are tracked, not
+      // double-counted.
       db.prepare(
         `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, note)
-         VALUES (?, 'TOP_UP', 4.5, 0, 1, 'Auto: SEND via OMT (fee-only)')`,
+         VALUES (?, 'TOP_UP', 104.5, 0, 1, 'Auto: SEND via OMT (gross)')`,
       ).run(omtId);
 
       const settlement = supplierRepo.settleTransactions({
         supplier_id: omtId,
         financial_service_ids: [fsId],
-        amount_usd: 4.5, // exactly what's owed — no further commission subtraction
+        amount_usd: 104.5, // exactly what's owed (gross) — no further commission subtraction
         amount_lbp: 0,
         commission_usd: 0.5, // informational only — no drawer effect
         commission_lbp: 0,
         created_by: 1,
-        payments: [{ method: "CASH", currency_code: "USD", amount: 4.5 }],
+        payments: [{ method: "CASH", currency_code: "USD", amount: 104.5 }],
       });
       settlementLedgerId = settlement.id;
       const txn = txnRepo.getBySourceId("supplier_ledger", settlementLedgerId)!;
@@ -346,10 +354,10 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
     it("VOID: ledger nets back to the pre-settlement TOP_UP-only balance", () => {
       txnRepo.voidTransaction(settlementTxnId, 1);
 
-      // TOP_UP(4.5) stands; SETTLEMENT(-4.5) excluded (soft-voided) — nets
-      // back to +4.5, the pre-settlement outstanding debt. No
-      // SUPPLIER_PAYS_US row exists anymore under the fee-only model.
-      expect(ledgerSum(db, omtId)).toBeCloseTo(4.5, 2);
+      // TOP_UP(104.5) stands; SETTLEMENT(-104.5) excluded (soft-voided) —
+      // nets back to +104.5, the pre-settlement outstanding debt. No
+      // SUPPLIER_PAYS_US row exists anymore under the gross model.
+      expect(ledgerSum(db, omtId)).toBeCloseTo(104.5, 2);
 
       const settlementRow = db
         .prepare(`SELECT is_refunded FROM supplier_ledger WHERE id = ?`)
@@ -364,31 +372,38 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
       expect(commissionRow).toBeUndefined();
     });
 
-    it("VOID: reverses the net-payment leg (generic _reversePayments) — General restores to its pre-settlement balance", () => {
+    it("VOID: reverses the net-payment leg (generic _reversePayments) — the PCD (OMT_System) restores to its pre-settlement balance, General untouched throughout", () => {
+      const omtBefore = drawerBal(db, "OMT_System");
       const generalBefore = drawerBal(db, "General");
 
       txnRepo.voidTransaction(settlementTxnId, 1);
 
-      // The CASH leg (-4.5) is a real `payments` row — the generic
-      // `_reversePayments` path restores it for free. No bespoke commission
-      // funding exists anymore to reverse.
-      expect(drawerBal(db, "General")).toBeCloseTo(generalBefore + 4.5, 4);
+      // The CASH leg (-104.5) is a real `payments` row resolved to the PCD
+      // at settlement time (supplier.provider "OMT" === baseSystem "OMT",
+      // decision #10) — the generic `_reversePayments` path restores THAT
+      // drawer for free. No bespoke commission funding exists to reverse.
+      expect(drawerBal(db, "OMT_System")).toBeCloseTo(omtBefore + 104.5, 4);
+      // General was never touched by the settlement leg, so it is not
+      // touched by the reversal either.
+      expect(drawerBal(db, "General")).toBeCloseTo(generalBefore, 4);
     });
 
-    it("VOID: OMT_System (the float) sees ZERO delta — settlement and its reversal never touch it", () => {
-      const omtSystemPreSettlement = 500; // seeded balance before settleTransactions ran
-      // Settlement itself never touched OMT_System (see beforeEach's sanity
-      // block matching SupplierRepository.settlement.test.ts) — confirm it
-      // stays there straight through the VOID too.
+    it("VOID: the PCD (OMT_System) is debited by the settlement, then fully restored — rule 20 net-zero across create+settle+reverse", () => {
+      const omtSystemSeeded = 500; // seeded balance before settleTransactions ran (fixture)
+      // Settlement DEBITS the PCD by the $104.5 CASH leg (decision #10) —
+      // it is NOT untouched; that was the float model's (now-superseded)
+      // rule, inverted here (FEATURE_GUIDE §8.1 settlement identity).
       expect(drawerBal(db, "OMT_System")).toBeCloseTo(
-        omtSystemPreSettlement,
+        omtSystemSeeded - 104.5, // 395.5
         2,
       );
+
       txnRepo.voidTransaction(settlementTxnId, 1);
-      expect(drawerBal(db, "OMT_System")).toBeCloseTo(
-        omtSystemPreSettlement,
-        2,
-      );
+
+      // VOID restores the PCD to its pre-settlement (seeded) balance —
+      // create + settle + reverse nets the PCD to exactly 0 delta overall,
+      // matching the supplier-ledger's own net-zero (previous test).
+      expect(drawerBal(db, "OMT_System")).toBeCloseTo(omtSystemSeeded, 2);
     });
 
     it("VOID: clears settlement_id AND resets is_settled/settled_at (commission>0, OMT — was pending before settlement)", () => {
@@ -400,11 +415,15 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
     });
 
     it("REFUND does the identical ledger/drawer/fs restore, original settlement txn stays ACTIVE", () => {
+      const omtBefore = drawerBal(db, "OMT_System");
       const generalBefore = drawerBal(db, "General");
       const refundId = txnRepo.refundTransaction(settlementTxnId, 1);
 
-      expect(ledgerSum(db, omtId)).toBeCloseTo(4.5, 2);
-      expect(drawerBal(db, "General")).toBeCloseTo(generalBefore + 4.5, 4);
+      expect(ledgerSum(db, omtId)).toBeCloseTo(104.5, 2);
+      // REFUND restores the PCD (where the settlement CASH leg actually
+      // landed) — General is untouched, exactly as the VOID path.
+      expect(drawerBal(db, "OMT_System")).toBeCloseTo(omtBefore + 104.5, 4);
+      expect(drawerBal(db, "General")).toBeCloseTo(generalBefore, 4);
       const fs = fsRow(db, fsId);
       expect(fs.settlement_id).toBeNull();
       expect(fs.is_settled).toBe(0);
@@ -449,19 +468,19 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
 
     it("FAILING-FIRST capture: a bare ledger soft-void ALREADY nets the ledger correctly (no second row masks it), but leaves financial_services stamped — the ONE remaining bespoke step", () => {
       // Demonstrates exactly what's left for _reverseSupplierSettlement to
-      // do under the fee-only model: soft-voiding ONLY the SETTLEMENT ledger
-      // row (what the generic _markSourceRefunded step alone would do,
-      // pre-dating any of this method's own logic) is now SUFFICIENT to net
-      // supplier_ledger back to the pre-settlement TOP_UP-only balance — no
-      // SUPPLIER_PAYS_US row exists anymore to mask it (unlike the old gross
-      // model, where this same bare soft-void left the ledger at 104.5
-      // instead of 105). What it does NOT do is touch financial_services.
+      // do: soft-voiding ONLY the SETTLEMENT ledger row (what the generic
+      // `_markSourceRefunded` step alone would do, pre-dating any of this
+      // method's own logic) is SUFFICIENT to net supplier_ledger back to
+      // the pre-settlement TOP_UP-only balance — no SUPPLIER_PAYS_US row
+      // exists to mask it (that machinery predates both the gross and
+      // fee-only models and stays removed). What it does NOT do is touch
+      // financial_services.
       db.prepare(
         `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP WHERE id = ?`,
       ).run(settlementLedgerId);
 
-      // Ledger already correct: TOP_UP(4.5) is the only unrefunded row.
-      expect(ledgerSum(db, omtId)).toBeCloseTo(4.5, 2);
+      // Ledger already correct: TOP_UP(104.5) is the only unrefunded row.
+      expect(ledgerSum(db, omtId)).toBeCloseTo(104.5, 2);
 
       // But financial_services stays stamped — proving this IS still the
       // dedicated method's job (verified against _reverseSupplierSettlement
@@ -490,6 +509,13 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
          VALUES (?, 'TOP_UP', 15, 0, 1, 'Auto: cost-flow SEND')`,
       ).run(katshId);
 
+      // Task C regression guard: Katsh is an ordinary (non-primary)
+      // supplier — provider "Katsh" !== baseSystem "OMT" — so its CASH
+      // settlement leg must resolve to General exactly as before the PCD
+      // model existed, never OMT_System.
+      const omtBefore = drawerBal(db, "OMT_System");
+      const generalBefore = drawerBal(db, "General");
+
       const settlement = supplierRepo.settleTransactions({
         supplier_id: katshId,
         financial_service_ids: [fsId],
@@ -508,6 +534,12 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
       expect(fsRow(db, fsId).is_settled).toBe(1);
       expect(fsRow(db, fsId).settlement_id).toBe(settlement.id);
 
+      // General absorbs the $15 CASH leg; the PCD (OMT_System) is
+      // completely untouched — routing to it is gated on
+      // provider === baseSystem, which "Katsh" never satisfies.
+      expect(drawerBal(db, "General")).toBeCloseTo(generalBefore - 15, 4);
+      expect(drawerBal(db, "OMT_System")).toBeCloseTo(omtBefore, 4);
+
       txnRepo.voidTransaction(settlementTxn.id, 1);
 
       const after = fsRow(db, fsId);
@@ -517,13 +549,18 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
       // row). Resetting it would un-realize profit this settlement never
       // gated.
       expect(after.is_settled).toBe(1);
+
+      // VOID restores General (where the leg actually landed); PCD stays
+      // untouched through the reversal too.
+      expect(drawerBal(db, "General")).toBeCloseTo(generalBefore, 4);
+      expect(drawerBal(db, "OMT_System")).toBeCloseTo(omtBefore, 4);
     });
   });
 
   // ── Multi-currency settlement ─────────────────────────────────────────────
 
-  describe("mixed USD+LBP commission (fee-only, LBP leg)", () => {
-    it("VOID reverses the LBP net-payment leg generically; OMT_System (LBP) sees ZERO delta throughout", () => {
+  describe("mixed USD+LBP commission (gross model, LBP leg)", () => {
+    it("VOID reverses the LBP net-payment leg generically; the PCD (OMT_System, LBP) is debited by settlement then fully restored — General LBP untouched throughout", () => {
       const omtId = supplierIdByProvider(db, "OMT");
       db.prepare(
         `INSERT INTO drawer_balances VALUES (1, 'OMT_System', 'LBP', 5000000, CURRENT_TIMESTAMP)`,
@@ -539,50 +576,67 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
         )
         .run();
       const fsId = Number(res.lastInsertRowid);
-      // Fee-only TOP_UP: LBP fee 50,000 − commission 5,000 = 45,000. The
-      // 1,000,000 LBP principal already moved through OMT_System at SEND
-      // time (out of this repository's scope).
+      // Gross TOP_UP (plan §8.3): x + f − c = 1,000,000 + 50,000 − 5,000 =
+      // 1,045,000 LBP. The 1,000,000 LBP principal now lives in the PCD
+      // (OMT_System) itself, as the shop's own cash (plan §8.1) — a
+      // different fact from what's owed the provider, tracked here.
       db.prepare(
         `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, note)
-         VALUES (?, 'TOP_UP', 0, 45000, 1, 'Auto: LBP SEND via OMT (fee-only)')`,
+         VALUES (?, 'TOP_UP', 0, 1045000, 1, 'Auto: LBP SEND via OMT (gross)')`,
       ).run(omtId);
+
+      const generalLbpSeeded = drawerBal(db, "General", "LBP"); // 0
+      const omtLbpSeeded = drawerBal(db, "OMT_System", "LBP"); // 5,000,000
 
       const settlement = supplierRepo.settleTransactions({
         supplier_id: omtId,
         financial_service_ids: [fsId],
         amount_usd: 0,
-        amount_lbp: 45000, // exactly what's owed — no further commission subtraction
+        amount_lbp: 1045000, // exactly what's owed (gross) — no further commission subtraction
         commission_usd: 0,
         commission_lbp: 5000, // informational only — no drawer effect
         created_by: 1,
-        payments: [{ method: "CASH", currency_code: "LBP", amount: 45000 }],
+        payments: [{ method: "CASH", currency_code: "LBP", amount: 1045000 }],
       });
       const settlementTxn = txnRepo.getBySourceId(
         "supplier_ledger",
         settlement.id,
       )!;
 
-      const generalLbpBefore = drawerBal(db, "General", "LBP");
-      const omtLbpBefore = drawerBal(db, "OMT_System", "LBP");
+      // Settlement debits the PCD (LBP) by exactly the CASH leg; General
+      // LBP is never touched (the leg only ever routes to the PCD for this
+      // primary-system supplier, decision #10).
+      expect(drawerBal(db, "OMT_System", "LBP")).toBeCloseTo(
+        omtLbpSeeded - 1045000, // 3,955,000
+        0,
+      );
+      expect(drawerBal(db, "General", "LBP")).toBeCloseTo(
+        generalLbpSeeded,
+        2,
+      );
 
       txnRepo.voidTransaction(settlementTxn.id, 1);
 
-      // The CASH LBP leg (-45,000) is a real `payments` row — the generic
-      // `_reversePayments` path restores it for free.
+      // The CASH LBP leg (-1,045,000) is a real `payments` row resolved to
+      // the PCD — the generic `_reversePayments` path restores THAT drawer
+      // for free, back to its seeded value (rule 20: net-zero across
+      // create+settle+reverse).
+      expect(drawerBal(db, "OMT_System", "LBP")).toBeCloseTo(omtLbpSeeded, 0);
+      // General LBP was never touched by the settlement leg, so it is not
+      // touched by the reversal either.
       expect(drawerBal(db, "General", "LBP")).toBeCloseTo(
-        generalLbpBefore + 45000,
+        generalLbpSeeded,
         2,
       );
-      // OMT_System (the float) was NEVER touched by settlement — stays put.
-      expect(drawerBal(db, "OMT_System", "LBP")).toBeCloseTo(omtLbpBefore, 2);
+
       const supplierBalLbp = db
         .prepare(
           `SELECT COALESCE(SUM(amount_lbp), 0) AS lbp FROM supplier_ledger
            WHERE supplier_id = ? AND COALESCE(is_refunded, 0) = 0`,
         )
         .get(omtId) as { lbp: number };
-      // Nets back to the pre-settlement TOP_UP-only balance (45,000).
-      expect(supplierBalLbp.lbp).toBeCloseTo(45000, 0);
+      // Nets back to the pre-settlement TOP_UP-only balance (1,045,000).
+      expect(supplierBalLbp.lbp).toBeCloseTo(1045000, 0);
     });
   });
 });

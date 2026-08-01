@@ -31,6 +31,9 @@ import { allocateFifo } from "../utils/fifoCoverage.js";
 import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
+  resolveServiceCashDrawer,
+  type BaseSystem,
+  type ServiceCashDrawerContext,
 } from "../utils/payments.js";
 import { getPaymentMethodRepository } from "./PaymentMethodRepository.js";
 
@@ -102,16 +105,25 @@ export interface TransactionPaymentLeg {
 /**
  * The `payments` table is an internal multi-leg ledger: alongside real customer
  * payments and change/returns it also stores provider/system drawer movements
- * (e.g. the Binance USDT crypto leg, OMT/WHISH system-reserve legs, cost-flow
- * provider cost legs, and fee/transfer reporting rows). The LIRA-064 in/out
- * summary must surface ONLY customer-facing cash — so these internal legs are
- * filtered out. Identifiers below mark legs that are NOT customer cash:
+ * (e.g. the Binance USDT crypto leg, cost-flow provider cost legs, and
+ * fee/transfer reporting rows). The LIRA-064 in/out summary must surface ONLY
+ * customer-facing cash — so these internal legs are filtered out. Identifiers
+ * below mark legs that are NOT customer cash. NOTE (Primary Cash Drawer plan
+ * §2#4): OMT_System/Whish_System are EXCLUDED from that internal set as of
+ * this feature — they are the physical primary cash drawer (PCD) now, not a
+ * provider-side float, so their legs ARE customer cash and must stay visible.
  */
 // Marker methods used for internal (non-customer) ledger rows.
 const INTERNAL_LEG_METHODS = new Set([
   "COMMISSION", // reporting-only fee row (zero delta)
   "PM_FEE", // payment-method fee audit row
   "TRANSFER", // shop→system drawer transfer leg
+  // Primary Cash Drawer plan §8.6: both legs of a General↔cash-drawer transfer
+  // are the shop moving its OWN money between two of its own drawers — never
+  // customer cash. This entry is load-bearing now that the `_System`
+  // drawer-name exclusion above is gone: without it BOTH legs of every
+  // transfer would leak into the D1 cash-flow report and the in/out summary.
+  "DRAWER_TRANSFER",
   "RESERVE", // cash reserved out of General/wallet for provider settlement (SEND / debt repayment)
   "OMT_APP", // shop-wallet side of an app transfer (customer cash side stays visible)
   "WHISH_APP", // shop-wallet side of an app transfer (customer cash side stays visible)
@@ -123,7 +135,9 @@ const INTERNAL_LEG_METHODS = new Set([
 // (telecom credit stock, app balance), never customer cash. Customer WALLET
 // drawers (Whish_App / OMT_App) are intentionally NOT here: a customer paying
 // via that method is real customer cash and must stay in the summary.
-// `*_System` reserve drawers (OMT_System / Whish_System) are matched separately.
+// OMT_System / Whish_System are ALSO intentionally NOT here (Primary Cash
+// Drawer plan §2#4) — they are the primary cash drawer (PCD), real
+// customer-facing cash, not a provider stock/reserve drawer.
 const PROVIDER_STOCK_DRAWERS = new Set(["MTC", "Alfa", "Katsh", "iPick"]);
 // Customer cash is always denominated in one of these; USDT/crypto legs are internal.
 const CUSTOMER_CASH_CURRENCIES = new Set(["USD", "LBP"]);
@@ -146,7 +160,13 @@ function isInternalLegJs(p: {
     p.amount === 0 || // reporting-only row (e.g. COMMISSION, zero delta)
     INTERNAL_LEG_METHODS.has(p.method) || // fee / transfer / credit / SMS markers
     PROVIDER_STOCK_DRAWERS.has(p.drawer_name) || // MTC/Alfa/Katsh/iPick stock
-    p.drawer_name.endsWith("_System") || // OMT_System / Whish_System reserve
+    // Primary Cash Drawer plan §2#4 (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md):
+    // OMT_System/Whish_System are no longer an internal provider-side float —
+    // they ARE the physical cash drawer at the money-transfer counter, so a
+    // leg posted there is real customer cash and must NOT be filtered out
+    // here. The `endsWith("_System")` exclusion that used to live on this
+    // line is deleted (rule 14 pair with customerCashLegSql below — change
+    // both or neither).
     !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
     note.startsWith("Cost:") || // cost/price-flow provider cost outflow
     note.endsWith("(cost outflow)") || // custom-service hidden cost outflow
@@ -162,10 +182,12 @@ function customerCashLegSql(a: string): string {
   const currencies = [...CUSTOMER_CASH_CURRENCIES]
     .map((c) => `'${c}'`)
     .join(", ");
+  // Primary Cash Drawer plan §2#4: the `NOT LIKE '%\_System'` exclusion that
+  // used to sit here is deleted in lockstep with isInternalLegJs above (rule
+  // 14) — OMT_System/Whish_System legs are customer-facing cash now.
   return `${a}.amount != 0
       AND ${a}.method NOT IN (${methods})
       AND ${a}.drawer_name NOT IN (${drawers})
-      AND ${a}.drawer_name NOT LIKE '%\\_System' ESCAPE '\\'
       AND ${a}.currency_code IN (${currencies})
       AND COALESCE(${a}.note, '') NOT LIKE 'Cost:%'
       AND COALESCE(${a}.note, '') NOT LIKE '%(cost outflow)'
@@ -1404,8 +1426,14 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Tables with is_refunded column: recharges, financial_services,
    * exchange_transactions, custom_services, maintenance, expenses,
    * loto_tickets, debt_ledger, supplier_ledger, wallet_exchanges,
-   * system_float_topups.
+   * drawer_transfers.
    * Sales are handled separately (status + sale_items).
+   *
+   * Primary Cash Drawer plan §8.6 (rule 20): `system_float_topups` (v139) is
+   * rebuilt by migration v140 as `drawer_transfers` (same `is_refunded` /
+   * `refunded_at` columns, now supporting both General→PCD and PCD→General
+   * directions) — the entry below is updated to the new table name so the
+   * generic void/refund path keeps owning reversal of a drawer transfer.
    *
    * supplier_ledger uses this as a SOFT-VOID: balance/pool aggregates exclude
    * flagged rows (SupplierRepository), so voiding a supplier payment restores
@@ -1429,7 +1457,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "debt_ledger",
       "supplier_ledger",
       "wallet_exchanges",
-      "system_float_topups",
+      "drawer_transfers",
     ];
     if (!supported.includes(sourceTable)) return;
     // tenant_id predicate applies to every legal value of sourceTable above —
@@ -1945,6 +1973,66 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
   }
 
+  /**
+   * Primary Cash Drawer plan §8.2 (LIRA-078): the `{provider, baseSystem}`
+   * context `resolveServiceCashDrawer` needs to route an OVERRIDDEN refund
+   * leg back into the PCD instead of General, when the reversed transaction
+   * IS a financial-service SEND/RECEIVE running on the shop's primary
+   * system. Only `financial_services` rows carry a `provider` — every other
+   * reversible source table (sales, recharges, custom services, ...) has no
+   * primary-system concept, so this returns null for them and the caller
+   * falls back to the plain `paymentMethodToDrawerName` mapping unchanged
+   * (mirrors `_supplierSourceSettlementId`'s same "only FS rows are
+   * relevant" shape). `resolveServiceCashDrawer` itself is a no-op whenever
+   * `provider !== baseSystem` (secondary-system / partner-through legs), so
+   * returning a context here never mis-routes those cases either.
+   */
+  private _financialServiceCashDrawerCtx(
+    originalTxnId: number,
+  ): ServiceCashDrawerContext | null {
+    const tenantId = getCurrentTenantId();
+    const original = this.queryOne<{
+      source_table: string;
+      source_id: number | null;
+    }>(
+      `SELECT source_table, source_id FROM transactions WHERE id = ? AND tenant_id = ?`,
+      originalTxnId,
+      tenantId,
+    );
+    if (
+      !original ||
+      original.source_table !== "financial_services" ||
+      original.source_id == null
+    ) {
+      return null;
+    }
+
+    const fs = this.queryOne<{ provider: string }>(
+      `SELECT provider FROM financial_services WHERE id = ? AND tenant_id = ?`,
+      original.source_id,
+      tenantId,
+    );
+    if (!fs) return null;
+
+    // Same defensive shape as FinancialServiceRepository's own baseSystem
+    // read: system_settings may be absent in minimal/test schemas, so a
+    // missing/unreadable setting defaults to OMT rather than throwing and
+    // breaking every refund override on that connection.
+    let baseSystem: BaseSystem = "OMT";
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT value FROM system_settings WHERE key_name = 'shop_base_system' AND tenant_id = ?`,
+        )
+        .get(tenantId) as { value?: string } | undefined;
+      if (row?.value === "WHISH") baseSystem = "WHISH";
+    } catch {
+      // system_settings may be absent in minimal/test schemas — default to OMT.
+    }
+
+    return { provider: fs.provider, baseSystem };
+  }
+
   private _reversePayments(
     originalTxnId: number,
     reversalTxnId: number,
@@ -1995,8 +2083,20 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     }
 
     if (refundLegOverride) {
+      // Primary Cash Drawer plan §8.2 (LIRA-078): a replacement leg must NOT
+      // blindly re-derive its drawer from the payment method alone — an
+      // overridden CASH refund of a primary-system financial-service
+      // SEND/RECEIVE has to land back in the PCD it came out of, not
+      // General. Resolved ONCE per override call (not per leg) via the same
+      // one-definition resolver every other primary-system cash leg uses
+      // (rule 14); it falls through to plain `paymentMethodToDrawerName`
+      // unchanged for every non-FS / non-primary-system transaction, so this
+      // is safe even when `cashDrawerCtx` is null.
+      const cashDrawerCtx = this._financialServiceCashDrawerCtx(originalTxnId);
       for (const leg of refundLegOverride) {
-        const drawerName = paymentMethodToDrawerName(leg.method);
+        const drawerName = cashDrawerCtx
+          ? resolveServiceCashDrawer(leg.method, cashDrawerCtx)
+          : paymentMethodToDrawerName(leg.method);
         const negatedAmount = -leg.amount;
         insertPaymentRow(this.db, {
           transactionId: reversalTxnId,
@@ -2444,9 +2544,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * its pre-settlement (TOP_UP-only) balance, since there is no second
    * (SUPPLIER_PAYS_US) row masking it anymore. The net-payment legs
    * (settleTransactions step 4) DO write real `payments` rows through a real
-   * payment-method drawer (never `OMT_System`/`Whish_System` — the float is
-   * never touched by settlement), so the generic `_reversePayments` already
-   * reverses them for free, with no bespoke step needed here.
+   * payment-method drawer — under the Primary Cash Drawer plan (§1
+   * "Settlement identity") a CASH leg for the primary provider now DOES
+   * resolve to `OMT_System`/`Whish_System` (the PCD) instead of General, but
+   * `_reversePayments` mirrors whatever `drawer_name` the row actually
+   * carries and is drawer-agnostic by design (CLAUDE.md rule 20's generic
+   * path), so the generic `_reversePayments` already reverses them for free
+   * either way, with no bespoke step needed here.
    * `_assertSupplierSiblingsVoidable` (LIRA-091) already prevents any of
    * this settlement's `financial_service_ids` from being independently
    * voided/refunded while `settlement_id` stays stamped — once this method

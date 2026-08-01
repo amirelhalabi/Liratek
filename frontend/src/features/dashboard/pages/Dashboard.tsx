@@ -28,6 +28,7 @@ import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import { useShopBase } from "@/hooks/useShopBase";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localMonth } from "@/shared/utils/localDay";
 
@@ -126,8 +127,18 @@ function NameAmountTable({
   );
 }
 
-/** Format drawer_name from DB into a display label */
+/**
+ * Format drawer_name from DB into a display label.
+ *
+ * OMT_System / Whish_System are special-cased: under the Primary Cash
+ * Drawer model (plan §1) they are the physical cash drawer at the shop's
+ * money-transfer counter, not a provider float balance (PR #66's rejected
+ * model) — the generic underscore-replace would otherwise render the bare
+ * "OMT System" / "Whish System" wording the plan retires.
+ */
 function formatDrawerLabel(name: string): string {
+  if (name === "OMT_System") return "OMT Cash Drawer";
+  if (name === "Whish_System") return "Whish Cash Drawer";
   return name
     .replace(/_/g, " ")
     .replace(/Drawer B$/i, "Drawer")
@@ -186,6 +197,14 @@ export default function Dashboard() {
   const { isModuleEnabled } = useModules();
   const { flags } = useFeatureFlags();
   const checkpointsEnabled = flags.sessionManagement;
+  // Primary Cash Drawer plan §1/§8.1 — the "Cash on Hand" strip's second
+  // cell follows whichever system is primary (shop_base_system), not a
+  // hardcoded OMT assumption.
+  const { baseSystem } = useShopBase();
+  const primaryDrawerName =
+    baseSystem === "WHISH" ? "Whish_System" : "OMT_System";
+  const primaryDrawerLabel =
+    baseSystem === "WHISH" ? "Whish Cash Drawer" : "OMT Cash Drawer";
 
   const debtEnabled = isModuleEnabled("debts");
 
@@ -893,8 +912,11 @@ export default function Dashboard() {
             })}
           </div>
 
-          {/* Cash on Hand — compact strip */}
-          {(drawerBalances["General"] || drawerBalances["OMT_System"]) && (
+          {/* Cash on Hand — compact strip. Both cells are physical cash under
+              the Primary Cash Drawer model (plan §1) — General plus
+              whichever system is primary — so the pairing is finally
+              semantically correct; only the label/name follow shop_base_system. */}
+          {(drawerBalances["General"] || drawerBalances[primaryDrawerName]) && (
             <div className="flex items-stretch bg-slate-800 rounded-xl border border-slate-700/40 border-l-2 border-l-emerald-500 shadow-lg hover:shadow-emerald-500/20 hover:shadow-xl hover:border-emerald-500/50 transition-all duration-200 overflow-hidden self-start">
               <div className="flex items-center gap-2 px-4 bg-slate-900/50 border-r border-slate-700/60 shrink-0">
                 <Banknote size={13} className="text-emerald-400" />
@@ -902,9 +924,11 @@ export default function Dashboard() {
                   Cash on Hand
                 </span>
               </div>
-              {(["General", "OMT_System"] as const).map((key, i) => {
+              {[
+                { key: "General", label: "General" },
+                { key: primaryDrawerName, label: primaryDrawerLabel },
+              ].map(({ key, label }, i) => {
                 const raw = drawerBalances[key];
-                const label = key === "General" ? "General" : "OMT System";
                 const nonZero = raw
                   ? Object.fromEntries(
                       Object.entries(raw).filter(([, v]) => v !== 0),

@@ -20,7 +20,28 @@ export interface LiveRateResponse {
   result: string;
   base_code: string;
   time_last_update_utc: string;
+  /** Unix seconds when the feed publishes next — the free tier is ~24h. */
+  time_next_update_unix: number;
   rates: Record<string, number>;
+}
+
+/**
+ * One fetch of the feed, with the provenance needed to display it honestly.
+ *
+ * `rates` keeps the historical filtering (USD/LBP/EUR removed — those are
+ * locally configured and the currency selector adds them itself), so existing
+ * callers are unaffected. `marketRates` is the full set minus USD, for the
+ * market-reference panel: seeing the market's LBP and EUR next to the shop's
+ * own configured rates is the point of that panel.
+ */
+export interface LiveRatesSnapshot {
+  /** Untouched `rates` map from the response (1 USD = X units). */
+  raw: Record<string, number>;
+  rates: CurrencyRate[];
+  marketRates: CurrencyRate[];
+  /** The API's own publish time, verbatim. */
+  lastUpdatedUtc: string;
+  nextUpdateUnix: number;
 }
 
 /** Human-readable names for common API currencies */
@@ -52,6 +73,48 @@ export const CURRENCY_NAMES: Record<string, string> = {
   IQD: "Iraqi Dinar",
   SYP: "Syrian Pound",
 };
+
+/**
+ * Display symbols for common currencies. Lives here beside CURRENCY_NAMES so
+ * currency display metadata has one home (it was previously duplicated inside
+ * the Exchange page).
+ */
+export const CURRENCY_SYMBOLS: Record<string, string> = {
+  EUR: "€",
+  GBP: "£",
+  JPY: "¥",
+  CHF: "Fr",
+  CAD: "C$",
+  AUD: "A$",
+  TRY: "₺",
+  INR: "₹",
+  CNY: "¥",
+  KRW: "₩",
+  BRL: "R$",
+  MXN: "$",
+  ZAR: "R",
+  SEK: "kr",
+  NOK: "kr",
+  DKK: "kr",
+  PLN: "zł",
+  CZK: "Kč",
+  HUF: "Ft",
+  ILS: "₪",
+  SGD: "S$",
+  HKD: "HK$",
+  NZD: "NZ$",
+  PHP: "₱",
+  IDR: "Rp",
+  MYR: "RM",
+  RUB: "₽",
+  NGN: "₦",
+  EGP: "E£",
+  UAH: "₴",
+};
+
+export function getCurrencySymbol(code: string): string {
+  return CURRENCY_SYMBOLS[code] || code;
+}
 
 /**
  * Fetch live exchange rates from the public API.
@@ -104,29 +167,82 @@ export function apiRateToCurrencyRate(
   }
 }
 
-/**
- * Fetch live rates and convert to CurrencyRate[] for the exchange calculator.
- * Excludes USD, LBP, and EUR (those come from local settings).
- */
-export async function fetchLiveCurrencyRates(): Promise<CurrencyRate[]> {
-  const rawRates = await fetchLiveRates();
-  const result: CurrencyRate[] = [];
+/** Common currencies first, then alphabetical. */
+const PRIORITY_CODES = ["GBP", "CAD", "AUD", "CHF", "JPY", "AED", "SAR", "TRY"];
 
-  for (const [code, rate] of Object.entries(rawRates)) {
-    if (EXCLUDED_CURRENCIES.has(code)) continue;
-    result.push(apiRateToCurrencyRate(code, rate));
-  }
-
-  // Sort by common currencies first
-  const priority = ["GBP", "CAD", "AUD", "CHF", "JPY", "AED", "SAR", "TRY"];
-  result.sort((a, b) => {
-    const ai = priority.indexOf(a.to_code);
-    const bi = priority.indexOf(b.to_code);
+function sortByPriority(list: CurrencyRate[]): CurrencyRate[] {
+  return list.sort((a, b) => {
+    const ai = PRIORITY_CODES.indexOf(a.to_code);
+    const bi = PRIORITY_CODES.indexOf(b.to_code);
     if (ai !== -1 && bi !== -1) return ai - bi;
     if (ai !== -1) return -1;
     if (bi !== -1) return 1;
     return a.to_code.localeCompare(b.to_code);
   });
+}
 
-  return result;
+// ─── Cache ────────────────────────────────────────────────────────────────────
+//
+// The feed publishes roughly once every 24 hours and tells us exactly when the
+// next one lands (`time_next_update_unix`), so the cache is valid until that
+// moment — no arbitrary TTL guess. Without this, every mount of the Exchange
+// page and every open of the drawer top-up modal re-fetched a payload that had
+// not changed since the previous day.
+
+let cached: LiveRatesSnapshot | null = null;
+let inflight: Promise<LiveRatesSnapshot> | null = null;
+
+/** True while the cached snapshot predates the feed's next publish. */
+function isFresh(snapshot: LiveRatesSnapshot): boolean {
+  return Date.now() / 1000 < snapshot.nextUpdateUnix;
+}
+
+/**
+ * Fetch (or reuse) one snapshot of the feed. Concurrent callers share a single
+ * in-flight request.
+ */
+export async function fetchLiveRatesSnapshot(): Promise<LiveRatesSnapshot> {
+  if (cached && isFresh(cached)) return cached;
+  if (inflight) return inflight;
+
+  const request = (async (): Promise<LiveRatesSnapshot> => {
+    try {
+      const res = await fetch(API_URL);
+      if (!res.ok) throw new Error(`Failed to fetch rates: ${res.status}`);
+      const data: LiveRateResponse = await res.json();
+      if (data.result !== "success") throw new Error("API returned error");
+
+      const rates: CurrencyRate[] = [];
+      const marketRates: CurrencyRate[] = [];
+      for (const [code, rate] of Object.entries(data.rates)) {
+        // USD is the base — "1 USD = 1 USD" is noise in every view.
+        if (code === "USD") continue;
+        const converted = apiRateToCurrencyRate(code, rate);
+        marketRates.push(converted);
+        if (!EXCLUDED_CURRENCIES.has(code)) rates.push(converted);
+      }
+
+      cached = {
+        raw: data.rates,
+        rates: sortByPriority(rates),
+        marketRates: sortByPriority(marketRates),
+        lastUpdatedUtc: data.time_last_update_utc,
+        nextUpdateUnix: data.time_next_update_unix,
+      };
+      return cached;
+    } finally {
+      inflight = null;
+    }
+  })();
+
+  inflight = request;
+  return request;
+}
+
+/**
+ * Fetch live rates and convert to CurrencyRate[] for the exchange calculator.
+ * Excludes USD, LBP, and EUR (those come from local settings).
+ */
+export async function fetchLiveCurrencyRates(): Promise<CurrencyRate[]> {
+  return (await fetchLiveRatesSnapshot()).rates;
 }

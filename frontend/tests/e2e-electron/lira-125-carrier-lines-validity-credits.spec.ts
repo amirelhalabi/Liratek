@@ -139,7 +139,16 @@ test.describe("LIRA W6.a — Carrier Lines: Settings CRUD + Recharge-tab panel",
     await appPage.getByRole("button", { name: "Create" }).click();
 
     // Row appears in the manager table, identity-matched by phone number.
-    await expect(appPage.getByText(uniquePhone)).toBeVisible({
+    // Matched as a CELL with exact:true, not getByText: the label carries the
+    // full `Date.now()` and the phone is "03" + its last six digits, so
+    // whenever the timestamp happens to have "03" immediately before those six
+    // digits the phone string is also a substring of the label, getByText
+    // resolves to two cells, and Playwright's strict mode fails the run. It is
+    // roughly a 1-in-100 flake — it hit CI on 2026-08-01 with label
+    // "E2E-W6-1785603586723" against phone "03586723".
+    await expect(
+      appPage.getByRole("cell", { name: uniquePhone, exact: true }),
+    ).toBeVisible({
       timeout: 10_000,
     });
 

@@ -124,6 +124,15 @@ export type ApiMeResult = ApiResult & {
   user?: ApiUser;
 };
 
+/**
+ * NOTE (2026-08-01): `InsufficientDrawerFundsDetails` lived here until the
+ * owner reversed the no-overdraw rule — no drawer operation is blocked any
+ * more, so nothing throws that error and the shape had no producer. The
+ * `code`/`details` envelope fields stay: they are the general AppError
+ * contract (rule 19c, IPC and REST identical), and callers must still switch
+ * on `code`, never on a message string.
+ */
+
 export type ProductWriteResult = {
   success: boolean;
   id?: number;
@@ -539,7 +548,32 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getOMTHistory: (provider?: string) => Promise<any[]>;
   getOMTAnalytics: (providers?: string[]) => Promise<any>;
-  addOMTTransaction: (payload: any) => Promise<ApiResult & { id?: number }>;
+  /** RECEIVE payouts can be blocked with `code: "INSUFFICIENT_DRAWER_FUNDS"`
+   *  (Primary Cash Drawer plan §8.5) when the primary cash drawer lacks
+   *  funds in the payout currency — `details` carries the shortfall so the
+   *  caller can offer a "move from General" action. Switch on `code`, never
+   *  the message string. */
+  addOMTTransaction: (
+    payload: any,
+  ) => Promise<
+    ApiResult & { id?: number; code?: string; details?: unknown }
+  >;
+  /** Generic, reversible cash transfer between any two of the shop's own
+   *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
+   *  drawer (OMT_System/Whish_System) is the pair the UI exposes. Replaces
+   *  the retired `drawerTopUp.fundSystem` (one-directional float-funding,
+   *  now-superseded 2026-07-29 model). Can itself fail with
+   *  `code: "INSUFFICIENT_DRAWER_FUNDS"` if `fromDrawer` lacks funds. */
+  transferBetweenDrawers: (data: {
+    fromDrawer: string;
+    toDrawer: string;
+    amount_usd: number;
+    amount_lbp: number;
+    notes?: string;
+    transaction_time?: string;
+  }) => Promise<
+    ApiResult & { id?: number; code?: string; details?: unknown }
+  >;
 
   // ---------------------------------------------------------------------------
   // Maintenance
@@ -1115,16 +1149,6 @@ export type ApiAdapter = {
       amount_lbp: number;
       source_drawer: string;
       notes?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    /** Fund the OMT_System / Whish_System spendable float from any drawer
-     *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
-    fundSystem: (data: {
-      targetDrawer: "OMT_System" | "Whish_System";
-      fundingDrawer: string;
-      amount_usd: number;
-      amount_lbp: number;
-      notes?: string;
-      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getSourceDrawers: () => Promise<{
       success: boolean;
