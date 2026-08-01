@@ -178,8 +178,6 @@ const CASES: Case[] = [
       // runs on the shop's OWN primary rails, so its cash is OMT cash.
       { name: "OMT_System", field: "usd", delta: -103.11 },
       { name: "General", field: "usd", delta: 0 },
-      // Failing-first: legacy code credited OMT_System +(amount+fee).
-      { name: "OMT_System", field: "usd", delta: 0 },
     ],
   },
   {
