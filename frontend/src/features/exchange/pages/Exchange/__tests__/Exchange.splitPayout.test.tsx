@@ -179,7 +179,19 @@ jest.mock("@/hooks/usePaymentMethods", () => ({
 
 jest.mock("@/utils/liveExchangeRates", () => ({
   fetchLiveCurrencyRates: jest.fn().mockResolvedValue([]),
+  // The page reads the whole snapshot now (rates for the selector,
+  // marketRates + publish time for the market-reference panel).
+  fetchLiveRatesSnapshot: jest.fn().mockResolvedValue({
+    raw: {},
+    rates: [],
+    marketRates: [],
+    lastUpdatedUtc: "Fri, 31 Jul 2026 00:02:31 +0000",
+    nextUpdateUnix: 1785543661,
+  }),
   CURRENCY_NAMES: { USD: "US Dollar", LBP: "Lebanese Pound" },
+  // Called during render — an undefined mock throws before any assertion.
+  getCurrencySymbol: (code: string) =>
+    ({ USD: "$", LBP: "LBP", EUR: "€" })[code] ?? code,
 }));
 
 jest.mock("@/features/partners/components/ForPartnerToggle", () => ({
