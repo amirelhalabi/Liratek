@@ -11,8 +11,13 @@
 // Currency converter — pure functions, zero Node.js dependencies
 export * from "./utils/currencyConverter.js";
 
-// Constants — pure data, no Node.js deps
-export * from "./constants/index.js";
+// Telecom Only-Days credit model (LIRA-090) — pure integer math, no Node.js deps.
+// The frontend (KatchForm, MobileServicesManager) imports maxReturnableCredits,
+// isTelecomSplitComplete, deriveItemEconomics, deliveredCostLbp from here. index.ts
+// (the Node entry) exports it too, so jest and typecheck pass — but Vite resolves
+// @liratek/core to THIS file, so the export must live here or the renderer fails to
+// load with "does not provide an export named 'deliveredCostLbp'".
+export * from "./utils/telecomCredit.js";
 
 // Validators — zod schemas, no Node.js deps
 export * from "./validators/index.js";
