@@ -37,6 +37,7 @@ const EXISTING_LINE: CarrierLineEntity = {
   validity_expires_at: "2026-08-01",
   notes: null,
   is_active: 1,
+  is_primary: 0,
   created_at: "2026-07-01 00:00:00",
   updated_at: "2026-07-01 00:00:00",
 };
