@@ -19,7 +19,6 @@
 
 import Database from "better-sqlite3";
 import { DrawerTopUpRepository } from "../DrawerTopUpRepository";
-import { InsufficientDrawerFundsError } from "../../utils/errors";
 import {
   initFixedTenantContext,
   resetTenantContext,
@@ -340,70 +339,54 @@ describe("DrawerTopUpRepository.transferBetweenDrawers()", () => {
     expect(metadata.to_drawer).toBe("General");
   });
 
-  it("(e) insufficient USD funds in fromDrawer -> structured InsufficientDrawerFundsError, nothing moved", () => {
-    let caught: unknown;
-    try {
-      repo.transferBetweenDrawers({
-        fromDrawer: "General",
-        toDrawer: "OMT_System",
-        amountUsd: 5_000, // only 500 available
-        amountLbp: 0,
-        createdBy: 1,
-      });
-    } catch (err) {
-      caught = err;
-    }
+  it("(e) OVERDRAW IS ALLOWED (owner decision 2026-08-01): the transfer posts and the source drawer goes negative", () => {
+    // Reversal of the original no-overdraw guard. Every drawer in this system
+    // can already go negative; blocking a money move the operator has ALREADY
+    // made physically just puts the app out of step with the cash box. The
+    // condition is surfaced in the transfer UI (which flags a negative drawer
+    // and pre-fills the amount that clears it), never enforced here.
+    repo.transferBetweenDrawers({
+      fromDrawer: "General",
+      toDrawer: "OMT_System",
+      amountUsd: 5_000, // only 500 available
+      amountLbp: 0,
+      createdBy: 1,
+    });
 
-    expect(caught).toBeInstanceOf(InsufficientDrawerFundsError);
-    const error = caught as InstanceType<typeof InsufficientDrawerFundsError>;
-    expect(error.code).toBe("INSUFFICIENT_DRAWER_FUNDS");
-    expect(error.details.drawer).toBe("General");
-    // shortfall = required - available = 5,000 - 500 = 4,500.
-    expect(error.details.shortfall.USD).toBeCloseTo(4_500, 2);
-    expect(error.details.available.USD).toBeCloseTo(500, 2);
-    expect(error.details.required.USD).toBeCloseTo(5_000, 2);
-    // No LBP was requested, so the per-currency guard must not report it.
-    expect(error.details.shortfall.LBP).toBeUndefined();
-
-    // The whole db.transaction rolled back — nothing written, nothing moved.
-    expect(balance(db, "General", "USD")).toBeCloseTo(500, 2);
-    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(0, 2);
-    expect(transferRowCount(db)).toBe(0);
-    expect(transactionRowCount(db)).toBe(0);
-    expect(paymentRowCount(db)).toBe(0);
+    // 500 - 5,000 = -4,500: negative, and that is the point.
+    expect(balance(db, "General", "USD")).toBeCloseTo(-4_500, 2);
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(5_000, 2);
+    // Money is still CONSERVED across the pair — an overdraw must not also
+    // become a leak. -4,500 + 5,000 = 500, the pre-transfer total.
+    expect(
+      balance(db, "General", "USD") + balance(db, "OMT_System", "USD"),
+    ).toBeCloseTo(500, 2);
+    // And it is a real, reversible transfer, not a silent balance poke.
+    expect(transferRowCount(db)).toBe(1);
+    expect(transactionRowCount(db)).toBe(1);
+    expect(paymentRowCount(db)).toBe(2);
   });
 
-  it("(e2) insufficient LBP funds -> rejected even though USD is fine, structured shape covers only the short currency", () => {
-    let caught: unknown;
-    try {
-      repo.transferBetweenDrawers({
-        fromDrawer: "General",
-        toDrawer: "OMT_System",
-        amountUsd: 50, // plenty available (500)
-        amountLbp: 900_000_000, // way more than 50,000,000 available
-        createdBy: 1,
-      });
-    } catch (err) {
-      caught = err;
-    }
+  it("(e2) overdrawing ONE currency does not disturb the other: per-currency balances stay independent", () => {
+    repo.transferBetweenDrawers({
+      fromDrawer: "General",
+      toDrawer: "OMT_System",
+      amountUsd: 50, // comfortably available (500)
+      amountLbp: 900_000_000, // far more than the 50,000,000 available
+      createdBy: 1,
+    });
 
-    expect(caught).toBeInstanceOf(InsufficientDrawerFundsError);
-    const error = caught as InstanceType<typeof InsufficientDrawerFundsError>;
-    expect(error.code).toBe("INSUFFICIENT_DRAWER_FUNDS");
-    // shortfall = 900,000,000 - 50,000,000 = 850,000,000.
-    expect(error.details.shortfall.LBP).toBeCloseTo(850_000_000, 0);
-    expect(error.details.available.LBP).toBeCloseTo(50_000_000, 0);
-    expect(error.details.required.LBP).toBeCloseTo(900_000_000, 0);
-    // The USD leg would have succeeded on its own (500 >= 50) — must not be
-    // reported as a shortfall.
-    expect(error.details.shortfall.USD).toBeUndefined();
-
-    // Nothing moved at all — not even the USD leg — because the whole
-    // db.transaction rolled back.
-    expect(balance(db, "General", "USD")).toBeCloseTo(500, 2);
-    expect(balance(db, "General", "LBP")).toBeCloseTo(50_000_000, 0);
-    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(0, 2);
-    expect(transactionRowCount(db)).toBe(0);
+    // USD behaves normally; LBP goes negative. Neither currency's rounding or
+    // sign leaks into the other — the drawer is a per-currency ledger.
+    expect(balance(db, "General", "USD")).toBeCloseTo(450, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(-850_000_000, 0);
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(50, 2);
+    expect(balance(db, "OMT_System", "LBP")).toBeCloseTo(900_000_000, 0);
+    // Conservation per currency.
+    expect(
+      balance(db, "General", "LBP") + balance(db, "OMT_System", "LBP"),
+    ).toBeCloseTo(50_000_000, 0);
+    expect(transactionRowCount(db)).toBe(1);
   });
 
   it("(f) SELF-TRANSFER is REJECTED: fromDrawer === toDrawer must not write a no-op row", () => {

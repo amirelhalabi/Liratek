@@ -7,7 +7,6 @@ import {
   type PrimaryCashDrawerName,
 } from "../constants/systemFloatDrawers.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
-import { InsufficientDrawerFundsError } from "../utils/errors.js";
 
 export interface DrawerTopUpEntity {
   id: number;
@@ -363,7 +362,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
    * `drawer_topups`' External Cash-In mode, there is no no-source variant,
    * because Σ drawer deltas must be 0 (this moves cash the shop already
    * owns, it never invents it). The insufficient-funds guard
-   * (`InsufficientDrawerFundsError`, plan §8.5's structured contract) runs
+   * (no balance guard — owner decision 2026-08-01, overdraw is allowed) runs
    * FIRST, per currency, inside the same `db.transaction`, before any row is
    * written (mirrors WalletExchangeRepository.createTransaction).
    */
@@ -422,32 +421,13 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       // here per task H so IPC/REST/frontend share ONE error-handling path
       // with the RECEIVE-payout guard): per-currency, checked BEFORE any row
       // is written.
-      const shortfall: { USD?: number; LBP?: number } = {};
-      const available: { USD?: number; LBP?: number } = {};
-      const required: { USD?: number; LBP?: number } = {};
-
-      if (data.amountUsd > 0) {
-        const bal = getBalance(data.fromDrawer, "USD");
-        if (bal < data.amountUsd) {
-          shortfall.USD = data.amountUsd - bal;
-          available.USD = bal;
-          required.USD = data.amountUsd;
-        }
-      }
-      if (data.amountLbp > 0) {
-        const bal = getBalance(data.fromDrawer, "LBP");
-        if (bal < data.amountLbp) {
-          shortfall.LBP = data.amountLbp - bal;
-          available.LBP = bal;
-          required.LBP = data.amountLbp;
-        }
-      }
-      if (Object.keys(shortfall).length > 0) {
-        throw new InsufficientDrawerFundsError(
-          `Insufficient funds in ${data.fromDrawer} to complete this transfer`,
-          { drawer: data.fromDrawer, shortfall, available, required },
-        );
-      }
+      // OWNER DECISION 2026-08-01: a transfer may overdraw its source drawer.
+      // Every drawer in this system can already go negative, and the owner
+      // chose one consistent rule over a guard that only covered this path:
+      // nothing is ever blocked, negatives are SURFACED in the transfer UI
+      // (which flags a drawer in the red and pre-fills the amount that clears
+      // it). The former per-currency InsufficientDrawerFundsError check that
+      // stood here is deliberately gone.
 
       // 1. Insert into drawer_transfers
       const insertTransfer = this.db.prepare(`

@@ -15,7 +15,6 @@ import {
   type BaseSystem,
 } from "../utils/payments.js";
 import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
-import { InsufficientDrawerFundsError } from "../utils/errors.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import {
   getPartnerRepository,
@@ -40,6 +39,7 @@ import {
   WALLET_PROVIDERS_SQL_LIST,
 } from "../constants/walletProviders.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
+import { BusinessRuleError } from "../utils/errors.js";
 import {
   calculateCommission,
   lookupOmtFee,
@@ -664,6 +664,34 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       ) {
         throw new Error(
           `${data.provider} is the secondary system (shop base system is ${baseSystem}) — a walk-in transaction cannot be booked directly against it; route it through a partner (set partnerId)`,
+        );
+      }
+
+      // The secondary SYSTEM provider can be reached THROUGH a partner only.
+      // FOR-partner means "the partner's customer, OUR system" (that is the
+      // Services page's own wording next to the toggle) — and the entire
+      // reason a provider is *secondary* is that the shop has no account on
+      // its rails, so it cannot run anything FOR anyone there.
+      //
+      // The UI already enforces this: the "For Partner" toggle renders only
+      // when `provider !== partnerSystem`. This guard closes the same hole on
+      // the API surface, which matters because REST is directly reachable
+      // (rule 19) — and because a FOR-partner RECEIVE on the secondary system
+      // booked a supplier obligation against a supplier row that
+      // `listSuppliers` deliberately HIDES ("no direct supplier relationship
+      // — its obligations live in partner_ledger"), i.e. money real in the
+      // database and invisible in the app.
+      //
+      // SYSTEM providers only. OMT_App / Whish_App / Binance FOR-partner are
+      // untouched: those wallets hold money the shop genuinely owns, whichever
+      // system is primary.
+      if (
+        (data.provider === "OMT" || data.provider === "WHISH") &&
+        data.provider !== baseSystem &&
+        data.partnerMode === "FOR"
+      ) {
+        throw new BusinessRuleError(
+          `${data.provider} is the secondary system (shop base system is ${baseSystem}) — it can be used THROUGH a partner, not FOR one: a FOR-partner transaction runs on the shop's own rails, which it does not have on ${data.provider}`,
         );
       }
 
@@ -2525,61 +2553,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 context: `${data.provider} RECEIVE cashout`,
               });
 
-              // Primary Cash Drawer plan §8.5 (decision #11): block the
-              // payout BEFORE any leg posts if the PCD lacks funds in the
-              // payout currency, per currency. This is the only RECEIVE
-              // payout site that actually takes cash OUT of the PCD —
-              // CUSTOMER_ACCOUNT cashout (store credit, handled above) and
-              // wallet cashout (its OWN drawer, handled in the sibling
-              // branch above) never reach this branch, matching decision
-              // #11's "only applies when the payout actually takes cash out
-              // of that drawer" scope.
-              const pcd = primaryCashDrawerName(baseSystem);
-              const neededByCurrency = new Map<string, number>();
-              if (payoutLegs.length > 0) {
-                for (const leg of payoutLegs) {
-                  if (
-                    resolveServiceCashDrawer(leg.method, cashDrawerCtx) !==
-                    pcd
-                  )
-                    continue;
-                  const amt = Math.abs(leg.amount);
-                  if (amt <= 0) continue;
-                  neededByCurrency.set(
-                    leg.currencyCode,
-                    (neededByCurrency.get(leg.currencyCode) ?? 0) + amt,
-                  );
-                }
-              } else if (payoutAmount > 0) {
-                neededByCurrency.set(currency, payoutAmount);
-              }
-              const shortfall: { USD?: number; LBP?: number } = {};
-              const available: { USD?: number; LBP?: number } = {};
-              const required: { USD?: number; LBP?: number } = {};
-              for (const [needCurrency, needed] of neededByCurrency) {
-                if (needed <= 0) continue;
-                if (needCurrency !== "USD" && needCurrency !== "LBP") continue;
-                const row = this.db
-                  .prepare(
-                    `SELECT balance FROM drawer_balances
-                     WHERE tenant_id = ? AND drawer_name = ? AND currency_code = ?`,
-                  )
-                  .get(tenantId, pcd, needCurrency) as
-                  | { balance: number }
-                  | undefined;
-                const bal = row?.balance ?? 0;
-                if (bal < needed) {
-                  shortfall[needCurrency] = needed - bal;
-                  available[needCurrency] = bal;
-                  required[needCurrency] = needed;
-                }
-              }
-              if (Object.keys(shortfall).length > 0) {
-                throw new InsufficientDrawerFundsError(
-                  `Insufficient funds in ${pcd} to complete this payout`,
-                  { drawer: pcd, shortfall, available, required },
-                );
-              }
+              // Primary Cash Drawer plan §8.5 — OWNER REVERSAL 2026-08-01.
+              // Decision #11 originally BLOCKED a payout the primary cash
+              // drawer could not cover. The owner reversed it: every drawer in
+              // this system may already go negative, blocking a live payout
+              // strands the operator with a customer at the counter, and a
+              // negative simply means cash was physically taken from another
+              // drawer without the transfer being recorded yet. The condition
+              // is now SURFACED, not enforced — the drawer-transfer UI flags
+              // any negative drawer and pre-fills the amount that clears it.
+              // Deliberately no balance check here.
 
               if (payoutLegs.length > 0) {
                 for (const leg of payoutLegs) {

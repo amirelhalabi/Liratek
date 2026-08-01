@@ -125,18 +125,13 @@ export type ApiMeResult = ApiResult & {
 };
 
 /**
- * Structured shape of `InsufficientDrawerFundsError.details` (Primary Cash
- * Drawer plan §8.5) — thrown when a RECEIVE payout (or a manual transfer)
- * would take a drawer negative in a given currency. Both IPC and REST are
- * supposed to surface it verbatim on the envelope (`code: "INSUFFICIENT_DRAWER_FUNDS"`,
- * `details`); callers MUST switch on `code`, never a message string match.
+ * NOTE (2026-08-01): `InsufficientDrawerFundsDetails` lived here until the
+ * owner reversed the no-overdraw rule — no drawer operation is blocked any
+ * more, so nothing throws that error and the shape had no producer. The
+ * `code`/`details` envelope fields stay: they are the general AppError
+ * contract (rule 19c, IPC and REST identical), and callers must still switch
+ * on `code`, never on a message string.
  */
-export interface InsufficientDrawerFundsDetails {
-  drawer: string;
-  shortfall: { USD?: number; LBP?: number };
-  available: { USD?: number; LBP?: number };
-  required: { USD?: number; LBP?: number };
-}
 
 export type ProductWriteResult = {
   success: boolean;
@@ -561,7 +556,7 @@ export type ApiAdapter = {
   addOMTTransaction: (
     payload: any,
   ) => Promise<
-    ApiResult & { id?: number; code?: string; details?: InsufficientDrawerFundsDetails }
+    ApiResult & { id?: number; code?: string; details?: unknown }
   >;
   /** Generic, reversible cash transfer between any two of the shop's own
    *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
@@ -577,7 +572,7 @@ export type ApiAdapter = {
     notes?: string;
     transaction_time?: string;
   }) => Promise<
-    ApiResult & { id?: number; code?: string; details?: InsufficientDrawerFundsDetails }
+    ApiResult & { id?: number; code?: string; details?: unknown }
   >;
 
   // ---------------------------------------------------------------------------

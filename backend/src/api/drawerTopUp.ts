@@ -123,7 +123,7 @@ router.post("/from-drawer", writeGate, (req, res) => {
 // at-least-one-currency) lives in the shared core schema (rule 14) so IPC
 // and REST reject the exact same malformed payloads. `userId` is injected
 // from the JWT (rule 19c) — never trusted from the body — and the service
-// result (including InsufficientDrawerFundsError's `code`/`details`, plan
+// result (including any AppError's `code`/`details`, the general envelope
 // §8.5) is returned verbatim, envelope-identical to IPC, HTTP 200 even on
 // failure.
 router.post(

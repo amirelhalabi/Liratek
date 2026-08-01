@@ -1717,7 +1717,7 @@ export interface ElectronAPI {
      *  cash drawer (OMT_System/Whish_System) is the pair the UI exposes.
      *  Replaces the retired `fundSystem` (one-directional, owner-confirmed
      *  2026-07-29 float model). `code`/`details` surface
-     *  `InsufficientDrawerFundsError` (plan §8.5's structured contract) —
+     *  any AppError's structured payload (the general envelope contract) —
      *  switch on `code`, never a message string match. */
     transfer: (data: {
       fromDrawer: string;

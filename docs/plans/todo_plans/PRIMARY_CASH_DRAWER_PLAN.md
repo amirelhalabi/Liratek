@@ -23,12 +23,13 @@ see §6 below).
 | 3 | Scope | Symmetric by **primary system** (`shop_base_system`): OMT primary → `OMT_System` is the active cash drawer; Whish primary → `Whish_System`. The secondary system's drawer lies dormant. Future (out of scope now): a per-shop config to merge this drawer into General. |
 | 4 | Which cash goes in it | **Everything from primary-system SEND/RECEIVE**: customer payment `(x+f)`, RECEIVE payouts, change/return legs, the customer fee. |
 | 5 | App wallets / Binance | **General**, unchanged. Only classic system SEND/RECEIVE uses the drawer. |
+| 6b | FOR-partner on the SECONDARY system (2026-08-01) | **Rejected outright.** "FOR partner" = the partner's customer, *our* system — and a provider is *secondary* precisely because the shop has no account on its rails, so it cannot run anything FOR anyone there. Only THROUGH. The **UI has always enforced this** (`{provider !== partnerSystem && …}` gates the "For Partner" toggle); the backend had not, and the gap was reachable only because lira-119 hand-builds IPC payloads. It also let a FOR-partner RECEIVE book a supplier obligation against a supplier row `listSuppliers` deliberately HIDES — money real in the DB, invisible in the app. Now a typed `BusinessRuleError`. **SYSTEM providers only** — OMT_App / Whish_App / Binance FOR-partner are untouched, since those wallets hold money the shop genuinely owns. |
 | 6 | Partner flows (follow-up 2026-07-30) | **Route by the SYSTEM the transaction runs on, not the counterparty.** THROUGH-partner (secondary system, e.g. Whish when OMT is primary) → **General**. FOR-partner (runs on YOUR primary system) → **PCD**. A FOR-partner RECEIVE moves **no drawer at transaction time** — obligations only (supplier ledger: provider owes you; partner ledger: you owe the partner); the partner's later collection pays out of the **PCD**. Owner: "all my cash received or that I want to pay … related to an OMT system transaction should be affecting the OMT drawer, not the general." |
 | 7 | Session-basket primary-system items | **Yes — split by item share** (follow-up 2026-07-30): the FS item's pro-rata portion of each cash leg routes to the drawer, the remainder to General (needs provider context in the session path, §3 Phase D). |
 | 8 | Service-debt repayments (client pays an OMT debt later) | **Into the drawer.** |
 | 9 | Supplier ledger ("owed to OMT") | **Gross**: SEND books `+(x + f − c)`; RECEIVE books `−(x − (f − c))`. Replaces #66's fee-only `feeOwedDelta`. |
 | 10 | Settlement source | Settlement pays the net owed **from the drawer** (via normal payment legs whose CASH resolves to the drawer). |
-| 11 | RECEIVE payout, insufficient drawer funds | **Block**, and show an inline button "move remaining from General" **with a USD/LBP currency toggle**; after the transfer the transaction proceeds. |
+| 11 | RECEIVE payout, insufficient drawer funds | ~~Block~~ → **REVERSED 2026-08-01. Nothing is ever blocked.** Owner: "I don't want it blocked. We can have negative amounts in all drawers today… let's make the negative amount show up in the section to move money from drawers, but you can still perform the transaction." A drawer may go negative; the transfer modal lists every negative drawer per currency with a **"Cover it"** button that pre-fills the amount clearing it. Applies to drawer↔drawer transfers too (owner, same date): no drawer operation anywhere refuses. **Why it's right:** blocking strands the operator mid-sale with a customer waiting, over a condition the rest of the system already tolerates. **The caveat to keep in view:** a physical cash box cannot actually hold a negative, so a negative balance means cash was taken from another drawer without recording the transfer — it is an *unrecorded transfer*, not an error, and surfacing it where the operator can fix it in one click is the point. |
 | 12 | Manual transfers | **General ↔ drawer, both directions**, in the UI. |
 | 13 | Fund-the-float (v139) | Obsolete as a concept; its reversible transfer plumbing is repurposed as the generic drawer↔General cash transfer. |
 | 14 | Cutover | **Owner wipes the DB and starts fresh.** No balance/data migration needed for the owner's install. Schema migrations still required for the upgrade path + multi-tenant web (rule 10). Opening drawer balance set by physical count via Initial Drawer Amounts. |
@@ -397,7 +398,30 @@ per currency (stamped rate for multi-currency splits). The receivable term cover
 CUSTOMER_ACCOUNT-funded legs exactly as the existing `assertInvariant` helper in
 `OmtSystemFeeCharacterization.test.ts` already models them — preserve that handling.
 
-### 8.5 Insufficient-funds contract (RECEIVE payout, decision #11)
+### 8.5 ~~Insufficient-funds contract~~ — WITHDRAWN 2026-08-01
+
+**Decision #11 was reversed by the owner; this section describes code that no
+longer exists.** No drawer operation is blocked anywhere: not the RECEIVE
+payout, not a drawer↔drawer transfer. `InsufficientDrawerFundsError` and its
+`details` shape are deleted (nothing threw them once the guards went), the
+Services page's shortfall panel and move-and-retry are gone, and the modal's
+client-side funds check is gone.
+
+**What survives, and must not be re-removed:** the `code`/`details` envelope
+plumbing through `FinancialService` / `DrawerTopUpService` → IPC and REST. That
+is the general `AppError` contract (rule 19c), not a feature of this guard, and
+it is what carries the FOR-partner `BusinessRuleError` (§0 decision 6b) to the
+UI today. `FinancialService.errorEnvelope.test.ts` guards it, standing on
+`DatabaseError` now that the original trigger is gone.
+
+**Replacement behaviour:** `DrawerTopUpModal` renders a negative-balance panel
+listing each drawer/currency in the red with a "Cover it" button that aims the
+transfer at that drawer and pre-fills the clearing amount. Surfaced there
+because that is the only screen where the operator can act on it.
+
+The original contract, for the record:
+
+<details><summary>Withdrawn §8.5</summary>
 
 Thrown by the repository BEFORE any payout leg posts, checked per currency against the PCD:
 
@@ -416,6 +440,8 @@ class InsufficientDrawerFundsError extends Error {
 Both transports surface it identically (rule 19c), extending the standard envelope:
 `{ success: false, error: <message>, code: "INSUFFICIENT_DRAWER_FUNDS", details: {...} }`
 (REST still HTTP 200). The Services page catches `code` — never a message-string match.
+
+</details>
 
 ### 8.6 Drawer-transfer contract (replaces fund-the-float)
 
@@ -489,6 +515,30 @@ was in any agent's file ownership — this is the predictable cost of parallel f
 **Newly surfaced, unresolved** (added to §6): FOR-partner SEND ledger symmetry; the session
 cart's fee convention; the transfer validator accepting any drawer pair; the Suppliers page's
 stale fee-only comments and its settle math under gross.
+
+### 8bis.1 Second owner pass — 2026-08-01 (after the first e2e run)
+
+The owner ran desktop e2e; 15 specs failed. **14 were this feature and every one was an
+outdated expectation, not a defect** — the §4 sweep, which had not run yet. The 15th (Exchange)
+came from the v1.29.14 split-payout release and was unrelated; it has since been fixed in the
+working tree independently.
+
+Three rulings came out of triage, all now implemented:
+
+1. **Nothing is blocked** (decision #11 reversed — see §0 and the withdrawn §8.5). This
+   removed 6 of the 14 failures outright.
+2. **All primary-provider supplier cash routes through the PCD**, not just fee settlement —
+   the owner widened decision #10 to cover ad-hoc supplier payments and receipts (lira-059).
+3. **FOR-partner is rejected on the secondary system** (§0 decision 6b) — the backend was
+   drifting from a rule the UI has always enforced.
+
+**The lesson worth keeping from this round**: the failing e2e specs were the *only* thing that
+found the lira-059 and lira-075 routing consequences — my §4 sweep list missed both, having
+been derived from a drawer-balance audit rather than from "which specs assert General deltas
+for OMT flows". And lira-119's Whish FOR-partner cases had been asserting balances for a
+combination **the real app cannot produce**, because that spec hand-builds IPC payloads and
+never touches a locator (handover §4.1, again). A payload-built spec can encode a fiction and
+stay green for months.
 
 ## 9. Out of scope (recorded for later)
 

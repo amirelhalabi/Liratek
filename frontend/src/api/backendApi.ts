@@ -1148,7 +1148,7 @@ export async function addOMTTransaction(payload: any) {
   if (isElectron()) {
     return (window as any).api.omt.addTransaction(payload);
   }
-  // `code`/`details` surface `InsufficientDrawerFundsError` (Primary Cash
+  // `code`/`details` surface any AppError's structured payload (general
   // Drawer plan §8.5) on a blocked RECEIVE payout — the route forwards the
   // service result verbatim, so the fields are present on the wire whenever
   // the core layer sets them.
