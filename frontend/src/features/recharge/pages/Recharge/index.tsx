@@ -231,8 +231,11 @@ export default function MobileRecharge() {
         const rate =
           Number(settingsMap.get("alfa_credit_sell_rate_lbp")) || 100000;
         setAlfaCreditSellRate(rate);
+        // LIRA-090 rate-key consolidation: ShopConfig.tsx writes "alfa_credit_cost_lbp"
+        // (not "alfa_credit_cost_rate_lbp" which nothing writes → always fell back to
+        // 85,000 hardcoded). Read the key that actually exists in the DB.
         const costRate =
-          Number(settingsMap.get("alfa_credit_cost_rate_lbp")) || 85000;
+          Number(settingsMap.get("alfa_credit_cost_lbp")) || 85000;
         setAlfaCreditCostRate(costRate);
 
         const threshold =

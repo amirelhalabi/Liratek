@@ -554,6 +554,7 @@ export class TenantRepository {
     stmt.run(tenantId, "default_debt_term_days", "30");
     stmt.run(tenantId, "shop_base_system", "OMT");
     stmt.run(tenantId, "allow_out_of_stock_sales", "0");
+    stmt.run(tenantId, "telecom_credit_sell_price_lbp", "100000");
   }
 
   private seedLotoSettings(tenantId: number): void {

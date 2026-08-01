@@ -941,96 +941,38 @@ export default function MobileServicesManager() {
 
                                         if (isEditing && editing) {
                                           // ── Inline edit row ──
+                                          const editSplitComplete =
+                                            isTelecomSplitComplete({
+                                              cost_lbp:
+                                                parseFloat(editing.cost_lbp) ||
+                                                null,
+                                              days_cost_lbp:
+                                                editing.days_cost_lbp.trim() ===
+                                                ""
+                                                  ? null
+                                                  : parseFloat(
+                                                      editing.days_cost_lbp,
+                                                    ),
+                                              credits:
+                                                editing.credits.trim() === ""
+                                                  ? null
+                                                  : parseFloat(editing.credits),
+                                            });
                                           return (
                                             <div
                                               key={item.id}
-                                              className="flex items-center gap-2 px-3 py-1.5 bg-violet-950/20 rounded border border-violet-600/30"
+                                              className="flex flex-col gap-1 px-3 py-2 bg-violet-950/20 rounded border border-violet-600/30"
                                             >
-                                              <input
-                                                autoFocus
-                                                type="text"
-                                                value={editing.label}
-                                                onChange={(e) =>
-                                                  setEditing({
-                                                    ...editing,
-                                                    label: e.target.value,
-                                                  })
-                                                }
-                                                onKeyDown={(e) => {
-                                                  if (e.key === "Enter")
-                                                    handleSaveEdit();
-                                                  if (e.key === "Escape")
-                                                    setEditing(null);
-                                                }}
-                                                className="w-28 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
-                                              />
-                                              <div className="flex items-center gap-1">
-                                                <span className="text-xs text-slate-500">
-                                                  C:
-                                                </span>
-                                                <DecimalInput
-                                                  value={
-                                                    parseFloat(
-                                                      editing.cost_lbp,
-                                                    ) || 0
-                                                  }
-                                                  onChange={(n) =>
-                                                    setEditing({
-                                                      ...editing,
-                                                      cost_lbp: n
-                                                        ? String(n)
-                                                        : "",
-                                                    })
-                                                  }
-                                                  onKeyDown={(e) => {
-                                                    if (e.key === "Enter")
-                                                      handleSaveEdit();
-                                                    if (e.key === "Escape")
-                                                      setEditing(null);
-                                                  }}
-                                                  className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
-                                                />
-                                              </div>
-                                              <div className="flex items-center gap-1">
-                                                <span className="text-xs text-slate-500">
-                                                  S:
-                                                </span>
-                                                <DecimalInput
-                                                  value={
-                                                    parseFloat(
-                                                      editing.sell_lbp,
-                                                    ) || 0
-                                                  }
-                                                  onChange={(n) =>
-                                                    setEditing({
-                                                      ...editing,
-                                                      sell_lbp: n
-                                                        ? String(n)
-                                                        : "",
-                                                    })
-                                                  }
-                                                  onKeyDown={(e) => {
-                                                    if (e.key === "Enter")
-                                                      handleSaveEdit();
-                                                    if (e.key === "Escape")
-                                                      setEditing(null);
-                                                  }}
-                                                  className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
-                                                />
-                                              </div>
-                                              <div className="flex items-center gap-1">
-                                                <span className="text-xs text-slate-500">
-                                                  Val(d):
-                                                </span>
+                                              {/* Row 1: label + base cost/sell/order/validity/credits */}
+                                              <div className="flex items-center gap-2 flex-wrap">
                                                 <input
-                                                  type="number"
-                                                  min="0"
-                                                  value={editing.validity_days}
+                                                  autoFocus
+                                                  type="text"
+                                                  value={editing.label}
                                                   onChange={(e) =>
                                                     setEditing({
                                                       ...editing,
-                                                      validity_days:
-                                                        e.target.value,
+                                                      label: e.target.value,
                                                     })
                                                   }
                                                   onKeyDown={(e) => {
@@ -1039,148 +981,443 @@ export default function MobileServicesManager() {
                                                     if (e.key === "Escape")
                                                       setEditing(null);
                                                   }}
-                                                  placeholder="—"
-                                                  className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  className="w-28 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
                                                 />
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-xs text-slate-500">
+                                                    C:
+                                                  </span>
+                                                  <DecimalInput
+                                                    value={
+                                                      parseFloat(
+                                                        editing.cost_lbp,
+                                                      ) || 0
+                                                    }
+                                                    onChange={(n) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        cost_lbp: n
+                                                          ? String(n)
+                                                          : "",
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-xs text-slate-500">
+                                                    S:
+                                                  </span>
+                                                  <DecimalInput
+                                                    value={
+                                                      parseFloat(
+                                                        editing.sell_lbp,
+                                                      ) || 0
+                                                    }
+                                                    onChange={(n) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        sell_lbp: n
+                                                          ? String(n)
+                                                          : "",
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-xs text-slate-500">
+                                                    Val(d):
+                                                  </span>
+                                                  <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={editing.validity_days}
+                                                    onChange={(e) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        validity_days:
+                                                          e.target.value,
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    placeholder="—"
+                                                    className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-xs text-slate-500">
+                                                    Cred($):
+                                                  </span>
+                                                  <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    value={editing.credits}
+                                                    onChange={(e) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        credits: e.target.value,
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    placeholder="—"
+                                                    className="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <button
+                                                  onClick={handleSaveEdit}
+                                                  aria-label="Save item"
+                                                  className="text-emerald-400 hover:text-emerald-300 p-1 transition-colors"
+                                                >
+                                                  <Check size={13} />
+                                                </button>
+                                                <button
+                                                  onClick={() =>
+                                                    setEditing(null)
+                                                  }
+                                                  aria-label="Cancel edit"
+                                                  className="text-slate-500 hover:text-slate-300 p-1 transition-colors"
+                                                >
+                                                  <X size={13} />
+                                                </button>
                                               </div>
-                                              <div className="flex items-center gap-1">
-                                                <span className="text-xs text-slate-500">
-                                                  Cred($):
+                                              {/* Row 2: Only-Days split fields */}
+                                              <div className="flex items-center gap-2 flex-wrap border-t border-violet-800/30 pt-1.5 mt-0.5">
+                                                <span className="text-[10px] text-violet-400 font-medium">
+                                                  Only-Days split:
                                                 </span>
-                                                <input
-                                                  type="number"
-                                                  step="0.01"
-                                                  min="0"
-                                                  value={editing.credits}
-                                                  onChange={(e) =>
-                                                    setEditing({
-                                                      ...editing,
-                                                      credits: e.target.value,
-                                                    })
-                                                  }
-                                                  onKeyDown={(e) => {
-                                                    if (e.key === "Enter")
-                                                      handleSaveEdit();
-                                                    if (e.key === "Escape")
-                                                      setEditing(null);
-                                                  }}
-                                                  placeholder="—"
-                                                  className="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
-                                                />
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[10px] text-slate-500">
+                                                    Days cost:
+                                                  </span>
+                                                  <DecimalInput
+                                                    value={
+                                                      parseFloat(
+                                                        editing.days_cost_lbp,
+                                                      ) || 0
+                                                    }
+                                                    onChange={(n) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        days_cost_lbp: n
+                                                          ? String(n)
+                                                          : "",
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    placeholder="—"
+                                                    className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[10px] text-slate-500">
+                                                    Sell days:
+                                                  </span>
+                                                  <DecimalInput
+                                                    value={
+                                                      parseFloat(
+                                                        editing.sell_days_lbp,
+                                                      ) || 0
+                                                    }
+                                                    onChange={(n) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        sell_days_lbp: n
+                                                          ? String(n)
+                                                          : "",
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    placeholder="—"
+                                                    className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-[10px] text-slate-500">
+                                                    Sell credit:
+                                                  </span>
+                                                  <DecimalInput
+                                                    value={
+                                                      parseFloat(
+                                                        editing.sell_credit_lbp,
+                                                      ) || 0
+                                                    }
+                                                    onChange={(n) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        sell_credit_lbp: n
+                                                          ? String(n)
+                                                          : "",
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    placeholder="—"
+                                                    className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <span
+                                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                                    editSplitComplete
+                                                      ? "bg-emerald-600/20 text-emerald-400"
+                                                      : "bg-slate-700/50 text-slate-500"
+                                                  }`}
+                                                >
+                                                  {editSplitComplete
+                                                    ? "Enabled"
+                                                    : "Incomplete"}
+                                                </span>
                                               </div>
-                                              <button
-                                                onClick={handleSaveEdit}
-                                                aria-label="Save item"
-                                                className="text-emerald-400 hover:text-emerald-300 p-1 transition-colors"
-                                              >
-                                                <Check size={13} />
-                                              </button>
-                                              <button
-                                                onClick={() => setEditing(null)}
-                                                aria-label="Cancel edit"
-                                                className="text-slate-500 hover:text-slate-300 p-1 transition-colors"
-                                              >
-                                                <X size={13} />
-                                              </button>
                                             </div>
                                           );
                                         }
 
                                         // ── Normal display row ──
+                                        const splitComplete =
+                                          isTelecomSplitComplete({
+                                            cost_lbp: item.cost_lbp,
+                                            days_cost_lbp: item.days_cost_lbp,
+                                            credits: item.credits,
+                                          });
+                                        const economics = splitComplete
+                                          ? deriveItemEconomics({
+                                              costLbp: item.cost_lbp,
+                                              daysCostLbp: item.days_cost_lbp,
+                                              creditsUsd: item.credits,
+                                            })
+                                          : null;
+                                        // sell_credit_lbp is the reference price for profit calc;
+                                        // fall back to 100,000 when not set (spec §2.4 default)
+                                        const sellCreditRef =
+                                          item.sell_credit_lbp ?? 100_000;
+
                                         return (
                                           <div
                                             key={item.id}
-                                            className={`flex items-center justify-between px-3 py-1.5 rounded group transition-colors ${
+                                            className={`flex flex-col px-3 py-1.5 rounded group transition-colors ${
                                               item.is_active === 0
                                                 ? "opacity-40"
                                                 : "hover:bg-slate-800/40"
                                             }`}
                                           >
-                                            <div className="flex items-center gap-4 min-w-0">
-                                              <span className="text-sm text-white font-medium w-28 truncate">
-                                                {item.label}
-                                              </span>
-                                              <span className="text-xs text-slate-400 font-mono">
-                                                C:{" "}
-                                                {item.cost_lbp.toLocaleString()}
-                                              </span>
-                                              <span className="text-xs text-slate-300 font-mono">
-                                                S:{" "}
-                                                {item.sell_lbp.toLocaleString()}
-                                              </span>
-                                              <span
-                                                className={`text-xs font-mono ${
-                                                  profit > 0
-                                                    ? "text-emerald-400"
-                                                    : profit < 0
-                                                      ? "text-red-400"
-                                                      : "text-slate-600"
-                                                }`}
-                                              >
-                                                P: {profit.toLocaleString()}
-                                              </span>
-                                              {item.validity_days != null && (
-                                                <span className="text-[10px] text-slate-500">
-                                                  {item.validity_days}d
+                                            {/* Main display row */}
+                                            <div className="flex items-center justify-between min-w-0">
+                                              <div className="flex items-center gap-4 min-w-0">
+                                                <span className="text-sm text-white font-medium w-28 truncate">
+                                                  {item.label}
                                                 </span>
-                                              )}
-                                              {item.credits != null && (
-                                                <span className="text-[10px] text-slate-500">
-                                                  ${item.credits} credit
+                                                <span className="text-xs text-slate-400 font-mono">
+                                                  C:{" "}
+                                                  {item.cost_lbp.toLocaleString()}
                                                 </span>
-                                              )}
+                                                <span className="text-xs text-slate-300 font-mono">
+                                                  S:{" "}
+                                                  {item.sell_lbp.toLocaleString()}
+                                                </span>
+                                                <span
+                                                  className={`text-xs font-mono ${
+                                                    profit > 0
+                                                      ? "text-emerald-400"
+                                                      : profit < 0
+                                                        ? "text-red-400"
+                                                        : "text-slate-600"
+                                                  }`}
+                                                >
+                                                  P: {profit.toLocaleString()}
+                                                </span>
+                                                {item.validity_days != null && (
+                                                  <span className="text-[10px] text-slate-500">
+                                                    {item.validity_days}d
+                                                  </span>
+                                                )}
+                                                {item.credits != null && (
+                                                  <span className="text-[10px] text-slate-500">
+                                                    ${item.credits} credit
+                                                  </span>
+                                                )}
+                                                {/* Split status badge */}
+                                                <span
+                                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                                    splitComplete
+                                                      ? "bg-emerald-600/20 text-emerald-400"
+                                                      : "bg-slate-700/40 text-slate-500"
+                                                  }`}
+                                                >
+                                                  {splitComplete
+                                                    ? "Split"
+                                                    : "No split"}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                  onClick={() =>
+                                                    handleToggleActive(item)
+                                                  }
+                                                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                    item.is_active
+                                                      ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
+                                                      : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
+                                                  }`}
+                                                >
+                                                  {item.is_active
+                                                    ? "ON"
+                                                    : "OFF"}
+                                                </button>
+                                                <button
+                                                  onClick={() =>
+                                                    setEditing({
+                                                      id: item.id,
+                                                      label: item.label,
+                                                      cost_lbp:
+                                                        item.cost_lbp.toString(),
+                                                      sell_lbp:
+                                                        item.sell_lbp.toString(),
+                                                      sort_order:
+                                                        item.sort_order.toString(),
+                                                      validity_days:
+                                                        item.validity_days !=
+                                                        null
+                                                          ? String(
+                                                              item.validity_days,
+                                                            )
+                                                          : "",
+                                                      credits:
+                                                        item.credits != null
+                                                          ? String(item.credits)
+                                                          : "",
+                                                      days_cost_lbp:
+                                                        item.days_cost_lbp !=
+                                                        null
+                                                          ? String(
+                                                              item.days_cost_lbp,
+                                                            )
+                                                          : "",
+                                                      sell_days_lbp:
+                                                        item.sell_days_lbp !=
+                                                        null
+                                                          ? String(
+                                                              item.sell_days_lbp,
+                                                            )
+                                                          : "",
+                                                      sell_credit_lbp:
+                                                        item.sell_credit_lbp !=
+                                                        null
+                                                          ? String(
+                                                              item.sell_credit_lbp,
+                                                            )
+                                                          : "",
+                                                    })
+                                                  }
+                                                  className="text-slate-500 hover:text-blue-400 p-1 transition-colors"
+                                                  title="Edit"
+                                                >
+                                                  <Pencil size={12} />
+                                                </button>
+                                                <button
+                                                  onClick={() =>
+                                                    handleDelete(item)
+                                                  }
+                                                  className="text-slate-500 hover:text-red-400 p-1 transition-colors"
+                                                  title="Delete"
+                                                >
+                                                  <Trash2 size={12} />
+                                                </button>
+                                              </div>
                                             </div>
-                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                              <button
-                                                onClick={() =>
-                                                  handleToggleActive(item)
-                                                }
-                                                className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                                  item.is_active
-                                                    ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
-                                                    : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
-                                                }`}
-                                              >
-                                                {item.is_active ? "ON" : "OFF"}
-                                              </button>
-                                              <button
-                                                onClick={() =>
-                                                  setEditing({
-                                                    id: item.id,
-                                                    label: item.label,
-                                                    cost_lbp:
-                                                      item.cost_lbp.toString(),
-                                                    sell_lbp:
-                                                      item.sell_lbp.toString(),
-                                                    sort_order:
-                                                      item.sort_order.toString(),
-                                                    validity_days:
-                                                      item.validity_days != null
-                                                        ? String(
-                                                            item.validity_days,
+                                            {/* §2.4 decision-aid table — visible only when split is complete */}
+                                            {splitComplete &&
+                                              economics?.recoveredRateLbp !=
+                                                null && (
+                                                <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                  <p className="text-[10px] text-slate-500 mb-0.5">
+                                                    Credit resale cost (per $1
+                                                    delivered):
+                                                  </p>
+                                                  <div className="flex gap-2">
+                                                    {(
+                                                      [1, 2, 3] as const
+                                                    ).map((chunk) => {
+                                                      const cost =
+                                                        deliveredCostLbp(
+                                                          economics.recoveredRateLbp!,
+                                                          chunk,
+                                                        );
+                                                      if (cost == null)
+                                                        return null;
+                                                      const costRounded =
+                                                        Math.round(cost);
+                                                      const profitVal =
+                                                        sellCreditRef -
+                                                        costRounded;
+                                                      return (
+                                                        <span
+                                                          key={chunk}
+                                                          title={`${chunk}$/SMS`}
+                                                          className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                                                            profitVal < 0
+                                                              ? "bg-red-900/30 text-red-400"
+                                                              : "bg-slate-800/60 text-slate-300"
+                                                          }`}
+                                                        >
+                                                          {chunk}$:{" "}
+                                                          {costRounded.toLocaleString()}{" "}
+                                                          (
+                                                          <span
+                                                            className={
+                                                              profitVal < 0
+                                                                ? "text-red-400"
+                                                                : "text-emerald-400"
+                                                            }
+                                                          >
+                                                            {profitVal >= 0
+                                                              ? "+"
+                                                              : ""}
+                                                            {profitVal.toLocaleString()}
+                                                          </span>
                                                           )
-                                                        : "",
-                                                    credits:
-                                                      item.credits != null
-                                                        ? String(item.credits)
-                                                        : "",
-                                                  })
-                                                }
-                                                className="text-slate-500 hover:text-blue-400 p-1 transition-colors"
-                                                title="Edit"
-                                              >
-                                                <Pencil size={12} />
-                                              </button>
-                                              <button
-                                                onClick={() =>
-                                                  handleDelete(item)
-                                                }
-                                                className="text-slate-500 hover:text-red-400 p-1 transition-colors"
-                                                title="Delete"
-                                              >
-                                                <Trash2 size={12} />
-                                              </button>
-                                            </div>
+                                                        </span>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                </div>
+                                              )}
                                           </div>
                                         );
                                       })}

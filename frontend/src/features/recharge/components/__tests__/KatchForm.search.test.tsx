@@ -26,6 +26,48 @@ const MOCK_RATES = [
 ];
 const mockGetRates = jest.fn().mockResolvedValue(MOCK_RATES);
 
+// KatchForm now imports maxReturnableCredits / isTelecomSplitComplete from
+// @liratek/core. That package pulls in Node-only DB modules which jest/jsdom
+// cannot load — mock only the subset KatchForm uses (same faithful copies as in
+// KatchForm.grossCost.test.tsx; the authoritative definition lives in core).
+jest.mock("@liratek/core", () => ({
+  isTelecomSplitComplete: (item: {
+    cost_lbp: number | null | undefined;
+    days_cost_lbp: number | null | undefined;
+    credits: number | null | undefined;
+  }) => {
+    const { cost_lbp, days_cost_lbp, credits } = item;
+    return (
+      typeof cost_lbp === "number" &&
+      Number.isFinite(cost_lbp) &&
+      cost_lbp > 0 &&
+      typeof days_cost_lbp === "number" &&
+      Number.isFinite(days_cost_lbp) &&
+      days_cost_lbp > 0 &&
+      typeof credits === "number" &&
+      Number.isFinite(credits) &&
+      credits > 0 &&
+      days_cost_lbp < cost_lbp
+    );
+  },
+  maxReturnableCredits: (balanceUsd: number) => {
+    if (!Number.isFinite(balanceUsd) || balanceUsd <= 0) return 0;
+    const balanceCents = Math.floor(balanceUsd * 100 + 1e-9);
+    const perMsg = 316;
+    const maxN = Math.ceil(balanceCents / perMsg);
+    let best = 0;
+    for (let n = 0; n <= maxN; n++) {
+      const cap = 300 * n;
+      const surviving = balanceCents - 16 * n;
+      const transferable = Math.min(cap, surviving);
+      if (transferable <= 0) continue;
+      const floored = Math.floor(transferable / 50) * 50;
+      if (floored > best) best = floored;
+    }
+    return best / 100;
+  },
+}));
+
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
   useApi: () => ({

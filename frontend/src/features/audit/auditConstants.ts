@@ -341,6 +341,12 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // reversal owner exists for either) — see core's
   // NON_REVERSIBLE_TRANSACTION_TYPES.
   "LOTO",
+  // TELECOM_SELF_CHARGE (LIRA-090): a self-charge of a telecom item to the
+  // shop's own carrier line — reversible via the generic path. The generic
+  // _reversePayments unwinds the payment legs; the carrier_line movement log
+  // has its own void hook in TransactionRepository (rules §11/§20). Absent
+  // from NON_REVERSIBLE_TRANSACTION_TYPES per the LIRA-090 handoff spec.
+  "TELECOM_SELF_CHARGE",
 ]);
 
 /** Service transactions that can (re)print a detailed receipt (RCP-3). POS

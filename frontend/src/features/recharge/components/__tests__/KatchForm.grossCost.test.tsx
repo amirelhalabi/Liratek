@@ -285,7 +285,12 @@ describe("KatchForm gross-cost B1/B2 (LIRA-090)", () => {
     expect(payload.cost).toBe(7_600_000);
   });
 
-  it("(2) split-complete: mobileServiceItemId is in the payload", async () => {
+  it("(2) split-complete: mobileServiceItemId is in the telecomCreditReturns array", async () => {
+    /**
+     * Walk-in path (spec §6.2): the aggregated SEND carries per-line credit-return
+     * info via `telecomCreditReturns[]`, not the scalar `mobileServiceItemId`.
+     * The scalar is reserved for the session-cart per-item path.
+     */
     renderWithItem(SPLIT_COMPLETE_77);
     await addItemToCart("77");
     await enableOnlyDays();
@@ -296,10 +301,21 @@ describe("KatchForm gross-cost B1/B2 (LIRA-090)", () => {
       string,
       unknown
     >;
-    expect(payload.mobileServiceItemId).toBe(101);
+    const returns = payload.telecomCreditReturns as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(returns).toBeDefined();
+    expect(returns).toHaveLength(1);
+    expect(returns![0].mobileServiceItemId).toBe(101);
+    expect(returns![0].itemCategory).toBe("mtc");
   });
 
-  it("(3) split-complete: computed default — no returnedCreditsUsd sent when operator left default", async () => {
+  it("(3) split-complete: computed default — no returnedCreditsUsd in telecomCreditReturns entry", async () => {
+    /**
+     * When the operator leaves the computed default untouched, the frontend omits
+     * `returnedCreditsUsd` from the telecomCreditReturns entry so the repo uses
+     * its own computed default from `mobileServiceItemId.credits`.
+     */
     renderWithItem(SPLIT_COMPLETE_77);
     await addItemToCart("77");
     await enableOnlyDays();
@@ -310,12 +326,15 @@ describe("KatchForm gross-cost B1/B2 (LIRA-090)", () => {
       string,
       unknown
     >;
-    // The repo computes the default itself from mobileServiceItemId.
-    // The frontend must NOT send returnedCreditsUsd when operator hasn't edited it.
-    expect(payload.returnedCreditsUsd).toBeUndefined();
+    const returns = payload.telecomCreditReturns as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(returns).toBeDefined();
+    // returnedCreditsUsd must be absent (not 73) so the repo computes it.
+    expect(returns![0].returnedCreditsUsd).toBeUndefined();
   });
 
-  it("(4) split-complete: operator override is still sent when operator edited the field", async () => {
+  it("(4) split-complete: operator override forwarded in telecomCreditReturns entry", async () => {
     renderWithItem(SPLIT_COMPLETE_77);
     await addItemToCart("77");
     await enableOnlyDays();
@@ -331,13 +350,17 @@ describe("KatchForm gross-cost B1/B2 (LIRA-090)", () => {
       string,
       unknown
     >;
+    const returns = payload.telecomCreditReturns as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(returns).toBeDefined();
     // Override must be forwarded so the repo respects it.
-    expect(payload.returnedCreditsUsd).toBe(70);
+    expect(returns![0].returnedCreditsUsd).toBe(70);
     // Cost is still GROSS even with an override.
     expect(payload.cost).toBe(7_600_000);
   });
 
-  it("(5) split-incomplete: manual path — returnedCreditsUsd forwarded when operator fills it in", async () => {
+  it("(5) split-incomplete: manual path — returnedCreditsUsd in telecomCreditReturns entry", async () => {
     renderWithItem(SPLIT_INCOMPLETE);
     await addItemToCart("50");
     await enableOnlyDays();
@@ -346,8 +369,6 @@ describe("KatchForm gross-cost B1/B2 (LIRA-090)", () => {
     fireEvent.change(creditsInput, { target: { value: "45" } });
 
     await openSheet();
-    // Payment sheet cash amount for split-incomplete uses old cost math —
-    // just confirm the call was made with the typed override present.
     fireEvent.click(screen.getByTestId("stub-inject-cash"));
     fireEvent.click(screen.getByTestId("stub-confirm"));
     await waitFor(() =>
@@ -358,6 +379,11 @@ describe("KatchForm gross-cost B1/B2 (LIRA-090)", () => {
       string,
       unknown
     >;
-    expect(payload.returnedCreditsUsd).toBe(45);
+    const returns = payload.telecomCreditReturns as
+      | Array<Record<string, unknown>>
+      | undefined;
+    // Split-incomplete item: the operator's override must be forwarded.
+    expect(returns).toBeDefined();
+    expect(returns![0].returnedCreditsUsd).toBe(45);
   });
 });
