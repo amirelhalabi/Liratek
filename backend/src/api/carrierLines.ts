@@ -45,6 +45,28 @@ router.get("/active", (_req, res): void => {
   }
 });
 
+// GET /api/carrier-lines/primary/:carrier — the primary line for a carrier
+// (LIRA-090 §3 decision 8). The primary line is the one that receives
+// automated Only-Days credit returns and self-charges by default.
+// Read-only, no role gate — mirrors the repo usage in FinancialServiceRepository.
+router.get("/primary/:carrier", (req, res): void => {
+  const { carrier } = req.params;
+  if (carrier !== "alfa" && carrier !== "mtc") {
+    res.status(400).json({ success: false, error: "Invalid carrier" });
+    return;
+  }
+  try {
+    const service = getCarrierLineService();
+    const result = service.getPrimary(carrier);
+    // HTTP 200 even when no primary line is set (result.success=false) so
+    // the adapter can branch on result.success, not the status code (rule 19c).
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, "Get primary carrier line error");
+    res.status(500).json({ success: false, error: "Failed to get primary" });
+  }
+});
+
 // GET /api/carrier-lines — admin listing (includes archived).
 router.get("/", requireRole(["admin"]), (_req, res): void => {
   try {
@@ -73,6 +95,25 @@ router.post(
     }
   },
 );
+
+// PUT /api/carrier-lines/:id/set-primary (admin) — designate a line as the
+// primary for its carrier (LIRA-090 §3 decision 8). Clears the previous
+// primary holder for that carrier in a single DB transaction.
+router.put("/:id/set-primary", requireRole(["admin"]), (req, res): void => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ success: false, error: "Invalid id" });
+    return;
+  }
+  try {
+    const service = getCarrierLineService();
+    const result = service.setPrimary(id);
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, "Set primary carrier line error");
+    res.status(500).json({ success: false, error: "Failed to set primary" });
+  }
+});
 
 // PUT /api/carrier-lines/:id (admin)
 router.put("/:id", requireRole(["admin"]), (req, res): void => {
@@ -127,7 +168,6 @@ router.put(
     }
     try {
       const { id: _id, ...data } = parsed.data;
-      void _id; // stripped from the payload — the URL param is authoritative
       void _id; // stripped from the payload — the URL param is authoritative
       const service = getCarrierLineService();
       const result = service.updateBalance(id, data);

@@ -22,6 +22,16 @@ import {
 } from "./PartnerRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
+import { getMobileServiceItemRepository } from "./MobileServiceItemRepository.js";
+import {
+  getCarrierLineRepository,
+  type CarrierKey,
+} from "./CarrierLineRepository.js";
+import { getCarrierLineService } from "../services/CarrierLineService.js";
+import {
+  maxReturnableCredits,
+  isTelecomSplitComplete,
+} from "../utils/telecomCredit.js";
 import {
   reconcileLegs,
   expectedTotalIn,
@@ -132,6 +142,24 @@ export interface UnsettledSummary {
   total_owed_lbp: number;
 }
 
+/**
+ * LIRA-090 §6 bug 2 (walk-in aggregated payload) groundwork — one entry per
+ * Only-Days catalog line. See `CreateFinancialServiceData.telecomCreditReturns`
+ * for the full contract this array participates in.
+ */
+export interface TelecomCreditReturnLine {
+  /** 'alfa' | 'mtc' (case-insensitive) — which drawer/carrier this line's
+   *  return belongs to. Falls back to the resolved item's own `category`
+   *  when omitted and `mobileServiceItemId` is present. */
+  itemCategory?: string;
+  /** The catalog item (`mobile_service_items.id`) this line is selling. */
+  mobileServiceItemId?: number;
+  /** Operator override for this line; omit to use the computed default
+   *  (`maxReturnableCredits(item.credits)`) whenever the item's split is
+   *  complete. */
+  returnedCreditsUsd?: number;
+}
+
 export interface CreateFinancialServiceData {
   provider:
     | "OMT"
@@ -197,11 +225,51 @@ export interface CreateFinancialServiceData {
    */
   paymentMethodFeeRate?: number;
   /**
-   * Returned credits in USD when a Katsh telecom voucher is sold as "only days".
-   * The credits are topped-up to the Alfa or MTC drawer (based on itemCategory)
-   * minus SMS sending costs (0.16 USD per SMS, max 3 USD per SMS in 0.5 USD increments).
+   * Returned credits in USD when an iPick/Katsh telecom voucher is sold as
+   * "only days" (LIRA-090 spec §5.1, §6.1 — the identical checkbox used to
+   * book NOTHING on the iPick tab; both reseller apps sell the same
+   * alfa/mtc catalog now). The credits are topped-up to the Alfa or MTC
+   * drawer (based on `itemCategory`) minus SMS sending costs (0.16 USD per
+   * SMS, max 3 USD per SMS in 0.5 USD increments — `maxReturnableCredits`).
+   *
+   * When explicitly supplied (including `0`), this is an OPERATOR OVERRIDE
+   * and always wins — the real SMS transfer sometimes differs from the
+   * computed max (spec §2.2). When OMITTED and `mobileServiceItemId`
+   * resolves to a catalog item whose Only-Days split is complete
+   * (`isTelecomSplitComplete`), the repository computes the default itself
+   * via `maxReturnableCredits(item.credits)` — the caller no longer has to.
+   * Omitted with no resolvable split-complete item (every caller before
+   * this ticket, and every split-incomplete item after it) books nothing —
+   * byte-identical to pre-ticket behavior (spec §9, no regression).
    */
   returnedCreditsUsd?: number;
+  /**
+   * LIRA-090 §2/§5.1: the catalog item (`mobile_service_items.id`) this
+   * cost/price line is selling. Drives the computed `returnedCreditsUsd`
+   * default above (see that field's doc) AND the primary-carrier-line
+   * movement (spec §5.1/§8) — both read the SAME resolved item, once
+   * (rule 14). Presence of this field is itself the "this line is an
+   * Only-Days telecom sale" signal; a normal (non-only-days) catalog sale
+   * never needs to send it.
+   */
+  mobileServiceItemId?: number;
+  /**
+   * LIRA-090 §6 bug 2 groundwork: a walk-in checkout that bundles several
+   * Only-Days catalog lines into ONE `financial_services` row (the
+   * aggregated cart total: `amount: discountedTotal`, `cost:
+   * aggregatedCost`) cannot represent a PER-LINE returned-credit amount via
+   * the single `returnedCreditsUsd`/`itemCategory`/`mobileServiceItemId`
+   * fields above — there is only one of each per transaction. When THIS
+   * array is present (one entry per Only-Days line in the cart), every
+   * entry is booked and the single-scalar fields above are ignored for the
+   * credit-return leg (they may still carry whatever the aggregate flow
+   * happens to set). Absent (every caller today — the session-cart path
+   * submits one `createFinancialService` call PER line already, so it never
+   * needs this), the single-scalar fields apply unchanged. See
+   * `FinancialServiceRepository.processTelecomCreditReturn`'s doc for the
+   * exact fallback contract.
+   */
+  telecomCreditReturns?: TelecomCreditReturnLine[];
   /** T3 keep-change (KC-4): kept change per currency → profit stamp. */
   kept_change_usd?: number;
   kept_change_lbp?: number;
@@ -296,6 +364,31 @@ export interface CreateFinancialServiceData {
   split_role?: "carrier" | "sibling";
   /** Total unit count in the checkout this split_group belongs to (≥ 2). */
   split_units?: number;
+}
+
+// =============================================================================
+// Self-charge (LIRA-090 spec §5.2) — charge a telecom catalog item to the
+// SHOP'S OWN carrier line instead of a customer.
+// =============================================================================
+
+export interface SelfChargeTelecomItemData {
+  /** The catalog item (`mobile_service_items.id`) being self-charged — its
+   *  `cost_lbp`/`credits`/`validity_days` drive every leg (see
+   *  `FinancialServiceRepository.selfChargeTelecomItem`'s doc). */
+  mobileServiceItemId: number;
+  /** Target carrier line. Defaults to the item's carrier's primary line
+   *  (spec §3 decision 8) when omitted — overridable per call. */
+  carrierLineId?: number;
+  userId?: number;
+  transaction_time?: string;
+}
+
+export interface SelfChargeTelecomItemResult {
+  transactionId: number;
+  carrierLineId: number;
+  costLbp: number;
+  creditsAdded: number;
+  validityDaysAdded: number;
 }
 
 export interface ProviderStats {
@@ -1194,30 +1287,131 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
       };
 
-      // Katsh "Only Days" returned telecom credits — an internal shop credit
-      // return (Alfa/MTC drawer top-up) tied to the ITEM, independent of who
-      // pays, so it runs for the normal cost/price flow AND the FOR-partner
-      // catalog arm below.
-      const processKatshReturnedCredits = () => {
-        if (
-          data.provider === "Katsh" &&
-          data.returnedCreditsUsd &&
-          data.returnedCreditsUsd > 0
-        ) {
-          const credits = data.returnedCreditsUsd;
-          const isAlfa =
-            data.itemCategory === "alfa" || data.itemCategory === "Alfa";
+      // Telecom "Only Days" returned credits (LIRA-090 spec §5.1/§6.1) — an
+      // internal shop credit return (Alfa/MTC drawer top-up + the shop's
+      // primary carrier line for that carrier, spec §5.1/§8) tied to the
+      // ITEM, independent of who pays, so it runs for the normal cost/price
+      // flow AND the FOR-partner catalog arm below.
+      //
+      // Renamed from processKatshReturnedCredits (LIRA-090 bug 1, spec
+      // §6.1): the identical Only-Days checkbox on the iPick tab used to
+      // book NOTHING because this was hard-gated on `provider === "Katsh"`
+      // — both reseller apps sell the same alfa/mtc catalog, so both must
+      // book the SAME leg (rule 16: re-gate the existing leg, never add a
+      // second one beside it — there is still exactly one `insertPayment`
+      // call for the credit-return leg below).
+      const processTelecomCreditReturn = () => {
+        const isTelecomResellerApp =
+          data.provider === "Katsh" || data.provider === "iPick";
+        if (!isTelecomResellerApp) return;
+
+        // Bug 2 groundwork (spec §6, walk-in aggregated payload): a walk-in
+        // checkout that bundles several Only-Days lines into ONE
+        // transaction sends `telecomCreditReturns`, one entry per line.
+        // Every other caller (today's session-cart path — one transaction
+        // per line — and every existing test) instead sends the single
+        // scalar fields, normalized here into the same one-element shape
+        // so ONE loop books both shapes (rule 14).
+        const lines: TelecomCreditReturnLine[] =
+          data.telecomCreditReturns && data.telecomCreditReturns.length > 0
+            ? data.telecomCreditReturns
+            : [
+                {
+                  itemCategory: data.itemCategory,
+                  mobileServiceItemId: data.mobileServiceItemId,
+                  returnedCreditsUsd: data.returnedCreditsUsd,
+                },
+              ];
+
+        for (const line of lines) {
+          // The catalog item this line is selling — resolved so the
+          // split-completeness gate and the computed default (spec §2/
+          // §5.1) can both read its cost_lbp/days_cost_lbp/credits. Absent
+          // for every caller that hasn't been migrated to send
+          // `mobileServiceItemId` yet (no regression, spec §9).
+          const item =
+            line.mobileServiceItemId != null
+              ? getMobileServiceItemRepository().getById(
+                  line.mobileServiceItemId,
+                )
+              : null;
+
+          // spec §2/§5.1: an explicitly supplied value (including 0 — the
+          // operator dialing the return down to nothing) is an override
+          // that ALWAYS wins; omitted means "compute the default" — but
+          // ONLY when the item's split is complete (rule 14: the ONE
+          // shared gate predicate, imported, never re-derived). A
+          // split-incomplete item (the default state today) has no default
+          // to fall back to and keeps today's fully-manual behavior.
+          let resolvedCredits: number;
+          if (line.returnedCreditsUsd !== undefined) {
+            resolvedCredits = line.returnedCreditsUsd;
+          } else if (item && isTelecomSplitComplete(item)) {
+            resolvedCredits = maxReturnableCredits(item.credits as number);
+          } else {
+            resolvedCredits = 0;
+          }
+          if (!(resolvedCredits > 0)) continue;
+
+          const categoryRaw = line.itemCategory ?? item?.category;
+          const isAlfa = categoryRaw === "alfa" || categoryRaw === "Alfa";
+          const isMtc =
+            categoryRaw === "mtc" ||
+            categoryRaw === "Mtc" ||
+            categoryRaw === "MTC";
+          if (!isAlfa && !isMtc) {
+            // No way to tell which drawer/carrier this belongs to —
+            // nothing safe to book. Should not happen for a real telecom
+            // sale (itemCategory is always sent today); defensive only.
+            financialLogger.warn(
+              { line },
+              "processTelecomCreditReturn: could not resolve alfa/mtc category — skipping this line",
+            );
+            continue;
+          }
           const creditDrawer = isAlfa ? "Alfa" : "MTC";
+
           insertPayment.run(
             txnId,
             "CREDIT_RETURN",
             creditDrawer,
             "USD",
-            credits,
-            `Returned credits: ${credits} USD`,
+            resolvedCredits,
+            `Returned credits: ${resolvedCredits} USD`,
             createdBy,
           );
-          upsertBalanceDelta.run(creditDrawer, "USD", credits);
+          upsertBalanceDelta.run(creditDrawer, "USD", resolvedCredits);
+
+          // spec §5.1/§8: the return also lands on the shop's primary line
+          // for this carrier, tied to THIS transaction (rule 20 reversal
+          // owner — carrier_line_movements). CarrierLineService is
+          // deliberately "informational only" (no drawer legs) by its own
+          // doc — a shop that hasn't configured a primary line yet still
+          // gets the (mandatory) drawer credit above; only this
+          // informational side effect is skipped + logged, never blocks
+          // the sale (Phase 3b explicitly left this empty-state UX
+          // decision to Phase 4 — see CarrierLineRepository.getPrimary's
+          // doc).
+          const carrier: CarrierKey = isAlfa ? "alfa" : "mtc";
+          const primaryLine = getCarrierLineRepository().getPrimary(carrier);
+          if (primaryLine) {
+            const movement = getCarrierLineService().applyMovement({
+              carrierLineId: primaryLine.id,
+              creditsDelta: resolvedCredits,
+              reason: "ONLY_DAYS_RETURN",
+              transactionId: txnId,
+            });
+            if (!movement.success) {
+              throw new Error(
+                `Failed to apply carrier line movement: ${movement.error}`,
+              );
+            }
+          } else {
+            financialLogger.warn(
+              { carrier },
+              "processTelecomCreditReturn: no primary carrier line configured — drawer credited, carrier-line movement skipped",
+            );
+          }
         }
       };
 
@@ -1327,7 +1521,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             upsertBalanceDelta.run(serviceDrawer, currency, -Math.abs(cost));
           }
           insertPartnerLedger(forType, Math.abs(price), currency, "DEBIT");
-          processKatshReturnedCredits();
+          processTelecomCreditReturn();
         } else if (data.serviceType === "SEND") {
           if (data.provider === "BINANCE") {
             // The USDT leaves the shop's Binance drawer (real payment row so
@@ -1679,11 +1873,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           }
         }
 
-        // ─── RETURNED CREDITS (Katsh "Only Days" telecom vouchers) ───
+        // ─── RETURNED CREDITS (iPick/Katsh "Only Days" telecom vouchers) ───
         // When a telecom voucher (alfa/mtc) is sold as "only days", the credit
-        // portion is returned to the shop — see processKatshReturnedCredits
+        // portion is returned to the shop — see processTelecomCreditReturn
         // (shared with the FOR-partner catalog arm above).
-        processKatshReturnedCredits();
+        processTelecomCreditReturn();
       } else {
         // OMT uses 3-drawer cash-reserve: payment +amount, General -amount, OMT_System +amount
         // WHISH uses 2-drawer: payment +amount, Whish_System +amount (no General)
@@ -2796,6 +2990,206 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       processReturnLegs();
 
       return { id, drawer: legacyDrawerLabel };
+    })();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Self-charge (LIRA-090 spec §5.2)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Charge a telecom catalog item (an MTC/Alfa "cart") to the SHOP'S OWN
+   * carrier line — the mirror image of the Only-Days customer sale (§5.1).
+   * No customer, no `financial_services` row ("no sale row"), no profit
+   * stamp ("no profit row"): the two legs are the shop moving its own money
+   * between its own drawers, in DIFFERENT currencies (iPick/Katsh's LBP cost
+   * vs MTC/Alfa's USD-only credit):
+   *
+   *   - iPick/Katsh drawer: −cost_lbp (LBP)
+   *   - MTC/Alfa drawer:    +credits  (USD, the FULL face value — no SMS
+   *     transfer happens when the shop charges its own line, so nothing is
+   *     burned; contrast the Only-Days return, which nets
+   *     `maxReturnableCredits(credits)`)
+   *   - The target `carrier_lines` row: +credits, validity extended by
+   *     +validity_days (via `CarrierLineService.applyMovement` — rule 20
+   *     reversal owner, `carrier_line_movements`, tied to this transaction).
+   *
+   * A unified `transactions` row IS still created (type
+   * `TRANSACTION_TYPES.TELECOM_SELF_CHARGE`, source_table
+   * 'mobile_service_items') even though there is no sale row — `payments`
+   * rows need a transaction to hang off, and the carrier-line movement
+   * needs a `transaction_id` to be reversible (rule 20; the reversal is
+   * otherwise type-agnostic, see
+   * `TransactionRepository._reverseCarrierLineMovements`). Its
+   * `profit_usd`/`profit_lbp` are always 0.
+   *
+   * Review finding M3: this row used to reuse `TRANSACTION_TYPES
+   * .FINANCIAL_SERVICE`, which masquerades as a real customer-facing
+   * financial service everywhere that type is assumed to be backed by a
+   * `financial_services` row (ProfitRepository's revenue-by-user/-client
+   * queries, the frontend's receipt gating) — see the dedicated
+   * `TELECOM_SELF_CHARGE` type's doc comment in
+   * `constants/transactionTypes.ts` for the full before/after. The
+   * dedicated type is deliberately excluded from
+   * `ProfitRepository`'s `PROFIT_TXN_TYPES` (no revenue/profit
+   * contribution, matching "no profit row") and from
+   * `NON_REVERSIBLE_TRANSACTION_TYPES` (stays reversible via the generic
+   * void/refund path — payment legs and `carrier_line_movements` are both
+   * type-agnostic).
+   *
+   * Spec §5.2 is silent on supplier-ledger booking for the cost leg (unlike
+   * the normal cost/price sale flow, which auto-records a prepaid-units
+   * supplier debit) — none is booked here, matching the literal §5.2 leg
+   * table verbatim. Flagged for owner confirmation, not decided unilaterally.
+   */
+  selfChargeTelecomItem(
+    data: SelfChargeTelecomItemData,
+  ): SelfChargeTelecomItemResult {
+    const tenantId = getCurrentTenantId();
+
+    return this.db.transaction(() => {
+      const item = getMobileServiceItemRepository().getById(
+        data.mobileServiceItemId,
+      );
+      if (!item) {
+        throw new Error(
+          `Mobile service item #${data.mobileServiceItemId} not found`,
+        );
+      }
+
+      const categoryLower = item.category.toLowerCase();
+      if (categoryLower !== "alfa" && categoryLower !== "mtc") {
+        throw new Error(
+          `Self-charge only applies to alfa/mtc telecom items (item #${item.id} has category "${item.category}")`,
+        );
+      }
+      const carrier = categoryLower as CarrierKey;
+
+      if (item.provider !== "iPick" && item.provider !== "Katsh") {
+        throw new Error(
+          `Self-charge only applies to iPick/Katsh catalog items (item #${item.id} has provider "${item.provider}")`,
+        );
+      }
+      if (!(item.cost_lbp > 0)) {
+        throw new Error(`Item #${item.id} has no cost_lbp configured`);
+      }
+      if (!(typeof item.credits === "number" && item.credits > 0)) {
+        throw new Error(`Item #${item.id} has no credits configured`);
+      }
+      if (
+        !(typeof item.validity_days === "number" && item.validity_days > 0)
+      ) {
+        throw new Error(`Item #${item.id} has no validity_days configured`);
+      }
+
+      const targetLine = data.carrierLineId
+        ? getCarrierLineRepository().getById(data.carrierLineId)
+        : getCarrierLineRepository().getPrimary(carrier);
+      if (!targetLine) {
+        throw new Error(
+          data.carrierLineId
+            ? `Carrier line #${data.carrierLineId} not found`
+            : `No primary ${carrier} line configured — set one in Carrier Lines settings or pass carrierLineId explicitly`,
+        );
+      }
+      if (targetLine.carrier !== carrier) {
+        throw new Error(
+          `Carrier line #${targetLine.id} is ${targetLine.carrier}, not ${carrier}`,
+        );
+      }
+
+      const createdBy = data.userId ?? this.resolveFallbackUserId();
+      const providerDrawer = this.mapDrawerName(
+        item.provider as CreateFinancialServiceData["provider"],
+      );
+      const creditDrawer = carrier === "alfa" ? "Alfa" : "MTC";
+      const stampedExchangeRate = getUsdLbpSellRate(this.db);
+      const costLbp = item.cost_lbp;
+      // Casts are safe: the guards above threw unless both are positive
+      // numbers — re-reading `item.credits`/`item.validity_days` this far
+      // from those checks isn't guaranteed to stay narrowed by every
+      // TypeScript version's control-flow analysis across the intervening
+      // repository calls.
+      const credits = item.credits as number;
+      const validityDays = item.validity_days as number;
+
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.TELECOM_SELF_CHARGE,
+        source_table: "mobile_service_items",
+        source_id: item.id,
+        user_id: createdBy,
+        amount_usd: credits,
+        amount_lbp: -costLbp,
+        profit_usd: 0,
+        profit_lbp: 0,
+        summary: `Self-charge: ${item.label} → ${targetLine.phone_number} (+$${credits}, +${validityDays}d)`,
+        metadata_json: {
+          provider: item.provider,
+          category: carrier,
+          mobile_service_item_id: item.id,
+          carrier_line_id: targetLine.id,
+          cost_lbp: costLbp,
+          credits,
+          validity_days: validityDays,
+        },
+        exchange_rate: stampedExchangeRate,
+        transaction_time: data.transaction_time,
+      });
+
+      insertPaymentRow(this.db, {
+        transactionId: txnId,
+        method: "SELF_CHARGE",
+        drawerName: providerDrawer,
+        currencyCode: "LBP",
+        amount: -costLbp,
+        note: `Self-charge cost: ${item.label}`,
+        createdBy,
+        tenantId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName: providerDrawer,
+        currencyCode: "LBP",
+        delta: -costLbp,
+        tenantId,
+      });
+
+      insertPaymentRow(this.db, {
+        transactionId: txnId,
+        method: "SELF_CHARGE",
+        drawerName: creditDrawer,
+        currencyCode: "USD",
+        amount: credits,
+        note: `Self-charge credit: ${item.label}`,
+        createdBy,
+        tenantId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName: creditDrawer,
+        currencyCode: "USD",
+        delta: credits,
+        tenantId,
+      });
+
+      const movement = getCarrierLineService().applyMovement({
+        carrierLineId: targetLine.id,
+        creditsDelta: credits,
+        validityDaysDelta: validityDays,
+        reason: "SELF_CHARGE",
+        transactionId: txnId,
+      });
+      if (!movement.success) {
+        throw new Error(
+          `Failed to apply carrier line movement: ${movement.error}`,
+        );
+      }
+
+      return {
+        transactionId: txnId,
+        carrierLineId: targetLine.id,
+        costLbp,
+        creditsAdded: credits,
+        validityDaysAdded: validityDays,
+      };
     })();
   }
 

@@ -8,6 +8,7 @@
 import { ipcMain } from "electron";
 import {
   getCarrierLineService,
+  getCarrierLineRepository,
   type CreateCarrierLineData,
   type UpdateCarrierLineData,
   type UpdateBalanceData,
@@ -205,6 +206,57 @@ export function registerCarrierLineHandlers(): void {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to toggle",
+      };
+    }
+  });
+
+  // LIRA-090: get the primary line for a carrier — called by the Only-Days
+  // sale form and the self-charge form to pre-populate the target line.
+  // Read-only; no role gate (mirrors other read handlers in this module).
+  ipcMain.handle(
+    "carrier-lines:get-primary",
+    (_event, carrier: CarrierKey) => {
+      try {
+        const repo = getCarrierLineRepository();
+        const line = repo.getPrimary(carrier);
+        return { success: true, data: line };
+      } catch (error) {
+        financialLogger.error({ error }, "carrier-lines:get-primary failed");
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : "Failed to get primary",
+        };
+      }
+    },
+  );
+
+  // LIRA-090: designate a line as the primary for its carrier — Settings
+  // admin only. Clears the previous primary atomically (see
+  // CarrierLineRepository.setPrimary's doc).
+  ipcMain.handle("carrier-lines:set-primary", (e, id: number) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const repo = getCarrierLineRepository();
+      const line = repo.setPrimary(id);
+      if (!line) {
+        return { success: false, error: `Carrier line #${id} not found` };
+      }
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "carrier_line",
+        entity_id: String(id),
+        summary: `Set carrier line #${id} as primary (${line.carrier})`,
+      });
+      return { success: true, data: line };
+    } catch (error) {
+      financialLogger.error({ error }, "carrier-lines:set-primary failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to set primary",
       };
     }
   });

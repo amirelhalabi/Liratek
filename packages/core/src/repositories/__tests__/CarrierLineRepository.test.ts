@@ -22,6 +22,7 @@ import {
   CarrierLineRepository,
   resetCarrierLineRepository,
 } from "../CarrierLineRepository.js";
+import { resetCarrierLineMovementRepository } from "../CarrierLineMovementRepository.js";
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
@@ -36,11 +37,34 @@ function createTestDb(): Database.Database {
       validity_expires_at TEXT,
       notes               TEXT,
       is_active           INTEGER NOT NULL DEFAULT 1,
+      is_primary          INTEGER NOT NULL DEFAULT 0,
       created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at          TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE carrier_line_movements (
+      id                            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id                     INTEGER,
+      carrier_line_id               INTEGER NOT NULL,
+      transaction_id                INTEGER,
+      credits_delta                 REAL NOT NULL DEFAULT 0,
+      validity_days_delta           INTEGER NOT NULL DEFAULT 0,
+      previous_validity_expires_at  TEXT,
+      reason                        TEXT NOT NULL,
+      is_reversed                   INTEGER NOT NULL DEFAULT 0,
+      created_at                    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at                    DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
+}
+
+function movementCount(db: Database.Database): number {
+  return (
+    db.prepare(`SELECT COUNT(*) AS n FROM carrier_line_movements`).get() as {
+      n: number;
+    }
+  ).n;
 }
 
 describe("CarrierLineRepository (LIRA W6.a)", () => {
@@ -53,6 +77,7 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
       globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
     ).__LIRATEK_TEST_DB__ = db;
     resetCarrierLineRepository();
+    resetCarrierLineMovementRepository();
     repo = new CarrierLineRepository();
   });
 
@@ -62,6 +87,7 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
     ).__LIRATEK_TEST_DB__;
     db.close();
     resetCarrierLineRepository();
+    resetCarrierLineMovementRepository();
   });
 
   it("createLine() writes a row with defaults and returns it", () => {
@@ -165,6 +191,103 @@ describe("CarrierLineRepository (LIRA W6.a)", () => {
     expect(updated!.credits).toBe(20);
     expect(updated!.validity_expires_at).toBe("2026-09-01");
     expect(updated!.label).toBe("Line A"); // untouched
+  });
+
+  // ---------------------------------------------------------------------------
+  // H3 fix (2026-07-30 adversarial review): updateBalance() is the
+  // owner-facing manual hand-edit "sharp edge" — it used to write credits/
+  // validity directly with NO carrier_line_movements row at all. DECISION:
+  // log a movement (reason 'manual') rather than remove the manual-edit
+  // capability — see the method's own doc for the full rationale.
+  // ---------------------------------------------------------------------------
+
+  it("H3 fix: updateBalance() logs a 'manual' movement when credits change", () => {
+    const line = repo.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+      credits: 5,
+    });
+
+    repo.updateBalance(line.id, { credits: 20 });
+
+    expect(movementCount(db)).toBe(1);
+    const row = db
+      .prepare(
+        `SELECT credits_delta, validity_days_delta, reason, transaction_id
+         FROM carrier_line_movements WHERE carrier_line_id = ?`,
+      )
+      .get(line.id) as {
+      credits_delta: number;
+      validity_days_delta: number;
+      reason: string;
+      transaction_id: number | null;
+    };
+    expect(row.credits_delta).toBeCloseTo(15, 2); // 20 - 5
+    expect(row.validity_days_delta).toBe(0);
+    expect(row.reason).toBe("manual");
+    expect(row.transaction_id).toBeNull(); // never tied to a transaction
+  });
+
+  it("H3 fix: updateBalance() logs a 'manual' movement with the exact day delta when both old and new expiry are real dates", () => {
+    const line = repo.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+      validity_expires_at: "2026-08-01",
+    });
+
+    repo.updateBalance(line.id, { validity_expires_at: "2026-08-11" });
+
+    const row = db
+      .prepare(
+        `SELECT validity_days_delta, previous_validity_expires_at
+         FROM carrier_line_movements WHERE carrier_line_id = ?`,
+      )
+      .get(line.id) as {
+      validity_days_delta: number;
+      previous_validity_expires_at: string | null;
+    };
+    expect(row.validity_days_delta).toBe(10);
+    expect(row.previous_validity_expires_at).toBe("2026-08-01");
+  });
+
+  it("H3 fix: updateBalance() logs both credits and validity deltas in ONE movement row when both change", () => {
+    const line = repo.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+      credits: 5,
+      validity_expires_at: "2026-08-01",
+    });
+
+    repo.updateBalance(line.id, {
+      credits: 20,
+      validity_expires_at: "2026-09-01",
+    });
+
+    expect(movementCount(db)).toBe(1);
+    const row = db
+      .prepare(
+        `SELECT credits_delta, validity_days_delta
+         FROM carrier_line_movements WHERE carrier_line_id = ?`,
+      )
+      .get(line.id) as { credits_delta: number; validity_days_delta: number };
+    expect(row.credits_delta).toBeCloseTo(15, 2);
+    expect(row.validity_days_delta).toBe(31); // Aug 1 -> Sep 1
+  });
+
+  it("updateBalance() with values IDENTICAL to what is already stored applies cleanly but logs NO movement (nothing changed)", () => {
+    const line = repo.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+      credits: 20,
+      validity_expires_at: "2026-09-01",
+    });
+
+    repo.updateBalance(line.id, {
+      credits: 20,
+      validity_expires_at: "2026-09-01",
+    });
+
+    expect(movementCount(db)).toBe(0);
   });
 
   it("archive() sets is_active = 0", () => {

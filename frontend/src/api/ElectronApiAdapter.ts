@@ -142,6 +142,13 @@ export class ElectronApiAdapter implements ApiAdapter {
   getOMTHistory = (provider?: string) => api.getOMTHistory(provider);
   getOMTAnalytics = (providers?: string[]) => api.getOMTAnalytics(providers);
   addOMTTransaction = (payload: any) => api.addOMTTransaction(payload);
+  /** LIRA-090 §5.2: charge a telecom catalog item to the shop's own carrier line.
+   *  Admin or staff only. */
+  selfChargeTelecomItem = (data: {
+    mobileServiceItemId: number;
+    carrierLineId?: number;
+    transaction_time?: string;
+  }) => api.selfChargeTelecomItem(data);
 
   // ---------------------------------------------------------------------------
   // Maintenance
@@ -399,11 +406,32 @@ export class ElectronApiAdapter implements ApiAdapter {
   ) => api.updateCarrierLineBalance(id, data);
   archiveCarrierLine = (id: number) => api.archiveCarrierLine(id);
   toggleCarrierLineActive = (id: number) => api.toggleCarrierLineActive(id);
+  /** LIRA-090: get the current primary line for a carrier. */
+  getPrimaryCarrierLine = (carrier: "alfa" | "mtc") =>
+    api.getPrimaryCarrierLine(carrier);
+  /** LIRA-090: designate a line as the primary for its carrier (admin only). */
+  setPrimaryCarrierLine = (id: number) => api.setPrimaryCarrierLine(id);
 
   // ---------------------------------------------------------------------------
-  // Mobile Service Items — admin (LIRA W6.b)
+  // Mobile Service Items — admin (LIRA W6.b) + LIRA-090
   // ---------------------------------------------------------------------------
+  getActiveMobileServiceItems = () => api.getActiveMobileServiceItems();
   getAdminMobileServiceItems = () => api.getAdminMobileServiceItems();
+  createMobileServiceItem = (data: {
+    provider: string;
+    category: string;
+    subcategory: string;
+    label: string;
+    cost_lbp: number;
+    sell_lbp: number;
+    sort_order?: number;
+    is_active?: number;
+    validity_days?: number | null;
+    credits?: number | null;
+    days_cost_lbp?: number | null;
+    sell_days_lbp?: number | null;
+    sell_credit_lbp?: number | null;
+  }) => api.createMobileServiceItem(data);
   updateMobileServiceItem = (
     id: number,
     data: {
@@ -414,6 +442,9 @@ export class ElectronApiAdapter implements ApiAdapter {
       is_active?: number;
       validity_days?: number | null;
       credits?: number | null;
+      days_cost_lbp?: number | null;
+      sell_days_lbp?: number | null;
+      sell_credit_lbp?: number | null;
     },
   ) => api.updateMobileServiceItem(id, data);
 

@@ -5,6 +5,7 @@ import {
   getFinancialService,
   createFinancialServiceSchema,
   getFinancialServicesSchema,
+  selfChargeTelecomItemSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
@@ -75,6 +76,45 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to add transaction" });
+    }
+  },
+);
+
+// POST /api/services/self-charge — charge a telecom catalog item to the
+// shop's OWN carrier line (LIRA-090 spec §5.2). No customer is debited; the
+// shop's carrier-line credits and validity are updated, and an LBP drawer
+// debit records the cost. Admin-only — rule 19 mirrors the IPC handler
+// (`financial:self-charge-telecom-item`, which is admin-only; this internal
+// stock/credit move deliberately excludes staff on both transports).
+//
+// `userId` is injected from the JWT (never trusted from the client body).
+// HTTP 200 even on business-rule failure per rule 19c.
+router.post(
+  "/self-charge",
+  requireRole(["admin"]),
+  (req, res): void => {
+    const parsed = selfChargeTelecomItemSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      res.json({
+        success: false,
+        error: firstIssue?.message ?? "Invalid self-charge payload",
+      });
+      return;
+    }
+    try {
+      const userId = (req as AuthRequest).user!.userId;
+      const service = getFinancialService();
+      const result = service.selfChargeTelecomItem({
+        ...parsed.data,
+        userId,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Telecom self-charge error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to process self-charge" });
     }
   },
 );

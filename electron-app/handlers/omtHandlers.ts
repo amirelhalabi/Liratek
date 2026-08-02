@@ -12,7 +12,10 @@ import {
   getTransactionRepository,
   getUserRepository,
 } from "@liratek/core";
-import type { CreateFinancialServiceData } from "@liratek/core";
+import type {
+  CreateFinancialServiceData,
+  SelfChargeTelecomItemData,
+} from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import { FinancialServiceSchema, validatePayload } from "../schemas/index.js";
@@ -145,6 +148,46 @@ export function registerOMTHandlers(): void {
       return result.success
         ? { success: true, data: result.entity }
         : { success: false, error: result.error };
+    },
+  );
+
+  // LIRA-090 §5.2: self-charge a telecom cart to the shop's own carrier line.
+  // No customer, no sale row, no profit row — charges the item's full
+  // cost_lbp to the iPick/Katsh drawer and credits the item's full USD
+  // credits + validity_days to the target line.  Admin only (mutations the
+  // shop's own carrier inventory; there is no reversal path without a void).
+  ipcMain.handle(
+    "financial:self-charge-telecom-item",
+    (event, data: SelfChargeTelecomItemData) => {
+      try {
+        const auth = requireRole(event.sender.id, ["admin"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+
+        const result = getFinancialServiceRepository().selfChargeTelecomItem({
+          ...data,
+          userId: auth.userId,
+        });
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "financial_transaction",
+          summary: `Telecom self-charge: item #${data.mobileServiceItemId}${data.carrierLineId ? ` → line #${data.carrierLineId}` : " (primary)"}`,
+          metadata: {
+            mobileServiceItemId: data.mobileServiceItemId,
+            carrierLineId: data.carrierLineId,
+          },
+        });
+        return { success: true, data: result };
+      } catch (error) {
+        financialLogger.error(
+          { error },
+          "financial:self-charge-telecom-item failed",
+        );
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : "Self-charge failed",
+        };
+      }
     },
   );
 }

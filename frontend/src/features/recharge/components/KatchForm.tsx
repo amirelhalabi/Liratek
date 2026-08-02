@@ -12,6 +12,10 @@ import {
   hasNewClientInfo,
   appEvents,
 } from "@liratek/ui";
+import {
+  maxReturnableCredits,
+  isTelecomSplitComplete,
+} from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
@@ -40,8 +44,14 @@ function isTelecomVoucher(item: ServiceItem): boolean {
   );
 }
 
-function calcReturnedCredits(denomination: number): number {
-  return Math.floor(denomination / 0.5) * 0.5;
+/**
+ * LIRA-090 B1 fix: the frontend sends GROSS cost; the repository nets it to
+ * `days_cost_lbp` via `processTelecomCreditReturn` when `mobileServiceItemId`
+ * is present. Pre-netting here AND having the repo also credit the
+ * MTC/Alfa drawer was a double-count (HANDOFF §B1).
+ */
+function calcCost(item: ServiceItem): number {
+  return item.catalogCost ?? 0;
 }
 
 function calcPrice(
@@ -52,16 +62,6 @@ function calcPrice(
 ): number {
   const sellPrice = item.catalogSellPrice ?? 0;
   return onlyDays ? sellPrice - returnedCredits * sellRate : sellPrice;
-}
-
-function calcCost(
-  item: ServiceItem,
-  onlyDays: boolean,
-  returnedCredits: number,
-  costRate: number,
-): number {
-  const cost = item.catalogCost ?? 0;
-  return onlyDays ? cost - returnedCredits * costRate : cost;
 }
 
 // Bill card follows each provider's own brand color (iPick = sky, Katsh =
@@ -266,6 +266,14 @@ interface CartLineItem {
   quantity: number;
   onlyDays: boolean;
   returnedCreditsUsd: number;
+  /**
+   * LIRA-090 B2: true when the operator explicitly changed the returnedCreditsUsd
+   * field from the computed default. When false (default was shown but not touched),
+   * the submit path omits `returnedCreditsUsd` and lets the repo compute its own
+   * default from `mobileServiceItemId`. When true, forwards the typed value as an
+   * explicit override that always wins (including 0 — "no credit returned").
+   */
+  returnedCreditsEdited: boolean;
 }
 
 interface NewItemForm {
@@ -287,7 +295,11 @@ interface KatchFormProps {
   loadFinancialData: () => void;
   formatAmount: (val: number, currency: string) => string;
   alfaCreditSellRate: number;
-  alfaCreditCostRate: number;
+  /** @deprecated LIRA-090 B1: the frontend now sends GROSS cost; the repo nets
+   *  it via `processTelecomCreditReturn`. This prop is retained for callers that
+   *  still pass it and for the legacy split-incomplete "Only Days" price display,
+   *  but is no longer used in cost calculations. */
+  alfaCreditCostRate?: number;
   exchangeRate: number;
   showHistory: boolean;
   setShowHistory: (show: boolean) => void;
@@ -307,7 +319,6 @@ function KatchFormInner({
   loadFinancialData,
   formatAmount,
   alfaCreditSellRate,
-  alfaCreditCostRate,
   exchangeRate,
   showHistory,
   setShowHistory,
@@ -499,6 +510,7 @@ function KatchFormInner({
         quantity: 1,
         onlyDays: false,
         returnedCreditsUsd: 0,
+        returnedCreditsEdited: false,
       });
       return next;
     });
@@ -532,6 +544,7 @@ function KatchFormInner({
           quantity: 1,
           onlyDays: false,
           returnedCreditsUsd: 0,
+          returnedCreditsEdited: false,
         });
       }
       return next;
@@ -545,15 +558,34 @@ function KatchFormInner({
         if (!existing) return prev;
         let returnedCredits = 0;
         if (checked) {
-          const denomination = parseFloat(item.label);
-          if (!isNaN(denomination))
-            returnedCredits = calcReturnedCredits(denomination);
+          // LIRA-090 rule 14: use the shared gate and formula from core — never
+          // re-encode `Math.floor(denom/0.5)*0.5` (the old third formula copy).
+          if (
+            isTelecomSplitComplete({
+              cost_lbp: item.catalogCost,
+              days_cost_lbp: item.days_cost_lbp,
+              credits: item.credits,
+            })
+          ) {
+            // Split-complete: computed default from the item's own credits field.
+            returnedCredits = maxReturnableCredits(item.credits as number);
+          } else {
+            // Split-incomplete: legacy fallback — parse the label as denomination
+            // (e.g. "77" → 77), floor to 0.5$ step with the SMS-cap formula.
+            const denomination = parseFloat(item.label);
+            if (!isNaN(denomination)) {
+              returnedCredits = maxReturnableCredits(denomination);
+            }
+          }
         }
         const next = new Map(prev);
         next.set(item.key, {
           ...existing,
           onlyDays: checked,
           returnedCreditsUsd: returnedCredits,
+          // Enabling Only Days resets the "edited" flag — the value above is
+          // the computed default, not an operator override.
+          returnedCreditsEdited: false,
         });
         return next;
       });
@@ -567,7 +599,14 @@ function KatchFormInner({
         const existing = prev.get(item.key);
         if (!existing) return prev;
         const next = new Map(prev);
-        next.set(item.key, { ...existing, returnedCreditsUsd: value });
+        // LIRA-090 B2: mark edited so the submit path sends the override rather
+        // than omitting `returnedCreditsUsd` (which would let the repo compute
+        // its own default and silently ignore the operator's intention).
+        next.set(item.key, {
+          ...existing,
+          returnedCreditsUsd: value,
+          returnedCreditsEdited: true,
+        });
         return next;
       });
     },
@@ -614,17 +653,11 @@ function KatchFormInner({
     );
   }, 0);
 
+  // LIRA-090 B1: cost is always GROSS (full cost_lbp). The repo nets it to
+  // days_cost_lbp via processTelecomCreditReturn when mobileServiceItemId is
+  // present. The discount gate only needs the shelf cost of the items anyway.
   const totalCost = Array.from(cart.values()).reduce((sum, line) => {
-    return (
-      sum +
-      calcCost(
-        line.item,
-        line.onlyDays,
-        line.returnedCreditsUsd,
-        alfaCreditCostRate,
-      ) *
-        line.quantity
-    );
+    return sum + calcCost(line.item) * line.quantity;
   }, 0);
 
   // Max discount = total commission (sell - cost), discount cannot exceed profit
@@ -662,7 +695,8 @@ function KatchFormInner({
       return;
     }
     try {
-      const res = await window.api.mobileServiceItems.create({
+      // LIRA-090: migrated from raw window.api.* to useApi() (rule 19).
+      const res = await api.createMobileServiceItem({
         provider: newItemForm.provider,
         category: newItemForm.category,
         subcategory: newItemForm.subcategory,
@@ -782,18 +816,10 @@ function KatchFormInner({
         );
       }, 0);
 
-      const aggregatedCost = cartItems.reduce((sum, line) => {
-        return (
-          sum +
-          calcCost(
-            line.item,
-            line.onlyDays,
-            line.returnedCreditsUsd,
-            alfaCreditCostRate,
-          ) *
-            line.quantity
-        );
-      }, 0);
+      const aggregatedCost = cartItems.reduce(
+        (sum, line) => sum + calcCost(line.item) * line.quantity,
+        0,
+      );
 
       const aggregatedCommission = Math.max(0, totalSellPrice - aggregatedCost);
 
@@ -928,13 +954,18 @@ function KatchFormInner({
           line.returnedCreditsUsd,
           alfaCreditSellRate,
         );
-        const cost = calcCost(
-          line.item,
-          line.onlyDays,
-          line.returnedCreditsUsd,
-          alfaCreditCostRate,
-        );
+        // LIRA-090 B1: GROSS cost — the session recorder sends it through to the
+        // repository unchanged, and the repo nets to days_cost_lbp when
+        // mobileServiceItemId is present (processTelecomCreditReturn).
+        const cost = calcCost(line.item);
         const commission = sellPrice - cost;
+        const splitComplete =
+          line.onlyDays &&
+          isTelecomSplitComplete({
+            cost_lbp: line.item.catalogCost,
+            days_cost_lbp: line.item.days_cost_lbp,
+            credits: line.item.credits,
+          });
         return Array.from({ length: line.quantity }, () => ({
           provider: activeProvider,
           serviceType: "SEND",
@@ -946,9 +977,17 @@ function KatchFormInner({
           clientName: clientName || undefined,
           itemKey: line.item.key,
           itemCategory: line.item.category,
-          returnedCreditsUsd: line.onlyDays
-            ? line.returnedCreditsUsd
-            : undefined,
+          // LIRA-090 B1/B2: for split-complete items, send mobileServiceItemId so
+          // the repo can compute the carrier-line movement and the returned credits.
+          // Send returnedCreditsUsd ONLY when the operator explicitly edited it.
+          ...(splitComplete && line.item.id != null
+            ? { mobileServiceItemId: line.item.id }
+            : {}),
+          returnedCreditsUsd:
+            line.onlyDays &&
+            (line.returnedCreditsEdited || !splitComplete)
+              ? line.returnedCreditsUsd
+              : undefined,
           note: `${formatCatalogItemName(line.item)}${line.onlyDays ? " [Only Days]" : ""}`,
         }));
       });
@@ -1038,18 +1077,12 @@ function KatchFormInner({
         );
       }, 0);
 
-      const aggregatedCost = cartItems.reduce((sum, line) => {
-        return (
-          sum +
-          calcCost(
-            line.item,
-            line.onlyDays,
-            line.returnedCreditsUsd,
-            alfaCreditCostRate,
-          ) *
-            line.quantity
-        );
-      }, 0);
+      // LIRA-090 B1: GROSS cost — no pre-netting. The repo handles everything
+      // via processTelecomCreditReturn when mobileServiceItemId is present.
+      const aggregatedCost = cartItems.reduce(
+        (sum, line) => sum + calcCost(line.item) * line.quantity,
+        0,
+      );
 
       const discountedTotal = totalSellPrice - discount;
       const aggregatedCommission = Math.max(
@@ -1063,6 +1096,36 @@ function KatchFormInner({
         return `${formatCatalogItemName(line.item)}${qty}${onlyDays}`;
       });
       const note = noteLines.join(", ");
+
+      // LIRA-090 §6.2 (walk-in aggregated payload): the aggregated SEND bundles
+      // all cart lines into ONE transaction. For Only-Days lines, the repo needs
+      // a per-line credit-return entry so it can book each carrier's drawer
+      // movement separately. Build one entry per Only-Days line (expanding qty
+      // so the repo sees each physical unit). The scalar `mobileServiceItemId` /
+      // `returnedCreditsUsd` fields are NOT set on the aggregated call — the
+      // array owns the Only-Days semantics here (spec §6 contract).
+      const telecomCreditReturnsLines = cartItems.flatMap((line) => {
+        if (!line.onlyDays) return [];
+        const splitComplete = isTelecomSplitComplete({
+          cost_lbp: line.item.catalogCost,
+          days_cost_lbp: line.item.days_cost_lbp,
+          credits: line.item.credits,
+        });
+        const entry = {
+          itemCategory: line.item.category,
+          ...(splitComplete && line.item.id != null
+            ? { mobileServiceItemId: line.item.id }
+            : {}),
+          // Only forward returnedCreditsUsd when operator explicitly edited it,
+          // or when the item has no complete split (manual path always forwards it).
+          ...(line.returnedCreditsEdited || !splitComplete
+            ? { returnedCreditsUsd: line.returnedCreditsUsd }
+            : {}),
+        };
+        // One entry per physical unit so the repo credits/movements once per unit.
+        return Array.from({ length: line.quantity }, () => entry);
+      });
+      const hasTelecomReturns = telecomCreditReturnsLines.length > 0;
 
       try {
         const result = await api.addOMTTransaction({
@@ -1104,6 +1167,10 @@ function KatchFormInner({
                 split_role: "carrier" as const,
                 split_units: totalCheckoutUnits,
               }
+            : {}),
+          // LIRA-090 §6.2: per-line credit-return array for the aggregated cart.
+          ...(hasTelecomReturns
+            ? { telecomCreditReturns: telecomCreditReturnsLines }
             : {}),
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,

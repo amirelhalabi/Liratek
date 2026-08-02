@@ -12,7 +12,65 @@ import {
   type CreateMobileServiceItemData,
   type UpdateMobileServiceItemData,
 } from "../repositories/MobileServiceItemRepository.js";
+import { isTelecomSplitComplete } from "../utils/telecomCredit.js";
 import { financialLogger } from "../utils/logger.js";
+
+// =============================================================================
+// LIRA-090 — Only-Days split consistency gate (rule 14: one definition)
+// =============================================================================
+
+/**
+ * The narrow slice of `isTelecomSplitComplete`'s five clauses this gate
+ * enforces at write time (spec §5.1's precondition, restated for
+ * create/update): "`days_cost_lbp` present must imply `days_cost_lbp > 0
+ * && days_cost_lbp < cost_lbp`". An item is allowed to have NO split
+ * configured at all (plan §3 decision 5 — columns start nullable and stay
+ * that way for most catalog items), but the moment an admin supplies a
+ * `days_cost_lbp` value, it must not be nonsensical relative to `cost_lbp` —
+ * a value like 0, negative, or >= `cost_lbp` would make
+ * `deriveItemEconomics` produce a negative/zero `creditCostLbp` and silently
+ * corrupt the Only-Days economics.
+ *
+ * Reuses `isTelecomSplitComplete` rather than re-deriving the
+ * `days_cost_lbp > 0 && days_cost_lbp < cost_lbp` arithmetic by hand (rule
+ * 14). `isTelecomSplitComplete` also requires `credits > 0`, which is NOT
+ * part of this narrower write-time rule — `credits` may legitimately still
+ * be unset when only the days-cost half of the split is being entered (the
+ * full-completeness gate that unlocks the computed Only-Days sale flow is
+ * enforced separately, at sale time, by the money-path repository). So the
+ * effective `credits` value is probed with a positive sentinel (`1`) when
+ * it is not already a positive number, isolating this check to exactly the
+ * `cost_lbp`/`days_cost_lbp` relationship the ticket specifies.
+ */
+function daysCostLbpConsistencyError(candidate: {
+  cost_lbp: number | null | undefined;
+  days_cost_lbp: number | null | undefined;
+  credits: number | null | undefined;
+}): string | null {
+  if (candidate.days_cost_lbp === null || candidate.days_cost_lbp === undefined) {
+    return null; // No split being configured — always valid (plan §3 decision 5).
+  }
+
+  const creditsForCheck =
+    typeof candidate.credits === "number" && candidate.credits > 0
+      ? candidate.credits
+      : 1; // sentinel — see doc comment above
+
+  const consistent = isTelecomSplitComplete({
+    cost_lbp: candidate.cost_lbp,
+    days_cost_lbp: candidate.days_cost_lbp,
+    credits: creditsForCheck,
+  });
+
+  if (!consistent) {
+    return (
+      `days_cost_lbp must be a positive number less than cost_lbp ` +
+      `(cost_lbp=${candidate.cost_lbp ?? "unset"}, days_cost_lbp=${candidate.days_cost_lbp})`
+    );
+  }
+
+  return null;
+}
 
 // =============================================================================
 // Types
@@ -145,6 +203,15 @@ export class MobileServiceItemService {
         };
       }
 
+      const splitError = daysCostLbpConsistencyError({
+        cost_lbp: data.cost_lbp,
+        days_cost_lbp: data.days_cost_lbp,
+        credits: data.credits,
+      });
+      if (splitError) {
+        return { success: false, error: splitError };
+      }
+
       const item = this.repo.createItem(data);
       financialLogger.info(
         { itemId: item.id, provider: data.provider, label: data.label },
@@ -168,6 +235,24 @@ export class MobileServiceItemService {
     data: UpdateMobileServiceItemData,
   ): MobileServiceItemResult {
     try {
+      // LIRA-090: fetch the existing row first — split-consistency validation
+      // needs the EFFECTIVE cost_lbp/credits (this call's value if the caller
+      // sent one, else whatever is already stored) whenever days_cost_lbp is
+      // being set without cost_lbp/credits in the same call.
+      const existing = this.repo.getById(id);
+      if (!existing) {
+        return { success: false, error: "Item not found" };
+      }
+
+      const splitError = daysCostLbpConsistencyError({
+        cost_lbp: data.cost_lbp !== undefined ? data.cost_lbp : existing.cost_lbp,
+        days_cost_lbp: data.days_cost_lbp,
+        credits: data.credits !== undefined ? data.credits : existing.credits,
+      });
+      if (splitError) {
+        return { success: false, error: splitError };
+      }
+
       const item = this.repo.updateItem(id, data);
       if (!item) {
         return { success: false, error: "Item not found" };

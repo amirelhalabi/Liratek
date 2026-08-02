@@ -297,7 +297,7 @@ export function FinancialForm({
       return;
     }
     try {
-      const res = await window.api.mobileServiceItems.create({
+      const res = await api.createMobileServiceItem({
         provider: newItemForm.provider,
         category: newItemForm.category,
         subcategory: newItemForm.subcategory,

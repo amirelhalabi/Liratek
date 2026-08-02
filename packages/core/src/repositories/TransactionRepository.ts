@@ -36,6 +36,8 @@ import {
   type ServiceCashDrawerContext,
 } from "../utils/payments.js";
 import { getPaymentMethodRepository } from "./PaymentMethodRepository.js";
+import { getCarrierLineMovementRepository } from "./CarrierLineMovementRepository.js";
+import { getCarrierLineService } from "../services/CarrierLineService.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -1112,6 +1114,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // opened.
       this._reverseLotoSupplierLedger(original);
 
+      // 5g. LIRA-090 §8, rule 20 — reverse every carrier_line_movements row
+      // tied to this transaction (Only Days credit-return, self-charge).
+      // Type-agnostic, keyed by transaction_id; no-op when none match.
+      this._reverseCarrierLineMovements(original);
+
       // 6. If SALE: cancel sale, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
@@ -1277,6 +1284,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4f. Rule 20 — LOTO ticket TOP_UP soft-void + checkpoint delta-adjust.
       // See voidTransaction's identical step.
       this._reverseLotoSupplierLedger(original);
+
+      // 4g. LIRA-090 §8, rule 20 — carrier_line_movements reversal. See
+      // voidTransaction's identical step.
+      this._reverseCarrierLineMovements(original);
 
       // 5. If SALE: mark sale & items as refunded, restore stock
       if (original.source_table === "sales" && original.source_id) {
@@ -2743,6 +2754,65 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         ticket.checkpoint_id,
         tenantId,
       );
+    }
+  }
+
+  /**
+   * LIRA-090 §8 — reversal owner for `carrier_line_movements` (rule 20).
+   * `carrier_lines` has no `is_refunded` column and is absent from
+   * `_markSourceRefunded`'s whitelist, so every automated credit/validity
+   * mutation a telecom flow makes (`CarrierLineService.applyMovement` —
+   * Only Days credit-return, self-charge) is undone HERE instead.
+   *
+   * Type-agnostic and keyed purely by `transaction_id` (same shape as
+   * `_reversePartnerLedger`, not the type-gated shape of
+   * `_reverseLotoSupplierLedger`) — the movements table was deliberately
+   * designed so ANY flow that mutates a carrier line can hang a movement
+   * off ANY transaction, not just one type. Runs unconditionally on every
+   * void/refund; a no-op when the table doesn't exist (hand-rolled test
+   * DBs predating v140) or when no movement rows match this transaction.
+   *
+   * Each unreversed movement is undone via
+   * `CarrierLineService.reverseMovement` (H3/M2 fix, 2026-07-30 adversarial
+   * review) — which restores `validity_expires_at` from the movement's own
+   * stored `previous_validity_expires_at` snapshot verbatim, rather than
+   * subtracting `validity_days_delta` off whatever the line's CURRENT
+   * expiry happens to be. That closes two bugs the old direct
+   * `reverseDelta` call had: (a) it silently skipped the validity restore
+   * whenever the current expiry was null, with no error and no log, and
+   * (b) even when non-null, a naive subtraction could not undo the §5.2
+   * "already-expired lines extend from today" rebasing. `reverseMovement`
+   * also marks the movement `is_reversed = 1` itself, atomically with the
+   * line update — this method no longer touches either table directly.
+   *
+   * Reuses `CarrierLineMovementRepository.getUnreversedByTransactionId`
+   * (rule 14 — one definition of "unreversed movements for a transaction")
+   * instead of hand-rolling the same predicate as a second SQL string.
+   *
+   * Scoped to `is_reversed = 0` so a defensive re-invocation is a no-op —
+   * belt-and-suspenders on top of the fact that `voidTransaction`/
+   * `refundTransaction` already refuse to run twice on the same original
+   * transaction (their own up-front "already voided"/"already refunded"
+   * guards), same convention `_reverseLotoSupplierLedger`'s
+   * `COALESCE(is_refunded, 0) = 0` guard uses.
+   */
+  private _reverseCarrierLineMovements(original: TransactionEntity): void {
+    const hasTable = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'carrier_line_movements'`,
+      )
+      .get();
+    if (!hasTable) return;
+
+    const movements =
+      getCarrierLineMovementRepository().getUnreversedByTransactionId(
+        original.id,
+      );
+    if (movements.length === 0) return;
+
+    const carrierLineService = getCarrierLineService();
+    for (const m of movements) {
+      carrierLineService.reverseMovement(m.id);
     }
   }
 

@@ -21,6 +21,9 @@ export type ProviderKey =
   | "VOUCHER";
 
 export interface ServiceItem {
+  /** `mobile_service_items.id` — the DB primary key. Used by LIRA-090 Only-Days
+   *  computed flow to send `mobileServiceItemId` to the repository. */
+  id?: number;
   key: string;
   provider: ProviderKey;
   category: string;
@@ -35,6 +38,10 @@ export interface ServiceItem {
   validityDays?: number;
   /** Structured credit amount (USD) — LIRA W6.b. Undefined when not applicable. */
   credits?: number;
+  /** LIRA-090 (v140): LBP cost attributable to validity days alone.
+   *  Null/undefined until configured. Presence (with cost_lbp + credits) enables
+   *  the computed Only-Days flow (`isTelecomSplitComplete`). */
+  days_cost_lbp?: number | null;
 }
 
 interface ItemCostRow {
@@ -165,6 +172,7 @@ export function MobileServiceItemsProvider({
 
   const items = useMemo<ServiceItem[]>(() => {
     const baseItems: ServiceItem[] = dbItems.map((item) => ({
+      id: item.id,
       key: `${item.provider}/${item.category}/${item.subcategory}/${item.label}`,
       provider: item.provider as ProviderKey,
       category: item.category,
@@ -177,6 +185,10 @@ export function MobileServiceItemsProvider({
         ? { validityDays: item.validity_days }
         : {}),
       ...(item.credits != null ? { credits: item.credits } : {}),
+      // LIRA-090: days_cost_lbp enables the computed Only-Days split gate.
+      ...(item.days_cost_lbp != null
+        ? { days_cost_lbp: item.days_cost_lbp }
+        : {}),
     }));
 
     if (!itemCosts.length && !voucherImages.length) return baseItems;

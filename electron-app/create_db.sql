@@ -43,7 +43,10 @@ INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
   (1, 'shop_name', 'Corner Tech'),
   (1, 'default_debt_term_days', '30'),
   (1, 'shop_base_system', 'OMT'),
-  (1, 'allow_out_of_stock_sales', '0');
+  (1, 'allow_out_of_stock_sales', '0'),
+  -- v140 (LIRA-090): default credit sell price (LBP per $1) backing the
+  -- §2.4 resale decision-aid table on telecom catalog items.
+  (1, 'telecom_credit_sell_price_lbp', '100000');
 
 -- Users
 -- NOTE: username stays GLOBALLY unique (committed decision — login has no
@@ -747,6 +750,15 @@ CREATE TABLE IF NOT EXISTS mobile_service_items (
     -- neither; mtc Prepaid vouchers/cards carry one or the other).
     validity_days INTEGER,
     credits REAL,
+    -- v140 (LIRA-090): Only Days credit-return split — nullable, an item
+    -- without these keeps today's manual returnedCreditsUsd behaviour.
+    -- days_cost_lbp: the item's own validity-only cost component (subtracted
+    -- from cost_lbp to get the credit's cost). sell_days_lbp: customer price
+    -- when only the days are sold. sell_credit_lbp: decision-aid price for
+    -- resold recovered credit (§2.4 of TELECOM_DAYS_VALIDITY_PLAN.md).
+    days_cost_lbp REAL,
+    sell_days_lbp REAL,
+    sell_credit_lbp REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tenant_id, provider, category, subcategory, label)
@@ -770,11 +782,49 @@ CREATE TABLE IF NOT EXISTS carrier_lines (
     validity_expires_at TEXT,
     notes TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
+    -- v140 (LIRA-090): the line that receives automated Only Days returns
+    -- and self-charges by default, per carrier. At most one per
+    -- (tenant, carrier) — enforced by the partial unique index below.
+    is_primary INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_carrier_lines_carrier ON carrier_lines(carrier);
 CREATE INDEX IF NOT EXISTS idx_carrier_lines_tenant_id ON carrier_lines(tenant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_carrier_lines_one_primary_per_carrier
+    ON carrier_lines(tenant_id, carrier)
+    WHERE is_primary = 1;
+
+-- Carrier Line Movements (v140 — LIRA-090): the rule-20 reversal owner for
+-- every automated carrier_lines credit/validity mutation (Only Days
+-- credit-return, self-charge). The generic void/refund path reverses a
+-- line's credits/validity by transaction_id instead of leaving it
+-- permanently decremented after a void (carrier_lines has no is_refunded
+-- column and is absent from TransactionRepository._markSourceRefunded's
+-- whitelist).
+CREATE TABLE IF NOT EXISTS carrier_line_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    carrier_line_id INTEGER NOT NULL,
+    transaction_id INTEGER,
+    credits_delta REAL NOT NULL DEFAULT 0,
+    validity_days_delta INTEGER NOT NULL DEFAULT 0,
+    -- v141 (LIRA-090 M2 fix): the line's validity_expires_at exactly as it
+    -- stood immediately BEFORE this movement's mutation. reverseMovement
+    -- restores this verbatim instead of re-deriving a date via day-math,
+    -- which cannot correctly undo the "already-expired extends from today"
+    -- extension rule on reversal.
+    previous_validity_expires_at TEXT,
+    reason TEXT NOT NULL,
+    is_reversed INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (carrier_line_id) REFERENCES carrier_lines(id) ON DELETE CASCADE,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_tenant_id ON carrier_line_movements(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_carrier_line_id ON carrier_line_movements(carrier_line_id);
+CREATE INDEX IF NOT EXISTS idx_carrier_line_movements_transaction_id ON carrier_line_movements(transaction_id);
 
 -- =============================================================================
 -- 4. Financial Management (Drawers & Closings)
@@ -1580,4 +1630,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (137, 'add_drawer_cashouts_table'),
     (138, 'add_wallet_exchanges_table'),
     (139, 'add_system_float_topups_table'),
-    (140, 'rebuild_system_float_topups_as_drawer_transfers');
+    (140, 'rebuild_system_float_topups_as_drawer_transfers'),
+    (141, 'add_telecom_days_credit_validity_schema'),
+    (142, 'add_carrier_line_movement_previous_validity');

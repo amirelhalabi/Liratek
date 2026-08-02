@@ -25,6 +25,19 @@ jest.mock("@liratek/ui", () => ({
   useApi: () => mockApi,
 }));
 
+// @liratek/core barrel chains db imports that cannot resolve under jsdom.
+// Provide minimal stubs for the three pure telecom helpers used by the component.
+jest.mock("@liratek/core", () => ({
+  isTelecomSplitComplete: () => false,
+  deriveItemEconomics: () => ({
+    creditCostLbp: null,
+    maxReturnedUsd: null,
+    recoveredRateLbp: null,
+    selfChargeRateLbp: null,
+  }),
+  deliveredCostLbp: () => null,
+}));
+
 const ITEM: MobileServiceItem = {
   id: 1,
   provider: "iPick",
@@ -37,6 +50,9 @@ const ITEM: MobileServiceItem = {
   is_active: 1,
   validity_days: 10,
   credits: null,
+  days_cost_lbp: null,
+  sell_days_lbp: null,
+  sell_credit_lbp: null,
   created_at: "2026-07-01 00:00:00",
   updated_at: "2026-07-01 00:00:00",
 };

@@ -27,6 +27,10 @@ import {
 } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
+import {
+  MAX_CREDIT_PER_SMS_USD,
+  SMS_TRANSFER_FEE_USD,
+} from "../utils/telecomCredit.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -736,13 +740,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // transfers it must be converted before subtracting, otherwise ~$0.32
         // is shaved off an LBP amount (currency mixing).
         const rechargeCommission = data.price - data.cost;
-        const SMS_COST_PER_SMS_USD = 0.16;
-        const MAX_USD_PER_SMS = 3;
+        // Carrier SMS rules live in ONE place (rule 14, LIRA-090 spec §2.1) —
+        // utils/telecomCredit.ts. These literals used to be re-declared here,
+        // a second copy of the same 0.16 / 3 the Only-Days credit-return model
+        // uses; same values, so this is behaviour-preserving.
         const smsCount =
           data.type === "CREDIT_TRANSFER"
-            ? Math.ceil(data.amount / MAX_USD_PER_SMS)
+            ? Math.ceil(data.amount / MAX_CREDIT_PER_SMS_USD)
             : 0;
-        const smsCostUsd = smsCount * SMS_COST_PER_SMS_USD;
+        const smsCostUsd = smsCount * SMS_TRANSFER_FEE_USD;
         const sellRate = getUsdLbpSellRate(this.db);
         const smsCostInSaleCurrency =
           currency === "LBP" ? smsCostUsd * sellRate : smsCostUsd;
@@ -948,7 +954,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             providerDrawerName,
             "USD",
             -smsCostUsd,
-            `SMS cost: ${smsCount} × $${SMS_COST_PER_SMS_USD}`,
+            `SMS cost: ${smsCount} × $${SMS_TRANSFER_FEE_USD}`,
             createdBy,
           );
           upsertBalanceDelta.run(providerDrawerName, "USD", -smsCostUsd);
