@@ -1,5 +1,5 @@
 /**
- * Migration v141 — add_carrier_line_movement_previous_validity (LIRA-090 M2
+ * Migration v142 — add_carrier_line_movement_previous_validity (LIRA-090 M2
  * fix, 2026-07-30 adversarial review).
  *
  * Covers TELECOM_DAYS_VALIDITY_PLAN.md §8: `carrier_line_movements` gains a
@@ -64,7 +64,7 @@ function tableColumns(db: Database.Database, table: string): string[] {
   ).map((c) => c.name);
 }
 
-describe("Migration v141 — add_carrier_line_movement_previous_validity", () => {
+describe("Migration v142 — add_carrier_line_movement_previous_validity", () => {
   let db: Database.Database;
 
   beforeEach(() => {
@@ -76,7 +76,7 @@ describe("Migration v141 — add_carrier_line_movement_previous_validity", () =>
   });
 
   it("adds a nullable previous_validity_expires_at column", () => {
-    getMigration(141).up(db);
+    getMigration(142).up(db);
     expect(tableColumns(db, "carrier_line_movements")).toContain(
       "previous_validity_expires_at",
     );
@@ -88,7 +88,7 @@ describe("Migration v141 — add_carrier_line_movement_previous_validity", () =>
        VALUES (1, 77, 30, 'SELF_CHARGE')`,
     ).run();
 
-    getMigration(141).up(db);
+    getMigration(142).up(db);
 
     const row = db
       .prepare(
@@ -99,7 +99,7 @@ describe("Migration v141 — add_carrier_line_movement_previous_validity", () =>
   });
 
   it("accepts a real date value after migrating", () => {
-    getMigration(141).up(db);
+    getMigration(142).up(db);
 
     expect(() =>
       db
@@ -120,17 +120,17 @@ describe("Migration v141 — add_carrier_line_movement_previous_validity", () =>
   });
 
   it("up() is idempotent — running twice does not throw", () => {
-    getMigration(141).up(db);
-    expect(() => getMigration(141).up(db)).not.toThrow();
+    getMigration(142).up(db);
+    expect(() => getMigration(142).up(db)).not.toThrow();
   });
 
   it("down() drops the column cleanly", () => {
-    getMigration(141).up(db);
+    getMigration(142).up(db);
     expect(tableColumns(db, "carrier_line_movements")).toContain(
       "previous_validity_expires_at",
     );
 
-    getMigration(141).down(db);
+    getMigration(142).down(db);
 
     expect(tableColumns(db, "carrier_line_movements")).not.toContain(
       "previous_validity_expires_at",
@@ -138,9 +138,9 @@ describe("Migration v141 — add_carrier_line_movement_previous_validity", () =>
   });
 
   it("up() -> down() -> up() round-trips cleanly", () => {
-    getMigration(141).up(db);
-    getMigration(141).down(db);
-    expect(() => getMigration(141).up(db)).not.toThrow();
+    getMigration(142).up(db);
+    getMigration(142).down(db);
+    expect(() => getMigration(142).up(db)).not.toThrow();
     expect(tableColumns(db, "carrier_line_movements")).toContain(
       "previous_validity_expires_at",
     );

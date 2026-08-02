@@ -282,13 +282,24 @@ describe("ServiceStoreCreditReversal — CUSTOMER_ACCOUNT credit rows get a name
     const txnId = txnIdFor(db, fsId);
 
     expect(clientBalance(db, CLIENT_ID)).toEqual({ usd: -100, lbp: 0 });
-    // float model: RECEIVE fills the float back UP by the bare principal
-    // (+receiveAmount), unconditionally — including CUSTOMER_ACCOUNT
-    // cashouts, which only skip the payout DRAWER debit, not the system
-    // posting. The old model drew the float DOWN by totalOwed here.
-    // rule 17: proven failing-first 2026-07-30 — flipping the sign back to
-    // `omtBefore - 100` makes this red (drawer read 4900 instead of 5100).
-    expect(drawer(db, "OMT_System", "USD")).toBeCloseTo(omtBefore + 100, 2);
+    // primary-cash-drawer model (2026-07-30): a RECEIVE cashed out ENTIRELY
+    // to CUSTOMER_ACCOUNT moves no banknotes at all — there is no payout
+    // CASH leg (the whole `x=100` becomes a receivable, per the invariant's
+    // receivable term, §8.4/FEATURE_GUIDE §8.1) and no fee was charged
+    // (`commission: 0`, no `omtFee`), so no fee leg lands in the PCD either.
+    // The PCD (OMT_System) is real physical cash — with zero cash legs, it
+    // must read UNCHANGED at omtBefore. (Was, float model, superseded: the
+    // float unconditionally filled back UP by the bare principal on every
+    // RECEIVE, including CUSTOMER_ACCOUNT cashouts that skip only the payout
+    // DRAWER debit, not the system posting — so it read omtBefore + 100.)
+    // rule 17: this file's PRE-existing assertion (`omtBefore + 100`) was run
+    // against the implemented primary-cash-drawer production code and
+    // observed to fail with `Received: 5000` (== omtBefore, unchanged) —
+    // i.e. the old float-model expectation is red under the current
+    // implementation, and "unchanged" is what the implementation actually
+    // does for a cash-free CUSTOMER_ACCOUNT RECEIVE (verified by running
+    // this suite, not re-derived by hand alone).
+    expect(drawer(db, "OMT_System", "USD")).toBeCloseTo(omtBefore, 2);
 
     txnRepo.voidTransaction(txnId, 1);
 

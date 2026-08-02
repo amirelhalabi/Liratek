@@ -405,8 +405,19 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       };
 
       // Determine if this repayment settles a Service Debt — if so, funds must
-      // flow to the originating provider's system drawer, not just stay in
-      // General. Routing is PER CURRENCY and capped at the client's remaining
+      // flow to the originating provider's cash drawer, not just stay in
+      // General. Primary Cash Drawer plan §0 decision #8 / §1
+      // (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md): under the new
+      // model `OMT_System`/`Whish_System` IS the shop's physical primary
+      // cash drawer (PCD) at the money-transfer counter, not a spendable
+      // float inside the provider's own books — so a client repaying an
+      // OMT/WHISH service debt later moves that share of cash physically
+      // into the PCD. The mechanism below (verified 2026-07-30, kept as-is —
+      // see plan §3 Phase C) already targets that same drawer name; only
+      // this comment and the note strings the RESERVE pair stamps change to
+      // describe a cash move into the counter drawer, not a "settlement
+      // reserve" (there is no settlement/float to reserve against anymore).
+      // Routing is PER CURRENCY and capped at the client's remaining
       // OUTSTANDING service debt in that currency:
       //   - Original 'Service Debt' rows keep their positive amounts forever
       //     (repayments are separate negative rows), so the old "oldest
@@ -525,13 +536,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         );
         upsertBalance.run(legDrawer, legCurrency, leg.amount, tenantId);
 
-        // For Service Debt: transfer from payment drawer → provider system
-        // drawer, capped per currency at the remaining OUTSTANDING service
-        // debt — a leg that also covers non-service debt only routes its
-        // service share. Only drawer-affecting legs can fund a reserve (a
-        // CUSTOMER_ACCOUNT/GIFT_CARD leg moves no cash, so nothing to route).
-        // For non-cash legs (WHISH, OMT wallet), the RESERVE comes out of the
-        // wallet drawer; for CASH legs it comes out of General.
+        // For Service Debt: move cash from the payment drawer → the
+        // provider's primary cash drawer (PCD), capped per currency at the
+        // remaining OUTSTANDING service debt — a leg that also covers
+        // non-service debt only routes its service share. Only
+        // drawer-affecting legs can fund this move (a CUSTOMER_ACCOUNT/
+        // GIFT_CARD leg moves no cash, so nothing to route). For non-cash
+        // legs (WHISH, OMT wallet), the move comes out of the wallet drawer;
+        // for CASH legs it comes out of General.
         if (providerSystemDrawer && isDrawerAffectingMethod(leg.method)) {
           const remaining =
             legCurrency === "USD" ? routeRemainingUsd : routeRemainingLbp;
@@ -547,7 +559,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
               legDrawer,
               legCurrency,
               -routeAmount,
-              `Reserve for ${routingProvider} settlement`,
+              `Move to ${providerSystemDrawer} cash drawer (${routingProvider} service debt)`,
               data.created_by,
               tenantId,
             );
@@ -561,7 +573,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
               providerSystemDrawer,
               legCurrency,
               routeAmount,
-              `Debt repayment → ${providerSystemDrawer}`,
+              `Debt repayment: cash into ${providerSystemDrawer}`,
               data.created_by,
               tenantId,
             );

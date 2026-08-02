@@ -41,7 +41,7 @@ import {
   mobileServiceItemCreateSchema,
   createDrawerCashoutSchema,
   createWalletExchangeSchema,
-  createSystemFloatTopupSchema,
+  createDrawerTransferSchema,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
   type RefundLegsInput,
@@ -76,7 +76,7 @@ import {
   type PartnerWriteOffInput,
   type CreateDrawerCashoutInput,
   type CreateWalletExchangeInput,
-  type CreateSystemFloatTopupInput,
+  type CreateDrawerTransferInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -687,16 +687,16 @@ export const WalletExchangeSchema =
   createWalletExchangeSchema as unknown as z.ZodSchema<CreateWalletExchangeInput>;
 
 // =============================================================================
-// System Float Top-Up (OMT_System / Whish_System)
+// Drawer Transfer (General <-> primary cash drawer, Primary Cash Drawer plan §8.6)
 // =============================================================================
 
-// The system-float-topup contract lives in
-// packages/core/src/validators/systemFloatTopup.ts so the Electron IPC handler
-// and the REST route validate against ONE schema (CLAUDE.md rule 14). Cast
-// bridges the zod-major mismatch (core=zod4, this workspace=zod3); runtime
-// API used is identical.
-export const SystemFloatTopupSchema =
-  createSystemFloatTopupSchema as unknown as z.ZodSchema<CreateSystemFloatTopupInput>;
+// The drawer-transfer contract lives in
+// packages/core/src/validators/drawerTransfer.ts (replacing the retired
+// systemFloatTopup.ts) so the Electron IPC handler and the REST route
+// validate against ONE schema (CLAUDE.md rule 14). Cast bridges the zod-major
+// mismatch (core=zod4, this workspace=zod3); runtime API used is identical.
+export const DrawerTransferSchema =
+  createDrawerTransferSchema as unknown as z.ZodSchema<CreateDrawerTransferInput>;
 
 // =============================================================================
 // Debt Repayment

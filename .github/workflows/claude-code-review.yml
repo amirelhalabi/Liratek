@@ -1,0 +1,57 @@
+name: Claude Code Review
+
+# Manual only — this never runs on push/synchronize.
+# Two ways to start a review:
+#   1. Comment "/claude-review" on the pull request.
+#   2. Actions tab → "Claude Code Review" → Run workflow → enter the PR number.
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to review"
+        required: true
+        type: string
+
+jobs:
+  claude-review:
+    # Comment path: must be a PR (not a plain issue), must contain the trigger
+    # phrase, and must come from someone with write access to the repo.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, '/claude-review') &&
+       (github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'))
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve PR number
+        id: pr
+        env:
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.issue.number }}
+        run: echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ steps.pr.outputs.number }}"
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options

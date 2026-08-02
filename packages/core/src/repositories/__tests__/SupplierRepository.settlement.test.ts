@@ -1,24 +1,29 @@
 /**
  * SupplierRepository — Settlement Tests
  *
- * OMT/WHISH float model (owner-confirmed 2026-07-29): `supplier_ledger`
- * TOP_UP rows for OMT/WHISH are booked FEE-ONLY (`|fee| − |commission|` —
- * `feeOwedDelta`, FinancialServiceRepository.ts) — the shop's commission is
- * ALREADY excluded from what's owed. `OMT_System`/`Whish_System` (the
- * provider float) moves by the PRINCIPAL at SEND/RECEIVE time and is NEVER
- * touched by settlement.
+ * Primary-cash-drawer model (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md
+ * §1/§8, superseding the float model the day after it shipped, 2026-07-30):
+ * `supplier_ledger` TOP_UP rows for OMT/WHISH are booked GROSS
+ * (`grossOwedDelta` — SEND `+(x+f−c)`, RECEIVE `−(x−(f−c))`,
+ * FinancialServiceRepository.ts) — the shop's commission is embedded in
+ * what's owed, not carved out separately. `OMT_System`/`Whish_System` is no
+ * longer a provider float — it IS the shop's physical primary cash drawer
+ * (PCD), so a CASH settlement leg paid to the shop's PRIMARY-system
+ * supplier (`supplier.provider === shop_base_system`) resolves to the PCD
+ * (decision #10, via `resolveServiceCashDrawer`); a non-primary supplier's
+ * settlement is unaffected and keeps paying out of General.
  *
  * Tests the atomic settleTransactions() method, which:
  * 1. Creates a SETTLEMENT supplier_ledger entry (negative = paying out the
- *    fee-net amount already owed — nets the ledger to 0 against the TOP_UP
- *    rows being settled; no separate "minus commission" step, since
- *    commission is already excluded from what's owed)
+ *    gross amount already owed — nets the ledger to 0 against the TOP_UP
+ *    rows being settled; no separate "minus commission" step, since the
+ *    shop's cut is already embedded in the gross figure)
  * 2. Marks financial_services rows as is_settled = 1
  * 3. Creates a unified transactions row for audit trail (commission
- *    stamped as informational metadata only — no drawer effect)
+ *    stamped as informational metadata only — no separate drawer effect)
  * 4. Debits the net payment EXCLUSIVELY through real payment-method legs
- *    (`payments[]`, same mechanism `recordSupplierCashflow` uses) — never a
- *    bare named drawer; `OMT_System`/`Whish_System` is never touched here.
+ *    (`payments[]`, same mechanism `recordSupplierCashflow` uses, resolved
+ *    through `resolveServiceCashDrawer`) — never a bare named drawer.
  *
  * Also tests the RechargeRepository.topUpFromSupplier() flow for
  * Katsh/iPick supplier-credit topups.
@@ -346,12 +351,15 @@ describe("SupplierRepository.settleTransactions()", () => {
     expect(settledAtMs).toBeGreaterThanOrEqual(before - 1000);
   });
 
-  it("commission_usd/commission_lbp are informational only — NO separate General credit beyond the payment leg", () => {
-    // Pre-fix (Fix C): settlement credited General with `+commission`
+  it("commission_usd/commission_lbp are informational only — NO separate PCD credit beyond the payment leg", () => {
+    // Pre-fix (Fix C): settlement credited a drawer with `+commission`
     // regardless of the payment leg used, funded off `drawer_name`. Under
-    // the fee-only model there is nothing left to fund/realize — the
-    // commission is already excluded from `amount_usd`, so General must
-    // reflect ONLY the CASH payment leg's debit, never an extra `+0.1`.
+    // the gross model there is nothing left to fund/realize — the shop's
+    // cut is already embedded in `amount_usd` (grossOwedDelta), so the PCD
+    // (OMT_System — supplier.provider "OMT" === baseSystem "OMT", decision
+    // #10) must reflect ONLY the CASH payment leg's debit, never an extra
+    // `+0.1`. General is untouched entirely (the leg never routes there for
+    // a primary-system supplier).
     const supplierId = seedSupplier(db);
     const txnId = seedUnsettledTransaction(db, "OMT", 100, 0.1);
 
@@ -366,23 +374,31 @@ describe("SupplierRepository.settleTransactions()", () => {
       payments: [{ method: "CASH", currency_code: "USD", amount: 99.9 }],
     });
 
+    const omtSystem = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'",
+      )
+      .get() as any;
     const general = db
       .prepare(
         "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = 'USD'",
       )
       .get() as any;
 
-    // Was 0 → only the CASH leg's −99.9 debit; pre-fix this would have been
-    // −99.9 + 0.1 (commission credit) = −99.8.
-    expect(general.balance).toBeCloseTo(-99.9, 4);
+    // Seeded at 500 → only the CASH leg's −99.9 debit = 400.1; pre-fix
+    // (float model) this leg would have gone to General instead and left
+    // OMT_System untouched at 500.
+    expect(omtSystem.balance).toBeCloseTo(500 - 99.9, 4); // 400.1
+    // General never touched — the leg resolves to the PCD, not General.
+    expect(general.balance).toBeCloseTo(0, 4);
   });
 
-  it("NEVER touches OMT_System (the provider float) — settlement pays exclusively through payment-method legs", () => {
-    // Pre-fix, the settle drawer (often OMT_System) gave up the FULL gross
-    // (net + commission) it had "reserved". Under the float model,
-    // OMT_System already moved by the principal at SEND/RECEIVE time and
-    // carries no "reserve" for settlement to draw down — settlement must
-    // leave it completely untouched.
+  it("settlement pays through the PCD (OMT_System) when the supplier IS the primary provider — General is untouched", () => {
+    // Primary-cash-drawer model (decision #10): OMT_System is no longer a
+    // dormant "provider float" that settlement bypasses — it IS the shop's
+    // physical cash drawer, so a CASH settlement leg paid to the shop's
+    // primary-system supplier (provider "OMT" === baseSystem "OMT") debits
+    // it directly, exactly like every other primary-system cash leg.
     const supplierId = seedSupplier(db);
     const txnId = seedUnsettledTransaction(db, "OMT", 100, 0.1);
 
@@ -427,8 +443,8 @@ describe("SupplierRepository.settleTransactions()", () => {
         .get() as any
     ).balance;
 
-    expect(omtAfter).toBeCloseTo(omtBefore, 4); // ZERO delta from settlement
-    expect(generalAfter).toBeCloseTo(generalBefore - 99.9, 4); // only the CASH leg
+    expect(omtAfter).toBeCloseTo(omtBefore - 99.9, 4); // 500 - 99.9 = 400.1
+    expect(generalAfter).toBeCloseTo(generalBefore, 4); // General never touched
   });
 
   it("creates a unified SUPPLIER_SETTLEMENT transaction row", () => {
@@ -484,33 +500,33 @@ describe("SupplierRepository.settleTransactions()", () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Float model (owner-confirmed 2026-07-29): settlement pays off the
-  // fee-only TOP_UP directly — no separate "realize the commission" step.
+  // Primary-cash-drawer model (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md
+  // §8.3, superseding the 2026-07-29 float model the day after it shipped):
+  // settlement pays off the GROSS TOP_UP directly — still no separate
+  // "realize the commission" step, but now for a different reason.
   //
-  // An OMT system SEND now books the auto TOP_UP as `|fee| − |commission|`
-  // (feeOwedDelta, FinancialServiceRepository.ts) — already net of the
-  // shop's cut. Settlement pays EXACTLY that figure and the ledger nets to
-  // 0 with ONE entry; `OMT_System` is never touched (it already moved by
-  // the $100 principal at SEND time, outside this repository's scope).
+  // An OMT SEND books the auto TOP_UP as `x + f − c` (grossOwedDelta,
+  // FinancialServiceRepository.ts) — the shop's commission is embedded in
+  // the gross figure, not carved out. Settlement pays EXACTLY that figure
+  // and the ledger nets to 0 with ONE entry. `OMT_System` is no longer a
+  // dormant float this settlement bypasses — it IS the shop's PCD, so the
+  // CASH settlement leg debits it directly (decision #10).
   //
-  // Rule 17: FAILS pre-fix (pre float-model) — the old code booked the
-  // GROSS TOP_UP (amount+fee=105), needed a second SUPPLIER_PAYS_US row to
-  // net to 0, and drew the "settle drawer" (often OMT_System) down by the
-  // full gross. Re-verified against this test file's OWN pre-fix shape
-  // (git history) before rewriting it: that version asserted `bal.usd ≈ 0`
-  // via `TOP_UP 105 + SETTLEMENT -104.5 + SUPPLIER_PAYS_US -0.5`, and
-  // `OMT_System` debited the full 105 — this fee-only version replaces both.
+  // Rule 17: this exact scenario (x=100, f=5, c=0.5) is the plan's own
+  // worked example (§8.3): SEND books +104.5 owed. Verified failing
+  // pre-fix (float model) — that version asserted a fee-only TOP_UP of 4.5
+  // and a ZERO OMT_System delta from settlement; both invert here.
   // ─────────────────────────────────────────────────────────────────────────
 
-  it("full cycle: TOP_UP(fee−commission) → settle(same amount) nets ledger to 0; OMT_System untouched, commission informational only", () => {
+  it("full cycle: TOP_UP(gross) → settle(same amount) nets ledger to 0; PCD debited exactly the settlement, commission informational only", () => {
     const supplierId = seedSupplier(db);
     // $100 SEND with $5 provider fee, $0.50 commission (shop's cut of the fee).
     const txnId = seedUnsettledTransaction(db, "OMT", 100, 0.5);
     // The auto ledger entry the repository books at transaction time
-    // (float model): fee-only, |fee| − |commission| = 5 − 0.5 = 4.5.
+    // (gross model, plan §8.3 worked example): x + f − c = 100 + 5 − 0.5 = 104.5.
     db.prepare(
       `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, note)
-       VALUES (?, 'TOP_UP', 4.5, 0, 1, 'Auto: SEND via OMT (fee-only)')`,
+       VALUES (?, 'TOP_UP', 104.5, 0, 1, 'Auto: SEND via OMT (gross)')`,
     ).run(supplierId);
 
     const drawerBefore = (name: string) =>
@@ -527,16 +543,16 @@ describe("SupplierRepository.settleTransactions()", () => {
     repo.settleTransactions({
       supplier_id: supplierId,
       financial_service_ids: [txnId],
-      amount_usd: 4.5, // exactly what's owed — no further commission subtraction
+      amount_usd: 104.5, // exactly what's owed (gross) — no further commission subtraction
       amount_lbp: 0,
-      commission_usd: 0.5, // informational only — no drawer effect
+      commission_usd: 0.5, // informational only — no separate drawer effect
       commission_lbp: 0,
       created_by: 1,
-      payments: [{ method: "CASH", currency_code: "USD", amount: 4.5 }],
+      payments: [{ method: "CASH", currency_code: "USD", amount: 104.5 }],
     });
 
     // Supplier ledger nets to zero per currency:
-    // TOP_UP 4.5 + SETTLEMENT −4.5 = 0. No second (SUPPLIER_PAYS_US) row.
+    // TOP_UP 104.5 + SETTLEMENT −104.5 = 0. No second (SUPPLIER_PAYS_US) row.
     const bal = db
       .prepare(
         "SELECT COALESCE(SUM(amount_usd),0) usd, COALESCE(SUM(amount_lbp),0) lbp FROM supplier_ledger WHERE supplier_id = ?",
@@ -553,11 +569,11 @@ describe("SupplierRepository.settleTransactions()", () => {
       .get(supplierId) as any;
     expect(commRow).toBeUndefined();
 
-    // Drawers: OMT_System (the float) sees ZERO delta from settlement;
-    // General reflects ONLY the CASH payment leg (−4.5), never a separate
-    // commission credit.
-    expect(drawerBefore("OMT_System")).toBeCloseTo(omtBefore, 4);
-    expect(drawerBefore("General")).toBeCloseTo(genBefore - 4.5, 2);
+    // Drawers: the PCD (OMT_System) is debited exactly the settlement
+    // (−104.5); General reflects NOTHING — the leg never routes there for
+    // this primary-system supplier.
+    expect(drawerBefore("OMT_System")).toBeCloseTo(omtBefore - 104.5, 4);
+    expect(drawerBefore("General")).toBeCloseTo(genBefore, 2);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -703,26 +719,36 @@ describe("SupplierRepository.settleTransactions()", () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // End-to-end: INTRA $100 receive, $1 fee, $0.10 commission
+  // End-to-end: INTRA $100 SEND, $1 fee, $0.10 commission (gross)
+  //
+  // Re-derivation note: under the gross model a SOLO RECEIVE's own ledger
+  // entry is NEGATIVE (`−(x−(f−c))` — the provider owes the shop, not the
+  // other way round), while settleTransactions() always books a
+  // shop-pays-out SETTLEMENT row (`-Math.abs(amount_usd)`). A standalone
+  // RECEIVE therefore isn't a scenario this method is ever called for
+  // alone — only a batch whose NET happens to be positive (the MIXED case
+  // below, which does include a RECEIVE leg) is settleable this way.
+  // Re-derived this solo-transaction scenario to a SEND instead, which
+  // does produce a genuine positive gross amount owed:
+  // x + f − c = 100 + 1 − 0.1 = 100.9.
   // ─────────────────────────────────────────────────────────────────────────
 
-  it("correctly settles a $100 INTRA RECEIVE, fee $1, $0.10 commission — pays only the fee-net $0.90", () => {
+  it("correctly settles a $100 OMT SEND, fee $1, $0.10 commission (gross) — pays the gross $100.90", () => {
     const supplierId = seedSupplier(db, "OMT");
     const txnId = seedUnsettledTransaction(db, "OMT", 100, 0.1);
 
-    // Float model: fee = $1, commission = $0.10 → owed = fee − commission =
-    // $0.90 (the $100 principal already moved through OMT_System at
-    // RECEIVE time and is settled separately, outside this repository).
+    // Gross model (plan §8.3): x + f − c = 100 + 1 − 0.1 = 100.9 — the full
+    // amount owed the provider, paid via one CASH leg.
     const result = repo.settleTransactions({
       supplier_id: supplierId,
       financial_service_ids: [txnId],
-      amount_usd: 0.9,
+      amount_usd: 100.9,
       amount_lbp: 0,
       commission_usd: 0.1,
       commission_lbp: 0,
       created_by: 1,
-      note: "INTRA $100 settlement",
-      payments: [{ method: "CASH", currency_code: "USD", amount: 0.9 }],
+      note: "OMT $100 SEND settlement (gross)",
+      payments: [{ method: "CASH", currency_code: "USD", amount: 100.9 }],
     });
 
     expect(result.id).toBeGreaterThan(0);
@@ -731,7 +757,7 @@ describe("SupplierRepository.settleTransactions()", () => {
     const ledger = db
       .prepare("SELECT * FROM supplier_ledger WHERE id = ?")
       .get(result.id) as any;
-    expect(ledger.amount_usd).toBeCloseTo(-0.9, 2);
+    expect(ledger.amount_usd).toBeCloseTo(-100.9, 2);
 
     // Verify financial_services settled
     const fs = db
@@ -742,22 +768,22 @@ describe("SupplierRepository.settleTransactions()", () => {
     expect(fs.is_settled).toBe(1);
     expect(fs.settlement_id).toBe(result.id);
 
-    // General reflects ONLY the CASH leg (−0.9) — no extra commission credit.
-    const general = db
-      .prepare(
-        "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = 'USD'",
-      )
-      .get() as any;
-    expect(general.balance).toBeCloseTo(-0.9, 4);
-
-    // OMT_System (the float) is NEVER touched by settlement — stays at its
-    // seeded value.
+    // PCD (OMT_System) debited exactly the CASH leg (−100.9); General
+    // reflects nothing — the leg never routes there for this primary
+    // provider.
     const omtSystem = db
       .prepare(
         "SELECT balance FROM drawer_balances WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'",
       )
       .get() as any;
-    expect(omtSystem.balance).toBeCloseTo(500, 2); // unchanged
+    expect(omtSystem.balance).toBeCloseTo(500 - 100.9, 4); // 399.1
+
+    const general = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = 'USD'",
+      )
+      .get() as any;
+    expect(general.balance).toBeCloseTo(0, 4); // untouched
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -770,8 +796,10 @@ describe("SupplierRepository.settleTransactions()", () => {
     const txn2 = seedUnsettledTransaction(db, "OMT", 150, 0.2); // $150 recv, $0.20 commission
 
     // Whatever net figure the caller (UI) computes — here 249.70, e.g. the
-    // sum of two fee-net owed amounts — settlement pays it as-is, no further
-    // commission subtraction.
+    // sum of two gross owed amounts read off the ledger — settlement pays
+    // it as-is, no further commission subtraction. (The specific figure is
+    // opaque to this repository — it doesn't need re-deriving from x/f/c;
+    // only the drawer ROUTING does.)
     repo.settleTransactions({
       supplier_id: supplierId,
       financial_service_ids: [txn1, txn2],
@@ -790,44 +818,55 @@ describe("SupplierRepository.settleTransactions()", () => {
       .all(txn1, txn2) as any[];
     expect(settled.every((r) => r.is_settled === 1)).toBe(true);
 
-    // General reflects ONLY the CASH leg — no separate commission credit.
+    // PCD (OMT_System) reflects ONLY the CASH leg — General is untouched.
+    const omtSystem = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'",
+      )
+      .get() as any;
+    expect(omtSystem.balance).toBeCloseTo(500 - 249.7, 4); // 250.3
+
     const general = db
       .prepare(
         "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = 'USD'",
       )
       .get() as any;
-    expect(general.balance).toBeCloseTo(-249.7, 4);
+    expect(general.balance).toBeCloseTo(0, 4);
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // MIXED SEND+RECEIVE settlement batch (the exact scenario that measured
-  // OMT_System at −121 / supplier_ledger at −120.5 pre-fix — no existing
-  // test covered a batch mixing both directions in one settlement call).
+  // MIXED SEND+RECEIVE settlement batch — the single most valuable line in
+  // this file: proves the supplier ledger nets to EXACTLY 0 across a batch
+  // that mixes both directions, under the gross model (plan §8.3).
   //
-  // SEND: x=100, f=5, c=1 → TOP_UP = f−c = 4.
-  // RECEIVE: x=60, f=0 (not given), c=0.5 → TOP_UP = f−c = −0.5 (the
-  // provider owes the shop the commission back — a negative TOP_UP).
-  // Net owed across the batch = 4 + (−0.5) = 3.5 → settlement pays $3.5.
+  // SEND: x=100, f=5, c=1 → TOP_UP = x+f−c = 100+5−1 = 104.
+  // RECEIVE: x=60, f=0 (not given), c=0.5 → TOP_UP = −(x−(f−c)) =
+  //   −(60−(0−0.5)) = −(60+0.5) = −60.5.
+  // Net owed across the batch = 104 + (−60.5) = 43.5 → settlement pays $43.5.
+  // Commission total (informational) = 1 (SEND) + 0.5 (RECEIVE) = 1.5,
+  // unchanged from the fee-only model — gross vs fee-only only moves WHERE
+  // the principal is tracked, not the size of the shop's own cut.
   // ─────────────────────────────────────────────────────────────────────────
 
-  it("MIXED SEND+RECEIVE batch: supplier_ledger nets to EXACTLY 0, OMT_System sees ZERO delta from settlement", () => {
+  it("MIXED SEND+RECEIVE batch: supplier_ledger nets to EXACTLY 0; the PCD (OMT_System) absorbs the settlement, General untouched", () => {
     const supplierId = seedSupplier(db, "OMT");
 
-    // SEND leg: $100 principal, $5 fee, $1 commission — TOP_UP = 5-1 = 4.
+    // SEND leg: $100 principal, $5 fee, $1 commission — TOP_UP = 100+5-1 = 104.
     const sendTxn = seedUnsettledTransaction(db, "OMT", 100, 1);
     db.prepare(
       `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, note)
-       VALUES (?, 'TOP_UP', 4, 0, 1, 'Auto: SEND via OMT (fee-only)')`,
+       VALUES (?, 'TOP_UP', 104, 0, 1, 'Auto: SEND via OMT (gross)')`,
     ).run(supplierId);
 
-    // RECEIVE leg: $60 principal, no fee, $0.5 commission — TOP_UP = 0-0.5 = -0.5.
+    // RECEIVE leg: $60 principal, no fee, $0.5 commission —
+    // TOP_UP = -(60-(0-0.5)) = -60.5.
     const receiveTxn = seedUnsettledTransaction(db, "OMT", 60, 0.5);
     db.prepare(
       `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, is_auto, note)
-       VALUES (?, 'TOP_UP', -0.5, 0, 1, 'Auto: RECEIVE via OMT (fee-only)')`,
+       VALUES (?, 'TOP_UP', -60.5, 0, 1, 'Auto: RECEIVE via OMT (gross)')`,
     ).run(supplierId);
 
-    // Sanity: outstanding balance before settling = 4 + (-0.5) = 3.5.
+    // Sanity: outstanding balance before settling = 104 + (-60.5) = 43.5.
     const owedBefore = (
       db
         .prepare(
@@ -835,10 +874,10 @@ describe("SupplierRepository.settleTransactions()", () => {
         )
         .get(supplierId) as any
     ).usd;
-    expect(owedBefore).toBeCloseTo(3.5, 4);
+    expect(owedBefore).toBeCloseTo(43.5, 4);
 
-    // OMT_System already reflects whatever the SEND (-100) and RECEIVE (+60)
-    // principal postings did at transaction time (FinancialServiceRepository,
+    // OMT_System already reflects whatever the SEND (+100) and RECEIVE (-60)
+    // cash postings did at transaction time (FinancialServiceRepository,
     // out of this repository's scope) — snapshot it as "pre-settlement",
     // exactly like every other test in this file does.
     const omtBefore = (
@@ -859,17 +898,18 @@ describe("SupplierRepository.settleTransactions()", () => {
     const result = repo.settleTransactions({
       supplier_id: supplierId,
       financial_service_ids: [sendTxn, receiveTxn],
-      amount_usd: 3.5,
+      amount_usd: 43.5,
       amount_lbp: 0,
       commission_usd: 1.5, // 1 (SEND) + 0.5 (RECEIVE) — informational only
       commission_lbp: 0,
       created_by: 1,
-      payments: [{ method: "CASH", currency_code: "USD", amount: 3.5 }],
+      payments: [{ method: "CASH", currency_code: "USD", amount: 43.5 }],
     });
 
-    // supplier_ledger nets to EXACTLY 0: TOP_UP(4) + TOP_UP(-0.5) +
-    // SETTLEMENT(-3.5) = 0 — the double-count the brief measured (-121 /
-    // -120.5) is gone.
+    // supplier_ledger nets to EXACTLY 0: TOP_UP(104) + TOP_UP(-60.5) +
+    // SETTLEMENT(-43.5) = 0 — still the single most valuable assertion in
+    // this file; unchanged by the gross re-derivation (only the drawer
+    // expectations below change).
     const ledgerBalance = (
       db
         .prepare(
@@ -888,9 +928,9 @@ describe("SupplierRepository.settleTransactions()", () => {
     expect(settled.every((r) => r.is_settled === 1)).toBe(true);
     expect(settled.every((r) => r.settlement_id === result.id)).toBe(true);
 
-    // OMT_System (the float) sees ZERO delta from settlement — it was
-    // already at its correct post-transaction value before this call, and
-    // stays there: settlement pays ONLY through the CASH leg.
+    // The PCD (OMT_System) absorbs the $43.5 settlement — it is the shop's
+    // physical cash drawer for this primary-system supplier (decision #10),
+    // not a dormant float settlement bypasses.
     const omtAfter = (
       db
         .prepare(
@@ -898,9 +938,10 @@ describe("SupplierRepository.settleTransactions()", () => {
         )
         .get() as any
     ).balance;
-    expect(omtAfter).toBeCloseTo(omtBefore, 4);
+    expect(omtAfter).toBeCloseTo(omtBefore - 43.5, 4);
 
-    // General reflects ONLY the $3.5 CASH leg.
+    // General reflects NOTHING — the leg never routes there for this
+    // primary-system supplier.
     const generalAfter = (
       db
         .prepare(
@@ -908,7 +949,78 @@ describe("SupplierRepository.settleTransactions()", () => {
         )
         .get() as any
     ).balance;
-    expect(generalAfter).toBeCloseTo(generalBefore - 3.5, 4);
+    expect(generalAfter).toBeCloseTo(generalBefore, 4);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Regression guard (task C): a NON-primary supplier (an ordinary product
+  // supplier, provider !== shop_base_system) must be COMPLETELY unaffected
+  // by the PCD routing change — its CASH settlement leg still resolves to
+  // General, exactly as before resolveServiceCashDrawer existed.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("non-primary supplier (ordinary product supplier) settles out of General — PCD untouched", () => {
+    // provider "Acme" !== baseSystem "OMT" (SettingsService.getShopBaseSystem()
+    // defaults to "OMT" when no shop_base_system row exists, as in this
+    // fixture) → CASH falls through resolveServiceCashDrawer to
+    // paymentMethodToDrawerName("CASH") = "General" (payments.ts), exactly
+    // as it did before the PCD model existed.
+    const supplierId = seedSupplier(db, "Acme");
+    const txnId = seedUnsettledTransaction(db, "Acme", 50, 0);
+
+    const omtBefore = (
+      db
+        .prepare(
+          "SELECT balance FROM drawer_balances WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'",
+        )
+        .get() as any
+    ).balance;
+    const generalBefore = (
+      db
+        .prepare(
+          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = 'USD'",
+        )
+        .get() as any
+    ).balance;
+
+    repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [txnId],
+      amount_usd: 50,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 0,
+      created_by: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 50 }],
+    });
+
+    const omtAfter = (
+      db
+        .prepare(
+          "SELECT balance FROM drawer_balances WHERE drawer_name = 'OMT_System' AND currency_code = 'USD'",
+        )
+        .get() as any
+    ).balance;
+    const generalAfter = (
+      db
+        .prepare(
+          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = 'USD'",
+        )
+        .get() as any
+    ).balance;
+
+    // General absorbs the full $50 CASH leg.
+    expect(generalAfter).toBeCloseTo(generalBefore - 50, 4);
+    // OMT_System (the PCD) is completely untouched — routing to it is
+    // gated on provider === baseSystem, which "Acme" never satisfies.
+    expect(omtAfter).toBeCloseTo(omtBefore, 4);
+
+    const fs = db
+      .prepare(
+        "SELECT is_settled, settlement_id FROM financial_services WHERE id = ?",
+      )
+      .get(txnId) as any;
+    expect(fs.is_settled).toBe(1);
   });
 });
 

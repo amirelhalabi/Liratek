@@ -7,8 +7,14 @@ import {
 } from "../constants/transactionTypes.js";
 import {
   isDrawerAffectingMethod,
-  paymentMethodToDrawerName,
+  resolveServiceCashDrawer,
+  type ServiceCashDrawerContext,
 } from "../utils/payments.js";
+// Primary Cash Drawer plan §8.2 (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md):
+// resolveServiceCashDrawer needs the shop's base system to decide whether a
+// supplier's cash leg is a primary-system leg (→ PCD) or not — reuse the one
+// canonical getter rather than re-reading system_settings a third time.
+import { getSettingsService } from "../services/SettingsService.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
@@ -89,41 +95,46 @@ export interface SettleTransactionsData {
   /** IDs from financial_services to mark as settled */
   financial_service_ids: number[];
   /**
-   * Net amount paid to the supplier. Under the OMT/WHISH float model
-   * (owner-confirmed 2026-07-29), `financial_services.supplier_owed` /
-   * `supplier_ledger` TOP_UP rows are booked FEE-ONLY — already net of the
-   * shop's commission (`feeOwedDelta` = |fee| − |commission|,
-   * FinancialServiceRepository.ts) — so this figure is simply the sum of
-   * the outstanding `supplier_owed` for `financial_service_ids`. It must
-   * NOT be further reduced by `commission_usd`/`commission_lbp` below — the
-   * commission is already excluded from the owed figure, and subtracting it
-   * again double-nets the shop's cut out of the payment (the caller's own
-   * bug this settlement redesign fixes; see Suppliers/index.tsx).
+   * Net amount paid to the supplier. Under the Primary Cash Drawer model
+   * (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md §8.3 — supersedes PR
+   * #66's float-model fee-only booking), `financial_services.supplier_owed`
+   * / `supplier_ledger` TOP_UP rows are booked GROSS — principal + fee −
+   * commission (`grossOwedDelta`, FinancialServiceRepository.ts) — so this
+   * figure is simply the sum of the outstanding `supplier_owed` for
+   * `financial_service_ids`. It must NOT be further reduced by
+   * `commission_usd`/`commission_lbp` below — the shop's cut is already
+   * embedded in the gross figure (it nets out to the shop's cut over a
+   * SEND+RECEIVE cycle), and subtracting it again double-nets the shop's cut
+   * out of the payment (the caller's own bug this settlement redesign
+   * fixes; see Suppliers/index.tsx).
    */
   amount_usd: number;
   amount_lbp: number;
   /**
    * Total commission this batch represents — INFORMATIONAL ONLY (audit/
    * display), stamped onto the settlement transaction's metadata. It has NO
-   * drawer or ledger effect: under the fee-only model the shop's cut is
-   * already excluded from `amount_usd`/`amount_lbp` (and from the TOP_UP
-   * rows being settled), so there is nothing left to "fund" or "realize"
-   * here — the commission simply falls out of General as the difference
-   * between what the customer paid (fee f, at transaction time) and what
-   * gets remitted to the provider (f − c, here). Pre-fix, this field drove a
-   * separate `General += commission` / settle-drawer `−= commission` pair
-   * plus a `SUPPLIER_PAYS_US` ledger row — both are REMOVED (they duplicated
-   * money already reflected in the fee-only TOP_UP/SETTLEMENT pair).
+   * drawer or ledger effect: under the GROSS model (plan §8.3) the shop's
+   * cut is already embedded in `amount_usd`/`amount_lbp` (and in the TOP_UP
+   * rows being settled) via `grossOwedDelta`, so there is nothing left to
+   * "fund" or "realize" here — the commission simply stays behind in
+   * whichever drawer took the original transaction's cash (the primary cash
+   * drawer, PCD, for the shop's primary provider) as the difference between
+   * what the customer paid (fee f) and what gets remitted to the provider
+   * (f − c). This field drives NO separate `drawer += commission` pair or
+   * `SUPPLIER_PAYS_US` ledger row — that would double-count money already
+   * reflected in the gross TOP_UP/SETTLEMENT pair.
    */
   commission_usd: number;
   commission_lbp: number;
   /**
-   * @deprecated No longer used to move money. Under the float model,
-   * OMT_System/Whish_System is the provider float itself, not a real cash
-   * drawer — settlement now pays the net amount EXCLUSIVELY through
-   * `payments[]` (real payment-method legs, same as `recordSupplierCashflow`),
-   * never a bare named drawer. Kept optional for backward-compatible typing
-   * only; any value passed here is ignored.
+   * @deprecated No longer used to move money. `OMT_System`/`Whish_System` IS
+   * the shop's real physical cash drawer at the money-transfer counter (plan
+   * §1) — but settlement still pays the net amount EXCLUSIVELY through
+   * `payments[]` (real payment-method legs, resolved to the PCD when the
+   * supplier is the shop's primary provider — see `settleTransactions`'s
+   * `resolveServiceCashDrawer` call), never a bare named drawer. Kept
+   * optional for backward-compatible typing only; any value passed here is
+   * ignored.
    */
   drawer_name?: string;
   note?: string;
@@ -749,29 +760,33 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   /**
    * Atomically settle a batch of financial_services transactions with a supplier.
    *
-   * OMT/WHISH float model (owner-confirmed 2026-07-29; replaces the old
-   * "Fix C funded commission" design): `supplier_ledger` TOP_UP rows for
-   * OMT/WHISH are now booked FEE-ONLY (`|fee| − |commission|` —
-   * `feeOwedDelta`, FinancialServiceRepository.ts) — the shop's commission
-   * is ALREADY excluded from what's owed. Settlement therefore does nothing
-   * but pay off that same fee-net figure and mark the rows settled; there is
-   * no separate "realize the commission" step anymore (no drawer funding,
-   * no `SUPPLIER_PAYS_US` credit row) — that machinery existed only to
-   * carve `c` back out of a GROSS TOP_UP (`amount + fee`), which no longer
-   * exists. `OMT_System`/`Whish_System` (the provider float) is NEVER
-   * touched here — it already moved by the transfer's principal at SEND/
-   * RECEIVE time and settlement covers the fee split only.
+   * Primary Cash Drawer model (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md
+   * §1/§8.3 — supersedes PR #66's float model): `supplier_ledger` TOP_UP rows
+   * for OMT/WHISH are booked GROSS (`grossOwedDelta`,
+   * FinancialServiceRepository.ts) — principal + fee − commission — so the
+   * shop's commission is embedded in what's owed, not carved out separately.
+   * Settlement pays off that same gross figure and marks the rows settled;
+   * there is no separate "realize the commission" step (no
+   * `SUPPLIER_PAYS_US` credit row) — the commission simply stays behind as
+   * the difference between what was collected and what's remitted.
+   * `OMT_System`/`Whish_System` is no longer a provider float — it IS the
+   * shop's physical primary cash drawer (PCD), so a settlement paid in CASH
+   * against the shop's PRIMARY-system supplier now resolves that leg to the
+   * PCD (decision #10, via `resolveServiceCashDrawer`); a non-primary
+   * supplier's settlement is unaffected and keeps its existing drawer
+   * (General / the method's own wallet drawer).
    *
    * In a single DB transaction:
    * 1. Insert a SETTLEMENT-typed supplier_ledger entry (negative = shop
-   *    paying out `amount_usd`/`amount_lbp`, the fee-net amount already
+   *    paying out `amount_usd`/`amount_lbp`, the gross amount already
    *    owed — nets the ledger to 0 against the TOP_UP rows being settled)
    * 2. Mark all specified financial_services rows as is_settled = 1
    * 3. Create unified transactions row for audit trail (commission stamped
-   *    as informational metadata only — no drawer effect)
+   *    as informational metadata only — no separate drawer effect)
    * 4. Debit the net payment through real payment-method legs (`payments[]`,
-   *    same mechanism as `recordSupplierCashflow`) — never a bare named
-   *    drawer (see `SettleTransactionsData.drawer_name`'s deprecation)
+   *    same mechanism as `recordSupplierCashflow`, resolved through
+   *    `resolveServiceCashDrawer`) — never a bare named drawer (see
+   *    `SettleTransactionsData.drawer_name`'s deprecation)
    */
   settleTransactions(data: SettleTransactionsData): { id: number } {
     if (!data.financial_service_ids.length) {
@@ -787,6 +802,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
     try {
       const tenantId = getCurrentTenantId();
+      // Primary Cash Drawer plan §1/§8.2 (decision #10): resolve once,
+      // read-only, before the write transaction below — a settlement whose
+      // supplier IS the shop's primary provider (shop_base_system) pays its
+      // CASH legs out of the PCD, not General.
+      const supplier = this.findById(data.supplier_id);
+      const drawerCtx: ServiceCashDrawerContext = {
+        provider: supplier?.provider ?? "",
+        baseSystem: getSettingsService().getShopBaseSystem(),
+      };
       const settle = this.db.transaction(() => {
         // Timestamps are stamped by SQLite (datetime('now')) so they share the
         // 'YYYY-MM-DD HH:MM:SS' format of every CURRENT_TIMESTAMP column. A JS
@@ -839,15 +863,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // of a raw INSERT — the row now gains the funnel's completeness
         // guards and exchange-rate snapshot (previously always NULL here).
         //
-        // Float model (owner-confirmed 2026-07-29): NO separate "realize the
-        // commission" step exists anymore. `commission_usd`/`commission_lbp`
-        // are stamped below purely as audit metadata — under the fee-only
-        // model the shop's cut is already excluded from `amount_usd`/
-        // `amount_lbp` (and from the TOP_UP rows being settled), so there is
-        // nothing left to fund/credit here; the old `General += commission` /
-        // settle-drawer `-= commission` pair plus the `SUPPLIER_PAYS_US`
-        // ledger row are REMOVED — they existed only to carve `c` back out of
-        // a GROSS TOP_UP that no longer exists.
+        // Primary Cash Drawer model (plan §8.3): NO separate "realize the
+        // commission" step exists. `commission_usd`/`commission_lbp` are
+        // stamped below purely as audit metadata — under the GROSS model the
+        // shop's cut is already embedded in `amount_usd`/`amount_lbp` (and in
+        // the TOP_UP rows being settled) via `grossOwedDelta`, so there is
+        // nothing left to fund/credit here; there is no separate
+        // `drawer += commission` pair or `SUPPLIER_PAYS_US` ledger row — that
+        // would double-count money already reflected in the gross TOP_UP/
+        // SETTLEMENT pair.
         const settlementMethod =
           data.payments && data.payments.length > 0
             ? data.payments.length === 1
@@ -897,7 +921,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         if (data.payments && data.payments.length > 0) {
           for (const p of data.payments) {
             if (!isDrawerAffectingMethod(p.method)) continue;
-            const drawerName = paymentMethodToDrawerName(p.method);
+            // Primary Cash Drawer plan §1/§8.2 (decision #10): a CASH leg
+            // paid to the shop's primary-system supplier resolves to the
+            // PCD; every other supplier/method falls through unchanged.
+            const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
             applyDrawerDelta(this.db, {
               drawerName,
               currencyCode: p.currency_code,
@@ -932,7 +959,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *
    * Uses real payment-method legs so the cash hits the CORRECT drawer (General
    * for CASH, the wallet drawer for WHISH/OMT, etc.) — never the provider's own
-   * stock drawer. Works with zero pending transactions.
+   * stock drawer. When the supplier IS the shop's primary provider
+   * (`shop_base_system`), a CASH leg resolves to the primary cash drawer
+   * (PCD) instead of General (Primary Cash Drawer plan §1/§8.2, decision
+   * #10). Works with zero pending transactions.
    *
    *   PAY     → ledger −amount (we owe less), drawer −amount (cash out)
    *   RECEIVE → ledger +amount (their debt to us settled), drawer +amount (cash in)
@@ -953,6 +983,13 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
     try {
       const tenantId = getCurrentTenantId();
+      // Primary Cash Drawer plan §1/§8.2 (decision #10) — same resolution as
+      // settleTransactions, read-only before the write transaction below.
+      const supplier = this.findById(data.supplier_id);
+      const drawerCtx: ServiceCashDrawerContext = {
+        provider: supplier?.provider ?? "",
+        baseSystem: getSettingsService().getShopBaseSystem(),
+      };
       const run = this.db.transaction(() => {
         // SQLite-side timestamps — see settleTransactions (A6 ordering).
         const isPay = data.direction === "PAY";
@@ -1045,7 +1082,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
         for (const p of data.payments) {
           if (!isDrawerAffectingMethod(p.method)) continue;
-          const drawerName = paymentMethodToDrawerName(p.method);
+          // Primary Cash Drawer plan §1/§8.2 (decision #10): a CASH leg to
+          // the shop's primary-system supplier resolves to the PCD.
+          const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
           const delta = sign * Math.abs(p.amount);
           applyDrawerDelta(this.db, {
             drawerName,

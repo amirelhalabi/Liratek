@@ -3,14 +3,13 @@ import {
   DrawerTopUpEntity,
   CreateDrawerTopUpData,
   CreateDrawerTopUpFromDrawerData,
-  CreateSystemFloatTopupData,
+  TransferBetweenDrawersData,
   SourceDrawerBalance,
-  SYSTEM_FLOAT_DRAWER_NAMES,
   GENERAL_DRAWER,
   getDrawerTopUpRepository,
 } from "../repositories/DrawerTopUpRepository.js";
 import { getCurrencyRepository } from "../repositories/CurrencyRepository.js";
-import { toErrorString } from "../utils/errors.js";
+import { isAppError, toErrorString } from "../utils/errors.js";
 import { createChildLogger } from "../utils/logger.js";
 
 const drawerTopUpLogger = createChildLogger({ module: "drawer-topup" });
@@ -19,6 +18,13 @@ export interface DrawerTopUpResult {
   success: boolean;
   id?: number;
   error?: string;
+  /** Machine-readable error code (plan §8.5's structured contract) — set
+   *  alongside `details` when the repository throws an `AppError` (e.g.
+   *  `InsufficientDrawerFundsError`), so both transports and the frontend
+   *  share ONE error-handling path that switches on `code`, never a message
+   *  string match. */
+  code?: string;
+  details?: unknown;
 }
 
 export class DrawerTopUpService {
@@ -202,34 +208,39 @@ export class DrawerTopUpService {
   }
 
   /**
-   * Fund the OMT_System / Whish_System spendable float (owner-confirmed
-   * 2026-07-29 float model) from any drawer holding a spendable balance.
+   * Generic, reversible cash transfer between any two of the shop's own
+   * drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
+   * drawer (OMT_System/Whish_System) is the pair the UI exposes, replacing
+   * the old one-directional `fundSystemDrawer` (owner-confirmed 2026-07-29
+   * float model, General -> OMT_System/Whish_System only).
+   *
+   * Preserves `InsufficientDrawerFundsError`'s `code`/`details` on the
+   * returned result (rather than collapsing it to a bare string like the
+   * other catch blocks here) — task H: the transfer's insufficient-funds
+   * error reuses plan §8.5's structured contract so the frontend has ONE
+   * error-handling path (switch on `code`) shared with the RECEIVE-payout
+   * guard.
    */
-  fundSystemDrawer(
-    data: CreateSystemFloatTopupData,
-    userId: number,
+  transferBetweenDrawers(
+    data: TransferBetweenDrawersData,
   ): DrawerTopUpResult {
     try {
-      if (!SYSTEM_FLOAT_DRAWER_NAMES.includes(data.targetDrawer)) {
-        return {
-          success: false,
-          error: `Invalid target drawer "${data.targetDrawer}" — must be one of: ${SYSTEM_FLOAT_DRAWER_NAMES.join(", ")}`,
-        };
+      if (!data.fromDrawer || !data.fromDrawer.trim()) {
+        return { success: false, error: "fromDrawer is required." };
+      }
+      if (!data.toDrawer || !data.toDrawer.trim()) {
+        return { success: false, error: "toDrawer is required." };
       }
 
-      if (!data.fundingDrawer || !data.fundingDrawer.trim()) {
-        return { success: false, error: "fundingDrawer is required." };
-      }
-
-      if ((data.amount_usd ?? 0) <= 0 && (data.amount_lbp ?? 0) <= 0) {
+      if ((data.amountUsd ?? 0) <= 0 && (data.amountLbp ?? 0) <= 0) {
         return {
           success: false,
           error: "At least one amount (USD or LBP) must be greater than zero.",
         };
       }
 
-      if (data.transaction_time) {
-        const txTime = new Date(data.transaction_time);
+      if (data.transactionTime) {
+        const txTime = new Date(data.transactionTime);
         if (isNaN(txTime.getTime())) {
           return { success: false, error: "Invalid transaction_time format" };
         }
@@ -241,36 +252,48 @@ export class DrawerTopUpService {
         }
       }
 
-      const id = this.repo.fundSystemDrawer(
-        { ...data, fundingDrawer: data.fundingDrawer.trim() },
-        userId,
-      );
+      const id = this.repo.transferBetweenDrawers({
+        ...data,
+        fromDrawer: data.fromDrawer.trim(),
+        toDrawer: data.toDrawer.trim(),
+      });
 
       drawerTopUpLogger.info(
         {
           id,
-          targetDrawer: data.targetDrawer,
-          fundingDrawer: data.fundingDrawer,
-          amountUSD: data.amount_usd,
-          amountLBP: data.amount_lbp,
+          fromDrawer: data.fromDrawer,
+          toDrawer: data.toDrawer,
+          amountUSD: data.amountUsd,
+          amountLBP: data.amountLbp,
           notes: data.notes,
-          userId,
+          userId: data.createdBy,
         },
-        "System float top-up recorded",
+        "Drawer transfer recorded",
       );
 
       return { success: true, id };
     } catch (error) {
       drawerTopUpLogger.error(
         { error, data },
-        "DrawerTopUpService.fundSystemDrawer error",
+        "DrawerTopUpService.transferBetweenDrawers error",
       );
+      if (isAppError(error)) {
+        return {
+          success: false,
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        };
+      }
       return { success: false, error: toErrorString(error) };
     }
   }
 
   /**
-   * Get available source drawers (OMT_System) with their balances.
+   * Get available primary-cash-drawer balances (OMT_System / Whish_System)
+   * for transfer source/destination selection (Primary Cash Drawer plan
+   * §8.6 — un-hardcoded from OMT_System-only, see
+   * `DrawerTopUpRepository.getSourceDrawerBalances`).
    */
   getSourceDrawers(): SourceDrawerBalance[] {
     try {

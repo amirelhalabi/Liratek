@@ -613,9 +613,12 @@ function DrawerCurrencySection() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // OMT_System / Whish_System are the physical cash drawer at the shop's
+  // money-transfer counter (Primary Cash Drawer plan §1) — not a provider
+  // float balance (PR #66's rejected model). Names unchanged, labels only.
   const DRAWER_LABELS: Record<string, string> = {
     General: "General",
-    OMT_System: "OMT System",
+    OMT_System: "OMT Cash Drawer",
     OMT_App: "OMT App",
     Whish_App: "Whish App",
     Binance: "Binance",
@@ -623,7 +626,7 @@ function DrawerCurrencySection() {
     Alfa: "Alfa",
     iPick: "iPick",
     Katsh: "Katsh",
-    Whish_System: "Whish System",
+    Whish_System: "Whish Cash Drawer",
   };
 
   const load = useCallback(async () => {

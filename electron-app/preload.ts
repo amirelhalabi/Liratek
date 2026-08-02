@@ -777,16 +777,19 @@ contextBridge.exposeInMainWorld("api", {
       source_drawer: string;
       notes?: string;
     }) => ipcRenderer.invoke("drawer-topup:create-from-drawer", data),
-    /** Fund the OMT_System / Whish_System spendable float from any drawer
-     *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
-    fundSystem: (data: {
-      targetDrawer: "OMT_System" | "Whish_System";
-      fundingDrawer: string;
+    /** Generic, reversible cash transfer between any two of the shop's own
+     *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary
+     *  cash drawer (OMT_System/Whish_System) is the pair the UI exposes.
+     *  Replaces the retired `fundSystem` (one-directional, owner-confirmed
+     *  2026-07-29 float model). */
+    transfer: (data: {
+      fromDrawer: string;
+      toDrawer: string;
       amount_usd: number;
       amount_lbp: number;
       notes?: string;
       transaction_time?: string;
-    }) => ipcRenderer.invoke("drawer-topup:fund-system", data),
+    }) => ipcRenderer.invoke("drawer-topup:transfer", data),
     getSourceDrawers: () => ipcRenderer.invoke("drawer-topup:source-drawers"),
     getHistory: (limit?: number) =>
       ipcRenderer.invoke("drawer-topup:history", { limit }),

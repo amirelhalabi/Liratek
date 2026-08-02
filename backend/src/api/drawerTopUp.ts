@@ -12,7 +12,7 @@
 import express from "express";
 import {
   getDrawerTopUpService,
-  createSystemFloatTopupSchema,
+  createDrawerTransferSchema,
 } from "@liratek/core";
 import {
   authenticateJWT,
@@ -115,19 +115,37 @@ router.post("/from-drawer", writeGate, (req, res) => {
   }
 });
 
-// POST /api/drawer-topup/fund-system — fund the OMT_System / Whish_System
-// spendable float from any drawer holding a spendable balance (owner-
-// confirmed 2026-07-29 float model). Validation (target-drawer enum,
-// required funding drawer, at-least-one-currency) lives in the shared core
-// schema (rule 14) so IPC and REST reject the exact same malformed payloads.
+// POST /api/drawer-topup/transfer — generic, reversible cash transfer
+// between any two of the shop's own drawers (Primary Cash Drawer plan §8.6).
+// General <-> the primary cash drawer (OMT_System/Whish_System) is the pair
+// the UI exposes. Replaces the retired "/fund-system" route (one-directional,
+// owner-confirmed 2026-07-29 float model). Validation (distinct drawers,
+// at-least-one-currency) lives in the shared core schema (rule 14) so IPC
+// and REST reject the exact same malformed payloads. `userId` is injected
+// from the JWT (rule 19c) — never trusted from the body — and the service
+// result (including any AppError's `code`/`details`, the general envelope
+// §8.5) is returned verbatim, envelope-identical to IPC, HTTP 200 even on
+// failure.
 router.post(
-  "/fund-system",
+  "/transfer",
   writeGate,
-  validateRequest(createSystemFloatTopupSchema),
+  validateRequest(createDrawerTransferSchema),
   (req, res) => {
     try {
       const userId = (req as AuthRequest).user!.userId;
-      res.json(getDrawerTopUpService().fundSystemDrawer(req.body, userId));
+      const { fromDrawer, toDrawer, amount_usd, amount_lbp, notes, transaction_time } =
+        req.body;
+      res.json(
+        getDrawerTopUpService().transferBetweenDrawers({
+          fromDrawer,
+          toDrawer,
+          amountUsd: amount_usd,
+          amountLbp: amount_lbp,
+          notes,
+          transactionTime: transaction_time,
+          createdBy: userId,
+        }),
+      );
     } catch (err) {
       res.json({ success: false, error: errMessage(err) });
     }

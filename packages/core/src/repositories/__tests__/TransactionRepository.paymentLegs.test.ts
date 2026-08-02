@@ -342,7 +342,7 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     expect(row.payments.some((p) => p.method === "COMMISSION")).toBe(false);
   });
 
-  it("filters out cost-flow, system-reserve, and fee/transfer internal legs", () => {
+  it("filters out cost-flow and fee/transfer internal legs, but now SURFACES the OMT_System (PCD) leg — it is customer cash, not a float, under the primary-cash-drawer model (plan §2#4)", () => {
     insertTxn(db, { id: 1, type: "FINANCIAL_SERVICE", summary: "OMT/Katsh" });
     // Customer cash in (kept):
     insertLeg(db, 1, {
@@ -351,7 +351,7 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
       amount: 60,
       note: "payment",
     });
-    // Internal legs (all filtered):
+    // Provider stock leg (still filtered — PROVIDER_STOCK_DRAWERS unchanged):
     insertLeg(db, 1, {
       method: "Katsh",
       currency: "USD",
@@ -359,6 +359,11 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
       drawer: "Katsh",
       note: "Cost: Katsh",
     });
+    // PCD leg: drawer OMT_System, method "OMT" (not a marker in
+    // INTERNAL_LEG_METHODS, not DRAWER_TRANSFER). Pre-fix this was hidden by
+    // the now-deleted `endsWith("_System")` drawer-name exclusion; post-fix
+    // it is real till cash and MUST appear (docs/FEATURE_GUIDE.md §7 "PCD legs
+    // are customer-facing cash").
     insertLeg(db, 1, {
       method: "OMT",
       currency: "USD",
@@ -366,6 +371,7 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
       drawer: "OMT_System",
       note: "OMT system debt",
     });
+    // Fee/transfer marker legs (still filtered — INTERNAL_LEG_METHODS unchanged):
     insertLeg(db, 1, {
       method: "PM_FEE",
       currency: "USD",
@@ -389,15 +395,33 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
 
-    expect(row.payments).toHaveLength(1);
-    expect(row.payments[0]).toMatchObject({
+    // CASH (60) + the OMT_System/PCD leg (100) are both customer cash now;
+    // Katsh (provider stock), PM_FEE/TRANSFER (marker methods), and
+    // CREDIT_RETURN@MTC (provider stock) stay hidden.
+    expect(row.payments).toHaveLength(2);
+    const cashLeg = row.payments.find((p) => p.method === "CASH")!;
+    const pcdLeg = row.payments.find((p) => p.method === "OMT")!;
+    expect(cashLeg).toMatchObject({
       direction: "in",
       amount: 60,
       method: "CASH",
     });
+    expect(pcdLeg).toMatchObject({
+      direction: "in",
+      amount: 100, // the "OMT system debt" leg posted to OMT_System — now visible PCD cash
+      currency_code: "USD",
+      method: "OMT",
+    });
+    expect(
+      row.payments.some((p) => p.method === "Katsh" || p.method === "PM_FEE"),
+    ).toBe(false);
+    expect(row.payments.some((p) => p.method === "TRANSFER")).toBe(false);
+    expect(row.payments.some((p) => p.method === "CREDIT_RETURN")).toBe(
+      false,
+    );
   });
 
-  it("OMT SEND: hides the RESERVE settlement leg — the row shows customer cash IN only (C2)", () => {
+  it("OMT SEND: hides the RESERVE settlement leg but now SURFACES the OMT_System debt leg — both are $37 IN under the primary-cash-drawer model (C2, re-derived)", () => {
     insertTxn(db, {
       id: 1,
       type: "FINANCIAL_SERVICE",
@@ -405,7 +429,8 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     });
     // Customer cash in (kept):
     insertLeg(db, 1, { method: "CASH", currency: "USD", amount: 37 });
-    // Internal settlement legs (both filtered): General reserve + system debt.
+    // RESERVE (General cash pulled aside for settlement) is still an internal
+    // marker method — always filtered, float model or not.
     // Pre-C2 the RESERVE leg leaked into the row as a bogus "out: $37".
     insertLeg(db, 1, {
       method: "RESERVE",
@@ -413,6 +438,10 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
       amount: -37,
       note: "Cash reserve for settlement",
     });
+    // The OMT_System leg is the PCD now (plan §2#4) — it is the shop's real
+    // till cash for this SEND, not a provider-side float credit, so it MUST
+    // appear alongside CASH (the `endsWith("_System")` exclusion that used to
+    // hide it is deleted).
     insertLeg(db, 1, {
       method: "OMT",
       currency: "USD",
@@ -423,12 +452,23 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
 
-    expect(row.payments).toHaveLength(1);
-    expect(row.payments[0]).toMatchObject({
+    expect(row.payments).toHaveLength(2);
+    const cashLeg = row.payments.find((p) => p.method === "CASH")!;
+    const pcdLeg = row.payments.find((p) => p.method === "OMT")!;
+    expect(cashLeg).toMatchObject({
       direction: "in",
       amount: 37,
       method: "CASH",
     });
+    expect(pcdLeg).toMatchObject({
+      direction: "in",
+      amount: 37, // same $37 principal, now visible as PCD (OMT_System) cash
+      currency_code: "USD",
+      method: "OMT",
+    });
+    // RESERVE stays hidden — it is the shop moving its OWN General cash aside,
+    // never customer-facing.
+    expect(row.payments.some((p) => p.method === "RESERVE")).toBe(false);
   });
 
   it("MTC CREDIT_TRANSFER: hides telecom stock + SMS legs, keeps cash in/out", () => {
@@ -509,6 +549,125 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
       amount: 25,
       method: "WHISH",
     });
+  });
+
+  // ── DRAWER_TRANSFER (General <-> PCD) — newly guarded, plan §8.6 ──────────
+  //
+  // Removing the `endsWith("_System")` drawer-name exclusion (§2#4) made
+  // OMT_System/Whish_System legs customer-facing cash — correct for a real
+  // SEND/RECEIVE, but a General<->PCD transfer is the shop moving its OWN
+  // money between two of its own drawers, never customer cash. The ONLY thing
+  // that still hides it is `INTERNAL_LEG_METHODS.has("DRAWER_TRANSFER")`. This
+  // was a cross-agent seam gap closed by hand post-implementation (plan
+  // §8bis #2) and had NO test at all before this file.
+
+  it("DRAWER_TRANSFER: BOTH legs of a General<->PCD transfer are hidden from the in/out summary, in BOTH directions (plan §8.6)", () => {
+    // General -> OMT_System ($50)
+    insertTxn(db, {
+      id: 1,
+      type: "DRAWER_TRANSFER",
+      summary: "Transfer $50 General -> OMT_System",
+    });
+    insertLeg(db, 1, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: -50,
+      drawer: "General",
+      note: "Transfer out to OMT_System",
+    });
+    insertLeg(db, 1, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: 50,
+      drawer: "OMT_System",
+      note: "Transfer in from General",
+    });
+
+    // OMT_System -> General ($30) — the reverse direction
+    insertTxn(db, {
+      id: 2,
+      type: "DRAWER_TRANSFER",
+      summary: "Transfer $30 OMT_System -> General",
+    });
+    insertLeg(db, 2, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: -30,
+      drawer: "OMT_System",
+      note: "Transfer out to General",
+    });
+    insertLeg(db, 2, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: 30,
+      drawer: "General",
+      note: "Transfer in from OMT_System",
+    });
+
+    const rows = repo.getRecent(10);
+    const generalToPcd = rows.find((r) => r.id === 1)!;
+    const pcdToGeneral = rows.find((r) => r.id === 2)!;
+
+    // Without the DRAWER_TRANSFER guard, the OMT_System-drawer leg of EACH
+    // direction would now be counted as customer cash (drawer-name exclusion
+    // is gone) — every transfer would double-count as customer money IN and
+    // OUT. Both legs, both directions, must be invisible.
+    expect(generalToPcd.payments).toHaveLength(0);
+    expect(pcdToGeneral.payments).toHaveLength(0);
+  });
+
+  it("the visibility boundary is the METHOD, not the drawer: an OMT_System leg from a real SEND is customer cash, an OMT_System leg from a DRAWER_TRANSFER is not", () => {
+    // Real customer SEND landing in the PCD (OMT_System) — visible.
+    insertTxn(db, {
+      id: 1,
+      type: "FINANCIAL_SERVICE",
+      summary: "OMT SEND: $80",
+    });
+    insertLeg(db, 1, {
+      method: "OMT",
+      currency: "USD",
+      amount: 80,
+      drawer: "OMT_System",
+      note: "OMT system debt",
+    });
+
+    // A General->OMT_System transfer of the SAME amount, into the SAME
+    // drawer — hidden, because the method is DRAWER_TRANSFER, not OMT/CASH.
+    insertTxn(db, {
+      id: 2,
+      type: "DRAWER_TRANSFER",
+      summary: "Transfer $80 General -> OMT_System",
+    });
+    insertLeg(db, 2, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: -80,
+      drawer: "General",
+      note: "Transfer out to OMT_System",
+    });
+    insertLeg(db, 2, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: 80,
+      drawer: "OMT_System",
+      note: "Transfer in from General",
+    });
+
+    const rows = repo.getRecent(10);
+    const sendRow = rows.find((r) => r.id === 1)!;
+    const transferRow = rows.find((r) => r.id === 2)!;
+
+    // Same drawer (OMT_System), same amount ($80) — the SEND leg is customer
+    // cash, the transfer leg posted to the SAME drawer is not. A future
+    // refactor that keys visibility off drawer name instead of method would
+    // break this distinction silently.
+    expect(sendRow.payments).toHaveLength(1);
+    expect(sendRow.payments[0]).toMatchObject({
+      amount: 80,
+      method: "OMT",
+      direction: "in",
+    });
+    expect(transferRow.payments).toHaveLength(0);
   });
 });
 
@@ -665,16 +824,20 @@ describe("TransactionRepository.getCashFlowByDate — D1 currency in/out report"
     });
   });
 
-  it("excludes internal legs — same rule as the in/out column (rule 14 mirror)", () => {
+  it("excludes internal legs — same rule as the in/out column (rule 14 mirror) — but now INCLUDES the OMT_System (PCD) leg", () => {
     insertTxn(db, { id: 1, createdAt: "2024-03-05 10:00:00" });
-    insertPayment(db, 1, "CASH", "USD", 60); // the only customer leg
+    insertPayment(db, 1, "CASH", "USD", 60); // customer leg #1
+    // RESERVE is still an internal marker method — filtered.
     insertLeg(db, 1, { method: "RESERVE", currency: "USD", amount: -60 });
+    // OMT_System leg (method "OMT", not a marker/DRAWER_TRANSFER) is the PCD —
+    // real till cash now, so it must be counted in total_in alongside CASH.
     insertLeg(db, 1, {
       method: "OMT",
       currency: "USD",
       amount: 60,
       drawer: "OMT_System",
     });
+    // Provider-stock drawer (Katsh) — still filtered.
     insertLeg(db, 1, {
       method: "Katsh",
       currency: "USD",
@@ -682,17 +845,62 @@ describe("TransactionRepository.getCashFlowByDate — D1 currency in/out report"
       drawer: "Katsh",
       note: "Cost: Katsh",
     });
+    // Crypto leg (non USD/LBP currency) — still filtered.
     insertLeg(db, 1, { method: "BINANCE", currency: "USDT", amount: -20 });
+    // Fee marker method — still filtered.
     insertLeg(db, 1, { method: "PM_FEE", currency: "USD", amount: 0.5 });
 
     const rows = repo.getCashFlowByDate("2024-03-01", "2024-03-31");
     expect(rows).toHaveLength(1);
+    // total_in = 60 (CASH) + 60 (OMT_System/PCD leg) = 120 — RESERVE, Katsh,
+    // BINANCE (USDT), and PM_FEE all stay excluded exactly as before.
     expect(rows[0]).toMatchObject({
       date: "2024-03-05",
       currency_code: "USD",
-      total_in: 60,
+      total_in: 120,
       total_out: 0,
     });
+  });
+
+  it("DRAWER_TRANSFER contributes NOTHING to the D1 report, in either direction (plan §8.6, newly guarded)", () => {
+    // General -> OMT_System ($50)
+    insertTxn(db, { id: 1, createdAt: "2024-05-01 09:00:00" });
+    insertLeg(db, 1, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: -50,
+      drawer: "General",
+    });
+    insertLeg(db, 1, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: 50,
+      drawer: "OMT_System",
+    });
+
+    // OMT_System -> General ($30) — the reverse direction, same date.
+    insertTxn(db, { id: 2, createdAt: "2024-05-01 10:00:00" });
+    insertLeg(db, 2, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: -30,
+      drawer: "OMT_System",
+    });
+    insertLeg(db, 2, {
+      method: "DRAWER_TRANSFER",
+      currency: "USD",
+      amount: 30,
+      drawer: "General",
+    });
+
+    const rows = repo.getCashFlowByDate("2024-05-01", "2024-05-01");
+    // No customer-facing cash rows exist for this date at all — the
+    // `customerCashLegSql` WHERE clause filters DRAWER_TRANSFER legs out
+    // before the GROUP BY, so no row is emitted for 2024-05-01 whatsoever
+    // (not merely a zero-total row) — without the guard this would show
+    // total_in=80 / total_out=80 (both directions' PCD legs double-counted
+    // as customer money in AND out).
+    expect(rows).toHaveLength(0);
   });
 
   it("buckets by created_at — which carries the backdated business date", () => {

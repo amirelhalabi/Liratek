@@ -852,7 +852,16 @@ export interface ElectronAPI {
       currencyCode?: string;
       description?: string;
       clientName?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    }) => Promise<{
+      success: boolean;
+      id?: number;
+      error?: string;
+      // Primary Cash Drawer plan §8.5 — structured error contract carried
+      // through FinancialService so the RECEIVE insufficient-funds panel can
+      // switch on `code` instead of matching an error message string.
+      code?: string;
+      details?: unknown;
+    }>;
     getHistory: (limit?: number) => Promise<
       Array<{
         id: number;
@@ -1748,16 +1757,27 @@ export interface ElectronAPI {
       notes?: string;
       transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    /** Fund the OMT_System / Whish_System spendable float from any drawer
-     *  holding a spendable balance (owner-confirmed 2026-07-29 float model). */
-    fundSystem: (data: {
-      targetDrawer: "OMT_System" | "Whish_System";
-      fundingDrawer: string;
+    /** Generic, reversible cash transfer between any two of the shop's own
+     *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary
+     *  cash drawer (OMT_System/Whish_System) is the pair the UI exposes.
+     *  Replaces the retired `fundSystem` (one-directional, owner-confirmed
+     *  2026-07-29 float model). `code`/`details` surface
+     *  any AppError's structured payload (the general envelope contract) —
+     *  switch on `code`, never a message string match. */
+    transfer: (data: {
+      fromDrawer: string;
+      toDrawer: string;
       amount_usd: number;
       amount_lbp: number;
       notes?: string;
       transaction_time?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    }) => Promise<{
+      success: boolean;
+      id?: number;
+      error?: string;
+      code?: string;
+      details?: unknown;
+    }>;
     getSourceDrawers: () => Promise<{
       success: boolean;
       data?: Array<{

@@ -750,6 +750,14 @@ export async function completeSetup(page: Page) {
   // spec mutates the drawers): the dashboard must reflect the step-6 amounts
   // (General USD 500 / LBP 9,000,000). A mismatch here means the setup wizard
   // failed to seed the drawers — fail the whole worker loudly.
+  //
+  // NOTE (PRIMARY_CASH_DRAWER_PLAN.md §3 Phase C): SalesRepository.getDrawerBalances
+  // now also returns `omtDrawer` (the active primary cash drawer only, exact
+  // name match — no longer an `OMT_System`+`OMT_App` fold) and a new
+  // `appWalletDrawer` key (combined OMT_App/Whish_App). This fixture only
+  // ever asserted `generalDrawer`, which is untouched by that change, so the
+  // type below deliberately stays a narrower subset of the real response —
+  // no functional change needed here.
   const seeded = await page.evaluate(async () => {
     const api = (
       window as unknown as {

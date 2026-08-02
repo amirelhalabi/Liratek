@@ -98,12 +98,20 @@ const HIDDEN_TRANSACTION_TYPES = new Set(["CLIENT_CREATED"]);
 // ---------------------------------------------------------------------------
 
 const PROVIDER_LABELS: Record<string, string> = {
+  // OMT / WHISH: the classic FINANCIAL_SERVICE provider (SEND/RECEIVE run on
+  // that system), as opposed to the app wallet below — unaffected by the
+  // Primary Cash Drawer relabel.
   OMT: "OMT System",
   WHISH: "Whish System",
   OMT_APP: "OMT App",
   WHISH_APP: "Whish App",
-  OMT_SYSTEM: "OMT System",
-  WHISH_SYSTEM: "Whish System",
+  // OMT_SYSTEM / WHISH_SYSTEM: the RECHARGE_TOPUP provider that tops up the
+  // OMT_System/Whish_System drawer — under the Primary Cash Drawer model
+  // (plan §1) that drawer is the physical cash till, not a provider system
+  // balance, so the label follows the "Cash Drawer" wording used elsewhere
+  // (auditConstants.ts FILTER_GROUPS).
+  OMT_SYSTEM: "OMT Cash Drawer",
+  WHISH_SYSTEM: "Whish Cash Drawer",
   iPick: "iPick",
   Katsh: "Katsh",
   BINANCE: "Binance",

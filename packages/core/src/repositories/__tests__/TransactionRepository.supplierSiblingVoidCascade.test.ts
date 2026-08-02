@@ -374,15 +374,19 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
       exchangeRate: 90000,
     });
 
-    // Auto TOP_UP sibling booked fee-only (float model, 2026-07-29):
-    // |fee| − |commission|. omtServiceType "INTRA" auto-computes commission
-    // from the $5 fee (10% tier → $0.50), overriding the explicit
-    // `commission: 0` param — so owed = 5 − 0.5 = 4.5, not the old
-    // gross amount+fee = 105.
+    // Auto TOP_UP sibling books the GROSS amount owed (primary-cash-drawer
+    // model, 2026-07-30, grossOwedDelta): principal + fee − commission.
+    // omtServiceType "INTRA" auto-computes commission from the $5 fee (10%
+    // tier → $0.50), overriding the explicit `commission: 0` param — so
+    // owed = 100 + 5 − 0.5 = 104.5. (Was, float model, superseded: fee-only
+    // = |fee| − |commission| = 4.5 — the $100 principal used to move through
+    // the OMT_System FLOAT instead of the ledger; there is no float anymore,
+    // so the ledger carries the whole transfer again.)
     const before = ledgerRowsForSupplier(db, omtId);
     expect(before).toHaveLength(1);
     expect(before[0].entry_type).toBe("TOP_UP");
-    expect(before[0].amount_usd).toBeCloseTo(4.5, 2);
+    // 104.5 = principal(100) + fee(5) - commission(0.5); float model read 4.5
+    expect(before[0].amount_usd).toBeCloseTo(104.5, 2);
     expect(before[0].is_refunded).toBe(0);
     expect(before[0].source_ref_table).toBe("financial_services");
     const siblingTxnId = before[0].transaction_id!;
@@ -390,7 +394,7 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     expect(txnStatus(db, siblingTxnId)).toBe("ACTIVE");
 
     const balanceBefore = getSupplierRepository().getSupplierBalance(omtId);
-    expect(balanceBefore.balance_usd).toBeCloseTo(4.5, 2);
+    expect(balanceBefore.balance_usd).toBeCloseTo(104.5, 2);
 
     // Void the PARENT financial_services transaction.
     const parentTxn = txnRepo.getBySourceId("financial_services", 1)!;
@@ -448,7 +452,9 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
     expect(ledgerAfterMarkOnly[0].is_refunded).toBe(0); // sibling untouched
     const balanceStillOverstated =
       getSupplierRepository().getSupplierBalance(omtId);
-    expect(balanceStillOverstated.balance_usd).toBeCloseTo(4.5, 2); // bug shape
+    // 104.5 = principal(100) + fee(5) - commission(0.5), same gross TOP_UP as
+    // the main (a) test above — un-cascaded, so it still stands (bug shape).
+    expect(balanceStillOverstated.balance_usd).toBeCloseTo(104.5, 2); // bug shape
   });
 
   // ── (b) RECHARGE path (synthetic — proves genericity, see header doc) ─────
@@ -573,15 +579,17 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
 
     const balanceAtSettlement =
       getSupplierRepository().getSupplierBalance(omtId);
-    // TOP_UP is fee-only: `omtFee: 0` means the auto-commission block's
-    // `resolvedFee > 0` guard never fires (FinancialServiceRepository.ts
+    // TOP_UP is GROSS (grossOwedDelta): `omtFee: 0` means the auto-commission
+    // block's `resolvedFee > 0` guard never fires (FinancialServiceRepository.ts
     // :685), so the explicit `commission: 5` param is NOT overridden this
     // time (unlike test (a), where a nonzero fee DOES trigger the
-    // auto-recalculation) — TOP_UP = |fee(0)| − |commission(5)| = −5.
-    // SETTLEMENT(-95) is the only other ledger movement: −5 − 95 = −100
+    // auto-recalculation) — TOP_UP = principal(100) + fee(0) − commission(5)
+    // = 95. SETTLEMENT(-95) is the only other ledger movement: 95 − 95 = 0
     // (this settlement was never meant to be "correct" money — just
-    // realistic enough to prove the void-block guard below).
-    expect(balanceAtSettlement.balance_usd).toBeCloseTo(-100, 2);
+    // realistic enough to prove the void-block guard below). (Was, float
+    // model, superseded: TOP_UP = |fee(0)| − |commission(5)| = −5, so
+    // −5 − 95 = −100 — the principal never appeared in the ledger at all.)
+    expect(balanceAtSettlement.balance_usd).toBeCloseTo(0, 2);
 
     // Bypass the guard directly (the exact code path _assertSupplierSiblingsVoidable
     // exists to block) to prove what would happen without it: cascading the
@@ -594,8 +602,8 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
 
     const balanceIfCascadedAnyway =
       getSupplierRepository().getSupplierBalance(omtId);
-    // Without the TOP_UP(-5) counted, only SETTLEMENT(-95) remains: -100 -
-    // (-5) = -95 — the balance shifts by exactly the un-counted TOP_UP,
+    // Without the TOP_UP(95) counted, only SETTLEMENT(-95) remains: 0 - 95 =
+    // -95 — the balance shifts by exactly the un-counted TOP_UP,
     // desyncing from the already-computed settlement math. This is exactly
     // the corruption the guard prevents.
     expect(balanceIfCascadedAnyway.balance_usd).toBeCloseTo(-95, 2);

@@ -1,5 +1,5 @@
 /**
- * Migration v140 — add_telecom_days_credit_validity_schema (LIRA-090 Phase 1).
+ * Migration v141 — add_telecom_days_credit_validity_schema (LIRA-090 Phase 1).
  *
  * Covers TELECOM_DAYS_VALIDITY_PLAN.md §7 "Phase 1 — Schema":
  *  - mobile_service_items gains nullable days_cost_lbp/sell_days_lbp/
@@ -100,7 +100,7 @@ function tableExists(db: Database.Database, table: string): boolean {
   );
 }
 
-describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
+describe("Migration v141 — add_telecom_days_credit_validity_schema", () => {
   let db: Database.Database;
 
   beforeEach(() => {
@@ -113,7 +113,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
 
   describe("(a) mobile_service_items split columns", () => {
     it("adds nullable days_cost_lbp/sell_days_lbp/sell_credit_lbp columns", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       const cols = tableColumns(db, "mobile_service_items");
       expect(cols).toEqual(
         expect.arrayContaining([
@@ -130,7 +130,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
          VALUES ('iPick', 'mtc', 'Prepaid', '77', 7600000, 0)`,
       ).run();
 
-      getMigration(140).up(db);
+      getMigration(141).up(db);
 
       const row = db
         .prepare(
@@ -147,7 +147,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     });
 
     it("accepts a fully-split row (the 77$ cart worked example)", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
 
       expect(() =>
         db
@@ -163,7 +163,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
 
   describe("(b) carrier_lines.is_primary + partial unique index", () => {
     it("adds is_primary defaulting to 0", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       db.prepare(
         `INSERT INTO carrier_lines (tenant_id, carrier, phone_number) VALUES (1, 'mtc', '71000000')`,
       ).run();
@@ -174,7 +174,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     });
 
     it("allows exactly one primary line per (tenant, carrier)", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       expect(() =>
         db
           .prepare(
@@ -185,7 +185,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     });
 
     it("rejects a second primary line for the same (tenant, carrier)", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       db.prepare(
         `INSERT INTO carrier_lines (tenant_id, carrier, phone_number, is_primary) VALUES (1, 'mtc', '71000001', 1)`,
       ).run();
@@ -200,7 +200,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     });
 
     it("allows a second primary line for a DIFFERENT carrier in the same tenant", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       db.prepare(
         `INSERT INTO carrier_lines (tenant_id, carrier, phone_number, is_primary) VALUES (1, 'mtc', '71000001', 1)`,
       ).run();
@@ -215,7 +215,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     });
 
     it("allows multiple non-primary lines for the same (tenant, carrier)", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       db.prepare(
         `INSERT INTO carrier_lines (tenant_id, carrier, phone_number, is_primary) VALUES (1, 'mtc', '71000001', 0)`,
       ).run();
@@ -232,7 +232,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
 
   describe("(c) carrier_line_movements table", () => {
     it("creates the table with the expected columns", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       expect(tableExists(db, "carrier_line_movements")).toBe(true);
       const cols = tableColumns(db, "carrier_line_movements");
       expect(cols).toEqual(
@@ -252,7 +252,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     });
 
     it("requires reason and defaults is_reversed to 0", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       db.prepare(
         `INSERT INTO carrier_lines (id, tenant_id, carrier, phone_number) VALUES (1, 1, 'mtc', '71000000')`,
       ).run();
@@ -282,7 +282,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     });
 
     it("allows a nullable transaction_id (self-charge has no transaction row)", () => {
-      getMigration(140).up(db);
+      getMigration(141).up(db);
       db.prepare(
         `INSERT INTO carrier_lines (id, tenant_id, carrier, phone_number) VALUES (1, 1, 'mtc', '71000000')`,
       ).run();
@@ -302,7 +302,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     it("seeds 100000 for every existing tenant", () => {
       db.prepare(`INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`).run();
 
-      getMigration(140).up(db);
+      getMigration(141).up(db);
 
       const rows = db
         .prepare(
@@ -320,7 +320,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
         `INSERT INTO system_settings (tenant_id, key_name, value) VALUES (1, 'telecom_credit_sell_price_lbp', '120000')`,
       ).run();
 
-      getMigration(140).up(db);
+      getMigration(141).up(db);
 
       const row = db
         .prepare(
@@ -332,12 +332,12 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
   });
 
   it("up() is idempotent — running twice does not throw", () => {
-    getMigration(140).up(db);
-    expect(() => getMigration(140).up(db)).not.toThrow();
+    getMigration(141).up(db);
+    expect(() => getMigration(141).up(db)).not.toThrow();
   });
 
   it("down() rolls everything back cleanly (round-trip)", () => {
-    getMigration(140).up(db);
+    getMigration(141).up(db);
     expect(tableExists(db, "carrier_line_movements")).toBe(true);
     expect(tableColumns(db, "mobile_service_items")).toEqual(
       expect.arrayContaining([
@@ -348,7 +348,7 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
     );
     expect(tableColumns(db, "carrier_lines")).toContain("is_primary");
 
-    getMigration(140).down(db);
+    getMigration(141).down(db);
 
     expect(tableExists(db, "carrier_line_movements")).toBe(false);
     expect(tableColumns(db, "mobile_service_items")).not.toEqual(
@@ -378,9 +378,9 @@ describe("Migration v140 — add_telecom_days_credit_validity_schema", () => {
   });
 
   it("up() -> down() -> up() round-trips cleanly (re-migration after rollback)", () => {
-    getMigration(140).up(db);
-    getMigration(140).down(db);
-    expect(() => getMigration(140).up(db)).not.toThrow();
+    getMigration(141).up(db);
+    getMigration(141).down(db);
+    expect(() => getMigration(141).up(db)).not.toThrow();
     expect(tableExists(db, "carrier_line_movements")).toBe(true);
   });
 });

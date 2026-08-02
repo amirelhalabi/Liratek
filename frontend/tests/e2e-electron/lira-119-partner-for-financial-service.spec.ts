@@ -174,9 +174,10 @@ const CASES: Case[] = [
     direction: "DEBIT",
     balDelta: { usd: 103.11, lbp: 0 },
     drawerChecks: [
-      { name: "General", field: "usd", delta: -103.11 },
-      // Failing-first: legacy code credited OMT_System +(amount+fee).
-      { name: "OMT_System", field: "usd", delta: 0 },
+      // The shop fronts the partner's SEND out of the OMT cash drawer: this
+      // runs on the shop's OWN primary rails, so its cash is OMT cash.
+      { name: "OMT_System", field: "usd", delta: -103.11 },
+      { name: "General", field: "usd", delta: 0 },
     ],
   },
   {
@@ -192,51 +193,13 @@ const CASES: Case[] = [
     direction: "CREDIT",
     balDelta: { usd: -80.12, lbp: 0 },
     drawerChecks: [
-      // Failing-first: legacy RECEIVE DEBITED the system drawer (payout flow).
-      { name: "OMT_System", field: "usd", delta: 80.12 },
-      { name: "General", field: "usd", delta: 0 },
-    ],
-  },
-  {
-    label: "WHISH SEND: disbursed 51.22 via CASH OUT → partner owes 51.22",
-    payload: {
-      provider: "WHISH",
-      serviceType: "SEND",
-      amount: 50.22,
-      currency: "USD",
-      whishFee: 1,
-      payments: [
-        {
-          method: "CASH",
-          currencyCode: "USD",
-          amount: 51.22,
-          direction: "OUT",
-        },
-      ],
-    },
-    match: "50.22",
-    type: "FOR_WHISH_SEND",
-    direction: "DEBIT",
-    balDelta: { usd: 51.22, lbp: 0 },
-    drawerChecks: [
-      { name: "General", field: "usd", delta: -51.22 },
-      { name: "Whish_System", field: "usd", delta: 0 },
-    ],
-  },
-  {
-    label: "WHISH RECEIVE 40.23 → Whish_System +40.23, shop owes full",
-    payload: {
-      provider: "WHISH",
-      serviceType: "RECEIVE",
-      amount: 40.23,
-      currency: "USD",
-    },
-    match: "40.23",
-    type: "FOR_WHISH_RECEIVE",
-    direction: "CREDIT",
-    balDelta: { usd: -40.23, lbp: 0 },
-    drawerChecks: [
-      { name: "Whish_System", field: "usd", delta: 40.23 },
+      // Owner decision #6: a FOR-partner RECEIVE moves NO drawer at
+      // transaction time. The partner's customer dealt with the PARTNER's
+      // counter, so no banknotes crossed this shop's — the obligations are
+      // the whole event (provider owes the shop; the shop owes the partner,
+      // paid at settlement). Under the float model this credited the system
+      // drawer by the full amount, which is what this pair now guards against.
+      { name: "OMT_System", field: "usd", delta: 0 },
       { name: "General", field: "usd", delta: 0 },
     ],
   },
@@ -541,4 +504,82 @@ test.describe("LIRA-119 — financial services for a partner (every provider × 
       drawerVal(after, "General", "usd") - drawerVal(before, "General", "usd"),
     ).toBeCloseTo(0, 2);
   });
+
+  // ── FOR-partner is impossible on the SECONDARY system ─────────────────────
+  // "FOR partner" means the partner's customer, OUR system (that is the
+  // Services page's own wording next to the toggle). The whole reason a
+  // provider is *secondary* is that the shop has no account on its rails, so
+  // it cannot run anything FOR anyone there — only THROUGH the partner, who
+  // does have the account.
+  //
+  // The UI has always enforced this: the "For Partner" toggle renders only
+  // when `provider !== partnerSystem`, so no operator can produce this
+  // combination. The backend did NOT, and these two cases used to live in the
+  // happy-path table above asserting Whish_System balances — reachable only
+  // because this spec hand-builds IPC payloads and never touches a locator
+  // (the exact blind spot the OMT float-model handover, section 4.1,
+  // documents). A FOR-partner RECEIVE on the secondary system also booked a
+  // supplier obligation against a supplier row that `listSuppliers`
+  // deliberately HIDES — money real in the database and invisible in the app.
+  //
+  // SYSTEM providers only: OMT App / Whish App / Binance FOR-partner stay in
+  // the table above, because those wallets hold money the shop really owns.
+  for (const serviceType of ["SEND", "RECEIVE"] as const) {
+    test(`WHISH ${serviceType} FOR a partner is REJECTED — the secondary system can only be used THROUGH one`, async ({
+      appPage,
+    }) => {
+      const partnerId = await createPartner(appPage, "L119sec");
+      const before = await snapshot(appPage, partnerId);
+
+      const res = await appPage.evaluate(
+        async ({ partnerId, serviceType }) => {
+          const w = window as unknown as Api;
+          const r = await w.api.omt.addTransaction({
+            provider: "WHISH",
+            serviceType,
+            amount: 40.23,
+            currency: "USD",
+            partnerId,
+            partnerMode: "FOR",
+            ...(serviceType === "SEND"
+              ? {
+                  payments: [
+                    {
+                      method: "CASH",
+                      currencyCode: "USD",
+                      amount: 40.23,
+                      direction: "OUT",
+                    },
+                  ],
+                }
+              : {}),
+          });
+          const ledger = await w.api.partners.getLedger(partnerId);
+          return {
+            ok: r.success,
+            error: r.error ?? null,
+            entryCount: ledger.entries.length,
+          };
+        },
+        { partnerId, serviceType },
+      );
+
+      expect(res.ok).toBe(false);
+      expect(res.error ?? "").toMatch(/secondary system/i);
+      expect(res.error ?? "").toMatch(/THROUGH a partner, not FOR one/i);
+
+      // Nothing was written anywhere: no partner ledger row, no drawer move.
+      // A rejection that still left a side-effect would be worse than the
+      // behaviour it replaced.
+      expect(res.entryCount).toBe(0);
+      const after = await snapshot(appPage, partnerId);
+      expect(after.bal.usd - before.bal.usd).toBeCloseTo(0, 2);
+      for (const drawer of ["General", "Whish_System", "OMT_System"]) {
+        expect(
+          drawerVal(after, drawer, "usd") - drawerVal(before, drawer, "usd"),
+          `${drawer}.usd must be untouched by a rejected transaction`,
+        ).toBeCloseTo(0, 2);
+      }
+    });
+  }
 });

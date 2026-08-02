@@ -10,6 +10,7 @@
  */
 
 import { getPaymentMethodRepository } from "../repositories/PaymentMethodRepository.js";
+import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
 
 /** Payment method code — now a plain string (dynamic from DB). */
 export type PaymentMethod = string;
@@ -65,6 +66,69 @@ export function paymentMethodToDrawerName(method: string): string {
     // DB not available
   }
   return FALLBACK_DRAWER_MAP[method] ?? "General";
+}
+
+/**
+ * Primary-System Cash Drawer plan §8.2 (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md):
+ * the shop's two "system" providers, OMT and WHISH, each have a base/primary
+ * variant (`shop_base_system`). `OMT_System`/`Whish_System` are no longer a
+ * spendable float held inside the provider's own books (PR #66's model,
+ * rejected by the owner 2026-07-30) — they ARE the physical cash drawer at
+ * the money-transfer counter for whichever system is primary. Every cash leg
+ * of a primary-system SEND/RECEIVE (customer payment, payout, change, fee)
+ * must land there instead of General.
+ */
+export type BaseSystem = "OMT" | "WHISH";
+
+/** Context a call site threads into {@link resolveServiceCashDrawer}: which
+ *  provider this leg's transaction runs on, and which system is primary. */
+export interface ServiceCashDrawerContext {
+  provider: string;
+  baseSystem: BaseSystem;
+}
+
+/**
+ * Primary Cash Drawer routing resolver (rule 14 — the ONE definition; plan
+ * §8.2). Returns the primary cash drawer (PCD) — `OMT_System`/`Whish_System`
+ * per `ctx.baseSystem` — iff ALL hold, else falls through to
+ * `paymentMethodToDrawerName(method)` unchanged:
+ *
+ *  1. `ctx.provider === ctx.baseSystem` (string equality) — the transaction
+ *     runs ON the primary system. Partner involvement is NOT part of this
+ *     predicate (plan decision #6: route by the system the transaction runs
+ *     on, not the counterparty) — a THROUGH-partner transaction runs on the
+ *     SECONDARY provider and falls out naturally; a FOR-partner transaction
+ *     runs on the primary provider and DOES route here. `"OMT_APP"` never
+ *     equals `"OMT"`, so app-wallet/Binance transfers fall through
+ *     automatically (decision #5 — they stay on their own wallet drawer /
+ *     General, unaffected by this feature).
+ *  2. `isDrawerAffectingMethod(method)` — a non-drawer tender (CUSTOMER_ACCOUNT,
+ *     GIFT_CARD) never reaches a drawer at all.
+ *  3. `paymentMethodToDrawerName(method) === "General"` — only a cash-family
+ *     tender (bound to General today) is eligible to be rerouted; a tender
+ *     already bound to its OWN drawer (a wallet method) keeps that drawer.
+ *  4. `method !== "GIFT_CARD"` — belt-and-suspenders: a voucher is not
+ *     banknotes and must never land in the cash drawer, even if a future
+ *     seed change ever flipped GIFT_CARD's `affects_drawer` flag.
+ *
+ * Does NOT repoint `payment_methods.CASH.drawer_name` — blocked twice
+ * (`PaymentMethodRepository.ts`'s `is_system` guard, and
+ * `isNonCashDrawerMethod` testing `drawer_name !== "General"`); this resolver
+ * is a call-site-level override, not a global remap.
+ */
+export function resolveServiceCashDrawer(
+  method: string,
+  ctx: ServiceCashDrawerContext,
+): string {
+  if (
+    ctx.provider === ctx.baseSystem &&
+    isDrawerAffectingMethod(method) &&
+    paymentMethodToDrawerName(method) === "General" &&
+    method !== "GIFT_CARD"
+  ) {
+    return primaryCashDrawerName(ctx.baseSystem);
+  }
+  return paymentMethodToDrawerName(method);
 }
 
 /**

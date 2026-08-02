@@ -62,7 +62,7 @@ type Api = {
 };
 
 test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () => {
-  test("split cash payout (USD + LBP) deducts BOTH currency legs from the General drawer", async ({
+  test("split cash payout (USD + LBP) deducts BOTH currency legs from the OMT cash drawer", async ({
     appPage,
   }) => {
     const result = await appPage.evaluate(async () => {
@@ -94,6 +94,7 @@ test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () 
         generalUsdDelta: after.generalDrawer.usd - before.generalDrawer.usd,
         generalLbpDelta: after.generalDrawer.lbp - before.generalDrawer.lbp,
         omtUsdDelta: after.omtDrawer.usd - before.omtDrawer.usd,
+        omtLbpDelta: after.omtDrawer.lbp - before.omtDrawer.lbp,
       };
     });
 
@@ -101,18 +102,24 @@ test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () 
     expect(result.success).toBe(true);
     expect(result.id).not.toBeNull();
 
-    // ── The C1 fix: BOTH payout legs leave the General drawer ────────────────
-    // USD leg: −190 (was −196 before, over-counting USD).
-    expect(result.generalUsdDelta).toBeCloseTo(-190, 2);
-    // LBP leg: −540,000 (was 0 before — the dropped leg this bug is about).
-    expect(result.generalLbpDelta).toBeCloseTo(-540000, 2);
+    // ── The C1 fix, now landing in the OMT drawer ────────────────────────────
+    // The bug this spec exists for is UNCHANGED and still guarded: BOTH payout
+    // legs must be debited, each in its own currency. Only the drawer they
+    // leave has moved — cash for an OMT transaction is the OMT drawer's cash.
+    // USD leg: −190 (over-counting USD as −196 was one half of the C1 bug).
+    expect(result.omtUsdDelta).toBeCloseTo(-190, 2);
+    // LBP leg: −540,000 (silently dropped to 0 was the other half).
+    expect(result.omtLbpDelta).toBeCloseTo(-540000, 2);
 
-    // Float model (was: toBeLessThanOrEqual(-196) — the system drawer used to
-    // be DEBITED on RECEIVE, gross principal+commission, sign now flipped).
-    // RECEIVE fills the float back up by the bare principal x=196; no omtFee
-    // is sent here so f=0 and the fee/commission never touches this leg —
-    // the posting is now an EXACT +196, not a loose "at least" bound.
-    expect(result.omtUsdDelta).toBeCloseTo(196, 2);
+    // The till does not participate in an OMT transaction at all. Under the
+    // float model this spec asserted these very deltas on General, so this
+    // pair is what catches a regression that reroutes cash back to the till.
+    expect(result.generalUsdDelta).toBeCloseTo(0, 2);
+    expect(result.generalLbpDelta).toBeCloseTo(0, 2);
+    // NOTE: there is deliberately no "+196 fills the float" assertion any
+    // more. The float leg is deleted — a RECEIVE moves cash out of a real
+    // drawer and books the provider's obligation, it does not mirror itself
+    // into a second balance.
   });
 
   test("single-currency cash payout still deducts exactly one currency (no regression)", async ({
@@ -141,13 +148,19 @@ test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () 
         error: res?.error ?? null,
         generalUsdDelta: after.generalDrawer.usd - before.generalDrawer.usd,
         generalLbpDelta: after.generalDrawer.lbp - before.generalDrawer.lbp,
+        omtUsdDelta: after.omtDrawer.usd - before.omtDrawer.usd,
+        omtLbpDelta: after.omtDrawer.lbp - before.omtDrawer.lbp,
       };
     });
 
     expect(result.error).toBeNull();
     expect(result.success).toBe(true);
-    // Only USD moves; LBP untouched for a single-USD payout.
-    expect(result.generalUsdDelta).toBeCloseTo(-100, 2);
+    // Only USD moves; LBP untouched for a single-USD payout — the regression
+    // guard is that a single-currency payout must not smear across currencies.
+    expect(result.omtUsdDelta).toBeCloseTo(-100, 2);
+    expect(result.omtLbpDelta).toBeCloseTo(0, 2);
+    // Till untouched.
+    expect(result.generalUsdDelta).toBeCloseTo(0, 2);
     expect(result.generalLbpDelta).toBeCloseTo(0, 2);
   });
 
@@ -186,13 +199,21 @@ test.describe("LIRA-074 (C1) — OMT system RECEIVE split-currency cashout", () 
         error: res?.error ?? null,
         generalUsdDelta: after.generalDrawer.usd - before.generalDrawer.usd,
         generalLbpDelta: after.generalDrawer.lbp - before.generalDrawer.lbp,
+        omtUsdDelta: after.omtDrawer.usd - before.omtDrawer.usd,
+        omtLbpDelta: after.omtDrawer.lbp - before.omtDrawer.lbp,
       };
     });
 
     expect(result.error).toBeNull();
     expect(result.success).toBe(true);
-    expect(result.generalUsdDelta).toBeCloseTo(-100, 2);
-    // OUT leg debited ONCE (−50,000), not twice (−100,000 was the double-debit bug).
-    expect(result.generalLbpDelta).toBeCloseTo(-50000, 2);
+    expect(result.omtUsdDelta).toBeCloseTo(-100, 2);
+    // CLAUDE.md rule 16, the whole point of this case: the OUT (change) leg is
+    // debited ONCE (−50,000), not twice (−100,000 was the double-debit bug).
+    // Rerouting the drawer does not change that risk — the shared return-leg
+    // loop still owns OUT legs, and a flow branch that also iterated them
+    // would now double-debit the OMT drawer instead of General.
+    expect(result.omtLbpDelta).toBeCloseTo(-50000, 2);
+    expect(result.generalUsdDelta).toBeCloseTo(0, 2);
+    expect(result.generalLbpDelta).toBeCloseTo(0, 2);
   });
 });

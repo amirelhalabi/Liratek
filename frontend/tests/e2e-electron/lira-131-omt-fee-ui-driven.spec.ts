@@ -25,12 +25,22 @@
  * the real button — the payload is whatever the page actually builds. It is
  * the only shape of test that covers the seam.
  *
- * MONEY INVARIANTS UNDER GUARD (float model, owner-confirmed 2026-07-29):
- *   SEND fee-on-top   : payment drawer +(x+f), system float −x
- *   SEND fee-included : payment drawer +x,     system float −(x−f)
- *   RECEIVE           : system float +x,       payout drawer −(x−f) when the
- *                       fee is included in the received amount
- * Σ(drawer deltas) = +f in every case — the fee is the only value created.
+ * MONEY INVARIANTS UNDER GUARD (primary cash drawer model, 2026-07-31 —
+ * supersedes the float model this spec was written against):
+ *   SEND fee-on-top   : PCD +(x+f), General UNTOUCHED
+ *   SEND fee-included : PCD +x,     General UNTOUCHED
+ *   RECEIVE fee-incl. : PCD −(x−f), General UNTOUCHED
+ * `OMT_System` is no longer a provider-side float that mirrors every move —
+ * it is the physical cash drawer at the money-transfer counter, so exactly
+ * ONE drawer moves per transaction and it is never General.
+ *
+ * The old "Σ(drawer deltas) = +f" identity is GONE, and its absence is the
+ * clearest statement of what changed: under the float model the principal
+ * left the float as fast as it entered the till, so the drawers netted to the
+ * fee. Now the principal STAYS in the drawer as real banknotes, and what
+ * balances it is the supplier ledger (`Σ drawer − Δ owed = commission`,
+ * guarded with the ledger in view by lira-076). Asserting a drawer-only sum
+ * here would be asserting half an equation.
  *
  * Rule 15 discipline: every assertion is a DELTA snapshotted immediately
  * before the action, matched by drawer NAME. No absolute totals, no row
@@ -102,15 +112,14 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
 
     const after = await drawers(appPage);
 
-    // Customer's cash STAYS in the till: +(x+f). Pre-float-model a "Cash
-    // reserve for settlement" row removed it again and this netted to 0.
-    expect(after.general - before.general).toBeCloseTo(105, 2);
-    // The float pays the far end the principal only.
-    expect(after.omtSystem - before.omtSystem).toBeCloseTo(-100, 2);
-    // Σ = +f: the fee is the only value the shop created.
-    expect(
-      after.general - before.general + (after.omtSystem - before.omtSystem),
-    ).toBeCloseTo(5, 2);
+    // The customer's cash goes into the OMT drawer — the physical box at the
+    // money-transfer counter — not the general till: +(x+f) = 105.
+    expect(after.omtSystem - before.omtSystem).toBeCloseTo(105, 2);
+    // And the till does NOT move. This is the single most load-bearing
+    // assertion in the file: under the float model this same transaction put
+    // +105 in General, so a regression that reroutes cash back to the till
+    // shows up here first.
+    expect(after.general - before.general).toBeCloseTo(0, 2);
   });
 
   test("SEND fee-included: the owner's reported hard-reject — budget 100 = principal 95 + fee 5", async ({
@@ -145,15 +154,17 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
 
     const after = await drawers(appPage);
 
-    // Customer handed over their whole budget.
-    expect(after.general - before.general).toBeCloseTo(100, 2);
-    // Float pays the principal: −95. NOT −90 (that was the second, latent
-    // half of the same defect, hidden behind the reject).
-    expect(after.omtSystem - before.omtSystem).toBeCloseTo(-95, 2);
-    // Σ = +f again — same fee, different split between the two drawers.
-    expect(
-      after.general - before.general + (after.omtSystem - before.omtSystem),
-    ).toBeCloseTo(5, 2);
+    // Customer handed over their whole budget (100) and every note of it went
+    // into the OMT drawer. The fee-included toggle changes what the PRINCIPAL
+    // is (95, back-calculated by the form) — it does not change what the
+    // customer physically handed over, which is what the drawer receives.
+    expect(after.omtSystem - before.omtSystem).toBeCloseTo(100, 2);
+    expect(after.general - before.general).toBeCloseTo(0, 2);
+    // The original defect this spec was written for is still guarded: a
+    // repository that netted the fee a SECOND time rejected the submit
+    // outright, so the assertion above it (`amountInput` cleared) never
+    // passed. That failure mode is independent of which drawer receives.
+    
   });
 
   test("RECEIVE with a fee: float FILLS by the full x, customer collects x−f", async ({
@@ -182,14 +193,17 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
 
     const after = await drawers(appPage);
 
-    // A RECEIVE FILLS the float — credit the shop can immediately spend on a
-    // future send (owner's words, 2026-07-29). Pre-float-model this went
-    // NEGATIVE by the transfer amount.
-    expect(after.omtSystem - before.omtSystem).toBeCloseTo(100, 2);
-    // Customer collects the net of the withheld fee.
-    expect(after.general - before.general).toBeCloseTo(-95, 2);
-    expect(
-      after.general - before.general + (after.omtSystem - before.omtSystem),
-    ).toBeCloseTo(5, 2);
+    // The payout is real banknotes handed across the counter, so it comes OUT
+    // of the OMT drawer: −(x−f) = −95 (the fee is withheld from what the
+    // customer collects). Under the float model this drawer went UP by 100
+    // here — the sign itself is the model change.
+    expect(after.omtSystem - before.omtSystem).toBeCloseTo(-95, 2);
+    // The till is untouched: the payout never came from General.
+    expect(after.general - before.general).toBeCloseTo(0, 2);
+    // NOTE (owner decision 2026-08-01): this payout is NOT blocked when the
+    // drawer cannot cover it — the balance is simply allowed to go negative,
+    // which the transfer modal then flags for the operator to cover. An
+    // earlier revision of this feature rejected the transaction here, which
+    // is why this spec used to fail with the amount field still filled.
   });
 });

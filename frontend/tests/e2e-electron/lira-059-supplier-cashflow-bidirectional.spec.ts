@@ -104,15 +104,18 @@ type Api = {
 };
 
 test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
-  test("PAY (CASH) pays down a positive OMT balance: PAYMENT ledger row, General −$100, balance −$100", async ({
+  test("PAY (CASH) pays down a positive OMT balance: PAYMENT ledger row, OMT drawer −$100, balance −$100", async ({
     appPage,
   }) => {
     const result = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
 
-      const generalUsd = (
-        raw: { generalDrawer?: { usd?: number } } | null,
-      ): number => raw?.generalDrawer?.usd ?? 0;
+      // Cash moving to/from the shop's PRIMARY provider moves through the
+      // OMT cash drawer, not the till (owner decision, 2026-08-01: "all OMT
+      // cash -> OMT drawer"). `omtDrawer` on this API is that exact drawer.
+      const pcdUsd = (
+        raw: { omtDrawer?: { usd?: number } } | null,
+      ): number => raw?.omtDrawer?.usd ?? 0;
       const balUsd = (rows: BalanceRow[], id: number): number =>
         rows.find((b) => b.supplier_id === id)?.total_usd ?? 0;
 
@@ -133,7 +136,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       });
 
       // Snapshot baselines IMMEDIATELY before the action under test.
-      const beforeGeneral = generalUsd(
+      const beforePcd = pcdUsd(
         await w.api.dashboard.getDrawerBalances(),
       );
       const beforeBalance = balUsd(
@@ -149,7 +152,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
         note: "LIRA-059 PAY $100",
       });
 
-      const afterGeneral = generalUsd(
+      const afterPcd = pcdUsd(
         await w.api.dashboard.getDrawerBalances(),
       );
       const afterBalance = balUsd(
@@ -170,7 +173,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
         seedOk: seed.success,
         payOk: pay.success,
         payError: pay.error ?? null,
-        generalDelta: Math.round((afterGeneral - beforeGeneral) * 100) / 100,
+        pcdDelta: Math.round((afterPcd - beforePcd) * 100) / 100,
         balanceDelta: Math.round((afterBalance - beforeBalance) * 100) / 100,
         paymentRowType: paymentRow?.entry_type ?? null,
         paymentRowUsd: paymentRow?.amount_usd ?? null,
@@ -188,21 +191,26 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
     expect(result.paymentRowType).toBe("PAYMENT");
     expect(result.paymentRowUsd).toBeCloseTo(-100, 2);
 
-    // PAY hits the GENERAL drawer (not the provider drawer — the original bug):
-    // General falls by exactly $100 and the balance pays down by exactly $100.
-    expect(result.generalDelta).toBeCloseTo(-100, 2);
+    // Paying the PRIMARY provider takes the cash out of the OMT drawer — that
+    // is the box the money physically lives in for OMT business. The original
+    // bug this spec guards (paying from the provider STOCK drawer, i.e.
+    // telecom credit the shop can't spend) is unrelated and still excluded.
+    expect(result.pcdDelta).toBeCloseTo(-100, 2);
     expect(result.balanceDelta).toBeCloseTo(-100, 2);
   });
 
-  test("RECEIVE (supplier pays us): SUPPLIER_PAYS_US +$30 ledger row, General +$30, balance +$30", async ({
+  test("RECEIVE (supplier pays us): SUPPLIER_PAYS_US +$30 ledger row, OMT drawer +$30, balance +$30", async ({
     appPage,
   }) => {
     const result = await appPage.evaluate(async () => {
       const w = window as unknown as Api;
 
-      const generalUsd = (
-        raw: { generalDrawer?: { usd?: number } } | null,
-      ): number => raw?.generalDrawer?.usd ?? 0;
+      // Cash moving to/from the shop's PRIMARY provider moves through the
+      // OMT cash drawer, not the till (owner decision, 2026-08-01: "all OMT
+      // cash -> OMT drawer"). `omtDrawer` on this API is that exact drawer.
+      const pcdUsd = (
+        raw: { omtDrawer?: { usd?: number } } | null,
+      ): number => raw?.omtDrawer?.usd ?? 0;
       const balUsd = (rows: BalanceRow[], id: number): number =>
         rows.find((b) => b.supplier_id === id)?.total_usd ?? 0;
 
@@ -211,7 +219,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       if (!omt) return { found: false } as const;
 
       // Snapshot baselines immediately before the action.
-      const beforeGeneral = generalUsd(
+      const beforePcd = pcdUsd(
         await w.api.dashboard.getDrawerBalances(),
       );
       const beforeBalance = balUsd(
@@ -228,7 +236,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
         note: "LIRA-059 RECEIVE $30",
       });
 
-      const afterGeneral = generalUsd(
+      const afterPcd = pcdUsd(
         await w.api.dashboard.getDrawerBalances(),
       );
       const afterBalance = balUsd(
@@ -246,7 +254,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
         found: true as const,
         recvOk: recv.success,
         recvError: recv.error ?? null,
-        generalDelta: Math.round((afterGeneral - beforeGeneral) * 100) / 100,
+        pcdDelta: Math.round((afterPcd - beforePcd) * 100) / 100,
         balanceDelta: Math.round((afterBalance - beforeBalance) * 100) / 100,
         receiveRowType: receiveRow?.entry_type ?? null,
         receiveRowUsd: receiveRow?.amount_usd ?? null,
@@ -265,7 +273,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
     expect(result.receiveRowUsd).toBeCloseTo(30, 2);
 
     // RECEIVE credits the GENERAL drawer and raises the balance by exactly $30.
-    expect(result.generalDelta).toBeCloseTo(30, 2);
+    expect(result.pcdDelta).toBeCloseTo(30, 2);
     expect(result.balanceDelta).toBeCloseTo(30, 2);
   });
 

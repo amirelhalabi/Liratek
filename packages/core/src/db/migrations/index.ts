@@ -7064,6 +7064,102 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 140,
+    name: "rebuild_system_float_topups_as_drawer_transfers",
+    description:
+      "Primary Cash Drawer plan §8.6 (owner verdict 2026-07-30, superseding v139's float model): OMT_System/Whish_System stop being a spendable float and become the physical primary cash drawer (PCD) at the money-transfer counter. The generic cash-move mechanism therefore needs to run BOTH directions (General→PCD funding AND PCD→General draining), but v139's `system_float_topups.target_drawer CHECK (target_drawer IN ('OMT_System','Whish_System'))` forbids a PCD→General row outright — and SQLite cannot ALTER a CHECK constraint, so the table is rebuilt rather than altered. `drawer_transfers` replaces the fixed target_drawer/funding_drawer roles with symmetric from_drawer/to_drawer columns and NO CHECK on either (a manual transfer's counterparties are shop drawer names, not a fixed provider-float pair). Existing rows carry forward 1:1 (funding_drawer -> from_drawer, target_drawer -> to_drawer) WITH their original id — transactions.source_id for every pre-existing SYSTEM_FLOAT_TOPUP/DRAWER_TRANSFER row points at this table by id, so an id-preserving copy is required for the generic void/refund path (TransactionRepository._markSourceRefunded) to keep resolving the right row.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE drawer_transfers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          from_drawer TEXT NOT NULL,
+          to_drawer TEXT NOT NULL,
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          notes TEXT,
+          created_by INTEGER,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_drawer_transfers_tenant_id ON drawer_transfers(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_drawer_transfers_created_at ON drawer_transfers(created_at)`,
+      );
+
+      // Carry forward every existing row, id-preserving (see description).
+      db.exec(`
+        INSERT INTO drawer_transfers (
+          id, tenant_id, from_drawer, to_drawer, amount_usd, amount_lbp,
+          notes, created_by, is_refunded, refunded_at, created_at, updated_at
+        )
+        SELECT
+          id, tenant_id, funding_drawer, target_drawer, amount_usd, amount_lbp,
+          notes, created_by, is_refunded, refunded_at, created_at, updated_at
+        FROM system_float_topups
+      `);
+
+      db.exec(`DROP TABLE system_float_topups`);
+
+      console.log(
+        "Migration v140: rebuilt system_float_topups as drawer_transfers (from_drawer/to_drawer, no CHECK)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE system_float_topups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          target_drawer TEXT NOT NULL CHECK (target_drawer IN ('OMT_System', 'Whish_System')),
+          funding_drawer TEXT NOT NULL,
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          notes TEXT,
+          created_by INTEGER,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_system_float_topups_tenant_id ON system_float_topups(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_system_float_topups_created_at ON system_float_topups(created_at)`,
+      );
+
+      // Only rows whose to_drawer fits the old CHECK can come back. v139's
+      // CHECK allowed target_drawer IN ('OMT_System','Whish_System') only, so
+      // General->PCD rows survive the rollback and PCD->General rows — the
+      // direction v140 exists to make possible — have no legal home in the
+      // old shape and are dropped rather than violating the CHECK.
+      db.exec(`
+        INSERT INTO system_float_topups (
+          id, tenant_id, target_drawer, funding_drawer, amount_usd, amount_lbp,
+          notes, created_by, is_refunded, refunded_at, created_at, updated_at
+        )
+        SELECT
+          id, tenant_id, to_drawer, from_drawer, amount_usd, amount_lbp,
+          notes, created_by, is_refunded, refunded_at, created_at, updated_at
+        FROM drawer_transfers
+        WHERE to_drawer IN ('OMT_System', 'Whish_System')
+      `);
+
+      db.exec(`DROP TABLE drawer_transfers`);
+
+      console.log(
+        "Migration v140 rolled back: rebuilt system_float_topups (target_drawer/funding_drawer, CHECK restored)",
+      );
+    },
+  },
+  {
+    version: 141,
     name: "add_telecom_days_credit_validity_schema",
     description:
       "LIRA-090 Phase 1 (owner interview resolved 2026-07-30, TELECOM_DAYS_VALIDITY_PLAN.md §7): schema for the telecom 'Only Days' credit-return model. (a) mobile_service_items gains three nullable REAL columns — days_cost_lbp (the item's own validity-only cost component, out of the existing cost_lbp), sell_days_lbp (customer price when only the days are sold), sell_credit_lbp (display/decision-aid price for resold recovered credit) — added via defaultless ALTER TABLE ADD COLUMN (v104 prod-brick lesson: SQLite rejects a non-constant default on ALTER; these stay NULL until a per-item split is configured, so existing catalog rows are unaffected and keep today's manual returnedCreditsUsd behaviour). (b) carrier_lines gains is_primary (constant default 0 IS legal on ALTER) plus a partial unique index enforcing at most one primary line per (tenant, carrier) — the line that receives automated returns/self-charges by default. (c) new carrier_line_movements table: the rule-20 reversal owner for every automated carrier_lines credit/validity mutation (Only Days credit-return, self-charge), so the generic void/refund path can reverse a line's credits/validity by transaction_id instead of leaving it permanently decremented (carrier_lines has no is_refunded column and is absent from TransactionRepository._markSourceRefunded's whitelist). (d) seeds the 'telecom_credit_sell_price_lbp' per-tenant setting (default 100000, the plan's §2.4 worked-example price) backing the three-row resale decision-aid table — seeded the same way v125 seeded allow_out_of_stock_sales (INSERT OR IGNORE per tenant row), and named distinctly from the existing alfa_credit_sell_rate_lbp/alfa_credit_cost_rate_lbp/alfa_credit_cost_lbp keys, which belong to the separate, out-of-scope Alfa Gift recharge channel (RechargeRepository/TelecomForm.tsx).",
@@ -7201,12 +7297,12 @@ export const MIGRATIONS: Migration[] = [
       );
 
       console.log(
-        "Migration v140 rolled back: carrier_line_movements dropped, carrier_lines.is_primary + partial index dropped, mobile_service_items split columns dropped, telecom_credit_sell_price_lbp setting removed",
+        "Migration v141 rolled back: carrier_line_movements dropped, carrier_lines.is_primary + partial index dropped, mobile_service_items split columns dropped, telecom_credit_sell_price_lbp setting removed",
       );
     },
   },
   {
-    version: 141,
+    version: 142,
     name: "add_carrier_line_movement_previous_validity",
     description:
       "LIRA-090 M2 fix (2026-07-30 adversarial review, TELECOM_DAYS_VALIDITY_PLAN.md §8): carrier_line_movements gains a nullable previous_validity_expires_at TEXT column, added via defaultless ALTER TABLE ADD COLUMN (v104 prod-brick lesson). It records the carrier line's validity_expires_at exactly as it stood immediately BEFORE the movement's mutation was applied. CarrierLineRepository.reverseMovement restores this value VERBATIM instead of subtracting validity_days_delta off whatever the line's CURRENT expiry happens to be — the pre-fix 'reverseDelta' primitive (a) silently dropped the restore whenever the CURRENT expiry was null at reversal time (guard: validityDaysDelta !== 0 && line.validity_expires_at), with no error and no log, and (b) even when non-null, could not undo the §5.2 'already-expired lines extend from today' rebasing on reversal, because a naive day-subtraction cannot recover a stale date that was never used in the forward computation. Storing the exact pre-mutation snapshot makes both cases exact. Existing rows (written before this migration) get NULL here, which reverseMovement treats as 'the line legitimately had no expiry before this movement' — the same value applyMovement stores when the line's expiry actually was null at apply time.",
@@ -7221,7 +7317,7 @@ export const MIGRATIONS: Migration[] = [
         );
       }
       console.log(
-        "Migration v141: carrier_line_movements.previous_validity_expires_at added",
+        "Migration v142: carrier_line_movements.previous_validity_expires_at added",
       );
     },
     down(db: Database.Database) {
@@ -7234,7 +7330,7 @@ export const MIGRATIONS: Migration[] = [
         );
       }
       console.log(
-        "Migration v141 rolled back: carrier_line_movements.previous_validity_expires_at dropped",
+        "Migration v142 rolled back: carrier_line_movements.previous_validity_expires_at dropped",
       );
     },
   },
