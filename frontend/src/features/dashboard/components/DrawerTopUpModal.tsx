@@ -1,10 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
-import { fetchLiveCurrencyRates } from "@/utils/liveExchangeRates";
+import type { CurrencyRate } from "@liratek/core";
+import {
+  fetchLiveCurrencyRates,
+  CURRENCY_NAMES,
+  getCurrencySymbol,
+} from "@/utils/liveExchangeRates";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -60,10 +65,49 @@ export function DrawerTopUpModal({
   const [extraCurrencies, setExtraCurrencies] = useState<ExtraCurrencyRow[]>(
     [],
   );
-  const [availableExtraCurrencies, setAvailableExtraCurrencies] = useState<
-    AvailableCurrency[]
-  >([]);
-  const [liveCurrencyRates, setLiveCurrencyRates] = useState<any[]>([]);
+  const [liveCurrencyRates, setLiveCurrencyRates] = useState<CurrencyRate[]>(
+    [],
+  );
+
+  /**
+   * Currencies offerable as an extra top-up leg: the shop's own active
+   * currencies (minus USD/LBP, which have dedicated inputs above), then every
+   * currency the live feed carries.
+   *
+   * DERIVED, not fetched into state. The previous version built this inside an
+   * effect keyed on `[isOpen]` while reading `liveCurrencyRates`, so it always
+   * ran before the feed resolved and never re-ran afterwards — the list showed
+   * nothing but EUR no matter what the feed returned.
+   *
+   * Offering a currency the drawer has no config row for is safe in EXTERNAL
+   * mode specifically (see the note on DrawerTopUpCreateInput in
+   * electron-app/schemas/index.ts): an external cash-in posts a fresh General
+   * row for a brand-new currency, whereas a from-drawer debit against a
+   * missing row would silently no-op. This section only renders for
+   * `mode === "external"`.
+   */
+  const availableExtraCurrencies = useMemo<AvailableCurrency[]>(() => {
+    const configured = activeCurrencies
+      .filter((c) => c.code !== "USD" && c.code !== "LBP")
+      .map((c) => ({ code: c.code, name: c.name, symbol: c.symbol }));
+    const seen = new Set(configured.map((c) => c.code));
+    const fromFeed = liveCurrencyRates
+      .filter(
+        (r) =>
+          !seen.has(r.to_code) && r.to_code !== "USD" && r.to_code !== "LBP",
+      )
+      .map((r) => {
+        const symbol = getCurrencySymbol(r.to_code);
+        return {
+          code: r.to_code,
+          name: CURRENCY_NAMES[r.to_code] ?? r.to_code,
+          // getCurrencySymbol falls back to the code itself; carrying that
+          // through would render "JPY (JPY)" in the option label.
+          ...(symbol !== r.to_code ? { symbol } : {}),
+        };
+      });
+    return [...configured, ...fromFeed];
+  }, [activeCurrencies, liveCurrencyRates]);
 
   // Transfer mode — General <-> the primary cash drawer (PCD), the shop's
   // OWN physical till at the money-transfer counter (Primary Cash Drawer
@@ -92,13 +136,6 @@ export function DrawerTopUpModal({
   }, [isOpen, mode]);
 
   useEffect(() => {
-    if (isOpen) {
-      loadExtraCurrencies();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
-
-  useEffect(() => {
     const loadLive = async () => {
       try {
         const live = await fetchLiveCurrencyRates();
@@ -119,28 +156,6 @@ export function DrawerTopUpModal({
       if (result.data.length > 0 && !selectedDrawer) {
         setSelectedDrawer(result.data[0].drawer_name);
       }
-    }
-  }
-
-  async function loadExtraCurrencies() {
-    try {
-      // Build currency list from activeCurrencies + live rates (same as Exchange page)
-      const localCodes = new Set(activeCurrencies.map((c) => c.code));
-      const extra = liveCurrencyRates
-        .filter((r) => !localCodes.has(r.to_code))
-        .map((r) => ({
-          code: r.to_code,
-          name: r.to_code,
-        }));
-      const all = [
-        ...activeCurrencies.filter((c) => c.code !== "USD" && c.code !== "LBP"),
-        ...extra,
-      ];
-      setAvailableExtraCurrencies(
-        all.map((c) => ({ code: c.code, name: c.name } as AvailableCurrency)),
-      );
-    } catch {
-      setAvailableExtraCurrencies([]);
     }
   }
 
@@ -394,10 +409,10 @@ export function DrawerTopUpModal({
         {mode === "transfer" ? (
           <div className="space-y-4">
             <p className="text-xs text-slate-400">
-              Move physical cash between General and the {primaryDrawerLabel}
-              — the shop&apos;s own till at the money-transfer counter. This
-              moves cash between two of the shop&apos;s own drawers; it earns
-              no profit.
+              Move physical cash between General and the {primaryDrawerLabel}—
+              the shop&apos;s own till at the money-transfer counter. This moves
+              cash between two of the shop&apos;s own drawers; it earns no
+              profit.
             </p>
 
             {/* NEGATIVE-DRAWER PROMPT (owner decision 2026-08-01).
@@ -458,7 +473,8 @@ export function DrawerTopUpModal({
                           setTransferDirection(
                             drawer === "General" ? "to_general" : "to_primary",
                           );
-                          if (cur === "USD") setAmountUsd(String(Math.abs(bal)));
+                          if (cur === "USD")
+                            setAmountUsd(String(Math.abs(bal)));
                           else setAmountLbp(String(Math.abs(bal)));
                         }}
                         className="shrink-0 text-[11px] font-medium px-2 py-1 rounded-md bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors"
@@ -570,7 +586,9 @@ export function DrawerTopUpModal({
                       {transferFromDrawer.replace(/_/g, " ")}
                     </span>
                     {" · "}
-                    <span className="text-emerald-400 font-semibold">+</span>{" "}
+                    <span className="text-emerald-400 font-semibold">
+                      +
+                    </span>{" "}
                     {amountLabel} into{" "}
                     <span className="text-white font-medium">
                       {transferToDrawer.replace(/_/g, " ")}
@@ -595,163 +613,166 @@ export function DrawerTopUpModal({
             </div>
           </div>
         ) : (
-        <div className="space-y-4">
-          {/* Source Drawer Selector (only in from_drawer mode) */}
-          {mode === "from_drawer" && (
+          <div className="space-y-4">
+            {/* Source Drawer Selector (only in from_drawer mode) */}
+            {mode === "from_drawer" && (
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  Source Drawer
+                </label>
+                <Select
+                  value={selectedDrawer}
+                  onChange={(v) => setSelectedDrawer(v)}
+                  options={
+                    sourceDrawers.length === 0
+                      ? [{ value: "", label: "No drawers available" }]
+                      : sourceDrawers.map((d) => ({
+                          value: d.drawer_name,
+                          label: d.drawer_name.replace("_", " "),
+                        }))
+                  }
+                  buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
+                />
+                {currentDrawer && (
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Balance: ${currentDrawer.balance_usd.toLocaleString()} USD
+                    {currentDrawer.balance_lbp > 0 &&
+                      ` / ${currentDrawer.balance_lbp.toLocaleString()} LBP`}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* USD Amount */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Source Drawer
+                USD Amount
               </label>
-              <Select
-                value={selectedDrawer}
-                onChange={(v) => setSelectedDrawer(v)}
-                options={
-                  sourceDrawers.length === 0
-                    ? [{ value: "", label: "No drawers available" }]
-                    : sourceDrawers.map((d) => ({
-                        value: d.drawer_name,
-                        label: d.drawer_name.replace("_", " "),
-                      }))
-                }
-                buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
-              />
-              {currentDrawer && (
-                <p className="mt-1.5 text-xs text-slate-500">
-                  Balance: ${currentDrawer.balance_usd.toLocaleString()} USD
-                  {currentDrawer.balance_lbp > 0 &&
-                    ` / ${currentDrawer.balance_lbp.toLocaleString()} LBP`}
-                </p>
-              )}
+              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
+                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                  $
+                </span>
+                <DecimalInput
+                  value={parseFloat(amountUsd) || 0}
+                  onChange={(n) => setAmountUsd(n ? String(n) : "")}
+                  placeholder="0.00"
+                  className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                />
+              </div>
             </div>
-          )}
 
-          {/* USD Amount */}
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">
-              USD Amount
-            </label>
-            <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
-              <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
-                $
-              </span>
-              <DecimalInput
-                value={parseFloat(amountUsd) || 0}
-                onChange={(n) => setAmountUsd(n ? String(n) : "")}
-                placeholder="0.00"
-                className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
-              />
-            </div>
-          </div>
-
-          {/* LBP Amount */}
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">
-              LBP Amount
-            </label>
-            <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
-              <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
-                LBP
-              </span>
-              <DecimalInput
-                value={parseFloat(amountLbp) || 0}
-                onChange={(n) => setAmountLbp(n ? String(n) : "")}
-                placeholder="0"
-                className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
-              />
-            </div>
-          </div>
-
-          {/* Extra currencies (External mode only) */}
-          {mode === "external" && (
+            {/* LBP Amount */}
             <div>
               <label className="text-xs text-slate-400 block mb-1">
-                Currencies <span className="text-slate-600">(optional)</span>
+                LBP Amount
               </label>
+              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-violet-500 transition-colors">
+                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                  LBP
+                </span>
+                <DecimalInput
+                  value={parseFloat(amountLbp) || 0}
+                  onChange={(n) => setAmountLbp(n ? String(n) : "")}
+                  placeholder="0"
+                  className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                />
+              </div>
+            </div>
 
-              {availableExtraCurrencies.length === 0 ? (
-                <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5">
-                  Loading currencies...
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {extraCurrencies.map((row, index) => {
-                    const usedElsewhere = new Set(
-                      extraCurrencies
-                        .filter((_, i) => i !== index)
-                        .map((r) => r.currency_code),
-                    );
-                    const rowOptions = availableExtraCurrencies
-                      .filter((c) => !usedElsewhere.has(c.code))
-                      .map((c) => ({
-                        value: c.code,
-                        label: c.symbol ? `${c.code} (${c.symbol})` : c.code,
-                      }));
+            {/* Extra currencies (External mode only) */}
+            {mode === "external" && (
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">
+                  Other Currencies{" "}
+                  <span className="text-slate-600">(optional)</span>
+                </label>
 
-                    return (
-                      <div key={index} className="flex items-center gap-2">
-                        <Select
-                          value={row.currency_code}
-                          onChange={(v) =>
-                            updateCurrencyRow(index, { currency_code: v })
-                          }
-                          options={rowOptions}
-                          className="w-28 shrink-0"
-                          buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                        />
-                        <div className="flex-1 flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
-                          <DecimalInput
-                            value={parseFloat(row.amount) || 0}
-                            onChange={(n) =>
-                              updateCurrencyRow(index, {
-                                amount: n ? String(n) : "",
-                              })
+                {availableExtraCurrencies.length === 0 ? (
+                  <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5">
+                    No other currencies available — add one in Settings →
+                    Currencies, or check the connection for the live list.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {extraCurrencies.map((row, index) => {
+                      const usedElsewhere = new Set(
+                        extraCurrencies
+                          .filter((_, i) => i !== index)
+                          .map((r) => r.currency_code),
+                      );
+                      const rowOptions = availableExtraCurrencies
+                        .filter((c) => !usedElsewhere.has(c.code))
+                        .map((c) => ({
+                          value: c.code,
+                          label: c.symbol ? `${c.code} (${c.symbol})` : c.code,
+                        }));
+
+                      return (
+                        <div key={index} className="flex items-center gap-2">
+                          <Select
+                            value={row.currency_code}
+                            onChange={(v) =>
+                              updateCurrencyRow(index, { currency_code: v })
                             }
-                            placeholder="0.00"
-                            className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                            options={rowOptions}
+                            className="w-28 shrink-0"
+                            buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
                           />
+                          <div className="flex-1 flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
+                            <DecimalInput
+                              value={parseFloat(row.amount) || 0}
+                              onChange={(n) =>
+                                updateCurrencyRow(index, {
+                                  amount: n ? String(n) : "",
+                                })
+                              }
+                              placeholder="0.00"
+                              className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeCurrencyRow(index)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                            aria-label="Remove currency"
+                          >
+                            <X size={16} />
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => removeCurrencyRow(index)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
-                          aria-label="Remove currency"
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
 
-                  <button
-                    type="button"
-                    onClick={addCurrencyRow}
-                    disabled={
-                      extraCurrencies.length >= availableExtraCurrencies.length
-                    }
-                    className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <Plus size={14} />
-                    Add currency
-                  </button>
-                </div>
-              )}
+                    <button
+                      type="button"
+                      onClick={addCurrencyRow}
+                      disabled={
+                        extraCurrencies.length >=
+                        availableExtraCurrencies.length
+                      }
+                      className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Plus size={14} />
+                      Add currency
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Notes */}
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">
+                Notes <span className="text-slate-600">(optional)</span>
+              </label>
+              <textarea
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add a note..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 placeholder:text-slate-600 resize-none transition-colors"
+              />
             </div>
-          )}
-
-          {/* Notes */}
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">
-              Notes <span className="text-slate-600">(optional)</span>
-            </label>
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Add a note..."
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 placeholder:text-slate-600 resize-none transition-colors"
-            />
           </div>
-        </div>
         )}
 
         {/* Footer */}
