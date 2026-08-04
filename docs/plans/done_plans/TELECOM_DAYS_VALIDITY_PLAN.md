@@ -1,26 +1,36 @@
 # Telecom Days & Credit Validity Model (MTC/Alfa)
 
-**Status:** PARTIAL — **2 UI entry points away from done** (updated 2026-08-04)
+**Status:** COMPLETE (2026-08-04)
 
-> Schema, Settings split editor, sale-time calc, and the self-charge/reversal
-> **backend** all shipped in commit `8391056`. The interview questions are
-> answered. What remains is exactly two missing UI controls:
+> Schema, Settings split editor, sale-time calc and the self-charge/reversal
+> backend shipped in `8391056`. The two UI entry points that were the last gap
+> shipped on `feat/telecom-days-cost` (PR #72):
 >
-> 1. **"Set primary" in Settings → Carrier Lines** — `setPrimary`/`getPrimary`
->    are built and reachable from no button.
-> 2. **Self-charge UI** — `selfChargeTelecomItem` is built, with correct
->    void/refund reversal, and called from nowhere. This is note 12's "charge a
->    telecom item to the shop's own number", still unusable by shop staff.
+> 1. **"Set primary" in Settings → Carrier Lines** — amber `Primary` badge plus
+>    a `Make primary` action on active, non-primary lines. Building it also
+>    surfaced a real bug: `toggleActive()` cleared `is_active` but not
+>    `is_primary` (only `archive()` did), so deactivating via the row's pill
+>    left a line claiming "Primary" while `getPrimary()` returned null and
+>    Only-Days sales silently stopped updating carrier-line tracking. Fixed at
+>    the repository with a failing-first proof.
+> 2. **Self-charge UI** — a per-line "Charge item to this line" modal, with the
+>    item picker mirroring the repository's own guard clauses so it cannot
+>    offer something the backend would reject, and a preview of the credits and
+>    validity days the line will gain before confirming. Note 12 is usable.
 >
-> Its successor `TELECOM_DAYS_COST_PLAN.md` is otherwise **implemented**
-> (`R = 93,333.33`, migrations v143–v145, all gates green, uncommitted) and
-> lists the same two items as its own §6 steps 4–5. **Building them retires
-> both plans**; until then neither moves to `done_plans/`.
+> **Notes 7/8/9's `daysCost` split** is answered in
+> `TELECOM_DAYS_COST_PLAN.md`: the catalog price lists contain no days
+> component to extract (a least-squares fit returns a *negative* day
+> coefficient), so `days_cost_lbp` is an allocation anchored on the shop's own
+> credit rate — `R = 93,333.33 LBP/$`, observed from the one category where
+> credit is bought with no days attached.
 >
-> The days-cost question this plan left open (notes 7/8/9's `daysCost` split)
-> is answered in that document — the short version is that the catalog price
-> lists contain no days component to extract, so `days_cost_lbp` is an
-> allocation anchored on the shop's credit rate, not a carrier figure.
+> **Note 6's** shop-line validity tracking now works end to end, and
+> `lira-132`'s Only-Days money case is un-skipped and passing against a real
+> shipped catalog card.
+>
+> Gates at archival: desktop e2e 242/242, core 1464/1464, frontend 703 +1
+> skipped, backend 500/500, typecheck clean, lint 0 errors.
 **Created:** 2026-07-20
 **Origin:** Owner feedback batch 2026-07-20, notes 6–12 (verbatim intent below). Ticketed as
 **LIRA-090** in root `current_sprint.md`, Sprint 4 — Owner Notes Batch (2026-07-20). Full

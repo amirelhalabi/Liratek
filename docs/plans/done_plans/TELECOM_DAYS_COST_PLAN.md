@@ -1,29 +1,28 @@
-# Telecom Days Cost — Plan (2026-08-03, implemented 2026-08-04)
+# Telecom Days Cost — Plan (2026-08-03, COMPLETE 2026-08-04)
 
-> **Status: IMPLEMENTED, UNCOMMITTED.** `R = 93,333.33 LBP/$` owner-confirmed
-> 2026-08-04. `days_cost_lbp = round(cost_lbp − credits × R)`, ceiling 98,603
-> (§4.4). All gates green; nothing committed at the owner's instruction.
+> **Status: COMPLETE.** All eight implementation steps landed, all gates green,
+> merged-ready on `feat/telecom-days-cost` (PR #72).
 >
-> **Shipped in the working tree**
+> `days_cost_lbp = round(cost_lbp − credits × R)`, **R = 93,333.33 LBP/$**,
+> ceiling 98,603 (§4.4).
 >
-> | Piece | Where |
-> | ----- | ----- |
-> | `TELECOM_CREDIT_COST_RATE_LBP` + `deriveDaysCostLbp()` | `packages/core/src/utils/telecomCredit.ts` |
-> | `credits` on all 22 alfa + 21 mtc Prepaid cards | `frontend/src/data/mobileServices.ts` |
-> | alfa `validity_days` (6 faces × 3 providers) | same file |
-> | v143 credits backfill · v144 rate + days_cost · v145 alfa days | `packages/core/src/db/migrations/index.ts` |
-> | `create_db.sql` mirror (3 migration rows + the R setting) | `electron-app/create_db.sql` |
-> | Fresh-install path (parser → preload → handler → Zod → repo) | `parseCatalogToSeedData.ts` + the IPC chain |
-> | `R` seeded for newly provisioned tenants | `packages/core/src/repositories/TenantRepository.ts` |
+> **Gates:** desktop e2e **242/242** · core **1464/1464** · frontend **703**
+> +1 skipped (87 suites) · backend **500/500** · typecheck clean · lint 0
+> errors / 524 warnings · tenant-scoping 0 violations.
 >
-> **Gates (run directly, not delegated):** core 1462/1462 · frontend 693 passed
-> +1 skipped (86 suites) · backend 500/500 · typecheck clean · lint 0 errors /
-> 524 warnings (baseline) · tenant-scoping 0 violations.
+> ### RESIDUAL — carried here so archiving does not bury them
 >
-> **Still open:** §10 Q2 (alfa 1.22/3.03 day counts), §10 Q6 / §8 (wiring
-> `sell_days_lbp` — owner deferred to its own ticket), and plan §6 steps 4–5
-> (set-primary + self-charge UI), which are also what keeps
-> `TELECOM_DAYS_VALIDITY_PLAN.md` from being archivable.
+> Neither is implementation work; both are owner input:
+>
+> 1. **alfa `1.22` and `3.03` day counts.** The owner could not confirm them
+>    (2026-08-04), so both cards are excluded from Only-Days and treated as
+>    credit-only. If a day count ever arrives, seed it in
+>    `mobileServices.ts` + a migration and the generic candidate rule picks
+>    them up automatically — no code change needed beyond the data.
+> 2. **Which chunk the resale table headlines** (2$ or 3$). `planSmsTransfer`
+>    made this a display preference rather than a money model: the sale path
+>    charges the real `ceil(amount / 3)` and the table prices per chunk, both
+>    off the same function.
 
 Follow-up to LIRA-090 (`TELECOM_DAYS_VALIDITY_PLAN.md`, `LIRA_090_HANDOFF.md`).
 Answers the question: **where does `mobile_service_items.days_cost_lbp` come
@@ -354,19 +353,19 @@ self-charged until a "Set primary" action exists in Settings → Carrier Lines.
 
 ---
 
-## 6. Implementation order — steps 1,2,3,7a,7b DONE; 4,5,8 open
+## 6. Implementation order — ALL STEPS DONE
 
 | # | Step | Blocked by |
 | - | ---- | ---------- |
 | 1 ✅ | Retire the mutual-exclusivity comment; confirm no code branches on it (§3.2) | — |
 | 2 ✅ | Seed `credits` on the 21 mtc Prepaid cards (= label, same rule as alfa) | 1 |
 | 3 ✅ | **Migration v143**: backfill `credits` for existing installs, alfa + mtc Prepaid, `WHERE credits IS NULL`; mirrored into `create_db.sql` (rule 10). GLOB guard stops SQLite's silent `CAST('start' AS REAL) = 0.0`, proven failing-first | 2 |
-| 4 ❌ | "Set primary" control in Settings → Carrier Lines — **also blocks archiving TELECOM_DAYS_VALIDITY_PLAN.md** | — |
-| 5 ❌ | Self-charge UI (Recharge or Settings → Mobile Services), admin-only per LIRA-090's role decision — **also blocks archiving TELECOM_DAYS_VALIDITY_PLAN.md** | 4 |
+| 4 ✅ | "Set primary" control in Settings → Carrier Lines — amber badge + "Make primary" on active non-primary lines. Also **retired the last gap in TELECOM_DAYS_VALIDITY_PLAN.md** | — |
+| 5 ✅ | Self-charge UI — per-line "Charge item to this line" in Settings → Carrier Lines, item picker mirroring the repository's own guards, preview before confirming. Owner note 12, finally usable | 4 |
 | 6 ⏸ | Measure days + credit per face value via §5 — no longer needed for the 6 confirmed alfa faces; still the route for / | 5 |
 | 7a ✅ | **Added the `R` setting** (§4.6) and compute `days_cost_lbp = cost_lbp − credits × R` for all 39 candidates; **migration v144** backfills, asserting `0 < days_cost < cost` per card (§4.4). `R = 93,333.33` | done 2026-08-04 |
 | 7b ✅ | Seed `validity_days` for the alfa cards + **migration v145** — 6 faces × 3 providers = 18 rows. `1.22`/`3.03` deliberately excluded (owner could not confirm a day count), so they stay credit-only and out of Only-Days: **candidate count 43 → 39** | owner numbers, 2026-08-04 |
-| 8 ❌ | E2E: an Only-Days sale on a real seeded card, asserting drawer deltas by identity and delta (rule 15) — and un-skip `lira-132`'s `test.fixme` money case. The adversarial review flagged this as the one plan-mandated gap nothing closed; it is lower-risk than it reads, since §3.4 now shows the backfill is money-neutral | 7a |
+| 8 ✅ | E2E: `lira-132`'s money case **UN-SKIPPED** and passing — an Only-Days sale driven through the real KatchForm on a shipped catalog card, asserting drawer/carrier deltas by identity. B1 guard proven failing-first (`Received: 124000`). It also caught the zod-major seed blocker that no unit test could see | 7a |
 
 **7a no longer waits on 4–6.** Since §4.3 anchors on a single rate rather than
 per-card carrier figures, `days_cost_lbp` can ship as soon as the owner names
@@ -499,7 +498,7 @@ to be applied to whichever chain is physically true.
 | 2 | Days per **alfa** card | 4.5 → 10, 7.58 → 30, 10 → 30, 15.15 → **60**, 22.73 → 90, 77.28 → 365. Read off the Katsh shelf, mirrored to iPick/WHISH_APP. **`1.22` and `3.03` STILL OPEN** — owner could not confirm; excluded as credit-only until they can. |
 | 3 | Is `R` per-carrier? | **One global rate.** The 93,333.33 evidence is MTC-only; assuming Alfa matches. Revisit if Alfa credit turns out to cost differently. |
 | 4 | Same days across the three providers? | **Yes** — owner: "match by item name". The mtc block is already byte-identical across all three, and migration v135 established the same cross-provider rule. |
-| 5 | `telecom_credit_sell_price_lbp` seeded at 100,000, read by nothing | **STILL OPEN.** Should the resale table use it instead of its hardcoded 100,000 fallback? |
+| 5 | `telecom_credit_sell_price_lbp` seeded at 100,000, read by nothing | **DONE 2026-08-04.** The resale table now uses a 3-level fallback (per-item `sell_credit_lbp` → the tenant setting → a named constant) and additionally shows break-even per chunk, because at R = 93,333.33 every chip is red against a 100,000 reference and a uniformly red table is not actionable. |
 | 6 | Wire `sell_days_lbp`? | **Deferred to its own ticket.** Wiring it changes what the customer is charged (today an Only-Days sale takes the gross card cost), so it moves drawer deltas, profit stamping and `lira-132`. Owner's pricing model is recorded in §8. |
 | 7 | *(new, from §9)* 2$ vs 3$ chunk | **STILL OPEN.** The sale path charges the SMS fee at `ceil(amount / 3)` while the resale decision table uses 2$ as the house average. They will disagree; pick one convention. |
 
