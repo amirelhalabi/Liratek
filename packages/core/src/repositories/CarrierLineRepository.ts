@@ -334,12 +334,37 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
     });
   }
 
-  /** Toggle active/archived status. */
+  /**
+   * Toggle active/archived status.
+   *
+   * Clears `is_primary` whenever it deactivates, exactly as {@link archive}
+   * does — found by adversarial review 2026-08-04. These are the TWO paths a
+   * line can go inactive (Settings > Carrier Lines exposes both: the red
+   * "Archive" button and the green Active/Archived pill), and only `archive()`
+   * had been fixed under v140's H2. Deactivating through the pill left
+   * `is_active = 0` WITH `is_primary = 1`, so the row rendered "Archived" and
+   * "Primary" at once while `getPrimary()` — which requires `is_active = 1` —
+   * returned null. The carrier then had no effective primary line, and every
+   * Only-Days sale silently stopped updating carrier-line credits/validity
+   * (the repository logs a warning and moves on) with nothing on screen to
+   * say so.
+   *
+   * The money was never wrong: `getPrimary()`'s `is_active` predicate is the
+   * belt to this braces, and it already excluded the stale row. What was wrong
+   * was the row lying about its own state and the operator losing tracking
+   * without being told.
+   *
+   * Reactivating does NOT restore the flag — a line that was primary before
+   * being deactivated comes back non-primary, and must be re-designated
+   * deliberately. Silently resurrecting it would let a stale choice
+   * reassert itself over whatever the operator picked in the meantime.
+   */
   toggleActive(id: number): CarrierLineEntity | null {
     this.db
       .prepare(
         `UPDATE carrier_lines
          SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END,
+             is_primary = CASE WHEN is_active = 1 THEN 0 ELSE is_primary END,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND tenant_id = ?`,
       )

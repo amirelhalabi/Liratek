@@ -193,6 +193,41 @@ describe("CarrierLineRepository — is_primary (LIRA-090 §3 decision 8)", () =>
     expect(archived.is_primary).toBe(0);
   });
 
+  it("toggleActive() OFF also clears is_primary — the second deactivation path", () => {
+    // Found by adversarial review 2026-08-04. archive() clears is_primary;
+    // toggleActive() did not, and the Settings > Carrier Lines row exposes
+    // BOTH (the red "Archive" button and the green Active/Archived pill).
+    // Deactivating via the pill left is_active=0 WITH is_primary=1, so the UI
+    // showed "Archived" and "Primary" on the same row while getPrimary()
+    // returned null — the carrier silently had no effective primary line, and
+    // every Only-Days sale stopped updating carrier-line credits/validity with
+    // nothing on screen to say so. getPrimary()'s is_active predicate (half 2
+    // below) keeps the MONEY correct either way; this is about the row not
+    // lying and the operator not losing tracking silently.
+    const line = repo.createLine({ carrier: "mtc", phone_number: "03111111" });
+    repo.setPrimary(line.id);
+    expect(repo.getPrimary("mtc")!.id).toBe(line.id);
+
+    repo.toggleActive(line.id);
+
+    const deactivated = repo.getById(line.id)!;
+    expect(deactivated.is_active).toBe(0);
+    expect(deactivated.is_primary).toBe(0);
+    expect(repo.getPrimary("mtc")).toBeNull();
+  });
+
+  it("toggleActive() ON does not resurrect a primary flag", () => {
+    const line = repo.createLine({ carrier: "mtc", phone_number: "03111111" });
+    repo.setPrimary(line.id);
+    repo.toggleActive(line.id); // off — clears the flag
+    repo.toggleActive(line.id); // back on — must NOT come back primary
+
+    const reactivated = repo.getById(line.id)!;
+    expect(reactivated.is_active).toBe(1);
+    expect(reactivated.is_primary).toBe(0);
+    expect(repo.getPrimary("mtc")).toBeNull();
+  });
+
   it("H2 fix, half 2 (belt-and-braces): getPrimary() ignores an inactive line even if is_primary somehow still reads 1", () => {
     const line = repo.createLine({ carrier: "mtc", phone_number: "03111111" });
     repo.setPrimary(line.id);
