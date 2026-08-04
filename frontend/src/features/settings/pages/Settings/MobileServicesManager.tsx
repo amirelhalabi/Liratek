@@ -28,7 +28,13 @@ import {
   isTelecomSplitComplete,
   deriveItemEconomics,
   deliveredCostLbp,
+  DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP,
 } from "@liratek/core";
+
+/** Tenant setting key for the resale table's reference sell price (LBP per
+ *  $1 of resold credit). Seeded per-tenant by migration v141/`TenantRepository`;
+ *  read here for the first time (TELECOM_DAYS_COST_PLAN.md §10 Q5). */
+const TELECOM_CREDIT_SELL_PRICE_SETTING_KEY = "telecom_credit_sell_price_lbp";
 
 const PROVIDERS = [
   "iPick",
@@ -132,6 +138,12 @@ export default function MobileServicesManager() {
   const [items, setItems] = useState<MobileServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Resale table reference price, level 2 of the 3-level fallback (item ->
+  // tenant setting -> DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP). Null until
+  // loaded or when the tenant hasn't set a positive value.
+  const [tenantSellPriceLbp, setTenantSellPriceLbp] = useState<number | null>(
+    null,
+  );
 
   // Filter
   const [providerFilter, setProviderFilter] = useState<string>("");
@@ -188,6 +200,31 @@ export default function MobileServicesManager() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Resale table reference price — dual-transport (rule 19) via
+  // api.getAllSettings(), same pattern TelecomForm.tsx uses for
+  // alfa_credit_cost_lbp. Best-effort: any failure just leaves the
+  // fallback chain at its next level.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const settings = await api.getAllSettings();
+        const row = (
+          settings as Array<{ key_name: string; value: string }>
+        ).find((s) => s.key_name === TELECOM_CREDIT_SELL_PRICE_SETTING_KEY);
+        const value = row ? Number(row.value) : NaN;
+        if (!cancelled && Number.isFinite(value) && value > 0) {
+          setTenantSellPriceLbp(value);
+        }
+      } catch {
+        // Best-effort — the fallback chain covers this.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   // ── Filter + search ────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -1223,10 +1260,14 @@ export default function MobileServicesManager() {
                                               creditsUsd: item.credits,
                                             })
                                           : null;
-                                        // sell_credit_lbp is the reference price for profit calc;
-                                        // fall back to 100,000 when not set (spec §2.4 default)
+                                        // sell_credit_lbp is the reference price for profit calc.
+                                        // 3-level fallback (TELECOM_DAYS_COST_PLAN.md §10 Q5):
+                                        // per-item price -> the tenant's telecom_credit_sell_price_lbp
+                                        // setting -> the named default (spec §2.4).
                                         const sellCreditRef =
-                                          item.sell_credit_lbp ?? 100_000;
+                                          item.sell_credit_lbp ??
+                                          tenantSellPriceLbp ??
+                                          DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP;
 
                                         return (
                                           <div
@@ -1386,6 +1427,17 @@ export default function MobileServicesManager() {
                                                       const profitVal =
                                                         sellCreditRef -
                                                         costRounded;
+                                                      // Break-even: round UP to the nearest 1,000 LBP
+                                                      // so a price actually charged at this figure can
+                                                      // never fall short of the true delivered cost.
+                                                      // Actionable regardless of whether sellCreditRef
+                                                      // (the reference above) is stale — a table that
+                                                      // is red end-to-end at least tells the operator
+                                                      // what to charge instead.
+                                                      const breakEvenLbp =
+                                                        Math.ceil(
+                                                          costRounded / 1_000,
+                                                        ) * 1_000;
                                                       return (
                                                         <span
                                                           key={chunk}
@@ -1411,7 +1463,11 @@ export default function MobileServicesManager() {
                                                               : ""}
                                                             {profitVal.toLocaleString()}
                                                           </span>
-                                                          )
+                                                          ){" "}
+                                                          <span className="text-slate-500">
+                                                            · charge ≥{" "}
+                                                            {breakEvenLbp.toLocaleString()}
+                                                          </span>
                                                         </span>
                                                       );
                                                     })}

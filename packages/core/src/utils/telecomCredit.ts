@@ -256,6 +256,60 @@ export function deriveItemEconomics(
 }
 
 // =============================================================================
+// One SMS transfer function (TELECOM_DAYS_COST_PLAN.md §9/§6, owner ask
+// 2026-08-04) — replaces two independent re-derivations of the same 0.16$/
+// message fee: RechargeRepository's real-sale SMS deduction and this file's
+// resale decision table. Both now express themselves through this function
+// (rule 14 — one definition, reused everywhere).
+// =============================================================================
+
+/** The result of planning an SMS credit transfer of a given USD amount. */
+export interface SmsTransferPlan {
+  /** Messages needed to move `amountUsd` (each capped at `perSmsUsd`). */
+  messages: number;
+  /** `messages * SMS_TRANSFER_FEE_USD` — the fee burned by the transfer. */
+  feeUsd: number;
+  /** `amountUsd + feeUsd` — what actually leaves the sender's balance. */
+  totalCostUsd: number;
+}
+
+const ZERO_SMS_TRANSFER_PLAN: SmsTransferPlan = {
+  messages: 0,
+  feeUsd: 0,
+  totalCostUsd: 0,
+};
+
+/**
+ * Plan the SMS transfer of `amountUsd` of credit: how many messages it takes
+ * and what it costs the sender. Never throws, never returns NaN — a zeroed
+ * plan comes back for any non-finite or non-positive input, matching the
+ * null/zero style used elsewhere in this file.
+ *
+ * @param amountUsd - the USD credit to move
+ * @param perSmsUsd - the most credit ($) one SMS can carry; defaults to
+ *   {@link MAX_CREDIT_PER_SMS_USD}
+ */
+export function planSmsTransfer(
+  amountUsd: number,
+  perSmsUsd: number = MAX_CREDIT_PER_SMS_USD,
+): SmsTransferPlan {
+  if (
+    !Number.isFinite(amountUsd) ||
+    amountUsd <= 0 ||
+    !Number.isFinite(perSmsUsd) ||
+    perSmsUsd <= 0
+  ) {
+    return { ...ZERO_SMS_TRANSFER_PLAN };
+  }
+
+  const messages = Math.ceil(amountUsd / perSmsUsd);
+  const feeUsd = messages * SMS_TRANSFER_FEE_USD;
+  const totalCostUsd = amountUsd + feeUsd;
+
+  return { messages, feeUsd, totalCostUsd };
+}
+
+// =============================================================================
 // §2.4 — deliveredCostLbp (the resale decision aid)
 // =============================================================================
 
@@ -263,9 +317,16 @@ export function deriveItemEconomics(
  * The real LBP cost of delivering $1 of recovered credit when it is resold in
  * chunks of `chunkUsd` (typically 1, 2, or 3 — spec §2.4). Once the shop
  * holds recovered credit, reselling it also burns a 0.16$ SMS fee, so the
- * true cost per delivered dollar depends on the chunk size:
+ * true cost per delivered dollar depends on the chunk size. Expressed
+ * through {@link planSmsTransfer} (one SMS transfer function, see above):
  *
- *   deliveredCostLbp(chunk) = recoveredRateLbp * (1 + SMS_TRANSFER_FEE_USD / chunk)
+ *   deliveredCostLbp(chunk) = recoveredRateLbp * planSmsTransfer(chunk).totalCostUsd / chunk
+ *                           = recoveredRateLbp * (chunk + 0.16) / chunk
+ *                           = recoveredRateLbp * (1 + SMS_TRANSFER_FEE_USD / chunk)
+ *
+ * The three forms are algebraically identical for `chunk <= MAX_CREDIT_PER_SMS_USD`
+ * (the only domain this is ever called with — 1$/2$/3$ chunks), since exactly
+ * one message covers the whole chunk (`planSmsTransfer` returns `messages: 1`).
  *
  * This is a computed decision aid, not a stored per-item setting — render it
  * as a 3-row table (chunk = 1$, 2$, 3$) wherever the item's economics are
@@ -288,8 +349,19 @@ export function deliveredCostLbp(
     return null;
   }
 
-  return recoveredRateLbp * (1 + SMS_TRANSFER_FEE_USD / chunkUsd);
+  return (recoveredRateLbp * planSmsTransfer(chunkUsd).totalCostUsd) / chunkUsd;
 }
+
+/**
+ * Fallback reference price (LBP) for $1 of resold telecom credit, used by the
+ * resale decision table (Settings → Mobile Services, §2.4) when neither the
+ * per-item `sell_credit_lbp` nor the tenant's `telecom_credit_sell_price_lbp`
+ * setting is available. Matches the value migration v141 seeds for every
+ * tenant's `telecom_credit_sell_price_lbp` (`packages/core/src/db/migrations/index.ts`),
+ * so a tenant that has never touched the setting sees the same number either
+ * way. Named here instead of as a bare literal in the UI (rule 14).
+ */
+export const DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP = 100_000;
 
 // =============================================================================
 // §4 — days_cost_lbp, credit-rate anchored (TELECOM_DAYS_COST_PLAN.md §4.3/4.4)
