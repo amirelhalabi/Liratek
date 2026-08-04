@@ -1,6 +1,26 @@
 # Telecom Days & Credit Validity Model (MTC/Alfa)
 
-**Status:** NEEDS INTERVIEW
+**Status:** PARTIAL — **2 UI entry points away from done** (updated 2026-08-04)
+
+> Schema, Settings split editor, sale-time calc, and the self-charge/reversal
+> **backend** all shipped in commit `8391056`. The interview questions are
+> answered. What remains is exactly two missing UI controls:
+>
+> 1. **"Set primary" in Settings → Carrier Lines** — `setPrimary`/`getPrimary`
+>    are built and reachable from no button.
+> 2. **Self-charge UI** — `selfChargeTelecomItem` is built, with correct
+>    void/refund reversal, and called from nowhere. This is note 12's "charge a
+>    telecom item to the shop's own number", still unusable by shop staff.
+>
+> Its successor `TELECOM_DAYS_COST_PLAN.md` is otherwise **implemented**
+> (`R = 93,333.33`, migrations v143–v145, all gates green, uncommitted) and
+> lists the same two items as its own §6 steps 4–5. **Building them retires
+> both plans**; until then neither moves to `done_plans/`.
+>
+> The days-cost question this plan left open (notes 7/8/9's `daysCost` split)
+> is answered in that document — the short version is that the catalog price
+> lists contain no days component to extract, so `days_cost_lbp` is an
+> allocation anchored on the shop's credit rate, not a carrier figure.
 **Created:** 2026-07-20
 **Origin:** Owner feedback batch 2026-07-20, notes 6–12 (verbatim intent below). Ticketed as
 **LIRA-090** in root `current_sprint.md`, Sprint 4 — Owner Notes Batch (2026-07-20). Full
