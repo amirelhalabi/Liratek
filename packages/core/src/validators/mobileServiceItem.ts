@@ -93,3 +93,34 @@ export const mobileServiceItemCreateSchema = z.object({
 export type MobileServiceItemCreateInput = z.infer<
   typeof mobileServiceItemCreateSchema
 >;
+
+/**
+ * The fresh-install catalog seed payload — an array of create-shaped items,
+ * exactly what `parseCatalogToSeedData()` produces.
+ *
+ * DEFINED HERE, NOT IN `electron-app/schemas/index.ts`, and that is
+ * load-bearing. The re-export pattern casts core schemas across the zod-major
+ * boundary (`as unknown as z.ZodSchema<T>`), which satisfies the compiler but
+ * produces an object that ELECTRON's zod cannot introspect. Wrapping a cast
+ * schema in electron's own `z.array(...)` therefore builds an array validator
+ * whose element parser belongs to a different zod instance, and it explodes at
+ * runtime with `def.type._parseSync is not a function`.
+ *
+ * That is not hypothetical: it shipped in this branch and was caught by the
+ * lira-132 e2e. The seed IPC returned that error for EVERY fresh install, and
+ * `MobileServiceItemsContext.load()` swallows failures silently, so the only
+ * symptom was a completely empty telecom catalog with nothing logged. Unit
+ * tests could not see it — both zods agree inside a single package; only the
+ * real IPC boundary crosses them.
+ *
+ * Building the array here keeps element and wrapper in the SAME zod, so the
+ * single cast at the electron-app re-export is applied to an already-complete
+ * validator rather than to one of its parts.
+ */
+export const mobileServiceItemSeedSchema = z.array(
+  mobileServiceItemCreateSchema,
+);
+
+export type MobileServiceItemSeedInput = z.infer<
+  typeof mobileServiceItemSeedSchema
+>;

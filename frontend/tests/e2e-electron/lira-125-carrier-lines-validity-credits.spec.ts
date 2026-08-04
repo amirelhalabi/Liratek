@@ -212,12 +212,18 @@ test.describe("LIRA W6.b — mobile_service_items structured validity/credits", 
       return res.success ? (res.data ?? []) : [];
     });
 
+    // UPDATED 2026-08-04 (TELECOM_DAYS_COST_PLAN.md §3.2). This used to assert
+    // `credits === null` here, encoding the old "credits and validity_days are
+    // mutually exclusive" invariant. That invariant is RETIRED: an Only-Days
+    // card bundles both — the customer keeps the days and SMSes the credit
+    // back — so a prepaid card carrying only one of the two is precisely the
+    // card that is OUT of scope. Migration v143 backfills `credits` here.
     const tenDayCard = items.find(
       (i) => i.subcategory === "Prepaid" && i.label === "3.79",
     );
     expect(tenDayCard).toBeTruthy();
     expect(tenDayCard!.validity_days).toBe(10);
-    expect(tenDayCard!.credits).toBeNull();
+    expect(tenDayCard!.credits).toBe(3.79);
 
     const creditOnlyCard = items.find(
       (i) => i.subcategory === "Prepaid" && i.label === "1",
