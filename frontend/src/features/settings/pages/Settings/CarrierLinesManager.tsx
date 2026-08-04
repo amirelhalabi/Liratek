@@ -82,9 +82,7 @@ export default function CarrierLinesManager() {
   // Per-line action: charge a telecom catalog item to THIS SPECIFIC line,
   // extending its credits/validity — a shop-internal stock movement, not a
   // customer sale (owner note 12).
-  const [chargeLine, setChargeLine] = useState<CarrierLineEntity | null>(
-    null,
-  );
+  const [chargeLine, setChargeLine] = useState<CarrierLineEntity | null>(null);
   const [chargeItemId, setChargeItemId] = useState<number | null>(null);
   const [chargeSubmitting, setChargeSubmitting] = useState(false);
   const [chargeError, setChargeError] = useState("");
@@ -559,8 +557,8 @@ export default function CarrierLinesManager() {
                   {chargeCandidates.length === 0 ? (
                     <p className="text-slate-500 text-sm">
                       No eligible {chargeLine.carrier.toUpperCase()} items —
-                      self-charge needs an iPick/Katsh Prepaid item with both
-                      a face credit and validity days configured.
+                      self-charge needs an iPick/Katsh Prepaid item with both a
+                      face credit and validity days configured.
                     </p>
                   ) : (
                     <select

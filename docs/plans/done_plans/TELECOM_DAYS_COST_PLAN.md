@@ -41,16 +41,16 @@ to sell.
 
 ### 1.1 alfa Prepaid — 22 items, of which **18 are Only-Days candidates**
 
-| Card | iPick cost | Katsh cost | WHISH_APP cost | credits | validity_days |
-| ---- | ---------- | ---------- | -------------- | ------- | ------------- |
-| 1.22  | 140,000   | —         | —         | 1.22  | — *(credit-only, excluded)* |
-| 3.03  | 322,000   | 318,978   | 318,978   | 3.03  | — *(credit-only, excluded)* |
-| 4.5   | 466,000   | 462,075   | 462,075   | 4.5   | **10** |
-| 7.58  | 770,000   | 765,007   | 765,007   | 7.58  | **30** |
-| 10    | 1,000,000 | 1,003,274 | 1,003,274 | 10    | **30** |
-| 15.15 | 1,515,000 | 1,511,601 | 1,511,601 | 15.15 | **60** |
-| 22.73 | 2,273,000 | 2,256,769 | 2,256,769 | 22.73 | **90** |
-| 77.28 | 7,728,000 | 7,620,030 | 7,620,030 | 77.28 | **365** |
+| Card  | iPick cost | Katsh cost | WHISH_APP cost | credits | validity_days               |
+| ----- | ---------- | ---------- | -------------- | ------- | --------------------------- |
+| 1.22  | 140,000    | —          | —              | 1.22    | — _(credit-only, excluded)_ |
+| 3.03  | 322,000    | 318,978    | 318,978        | 3.03    | — _(credit-only, excluded)_ |
+| 4.5   | 466,000    | 462,075    | 462,075        | 4.5     | **10**                      |
+| 7.58  | 770,000    | 765,007    | 765,007        | 7.58    | **30**                      |
+| 10    | 1,000,000  | 1,003,274  | 1,003,274      | 10      | **30**                      |
+| 15.15 | 1,515,000  | 1,511,601  | 1,511,601      | 15.15   | **60**                      |
+| 22.73 | 2,273,000  | 2,256,769  | 2,256,769      | 22.73   | **90**                      |
+| 77.28 | 7,728,000  | 7,620,030  | 7,620,030      | 77.28   | **365**                     |
 
 `1.22` exists on iPick only. `credits` seeded 2026-08-03; `validity_days` seeded 2026-08-04 from the owner's Katsh alfa reading and mirrored to all three providers (migration v145).
 
@@ -60,26 +60,26 @@ Note the alfa day counts deliberately DIVERGE from the mtc card of the same face
 
 ### 1.2 mtc Prepaid — 21 items, all Only-Days candidates (`credits` seeded 2026-08-04)
 
-| Card | iPick cost | Katsh cost | WHISH_APP cost | validity_days | credits |
-| ---- | ---------- | ---------- | -------------- | ------------- | ------- |
-| 3.79  | 379,000   | 398,723   | 398,723   | 10  | **3.79** |
-| 4.5   | 450,000   | 462,518   | 462,518   | 30  | **4.5** |
-| 7.58  | 758,000   | 765,007   | 765,007   | 30  | **7.58** |
-| 10    | 1,000,000 | 1,003,274 | 1,003,274 | 30  | **10** |
-| 15.15 | 1,526,000 | 1,509,829 | 1,509,829 | 60  | **15.15** |
-| 22.73 | 2,273,000 | 2,255,883 | 2,255,883 | 90  | **22.73** |
-| 77.28 | 7,728,000 | 7,620,030 | 7,620,030 | 365 | **77.28** |
+| Card  | iPick cost | Katsh cost | WHISH_APP cost | validity_days | credits   |
+| ----- | ---------- | ---------- | -------------- | ------------- | --------- |
+| 3.79  | 379,000    | 398,723    | 398,723        | 10            | **3.79**  |
+| 4.5   | 450,000    | 462,518    | 462,518        | 30            | **4.5**   |
+| 7.58  | 758,000    | 765,007    | 765,007        | 30            | **7.58**  |
+| 10    | 1,000,000  | 1,003,274  | 1,003,274      | 30            | **10**    |
+| 15.15 | 1,526,000  | 1,509,829  | 1,509,829      | 60            | **15.15** |
+| 22.73 | 2,273,000  | 2,255,883  | 2,255,883      | 90            | **22.73** |
+| 77.28 | 7,728,000  | 7,620,030  | 7,620,030      | 365           | **77.28** |
 
 ### 1.3 Explicitly OUT of scope
 
-| Items | Why |
-| ----- | --- |
-| mtc Prepaid `1`, `1.67` (all 3 providers) | credit-only, no validity days — nothing to sell as "days" |
-| **alfa Prepaid `1.22`, `3.03`** | credit-only — owner could not confirm a day count (2026-08-04); same treatment as mtc `1`/`1.67` |
-| iPick mtc **Credits** (`3$`…`15$`) | direct credit top-up, no days |
-| iPick mtc **Validity** (`10 days`…`360 days`) | days-only, no credit to return |
-| mtc `start`, `startSOS`, `smart`, `super` | named plans, no face value or day count |
-| alfa Mobile Internet / Alfa Go / Weekly data / Boosters / Weekender | data & bundles, not credit+days cards |
+| Items                                                               | Why                                                                                              |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| mtc Prepaid `1`, `1.67` (all 3 providers)                           | credit-only, no validity days — nothing to sell as "days"                                        |
+| **alfa Prepaid `1.22`, `3.03`**                                     | credit-only — owner could not confirm a day count (2026-08-04); same treatment as mtc `1`/`1.67` |
+| iPick mtc **Credits** (`3$`…`15$`)                                  | direct credit top-up, no days                                                                    |
+| iPick mtc **Validity** (`10 days`…`360 days`)                       | days-only, no credit to return                                                                   |
+| mtc `start`, `startSOS`, `smart`, `super`                           | named plans, no face value or day count                                                          |
+| alfa Mobile Internet / Alfa Go / Weekly data / Boosters / Weekender | data & bundles, not credit+days cards                                                            |
 
 ---
 
@@ -90,15 +90,15 @@ not work, and the catalog proves it.
 
 **iPick mtc Prepaid cost is exactly `face_value × 100,000 LBP` on 6 of 7 cards:**
 
-| Card | cost | face × 100,000 | difference |
-| ---- | ---- | -------------- | ---------- |
-| 3.79  | 379,000   | 379,000   | **0** |
-| 4.5   | 450,000   | 450,000   | **0** |
-| 7.58  | 758,000   | 758,000   | **0** |
-| 10    | 1,000,000 | 1,000,000 | **0** |
-| 15.15 | 1,526,000 | 1,515,000 | 11,000 |
-| 22.73 | 2,273,000 | 2,273,000 | **0** |
-| 77.28 | 7,728,000 | 7,728,000 | **0** |
+| Card  | cost      | face × 100,000 | difference |
+| ----- | --------- | -------------- | ---------- |
+| 3.79  | 379,000   | 379,000        | **0**      |
+| 4.5   | 450,000   | 450,000        | **0**      |
+| 7.58  | 758,000   | 758,000        | **0**      |
+| 10    | 1,000,000 | 1,000,000      | **0**      |
+| 15.15 | 1,526,000 | 1,515,000      | 11,000     |
+| 22.73 | 2,273,000 | 2,273,000      | **0**      |
+| 77.28 | 7,728,000 | 7,728,000      | **0**      |
 
 The card price is **entirely** the credit face value. The validity days are
 bundled at no separately identifiable cost. There is no days component sitting
@@ -114,8 +114,8 @@ whole card — and leaves an implied credit rate that swings from 56,667 to
 82,850 LBP/$ across the same seven cards. A single commodity cannot cost that
 many different amounts. Standalone days ≠ bundled days.
 
-*(Note: this price list exists only on iPick. Katsh and WHISH_APP carry mtc
-Prepaid only — no Validity or Credits categories at all.)*
+_(Note: this price list exists only on iPick. Katsh and WHISH_APP carry mtc
+Prepaid only — no Validity or Credits categories at all.)_
 
 ---
 
@@ -131,7 +131,7 @@ days), because `parseCatalogToSeedData` only runs when the table is empty.
 
 ### 3.2 The mutual-exclusivity invariant — RETIRED ✅
 
-`ItemPricing` documents `credits` and `validity_days` as *mutually exclusive*
+`ItemPricing` documents `credits` and `validity_days` as _mutually exclusive_
 ("Mutually exclusive with validity_days on every card that carries one of the
 two"). **Only-Days requires both on the same item.** That invariant was written
 when the catalog recorded one attribute per card; it now blocks the feature.
@@ -143,14 +143,14 @@ XOR has days" (`KatchForm.tsx:197` renders on either, so it is already tolerant)
 
 ### 3.3 Missing data
 
-| Gap | Items | Status |
-| --- | ----- | ------ |
-| `validity_days` | 18 alfa Prepaid | ✅ seeded + migration v145 (2026-08-04) |
-| `validity_days` | alfa `1.22`, `3.03` | ⏳ **owner** — excluded as credit-only until confirmed |
-| `credits` | 21 mtc Prepaid | ✅ seeded + migration v143 |
-| `days_cost_lbp` | all 39 candidates | ✅ derived from `R` (§4.3) + migration v144 |
-| `sell_days_lbp` | all 39 | ⏳ owner pricing decision — deferred to its own ticket (§8, §10 Q6); nothing reads it today (§3.4) |
-| `sell_credit_lbp` | all 39 | ⏳ owner pricing decision (decision-aid only) |
+| Gap               | Items               | Status                                                                                             |
+| ----------------- | ------------------- | -------------------------------------------------------------------------------------------------- |
+| `validity_days`   | 18 alfa Prepaid     | ✅ seeded + migration v145 (2026-08-04)                                                            |
+| `validity_days`   | alfa `1.22`, `3.03` | ⏳ **owner** — excluded as credit-only until confirmed                                             |
+| `credits`         | 21 mtc Prepaid      | ✅ seeded + migration v143                                                                         |
+| `days_cost_lbp`   | all 39 candidates   | ✅ derived from `R` (§4.3) + migration v144                                                        |
+| `sell_days_lbp`   | all 39              | ⏳ owner pricing decision — deferred to its own ticket (§8, §10 Q6); nothing reads it today (§3.4) |
+| `sell_credit_lbp` | all 39              | ⏳ owner pricing decision (decision-aid only)                                                      |
 
 ### 3.4 The three split fields are NOT the same kind of thing
 
@@ -158,11 +158,11 @@ The edit row shows "Days cost / Sell days / Sell credit" as one group, which
 hides that they have completely different standing. Only one of them does any
 work today. Verified against the code at HEAD, 2026-08-03:
 
-| Field | Kind | Gates "Split"? | What actually reads it |
-| ----- | ---- | -------------- | ---------------------- |
-| `days_cost_lbp` | **cost** — what the shop pays | **YES** | `isTelecomSplitComplete`, `deriveItemEconomics`, and `KatchForm`'s Only-Days default. **CORRECTION 2026-08-04:** an earlier revision of this table also credited it with "the repository's `processTelecomCreditReturn` netting" — that is wrong. `days_cost_lbp` appears exactly ONCE in `FinancialServiceRepository.ts`, in a comment. Its only repository use is inside the `isTelecomSplitComplete(item)` call at `:1349`, which picks a *fallback* returned-credit default — and the frontend always sends an explicit `returnedCreditsUsd`, so `:1347` wins and that fallback never fires today. **No drawer amount depends on it.** Backfilling it is therefore money-neutral, which the adversarial review confirmed independently by tracing the LBP debit to the frontend's `cost`. |
-| `sell_credit_lbp` | **price** — what the shop charges per $1 of resold credit | no | Settings' hover resale table only (`sellCreditRef`), falling back to a hardcoded 100,000 when empty. Display/decision aid — the migration's own words. |
-| `sell_days_lbp` | **price** — what the customer pays for a days-only sale | no | **Nothing.** Written, stored, and read back into the edit form. No computation, no sale-path use, no display anywhere else. |
+| Field             | Kind                                                      | Gates "Split"? | What actually reads it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------- | --------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `days_cost_lbp`   | **cost** — what the shop pays                             | **YES**        | `isTelecomSplitComplete`, `deriveItemEconomics`, and `KatchForm`'s Only-Days default. **CORRECTION 2026-08-04:** an earlier revision of this table also credited it with "the repository's `processTelecomCreditReturn` netting" — that is wrong. `days_cost_lbp` appears exactly ONCE in `FinancialServiceRepository.ts`, in a comment. Its only repository use is inside the `isTelecomSplitComplete(item)` call at `:1349`, which picks a _fallback_ returned-credit default — and the frontend always sends an explicit `returnedCreditsUsd`, so `:1347` wins and that fallback never fires today. **No drawer amount depends on it.** Backfilling it is therefore money-neutral, which the adversarial review confirmed independently by tracing the LBP debit to the frontend's `cost`. |
+| `sell_credit_lbp` | **price** — what the shop charges per $1 of resold credit | no             | Settings' hover resale table only (`sellCreditRef`), falling back to a hardcoded 100,000 when empty. Display/decision aid — the migration's own words.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `sell_days_lbp`   | **price** — what the customer pays for a days-only sale   | no             | **Nothing.** Written, stored, and read back into the edit form. No computation, no sale-path use, no display anywhere else.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 Consequences:
 
@@ -230,15 +230,15 @@ days_cost_lbp = cost_lbp × (1 − maxReturnableCredits(credits) / credits)
 Every value is positive, below `cost_lbp`, and satisfies
 `isTelecomSplitComplete` — all 43 items would flip to "Split" immediately:
 
-| Card | cost | credits | maxReturnable | days_cost | % of cost |
-| ---- | ---- | ------- | ------------- | --------- | --------- |
-| iPick alfa 1.22 | 140,000 | 1.22 | 1.00 | 25,246 | 18.0% |
-| iPick alfa 3.03 | 322,000 | 3.03 | 2.50 | 56,323 | 17.5% |
-| iPick alfa 77.28 | 7,728,000 | 77.28 | 73.00 | 428,000 | 5.5% |
-| Katsh alfa 77.28 | 7,620,030 | 77.28 | 73.00 | 422,020 | 5.5% |
-| iPick mtc 3.79 | 379,000 | 3.79 | 3.00 | 79,000 | 20.8% |
-| iPick mtc 4.5 | 450,000 | 4.5 | 4.00 | 50,000 | 11.1% |
-| iPick mtc 77.28 | 7,728,000 | 77.28 | 73.00 | 428,000 | 5.5% |
+| Card             | cost      | credits | maxReturnable | days_cost | % of cost |
+| ---------------- | --------- | ------- | ------------- | --------- | --------- |
+| iPick alfa 1.22  | 140,000   | 1.22    | 1.00          | 25,246    | 18.0%     |
+| iPick alfa 3.03  | 322,000   | 3.03    | 2.50          | 56,323    | 17.5%     |
+| iPick alfa 77.28 | 7,728,000 | 77.28   | 73.00         | 428,000   | 5.5%      |
+| Katsh alfa 77.28 | 7,620,030 | 77.28   | 73.00         | 422,020   | 5.5%      |
+| iPick mtc 3.79   | 379,000   | 3.79    | 3.00          | 79,000    | 20.8%     |
+| iPick mtc 4.5    | 450,000   | 4.5     | 4.00          | 50,000    | 11.1%     |
+| iPick mtc 77.28  | 7,728,000 | 77.28   | 73.00         | 428,000   | 5.5%      |
 
 **The catch, stated plainly:** Model B moves the SMS haircut out of
 `recoveredRateLbp` and into `days_cost_lbp`. The algebra then collapses
@@ -257,13 +257,13 @@ days_cost_lbp = cost_lbp − credits × R
 `R` = what $1 of credit costs the shop. **One number, owner-supplied, applies
 to every card in the catalog.** It replaces both models above.
 
-**Why this and not Model A or B.** It makes the *known* the input and the
-*unknown* the output. `R` is a price the shop actually transacts at and can
+**Why this and not Model A or B.** It makes the _known_ the input and the
+_unknown_ the output. `R` is a price the shop actually transacts at and can
 verify against the market; the days cost is the thing nobody quotes. Model A
 needs 8+ numbers nobody has; Model B derives days cost from the SMS haircut and
 collapses `recoveredRateLbp` to `cost/credits`.
 
-**Why `credits` (face) and not `maxReturnableCredits`.** The card is *bought*
+**Why `credits` (face) and not `maxReturnableCredits`.** The card is _bought_
 carrying its full face credit — the SMS loss happens later, only if the credit
 is transferred. Allocating the purchase cost at face value keeps that loss
 visible as an operating cost of the Only-Days flow instead of burying it in the
@@ -297,15 +297,15 @@ Any migration seeding `days_cost_lbp` must assert this per card, not assume it.
 
 `days_cost_lbp = cost_lbp − credits × R`:
 
-| Card | cost | R=80k | R=85k | R=90k |
-| ---- | ---- | ----- | ----- | ----- |
-| iPick alfa 1.22 | 140,000 | 42,400 | 36,300 | 30,200 |
-| iPick alfa 3.03 | 322,000 | 79,600 | 64,450 | 49,300 |
+| Card             | cost      | R=80k     | R=85k         | R=90k   |
+| ---------------- | --------- | --------- | ------------- | ------- |
+| iPick alfa 1.22  | 140,000   | 42,400    | 36,300        | 30,200  |
+| iPick alfa 3.03  | 322,000   | 79,600    | 64,450        | 49,300  |
 | iPick alfa 77.28 | 7,728,000 | 1,545,600 | **1,159,200** | 772,800 |
-| Katsh alfa 77.28 | 7,620,030 | 1,437,630 | 1,051,230 | 664,830 |
-| iPick mtc 3.79 | 379,000 | 75,800 | 56,850 | 37,900 |
-| iPick mtc 4.5 | 450,000 | 90,000 | 67,500 | 45,000 |
-| iPick mtc 77.28 | 7,728,000 | 1,545,600 | 1,159,200 | 772,800 |
+| Katsh alfa 77.28 | 7,620,030 | 1,437,630 | 1,051,230     | 664,830 |
+| iPick mtc 3.79   | 379,000   | 75,800    | 56,850        | 37,900  |
+| iPick mtc 4.5    | 450,000   | 90,000    | 67,500        | 45,000  |
+| iPick mtc 77.28  | 7,728,000 | 1,545,600 | 1,159,200     | 772,800 |
 
 All 43 items stay positive at R ≤ 90,000. Full table regenerable from the
 catalog — no per-card owner input needed.
@@ -355,17 +355,17 @@ self-charged until a "Set primary" action exists in Settings → Carrier Lines.
 
 ## 6. Implementation order — ALL STEPS DONE
 
-| # | Step | Blocked by |
-| - | ---- | ---------- |
-| 1 ✅ | Retire the mutual-exclusivity comment; confirm no code branches on it (§3.2) | — |
-| 2 ✅ | Seed `credits` on the 21 mtc Prepaid cards (= label, same rule as alfa) | 1 |
-| 3 ✅ | **Migration v143**: backfill `credits` for existing installs, alfa + mtc Prepaid, `WHERE credits IS NULL`; mirrored into `create_db.sql` (rule 10). GLOB guard stops SQLite's silent `CAST('start' AS REAL) = 0.0`, proven failing-first | 2 |
-| 4 ✅ | "Set primary" control in Settings → Carrier Lines — amber badge + "Make primary" on active non-primary lines. Also **retired the last gap in TELECOM_DAYS_VALIDITY_PLAN.md** | — |
-| 5 ✅ | Self-charge UI — per-line "Charge item to this line" in Settings → Carrier Lines, item picker mirroring the repository's own guards, preview before confirming. Owner note 12, finally usable | 4 |
-| 6 ⏸ | Measure days + credit per face value via §5 — no longer needed for the 6 confirmed alfa faces; still the route for / | 5 |
-| 7a ✅ | **Added the `R` setting** (§4.6) and compute `days_cost_lbp = cost_lbp − credits × R` for all 39 candidates; **migration v144** backfills, asserting `0 < days_cost < cost` per card (§4.4). `R = 93,333.33` | done 2026-08-04 |
-| 7b ✅ | Seed `validity_days` for the alfa cards + **migration v145** — 6 faces × 3 providers = 18 rows. `1.22`/`3.03` deliberately excluded (owner could not confirm a day count), so they stay credit-only and out of Only-Days: **candidate count 43 → 39** | owner numbers, 2026-08-04 |
-| 8 ✅ | E2E: `lira-132`'s money case **UN-SKIPPED** and passing — an Only-Days sale driven through the real KatchForm on a shipped catalog card, asserting drawer/carrier deltas by identity. B1 guard proven failing-first (`Received: 124000`). It also caught the zod-major seed blocker that no unit test could see | 7a |
+| #     | Step                                                                                                                                                                                                                                                                                                            | Blocked by                |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| 1 ✅  | Retire the mutual-exclusivity comment; confirm no code branches on it (§3.2)                                                                                                                                                                                                                                    | —                         |
+| 2 ✅  | Seed `credits` on the 21 mtc Prepaid cards (= label, same rule as alfa)                                                                                                                                                                                                                                         | 1                         |
+| 3 ✅  | **Migration v143**: backfill `credits` for existing installs, alfa + mtc Prepaid, `WHERE credits IS NULL`; mirrored into `create_db.sql` (rule 10). GLOB guard stops SQLite's silent `CAST('start' AS REAL) = 0.0`, proven failing-first                                                                        | 2                         |
+| 4 ✅  | "Set primary" control in Settings → Carrier Lines — amber badge + "Make primary" on active non-primary lines. Also **retired the last gap in TELECOM_DAYS_VALIDITY_PLAN.md**                                                                                                                                    | —                         |
+| 5 ✅  | Self-charge UI — per-line "Charge item to this line" in Settings → Carrier Lines, item picker mirroring the repository's own guards, preview before confirming. Owner note 12, finally usable                                                                                                                   | 4                         |
+| 6 ⏸   | Measure days + credit per face value via §5 — no longer needed for the 6 confirmed alfa faces; still the route for /                                                                                                                                                                                            | 5                         |
+| 7a ✅ | **Added the `R` setting** (§4.6) and compute `days_cost_lbp = cost_lbp − credits × R` for all 39 candidates; **migration v144** backfills, asserting `0 < days_cost < cost` per card (§4.4). `R = 93,333.33`                                                                                                    | done 2026-08-04           |
+| 7b ✅ | Seed `validity_days` for the alfa cards + **migration v145** — 6 faces × 3 providers = 18 rows. `1.22`/`3.03` deliberately excluded (owner could not confirm a day count), so they stay credit-only and out of Only-Days: **candidate count 43 → 39**                                                           | owner numbers, 2026-08-04 |
+| 8 ✅  | E2E: `lira-132`'s money case **UN-SKIPPED** and passing — an Only-Days sale driven through the real KatchForm on a shipped catalog card, asserting drawer/carrier deltas by identity. B1 guard proven failing-first (`Received: 124000`). It also caught the zod-major seed blocker that no unit test could see | 7a                        |
 
 **7a no longer waits on 4–6.** Since §4.3 anchors on a single rate rather than
 per-card carrier figures, `days_cost_lbp` can ship as soon as the owner names
@@ -460,10 +460,10 @@ multiplier over the **recoverable** credit (73). Every other candidate is off by
 
 Two independent modelling choices are being conflated:
 
-| Choice | Option A | Option B |
-| ------ | -------- | -------- |
-| Divisor | face credits (77.28) — assumes all of it comes back | recoverable credits (73) — books the SMS loss on the way IN |
-| Multiplier | none | `(1 + 0.16/chunk)` — books the SMS fee on the way OUT |
+| Choice     | Option A                                            | Option B                                                    |
+| ---------- | --------------------------------------------------- | ----------------------------------------------------------- |
+| Divisor    | face credits (77.28) — assumes all of it comes back | recoverable credits (73) — books the SMS loss on the way IN |
+| Multiplier | none                                                | `(1 + 0.16/chunk)` — books the SMS fee on the way OUT       |
 
 The code counts **both hops** (card → shop's own line → customer). The owner's
 figure counts roughly **one**. The physical question that settles it:
@@ -474,11 +474,11 @@ figure counts roughly **one**. The physical question that settles it:
 
 Cost per $1 delivered, cost 7,600,000 / days 1,162,000 / credits 77:
 
-| Chunk | Two hops (code: `deliveredCostLbp`) | One hop (`creditCost / delivered`) |
-| ----- | ---------------------------------- | ---------------------------------- |
-| 1$ | 102,302 | 97,545 |
-| **2$** | **95,247** | **91,971** |
-| 3$ | 92,896 | 89,417 |
+| Chunk  | Two hops (code: `deliveredCostLbp`) | One hop (`creditCost / delivered`) |
+| ------ | ----------------------------------- | ---------------------------------- |
+| 1$     | 102,302                             | 97,545                             |
+| **2$** | **95,247**                          | **91,971**                         |
+| 3$     | 92,896                              | 89,417                             |
 
 Also note the two models disagree on how much comes back at a fixed chunk size:
 `maxReturnableCredits(77) = 73` optimises the message count freely (25 messages),
@@ -492,15 +492,15 @@ to be applied to whichever chain is physically true.
 
 ## 10. Owner questions — answers of record
 
-| # | Question | Answer (2026-08-04) |
-| - | -------- | ------------------- |
-| 1 | **What is `R`, the shop's cost of $1 of credit?** | **93,333.33 LBP/$** — observed, not assumed: iPick > mtc > Credits is the one category where credit is bought with no days attached, and it is exactly linear across all five entries (280,000/3$). Below the 98,603 ceiling with 5.3% headroom. The old hardcoded 85,000 was rejected as unsourced. |
-| 2 | Days per **alfa** card | 4.5 → 10, 7.58 → 30, 10 → 30, 15.15 → **60**, 22.73 → 90, 77.28 → 365. Read off the Katsh shelf, mirrored to iPick/WHISH_APP. **`1.22` and `3.03` STILL OPEN** — owner could not confirm; excluded as credit-only until they can. |
-| 3 | Is `R` per-carrier? | **One global rate.** The 93,333.33 evidence is MTC-only; assuming Alfa matches. Revisit if Alfa credit turns out to cost differently. |
-| 4 | Same days across the three providers? | **Yes** — owner: "match by item name". The mtc block is already byte-identical across all three, and migration v135 established the same cross-provider rule. |
-| 5 | `telecom_credit_sell_price_lbp` seeded at 100,000, read by nothing | **DONE 2026-08-04.** The resale table now uses a 3-level fallback (per-item `sell_credit_lbp` → the tenant setting → a named constant) and additionally shows break-even per chunk, because at R = 93,333.33 every chip is red against a 100,000 reference and a uniformly red table is not actionable. |
-| 6 | Wire `sell_days_lbp`? | **Deferred to its own ticket.** Wiring it changes what the customer is charged (today an Only-Days sale takes the gross card cost), so it moves drawer deltas, profit stamping and `lira-132`. Owner's pricing model is recorded in §8. |
-| 7 | *(new, from §9)* 2$ vs 3$ chunk | **STILL OPEN.** The sale path charges the SMS fee at `ceil(amount / 3)` while the resale decision table uses 2$ as the house average. They will disagree; pick one convention. |
+| #   | Question                                                           | Answer (2026-08-04)                                                                                                                                                                                                                                                                                     |
+| --- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **What is `R`, the shop's cost of $1 of credit?**                  | **93,333.33 LBP/$** — observed, not assumed: iPick > mtc > Credits is the one category where credit is bought with no days attached, and it is exactly linear across all five entries (280,000/3$). Below the 98,603 ceiling with 5.3% headroom. The old hardcoded 85,000 was rejected as unsourced.    |
+| 2   | Days per **alfa** card                                             | 4.5 → 10, 7.58 → 30, 10 → 30, 15.15 → **60**, 22.73 → 90, 77.28 → 365. Read off the Katsh shelf, mirrored to iPick/WHISH_APP. **`1.22` and `3.03` STILL OPEN** — owner could not confirm; excluded as credit-only until they can.                                                                       |
+| 3   | Is `R` per-carrier?                                                | **One global rate.** The 93,333.33 evidence is MTC-only; assuming Alfa matches. Revisit if Alfa credit turns out to cost differently.                                                                                                                                                                   |
+| 4   | Same days across the three providers?                              | **Yes** — owner: "match by item name". The mtc block is already byte-identical across all three, and migration v135 established the same cross-provider rule.                                                                                                                                           |
+| 5   | `telecom_credit_sell_price_lbp` seeded at 100,000, read by nothing | **DONE 2026-08-04.** The resale table now uses a 3-level fallback (per-item `sell_credit_lbp` → the tenant setting → a named constant) and additionally shows break-even per chunk, because at R = 93,333.33 every chip is red against a 100,000 reference and a uniformly red table is not actionable. |
+| 6   | Wire `sell_days_lbp`?                                              | **Deferred to its own ticket.** Wiring it changes what the customer is charged (today an Only-Days sale takes the gross card cost), so it moves drawer deltas, profit stamping and `lira-132`. Owner's pricing model is recorded in §8.                                                                 |
+| 7   | _(new, from §9)_ 2$ vs 3$ chunk                                    | **STILL OPEN.** The sale path charges the SMS fee at `ceil(amount / 3)` while the resale decision table uses 2$ as the house average. They will disagree; pick one convention.                                                                                                                          |
 
 ---
 
@@ -508,15 +508,15 @@ to be applied to whichever chain is physically true.
 
 ### Shipped (uncommitted working tree, all gates green)
 
-| Step | What |
-| ---- | ---- |
-| 1 | Mutual-exclusivity invariant retired in `ItemPricing` |
-| 2 | `credits` on 21 mtc Prepaid cards (alfa's 22 were done 2026-08-03) |
-| 3 | **v143** credits backfill — GLOB guard against SQLite's silent `CAST('start' AS REAL) = 0.0`, proven failing-first |
-| 7a | `TELECOM_CREDIT_COST_RATE_LBP` + `deriveDaysCostLbp()`, **v144** rate setting + days_cost backfill (per-tenant, reads each tenant's own rate) |
-| 7b | alfa `validity_days` + **v145** backfill, `1.22`/`3.03` excluded, proven failing-first |
-| — | Fresh-install path: `parseCatalogToSeedData` → preload type → handler → Zod → repository insert |
-| — | `R` seeded for newly provisioned tenants (`TenantRepository`) |
+| Step | What                                                                                                                                          |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Mutual-exclusivity invariant retired in `ItemPricing`                                                                                         |
+| 2    | `credits` on 21 mtc Prepaid cards (alfa's 22 were done 2026-08-03)                                                                            |
+| 3    | **v143** credits backfill — GLOB guard against SQLite's silent `CAST('start' AS REAL) = 0.0`, proven failing-first                            |
+| 7a   | `TELECOM_CREDIT_COST_RATE_LBP` + `deriveDaysCostLbp()`, **v144** rate setting + days_cost backfill (per-tenant, reads each tenant's own rate) |
+| 7b   | alfa `validity_days` + **v145** backfill, `1.22`/`3.03` excluded, proven failing-first                                                        |
+| —    | Fresh-install path: `parseCatalogToSeedData` → preload type → handler → Zod → repository insert                                               |
+| —    | `R` seeded for newly provisioned tenants (`TenantRepository`)                                                                                 |
 
 **Gates, run directly rather than delegated:** core 1462/1462 · frontend 693
 passed + 1 skipped (86 suites) · backend 500/500 · typecheck clean · lint 0
@@ -543,13 +543,13 @@ sweep caught what that scope missed:
 
 ### Left to do
 
-| # | Item | Blocked by |
-| - | ---- | ---------- |
-| 4 | "Set primary" control in Settings → Carrier Lines | — (backend ready) |
-| 5 | Self-charge UI | step 4 |
-| 8 | E2E Only-Days sale + un-skip `lira-132`'s `test.fixme` | — |
-| — | alfa `1.22`/`3.03` day counts | owner |
-| — | §10 Q5 and Q7 | owner |
+| #   | Item                                                   | Blocked by        |
+| --- | ------------------------------------------------------ | ----------------- |
+| 4   | "Set primary" control in Settings → Carrier Lines      | — (backend ready) |
+| 5   | Self-charge UI                                         | step 4            |
+| 8   | E2E Only-Days sale + un-skip `lira-132`'s `test.fixme` | —                 |
+| —   | alfa `1.22`/`3.03` day counts                          | owner             |
+| —   | §10 Q5 and Q7                                          | owner             |
 
 **Steps 4 and 5 are the same work that keeps `TELECOM_DAYS_VALIDITY_PLAN.md`
 out of `done_plans/`** — its own validation note marks it PARTIAL for exactly

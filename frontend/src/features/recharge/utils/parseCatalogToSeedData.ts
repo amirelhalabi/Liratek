@@ -142,9 +142,7 @@ export function parseCatalogToSeedData(): SeedItem[] {
                   ? { validity_days: validityDays }
                   : {}),
                 ...(credits !== undefined ? { credits } : {}),
-                ...(daysCostLbp != null
-                  ? { days_cost_lbp: daysCostLbp }
-                  : {}),
+                ...(daysCostLbp != null ? { days_cost_lbp: daysCostLbp } : {}),
               });
             } else {
               // One level deeper — group of items

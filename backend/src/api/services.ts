@@ -89,34 +89,30 @@ router.post(
 //
 // `userId` is injected from the JWT (never trusted from the client body).
 // HTTP 200 even on business-rule failure per rule 19c.
-router.post(
-  "/self-charge",
-  requireRole(["admin"]),
-  (req, res): void => {
-    const parsed = selfChargeTelecomItemSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const firstIssue = parsed.error.issues[0];
-      res.json({
-        success: false,
-        error: firstIssue?.message ?? "Invalid self-charge payload",
-      });
-      return;
-    }
-    try {
-      const userId = (req as AuthRequest).user!.userId;
-      const service = getFinancialService();
-      const result = service.selfChargeTelecomItem({
-        ...parsed.data,
-        userId,
-      });
-      res.json(result);
-    } catch (error) {
-      logger.error({ error }, "Telecom self-charge error");
-      res
-        .status(500)
-        .json({ success: false, error: "Failed to process self-charge" });
-    }
-  },
-);
+router.post("/self-charge", requireRole(["admin"]), (req, res): void => {
+  const parsed = selfChargeTelecomItemSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    res.json({
+      success: false,
+      error: firstIssue?.message ?? "Invalid self-charge payload",
+    });
+    return;
+  }
+  try {
+    const userId = (req as AuthRequest).user!.userId;
+    const service = getFinancialService();
+    const result = service.selfChargeTelecomItem({
+      ...parsed.data,
+      userId,
+    });
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, "Telecom self-charge error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to process self-charge" });
+  }
+});
 
 export default router;

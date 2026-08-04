@@ -148,8 +148,14 @@ describe("CarrierLineRepository — is_primary (LIRA-090 §3 decision 8)", () =>
   });
 
   it("primaries are independent per carrier — setting mtc's primary never touches alfa's", () => {
-    const mtcLine = repo.createLine({ carrier: "mtc", phone_number: "03111111" });
-    const alfaLine = repo.createLine({ carrier: "alfa", phone_number: "70222222" });
+    const mtcLine = repo.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+    });
+    const alfaLine = repo.createLine({
+      carrier: "alfa",
+      phone_number: "70222222",
+    });
 
     repo.setPrimary(alfaLine.id);
     repo.setPrimary(mtcLine.id);

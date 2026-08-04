@@ -243,8 +243,9 @@ describe("MobileServiceItemService — Only-Days split consistency gate (LIRA-09
       );
       const id = created.data!.id;
 
-      const result = runWithTenant(1, () =>
-        service.update(id, { days_cost_lbp: 9_000_000 }), // >= existing cost_lbp
+      const result = runWithTenant(
+        1,
+        () => service.update(id, { days_cost_lbp: 9_000_000 }), // >= existing cost_lbp
       );
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/days_cost_lbp/);

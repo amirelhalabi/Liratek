@@ -37,9 +37,9 @@ jest.mock("@liratek/ui", () => ({
 // which reads the catalog through this context-backed hook. Default to an
 // empty catalog — irrelevant to the "Make primary" tests below — and let
 // the self-charge tests override via mockUseMobileServiceItems below.
-const mockUseMobileServiceItems = jest.fn<{ items: ServiceItem[] }, []>(
-  () => ({ items: [] }),
-);
+const mockUseMobileServiceItems = jest.fn<{ items: ServiceItem[] }, []>(() => ({
+  items: [],
+}));
 jest.mock("@/features/recharge/hooks/useMobileServiceItems", () => ({
   useMobileServiceItems: () => mockUseMobileServiceItems(),
   formatCatalogItemName: (item: {

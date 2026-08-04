@@ -111,7 +111,10 @@ test("OMT system SEND and RECEIVE with a fee book the float-model shape over RES
   };
 
   // ── 1. SEND $50, fee $4 on top ──────────────────────────────────────────
-  const beforeSend = { drawers: await drawers(), owed: await omtSupplierBalance() };
+  const beforeSend = {
+    drawers: await drawers(),
+    owed: await omtSupplierBalance(),
+  };
 
   const send = await (
     await page.request.post(`${BACKEND_URL}/api/services/transactions`, {
@@ -129,7 +132,10 @@ test("OMT system SEND and RECEIVE with a fee book the float-model shape over RES
   ).json();
   expect(send.success, JSON.stringify(send)).toBeTruthy();
 
-  const afterSend = { drawers: await drawers(), owed: await omtSupplierBalance() };
+  const afterSend = {
+    drawers: await drawers(),
+    owed: await omtSupplierBalance(),
+  };
 
   // Customer paid the gross x+f = 54 in cash — General is credited, not
   // netted back out (the deleted "reserve" branch this whole fix removed).

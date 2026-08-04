@@ -22,7 +22,10 @@
  *    `z.enum([...])` from this list instead of re-declaring it, so the
  *    schema and the repository/service allow-list cannot drift apart).
  */
-export const PRIMARY_CASH_DRAWER_NAMES = ["OMT_System", "Whish_System"] as const;
+export const PRIMARY_CASH_DRAWER_NAMES = [
+  "OMT_System",
+  "Whish_System",
+] as const;
 
 export type PrimaryCashDrawerName = (typeof PRIMARY_CASH_DRAWER_NAMES)[number];
 

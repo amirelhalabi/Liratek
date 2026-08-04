@@ -176,16 +176,11 @@ function setTestDb(db: Database.Database): void {
 }
 
 function clearTestDb(): void {
-  delete (
-    globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
-  ).__LIRATEK_TEST_DB__;
+  delete (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database })
+    .__LIRATEK_TEST_DB__;
 }
 
-function drawer(
-  db: Database.Database,
-  name: string,
-  currency: string,
-): number {
+function drawer(db: Database.Database, name: string, currency: string): number {
   const row = db
     .prepare(
       `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,

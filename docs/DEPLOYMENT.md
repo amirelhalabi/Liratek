@@ -72,7 +72,7 @@ bash scripts/deploy-smoke.sh http://<your-ip>
 a Windows checkout.)
 
 The smoke script checks the proxy, the SPA, the runtime origin binding, super
-admin login, and that `/api/admin/tenants` is *rejected* without a token. Exit
+admin login, and that `/api/admin/tenants` is _rejected_ without a token. Exit
 code is the failure count. `--create-tenant` additionally exercises the write
 path.
 
@@ -177,7 +177,7 @@ assertion in the same layer, so it fails the build rather than shipping broken).
 
 - **Subdomain-scoped login.** `tenants.slug` exists and is unique, but login is
   global: `POST /api/auth/login` takes no tenant hint and reads `tenant_id` off
-  the user row *after* credentials pass, and nothing in `backend/src` reads the
+  the user row _after_ credentials pass, and nothing in `backend/src` reads the
   Host header. A tenant's user can currently authenticate on any hostname. This
   was an explicit v1 deferral (`MULTI_TENANT_IMPLEMENTATION_PLAN.md` §
   "Tenant resolution — from the JWT, not from the Host header"). Closing it:
@@ -185,7 +185,7 @@ assertion in the same layer, so it fails the build rather than shipping broken).
   mismatches, give the super-admin realm its own hostname, and a guard test
   proving a cross-tenant login fails.
 - **No audit trail on the web transport.** Only the Electron IPC handlers call
-  `audit(...)`; REST action routes don't. The audit *viewer* reads over REST, so
+  `audit(...)`; REST action routes don't. The audit _viewer_ reads over REST, so
   the gap is invisible in the UI (`WEB_PARITY_ROADMAP.md` § 9).
 - **Web-transport test coverage is thin.** 16 web e2e specs plus 7 of the 83
   desktop specs running over HTTP. Roadmap phases 3 and 4 remain open.
@@ -195,9 +195,9 @@ assertion in the same layer, so it fails the build rather than shipping broken).
 
 ## 9. Related
 
-| What | Where |
-| --- | --- |
-| Dual-transport architecture & rules | `CLAUDE.md` |
-| Web-parity status per module | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` |
-| Multi-tenant decisions | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` |
-| Money-path invariants | `docs/FEATURE_GUIDE.md` |
+| What                                | Where                                                       |
+| ----------------------------------- | ----------------------------------------------------------- |
+| Dual-transport architecture & rules | `CLAUDE.md`                                                 |
+| Web-parity status per module        | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md`               |
+| Multi-tenant decisions              | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` |
+| Money-path invariants               | `docs/FEATURE_GUIDE.md`                                     |

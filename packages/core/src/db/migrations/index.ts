@@ -7260,9 +7260,7 @@ export const MIGRATIONS: Migration[] = [
     },
     down(db: Database.Database) {
       // New table + new index — straightforward drop.
-      db.exec(
-        `DROP INDEX IF EXISTS idx_carrier_line_movements_transaction_id`,
-      );
+      db.exec(`DROP INDEX IF EXISTS idx_carrier_line_movements_transaction_id`);
       db.exec(
         `DROP INDEX IF EXISTS idx_carrier_line_movements_carrier_line_id`,
       );
@@ -7285,9 +7283,7 @@ export const MIGRATIONS: Migration[] = [
         .prepare("PRAGMA table_info(mobile_service_items)")
         .all() as { name: string }[];
       if (msiCols.some((c) => c.name === "sell_credit_lbp")) {
-        db.exec(
-          `ALTER TABLE mobile_service_items DROP COLUMN sell_credit_lbp`,
-        );
+        db.exec(`ALTER TABLE mobile_service_items DROP COLUMN sell_credit_lbp`);
       }
       if (msiCols.some((c) => c.name === "sell_days_lbp")) {
         db.exec(`ALTER TABLE mobile_service_items DROP COLUMN sell_days_lbp`);
@@ -7436,7 +7432,11 @@ export const MIGRATIONS: Migration[] = [
             `SELECT id, cost_lbp, credits FROM mobile_service_items
              WHERE tenant_id = ? AND cost_lbp > 0 AND credits > 0 AND days_cost_lbp IS NULL`,
           )
-          .all(tenant.id) as { id: number; cost_lbp: number; credits: number }[];
+          .all(tenant.id) as {
+          id: number;
+          cost_lbp: number;
+          credits: number;
+        }[];
 
         for (const item of items) {
           const daysCostLbp = deriveDaysCostLbp(

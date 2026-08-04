@@ -78,7 +78,9 @@ const CREDIT_TRANSFER_STEP_CENTS = toCents(CREDIT_TRANSFER_STEP_USD); // 50
 
 /** Floor a cents amount down to the nearest transfer step, in integer cents. */
 function floorToStepCents(cents: number): number {
-  return Math.floor(cents / CREDIT_TRANSFER_STEP_CENTS) * CREDIT_TRANSFER_STEP_CENTS;
+  return (
+    Math.floor(cents / CREDIT_TRANSFER_STEP_CENTS) * CREDIT_TRANSFER_STEP_CENTS
+  );
 }
 
 // =============================================================================

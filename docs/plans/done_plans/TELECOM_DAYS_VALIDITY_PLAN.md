@@ -20,7 +20,7 @@
 >
 > **Notes 7/8/9's `daysCost` split** is answered in
 > `TELECOM_DAYS_COST_PLAN.md`: the catalog price lists contain no days
-> component to extract (a least-squares fit returns a *negative* day
+> component to extract (a least-squares fit returns a _negative_ day
 > coefficient), so `days_cost_lbp` is an allocation anchored on the shop's own
 > credit rate — `R = 93,333.33 LBP/$`, observed from the one category where
 > credit is bought with no days attached.
@@ -31,11 +31,11 @@
 >
 > Gates at archival: desktop e2e 242/242, core 1464/1464, frontend 703 +1
 > skipped, backend 500/500, typecheck clean, lint 0 errors.
-**Created:** 2026-07-20
-**Origin:** Owner feedback batch 2026-07-20, notes 6–12 (verbatim intent below). Ticketed as
-**LIRA-090** in root `current_sprint.md`, Sprint 4 — Owner Notes Batch (2026-07-20). Full
-per-note disposition log: root `LEFT_TO_DO.md`, dated section "2026-07-20 — Owner notes batch
-(32 notes)".
+> **Created:** 2026-07-20
+> **Origin:** Owner feedback batch 2026-07-20, notes 6–12 (verbatim intent below). Ticketed as
+> **LIRA-090** in root `current_sprint.md`, Sprint 4 — Owner Notes Batch (2026-07-20). Full
+> per-note disposition log: root `LEFT_TO_DO.md`, dated section "2026-07-20 — Owner notes batch
+> (32 notes)".
 
 ---
 

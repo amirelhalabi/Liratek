@@ -91,7 +91,12 @@ jest.mock("@liratek/core", () => {
     const recoveredRateLbp =
       maxReturnedUsd > 0 ? creditCostLbp / maxReturnedUsd : null;
     const selfChargeRateLbp = creditCostLbp / (creditsUsd as number);
-    return { creditCostLbp, maxReturnedUsd, recoveredRateLbp, selfChargeRateLbp };
+    return {
+      creditCostLbp,
+      maxReturnedUsd,
+      recoveredRateLbp,
+      selfChargeRateLbp,
+    };
   }
 
   function deliveredCostLbp(

@@ -61,13 +61,48 @@ describe("mobileServices — iPick mtc Prepaid (LIRA-072 A1 follow-up)", () => {
     const RENAMED: Record<string, ItemPricing> = {
       "1": { cost: "120000", sell: "150000", credits: 1 },
       "1.67": { cost: "186000", sell: "220000", credits: 1.67 },
-      "3.79": { cost: "379000", sell: "430000", validity_days: 10, credits: 3.79 },
-      "4.5": { cost: "450000", sell: "520000", validity_days: 30, credits: 4.5 },
-      "7.58": { cost: "758000", sell: "850000", validity_days: 30, credits: 7.58 },
-      "10": { cost: "1000000", sell: "1100000", validity_days: 30, credits: 10 },
-      "15.15": { cost: "1526000", sell: "1650000", validity_days: 60, credits: 15.15 },
-      "22.73": { cost: "2273000", sell: "2450000", validity_days: 90, credits: 22.73 },
-      "77.28": { cost: "7728000", sell: "8200000", validity_days: 365, credits: 77.28 },
+      "3.79": {
+        cost: "379000",
+        sell: "430000",
+        validity_days: 10,
+        credits: 3.79,
+      },
+      "4.5": {
+        cost: "450000",
+        sell: "520000",
+        validity_days: 30,
+        credits: 4.5,
+      },
+      "7.58": {
+        cost: "758000",
+        sell: "850000",
+        validity_days: 30,
+        credits: 7.58,
+      },
+      "10": {
+        cost: "1000000",
+        sell: "1100000",
+        validity_days: 30,
+        credits: 10,
+      },
+      "15.15": {
+        cost: "1526000",
+        sell: "1650000",
+        validity_days: 60,
+        credits: 15.15,
+      },
+      "22.73": {
+        cost: "2273000",
+        sell: "2450000",
+        validity_days: 90,
+        credits: 22.73,
+      },
+      "77.28": {
+        cost: "7728000",
+        sell: "8200000",
+        validity_days: 365,
+        credits: 77.28,
+      },
       start: { cost: "450000", sell: "520000" },
     };
 
@@ -184,13 +219,21 @@ function collectCreditsLeaves(): CreditsLeaf[] {
   const leaves: CreditsLeaf[] = [];
 
   for (const [provider, catalog] of Object.entries(mobileServices)) {
-    if (Array.isArray(catalog) || typeof catalog !== "object" || catalog === null) {
+    if (
+      Array.isArray(catalog) ||
+      typeof catalog !== "object" ||
+      catalog === null
+    ) {
       continue;
     }
     for (const [category, subcats] of Object.entries(
       catalog as Record<string, unknown>,
     )) {
-      if (Array.isArray(subcats) || typeof subcats !== "object" || subcats === null) {
+      if (
+        Array.isArray(subcats) ||
+        typeof subcats !== "object" ||
+        subcats === null
+      ) {
         continue;
       }
       for (const [subcategory, itemsOrGroups] of Object.entries(
@@ -277,15 +320,7 @@ describe("mobileServices — Only-Days credits seed (TELECOM_DAYS_COST_PLAN.md �
     // parseCatalogToSeedData.test.ts's exclusion test for the money-affecting
     // consequence this scoping guards against.
     const providers = ["iPick", "Katsh", "WHISH_APP"] as const;
-    const comboFaces = [
-      "3.79",
-      "4.5",
-      "7.58",
-      "10",
-      "15.15",
-      "22.73",
-      "77.28",
-    ];
+    const comboFaces = ["3.79", "4.5", "7.58", "10", "15.15", "22.73", "77.28"];
     let checked = 0;
     for (const provider of providers) {
       const catalog = mobileServices[provider] as Record<

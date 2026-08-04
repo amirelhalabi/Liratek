@@ -27,7 +27,10 @@ import {
 } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
-import { SMS_TRANSFER_FEE_USD, planSmsTransfer } from "../utils/telecomCredit.js";
+import {
+  SMS_TRANSFER_FEE_USD,
+  planSmsTransfer,
+} from "../utils/telecomCredit.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";

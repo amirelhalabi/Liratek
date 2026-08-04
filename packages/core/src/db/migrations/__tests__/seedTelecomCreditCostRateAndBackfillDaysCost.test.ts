@@ -129,7 +129,9 @@ describe("Migration v144 — seed_telecom_credit_cost_rate_and_backfill_days_cos
 
   describe("(a) telecom_credit_cost_rate_lbp setting", () => {
     it("seeds 93333.33 for every existing tenant", () => {
-      db.prepare(`INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`).run();
+      db.prepare(
+        `INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`,
+      ).run();
 
       getMigration(144).up(db);
 

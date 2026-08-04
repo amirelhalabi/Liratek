@@ -12,10 +12,7 @@ import {
   hasNewClientInfo,
   appEvents,
 } from "@liratek/ui";
-import {
-  maxReturnableCredits,
-  isTelecomSplitComplete,
-} from "@liratek/core";
+import { maxReturnableCredits, isTelecomSplitComplete } from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
@@ -984,8 +981,7 @@ function KatchFormInner({
             ? { mobileServiceItemId: line.item.id }
             : {}),
           returnedCreditsUsd:
-            line.onlyDays &&
-            (line.returnedCreditsEdited || !splitComplete)
+            line.onlyDays && (line.returnedCreditsEdited || !splitComplete)
               ? line.returnedCreditsUsd
               : undefined,
           note: `${formatCatalogItemName(line.item)}${line.onlyDays ? " [Only Days]" : ""}`,

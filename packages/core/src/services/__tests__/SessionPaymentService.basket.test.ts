@@ -271,7 +271,10 @@ function seedSessionWithClient(
 }
 
 /** Set (or change) the shop's primary system read by resolveBaseSystem(). */
-function setShopBaseSystem(db: Database.Database, baseSystem: "OMT" | "WHISH"): void {
+function setShopBaseSystem(
+  db: Database.Database,
+  baseSystem: "OMT" | "WHISH",
+): void {
   db.prepare(
     "UPDATE system_settings SET value = ? WHERE tenant_id = 1 AND key_name = 'shop_base_system'",
   ).run(baseSystem);
@@ -446,7 +449,8 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
 
       // Conservation (Task B, restated here): the single 125 leg reconciles exactly.
       expect(
-        drawerBalance(db, "OMT_System", "USD") + drawerBalance(db, "General", "USD"),
+        drawerBalance(db, "OMT_System", "USD") +
+          drawerBalance(db, "General", "USD"),
       ).toBe(125);
     });
   });
@@ -588,7 +592,9 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
       seedSessionNonSaleItem(db, sessionId, 50); // pure non-FS basket
 
       service.recordBasketPayment(sessionId, {
-        legs: [{ method: "CASH", currencyCode: "USD", amount: 50, direction: "IN" }],
+        legs: [
+          { method: "CASH", currencyCode: "USD", amount: 50, direction: "IN" },
+        ],
         exchangeRate: 90000,
         userId: 1,
       });
@@ -609,7 +615,9 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
       seedSessionNonSaleItem(db, sessionId, 10);
 
       service.recordBasketPayment(sessionId, {
-        legs: [{ method: "CASH", currencyCode: "USD", amount: 50, direction: "IN" }],
+        legs: [
+          { method: "CASH", currencyCode: "USD", amount: 50, direction: "IN" },
+        ],
         exchangeRate: 90000,
         userId: 1,
       });
@@ -627,7 +635,9 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
       seedSessionFsItem(db, sessionId, { provider: "OMT", amountUsd: 80 });
 
       service.recordBasketPayment(sessionId, {
-        legs: [{ method: "CASH", currencyCode: "USD", amount: 80, direction: "IN" }],
+        legs: [
+          { method: "CASH", currencyCode: "USD", amount: 80, direction: "IN" },
+        ],
         exchangeRate: 90000,
         userId: 1,
       });
@@ -750,7 +760,9 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
       seedSessionNonSaleItem(db, sessionId, 10); // basket total 100 -> ratio 0.9
 
       service.recordBasketPayment(sessionId, {
-        legs: [{ method: "CASH", currencyCode: "USD", amount: 100, direction: "IN" }],
+        legs: [
+          { method: "CASH", currencyCode: "USD", amount: 100, direction: "IN" },
+        ],
         exchangeRate: 90000,
         userId: 1,
       });
@@ -786,7 +798,9 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
       });
 
       service.recordBasketPayment(sessionId, {
-        legs: [{ method: "CASH", currencyCode: "USD", amount: 105, direction: "IN" }],
+        legs: [
+          { method: "CASH", currencyCode: "USD", amount: 105, direction: "IN" },
+        ],
         exchangeRate: 90000,
         userId: 1,
       });
@@ -814,7 +828,9 @@ describe("SessionPaymentService.recordBasketPayment — primary-cash-drawer bask
       seedSessionNonSaleItem(db, sessionId, 70); // basket total 100 -> ratio 0.3
 
       service.recordBasketPayment(sessionId, {
-        legs: [{ method: "CASH", currencyCode: "USD", amount: 100, direction: "IN" }],
+        legs: [
+          { method: "CASH", currencyCode: "USD", amount: 100, direction: "IN" },
+        ],
         exchangeRate: 90000,
         userId: 1,
       });

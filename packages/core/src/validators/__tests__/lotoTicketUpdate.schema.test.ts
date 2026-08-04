@@ -58,8 +58,6 @@ describe("lotoTicketUpdateSchema", () => {
   });
 
   it("rejects a blank ticket_number (min(1) still enforced)", () => {
-    expect(() =>
-      lotoTicketUpdateSchema.parse({ ticket_number: "" }),
-    ).toThrow();
+    expect(() => lotoTicketUpdateSchema.parse({ ticket_number: "" })).toThrow();
   });
 });

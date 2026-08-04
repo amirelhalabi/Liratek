@@ -51,9 +51,7 @@ import {
   CarrierLineRepository,
   resetCarrierLineRepository,
 } from "../CarrierLineRepository.js";
-import {
-  resetCarrierLineMovementRepository,
-} from "../CarrierLineMovementRepository.js";
+import { resetCarrierLineMovementRepository } from "../CarrierLineMovementRepository.js";
 import { resetCarrierLineService } from "../../services/CarrierLineService.js";
 import {
   maxReturnableCredits,
@@ -324,7 +322,8 @@ function txnIdForFsRow(db: Database.Database, fsId: number): number {
       "SELECT id FROM transactions WHERE source_table = 'financial_services' AND source_id = ?",
     )
     .get(fsId) as { id: number } | undefined;
-  if (!row) throw new Error(`No transaction row found for financial_services #${fsId}`);
+  if (!row)
+    throw new Error(`No transaction row found for financial_services #${fsId}`);
   return row.id;
 }
 
@@ -611,7 +610,10 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
   describe("Real drawer-delta invariant (spec §5.1)", () => {
     it("iPick complete-split sale: LBP debit = FULL cost_lbp, MTC USD credit = +73, primary line +73, net LBP = days_cost_lbp", () => {
       const item = itemRepo.createItem(CART_77);
-      const line = lineRepo.createLine({ carrier: "mtc", phone_number: "71100001" });
+      const line = lineRepo.createLine({
+        carrier: "mtc",
+        phone_number: "71100001",
+      });
       lineRepo.setPrimary(line.id);
 
       const iPickLbpBefore = drawerBalance(db, "iPick", "LBP");
@@ -667,7 +669,7 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
       });
       const recoveredRateLbp = economics.recoveredRateLbp as number;
       const iPickLbpDelta = iPickLbpBefore - drawerBalance(db, "iPick", "LBP"); // positive = debit
-      const mtcUsdDelta = drawerBalance(db, "MTC", "USD") - mtcUsdBefore;       // positive = credit
+      const mtcUsdDelta = drawerBalance(db, "MTC", "USD") - mtcUsdBefore; // positive = credit
       const netLbp = iPickLbpDelta - mtcUsdDelta * recoveredRateLbp;
       expect(netLbp).toBeCloseTo(CART_77.days_cost_lbp as number, 2);
     });
@@ -681,7 +683,10 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
         category: "alfa",
         label: "77$ Alfa Cart",
       });
-      const alfaLine = lineRepo.createLine({ carrier: "alfa", phone_number: "71100002" });
+      const alfaLine = lineRepo.createLine({
+        carrier: "alfa",
+        phone_number: "71100002",
+      });
       lineRepo.setPrimary(alfaLine.id);
 
       const katshLbpBefore = drawerBalance(db, "Katsh", "LBP");
@@ -776,7 +781,10 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
   describe("Carrier-line movement (spec §5.1/§8, rule 20 reversal owner)", () => {
     it("credits the shop's PRIMARY mtc line and ties the movement to this transaction", () => {
       const item = itemRepo.createItem(CART_77);
-      const line = lineRepo.createLine({ carrier: "mtc", phone_number: "70111111" });
+      const line = lineRepo.createLine({
+        carrier: "mtc",
+        phone_number: "70111111",
+      });
       lineRepo.setPrimary(line.id);
 
       const result = repo.createTransaction({
@@ -926,7 +934,10 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
 
     it("throws when the item has no validity_days configured", () => {
       const item = itemRepo.createItem(CART_77); // validity_days omitted -> null
-      const line = lineRepo.createLine({ carrier: "mtc", phone_number: "70333333" });
+      const line = lineRepo.createLine({
+        carrier: "mtc",
+        phone_number: "70333333",
+      });
       lineRepo.setPrimary(line.id);
       expect(() =>
         repo.selfChargeTelecomItem({ mobileServiceItemId: item.id }),
@@ -935,9 +946,15 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
 
     it("an explicit carrierLineId overrides the primary line", () => {
       const item = itemRepo.createItem({ ...CART_77, validity_days: 10 });
-      const primary = lineRepo.createLine({ carrier: "mtc", phone_number: "70444444" });
+      const primary = lineRepo.createLine({
+        carrier: "mtc",
+        phone_number: "70444444",
+      });
       lineRepo.setPrimary(primary.id);
-      const other = lineRepo.createLine({ carrier: "mtc", phone_number: "70555555" });
+      const other = lineRepo.createLine({
+        carrier: "mtc",
+        phone_number: "70555555",
+      });
 
       const result = repo.selfChargeTelecomItem({
         mobileServiceItemId: item.id,
@@ -1232,7 +1249,9 @@ describe("FinancialServiceRepository — LIRA-090 telecom Only-Days money path",
       expect(lineCreditsAfterVoid).toBeCloseTo(lineCreditsBefore, 4);
 
       // Second void must throw — the "already voided" guard.
-      expect(() => txnRepo.voidTransaction(txnId, 1)).toThrow(/already voided/i);
+      expect(() => txnRepo.voidTransaction(txnId, 1)).toThrow(
+        /already voided/i,
+      );
 
       // All ledgers remain at their post-first-void values — no double-restore.
       expect(drawerBalance(db, "iPick", "LBP")).toBeCloseTo(

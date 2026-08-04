@@ -22,7 +22,12 @@
  */
 
 import Database from "better-sqlite3";
-import { MIGRATIONS, runMigrations, rollbackTo, getCurrentVersion } from "../index";
+import {
+  MIGRATIONS,
+  runMigrations,
+  rollbackTo,
+  getCurrentVersion,
+} from "../index";
 import { TELECOM_CREDIT_COST_RATE_LBP } from "../../../utils/telecomCredit";
 
 function createSchema(db: Database.Database): void {
@@ -71,7 +76,10 @@ function createSchema(db: Database.Database): void {
  * `runMigrations(db)` call sees exactly those version(s) as pending and
  * runs ONLY them — through the real runner, not a hand-picked `.up()` call.
  */
-function markAppliedExcept(db: Database.Database, ...exceptVersions: number[]): void {
+function markAppliedExcept(
+  db: Database.Database,
+  ...exceptVersions: number[]
+): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -146,7 +154,10 @@ function itemRow(
     .prepare(
       `SELECT credits, days_cost_lbp FROM mobile_service_items WHERE label = ? AND tenant_id = ?`,
     )
-    .get(label, tenantId) as { credits: number | null; days_cost_lbp: number | null };
+    .get(label, tenantId) as {
+    credits: number | null;
+    days_cost_lbp: number | null;
+  };
 }
 
 function rateSetting(db: Database.Database, tenantId = 1): string | undefined {
@@ -188,18 +199,22 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
       });
 
       const appliedBefore = new Set(
-        (db.prepare(`SELECT version FROM schema_migrations`).all() as { version: number }[]).map(
-          (r) => r.version,
-        ),
+        (
+          db.prepare(`SELECT version FROM schema_migrations`).all() as {
+            version: number;
+          }[]
+        ).map((r) => r.version),
       );
       expect(appliedBefore.has(143)).toBe(false);
 
       runMigrations(db);
 
       const appliedAfter = new Set(
-        (db.prepare(`SELECT version FROM schema_migrations`).all() as { version: number }[]).map(
-          (r) => r.version,
-        ),
+        (
+          db.prepare(`SELECT version FROM schema_migrations`).all() as {
+            version: number;
+          }[]
+        ).map((r) => r.version),
       );
       expect(appliedAfter.has(143)).toBe(true);
       expect(itemRow(db, "77.28").credits).toBe(77.28);
@@ -289,7 +304,9 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
     });
 
     it("seeds telecom_credit_cost_rate_lbp = 93333.33 for every tenant", () => {
-      db.prepare(`INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`).run();
+      db.prepare(
+        `INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`,
+      ).run();
 
       expect(isApplied(db, 144)).toBe(false);
       runMigrations(db);
@@ -435,7 +452,10 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
     });
 
     it("rollbackTo(143) reverses ONLY v144: days_cost_lbp nulled + setting removed, credits untouched", () => {
-      expect(itemRow(db, "77.28")).toEqual({ credits: 77.28, days_cost_lbp: 515200 });
+      expect(itemRow(db, "77.28")).toEqual({
+        credits: 77.28,
+        days_cost_lbp: 515200,
+      });
       expect(rateSetting(db, 1)).toBe(String(TELECOM_CREDIT_COST_RATE_LBP));
 
       rollbackTo(db, 143);
@@ -450,7 +470,10 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
       rollbackTo(db, 142);
 
       expect(getCurrentVersion(db)).toBe(142);
-      expect(itemRow(db, "77.28")).toEqual({ credits: null, days_cost_lbp: null });
+      expect(itemRow(db, "77.28")).toEqual({
+        credits: null,
+        days_cost_lbp: null,
+      });
       expect(rateSetting(db, 1)).toBeUndefined();
     });
 
@@ -463,7 +486,10 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
       // whatever the newest migration in the repo is (see isApplied's note).
       expect(isApplied(db, 143)).toBe(true);
       expect(isApplied(db, 144)).toBe(true);
-      expect(itemRow(db, "77.28")).toEqual({ credits: 77.28, days_cost_lbp: 515200 });
+      expect(itemRow(db, "77.28")).toEqual({
+        credits: 77.28,
+        days_cost_lbp: 515200,
+      });
       expect(rateSetting(db, 1)).toBe(String(TELECOM_CREDIT_COST_RATE_LBP));
     });
   });

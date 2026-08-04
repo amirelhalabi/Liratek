@@ -125,22 +125,26 @@ describe("telecomCredit", () => {
   });
 
   describe("isTelecomSplitComplete", () => {
-    const completeItem = { cost_lbp: 7_600_000, days_cost_lbp: 1_162_000, credits: 77 };
+    const completeItem = {
+      cost_lbp: 7_600_000,
+      days_cost_lbp: 1_162_000,
+      credits: 77,
+    };
 
     it("is true for a fully-specified split", () => {
       expect(isTelecomSplitComplete(completeItem)).toBe(true);
     });
 
     it("is false when cost_lbp is missing, zero, or negative", () => {
-      expect(
-        isTelecomSplitComplete({ ...completeItem, cost_lbp: 0 }),
-      ).toBe(false);
-      expect(
-        isTelecomSplitComplete({ ...completeItem, cost_lbp: -1 }),
-      ).toBe(false);
-      expect(
-        isTelecomSplitComplete({ ...completeItem, cost_lbp: null }),
-      ).toBe(false);
+      expect(isTelecomSplitComplete({ ...completeItem, cost_lbp: 0 })).toBe(
+        false,
+      );
+      expect(isTelecomSplitComplete({ ...completeItem, cost_lbp: -1 })).toBe(
+        false,
+      );
+      expect(isTelecomSplitComplete({ ...completeItem, cost_lbp: null })).toBe(
+        false,
+      );
       expect(
         isTelecomSplitComplete({ ...completeItem, cost_lbp: undefined }),
       ).toBe(false);
@@ -162,18 +166,18 @@ describe("telecomCredit", () => {
     });
 
     it("is false when credits is null, undefined, zero, or negative", () => {
-      expect(
-        isTelecomSplitComplete({ ...completeItem, credits: null }),
-      ).toBe(false);
+      expect(isTelecomSplitComplete({ ...completeItem, credits: null })).toBe(
+        false,
+      );
       expect(
         isTelecomSplitComplete({ ...completeItem, credits: undefined }),
       ).toBe(false);
-      expect(
-        isTelecomSplitComplete({ ...completeItem, credits: 0 }),
-      ).toBe(false);
-      expect(
-        isTelecomSplitComplete({ ...completeItem, credits: -1 }),
-      ).toBe(false);
+      expect(isTelecomSplitComplete({ ...completeItem, credits: 0 })).toBe(
+        false,
+      );
+      expect(isTelecomSplitComplete({ ...completeItem, credits: -1 })).toBe(
+        false,
+      );
     });
 
     it("is false when days_cost_lbp is not strictly less than cost_lbp", () => {
@@ -186,15 +190,15 @@ describe("telecomCredit", () => {
     });
 
     it("is false when any field is non-finite", () => {
-      expect(
-        isTelecomSplitComplete({ ...completeItem, cost_lbp: NaN }),
-      ).toBe(false);
+      expect(isTelecomSplitComplete({ ...completeItem, cost_lbp: NaN })).toBe(
+        false,
+      );
       expect(
         isTelecomSplitComplete({ ...completeItem, days_cost_lbp: Infinity }),
       ).toBe(false);
-      expect(
-        isTelecomSplitComplete({ ...completeItem, credits: NaN }),
-      ).toBe(false);
+      expect(isTelecomSplitComplete({ ...completeItem, credits: NaN })).toBe(
+        false,
+      );
     });
 
     it("accepts a structurally-typed object with extra fields (frontend item shape)", () => {
@@ -231,10 +235,15 @@ describe("telecomCredit", () => {
     it("holds the correctness invariant: costLbp - maxReturned * recoveredRateLbp == daysCostLbp", () => {
       const costLbp = 7_600_000;
       const daysCostLbp = 1_162_000;
-      const result = deriveItemEconomics({ costLbp, daysCostLbp, creditsUsd: 77 });
+      const result = deriveItemEconomics({
+        costLbp,
+        daysCostLbp,
+        creditsUsd: 77,
+      });
 
       const netCost =
-        costLbp - (result.maxReturnedUsd as number) * (result.recoveredRateLbp as number);
+        costLbp -
+        (result.maxReturnedUsd as number) * (result.recoveredRateLbp as number);
       expect(netCost).toBeCloseTo(daysCostLbp, 6);
     });
 
@@ -443,7 +452,9 @@ describe("telecomCredit", () => {
       ];
 
       for (const [costLbp, creditsUsd, rateLbp] of inputs) {
-        expect(() => deriveDaysCostLbp(costLbp, creditsUsd, rateLbp)).not.toThrow();
+        expect(() =>
+          deriveDaysCostLbp(costLbp, creditsUsd, rateLbp),
+        ).not.toThrow();
         const result = deriveDaysCostLbp(costLbp, creditsUsd, rateLbp);
         expect(result === null || Number.isFinite(result)).toBe(true);
       }
@@ -521,17 +532,22 @@ describe("telecomCredit", () => {
           throw new Error(`${label} failed to derive a days_cost_lbp value`);
         }
         if (!(result > 0)) {
-          throw new Error(`${label} derived a non-positive days_cost_lbp: ${result}`);
+          throw new Error(
+            `${label} derived a non-positive days_cost_lbp: ${result}`,
+          );
         }
         if (!(result < costLbp)) {
-          throw new Error(`${label} derived days_cost_lbp >= cost_lbp: ${result} >= ${costLbp}`);
+          throw new Error(
+            `${label} derived days_cost_lbp >= cost_lbp: ${result} >= ${costLbp}`,
+          );
         }
       }
     });
 
     it("the lowest days_cost_lbp across all 43 items is 25,267 (iPick mtc 3.79, plan §4.4)", () => {
       const values = ONLY_DAYS_CATALOG.map(
-        ({ costLbp, creditsUsd }) => deriveDaysCostLbp(costLbp, creditsUsd) as number,
+        ({ costLbp, creditsUsd }) =>
+          deriveDaysCostLbp(costLbp, creditsUsd) as number,
       );
       expect(Math.min(...values)).toBe(25_267);
     });

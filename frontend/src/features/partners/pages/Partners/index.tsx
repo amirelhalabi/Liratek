@@ -569,9 +569,9 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
               className="mt-0.5 w-4 h-4 rounded border-slate-600 bg-slate-900 accent-violet-500"
             />
             <span className="text-xs text-slate-300">
-              <span className="font-medium text-white">Cash moved</span> —
-              this settlement moves the drawer via the payment legs below.
-              Untick for a paper-only settlement (no drawer change).
+              <span className="font-medium text-white">Cash moved</span> — this
+              settlement moves the drawer via the payment legs below. Untick for
+              a paper-only settlement (no drawer change).
             </span>
           </label>
 

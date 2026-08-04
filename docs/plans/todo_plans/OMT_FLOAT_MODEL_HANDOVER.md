@@ -4,9 +4,9 @@
 >
 > The **float model** described in this file (PR #66: `OMT_System`/`Whish_System` as a
 > spendable in-system provider balance) was **rejected by the owner on 2026-07-30**, the day
-> after they first described it — verbatim: *"we dont have omt system balance.. no need for
-> another drawer. we can use our omt system drawer"* and *"I don't really care about this
-> float model … I think the float model is something wrongly implemented."* PR #66 does not
+> after they first described it — verbatim: _"we dont have omt system balance.. no need for
+> another drawer. we can use our omt system drawer"_ and _"I don't really care about this
+> float model … I think the float model is something wrongly implemented."_ PR #66 does not
 > merge as designed; it is superseded, not abandoned mid-review.
 >
 > **Authoritative spec now:** `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md`. The
@@ -15,6 +15,7 @@
 > means today.
 >
 > **Kept LIVE from this file — process lessons, not model claims:**
+>
 > - §3.2 REST role-gate parity sweep — still needed, still unswept.
 > - §3.3 `check:tenant-scoping` not wired into CI — still true, still worth the two-line fix.
 > - §4 (the three process traps: payload-seam blindness, better-sqlite3 ABI mixups,
@@ -22,6 +23,7 @@
 >   including the primary-cash-drawer implementation itself.
 >
 > **Resolved/changed by the new plan:**
+>
 > - §2 (the settle-to-zero release blocker) is **MOOTED** — the owner wipes the database and
 >   starts fresh instead (`PRIMARY_CASH_DRAWER_PLAN.md` decision #14); there is no cutover
 >   balance left to settle.
@@ -60,7 +62,7 @@ for the model that replaced this one, and `PRIMARY_CASH_DRAWER_PLAN.md` for the 
 
 The invariant form below is the float-model version, kept for historical comparison — the
 current model adds a receivable term and inverts the ledger from fee-only to gross (same
-`Σ(drawer deltas) − Δ(owed) = c + kept_change` *shape*, different meaning per term; see
+`Σ(drawer deltas) − Δ(owed) = c + kept_change` _shape_, different meaning per term; see
 FEATURE_GUIDE §8.1 for the exact current form):
 
 ```
@@ -123,7 +125,7 @@ Check each of these and report what happens when it meets `"FEE"`:
 - `frontend/src/features/audit/` — leg-detail rendering, `cashFlow.ts`, and the "Cash only (till)"
   filter. Does it render a sensible label and classify correctly?
 - `TransactionRepository._reversePayments` — it reads every `payments` row drawer-name-agnostically,
-  so it *should* reverse a `"FEE"` leg. Confirm the leg IS a `payments` row and not a direct
+  so it _should_ reverse a `"FEE"` leg. Confirm the leg IS a `payments` row and not a direct
   `applyDrawerDelta`.
 
 **Then form a view:** was a new method string the right design, or should the fee leg have reused
@@ -219,7 +221,7 @@ found the second bug on its first run. `Services.legsGate.test.tsx` /
 `Services.tenderRate.test.tsx` are the equivalent jest pattern (mount the page, stub
 `MultiPaymentInput` to expose its callbacks, assert the real submitted payload).
 
-**Discriminator:** a payload-constructing test is fine when the page merely *forwards* a form. It
+**Discriminator:** a payload-constructing test is fine when the page merely _forwards_ a form. It
 is insufficient wherever the **frontend does arithmetic before sending** — fee netting, rate
 conversion, split allocation, basket netting — because the same computation then exists on both
 sides of the boundary and can drift.
@@ -269,16 +271,16 @@ into the guard permanently and every suite would still have reported green.
 
 Reproduce this before and after any change here:
 
-| Gate | Expected |
-|---|---|
-| `cd packages/core && npx jest` (after `yarn rebuild:node`) | 1190/1190, 112 suites |
-| `yarn workspace @liratek/frontend test` | 657 passed, 1 skipped, 81 suites |
-| `yarn workspace @liratek/backend test` | 500/500, 36 suites |
-| `yarn typecheck` | clean |
-| `yarn check:tenant-scoping` | **0 violations** / 629 statements |
-| `yarn lint` | 0 errors, 524 warnings (warning count is the baseline) |
-| `yarn test:e2e:web` | 47/47 |
-| `yarn test:e2e` (after `yarn dev` → stop) | 240/240 |
+| Gate                                                       | Expected                                               |
+| ---------------------------------------------------------- | ------------------------------------------------------ |
+| `cd packages/core && npx jest` (after `yarn rebuild:node`) | 1190/1190, 112 suites                                  |
+| `yarn workspace @liratek/frontend test`                    | 657 passed, 1 skipped, 81 suites                       |
+| `yarn workspace @liratek/backend test`                     | 500/500, 36 suites                                     |
+| `yarn typecheck`                                           | clean                                                  |
+| `yarn check:tenant-scoping`                                | **0 violations** / 629 statements                      |
+| `yarn lint`                                                | 0 errors, 524 warnings (warning count is the baseline) |
+| `yarn test:e2e:web`                                        | 47/47                                                  |
+| `yarn test:e2e` (after `yarn dev` → stop)                  | 240/240                                                |
 
 All 19 float-model guards are proven failing-first. Each carries a
 `// rule 17: proven failing-first 2026-07-30 — …` note recording the revert **and** the wrong value
@@ -289,7 +291,7 @@ Two spots that are environment-sensitive, both now guarded — do not "fix" them
 - `lira-102` / `lira-103` derive their instant from the machine's UTC offset and **skip** at
   offset ≤ 0. The TZ-independent proof is `ClosingRepository.localBusinessDay.test.ts`.
 - The 5 `waitForTimeout` calls in `lira-123` carry documented `eslint-disable` exceptions. They
-  wait *past* a reveal window to prove a leg did **not** appear; web-first assertions are
+  wait _past_ a reveal window to prove a leg did **not** appear; web-first assertions are
   pass-seeking and would resolve on the first tick, silently proving nothing.
 
 ---

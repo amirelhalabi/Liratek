@@ -1081,7 +1081,9 @@ export default function MobileServicesManager() {
                                                   <input
                                                     type="number"
                                                     min="0"
-                                                    value={editing.validity_days}
+                                                    value={
+                                                      editing.validity_days
+                                                    }
                                                     onChange={(e) =>
                                                       setEditing({
                                                         ...editing,
@@ -1412,65 +1414,65 @@ export default function MobileServicesManager() {
                                                     delivered):
                                                   </p>
                                                   <div className="flex gap-2">
-                                                    {(
-                                                      [1, 2, 3] as const
-                                                    ).map((chunk) => {
-                                                      const cost =
-                                                        deliveredCostLbp(
-                                                          economics.recoveredRateLbp!,
-                                                          chunk,
-                                                        );
-                                                      if (cost == null)
-                                                        return null;
-                                                      const costRounded =
-                                                        Math.round(cost);
-                                                      const profitVal =
-                                                        sellCreditRef -
-                                                        costRounded;
-                                                      // Break-even: round UP to the nearest 1,000 LBP
-                                                      // so a price actually charged at this figure can
-                                                      // never fall short of the true delivered cost.
-                                                      // Actionable regardless of whether sellCreditRef
-                                                      // (the reference above) is stale — a table that
-                                                      // is red end-to-end at least tells the operator
-                                                      // what to charge instead.
-                                                      const breakEvenLbp =
-                                                        Math.ceil(
-                                                          costRounded / 1_000,
-                                                        ) * 1_000;
-                                                      return (
-                                                        <span
-                                                          key={chunk}
-                                                          title={`${chunk}$/SMS`}
-                                                          className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                                                            profitVal < 0
-                                                              ? "bg-red-900/30 text-red-400"
-                                                              : "bg-slate-800/60 text-slate-300"
-                                                          }`}
-                                                        >
-                                                          {chunk}$:{" "}
-                                                          {costRounded.toLocaleString()}{" "}
-                                                          (
+                                                    {([1, 2, 3] as const).map(
+                                                      (chunk) => {
+                                                        const cost =
+                                                          deliveredCostLbp(
+                                                            economics.recoveredRateLbp!,
+                                                            chunk,
+                                                          );
+                                                        if (cost == null)
+                                                          return null;
+                                                        const costRounded =
+                                                          Math.round(cost);
+                                                        const profitVal =
+                                                          sellCreditRef -
+                                                          costRounded;
+                                                        // Break-even: round UP to the nearest 1,000 LBP
+                                                        // so a price actually charged at this figure can
+                                                        // never fall short of the true delivered cost.
+                                                        // Actionable regardless of whether sellCreditRef
+                                                        // (the reference above) is stale — a table that
+                                                        // is red end-to-end at least tells the operator
+                                                        // what to charge instead.
+                                                        const breakEvenLbp =
+                                                          Math.ceil(
+                                                            costRounded / 1_000,
+                                                          ) * 1_000;
+                                                        return (
                                                           <span
-                                                            className={
+                                                            key={chunk}
+                                                            title={`${chunk}$/SMS`}
+                                                            className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
                                                               profitVal < 0
-                                                                ? "text-red-400"
-                                                                : "text-emerald-400"
-                                                            }
+                                                                ? "bg-red-900/30 text-red-400"
+                                                                : "bg-slate-800/60 text-slate-300"
+                                                            }`}
                                                           >
-                                                            {profitVal >= 0
-                                                              ? "+"
-                                                              : ""}
-                                                            {profitVal.toLocaleString()}
+                                                            {chunk}$:{" "}
+                                                            {costRounded.toLocaleString()}{" "}
+                                                            (
+                                                            <span
+                                                              className={
+                                                                profitVal < 0
+                                                                  ? "text-red-400"
+                                                                  : "text-emerald-400"
+                                                              }
+                                                            >
+                                                              {profitVal >= 0
+                                                                ? "+"
+                                                                : ""}
+                                                              {profitVal.toLocaleString()}
+                                                            </span>
+                                                            ){" "}
+                                                            <span className="text-slate-500">
+                                                              · charge ≥{" "}
+                                                              {breakEvenLbp.toLocaleString()}
+                                                            </span>
                                                           </span>
-                                                          ){" "}
-                                                          <span className="text-slate-500">
-                                                            · charge ≥{" "}
-                                                            {breakEvenLbp.toLocaleString()}
-                                                          </span>
-                                                        </span>
-                                                      );
-                                                    })}
+                                                        );
+                                                      },
+                                                    )}
                                                   </div>
                                                 </div>
                                               )}

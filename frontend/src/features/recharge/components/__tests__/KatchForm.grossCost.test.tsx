@@ -371,9 +371,7 @@ describe("KatchForm gross-cost B1/B2 (LIRA-090)", () => {
     await openSheet();
     fireEvent.click(screen.getByTestId("stub-inject-cash"));
     fireEvent.click(screen.getByTestId("stub-confirm"));
-    await waitFor(() =>
-      expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
 
     const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
       string,

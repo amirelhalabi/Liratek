@@ -135,7 +135,18 @@ describe("Migration v140 — rebuild_system_float_topups_as_drawer_transfers", (
         `INSERT INTO system_float_topups
            (id, tenant_id, target_drawer, funding_drawer, amount_usd, amount_lbp, notes, created_by, is_refunded, refunded_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(5, 1, "OMT_System", "General", 50, 0, "Fund OMT drawer", 1, 0, null);
+      ).run(
+        5,
+        1,
+        "OMT_System",
+        "General",
+        50,
+        0,
+        "Fund OMT drawer",
+        1,
+        0,
+        null,
+      );
 
       // Row B: fund Whish_System (id 12), already refunded — is_refunded/
       // refunded_at must survive since the generic void path keys on them.
@@ -243,7 +254,18 @@ describe("Migration v140 — rebuild_system_float_topups_as_drawer_transfers", (
         `INSERT INTO system_float_topups
            (id, tenant_id, target_drawer, funding_drawer, amount_usd, amount_lbp, notes, created_by, is_refunded, refunded_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(5, 1, "OMT_System", "General", 50, 0, "Fund OMT drawer", 1, 0, null);
+      ).run(
+        5,
+        1,
+        "OMT_System",
+        "General",
+        50,
+        0,
+        "Fund OMT drawer",
+        1,
+        0,
+        null,
+      );
 
       getMigration(140).up(db);
       getMigration(140).down(db);

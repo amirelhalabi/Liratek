@@ -362,9 +362,9 @@ function debtLedgerSumUsd(db: Database.Database): number {
 }
 
 function rowCount(db: Database.Database, table: string): number {
-  const row = db
-    .prepare(`SELECT COUNT(*) as c FROM ${table}`)
-    .get() as { c: number };
+  const row = db.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as {
+    c: number;
+  };
   return row.c;
 }
 

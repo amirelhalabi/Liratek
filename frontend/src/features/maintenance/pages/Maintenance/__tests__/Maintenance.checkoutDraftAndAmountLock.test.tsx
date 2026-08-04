@@ -161,9 +161,7 @@ describe("Maintenance — amount-lock gate mirrors the backend signal (paid && !
     expect(
       screen.queryByText(/Paid job — void or refund/i),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/voided or refunded/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/voided or refunded/i)).not.toBeInTheDocument();
     const priceField = await screen.findByLabelText(/Price to Client/i);
     expect(priceField).not.toBeDisabled();
   });
@@ -220,9 +218,7 @@ describe("Maintenance — amount-lock gate mirrors the backend signal (paid && !
     expect(
       screen.queryByText(/Paid job — void or refund/i),
     ).not.toBeInTheDocument();
-    expect(
-      await screen.findByText(/voided or refunded/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/voided or refunded/i)).toBeInTheDocument();
     const priceField = await screen.findByLabelText(/Price to Client/i);
     expect(priceField).not.toBeDisabled();
   });

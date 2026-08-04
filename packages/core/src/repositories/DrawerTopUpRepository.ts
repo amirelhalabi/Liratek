@@ -569,7 +569,10 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       GROUP BY drawer_name
     `,
       )
-      .all(...PRIMARY_CASH_DRAWER_NAMES, getCurrentTenantId()) as SourceDrawerBalance[];
+      .all(
+        ...PRIMARY_CASH_DRAWER_NAMES,
+        getCurrentTenantId(),
+      ) as SourceDrawerBalance[];
     return rows;
   }
 

@@ -187,9 +187,7 @@ function simulateRealRefund(
        VALUES ('REFUND', 'ACTIVE', 'maintenance', ?, -50, ?)`,
     )
     .run(jobId, originalTxnId);
-  db.prepare(`UPDATE maintenance SET is_refunded = 1 WHERE id = ?`).run(
-    jobId,
-  );
+  db.prepare(`UPDATE maintenance SET is_refunded = 1 WHERE id = ?`).run(jobId);
   return Number(result.lastInsertRowid);
 }
 
@@ -214,9 +212,7 @@ function simulateRealVoid(
        VALUES ('MAINTENANCE', 'ACTIVE', 'maintenance', ?, -50, ?)`,
     )
     .run(jobId, originalTxnId);
-  db.prepare(`UPDATE maintenance SET is_refunded = 1 WHERE id = ?`).run(
-    jobId,
-  );
+  db.prepare(`UPDATE maintenance SET is_refunded = 1 WHERE id = ?`).run(jobId);
   return Number(result.lastInsertRowid);
 }
 
@@ -274,7 +270,11 @@ describe("MaintenanceRepository — amount-edit gate (post-payment immutability)
 
     repo.updateJob(
       id,
-      buildJob({ status: "Completed", note: "picked up", device_name: "iPhone 13 Pro" }),
+      buildJob({
+        status: "Completed",
+        note: "picked up",
+        device_name: "iPhone 13 Pro",
+      }),
     );
 
     const row = rawJobRow(db, id);

@@ -70,7 +70,10 @@ export class WalletExchangeService {
         return { success: false, error: "Amount must be greater than 0." };
       }
       if (!(data.rate > 0)) {
-        return { success: false, error: "Exchange rate must be greater than 0." };
+        return {
+          success: false,
+          error: "Exchange rate must be greater than 0.",
+        };
       }
 
       if (data.transaction_time) {

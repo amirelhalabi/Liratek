@@ -360,8 +360,8 @@ test.describe("LIRA-092 — supplier-payment void reversal", () => {
     await expect(lotoRow.getByRole("button", { name: /^Void$/ })).toHaveCount(
       1,
     );
-    await expect(
-      lotoRow.getByRole("button", { name: /^Refund$/ }),
-    ).toHaveCount(1);
+    await expect(lotoRow.getByRole("button", { name: /^Refund$/ })).toHaveCount(
+      1,
+    );
   });
 });

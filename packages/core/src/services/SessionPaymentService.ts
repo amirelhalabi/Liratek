@@ -365,11 +365,7 @@ export class SessionPaymentService {
             note: isOut ? "Basket change returned" : "Basket payment",
             userId,
           });
-          this.paymentRepo.postDrawerDelta(
-            "General",
-            leg.currencyCode,
-            signed,
-          );
+          this.paymentRepo.postDrawerDelta("General", leg.currencyCode, signed);
         }
       }
 

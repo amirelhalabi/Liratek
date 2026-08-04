@@ -213,23 +213,19 @@ export function registerCarrierLineHandlers(): void {
   // LIRA-090: get the primary line for a carrier — called by the Only-Days
   // sale form and the self-charge form to pre-populate the target line.
   // Read-only; no role gate (mirrors other read handlers in this module).
-  ipcMain.handle(
-    "carrier-lines:get-primary",
-    (_event, carrier: CarrierKey) => {
-      try {
-        const repo = getCarrierLineRepository();
-        const line = repo.getPrimary(carrier);
-        return { success: true, data: line };
-      } catch (error) {
-        financialLogger.error({ error }, "carrier-lines:get-primary failed");
-        return {
-          success: false,
-          error:
-            error instanceof Error ? error.message : "Failed to get primary",
-        };
-      }
-    },
-  );
+  ipcMain.handle("carrier-lines:get-primary", (_event, carrier: CarrierKey) => {
+    try {
+      const repo = getCarrierLineRepository();
+      const line = repo.getPrimary(carrier);
+      return { success: true, data: line };
+    } catch (error) {
+      financialLogger.error({ error }, "carrier-lines:get-primary failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to get primary",
+      };
+    }
+  });
 
   // LIRA-090: designate a line as the primary for its carrier — Settings
   // admin only. Clears the previous primary atomically (see
@@ -255,8 +251,7 @@ export function registerCarrierLineHandlers(): void {
       financialLogger.error({ error }, "carrier-lines:set-primary failed");
       return {
         success: false,
-        error:
-          error instanceof Error ? error.message : "Failed to set primary",
+        error: error instanceof Error ? error.message : "Failed to set primary",
       };
     }
   });

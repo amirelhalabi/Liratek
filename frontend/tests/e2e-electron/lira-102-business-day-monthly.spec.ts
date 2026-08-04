@@ -45,9 +45,7 @@ const LOCAL_TARGET = (() => {
 })();
 const pad2 = (n: number) => String(n).padStart(2, "0");
 /** Naive "YYYY-MM-DD HH:MM:SS" in UTC — how SQLite reads a bare datetime. */
-const BOUNDARY_UTC = LOCAL_TARGET.toISOString()
-  .slice(0, 19)
-  .replace("T", " ");
+const BOUNDARY_UTC = LOCAL_TARGET.toISOString().slice(0, 19).replace("T", " ");
 const LOCAL_MONTH = `${LOCAL_TARGET.getFullYear()}-${pad2(LOCAL_TARGET.getMonth() + 1)}`;
 const UTC_MONTH = BOUNDARY_UTC.slice(0, 7);
 /** The UTC calendar date of that instant — asserted below to prove the backdate. */

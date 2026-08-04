@@ -59,11 +59,19 @@ export function WalletExchangePanel({
 
   async function handleSubmit() {
     if (!(amount > 0)) {
-      appEvents.emit("notification:show", "Enter an amount to exchange.", "error");
+      appEvents.emit(
+        "notification:show",
+        "Enter an amount to exchange.",
+        "error",
+      );
       return;
     }
     if (!(rateNum > 0)) {
-      appEvents.emit("notification:show", "Enter a valid exchange rate.", "error");
+      appEvents.emit(
+        "notification:show",
+        "Enter a valid exchange rate.",
+        "error",
+      );
       return;
     }
     setIsSubmitting(true);
@@ -186,9 +194,7 @@ export function WalletExchangePanel({
         data-testid="wallet-exchange-confirm"
         className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
       >
-        {isSubmitting
-          ? "Converting..."
-          : `Convert to ${toCurrency}`}
+        {isSubmitting ? "Converting..." : `Convert to ${toCurrency}`}
       </button>
     </div>
   );

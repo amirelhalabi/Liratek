@@ -4412,9 +4412,7 @@ export async function updateMobileServiceItem(
 /** LIRA-090: get the current primary line for a carrier.
  *  Returns success:false (not an error) when no primary is configured.
  *  Read-only, no role gate. */
-export async function getPrimaryCarrierLine(
-  carrier: "alfa" | "mtc",
-): Promise<{
+export async function getPrimaryCarrierLine(carrier: "alfa" | "mtc"): Promise<{
   success: boolean;
   data?: CarrierLineEntity | null;
   error?: string;

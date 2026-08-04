@@ -560,10 +560,7 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
       );
       // No USD component on this leg (single LBP tender) — OMT_System USD
       // is unaffected.
-      expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-        systemUsdBefore,
-        2,
-      );
+      expect(balance(db, "OMT_System", "USD")).toBeCloseTo(systemUsdBefore, 2);
 
       // The tender leg now posts to the PCD, not General.
       const cashLegs = paymentsFor(db, "CASH");
@@ -720,10 +717,7 @@ describe("FinancialServiceRepository — cross-currency single-leg tender", () =
         systemLbpBefore - 9000000,
         2,
       );
-      expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-        systemUsdBefore,
-        2,
-      );
+      expect(balance(db, "OMT_System", "USD")).toBeCloseTo(systemUsdBefore, 2);
 
       // Value-not-tender model holds for RECEIVE too.
       const txn = lastTransaction(db);

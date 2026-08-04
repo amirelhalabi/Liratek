@@ -425,9 +425,8 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
           `SELECT ${this.getColumns()} FROM carrier_lines
            WHERE carrier = ? AND is_primary = 1 AND is_active = 1 AND tenant_id = ?`,
         )
-        .get(carrier, getCurrentTenantId()) as
-        | CarrierLineEntity
-        | undefined) ?? null
+        .get(carrier, getCurrentTenantId()) as CarrierLineEntity | undefined) ??
+      null
     );
   }
 

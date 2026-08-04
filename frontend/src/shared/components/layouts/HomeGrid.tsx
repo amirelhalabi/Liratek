@@ -356,9 +356,7 @@ export default function HomeGrid() {
                     toggleFavorite(item.to);
                   }
                 }}
-                title={
-                  favorited ? "Remove from favorites" : "Add to favorites"
-                }
+                title={favorited ? "Remove from favorites" : "Add to favorites"}
                 aria-label={
                   favorited ? "Remove from favorites" : "Add to favorites"
                 }

@@ -189,7 +189,10 @@ describe("getCashFlowDirection — SUPPLIER_PAYMENT (both directions)", () => {
     expect(getCashFlowDirection("SUPPLIER_PAYMENT", null)).toBe("in");
     expect(getCashFlowDirection("SUPPLIER_PAYMENT", "not-json{")).toBe("in");
     expect(
-      getCashFlowDirection("SUPPLIER_PAYMENT", JSON.stringify({ supplier_id: 1 })),
+      getCashFlowDirection(
+        "SUPPLIER_PAYMENT",
+        JSON.stringify({ supplier_id: 1 }),
+      ),
     ).toBe("in");
   });
 });

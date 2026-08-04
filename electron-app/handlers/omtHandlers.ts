@@ -184,8 +184,7 @@ export function registerOMTHandlers(): void {
         );
         return {
           success: false,
-          error:
-            error instanceof Error ? error.message : "Self-charge failed",
+          error: error instanceof Error ? error.message : "Self-charge failed",
         };
       }
     },
