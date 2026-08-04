@@ -7,6 +7,10 @@
 
 import type Database from "better-sqlite3";
 import { addSenderReceiverFieldsMigration } from "./add_sender_receiver_fields.js";
+import {
+  deriveDaysCostLbp,
+  TELECOM_CREDIT_COST_RATE_LBP,
+} from "../../utils/telecomCredit.js";
 
 // =============================================================================
 // Types
@@ -7331,6 +7335,216 @@ export const MIGRATIONS: Migration[] = [
       }
       console.log(
         "Migration v142 rolled back: carrier_line_movements.previous_validity_expires_at dropped",
+      );
+    },
+  },
+  {
+    version: 143,
+    name: "backfill_credits_on_prepaid_cards",
+    description:
+      "TELECOM_DAYS_COST_PLAN.md §6 step 3: backfills mobile_service_items.credits for existing installs. parseCatalogToSeedData (the frontend catalog seed) only ever runs ONCE, on first launch, when the table is empty — the 2026-08-03 uncommitted `credits` addition to the alfa (all 3 providers) and mtc (7 face-value cards × 3 providers) Prepaid blocks in frontend/src/data/mobileServices.ts therefore reaches ZERO already-provisioned installs on its own. This migration is what reaches them: sets credits = CAST(label AS REAL) for every row where provider IN ('iPick','Katsh','WHISH_APP') AND category IN ('alfa','mtc') AND subcategory = 'Prepaid' AND credits IS NULL AND the label is a pure numeric string (label GLOB '[0-9]*' AND label NOT GLOB '*[^0-9.]*') — the card's face value IS the label, the same rule the frontend seed applies. The numeric guard is load-bearing, not decorative: 'start'/'startSOS'/'smart'/'super' (mtc Prepaid) sit in the exact same provider/category/subcategory bucket, and SQLite's CAST('start' AS REAL) silently returns 0.0 with NO error — without the GLOB guard those named plans would get a bogus credits = 0 instead of staying correctly unset. mtc Prepaid '1'/'1.67' (all 3 providers, plan §1.3 — credit-only, no validity days, explicitly OUT of Only-Days scope) already carry credits from a prior seed and are skipped here by the credits IS NULL guard; down() has to exclude them by label explicitly instead, since after up() runs their credits is no longer NULL and that natural discriminator is gone (see down()'s own comment). Idempotent: a second run only ever touches rows still NULL.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+           SET credits = CAST(label AS REAL), updated_at = CURRENT_TIMESTAMP
+           WHERE provider IN ('iPick', 'Katsh', 'WHISH_APP')
+             AND category IN ('alfa', 'mtc')
+             AND subcategory = 'Prepaid'
+             AND credits IS NULL
+             AND label GLOB '[0-9]*'
+             AND label NOT GLOB '*[^0-9.]*'`,
+        )
+        .run();
+
+      console.log(
+        `Migration v143: backfilled credits (= numeric label, card face value) for ${result.changes} alfa/mtc Prepaid row(s) across iPick/Katsh/WHISH_APP`,
+      );
+    },
+    down(db: Database.Database) {
+      // Cannot tell "credits this migration just backfilled" apart from
+      // "credits the frontend seed itself already wrote on a genuinely fresh
+      // install" — both land on the identical rows with the identical value,
+      // and there is no provenance column to distinguish them after the
+      // fact. What CAN be told apart is which specific labels this migration
+      // (and the matching frontend seed change) ever touches: mtc Prepaid
+      // '1' and '1.67' already carried credits before ANY of this shipped
+      // (LIRA-072-era seed, plan §1.3 — explicitly OUT of Only-Days scope)
+      // and must never be reverted here, in either scenario above. Every
+      // OTHER numeric-labelled alfa/mtc Prepaid row across the three
+      // providers is exactly the set up() can ever touch, so nulling all of
+      // them back is exact — not merely "least destructive" — for both an
+      // upgraded install and a fresh one.
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+           SET credits = NULL, updated_at = CURRENT_TIMESTAMP
+           WHERE provider IN ('iPick', 'Katsh', 'WHISH_APP')
+             AND category IN ('alfa', 'mtc')
+             AND subcategory = 'Prepaid'
+             AND label NOT IN ('1', '1.67')
+             AND label GLOB '[0-9]*'
+             AND label NOT GLOB '*[^0-9.]*'`,
+        )
+        .run();
+
+      console.log(
+        `Migration v143 rolled back: credits nulled for ${result.changes} alfa/mtc Prepaid row(s) (excludes '1'/'1.67', which predate this migration)`,
+      );
+    },
+  },
+  {
+    version: 144,
+    name: "seed_telecom_credit_cost_rate_and_backfill_days_cost",
+    description:
+      "TELECOM_DAYS_COST_PLAN.md §6 step 7a (owner-confirmed 2026-08-04, THE resolution of the plan's one blocking input): (a) seeds the telecom_credit_cost_rate_lbp per-tenant setting at 93,333.33 LBP/$ — R, the shop's cost of $1 of credit — sourced from iPick > mtc > Credits, the one category in the whole catalog where credit is bought with no validity days attached (280,000/3$ = 93,333.33 LBP/$, exactly linear across all 5 entries in that price list), seeded with the same per-tenant INSERT OR IGNORE pattern v141 used for telecom_credit_sell_price_lbp. (b) backfills mobile_service_items.days_cost_lbp = round(cost_lbp - credits * R) for every row with cost_lbp > 0 AND credits > 0 AND days_cost_lbp IS NULL, reading each tenant's OWN rate setting back out of system_settings (never the literal constant), so a tenant that customizes the rate before this migration runs — or between (a) and (b) in some future replay — gets backfilled at their own number, not the default. The arithmetic itself is never re-encoded here (rule 14): it calls deriveDaysCostLbp from packages/core/src/utils/telecomCredit.ts, the ONE definition, which also enforces the plan's §4.4 guard (0 < days_cost_lbp < cost_lbp; ceiling 98,603 LBP/$, set by Katsh/WHISH_APP alfa 77.28) and returns null — never a value the guard would reject — for any row that fails it; such rows are counted and logged, never written with a non-positive or out-of-range value. At R = 93,333.33 all 43 catalog Only-Days items (plan §1) price positive (lowest: iPick mtc 3.79 at 25,267 LBP), so nothing is skipped on the shipped catalog today — the skip path exists for any row an operator hand-enters with a different credits/cost_lbp combination later. Idempotent: a second run only ever touches rows still NULL, at whatever rate is on record at that time.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // (a) Seed R per tenant — same INSERT OR IGNORE per-tenant-row pattern
+      // v141 used for telecom_credit_sell_price_lbp.
+      const settingsRes = db
+        .prepare(
+          `INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value)
+           SELECT id, 'telecom_credit_cost_rate_lbp', ? FROM tenants`,
+        )
+        .run(String(TELECOM_CREDIT_COST_RATE_LBP));
+
+      // (b) Backfill days_cost_lbp, per tenant, using that tenant's OWN rate
+      // (read back from system_settings, not the literal constant — a
+      // tenant may already have a customized value on record).
+      const tenants = db.prepare(`SELECT id FROM tenants`).all() as {
+        id: number;
+      }[];
+
+      let updated = 0;
+      let skipped = 0;
+
+      for (const tenant of tenants) {
+        const rateRow = db
+          .prepare(
+            `SELECT value FROM system_settings
+             WHERE tenant_id = ? AND key_name = 'telecom_credit_cost_rate_lbp'`,
+          )
+          .get(tenant.id) as { value: string } | undefined;
+        const rate = rateRow
+          ? Number(rateRow.value)
+          : TELECOM_CREDIT_COST_RATE_LBP;
+
+        const items = db
+          .prepare(
+            `SELECT id, cost_lbp, credits FROM mobile_service_items
+             WHERE tenant_id = ? AND cost_lbp > 0 AND credits > 0 AND days_cost_lbp IS NULL`,
+          )
+          .all(tenant.id) as { id: number; cost_lbp: number; credits: number }[];
+
+        for (const item of items) {
+          const daysCostLbp = deriveDaysCostLbp(
+            item.cost_lbp,
+            item.credits,
+            rate,
+          );
+          if (daysCostLbp === null) {
+            skipped++;
+            continue;
+          }
+          db.prepare(
+            `UPDATE mobile_service_items
+             SET days_cost_lbp = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+          ).run(daysCostLbp, item.id);
+          updated++;
+        }
+      }
+
+      console.log(
+        `Migration v144: telecom_credit_cost_rate_lbp seeded for ${settingsRes.changes} tenant(s); days_cost_lbp backfilled for ${updated} item(s), ${skipped} skipped (guard rejected: cost_lbp/credits combination would not satisfy 0 < days_cost_lbp < cost_lbp)`,
+      );
+    },
+    down(db: Database.Database) {
+      // Same provenance caveat as v143's down(): a row's days_cost_lbp
+      // could in principle have been hand-entered by an operator via
+      // Settings rather than by this migration (plan §3.4 — the field is
+      // editable there too). There is no column recording which wrote it, so
+      // this reverts every row that currently matches the same shape this
+      // migration's up() selects from (cost_lbp > 0 AND credits > 0 AND
+      // days_cost_lbp IS NOT NULL) — the defensible, documented tradeoff.
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+           SET days_cost_lbp = NULL, updated_at = CURRENT_TIMESTAMP
+           WHERE cost_lbp > 0 AND credits > 0 AND days_cost_lbp IS NOT NULL`,
+        )
+        .run();
+
+      db.prepare(
+        `DELETE FROM system_settings WHERE key_name = 'telecom_credit_cost_rate_lbp'`,
+      ).run();
+
+      console.log(
+        `Migration v144 rolled back: days_cost_lbp nulled for ${result.changes} row(s); telecom_credit_cost_rate_lbp setting removed`,
+      );
+    },
+  },
+  {
+    version: 145,
+    name: "backfill_alfa_prepaid_validity_days",
+    description:
+      "TELECOM_DAYS_COST_PLAN.md §6 step 7b (owner-confirmed 2026-08-04): backfills mobile_service_items.validity_days for the alfa Prepaid combo cards, which shipped with credits but no day count. The owner read the day counts off the KATSH alfa shelf — 4.5 = 10 days, 7.58 = 30, 10 = 30, 15.15 = 60, 22.73 = 90, 77.28 = 365 (12 months) — and they are applied to iPick/Katsh/WHISH_APP alike, because all three resell the identical physical Alfa card, so the face value alone identifies the validity. That cross-provider stamping rule is not new: migration v135 established it for the mtc Prepaid cards with the same justification. NOTE these deliberately DIVERGE from the mtc card of the same face value on two entries — alfa 4.5 grants 10 days where mtc 4.5 grants 30, and alfa 15.15 was owner-corrected to 60 (matching mtc) after it was first reported as 30; a per-day cost cross-check flagged 30 as the outlier of the alfa set and the owner confirmed 60. The alfa `1.22` and `3.03` cards are deliberately EXCLUDED: the owner could not confirm a day count for them, so they stay credit-only — the alfa equivalent of mtc's `1`/`1.67` — and remain out of the Only-Days split (plan §1.3). Giving them a validity_days here would flip isTelecomSplitComplete and start routing their sales through the credit-return netting path, which is exactly the trap the seed parser's isOnlyDaysCandidate guard exists to prevent. Scoped exactly like v143 (provider IN iPick/Katsh/WHISH_APP, category='alfa', subcategory='Prepaid') and idempotent via validity_days IS NULL, so a shop that has already hand-entered a day count keeps it. Fresh installs never reach this migration (create_db.sql marks it applied before any catalog row exists) — for those, frontend/src/data/mobileServices.ts carries the same values directly, exactly the split v135 documented.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Owner-confirmed day counts, keyed by card face value. Deliberately a
+      // literal map rather than a formula: there is no relationship between
+      // face value and validity to derive from (plan §2), these are read off
+      // the physical shelf.
+      const ALFA_PREPAID_VALIDITY_DAYS: Record<string, number> = {
+        "4.5": 10,
+        "7.58": 30,
+        "10": 30,
+        "15.15": 60,
+        "22.73": 90,
+        "77.28": 365,
+      };
+
+      const stmt = db.prepare(
+        `UPDATE mobile_service_items
+            SET validity_days = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE provider IN ('iPick', 'Katsh', 'WHISH_APP')
+            AND category = 'alfa'
+            AND subcategory = 'Prepaid'
+            AND label = ?
+            AND validity_days IS NULL`,
+      );
+
+      let updated = 0;
+      for (const [label, days] of Object.entries(ALFA_PREPAID_VALIDITY_DAYS)) {
+        updated += stmt.run(days, label).changes;
+      }
+
+      console.log(
+        `Migration v145: alfa Prepaid validity_days backfilled on ${updated} row(s) ` +
+          `(1.22 and 3.03 deliberately left NULL — credit-only, out of Only-Days)`,
+      );
+    },
+    down(db: Database.Database) {
+      // Only the six labels this migration can have set. `1.22`/`3.03` are
+      // never touched in either direction, and any OTHER alfa Prepaid label a
+      // shop added by hand keeps whatever it has — same provenance caveat as
+      // v143's down(): a row's validity_days cannot be distinguished from one
+      // the catalog seed wrote, so this reverts by the exact label set only.
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+              SET validity_days = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE provider IN ('iPick', 'Katsh', 'WHISH_APP')
+              AND category = 'alfa'
+              AND subcategory = 'Prepaid'
+              AND label IN ('4.5', '7.58', '10', '15.15', '22.73', '77.28')`,
+        )
+        .run();
+
+      console.log(
+        `Migration v145 rolled back: validity_days nulled for ${result.changes} alfa Prepaid row(s)`,
       );
     },
   },

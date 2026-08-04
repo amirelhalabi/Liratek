@@ -549,6 +549,13 @@ export const MobileServiceItemUpdateSchema =
 // against zod 3) — runtime API is identical.
 export const MobileServiceItemCreateSchema =
   mobileServiceItemCreateSchema as unknown as z.ZodSchema<MobileServiceItemCreateInput>;
+// TELECOM_DAYS_COST_PLAN.md follow-up: the seed path (fresh-install catalog
+// bulk-insert) had ZERO validation before this ticket — `mobileServiceItem.ts`'s
+// own header comment names this as a pre-existing gap. Reuses the CREATE
+// schema per item (same shape `parseCatalogToSeedData` produces, rule 14) so
+// the fresh-install `days_cost_lbp` seeded by the Only-Days split (plan §4.3)
+// can't be silently stripped by a schema that forgot the field.
+export const MobileServiceItemSeedSchema = z.array(MobileServiceItemCreateSchema);
 
 // =============================================================================
 // Custom Services

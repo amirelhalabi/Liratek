@@ -19,7 +19,20 @@ const config: Config = {
     "^@/config/viteEnv$": "<rootDir>/src/config/viteEnv.jest.ts",
     "^@/(.*)$": "<rootDir>/src/$1",
     "^@shared/(.*)$": "<rootDir>/../packages/shared/src/$1",
-    "^@liratek/core$": "<rootDir>/../packages/core/src/index.ts",
+    // Resolve to the BROWSER entry, the same one vite.config.ts aliases for
+    // the real renderer build. The Node entry (src/index.ts) re-exports
+    // ./db/dbPath.js and friends at module load, so any frontend test whose
+    // import chain reaches @liratek/core died with "Cannot find module
+    // './db/dbPath.js'" — which tests had been papering over by mocking the
+    // whole package. Pointing at browser.ts makes jest load what the app
+    // actually loads (and is the same entry-point split that caused the
+    // LIRA-090 renderer crash when a symbol was missing from browser.ts).
+    "^@liratek/core$": "<rootDir>/../packages/core/src/browser.ts",
+    // Core's sources use ESM-style ".js" specifiers on relative imports, which
+    // ts-jest's CommonJS build cannot resolve to the ".ts" files on disk.
+    // Same mapper packages/core/jest.config.cjs:20 already uses; needed here
+    // now that a frontend module really loads core instead of mocking it.
+    "^(\\.{1,2}/.*)\\.js$": "$1",
     "^@liratek/ui$": "<rootDir>/../packages/ui/src/index.ts",
   },
 };

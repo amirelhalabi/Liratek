@@ -290,3 +290,108 @@ export function deliveredCostLbp(
 
   return recoveredRateLbp * (1 + SMS_TRANSFER_FEE_USD / chunkUsd);
 }
+
+// =============================================================================
+// §4 — days_cost_lbp, credit-rate anchored (TELECOM_DAYS_COST_PLAN.md §4.3/4.4)
+// =============================================================================
+
+/**
+ * The shop's cost of $1 of credit, LBP. **Owner-confirmed 2026-08-04.**
+ *
+ * Sourced from iPick > mtc > Credits — the ONE category in the whole catalog
+ * where credit is bought with no validity days attached, so it is the only
+ * place a per-dollar credit rate can be read directly instead of inferred:
+ *
+ *   280,000 LBP / 3$ = 93,333.33 LBP/$
+ *
+ * — and that rate is exactly linear across all five Credits entries in that
+ * price list (3$, 5$, 8$, 10$, 15$), not just the one used to derive it.
+ *
+ * **Hard ceiling: this value must stay below 98,603.** That number is set by
+ * the tightest card in the catalog, Katsh/WHISH_APP alfa 77.28
+ * (`7,620,030 / 77.28 ≈ 98,602.87 LBP/$`, plan §4.4) — the per-dollar price
+ * that specific card was actually sold at. Any global rate at or above that
+ * ratio makes `days_cost_lbp = cost_lbp − credits × R` go zero or negative
+ * for that card, which trips the `isTelecomSplitComplete` guard (§4.4) and
+ * silently turns off the computed Only-Days flow for it. At the value below,
+ * all 43 catalog items (plan §1) price positive, the smallest being iPick
+ * mtc 3.79 at 25,267 LBP (plan §4.5, verified by
+ * `deriveDaysCostLbp.spans the full 43-item catalog` in the test file).
+ */
+export const TELECOM_CREDIT_COST_RATE_LBP = 93333.33;
+
+/**
+ * Derive `days_cost_lbp` for a telecom Only-Days catalog item — the ONE
+ * definition of this formula in the codebase (rule 14). Never re-encode this
+ * arithmetic in a migration, a parser, or a UI component; import this
+ * function instead.
+ *
+ * Algebra (plan §4.3): the shop pays `costLbp` for a card that bundles both
+ * validity days and `creditsUsd` of face credit. `R` is what $1 of credit
+ * costs the shop, sourced independently (see
+ * {@link TELECOM_CREDIT_COST_RATE_LBP}). Whatever is left over after paying
+ * for the credit at that rate is what the days actually cost:
+ *
+ *   days_cost_lbp = round(cost_lbp − credits × R)
+ *
+ * **Why `creditsUsd` is the card's FACE value, not `maxReturnableCredits`
+ * (plan §4.3, "why credits and not maxReturnableCredits").** The card is
+ * bought carrying its full face credit; the SMS recovery loss only happens
+ * later, and only if that credit is actually transferred back out. Using
+ * `maxReturnableCredits` here would fold that loss into `days_cost_lbp`,
+ * making it invisible as an operating cost of the Only-Days flow — and it is
+ * exactly the circularity that sank the rejected Model B (plan §4.2): under
+ * Model B, `recoveredRateLbp` collapses algebraically to `cost/credits`,
+ * the card's own per-dollar price, and stops telling you anything about
+ * recovery losses at all. Anchoring on face credit keeps the SMS loss where
+ * it belongs — visible, and computed once, downstream, by
+ * {@link deriveItemEconomics}.
+ *
+ * Guard rail (plan §4.4): `isTelecomSplitComplete` requires
+ * `0 < days_cost_lbp < cost_lbp`. This function enforces that same bound
+ * itself and returns `null` — never a value the guard would reject — so
+ * every caller (a migration backfill, a Settings save, a seed script) can
+ * treat `null` uniformly as "cannot derive this one, leave it unset" without
+ * re-deriving the bound check itself (rule 14).
+ *
+ * Never throws, never returns NaN — matches the null-returning style of
+ * {@link deriveItemEconomics} elsewhere in this file.
+ *
+ * @param costLbp - the catalog item's total LBP cost
+ * @param creditsUsd - the item's face USD credit value (the `credits` column)
+ * @param rateLbp - LBP cost of $1 of credit; defaults to
+ *   {@link TELECOM_CREDIT_COST_RATE_LBP}
+ * @returns `round(costLbp - creditsUsd * rateLbp)`, or `null` if any input is
+ *   non-finite/non-positive, or the result would not satisfy
+ *   `0 < days_cost_lbp < cost_lbp`
+ *
+ * @example
+ * // iPick alfa 77.28 (plan §4.5)
+ * deriveDaysCostLbp(7_728_000, 77.28) // → 515,200
+ */
+export function deriveDaysCostLbp(
+  costLbp: number,
+  creditsUsd: number | null | undefined,
+  rateLbp: number = TELECOM_CREDIT_COST_RATE_LBP,
+): number | null {
+  if (
+    typeof costLbp !== "number" ||
+    !Number.isFinite(costLbp) ||
+    costLbp <= 0 ||
+    typeof creditsUsd !== "number" ||
+    !Number.isFinite(creditsUsd) ||
+    creditsUsd <= 0 ||
+    !Number.isFinite(rateLbp) ||
+    rateLbp <= 0
+  ) {
+    return null;
+  }
+
+  const daysCostLbp = Math.round(costLbp - creditsUsd * rateLbp);
+
+  if (daysCostLbp <= 0 || daysCostLbp >= costLbp) {
+    return null;
+  }
+
+  return daysCostLbp;
+}

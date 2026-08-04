@@ -12,6 +12,8 @@ import {
   deriveItemEconomics,
   deliveredCostLbp,
   isTelecomSplitComplete,
+  TELECOM_CREDIT_COST_RATE_LBP,
+  deriveDaysCostLbp,
 } from "../telecomCredit";
 
 describe("telecomCredit", () => {
@@ -360,6 +362,178 @@ describe("telecomCredit", () => {
     it("returns null for invalid recoveredRateLbp", () => {
       expect(deliveredCostLbp(NaN, 1)).toBeNull();
       expect(deliveredCostLbp(-1, 1)).toBeNull();
+    });
+  });
+
+  describe("TELECOM_CREDIT_COST_RATE_LBP", () => {
+    it("pins the owner-confirmed rate (280,000 / 3$, iPick mtc Credits)", () => {
+      expect(TELECOM_CREDIT_COST_RATE_LBP).toBe(93333.33);
+    });
+
+    it("stays below the 98,603 ceiling set by Katsh/WHISH alfa 77.28 (plan §4.4)", () => {
+      expect(TELECOM_CREDIT_COST_RATE_LBP).toBeLessThan(98_603);
+    });
+  });
+
+  describe("deriveDaysCostLbp", () => {
+    it("matches the §4.5 worked value: iPick alfa 77.28 -> 515,200", () => {
+      expect(deriveDaysCostLbp(7_728_000, 77.28)).toBe(515_200);
+    });
+
+    it("matches the §4.5 worked value: Katsh alfa 77.28 -> 407,230", () => {
+      expect(deriveDaysCostLbp(7_620_030, 77.28)).toBe(407_230);
+    });
+
+    it("matches the §4.5 worked value: iPick mtc 3.79 -> 25,267 (rounding)", () => {
+      expect(deriveDaysCostLbp(379_000, 3.79)).toBe(25_267);
+    });
+
+    it("matches the §4.5 worked value: iPick mtc 4.5 -> 30,000", () => {
+      expect(deriveDaysCostLbp(450_000, 4.5)).toBe(30_000);
+    });
+
+    it("returns null when creditsUsd is null, undefined, zero, or negative", () => {
+      expect(deriveDaysCostLbp(7_728_000, null)).toBeNull();
+      expect(deriveDaysCostLbp(7_728_000, undefined)).toBeNull();
+      expect(deriveDaysCostLbp(7_728_000, 0)).toBeNull();
+      expect(deriveDaysCostLbp(7_728_000, -1)).toBeNull();
+    });
+
+    it("returns null when costLbp is zero, negative, NaN, or Infinity", () => {
+      expect(deriveDaysCostLbp(0, 77.28)).toBeNull();
+      expect(deriveDaysCostLbp(-1, 77.28)).toBeNull();
+      expect(deriveDaysCostLbp(NaN, 77.28)).toBeNull();
+      expect(deriveDaysCostLbp(Infinity, 77.28)).toBeNull();
+    });
+
+    it("returns null when creditsUsd is NaN or Infinity", () => {
+      expect(deriveDaysCostLbp(7_728_000, NaN)).toBeNull();
+      expect(deriveDaysCostLbp(7_728_000, Infinity)).toBeNull();
+    });
+
+    it("returns null once the rate crosses the 98,603 ceiling (Katsh alfa 77.28, the exact ceiling case, plan §4.4)", () => {
+      // 7,620,030 / 77.28 ~= 98,602.87 LBP/$ — the card's own per-dollar
+      // price. At R = 98,603 (already above that ratio) days_cost goes
+      // negative and must be rejected, not clamped or silently written.
+      expect(deriveDaysCostLbp(7_620_030, 77.28, 98_603)).toBeNull();
+      expect(deriveDaysCostLbp(7_620_030, 77.28, 100_000)).toBeNull();
+    });
+
+    it("returns null when rate is 0 (days_cost would equal cost_lbp, not < cost_lbp)", () => {
+      expect(deriveDaysCostLbp(7_728_000, 77.28, 0)).toBeNull();
+    });
+
+    it("returns null when rate is negative", () => {
+      expect(deriveDaysCostLbp(7_728_000, 77.28, -1)).toBeNull();
+    });
+
+    it("never throws and never returns NaN across a battery of malformed inputs", () => {
+      const inputs: Array<[number, number | null | undefined, number?]> = [
+        [NaN, 77.28, 93_333.33],
+        [-1, 77.28, 93_333.33],
+        [0, 77.28, 93_333.33],
+        [7_728_000, NaN, 93_333.33],
+        [7_728_000, Infinity, 93_333.33],
+        [7_728_000, null, 93_333.33],
+        [7_728_000, undefined, 93_333.33],
+        [7_728_000, 77.28, NaN],
+        [7_728_000, 77.28, Infinity],
+        [7_728_000, 77.28, 0],
+        [7_728_000, 77.28, -1],
+      ];
+
+      for (const [costLbp, creditsUsd, rateLbp] of inputs) {
+        expect(() => deriveDaysCostLbp(costLbp, creditsUsd, rateLbp)).not.toThrow();
+        const result = deriveDaysCostLbp(costLbp, creditsUsd, rateLbp);
+        expect(result === null || Number.isFinite(result)).toBe(true);
+      }
+    });
+
+    it("defaults to TELECOM_CREDIT_COST_RATE_LBP when rateLbp is omitted", () => {
+      expect(deriveDaysCostLbp(7_728_000, 77.28)).toBe(
+        deriveDaysCostLbp(7_728_000, 77.28, TELECOM_CREDIT_COST_RATE_LBP),
+      );
+    });
+
+    // The full 43-item Only-Days inventory, TELECOM_DAYS_COST_PLAN.md §1.
+    // Guards that a future rate change cannot silently zero out an item
+    // without the guard test failing here first.
+    const ONLY_DAYS_CATALOG: Array<{
+      label: string;
+      costLbp: number;
+      creditsUsd: number;
+    }> = [
+      // §1.1 alfa Prepaid — 22 items (credits = face value)
+      { label: "iPick alfa 1.22", costLbp: 140_000, creditsUsd: 1.22 },
+      { label: "iPick alfa 3.03", costLbp: 322_000, creditsUsd: 3.03 },
+      { label: "Katsh alfa 3.03", costLbp: 318_978, creditsUsd: 3.03 },
+      { label: "WHISH_APP alfa 3.03", costLbp: 318_978, creditsUsd: 3.03 },
+      { label: "iPick alfa 4.5", costLbp: 466_000, creditsUsd: 4.5 },
+      { label: "Katsh alfa 4.5", costLbp: 462_075, creditsUsd: 4.5 },
+      { label: "WHISH_APP alfa 4.5", costLbp: 462_075, creditsUsd: 4.5 },
+      { label: "iPick alfa 7.58", costLbp: 770_000, creditsUsd: 7.58 },
+      { label: "Katsh alfa 7.58", costLbp: 765_007, creditsUsd: 7.58 },
+      { label: "WHISH_APP alfa 7.58", costLbp: 765_007, creditsUsd: 7.58 },
+      { label: "iPick alfa 10", costLbp: 1_000_000, creditsUsd: 10 },
+      { label: "Katsh alfa 10", costLbp: 1_003_274, creditsUsd: 10 },
+      { label: "WHISH_APP alfa 10", costLbp: 1_003_274, creditsUsd: 10 },
+      { label: "iPick alfa 15.15", costLbp: 1_515_000, creditsUsd: 15.15 },
+      { label: "Katsh alfa 15.15", costLbp: 1_511_601, creditsUsd: 15.15 },
+      { label: "WHISH_APP alfa 15.15", costLbp: 1_511_601, creditsUsd: 15.15 },
+      { label: "iPick alfa 22.73", costLbp: 2_273_000, creditsUsd: 22.73 },
+      { label: "Katsh alfa 22.73", costLbp: 2_256_769, creditsUsd: 22.73 },
+      { label: "WHISH_APP alfa 22.73", costLbp: 2_256_769, creditsUsd: 22.73 },
+      { label: "iPick alfa 77.28", costLbp: 7_728_000, creditsUsd: 77.28 },
+      { label: "Katsh alfa 77.28", costLbp: 7_620_030, creditsUsd: 77.28 },
+      { label: "WHISH_APP alfa 77.28", costLbp: 7_620_030, creditsUsd: 77.28 },
+      // §1.2 mtc Prepaid — 21 items (credits = face value, derivable from label)
+      { label: "iPick mtc 3.79", costLbp: 379_000, creditsUsd: 3.79 },
+      { label: "Katsh mtc 3.79", costLbp: 398_723, creditsUsd: 3.79 },
+      { label: "WHISH_APP mtc 3.79", costLbp: 398_723, creditsUsd: 3.79 },
+      { label: "iPick mtc 4.5", costLbp: 450_000, creditsUsd: 4.5 },
+      { label: "Katsh mtc 4.5", costLbp: 462_518, creditsUsd: 4.5 },
+      { label: "WHISH_APP mtc 4.5", costLbp: 462_518, creditsUsd: 4.5 },
+      { label: "iPick mtc 7.58", costLbp: 758_000, creditsUsd: 7.58 },
+      { label: "Katsh mtc 7.58", costLbp: 765_007, creditsUsd: 7.58 },
+      { label: "WHISH_APP mtc 7.58", costLbp: 765_007, creditsUsd: 7.58 },
+      { label: "iPick mtc 10", costLbp: 1_000_000, creditsUsd: 10 },
+      { label: "Katsh mtc 10", costLbp: 1_003_274, creditsUsd: 10 },
+      { label: "WHISH_APP mtc 10", costLbp: 1_003_274, creditsUsd: 10 },
+      { label: "iPick mtc 15.15", costLbp: 1_526_000, creditsUsd: 15.15 },
+      { label: "Katsh mtc 15.15", costLbp: 1_509_829, creditsUsd: 15.15 },
+      { label: "WHISH_APP mtc 15.15", costLbp: 1_509_829, creditsUsd: 15.15 },
+      { label: "iPick mtc 22.73", costLbp: 2_273_000, creditsUsd: 22.73 },
+      { label: "Katsh mtc 22.73", costLbp: 2_255_883, creditsUsd: 22.73 },
+      { label: "WHISH_APP mtc 22.73", costLbp: 2_255_883, creditsUsd: 22.73 },
+      { label: "iPick mtc 77.28", costLbp: 7_728_000, creditsUsd: 77.28 },
+      { label: "Katsh mtc 77.28", costLbp: 7_620_030, creditsUsd: 77.28 },
+      { label: "WHISH_APP mtc 77.28", costLbp: 7_620_030, creditsUsd: 77.28 },
+    ];
+
+    it("has exactly 43 candidate items (plan §1 inventory)", () => {
+      expect(ONLY_DAYS_CATALOG.length).toBe(43);
+    });
+
+    it("yields a positive, in-bounds days_cost_lbp for all 43 catalog items at the default rate (plan §4.5 guard)", () => {
+      for (const { label, costLbp, creditsUsd } of ONLY_DAYS_CATALOG) {
+        const result = deriveDaysCostLbp(costLbp, creditsUsd);
+        if (result === null) {
+          throw new Error(`${label} failed to derive a days_cost_lbp value`);
+        }
+        if (!(result > 0)) {
+          throw new Error(`${label} derived a non-positive days_cost_lbp: ${result}`);
+        }
+        if (!(result < costLbp)) {
+          throw new Error(`${label} derived days_cost_lbp >= cost_lbp: ${result} >= ${costLbp}`);
+        }
+      }
+    });
+
+    it("the lowest days_cost_lbp across all 43 items is 25,267 (iPick mtc 3.79, plan §4.4)", () => {
+      const values = ONLY_DAYS_CATALOG.map(
+        ({ costLbp, creditsUsd }) => deriveDaysCostLbp(costLbp, creditsUsd) as number,
+      );
+      expect(Math.min(...values)).toBe(25_267);
     });
   });
 });

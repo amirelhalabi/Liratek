@@ -20,6 +20,7 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { DatabaseError } from "../utils/errors.js";
+import { TELECOM_CREDIT_COST_RATE_LBP } from "../utils/telecomCredit.js";
 
 // =============================================================================
 // Types
@@ -555,6 +556,17 @@ export class TenantRepository {
     stmt.run(tenantId, "shop_base_system", "OMT");
     stmt.run(tenantId, "allow_out_of_stock_sales", "0");
     stmt.run(tenantId, "telecom_credit_sell_price_lbp", "100000");
+    // R — the shop's cost of $1 of telecom credit (TELECOM_DAYS_COST_PLAN.md
+    // §4.3/§4.6). Migration v144 seeds this for tenants that already exist;
+    // a tenant provisioned AFTER that migration ran only gets it from here,
+    // so the two must stay in step. Without it, days_cost_lbp cannot be
+    // derived for the new tenant's catalog and every Only-Days item silently
+    // reads "No split".
+    stmt.run(
+      tenantId,
+      "telecom_credit_cost_rate_lbp",
+      String(TELECOM_CREDIT_COST_RATE_LBP),
+    );
   }
 
   private seedLotoSettings(tenantId: number): void {

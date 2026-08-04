@@ -1339,6 +1339,8 @@ contextBridge.exposeInMainWorld("api", {
         sort_order?: number;
         validity_days?: number | null;
         credits?: number | null;
+        // TELECOM_DAYS_COST_PLAN.md §4.3 — fresh-install Only-Days split cost.
+        days_cost_lbp?: number | null;
       }[],
     ) => ipcRenderer.invoke("mobile-service-items:seed", items),
     count: () => ipcRenderer.invoke("mobile-service-items:count"),

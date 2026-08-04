@@ -202,13 +202,20 @@ export function createErrorResponse(
   details?: unknown,
   field?: string,
 ): ApiError {
+  // `details` and `field` are spread conditionally rather than assigned as
+  // possibly-undefined: `ApiError.error` declares them optional, and under
+  // `exactOptionalPropertyTypes` (which the frontend's tsconfig enables)
+  // `field?: string` does NOT accept an explicit `undefined`. Assigning them
+  // directly compiles under core's own config but fails the moment a frontend
+  // test loads this file through ts-jest. Omitting the keys is also the more
+  // accurate shape — an absent field, not a field present-and-undefined.
   return {
     success: false,
     error: {
       code,
       message,
-      details,
-      field,
+      ...(details !== undefined ? { details } : {}),
+      ...(field !== undefined ? { field } : {}),
     },
   };
 }

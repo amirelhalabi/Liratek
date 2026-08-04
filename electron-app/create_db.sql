@@ -46,7 +46,14 @@ INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
   (1, 'allow_out_of_stock_sales', '0'),
   -- v140 (LIRA-090): default credit sell price (LBP per $1) backing the
   -- §2.4 resale decision-aid table on telecom catalog items.
-  (1, 'telecom_credit_sell_price_lbp', '100000');
+  (1, 'telecom_credit_sell_price_lbp', '100000'),
+  -- v144 (TELECOM_DAYS_COST_PLAN.md §6 step 7a): R, the shop's cost of $1 of
+  -- credit (LBP), owner-confirmed 2026-08-04. A fresh install marks v144's
+  -- migration "applied" (see schema_migrations below) BEFORE the frontend
+  -- catalog seed ever runs, so this setting must be seeded here directly —
+  -- the migration's own INSERT OR IGNORE never gets a chance to run against
+  -- this table on a fresh DB.
+  (1, 'telecom_credit_cost_rate_lbp', '93333.33');
 
 -- Users
 -- NOTE: username stays GLOBALLY unique (committed decision — login has no
@@ -1632,4 +1639,11 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (139, 'add_system_float_topups_table'),
     (140, 'rebuild_system_float_topups_as_drawer_transfers'),
     (141, 'add_telecom_days_credit_validity_schema'),
-    (142, 'add_carrier_line_movement_previous_validity');
+    (142, 'add_carrier_line_movement_previous_validity'),
+    -- v143 is a data-only backfill (mobile_service_items.credits on existing
+    -- installs) — nothing to do on a fresh DB, since the frontend catalog
+    -- seed (parseCatalogToSeedData, which reads the already-patched
+    -- mobileServices.ts) supplies credits directly the first time it runs.
+    (143, 'backfill_credits_on_prepaid_cards'),
+    (144, 'seed_telecom_credit_cost_rate_and_backfill_days_cost'),
+    (145, 'backfill_alfa_prepaid_validity_days');

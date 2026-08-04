@@ -18,6 +18,7 @@ import {
   validatePayload,
   MobileServiceItemUpdateSchema,
   MobileServiceItemCreateSchema,
+  MobileServiceItemSeedSchema,
 } from "../schemas/index.js";
 
 export function registerMobileServiceItemHandlers(): void {
@@ -270,11 +271,18 @@ export function registerMobileServiceItemHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin", "staff"]);
         if (!auth.ok) throw new Error(auth.error);
 
-        const result = service.seedFromCatalog(items);
+        // TELECOM_DAYS_COST_PLAN.md follow-up: this path had no Zod guard
+        // before this ticket — closes that gap and, critically, keeps the
+        // fresh-install `days_cost_lbp` (Only-Days split cost) from being
+        // silently stripped by a schema that omitted it.
+        const validation = validatePayload(MobileServiceItemSeedSchema, items);
+        if (!validation.ok) return { success: false, error: validation.error };
+
+        const result = service.seedFromCatalog(validation.data);
         audit(e.sender.id, {
           action: "create",
           entity_type: "mobile_service_item",
-          summary: `Seeded ${items.length} mobile service items from catalog`,
+          summary: `Seeded ${validation.data.length} mobile service items from catalog`,
         });
         return result;
       } catch (error) {
