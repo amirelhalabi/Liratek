@@ -325,7 +325,7 @@ export interface CreateFinancialServiceData {
    * bills/catalog cart flow (KatchForm / FinancialForm) submits ONE
    * legs-carrying CARRIER transaction per checkout — every sibling unit in
    * the same cart submits `deferPayment: true` and carries no legs (see
-   * docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). The carrier's own
+   * docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). The carrier's own
    * `price` is only ONE unit's share of the cart, so reconciling legs
    * against `price` alone would hard-reject every legitimate multi-unit
    * checkout. `checkoutTotal` is the FULL amount the customer owes for the

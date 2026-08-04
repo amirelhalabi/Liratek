@@ -95,7 +95,7 @@ CLAUDE.md rule 16.
   "only send legs when the payment is split" (or "only when there's a
   voucher/change leg") is the bug class itself — four forms silently dropped
   amount+currency on the common single-line case, and backend fallbacks then
-  assumed tender = service currency (docs/plans/todo_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md).
+  assumed tender = service currency (docs/plans/done_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md).
   Read "the frontend sends all legs in ONE IPC call" below as **every line,
   every time** — not "all legs, on the occasions there happen to be several."
   There is never a follow-up call — money fixes belong in the repository.
@@ -127,7 +127,7 @@ CUSTOMER_ACCOUNT) − sum(OUT change legs) − kept_change = required total`.
   currencies it was denominated) and the repository reconciles against THAT.
   Omitted → unchecked (single-unit checkouts, scripted callers). The void-path
   gap this per-unit/carrier split still leaves open is tracked in
-  docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md.
+  docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md.
 - In the stored row, OUT legs carry **negative `signed_amount`**; `amount` is absolute.
   Same-currency IN legs are kept separate (no premature merge) — lira-064.
 - Legs are returned structurally by `TransactionRepository.getRecent` (`payments[]`)

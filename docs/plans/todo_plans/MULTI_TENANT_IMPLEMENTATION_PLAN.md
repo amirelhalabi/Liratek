@@ -7,7 +7,7 @@
 
 ---
 
-## 1. Decisions made
+## 1. Decisions made ✅ DONE
 
 | #   | Decision          | Choice                                                                                                                                                                                            |
 | --- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -39,7 +39,7 @@ Subdomains/wildcard TLS/reverse proxy · billing/entitlements · Postgres migrat
 
 ---
 
-## 3. Target architecture
+## 3. Target architecture ✅ DONE
 
 ```
                     ┌────────────────────────────────────────────────┐
@@ -96,7 +96,7 @@ Hetivo trap adopted-and-fixed: hetivo's token has _inverted_ field semantics (`u
 
 ---
 
-## 4. Schema changes
+## 4. Schema changes ✅ DONE
 
 ### New `tenants` table (both `create_db.sql` and migration v123)
 
@@ -130,7 +130,7 @@ All of today's global seeds in `create_db.sql` (`system_settings`, `currencies`,
 
 ---
 
-## 5. Super admin + impersonation (the hetivo adaptation)
+## 5. Super admin + impersonation (the hetivo adaptation) ✅ DONE
 
 ### Control-plane API (new: `backend/src/api/admin.ts`, all behind `requireSuperAdmin`)
 
@@ -166,7 +166,7 @@ Auth middleware treats an impersonation token as a normal tenant session (contex
 
 ---
 
-## 6. Repository scoping — the 501-statement problem
+## 6. Repository scoping — the 501-statement problem ✅ DONE
 
 Mechanics per statement type (the recipe every fan-out agent follows):
 
@@ -194,7 +194,7 @@ This turns "did the agent miss a WHERE clause?" — the classic shared-DB leak, 
 
 Orchestrator: **Fable 5** (this session). Implementers: **Sonnet agents** (`backend` / `database` / `electron` / `frontend` agent types), with worktree isolation for the parallel fan-out phase. Every WP prompt includes: the recipe from this doc, the exact file list, the verification command(s) that must pass, and "do not touch money logic" where applicable.
 
-### Phase 0 — Foundations (sequential; each WP blocks the next)
+### Phase 0 — Foundations (sequential; each WP blocks the next) ✅ DONE
 
 | WP                                 | Agent    | Scope                                                                                                                                                                                                                                                                                                           | Verify                                                                                                                                                  |
 | ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -203,7 +203,7 @@ Orchestrator: **Fable 5** (this session). Implementers: **Sonnet agents** (`back
 | **WP2 — Auth & realm**             | backend  | JWT payload v2 (`tenantId`, mandatory `sessionToken` — close auth.ts:81-85); tenant middleware (`runWithTenant` wrap); `requireSuperAdmin`; **add auth to `sessions.ts` + `settings.ts`**; login embeds `tenantId` from user row; suspended-tenant login block; `AuthService`/`UserRepository` tenant awareness | supertest: legacy JWT rejected, tenant JWT scoped, super admin blocked from tenant routes, unauthenticated settings/sessions now 401                    |
 | **WP2b — Test fixtures**           | backend  | Update every core jest fixture/seed to create tenant 1 + run under fixed context, so Phase 1 agents inherit a green baseline                                                                                                                                                                                    | `yarn workspace @liratek/backend test` green pre-fan-out                                                                                                |
 
-### Phase 1 — Repository fan-out (parallel Sonnet agents, worktree isolation)
+### Phase 1 — Repository fan-out (parallel Sonnet agents, worktree isolation) ✅ DONE
 
 43 repos split into 6 batches by domain; each agent applies the §6 recipe to its batch, updates that batch's tests, and must leave **the checker green for its file list** + batch tests passing:
 
@@ -218,7 +218,7 @@ Orchestrator: **Fable 5** (this session). Implementers: **Sonnet agents** (`back
 
 **Gate to exit Phase 1:** checker 100% green across all repos + full core/backend test suites green + isolation tests (written here, WP3g, by one agent in parallel) proven per rule 17.
 
-### Phase 2 — Control plane & impersonation (parallel where marked)
+### Phase 2 — Control plane & impersonation (parallel where marked) ✅ DONE
 
 | WP                      | Agent    | Scope                                                                                                                                                                                                                                |
 | ----------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -226,7 +226,7 @@ Orchestrator: **Fable 5** (this session). Implementers: **Sonnet agents** (`back
 | **WP6 — Impersonation** | backend  | `POST /api/admin/tenants/:id/impersonate` per §5; middleware handling of `impersonatorId`; re-escalation block; audit rows; 2h expiry                                                                                                |
 | **WP7 — Admin UI** ∥    | frontend | `/admin/tenants` page (list/create/suspend/connect-as), token precedence in `httpClient`, `?impersonation_token=` bootstrap + URL strip, `ImpersonationBanner`, role-gated routing/nav, `electron.d.ts` untouched (web-only feature) |
 
-### Phase 3 — Hardening & proof
+### Phase 3 — Hardening & proof ❌ NOT DONE
 
 | WP                  | Agent        | Scope                                                                                                                                                                                  |
 | ------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -257,3 +257,34 @@ Dependency graph: `WP0 → WP1 → WP2 → WP2b → [WP3a..3g parallel] → gate
 - Migration number: re-verify max version at implementation time (v122 today → new = v123).
 - Super admin bootstrap credential mechanism (env-provided initial password vs seeded + forced change).
 - Whether `drawer_balances` PK rebuild interacts with the closing/checkpoint flows' upsert statements (WP3e agent to flag).
+
+## Left TODO
+
+<!--
+//TODO — Validation pass 2026-08-04. Verdict: PARTIAL — every backend/frontend/schema deliverable (WP0, WP1, WP1a/b, WP2, WP2b, WP3a-f, WP5, WP6, WP7, WP8) is implemented and merged to main; only WP9 (the dedicated E2E proof) was never produced.
+//TODO   VERIFIED DONE (do not redo):
+//TODO   - Migration v123 "add_multi_tenancy": `tenants` table + tenant_id backfill on 49 tables + 19-table 12-step constraint rebuilds (currencies, modules, currency_modules, currency_drawers, suppliers, clients, products, product_categories, product_suppliers, partners, payment_methods, vouchers, system_settings, exchange_rates, item_costs, voucher_images, mobile_service_items, loto_settings, drawer_balances) + FK self-guard — packages/core/src/db/migrations/index.ts:5086-6160; create_db.sql in lockstep (156 tenant_id/tenants occurrences) — electron-app/create_db.sql.
+//TODO   - Tenant context (ALS, fail-closed, `runWithoutTenant`, `initFixedTenantContext`) exactly as spec'd — packages/core/src/db/tenantContext.ts:1-138.
+//TODO   - `BaseRepository` central `tenantScoped` gating — packages/core/src/repositories/BaseRepository.ts:80,88,100.
+//TODO   - Static checker `scripts/check-tenant-scoping.mjs`, wired into CI (`.github/workflows/ci.yml:78`) and `package.json:41`; current run: 644 statements / 146 files / **0 violations** / 13 exempt.
+//TODO   - Bonus checker beyond plan scope: `scripts/check-bind-arity.mjs`, CI-wired (`ci.yml:81`), catching a real tenant_id bind-arity bug (commit c9f5e4f).
+//TODO   - JWT v2 payload (`tenantId`, mandatory `sessionToken`, `impersonatorId`) + `requireSuperAdmin` + realm-consistency check — backend/src/middleware/auth.ts:16-269.
+//TODO   - `sessions.ts`/`settings.ts` now require `authenticateJWT` — backend/src/api/sessions.ts:37, backend/src/api/settings.ts:29 (GET /api/settings list intentionally stays open, documented in wp2_auth_tenant.api.test.ts:24).
+//TODO   - Backend migration runner wired at startup — backend/src/database/connection.ts:83 (`runMigrations(dbInstance)`).
+//TODO   - Super admin bootstrap via env vars (`SUPER_ADMIN_USERNAME`/`SUPER_ADMIN_PASSWORD`) — backend/src/database/connection.ts:120-166, packages/core/src/config/env.ts:47-51 (resolves plan §9 open item).
+//TODO   - `TenantRepository` + `TenantProvisioningService.provisionTenant()` (one-transaction tenant+config-seed+admin) — packages/core/src/repositories/TenantRepository.ts, packages/core/src/services/TenantProvisioningService.ts.
+//TODO   - Control-plane API `backend/src/api/admin.ts` (list/create/patch/impersonate, all behind `requireSuperAdmin`, `runWithoutTenant` for cross-tenant reads, 2h impersonation JWT, real revocable DB session, IMPERSONATION_START audit row with `impersonator_id`, re-escalation block) — backend/src/api/admin.ts:56-322; mounted at backend/src/server.ts:165.
+//TODO   - Frontend: token precedence (`liratek.impersonation` sessionStorage over `liratek.jwt` localStorage) — frontend/src/api/httpClient.ts:21-24; `/admin/tenants` route + role-gated redirect — frontend/src/app/App.tsx:95-96,122,346; `ImpersonationBanner`, `AddTenantModal`, `SuperAdminLayout`, `useTenants` — frontend/src/features/admin/**.
+//TODO   - Socket.io (WP8): JWT handshake auth, per-tenant rooms (`tenantRoom()`), `emitEvent(tenantId, event, payload)` signature — backend/src/websocket/io.ts:42-165; old unauthenticated `/api/ws/emit` route confirmed removed (no matches anywhere in backend/src).
+//TODO   - Runtime proof: 10 dedicated cross-tenant isolation/scoping jest files (BaseRepository, ClosingRepository, CurrencyRepository, FinancialServiceRepository, LotoTenantIsolation, ProfitRepository, RechargeRepository, SalesRepository, TransactionRepository, UserRepository — all under packages/core/src/repositories/__tests__/); API-level supertest suites `backend/src/__tests__/wp2_auth_tenant.api.test.ts`, `wp5_wp6_admin_tenant.api.test.ts`, `wp8_socket_tenant.test.ts` covering suspended-tenant login block (incl. mid-session revocation), legacy-JWT rejection, unauthenticated 401s, impersonation payload/audit/re-escalation, cross-tenant write isolation.
+//TODO   - WP2b test-fixture repair confirmed in jest specs (e.g. `initFixedTenantContext(1)` calls in TransactionRepository.paymentLegs.test.ts:202,683,783).
+//TODO   - Post-merge follow-up fixes also landed on main: migration v124 renames the home tenant from `shop_name` (commit 831aa53); tenant_id stamping fixed on setup-wizard/admin-seed writes (e8718c8) and FinancialService on-account debt inserts (c9f5e4f) — both caught by ad-hoc desktop E2E runs (lira-071, lira-093) and fixed.
+//TODO   - All of this is merged to `main` (verified: `git merge-base --is-ancestor 831aa53 main` → true), not sitting on an unmerged branch.
+//TODO   REMAINING:
+//TODO   - **WP9 (Phase 3, E2E) was never produced.** No spec exists anywhere under frontend/tests/e2e-web/ (lira-web-001 through lira-web-016, none reference tenant/admin/impersonation) or frontend/tests/e2e-electron/ that drives the plan's own acceptance bar: "super admin login → tenant list → provision tenant → impersonate → verify banner + tenant data + isolation" through the real UI. The git log confirms the gap directly — commits go WP8 (4e575c0) → WP10a (6106672) → WP10c (17c30f2) with no WP9 commit in between. This matters because it is the only place the plan proves the *whole stack* (real browser, real login, real click-through) rather than jest/supertest mocks of individual layers — exactly the seam CLAUDE.md's "layer-seam testing" gap warns about.
+//TODO   - "Desktop E2E suite stays green end-to-end" (the plan's proof that migration v123 backfill + fixed tenant context leaves desktop byte-equivalent) has only informal evidence: two follow-up commits (e8718c8, c9f5e4f) mention specific desktop specs (lira-071, lira-093) going green after a fix, but there is no evidence of one full, final green run of the entire desktop suite after all multi-tenant work landed. Given the hard constraint against running tests in this validation pass, this is unverified either way — flagging it as something the next session should actually run, not assume.
+//TODO   CORRECTED DETAILS: none — every symbol, file, and route the plan names (`tenantContext.ts`, `runWithTenant`, `getCurrentTenantId`, `runWithoutTenant`, `initFixedTenantContext`, `TenantRepository`, `TenantProvisioningService`, `requireSuperAdmin`, `backend/src/api/admin.ts`, `ImpersonationBanner`, `scripts/check-tenant-scoping.mjs`) exists exactly as named in the plan. This is unusually faithful — no renames or mechanism changes to flag.
+//TODO   GATE when picked up: write `frontend/tests/e2e-web/lira-web-0XX-admin-tenants.spec.ts` (or the next free number) covering super-admin login → `/admin/tenants` list → provision a tenant via `AddTenantModal` → Connect-as-admin → verify `ImpersonationBanner` renders with the right tenant/username → verify data isolation (a row created while impersonating is invisible to a different tenant's session) → Disconnect. Then run the full `yarn dev` → stop → `yarn test:e2e` AND `yarn test:e2e:web` sequence per CLAUDE.md's required E2E procedure, and only then re-run `yarn check:tenant-scoping` + `yarn check:bind-arity` + `yarn typecheck && yarn lint` across all workspaces to reconfirm the green state before calling Phase 3 complete.
+-->
+
+**Summary — 1 item left:** Everything in this plan shipped and is merged to `main` except the Phase 3 E2E work package (WP9). The schema migration, tenant context, all 43 repositories' tenant scoping (proven by a CI-gated static checker at 0 violations), the super-admin/impersonation control plane, the frontend admin UI, and Socket.io per-tenant rooms are all implemented exactly as designed, with strong jest/supertest coverage including 10 dedicated cross-tenant isolation tests. The one missing piece is a real, click-through Playwright spec proving the super-admin → provision-tenant → impersonate → verify-isolation flow end-to-end in a browser — the plan's own stated acceptance bar for "done." Two post-merge fix commits show the ad-hoc desktop E2E suite did catch and help fix two real tenant_id bugs, but no evidence exists of one final full green run of the whole desktop suite, or of any run of a web-mode spec covering this feature, because that spec was never written.

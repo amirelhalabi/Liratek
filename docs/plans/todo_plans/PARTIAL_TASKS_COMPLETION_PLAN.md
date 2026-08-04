@@ -50,7 +50,7 @@ version check (physical machine), T4 Windows timing repro (needs Windows).
 
 ---
 
-## W1 — LIRA-069: finish receipt printing (frontend agent)
+## W1 — LIRA-069: finish receipt printing (frontend agent) ❌ NOT DONE
 
 **Shipped already (do not rebuild):** shared `printReceipt` (logo) +
 `buildServiceReceiptText` + `printServiceReceiptByTransaction(txnId, shop)`
@@ -152,7 +152,7 @@ construction and void code.
 
 ---
 
-## W2 — LIRA-072: MTC voucher naming by card face value (frontend agent)
+## W2 — LIRA-072: MTC voucher naming by card face value (frontend agent) ✅ DONE
 
 **Shipped already:** iPick alfa Prepaid + Katsh alfa/mtc Prepaid renamed to card
 FACE VALUE — owner decision 2026-07-03 "(A1)", dated comment at
@@ -191,7 +191,7 @@ conflicts.
 
 ---
 
-## W4 — LIRA-077: stock adjustment UI + audit trail (general-purpose agent)
+## W4 — LIRA-077: stock adjustment UI + audit trail (general-purpose agent) ✅ DONE
 
 **Shipped already:** `InventoryService.adjustStock` (set-absolute, :326) and
 `adjustStockDelta` (:345) with repo methods (`ProductRepository.ts:477,497`),
@@ -247,9 +247,9 @@ purely additive.
 
 ---
 
-## W5 — carrier-legs void asymmetry (filed 2026-07-21 as **LIRA-094**; "LIRA-070" here was a mislabel — the registry's LIRA-070 is the Profits audit) (backend agent)
+## W5 — carrier-legs void asymmetry (filed 2026-07-21 as **LIRA-094**; "LIRA-070" here was a mislabel — the registry's LIRA-070 is the Profits audit) (backend agent) ✅ DONE
 
-**Read first:** `docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md` (the
+**Read first:** `docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md` (the
 problem statement + acceptance), `docs/FEATURE_GUIDE.md` §13 (rule 18), rules
 16/17/20 in CLAUDE.md.
 
@@ -392,3 +392,28 @@ the recharge feature.
 6. Sprint-doc sync: LIRA-060/066 → DONE, BINANCE follow-up + session client_id
    follow-up → closed (resolved at checkout), Whish SEND/RECEIVE + T-61 → DONE,
    LIRA-069/072/077 re-scoped or closed per outcomes, LIRA-094 (ex-"LIRA-070" mislabel) updated with B+.
+
+## Left TODO
+
+<!--
+//TODO — Validation pass 2026-08-04. Verdict: PARTIAL — W2/W4/W5/W6 fully verified in code; W1 has one real gap (loto has no reprint/Print entry point) plus one owner-driven scope change (auto-print hook intentionally disabled, not a code gap).
+//TODO   VERIFIED DONE (do not redo):
+//TODO     - W1.a gating predicate: frontend/src/features/audit/receiptGating.ts:92 `isReceiptableTransaction`, :113 `isReceiptableRow`; matrix test frontend/src/features/audit/__tests__/receiptGating.test.ts (272 lines); provider spellings verified against packages/core/src/constants/rechargeProviders.ts:11-16 (WHISH_APP, not WISH_APP).
+//TODO     - W1.b session print: frontend/src/features/sessions/components/SessionCheckoutModal.tsx:604-633 (`handlePrintReceipt`) + button :691-696 — built via `buildSessionCheckoutReceiptText` from the checkout snapshot, a deliberate deviation from threading a single transaction id (comment at :604-606 explains why: session checkout is multi-item).
+//TODO     - W1.c History-modal print (4 of 5 modules): recharge frontend/src/features/recharge/components/HistoryModal.tsx:117,508-522; maintenance frontend/src/features/maintenance/pages/Maintenance/components/HistoryModal.tsx:81,274-276; custom-services frontend/src/features/custom-services/pages/CustomServices/components/HistoryModal.tsx:86,373-375. Core lookup is `getBySourceId` (packages/core/src/repositories/TransactionRepository.ts:847-859), not the plan's guessed `getBySource`. There is no separate "financial-services" module folder — iPick/Katsh rows are covered by recharge's HistoryModal.
+//TODO     - W1.d auto-print hook: frontend/src/shared/hooks/useAutoPrintReceipt.ts exists and is wired into all 5 module success paths (recharge, maintenance, custom-services, loto, and iPick/Katsh via recharge), but its own header comment (:2-13) says it was made an intentional no-op — "DISABLED per owner request (2026-07-28)". Guard test frontend/src/shared/hooks/__tests__/useAutoPrintReceipt.test.ts asserts the no-op for every case. This is a post-plan owner decision, not unfinished work — do not silently re-enable it.
+//TODO     - W1.e e2e spec: frontend/tests/e2e-electron/lira-069-receipt-print-gating.spec.ts (521 lines) exists, uses identity-matched rows + a print-call counter (rule 15 discipline), and correctly asserts auto-print never fires (matching the current no-op state).
+//TODO     - W2 (LIRA-072): iPick mtc Prepaid renamed to face value (frontend/src/data/mobileServices.ts:136-145). iPick mtc Credits (:107-111, labels "3$".."15$") and Validity (:120-125, "10 days".."360 days") were deliberately LEFT unchanged, with an explicit "pending owner confirmation" comment at :100-106 / :114-119 — this is the plan's own allowed outcome ("items whose printed-card value cannot be derived… stay unchanged… needs-owner-confirmation"), not an oversight. Pinning test frontend/src/data/__tests__/mobileServices.test.ts:123-145 locks the Credits/Validity keys so a future edit can't silently rename them. Landed in commit f63c408, an ANCESTOR of (not superseded by) the later LIRA-090 commit 8391056.
+//TODO     - W4 (LIRA-077): fully shipped. Migration v132 packages/core/src/db/migrations/index.ts:6526 (+ electron-app/create_db.sql:1471-1486, schema_migrations row at :1623); StockAdjustmentRepository.ts (create :72 / getByProduct :91 / getRecent :104, exported via repositories/index.ts:45-53); InventoryService.ts:342 (`adjustStock`) and :379 (`adjustStockDelta`) now require `{reason, userId}` and write the audit row inside the SAME transaction (ProductRepository.ts:493-519, 541-568); Zod in packages/core/src/validators/inventory.ts + re-export electron-app/schemas/index.ts:162-163; dual transport electron-app/handlers/inventoryHandlers.ts:269,316, backend/src/api/inventory.ts:119,154, frontend/src/api/backendApi.ts:349,369, electron.d.ts:402-421; frontend AdjustStockModal wired from ProductList.tsx:842-851 and Diagnostics.tsx:463 negative-stock tie-in; full test stack (core jest x3, vitest, frontend/tests/e2e-electron/lira-077-stock-adjustments.spec.ts). Ships a `tenant_id` column on `stock_adjustments` the plan didn't ask for (consistent with the rest of the schema). Landed via commit c2d8c17, ahead of/independent from this plan text.
+//TODO     - W5 (LIRA-094): fully shipped as design B+. `split_group`/`split_role`/`split_units` stamped in FinancialServiceRepository.ts:358-366,1183-1189 (RechargeRepository correctly untouched — neither form routes through it); Zod in packages/core/src/validators/financial.ts:160-162 + electron-app/schemas/index.ts:442-444; preload.ts:382-384 + electron.d.ts:972-974; KatchForm.tsx:1050-1053,1164-1168,1252-1258 and FinancialForm.tsx:438-444,506-512 generate/send the group uuid. Void guard `_assertReversible` (TransactionRepository.ts:1319-1357) blocks both carrier and sibling; `voidCheckoutGroup` (TransactionRepository.ts:940) voids siblings-then-carrier in one transaction; dual transport electron-app/handlers/transactionHandlers.ts:158, backend/src/api/transactions.ts:182, backendApi.ts:1955, ElectronApiAdapter.ts:303; void UI in TransactionsViewer.tsx:509,902,980,1168 ("Void entire checkout"). Failing-first + net-to-zero core jest: FinancialServiceRepository.splitGroupVoid.test.ts (780 lines, cross-currency + debt-leg cases). Plan doc already moved and updated: docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md, header "Status: implemented as design B+".
+//TODO     - W6 (Telecom validity & credits): migration v135 (packages/core/src/db/migrations/index.ts:6780-6849) creates `carrier_lines` exactly as specified (carrier/phone_number/label/credits/validity_expires_at/notes/is_active + carrier index) and adds `mobile_service_items.validity_days`/`.credits` with the iPick-mtc-label backfill, mirrored in electron-app/create_db.sql:751-752,775-796. CarrierLineRepository/Service + full dual transport (electron-app/handlers/carrierLineHandlers.ts, backend/src/api/carrierLines.ts, backendApi.ts:4132-4234, ElectronApiAdapter.ts:379-413) + Settings CarrierLinesManager.tsx + Recharge CarrierLinesPanel.tsx wired into TelecomForm.tsx. MobileServicesManager.tsx:78-80,298-303,422-429,615-619 has the editable validity/credits fields, commented "LIRA W6.b". e2e frontend/tests/e2e-electron/lira-125-carrier-lines-validity-credits.spec.ts explicitly covers both W6.a (:118) and W6.b (:201) by name. LIRA-090 (commit 8391056, migrations v140/v141) is a LATER, ADDITIVE money-flow feature layered on the SAME tables (adds days_cost_lbp/sell_days_lbp/is_primary/carrier_line_movements) — it does not rename or replace W6's schema, so this is not a supersession.
+//TODO   REMAINING:
+//TODO     - W1.c loto gap: no reprint/Print entry point exists anywhere in frontend/src/features/loto/ for individual loto-ticket transactions — grepping that folder for `printServiceReceiptByTransaction` / `isReceiptableRow` / `handlePrint` returns zero hits. Loto's only "History" surface is frontend/src/features/loto/components/CheckpointHistory.tsx, opened from Loto/index.tsx:470-474, which is checkpoint/settlement history, not a per-ticket list — there is nowhere in the current UI to add the row-level Print button the plan asked for. A loto ticket can currently only be reprinted from the general /audit TransactionsViewer, not from within the Loto module itself. This is the one concrete missing deliverable across the whole plan.
+//TODO   CORRECTED DETAILS (stale plan citations — code moved since the plan was written):
+//TODO     - W1.a: plan cites the Print button at `frontend/src/features/audit/components/TransactionsViewer.tsx:898-905`; the real file is `frontend/src/features/audit/pages/TransactionsViewer.tsx` (under pages/, not components/), and the Print button now lives at :1141-1147. `RECEIPTABLE_TYPES` moved to auditConstants.ts:365-371 (plan cited :307-313) but its contents are unchanged.
+//TODO     - W1.c: plan guesses the core lookup method name as `getBySource`; the shipped method is `getBySourceId` (TransactionRepository.ts:847-859).
+//TODO     - W5: plan suggests the void-guard query as `metadata_json LIKE '%"split_group":"<id>"%'`; the shipped code uses `json_extract(metadata_json, '$.split_group') = ?` instead (TransactionRepository.ts:959) — functionally equivalent, an intentional documented precision improvement, not a deviation to flag as wrong. Plan guesses the e2e filename `lira-113-split-void-group.spec.ts`; it shipped as `lira-124-split-void-group.spec.ts` (LIRA-124 was the real next-free ticket number at merge time).
+//TODO   GATE when picked up: add a per-ticket reprint entry point inside the loto module (e.g. a ticket-sale History modal analogous to recharge's HistoryModal.tsx, gated by `isReceiptableRow` from receiptGating.ts, resolving the transaction via `getBySourceId("loto_tickets", ticketId)` and calling `printServiceReceiptByTransaction`); add a component test and extend frontend/tests/e2e-electron/lira-069-receipt-print-gating.spec.ts to cover it; then run `yarn typecheck` + `yarn workspace @liratek/frontend test` (frontend vitest is safe standalone) per this plan's own quality gate — do NOT run `yarn dev`/`yarn test:e2e` outside the required stop-then-run sequence documented in CLAUDE.md.
+-->
+
+**Summary — 1 item(s) left:** Of the five workstreams this plan tracked (W1/W2/W4/W5/W6), four — W2 (MTC voucher naming), W4 (stock-adjustment UI + audit trail), W5 (carrier-legs void guard), and W6 (telecom validity/credits) — are fully implemented and independently verified in the current codebase, several of them already shipped ahead of or alongside this plan under other commits/doc moves rather than because of this plan's own execution. W1 (receipt printing) is mostly done: the provider-gating predicate, the session-checkout print button, and the History-modal print buttons in recharge, maintenance, and custom-services all exist and are tested. The one real gap is that the Loto module has no reprint entry point at all — its only "History" view is a checkpoint/settlement list, not a per-ticket list — so a loto ticket transaction can only be reprinted from the general Transactions viewer, never from inside the Loto module as the plan required. Separately (and not a bug to fix), the W1.d auto-print-on-success hook was turned into an intentional no-op by an explicit 2026-07-28 owner request that postdates this plan; that is a scope change, not unfinished work, and should not be silently re-enabled.
