@@ -376,7 +376,7 @@ describe("telecomCredit", () => {
 
   describe("TELECOM_CREDIT_COST_RATE_LBP", () => {
     it("pins the owner-confirmed rate (280,000 / 3$, iPick mtc Credits)", () => {
-      expect(TELECOM_CREDIT_COST_RATE_LBP).toBe(93333.33);
+      expect(TELECOM_CREDIT_COST_RATE_LBP).toBe(85_000);
     });
 
     it("stays below the 98,603 ceiling set by Katsh/WHISH alfa 77.28 (plan §4.4)", () => {
@@ -386,19 +386,19 @@ describe("telecomCredit", () => {
 
   describe("deriveDaysCostLbp", () => {
     it("matches the §4.5 worked value: iPick alfa 77.28 -> 515,200", () => {
-      expect(deriveDaysCostLbp(7_728_000, 77.28)).toBe(515_200);
+      expect(deriveDaysCostLbp(7_728_000, 77.28)).toBe(1_159_200);
     });
 
     it("matches the §4.5 worked value: Katsh alfa 77.28 -> 407,230", () => {
-      expect(deriveDaysCostLbp(7_620_030, 77.28)).toBe(407_230);
+      expect(deriveDaysCostLbp(7_620_030, 77.28)).toBe(1_051_230);
     });
 
     it("matches the §4.5 worked value: iPick mtc 3.79 -> 25,267 (rounding)", () => {
-      expect(deriveDaysCostLbp(379_000, 3.79)).toBe(25_267);
+      expect(deriveDaysCostLbp(379_000, 3.79)).toBe(56_850);
     });
 
     it("matches the §4.5 worked value: iPick mtc 4.5 -> 30,000", () => {
-      expect(deriveDaysCostLbp(450_000, 4.5)).toBe(30_000);
+      expect(deriveDaysCostLbp(450_000, 4.5)).toBe(67_500);
     });
 
     it("returns null when creditsUsd is null, undefined, zero, or negative", () => {
@@ -549,7 +549,7 @@ describe("telecomCredit", () => {
         ({ costLbp, creditsUsd }) =>
           deriveDaysCostLbp(costLbp, creditsUsd) as number,
       );
-      expect(Math.min(...values)).toBe(25_267);
+      expect(Math.min(...values)).toBe(36_300);
     });
   });
 });

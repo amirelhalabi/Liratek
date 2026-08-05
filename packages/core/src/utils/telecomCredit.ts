@@ -370,29 +370,75 @@ export const DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP = 100_000;
 // =============================================================================
 
 /**
- * The shop's cost of $1 of credit, LBP. **Owner-confirmed 2026-08-04.**
+ * The shop's cost of $1 of credit, LBP. **Owner-confirmed 2026-08-05.**
  *
- * Sourced from iPick > mtc > Credits — the ONE category in the whole catalog
- * where credit is bought with no validity days attached, so it is the only
- * place a per-dollar credit rate can be read directly instead of inferred:
+ * This is the rate the shop already works in: it is what Settings → Shop
+ * Config records as `alfa_credit_cost_lbp` and what the MTC/Alfa credit-sale
+ * path charges against. Two settings hold this figure and that is DELIBERATE —
+ * see the note below before "consolidating" them.
  *
- *   280,000 LBP / 3$ = 93,333.33 LBP/$
+ * ### It was 93,333.33 until 2026-08-05. Why that was wrong
  *
- * — and that rate is exactly linear across all five Credits entries in that
- * price list (3$, 5$, 8$, 10$, 15$), not just the one used to derive it.
+ * The old value came from iPick > mtc > Credits (280,000 / 3$), exactly linear
+ * across all five entries in that price list. Linearity proved arithmetic, not
+ * currency — that same list carries a SELL of 50,000/$, half its own cost, so
+ * it is stale. Four independent checks all rejected it:
  *
- * **Hard ceiling: this value must stay below 98,603.** That number is set by
- * the tightest card in the catalog, Katsh/WHISH_APP alfa 77.28
- * (`7,620,030 / 77.28 ≈ 98,602.87 LBP/$`, plan §4.4) — the per-dollar price
- * that specific card was actually sold at. Any global rate at or above that
- * ratio makes `days_cost_lbp = cost_lbp − credits × R` go zero or negative
- * for that card, which trips the `isTelecomSplitComplete` guard (§4.4) and
- * silently turns off the computed Only-Days flow for it. At the value below,
- * all 43 catalog items (plan §1) price positive, the smallest being iPick
- * mtc 3.79 at 25,267 LBP (plan §4.5, verified by
- * `deriveDaysCostLbp.spans the full 43-item catalog` in the test file).
+ *   - cheapest delivered $1 came to 104,075 against a 100,000 sell price, i.e.
+ *     a guaranteed loss on every resale
+ *   - $1 recovered from a card cost 98,805 vs 85,000 to buy credit directly —
+ *     nobody would ever buy cards for credit
+ *   - implied days cost landed at 1,000–2,500 LBP/day against a 6,500 LBP/day
+ *     standalone validity price: days four times cheaper bundled than alone
+ *   - the owner's own anchor: the 77.28 card's days sell for ~2,000,000, so a
+ *     days cost of 515,200 implied a 74% margin on days while the credit side
+ *     ran negative. The split was mis-allocating, not measuring.
+ *
+ * ### Why the exact value matters less than it looks
+ *
+ * R is an ALLOCATION knob, not a measurement. Total profit on an Only-Days
+ * sale is independent of it:
+ *
+ *   profit_days   = daysSell − (cost − credits × R)
+ *   profit_credit = recovered × creditSell − smsFees − credits × R
+ *   ─────────────────────────────────────────────────────────────
+ *   sum           = daysSell + recovered × creditSell − smsFees − cost
+ *
+ * R cancels. It only decides how one fixed profit is attributed between the
+ * days and credit reporting lines. So a "negative credit margin" at a given R
+ * is cost attribution, not money lost — which is why the resale decision aid
+ * must state what it compares against rather than just going red.
+ *
+ * At this value, with cards priced at 100,000/$, the days allocation lands on
+ * a round **15% of card cost** (`face × 100,000 − face × 85,000`), which is
+ * why the figures are easy to sanity-check by eye.
+ *
+ * ### Two settings, on purpose
+ *
+ * `alfa_credit_cost_lbp` is the cost of credit bought DIRECTLY as a top-up.
+ * `telecom_credit_cost_rate_lbp` (this value) is the cost of credit that
+ * arrives EMBEDDED in a prepaid card. They are different acquisition channels
+ * — a card is a bundle, so its credit is cheaper per face dollar but you must
+ * take days you may not want and pay an SMS haircut to extract it. They
+ * currently hold the same number; do not merge the keys on that basis.
+ *
+ * ### Hard ceiling: must stay below 98,603
+ *
+ * Set by the tightest card in the catalog, Katsh/WHISH_APP alfa 77.28
+ * (`7,620,030 / 77.28 ≈ 98,602.87 LBP/$`) — the per-dollar price that card was
+ * actually sold at. Any rate at or above that ratio drives
+ * `days_cost_lbp = cost_lbp − credits × R` to zero or negative for it, tripping
+ * the `isTelecomSplitComplete` guard and silently turning the computed
+ * Only-Days flow off. At 85,000 every catalog item prices positive: the
+ * smallest across all 43 credit-bearing items is **iPick alfa 1.22 at 36,300**
+ * (a credit-only card, so not an Only-Days candidate itself), and the smallest
+ * among the 39 actual candidates is **iPick mtc 3.79 at 56,850** (both verified
+ * by `deriveDaysCostLbp.spans the full 43-item catalog` in the test file).
+ *
+ * Full derivation, the rejected candidates and the rate window:
+ * `docs/plans/todo_plans/TELECOM_CREDIT_RATE_PLAN.md`.
  */
-export const TELECOM_CREDIT_COST_RATE_LBP = 93333.33;
+export const TELECOM_CREDIT_COST_RATE_LBP = 85_000;
 
 /**
  * Derive `days_cost_lbp` for a telecom Only-Days catalog item — the ONE

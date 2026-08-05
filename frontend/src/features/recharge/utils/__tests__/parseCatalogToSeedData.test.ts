@@ -52,13 +52,14 @@ describe("parseCatalogToSeedData — days_cost_lbp (TELECOM_DAYS_COST_PLAN.md §
   const items = parseCatalogToSeedData();
 
   it("computes days_cost_lbp for alfa Prepaid combo cards (both credits and validity_days present)", () => {
-    // Plan §4.5 worked value at R=93,333.33: iPick alfa 77.28 → 515,200.
+    // At R = 85,000 (owner-confirmed 2026-08-05, TELECOM_CREDIT_RATE_PLAN.md):
+    // iPick alfa 77.28 → 7,728,000 − 77.28 × 85,000 = 1,159,200.
     // validity_days owner-confirmed 2026-08-04 (12 months on the 77.28 card).
     const item = findItem(items, "iPick", "alfa", "Prepaid", "77.28");
     expect(item).toBeDefined();
     expect(item?.credits).toBe(77.28);
     expect(item?.validity_days).toBe(365);
-    expect(item?.days_cost_lbp).toBe(515200);
+    expect(item?.days_cost_lbp).toBe(1159200);
   });
 
   it("alfa day counts differ from the mtc card of the same face value", () => {
@@ -77,16 +78,19 @@ describe("parseCatalogToSeedData — days_cost_lbp (TELECOM_DAYS_COST_PLAN.md §
   });
 
   it("computes days_cost_lbp for mtc Prepaid combo cards (both credits and validity_days present)", () => {
-    // Plan §4.5: iPick mtc 3.79 → 25,267 (the catalog-wide minimum).
+    // At R = 85,000: iPick mtc 3.79 → 56,850, the smallest of the 39
+    // Only-Days candidates. (The smallest across ALL 43 credit-bearing items
+    // is iPick alfa 1.22 at 36,300, but that card is credit-only and not a
+    // candidate — see the exclusion test below.)
     const item = findItem(items, "iPick", "mtc", "Prepaid", "3.79");
     expect(item).toBeDefined();
     expect(item?.credits).toBe(3.79);
     expect(item?.validity_days).toBe(10);
-    expect(item?.days_cost_lbp).toBe(25267);
+    expect(item?.days_cost_lbp).toBe(56850);
 
-    // Plan §4.5: iPick mtc 4.5 → 30,000.
+    // At R = 85,000: iPick mtc 4.5 → 67,500.
     const item2 = findItem(items, "iPick", "mtc", "Prepaid", "4.5");
-    expect(item2?.days_cost_lbp).toBe(30000);
+    expect(item2?.days_cost_lbp).toBe(67500);
   });
 
   it("does NOT compute days_cost_lbp for mtc Prepaid credit-only cards (1, 1.67 — plan §1.3, out of scope)", () => {
@@ -215,7 +219,7 @@ describe("parseCatalogToSeedData — days_cost_lbp full-catalog guard (plan §4.
         i.subcategory === "Prepaid" &&
         i.label === "77.28",
     );
-    expect(alfa7728?.days_cost_lbp).toBe(515200);
+    expect(alfa7728?.days_cost_lbp).toBe(1159200);
 
     const mtc45 = items.find(
       (i) =>
@@ -224,6 +228,6 @@ describe("parseCatalogToSeedData — days_cost_lbp full-catalog guard (plan §4.
         i.subcategory === "Prepaid" &&
         i.label === "4.5",
     );
-    expect(mtc45?.days_cost_lbp).toBe(30000);
+    expect(mtc45?.days_cost_lbp).toBe(67500);
   });
 });

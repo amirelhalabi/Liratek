@@ -303,7 +303,7 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
       markAppliedExcept(db, 144);
     });
 
-    it("seeds telecom_credit_cost_rate_lbp = 93333.33 for every tenant", () => {
+    it("seeds telecom_credit_cost_rate_lbp for every tenant", () => {
       db.prepare(
         `INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`,
       ).run();
@@ -328,7 +328,7 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
 
       runMigrations(db);
 
-      expect(itemRow(db, "77.28").days_cost_lbp).toBe(515200);
+      expect(itemRow(db, "77.28").days_cost_lbp).toBe(1159200);
     });
 
     it("matches the plan's worked value exactly: Katsh alfa 77.28 -> 407,230", () => {
@@ -343,7 +343,7 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
 
       runMigrations(db);
 
-      expect(itemRow(db, "77.28").days_cost_lbp).toBe(407230);
+      expect(itemRow(db, "77.28").days_cost_lbp).toBe(1051230);
     });
 
     it("matches the plan's worked value exactly: iPick mtc 4.5 -> 30,000", () => {
@@ -358,7 +358,7 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
 
       runMigrations(db);
 
-      expect(itemRow(db, "4.5").days_cost_lbp).toBe(30000);
+      expect(itemRow(db, "4.5").days_cost_lbp).toBe(67500);
     });
 
     it("REGRESSION GUARD (rule 17 target): a row whose derivation would be <= 0 is SKIPPED, left NULL, never written", () => {
@@ -404,7 +404,7 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
 
       runMigrations(db);
       expect(() => runMigrations(db)).not.toThrow();
-      expect(itemRow(db, "77.28").days_cost_lbp).toBe(515200);
+      expect(itemRow(db, "77.28").days_cost_lbp).toBe(1159200);
     });
   });
 
@@ -433,7 +433,7 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
 
       const row = itemRow(db, "77.28");
       expect(row.credits).toBe(77.28);
-      expect(row.days_cost_lbp).toBe(515200);
+      expect(row.days_cost_lbp).toBe(1159200);
     });
   });
 
@@ -454,7 +454,7 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
     it("rollbackTo(143) reverses ONLY v144: days_cost_lbp nulled + setting removed, credits untouched", () => {
       expect(itemRow(db, "77.28")).toEqual({
         credits: 77.28,
-        days_cost_lbp: 515200,
+        days_cost_lbp: 1159200,
       });
       expect(rateSetting(db, 1)).toBe(String(TELECOM_CREDIT_COST_RATE_LBP));
 
@@ -488,7 +488,7 @@ describe("v143 + v144 — via the real migration runner (runMigrations / rollbac
       expect(isApplied(db, 144)).toBe(true);
       expect(itemRow(db, "77.28")).toEqual({
         credits: 77.28,
-        days_cost_lbp: 515200,
+        days_cost_lbp: 1159200,
       });
       expect(rateSetting(db, 1)).toBe(String(TELECOM_CREDIT_COST_RATE_LBP));
     });

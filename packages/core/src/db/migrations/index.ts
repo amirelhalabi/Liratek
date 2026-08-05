@@ -7548,6 +7548,165 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 146,
+    name: "reanchor_telecom_credit_cost_rate",
+    description:
+      "TELECOM_CREDIT_RATE_PLAN.md (owner-confirmed 2026-08-05): moves the telecom credit cost rate R from 93,333.33 to 85,000 LBP/$ and re-derives every days_cost_lbp that was written at the old rate. R is what the shop already works in — Settings > Shop Config records it as alfa_credit_cost_lbp and the MTC/Alfa credit-sale path charges against it. The old 93,333.33 came from iPick > mtc > Credits (280,000/3$, exactly linear across all five entries) but that price list carries a SELL of 50,000/$, half its own cost, so it was stale: linearity proved arithmetic, not currency. Four independent checks rejected it — the cheapest delivered $1 came to 104,075 against a 100,000 sell price (a guaranteed loss on every resale); $1 recovered from a card cost 98,805 against 85,000 to buy credit directly (nobody would buy cards for credit); the implied days cost landed at 1,000-2,500 LBP/day against a 6,500 LBP/day standalone validity price (days four times cheaper bundled than alone); and the owner's own anchor, the 77.28 card's days selling for ~2,000,000 LBP, made a 515,200 days cost imply a 74% margin on days while the credit side ran negative. NOTE R is an ALLOCATION knob, not a measurement: total profit on an Only-Days sale is independent of it (the credits x R term cancels between profit_days and profit_credit), so this migration moves no money and changes no total — it only re-attributes cost between the days and credit reporting lines, and lifts the days share from 6.67% to 15% of card cost. HAND-EDITED ROWS ARE PRESERVED: a row is only recomputed when its current days_cost_lbp still equals what the OLD rate's formula produced, i.e. nobody has touched it since v144 wrote it. Anything else is treated as a deliberate override and left exactly as-is (the same reason this recomputes from cost_lbp/credits rather than scaling the stored value — scaling would silently carry an override to a new wrong number). The rate setting itself is likewise only moved when it still holds the old default, so a tenant who already customised it keeps their value.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const OLD_RATE = 93333.33;
+
+      // (a) The setting: only move it if it still holds the old default.
+      const settingRes = db
+        .prepare(
+          `UPDATE system_settings
+              SET value = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE key_name = 'telecom_credit_cost_rate_lbp'
+              AND CAST(value AS REAL) = ?`,
+        )
+        .run(String(TELECOM_CREDIT_COST_RATE_LBP), OLD_RATE);
+
+      // (b) Re-derive days_cost_lbp per tenant, at that tenant's OWN rate.
+      const tenants = db.prepare(`SELECT id FROM tenants`).all() as {
+        id: number;
+      }[];
+
+      let updated = 0;
+      let preserved = 0;
+      let skipped = 0;
+
+      for (const tenant of tenants) {
+        const rateRow = db
+          .prepare(
+            `SELECT value FROM system_settings
+              WHERE tenant_id = ? AND key_name = 'telecom_credit_cost_rate_lbp'`,
+          )
+          .get(tenant.id) as { value: string } | undefined;
+        const rate = rateRow
+          ? Number(rateRow.value)
+          : TELECOM_CREDIT_COST_RATE_LBP;
+
+        const rows = db
+          .prepare(
+            `SELECT id, cost_lbp, credits, days_cost_lbp
+               FROM mobile_service_items
+              WHERE tenant_id = ?
+                AND cost_lbp > 0
+                AND credits > 0
+                AND days_cost_lbp IS NOT NULL`,
+          )
+          .all(tenant.id) as {
+          id: number;
+          cost_lbp: number;
+          credits: number;
+          days_cost_lbp: number;
+        }[];
+
+        const setStmt = db.prepare(
+          `UPDATE mobile_service_items
+              SET days_cost_lbp = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND tenant_id = ?`,
+        );
+
+        for (const row of rows) {
+          // Was this row's value produced by the OLD rate? If not, an operator
+          // edited it and it is not ours to move.
+          const atOldRate = deriveDaysCostLbp(
+            row.cost_lbp,
+            row.credits,
+            OLD_RATE,
+          );
+          if (atOldRate === null || atOldRate !== row.days_cost_lbp) {
+            preserved++;
+            continue;
+          }
+
+          const atNewRate = deriveDaysCostLbp(row.cost_lbp, row.credits, rate);
+          if (atNewRate === null) {
+            // The new rate drives this row out of the 0 < days_cost < cost
+            // guard. Leave the old value rather than writing something the
+            // split gate would reject.
+            skipped++;
+            continue;
+          }
+
+          setStmt.run(atNewRate, row.id, tenant.id);
+          updated++;
+        }
+      }
+
+      console.log(
+        `Migration v146: rate setting rows moved to ${TELECOM_CREDIT_COST_RATE_LBP} = ${settingRes.changes}; ` +
+          `days_cost_lbp re-derived on ${updated} row(s), ${preserved} left as operator overrides, ${skipped} skipped by the guard`,
+      );
+    },
+    down(db: Database.Database) {
+      const OLD_RATE = 93333.33;
+
+      // Mirror of up(): only revert rows that currently hold exactly what the
+      // NEW rate produced, so an override made after this migration ran is not
+      // clobbered on the way back either.
+      const tenants = db.prepare(`SELECT id FROM tenants`).all() as {
+        id: number;
+      }[];
+
+      let reverted = 0;
+      for (const tenant of tenants) {
+        const rows = db
+          .prepare(
+            `SELECT id, cost_lbp, credits, days_cost_lbp
+               FROM mobile_service_items
+              WHERE tenant_id = ?
+                AND cost_lbp > 0
+                AND credits > 0
+                AND days_cost_lbp IS NOT NULL`,
+          )
+          .all(tenant.id) as {
+          id: number;
+          cost_lbp: number;
+          credits: number;
+          days_cost_lbp: number;
+        }[];
+
+        const setStmt = db.prepare(
+          `UPDATE mobile_service_items
+              SET days_cost_lbp = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND tenant_id = ?`,
+        );
+
+        for (const row of rows) {
+          const atNewRate = deriveDaysCostLbp(
+            row.cost_lbp,
+            row.credits,
+            TELECOM_CREDIT_COST_RATE_LBP,
+          );
+          if (atNewRate === null || atNewRate !== row.days_cost_lbp) continue;
+
+          const atOldRate = deriveDaysCostLbp(
+            row.cost_lbp,
+            row.credits,
+            OLD_RATE,
+          );
+          if (atOldRate === null) continue;
+
+          setStmt.run(atOldRate, row.id, tenant.id);
+          reverted++;
+        }
+      }
+
+      db.prepare(
+        `UPDATE system_settings
+            SET value = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE key_name = 'telecom_credit_cost_rate_lbp'
+            AND CAST(value AS REAL) = ?`,
+      ).run(String(OLD_RATE), TELECOM_CREDIT_COST_RATE_LBP);
+
+      console.log(
+        `Migration v146 rolled back: days_cost_lbp restored to the ${OLD_RATE} rate on ${reverted} row(s)`,
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

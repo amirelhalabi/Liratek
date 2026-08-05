@@ -128,7 +128,7 @@ describe("Migration v144 — seed_telecom_credit_cost_rate_and_backfill_days_cos
   });
 
   describe("(a) telecom_credit_cost_rate_lbp setting", () => {
-    it("seeds 93333.33 for every existing tenant", () => {
+    it("seeds the configured rate for every existing tenant", () => {
       db.prepare(
         `INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`,
       ).run();
@@ -167,7 +167,7 @@ describe("Migration v144 — seed_telecom_credit_cost_rate_and_backfill_days_cos
 
       getMigration(144).up(db);
 
-      expect(itemRow(db, "77.28").days_cost_lbp).toBe(515200);
+      expect(itemRow(db, "77.28").days_cost_lbp).toBe(1159200);
     });
 
     it("matches the plan §4.5 worked value exactly (iPick mtc 3.79 -> 25,267, the catalog minimum)", () => {
@@ -182,7 +182,7 @@ describe("Migration v144 — seed_telecom_credit_cost_rate_and_backfill_days_cos
 
       getMigration(144).up(db);
 
-      expect(itemRow(db, "3.79").days_cost_lbp).toBe(25267);
+      expect(itemRow(db, "3.79").days_cost_lbp).toBe(56850);
     });
 
     it("uses the TENANT's own rate, not the literal constant, when it was customized before the migration ran", () => {
@@ -283,7 +283,7 @@ describe("Migration v144 — seed_telecom_credit_cost_rate_and_backfill_days_cos
 
       getMigration(144).up(db);
       expect(() => getMigration(144).up(db)).not.toThrow();
-      expect(itemRow(db, "77.28").days_cost_lbp).toBe(515200);
+      expect(itemRow(db, "77.28").days_cost_lbp).toBe(1159200);
     });
   });
 
@@ -298,7 +298,7 @@ describe("Migration v144 — seed_telecom_credit_cost_rate_and_backfill_days_cos
     });
 
     getMigration(144).up(db);
-    expect(itemRow(db, "77.28").days_cost_lbp).toBe(515200);
+    expect(itemRow(db, "77.28").days_cost_lbp).toBe(1159200);
 
     getMigration(144).down(db);
 
@@ -319,6 +319,6 @@ describe("Migration v144 — seed_telecom_credit_cost_rate_and_backfill_days_cos
     getMigration(144).up(db);
     getMigration(144).down(db);
     expect(() => getMigration(144).up(db)).not.toThrow();
-    expect(itemRow(db, "77.28").days_cost_lbp).toBe(515200);
+    expect(itemRow(db, "77.28").days_cost_lbp).toBe(1159200);
   });
 });

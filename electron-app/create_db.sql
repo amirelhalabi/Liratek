@@ -53,7 +53,7 @@ INSERT OR IGNORE INTO system_settings (tenant_id, key_name, value) VALUES
   -- catalog seed ever runs, so this setting must be seeded here directly —
   -- the migration's own INSERT OR IGNORE never gets a chance to run against
   -- this table on a fresh DB.
-  (1, 'telecom_credit_cost_rate_lbp', '93333.33');
+  (1, 'telecom_credit_cost_rate_lbp', '85000');
 
 -- Users
 -- NOTE: username stays GLOBALLY unique (committed decision — login has no
@@ -1646,4 +1646,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     -- mobileServices.ts) supplies credits directly the first time it runs.
     (143, 'backfill_credits_on_prepaid_cards'),
     (144, 'seed_telecom_credit_cost_rate_and_backfill_days_cost'),
-    (145, 'backfill_alfa_prepaid_validity_days');
+    (145, 'backfill_alfa_prepaid_validity_days'),
+    (146, 'reanchor_telecom_credit_cost_rate');
