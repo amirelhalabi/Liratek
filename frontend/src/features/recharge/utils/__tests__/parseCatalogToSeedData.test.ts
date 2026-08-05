@@ -26,7 +26,9 @@ jest.mock("@liratek/core", () => {
   );
   return {
     deriveDaysCostLbp: actual.deriveDaysCostLbp,
+    deriveSellDaysLbp: actual.deriveSellDaysLbp,
     TELECOM_CREDIT_COST_RATE_LBP: actual.TELECOM_CREDIT_COST_RATE_LBP,
+    TELECOM_DAYS_SELL_PRICE_LBP: actual.TELECOM_DAYS_SELL_PRICE_LBP,
   };
 });
 
@@ -150,6 +152,48 @@ describe("parseCatalogToSeedData — days_cost_lbp (TELECOM_DAYS_COST_PLAN.md §
     // Plan §1: 18 alfa Prepaid (6 faces x 3 providers) + 21 mtc Prepaid
     // (7 faces x 3 providers) = 39 candidates.
     expect(checked).toBe(39);
+  });
+
+  it("seeds sell_days_lbp from the day count, identically across providers", () => {
+    // Owner-confirmed 2026-08-05. Keyed on validity_days, not the card: the
+    // customer buys days, so the same duration sells for the same price even
+    // where the card cost differs. iPick alfa 7.58 and iPick mtc 10 both grant
+    // 30 days and cost the shop 770,000 vs 1,000,000 — same days price.
+    const expected: Record<number, number> = {
+      10: 100_000,
+      30: 250_000,
+      60: 500_000,
+      90: 750_000,
+      365: 2_300_000,
+    };
+    let checked = 0;
+    for (const item of items) {
+      if (item.days_cost_lbp === undefined) continue;
+      expect(item.validity_days).toBeDefined();
+      expect(item.sell_days_lbp).toBe(expected[item.validity_days as number]);
+      checked++;
+    }
+    expect(checked).toBe(39);
+  });
+
+  it("a days price always exceeds the days cost — no item sells its days at a loss", () => {
+    // The reason 10 days is priced at the catalog's 100,000 rather than the
+    // strict linear 83,333: at 83,333 the alfa 4.5 card (days_cost 83,500)
+    // would sell its days 167 LBP under cost.
+    for (const item of items) {
+      if (item.sell_days_lbp === undefined) continue;
+      expect(item.days_cost_lbp).toBeDefined();
+      expect(item.sell_days_lbp).toBeGreaterThan(item.days_cost_lbp as number);
+    }
+  });
+
+  it("does not price days on a card that has no days to sell", () => {
+    for (const provider of ["iPick", "Katsh", "WHISH_APP"]) {
+      for (const label of ["1", "1.67"]) {
+        const item = findItem(items, provider, "mtc", "Prepaid", label);
+        expect(item?.sell_days_lbp).toBeUndefined();
+      }
+    }
   });
 
   it("alfa 1.22 and 3.03 are credit-only: credits but NO validity_days and NO days_cost_lbp", () => {

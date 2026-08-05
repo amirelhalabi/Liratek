@@ -6,7 +6,7 @@
  * This function is only called once on first launch (when the DB table is empty).
  */
 
-import { deriveDaysCostLbp } from "@liratek/core";
+import { deriveDaysCostLbp, deriveSellDaysLbp } from "@liratek/core";
 import mobileServices from "@/data/mobileServices";
 
 export interface SeedItem {
@@ -29,6 +29,17 @@ export interface SeedItem {
    * guard rejects it (see {@link isOnlyDaysCandidate}).
    */
   days_cost_lbp?: number;
+  /**
+   * TELECOM_CREDIT_RATE_PLAN.md: the customer price for a days-only sale,
+   * looked up from the day count via the ONE shared table (rule 14 — never
+   * re-encode the price curve here). Keyed on `validity_days` rather than the
+   * card, because the customer is buying days: two cards granting 30 days sell
+   * those days for the same price even though they cost the shop different
+   * amounts. Omitted for a non-candidate, or for a day count the table does
+   * not cover (it deliberately does not interpolate — the curve is discounted
+   * at the annual, so interpolating would invent an unapproved price).
+   */
+  sell_days_lbp?: number;
 }
 
 /**
@@ -125,10 +136,18 @@ export function parseCatalogToSeedData(): SeedItem[] {
                   : undefined;
               const credits =
                 typeof obj.credits === "number" ? obj.credits : undefined;
-              const daysCostLbp =
-                credits !== undefined && isOnlyDaysCandidate(validityDays)
-                  ? deriveDaysCostLbp(costLbp, credits)
-                  : null;
+              const isCandidate =
+                credits !== undefined && isOnlyDaysCandidate(validityDays);
+              const daysCostLbp = isCandidate
+                ? deriveDaysCostLbp(costLbp, credits)
+                : null;
+              // Gated on the SAME candidate test as days_cost: a card that has
+              // nothing to sell as days must not carry a days price either, or
+              // the Settings row would advertise one for a sale that cannot
+              // happen.
+              const sellDaysLbp = isCandidate
+                ? deriveSellDaysLbp(validityDays)
+                : null;
 
               result.push({
                 provider,
@@ -143,6 +162,7 @@ export function parseCatalogToSeedData(): SeedItem[] {
                   : {}),
                 ...(credits !== undefined ? { credits } : {}),
                 ...(daysCostLbp != null ? { days_cost_lbp: daysCostLbp } : {}),
+                ...(sellDaysLbp != null ? { sell_days_lbp: sellDaysLbp } : {}),
               });
             } else {
               // One level deeper — group of items

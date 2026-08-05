@@ -1647,4 +1647,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (143, 'backfill_credits_on_prepaid_cards'),
     (144, 'seed_telecom_credit_cost_rate_and_backfill_days_cost'),
     (145, 'backfill_alfa_prepaid_validity_days'),
-    (146, 'reanchor_telecom_credit_cost_rate');
+    (146, 'reanchor_telecom_credit_cost_rate'),
+    (147, 'seed_sell_days_lbp_from_validity_days');

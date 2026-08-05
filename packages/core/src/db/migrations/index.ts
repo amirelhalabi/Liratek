@@ -9,7 +9,9 @@ import type Database from "better-sqlite3";
 import { addSenderReceiverFieldsMigration } from "./add_sender_receiver_fields.js";
 import {
   deriveDaysCostLbp,
+  deriveSellDaysLbp,
   TELECOM_CREDIT_COST_RATE_LBP,
+  TELECOM_DAYS_SELL_PRICE_LBP,
 } from "../../utils/telecomCredit.js";
 
 // =============================================================================
@@ -7704,6 +7706,71 @@ export const MIGRATIONS: Migration[] = [
 
       console.log(
         `Migration v146 rolled back: days_cost_lbp restored to the ${OLD_RATE} rate on ${reverted} row(s)`,
+      );
+    },
+  },
+  {
+    version: 147,
+    name: "seed_sell_days_lbp_from_validity_days",
+    description:
+      "TELECOM_CREDIT_RATE_PLAN.md (owner-confirmed 2026-08-05): populates mobile_service_items.sell_days_lbp — the customer price for a days-only sale — from the item's validity_days, using the shared TELECOM_DAYS_SELL_PRICE_LBP table (10d 100,000 / 30d 250,000 / 60d 500,000 / 90d 750,000 / 365d 2,300,000). Keyed on the DAY COUNT and not the card, because the customer is buying days: two cards granting 30 days sell those days for the same price even though they cost the shop different amounts, so five numbers populate all 39 Only-Days candidates. The curve is exactly linear at 8,333 LBP/day from 30 through 90 days and then 6,301 LBP/day for the year, a ~24% annual bulk discount; the 10-day figure is the catalog's own long-standing validity sell price (100,000) rather than the strict linear 83,333, because at 83,333 the alfa 4.5 card (days_cost 83,500) would sell its days at a 167 LBP loss and 10-day validity is rarely sold anyway. REJECTED ALTERNATIVE: a single observed sale (the 7.58 card at 300,000 for '1 month + $1.5 kept') implies 30d = 150,000 once the kept credit is priced at 100,000/$, i.e. card-derived days priced below a standalone validity charge — but that prices a month at 5,000/day while still pricing three months at 8,333/day (more per day for a longer commitment) and lands on EXACTLY zero margin for both 10-face cards, whose days_cost is precisely 150,000; under the shipped table that sale reads instead as a 100,000 discount off 400,000, consistent with the shop's habit of discounting (the annual goes $23 -> $20 as an offer). Scoped to genuine Only-Days candidates (credits > 0 AND validity_days > 0), which excludes both the standalone Validity products (days but no credit, nothing to return) and the credit-only cards (credit but no days, nothing to sell). Only ever fills a NULL, so any price an operator has already typed is preserved without needing an override marker. A day count absent from the table is SKIPPED rather than interpolated — the curve is discounted at the annual, so interpolating would invent a price the owner never agreed to; the catalog's 20/120/180/360-day validity products need an owner price, not arithmetic.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const rows = db
+        .prepare(
+          `SELECT id, validity_days
+             FROM mobile_service_items
+            WHERE sell_days_lbp IS NULL
+              AND cost_lbp > 0
+              AND credits > 0
+              AND validity_days > 0`,
+        )
+        .all() as { id: number; validity_days: number }[];
+
+      const stmt = db.prepare(
+        `UPDATE mobile_service_items
+            SET sell_days_lbp = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+      );
+
+      let updated = 0;
+      const skippedDurations = new Set<number>();
+
+      for (const row of rows) {
+        // rule 14: the price curve is defined once, in telecomCredit.ts.
+        const price = deriveSellDaysLbp(row.validity_days);
+        if (price === null) {
+          skippedDurations.add(row.validity_days);
+          continue;
+        }
+        stmt.run(price, row.id);
+        updated++;
+      }
+
+      console.log(
+        `Migration v147: sell_days_lbp seeded on ${updated} row(s)` +
+          (skippedDurations.size > 0
+            ? `; skipped day counts not in the price table: ${[...skippedDurations].sort((a, b) => a - b).join(", ")}`
+            : ""),
+      );
+    },
+    down(db: Database.Database) {
+      // Revert only rows still holding exactly a table price, so a price the
+      // operator edited after this ran is not dragged back to NULL.
+      const prices = Object.values(TELECOM_DAYS_SELL_PRICE_LBP);
+      const placeholders = prices.map(() => "?").join(", ");
+      const result = db
+        .prepare(
+          `UPDATE mobile_service_items
+              SET sell_days_lbp = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE sell_days_lbp IN (${placeholders})
+              AND credits > 0
+              AND validity_days > 0`,
+        )
+        .run(...prices);
+
+      console.log(
+        `Migration v147 rolled back: sell_days_lbp nulled on ${result.changes} row(s)`,
       );
     },
   },

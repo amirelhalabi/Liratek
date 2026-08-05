@@ -2443,6 +2443,8 @@ export interface ElectronAPI {
         credits?: number | null;
         // TELECOM_DAYS_COST_PLAN.md §4.3 — fresh-install Only-Days split cost.
         days_cost_lbp?: number | null;
+        // TELECOM_CREDIT_RATE_PLAN.md — fresh-install days-only sell price.
+        sell_days_lbp?: number | null;
       }[],
     ) => Promise<{
       success: boolean;

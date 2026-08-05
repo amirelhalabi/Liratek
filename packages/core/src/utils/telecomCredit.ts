@@ -515,3 +515,74 @@ export function deriveDaysCostLbp(
 
   return daysCostLbp;
 }
+
+// =============================================================================
+// sell_days_lbp — the customer price for a days-only sale
+// =============================================================================
+
+/**
+ * What the shop charges the customer for validity days, by day count.
+ * **Owner-confirmed 2026-08-05.**
+ *
+ * Keyed on the DAY COUNT, not the card: the customer is buying days, so two
+ * different cards granting 30 days sell those days for the same price even
+ * though they cost the shop different amounts. That is why this is a table of
+ * five numbers rather than one per catalog item.
+ *
+ * ### The curve
+ *
+ *   10d → 100,000 · 30d → 250,000 · 60d → 500,000 · 90d → 750,000
+ *   365d → 2,300,000
+ *
+ * Exactly linear at **8,333 LBP/day** from 30 through 90 days, then **6,301
+ * LBP/day** for the year — a ~24% annual bulk discount. The 10-day price is
+ * the catalog's own long-standing validity sell price (100,000) rather than the
+ * strict linear 83,333: at 83,333 the alfa 4.5 card (days_cost 83,500) would
+ * sell its days at a 167 LBP LOSS, and 10-day validity is rarely sold anyway.
+ *
+ * ### The alternative that was rejected
+ *
+ * A single observed sale — the 7.58 card at 300,000 for "1 month + $1.5 kept"
+ * — implies `30d = 150,000` once the kept credit is priced at 100,000/$. That
+ * would have meant card-derived days are cheaper than a standalone validity
+ * charge. Rejected, because it prices a month at 5,000/day while still pricing
+ * three months at 8,333/day — more per day for a longer commitment — and it
+ * lands on EXACTLY zero margin for both `10`-face cards, whose days_cost is
+ * precisely 150,000. A price list that coincides with cost to the lira is not
+ * a price list. Under this table that sale reads as a 100,000 discount off
+ * 400,000, which matches the shop's own habit of discounting (the annual goes
+ * $23 → $20 as an offer).
+ *
+ * Full reasoning: `docs/plans/todo_plans/TELECOM_CREDIT_RATE_PLAN.md`.
+ */
+export const TELECOM_DAYS_SELL_PRICE_LBP: Readonly<Record<number, number>> =
+  Object.freeze({
+    10: 100_000,
+    30: 250_000,
+    60: 500_000,
+    90: 750_000,
+    365: 2_300_000,
+  });
+
+/**
+ * The customer price for `validityDays` of validity, or `null` when that day
+ * count is not in {@link TELECOM_DAYS_SELL_PRICE_LBP}.
+ *
+ * Returning null rather than interpolating is deliberate. The curve is NOT
+ * linear across its whole range (the annual is discounted ~24%), so any
+ * interpolation would invent a price the shop never agreed to. Durations the
+ * catalog carries but this table does not — the 20-, 120-, 180- and 360-day
+ * validity products — must get a price from the owner, not from arithmetic.
+ */
+export function deriveSellDaysLbp(
+  validityDays: number | null | undefined,
+): number | null {
+  if (
+    typeof validityDays !== "number" ||
+    !Number.isFinite(validityDays) ||
+    validityDays <= 0
+  ) {
+    return null;
+  }
+  return TELECOM_DAYS_SELL_PRICE_LBP[validityDays] ?? null;
+}
