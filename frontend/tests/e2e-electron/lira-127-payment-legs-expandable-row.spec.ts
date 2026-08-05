@@ -155,7 +155,9 @@ test.describe("LIRA-067 — payment-leg detail expandable row", () => {
     await navigateTo(appPage, "/");
     await navigateTo(appPage, "/audit");
 
-    const searchInput = appPage.getByPlaceholder(/Search summary, client, user/i);
+    const searchInput = appPage.getByPlaceholder(
+      /Search summary, client, user/i,
+    );
     await expect(searchInput).toBeVisible({ timeout: 8_000 });
     await searchInput.fill(marker);
     await searchInput.press("Enter");

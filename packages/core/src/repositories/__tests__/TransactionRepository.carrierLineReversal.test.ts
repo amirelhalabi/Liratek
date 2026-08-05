@@ -323,9 +323,7 @@ describe("TransactionRepository — carrier_line_movements reversal (LIRA-090 §
     expect(afterFirstVoid.credits).toBeCloseTo(10, 2);
     expect(afterFirstVoid.validity_expires_at).toBe(FUTURE_EXPIRY);
 
-    expect(() => repo.voidTransaction(txnId, 1)).toThrow(
-      /already voided/i,
-    );
+    expect(() => repo.voidTransaction(txnId, 1)).toThrow(/already voided/i);
 
     // State after the REJECTED second attempt is byte-identical to after
     // the first void — no double-restore snuck in before the throw.

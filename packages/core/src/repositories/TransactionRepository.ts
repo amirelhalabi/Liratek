@@ -2181,9 +2181,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       ...MODULE_DEBT_TRANSACTION_TYPES,
       "CREDIT_DEPOSIT",
     ];
-    const typePlaceholders = CANCELLABLE_LEDGER_TYPES.map(() => "?").join(
-      ", ",
-    );
+    const typePlaceholders = CANCELLABLE_LEDGER_TYPES.map(() => "?").join(", ");
     const debts = this.query<{
       id: number;
       client_id: number;

@@ -78,7 +78,9 @@ const CREDIT_TRANSFER_STEP_CENTS = toCents(CREDIT_TRANSFER_STEP_USD); // 50
 
 /** Floor a cents amount down to the nearest transfer step, in integer cents. */
 function floorToStepCents(cents: number): number {
-  return Math.floor(cents / CREDIT_TRANSFER_STEP_CENTS) * CREDIT_TRANSFER_STEP_CENTS;
+  return (
+    Math.floor(cents / CREDIT_TRANSFER_STEP_CENTS) * CREDIT_TRANSFER_STEP_CENTS
+  );
 }
 
 // =============================================================================
@@ -256,6 +258,60 @@ export function deriveItemEconomics(
 }
 
 // =============================================================================
+// One SMS transfer function (TELECOM_DAYS_COST_PLAN.md §9/§6, owner ask
+// 2026-08-04) — replaces two independent re-derivations of the same 0.16$/
+// message fee: RechargeRepository's real-sale SMS deduction and this file's
+// resale decision table. Both now express themselves through this function
+// (rule 14 — one definition, reused everywhere).
+// =============================================================================
+
+/** The result of planning an SMS credit transfer of a given USD amount. */
+export interface SmsTransferPlan {
+  /** Messages needed to move `amountUsd` (each capped at `perSmsUsd`). */
+  messages: number;
+  /** `messages * SMS_TRANSFER_FEE_USD` — the fee burned by the transfer. */
+  feeUsd: number;
+  /** `amountUsd + feeUsd` — what actually leaves the sender's balance. */
+  totalCostUsd: number;
+}
+
+const ZERO_SMS_TRANSFER_PLAN: SmsTransferPlan = {
+  messages: 0,
+  feeUsd: 0,
+  totalCostUsd: 0,
+};
+
+/**
+ * Plan the SMS transfer of `amountUsd` of credit: how many messages it takes
+ * and what it costs the sender. Never throws, never returns NaN — a zeroed
+ * plan comes back for any non-finite or non-positive input, matching the
+ * null/zero style used elsewhere in this file.
+ *
+ * @param amountUsd - the USD credit to move
+ * @param perSmsUsd - the most credit ($) one SMS can carry; defaults to
+ *   {@link MAX_CREDIT_PER_SMS_USD}
+ */
+export function planSmsTransfer(
+  amountUsd: number,
+  perSmsUsd: number = MAX_CREDIT_PER_SMS_USD,
+): SmsTransferPlan {
+  if (
+    !Number.isFinite(amountUsd) ||
+    amountUsd <= 0 ||
+    !Number.isFinite(perSmsUsd) ||
+    perSmsUsd <= 0
+  ) {
+    return { ...ZERO_SMS_TRANSFER_PLAN };
+  }
+
+  const messages = Math.ceil(amountUsd / perSmsUsd);
+  const feeUsd = messages * SMS_TRANSFER_FEE_USD;
+  const totalCostUsd = amountUsd + feeUsd;
+
+  return { messages, feeUsd, totalCostUsd };
+}
+
+// =============================================================================
 // §2.4 — deliveredCostLbp (the resale decision aid)
 // =============================================================================
 
@@ -263,9 +319,16 @@ export function deriveItemEconomics(
  * The real LBP cost of delivering $1 of recovered credit when it is resold in
  * chunks of `chunkUsd` (typically 1, 2, or 3 — spec §2.4). Once the shop
  * holds recovered credit, reselling it also burns a 0.16$ SMS fee, so the
- * true cost per delivered dollar depends on the chunk size:
+ * true cost per delivered dollar depends on the chunk size. Expressed
+ * through {@link planSmsTransfer} (one SMS transfer function, see above):
  *
- *   deliveredCostLbp(chunk) = recoveredRateLbp * (1 + SMS_TRANSFER_FEE_USD / chunk)
+ *   deliveredCostLbp(chunk) = recoveredRateLbp * planSmsTransfer(chunk).totalCostUsd / chunk
+ *                           = recoveredRateLbp * (chunk + 0.16) / chunk
+ *                           = recoveredRateLbp * (1 + SMS_TRANSFER_FEE_USD / chunk)
+ *
+ * The three forms are algebraically identical for `chunk <= MAX_CREDIT_PER_SMS_USD`
+ * (the only domain this is ever called with — 1$/2$/3$ chunks), since exactly
+ * one message covers the whole chunk (`planSmsTransfer` returns `messages: 1`).
  *
  * This is a computed decision aid, not a stored per-item setting — render it
  * as a 3-row table (chunk = 1$, 2$, 3$) wherever the item's economics are
@@ -288,5 +351,266 @@ export function deliveredCostLbp(
     return null;
   }
 
-  return recoveredRateLbp * (1 + SMS_TRANSFER_FEE_USD / chunkUsd);
+  return (recoveredRateLbp * planSmsTransfer(chunkUsd).totalCostUsd) / chunkUsd;
+}
+
+/**
+ * Fallback reference price (LBP) for $1 of resold telecom credit, used by the
+ * resale decision table (Settings → Mobile Services, §2.4) when neither the
+ * per-item `sell_credit_lbp` nor the tenant's `telecom_credit_sell_price_lbp`
+ * setting is available. Matches the value migration v141 seeds for every
+ * tenant's `telecom_credit_sell_price_lbp` (`packages/core/src/db/migrations/index.ts`),
+ * so a tenant that has never touched the setting sees the same number either
+ * way. Named here instead of as a bare literal in the UI (rule 14).
+ */
+export const DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP = 100_000;
+
+// =============================================================================
+// §4 — days_cost_lbp, credit-rate anchored (TELECOM_DAYS_COST_PLAN.md §4.3/4.4)
+// =============================================================================
+
+/**
+ * The shop's cost of $1 of credit, LBP. **Owner-confirmed 2026-08-05.**
+ *
+ * This is the rate the shop already works in: it is what Settings → Shop
+ * Config records as `alfa_credit_cost_lbp` and what the MTC/Alfa credit-sale
+ * path charges against. Two settings hold this figure and that is DELIBERATE —
+ * see the note below before "consolidating" them.
+ *
+ * ### It was 93,333.33 until 2026-08-05. Why that was wrong
+ *
+ * The old value came from iPick > mtc > Credits (280,000 / 3$), exactly linear
+ * across all five entries in that price list. Linearity proved arithmetic, not
+ * currency — that same list carries a SELL of 50,000/$, half its own cost, so
+ * it is stale. Four independent checks all rejected it:
+ *
+ *   - cheapest delivered $1 came to 104,075 against a 100,000 sell price, i.e.
+ *     a guaranteed loss on every resale
+ *   - $1 recovered from a card cost 98,805 vs 85,000 to buy credit directly —
+ *     nobody would ever buy cards for credit
+ *   - implied days cost landed at 1,000–2,500 LBP/day against a 6,500 LBP/day
+ *     standalone validity price: days four times cheaper bundled than alone
+ *   - the owner's own anchor: the 77.28 card's days sell for ~2,000,000, so a
+ *     days cost of 515,200 implied a 74% margin on days while the credit side
+ *     ran negative. The split was mis-allocating, not measuring.
+ *
+ * ### Why the exact value matters less than it looks
+ *
+ * R is an ALLOCATION knob, not a measurement. Total profit on an Only-Days
+ * sale is independent of it:
+ *
+ *   profit_days   = daysSell − (cost − credits × R)
+ *   profit_credit = recovered × creditSell − smsFees − credits × R
+ *   ─────────────────────────────────────────────────────────────
+ *   sum           = daysSell + recovered × creditSell − smsFees − cost
+ *
+ * R cancels. It only decides how one fixed profit is attributed between the
+ * days and credit reporting lines. So a "negative credit margin" at a given R
+ * is cost attribution, not money lost — which is why the resale decision aid
+ * must state what it compares against rather than just going red.
+ *
+ * At this value, with cards priced at 100,000/$, the days allocation lands on
+ * a round **15% of card cost** (`face × 100,000 − face × 85,000`), which is
+ * why the figures are easy to sanity-check by eye.
+ *
+ * ### Two settings, on purpose
+ *
+ * `alfa_credit_cost_lbp` is the cost of credit bought DIRECTLY as a top-up.
+ * `telecom_credit_cost_rate_lbp` (this value) is the cost of credit that
+ * arrives EMBEDDED in a prepaid card. They are different acquisition channels
+ * — a card is a bundle, so its credit is cheaper per face dollar but you must
+ * take days you may not want and pay an SMS haircut to extract it. They
+ * currently hold the same number; do not merge the keys on that basis.
+ *
+ * ### Hard ceiling: must stay below 98,603
+ *
+ * Set by the tightest card in the catalog, Katsh/WHISH_APP alfa 77.28
+ * (`7,620,030 / 77.28 ≈ 98,602.87 LBP/$`) — the per-dollar price that card was
+ * actually sold at. Any rate at or above that ratio drives
+ * `days_cost_lbp = cost_lbp − credits × R` to zero or negative for it, tripping
+ * the `isTelecomSplitComplete` guard and silently turning the computed
+ * Only-Days flow off. At 85,000 every catalog item prices positive: the
+ * smallest across all 43 credit-bearing items is **iPick alfa 1.22 at 36,300**
+ * (a credit-only card, so not an Only-Days candidate itself), and the smallest
+ * among the 39 actual candidates is **iPick mtc 3.79 at 56,850** (both verified
+ * by `deriveDaysCostLbp.spans the full 43-item catalog` in the test file).
+ *
+ * Full derivation, the rejected candidates and the rate window:
+ * `docs/plans/todo_plans/TELECOM_CREDIT_RATE_PLAN.md`.
+ */
+export const TELECOM_CREDIT_COST_RATE_LBP = 85_000;
+
+/**
+ * Derive `days_cost_lbp` for a telecom Only-Days catalog item — the ONE
+ * definition of this formula in the codebase (rule 14). Never re-encode this
+ * arithmetic in a migration, a parser, or a UI component; import this
+ * function instead.
+ *
+ * Algebra (plan §4.3): the shop pays `costLbp` for a card that bundles both
+ * validity days and `creditsUsd` of face credit. `R` is what $1 of credit
+ * costs the shop, sourced independently (see
+ * {@link TELECOM_CREDIT_COST_RATE_LBP}). Whatever is left over after paying
+ * for the credit at that rate is what the days actually cost:
+ *
+ *   days_cost_lbp = round(cost_lbp − credits × R)
+ *
+ * **Why `creditsUsd` is the card's FACE value, not `maxReturnableCredits`
+ * (plan §4.3, "why credits and not maxReturnableCredits").** The card is
+ * bought carrying its full face credit; the SMS recovery loss only happens
+ * later, and only if that credit is actually transferred back out. Using
+ * `maxReturnableCredits` here would fold that loss into `days_cost_lbp`,
+ * making it invisible as an operating cost of the Only-Days flow — and it is
+ * exactly the circularity that sank the rejected Model B (plan §4.2): under
+ * Model B, `recoveredRateLbp` collapses algebraically to `cost/credits`,
+ * the card's own per-dollar price, and stops telling you anything about
+ * recovery losses at all. Anchoring on face credit keeps the SMS loss where
+ * it belongs — visible, and computed once, downstream, by
+ * {@link deriveItemEconomics}.
+ *
+ * Guard rail (plan §4.4): `isTelecomSplitComplete` requires
+ * `0 < days_cost_lbp < cost_lbp`. This function enforces that same bound
+ * itself and returns `null` — never a value the guard would reject — so
+ * every caller (a migration backfill, a Settings save, a seed script) can
+ * treat `null` uniformly as "cannot derive this one, leave it unset" without
+ * re-deriving the bound check itself (rule 14).
+ *
+ * Never throws, never returns NaN — matches the null-returning style of
+ * {@link deriveItemEconomics} elsewhere in this file.
+ *
+ * @param costLbp - the catalog item's total LBP cost
+ * @param creditsUsd - the item's face USD credit value (the `credits` column)
+ * @param rateLbp - LBP cost of $1 of credit; defaults to
+ *   {@link TELECOM_CREDIT_COST_RATE_LBP}
+ * @returns `round(costLbp - creditsUsd * rateLbp)`, or `null` if any input is
+ *   non-finite/non-positive, or the result would not satisfy
+ *   `0 < days_cost_lbp < cost_lbp`
+ *
+ * @example
+ * // iPick alfa 77.28 at the default rate (85,000):
+ * //   7,728,000 − 77.28 × 85,000 = 7,728,000 − 6,568,800
+ * deriveDaysCostLbp(7_728_000, 77.28) // → 1,159,200
+ */
+export function deriveDaysCostLbp(
+  costLbp: number,
+  creditsUsd: number | null | undefined,
+  rateLbp: number = TELECOM_CREDIT_COST_RATE_LBP,
+): number | null {
+  if (
+    typeof costLbp !== "number" ||
+    !Number.isFinite(costLbp) ||
+    costLbp <= 0 ||
+    typeof creditsUsd !== "number" ||
+    !Number.isFinite(creditsUsd) ||
+    creditsUsd <= 0 ||
+    !Number.isFinite(rateLbp) ||
+    rateLbp <= 0
+  ) {
+    return null;
+  }
+
+  const daysCostLbp = Math.round(costLbp - creditsUsd * rateLbp);
+
+  if (daysCostLbp <= 0 || daysCostLbp >= costLbp) {
+    return null;
+  }
+
+  return daysCostLbp;
+}
+
+// =============================================================================
+// sell_days_lbp — the customer price for a days-only sale
+// =============================================================================
+
+/**
+ * What the shop charges the customer for validity days, by day count.
+ * **Owner-confirmed 2026-08-05.**
+ *
+ * Keyed on the DAY COUNT, not the card: the customer is buying days, so two
+ * different cards granting 30 days sell those days for the same price even
+ * though they cost the shop different amounts. That is why this is a table of
+ * five numbers rather than one per catalog item.
+ *
+ * ### The curve
+ *
+ *   10d → 100,000 · 30d → 250,000 · 60d → 500,000 · 90d → 750,000
+ *   365d → 2,300,000
+ *
+ * Exactly linear at **8,333 LBP/day** from 30 through 90 days, then **6,301
+ * LBP/day** for the year — a ~24% annual bulk discount. The 10-day price is
+ * the catalog's own long-standing validity sell price (100,000) rather than the
+ * strict linear 83,333: at 83,333 the alfa 4.5 card (days_cost 83,500) would
+ * sell its days at a 167 LBP LOSS, and 10-day validity is rarely sold anyway.
+ *
+ * ### The alternative that was rejected
+ *
+ * A single observed sale — the 7.58 card at 300,000 for "1 month + $1.5 kept"
+ * — implies `30d = 150,000` once the kept credit is priced at 100,000/$. That
+ * would have meant card-derived days are cheaper than a standalone validity
+ * charge. Rejected, because it prices a month at 5,000/day while still pricing
+ * three months at 8,333/day — more per day for a longer commitment — and it
+ * lands on EXACTLY zero margin for both `10`-face cards, whose days_cost is
+ * precisely 150,000. A price list that coincides with cost to the lira is not
+ * a price list. Under this table that sale reads as a 100,000 discount off
+ * 400,000, which matches the shop's own habit of discounting (the annual goes
+ * $23 → $20 as an offer).
+ *
+ * Full reasoning: `docs/plans/todo_plans/TELECOM_CREDIT_RATE_PLAN.md`.
+ */
+/**
+ * Resolve what the shop charges for $1 of credit, walking the agreed fallback
+ * chain: **per-item → tenant setting → named default**.
+ *
+ * Extracted 2026-08-05 (adversarial review, rule 14). This chain was written
+ * out by hand in two places — the Settings resale table and the Only-Days sale
+ * pricing — which is exactly how the two screens end up disagreeing about what
+ * a credit costs after someone "fixes" one of them.
+ *
+ * A non-positive or non-finite value at any tier is treated as absent rather
+ * than accepted: a 0 credit price would silently make retained credit free.
+ *
+ * @param itemSellCreditLbp - the item's own `sell_credit_lbp`, if configured
+ * @param tenantSellPriceLbp - the tenant's `telecom_credit_sell_price_lbp`
+ */
+export function resolveCreditSellPriceLbp(
+  itemSellCreditLbp?: number | null,
+  tenantSellPriceLbp?: number | null,
+): number {
+  const usable = (v: number | null | undefined): v is number =>
+    typeof v === "number" && Number.isFinite(v) && v > 0;
+
+  if (usable(itemSellCreditLbp)) return itemSellCreditLbp;
+  if (usable(tenantSellPriceLbp)) return tenantSellPriceLbp;
+  return DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP;
+}
+
+export const TELECOM_DAYS_SELL_PRICE_LBP: Readonly<Record<number, number>> =
+  Object.freeze({
+    10: 100_000,
+    30: 250_000,
+    60: 500_000,
+    90: 750_000,
+    365: 2_300_000,
+  });
+
+/**
+ * The customer price for `validityDays` of validity, or `null` when that day
+ * count is not in {@link TELECOM_DAYS_SELL_PRICE_LBP}.
+ *
+ * Returning null rather than interpolating is deliberate. The curve is NOT
+ * linear across its whole range (the annual is discounted ~24%), so any
+ * interpolation would invent a price the shop never agreed to. Durations the
+ * catalog carries but this table does not — the 20-, 120-, 180- and 360-day
+ * validity products — must get a price from the owner, not from arithmetic.
+ */
+export function deriveSellDaysLbp(
+  validityDays: number | null | undefined,
+): number | null {
+  if (
+    typeof validityDays !== "number" ||
+    !Number.isFinite(validityDays) ||
+    validityDays <= 0
+  ) {
+    return null;
+  }
+  return TELECOM_DAYS_SELL_PRICE_LBP[validityDays] ?? null;
 }

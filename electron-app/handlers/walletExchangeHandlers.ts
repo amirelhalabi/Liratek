@@ -93,10 +93,7 @@ export function registerWalletExchangeHandlers(): void {
         const data = svc.getHistory(params?.drawerName, params?.limit);
         return { success: true, data };
       } catch (error) {
-        walletExchangeLogger.error(
-          { error },
-          "wallet-exchange:history failed",
-        );
+        walletExchangeLogger.error({ error }, "wallet-exchange:history failed");
         return {
           success: false,
           error:

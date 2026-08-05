@@ -28,89 +28,13 @@ import type { MobileServiceItem } from "@/types/electron";
 // Provide real implementations of the three pure telecomCredit functions used
 // by the component — the inline math is identical to telecomCredit.ts so the
 // assertions below are authoritative (failing them with wrong numbers is a bug).
-jest.mock("@liratek/core", () => {
-  function isTelecomSplitComplete(item: {
-    cost_lbp: number | null | undefined;
-    days_cost_lbp: number | null | undefined;
-    credits: number | null | undefined;
-  }): boolean {
-    const { cost_lbp, days_cost_lbp, credits } = item;
-    return (
-      typeof cost_lbp === "number" &&
-      Number.isFinite(cost_lbp) &&
-      cost_lbp > 0 &&
-      typeof days_cost_lbp === "number" &&
-      Number.isFinite(days_cost_lbp) &&
-      days_cost_lbp > 0 &&
-      typeof credits === "number" &&
-      Number.isFinite(credits) &&
-      credits > 0 &&
-      days_cost_lbp < cost_lbp
-    );
-  }
-
-  function maxReturnableCredits(balanceUsd: number): number {
-    if (!Number.isFinite(balanceUsd) || balanceUsd <= 0) return 0;
-    const balanceCents = Math.floor(balanceUsd * 100 + 1e-9);
-    const perMsg = 316;
-    const maxN = Math.ceil(balanceCents / perMsg);
-    let best = 0;
-    for (let n = 0; n <= maxN; n++) {
-      const cap = 300 * n;
-      const surviving = balanceCents - 16 * n;
-      const transferable = Math.min(cap, surviving);
-      if (transferable <= 0) continue;
-      const floored = Math.floor(transferable / 50) * 50;
-      if (floored > best) best = floored;
-    }
-    return best / 100;
-  }
-
-  function deriveItemEconomics(input: {
-    costLbp: number;
-    daysCostLbp: number | null | undefined;
-    creditsUsd: number | null | undefined;
-  }) {
-    const { costLbp, daysCostLbp, creditsUsd } = input;
-    if (
-      !isTelecomSplitComplete({
-        cost_lbp: costLbp,
-        days_cost_lbp: daysCostLbp,
-        credits: creditsUsd,
-      })
-    ) {
-      return {
-        creditCostLbp: null,
-        maxReturnedUsd: null,
-        recoveredRateLbp: null,
-        selfChargeRateLbp: null,
-      };
-    }
-    const creditCostLbp = costLbp - (daysCostLbp as number);
-    const maxReturnedUsd = maxReturnableCredits(creditsUsd as number);
-    const recoveredRateLbp =
-      maxReturnedUsd > 0 ? creditCostLbp / maxReturnedUsd : null;
-    const selfChargeRateLbp = creditCostLbp / (creditsUsd as number);
-    return { creditCostLbp, maxReturnedUsd, recoveredRateLbp, selfChargeRateLbp };
-  }
-
-  function deliveredCostLbp(
-    recoveredRateLbp: number,
-    chunkUsd: number,
-  ): number | null {
-    if (
-      !Number.isFinite(recoveredRateLbp) ||
-      recoveredRateLbp < 0 ||
-      !Number.isFinite(chunkUsd) ||
-      chunkUsd <= 0
-    ) {
-      return null;
-    }
-    return recoveredRateLbp * (1 + 0.16 / chunkUsd);
-  }
-
-  return { isTelecomSplitComplete, deriveItemEconomics, deliveredCostLbp };
-});
+// Load the REAL core module. frontend/jest.config.ts maps @liratek/core to
+// packages/core/src/browser.ts, which excludes the Node-only DB modules that
+// once forced a hand-written mock here. Those hand-copied "faithful copies" of
+// isTelecomSplitComplete / maxReturnableCredits were a rule-14 duplication:
+// they let this suite agree with itself while drifting from production, and
+// they broke as soon as the component imported one more core function.
+jest.mock("@liratek/core", () => jest.requireActual("@liratek/core"));
 
 const mockUpdateMobileServiceItem = jest.fn();
 const mockCreateMobileServiceItem = jest.fn();

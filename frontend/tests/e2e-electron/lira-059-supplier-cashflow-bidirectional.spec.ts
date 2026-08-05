@@ -113,9 +113,8 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       // Cash moving to/from the shop's PRIMARY provider moves through the
       // OMT cash drawer, not the till (owner decision, 2026-08-01: "all OMT
       // cash -> OMT drawer"). `omtDrawer` on this API is that exact drawer.
-      const pcdUsd = (
-        raw: { omtDrawer?: { usd?: number } } | null,
-      ): number => raw?.omtDrawer?.usd ?? 0;
+      const pcdUsd = (raw: { omtDrawer?: { usd?: number } } | null): number =>
+        raw?.omtDrawer?.usd ?? 0;
       const balUsd = (rows: BalanceRow[], id: number): number =>
         rows.find((b) => b.supplier_id === id)?.total_usd ?? 0;
 
@@ -136,9 +135,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       });
 
       // Snapshot baselines IMMEDIATELY before the action under test.
-      const beforePcd = pcdUsd(
-        await w.api.dashboard.getDrawerBalances(),
-      );
+      const beforePcd = pcdUsd(await w.api.dashboard.getDrawerBalances());
       const beforeBalance = balUsd(
         await w.api.suppliers.getBalances(true),
         omt.id,
@@ -152,9 +149,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
         note: "LIRA-059 PAY $100",
       });
 
-      const afterPcd = pcdUsd(
-        await w.api.dashboard.getDrawerBalances(),
-      );
+      const afterPcd = pcdUsd(await w.api.dashboard.getDrawerBalances());
       const afterBalance = balUsd(
         await w.api.suppliers.getBalances(true),
         omt.id,
@@ -208,9 +203,8 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       // Cash moving to/from the shop's PRIMARY provider moves through the
       // OMT cash drawer, not the till (owner decision, 2026-08-01: "all OMT
       // cash -> OMT drawer"). `omtDrawer` on this API is that exact drawer.
-      const pcdUsd = (
-        raw: { omtDrawer?: { usd?: number } } | null,
-      ): number => raw?.omtDrawer?.usd ?? 0;
+      const pcdUsd = (raw: { omtDrawer?: { usd?: number } } | null): number =>
+        raw?.omtDrawer?.usd ?? 0;
       const balUsd = (rows: BalanceRow[], id: number): number =>
         rows.find((b) => b.supplier_id === id)?.total_usd ?? 0;
 
@@ -219,9 +213,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       if (!omt) return { found: false } as const;
 
       // Snapshot baselines immediately before the action.
-      const beforePcd = pcdUsd(
-        await w.api.dashboard.getDrawerBalances(),
-      );
+      const beforePcd = pcdUsd(await w.api.dashboard.getDrawerBalances());
       const beforeBalance = balUsd(
         await w.api.suppliers.getBalances(true),
         omt.id,
@@ -236,9 +228,7 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
         note: "LIRA-059 RECEIVE $30",
       });
 
-      const afterPcd = pcdUsd(
-        await w.api.dashboard.getDrawerBalances(),
-      );
+      const afterPcd = pcdUsd(await w.api.dashboard.getDrawerBalances());
       const afterBalance = balUsd(
         await w.api.suppliers.getBalances(true),
         omt.id,

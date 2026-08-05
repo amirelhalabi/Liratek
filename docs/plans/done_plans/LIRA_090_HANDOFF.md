@@ -50,6 +50,7 @@ Core layer — build clean (`tsc` exit 0), and **12 telecom suites / 168 tests p
 ## NOT DONE — the remaining work
 
 ### 🔴 BLOCKER B1 — gross-cost double-count (money-critical, `KatchForm.tsx`)
+
 `calcCost` sends a cost that already has the returned credit netted out
 (`cost − returnedCredits × 85,000`), and the repository ALSO credits the MTC/Alfa drawer. For the
 77$ cart the iPick/Katsh LBP drawer is debited 1,055,000 instead of 7,600,000. **Fix:** frontend
@@ -59,11 +60,13 @@ customer price (S2 `reconcileLegs` total) is unchanged; the repository already n
 iPick gate widening without this.
 
 ### 🔴 BLOCKER B2 — Zod strips the new fields (`electron-app/schemas/index.ts:~374`)
+
 `FinancialServiceSchema` declares neither `mobileServiceItemId` nor `telecomCreditReturns`; Zod
 strips unknown keys, so the computed feature is dead code over IPC. Add them to match the repo's
 payload shape.
 
 ### Also outstanding
+
 - **B2b (rule 14):** a third copy of the returnable formula lives at `KatchForm.tsx:43-45`
   (`Math.floor(denom/0.5)*0.5` → 77, not 73). Delete it; import from `utils/telecomCredit.ts`.
   Same for the checkbox gate — import `isTelecomSplitComplete`.

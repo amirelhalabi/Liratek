@@ -610,10 +610,7 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
         omtLbpSeeded - 1045000, // 3,955,000
         0,
       );
-      expect(drawerBal(db, "General", "LBP")).toBeCloseTo(
-        generalLbpSeeded,
-        2,
-      );
+      expect(drawerBal(db, "General", "LBP")).toBeCloseTo(generalLbpSeeded, 2);
 
       txnRepo.voidTransaction(settlementTxn.id, 1);
 
@@ -624,10 +621,7 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
       expect(drawerBal(db, "OMT_System", "LBP")).toBeCloseTo(omtLbpSeeded, 0);
       // General LBP was never touched by the settlement leg, so it is not
       // touched by the reversal either.
-      expect(drawerBal(db, "General", "LBP")).toBeCloseTo(
-        generalLbpSeeded,
-        2,
-      );
+      expect(drawerBal(db, "General", "LBP")).toBeCloseTo(generalLbpSeeded, 2);
 
       const supplierBalLbp = db
         .prepare(

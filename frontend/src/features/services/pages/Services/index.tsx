@@ -731,7 +731,15 @@ export default function Services() {
         "error",
       );
     },
-    [api, activeSession, linkTransaction, provider, serviceType, loadData, resetSaveAsClient],
+    [
+      api,
+      activeSession,
+      linkTransaction,
+      provider,
+      serviceType,
+      loadData,
+      resetSaveAsClient,
+    ],
   );
 
   const handleSubmit = useCallback(async () => {

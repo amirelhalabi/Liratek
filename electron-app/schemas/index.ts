@@ -39,6 +39,7 @@ import {
   carrierLineUpdateBalanceSchema,
   mobileServiceItemUpdateSchema,
   mobileServiceItemCreateSchema,
+  mobileServiceItemSeedSchema,
   createDrawerCashoutSchema,
   createWalletExchangeSchema,
   createDrawerTransferSchema,
@@ -549,6 +550,24 @@ export const MobileServiceItemUpdateSchema =
 // against zod 3) — runtime API is identical.
 export const MobileServiceItemCreateSchema =
   mobileServiceItemCreateSchema as unknown as z.ZodSchema<MobileServiceItemCreateInput>;
+// TELECOM_DAYS_COST_PLAN.md follow-up: the seed path (fresh-install catalog
+// bulk-insert) had ZERO validation before this ticket — `mobileServiceItem.ts`'s
+// own header comment names this as a pre-existing gap.
+//
+// NOTE the array is built in CORE (`mobileServiceItemSeedSchema`) and cast
+// here as a whole. Do NOT "simplify" this to
+// `z.array(MobileServiceItemCreateSchema)`: that wraps an ALREADY-CAST core
+// schema in THIS workspace's zod, so the element parser and the array parser
+// come from different zod majors and every parse dies with
+// `def.type._parseSync is not a function`. It shipped exactly that way and the
+// lira-132 e2e caught it — the seed failed on every fresh install, silently,
+// because MobileServiceItemsContext.load() swallows the error and the operator
+// just sees an empty telecom catalog. Cast the finished validator, never a
+// part of one.
+export const MobileServiceItemSeedSchema =
+  mobileServiceItemSeedSchema as unknown as z.ZodSchema<
+    MobileServiceItemCreateInput[]
+  >;
 
 // =============================================================================
 // Custom Services

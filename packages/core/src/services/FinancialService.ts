@@ -402,9 +402,11 @@ export class FinancialService {
    * adds error handling, logging, and the `{ success, ... }` envelope expected
    * by both transports (rule 19c).
    */
-  selfChargeTelecomItem(
-    data: SelfChargeTelecomItemData,
-  ): { success: boolean; data?: SelfChargeTelecomItemResult; error?: string } {
+  selfChargeTelecomItem(data: SelfChargeTelecomItemData): {
+    success: boolean;
+    data?: SelfChargeTelecomItemResult;
+    error?: string;
+  } {
     try {
       const result = this.fsRepo.selfChargeTelecomItem(data);
       financialLogger.info(

@@ -1,12 +1,12 @@
-# OMT/Whish Float Model — Handover
+# OMT/Whish Float Model — Handover ⛔ SUPERSEDED (core model implemented by PR #68)
 
 > ## ⚠️ SUPERSEDED 2026-07-30 — read this box before anything below it
 >
 > The **float model** described in this file (PR #66: `OMT_System`/`Whish_System` as a
 > spendable in-system provider balance) was **rejected by the owner on 2026-07-30**, the day
-> after they first described it — verbatim: *"we dont have omt system balance.. no need for
-> another drawer. we can use our omt system drawer"* and *"I don't really care about this
-> float model … I think the float model is something wrongly implemented."* PR #66 does not
+> after they first described it — verbatim: _"we dont have omt system balance.. no need for
+> another drawer. we can use our omt system drawer"_ and _"I don't really care about this
+> float model … I think the float model is something wrongly implemented."_ PR #66 does not
 > merge as designed; it is superseded, not abandoned mid-review.
 >
 > **Authoritative spec now:** `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md`. The
@@ -15,6 +15,7 @@
 > means today.
 >
 > **Kept LIVE from this file — process lessons, not model claims:**
+>
 > - §3.2 REST role-gate parity sweep — still needed, still unswept.
 > - §3.3 `check:tenant-scoping` not wired into CI — still true, still worth the two-line fix.
 > - §4 (the three process traps: payload-seam blindness, better-sqlite3 ABI mixups,
@@ -22,6 +23,7 @@
 >   including the primary-cash-drawer implementation itself.
 >
 > **Resolved/changed by the new plan:**
+>
 > - §2 (the settle-to-zero release blocker) is **MOOTED** — the owner wipes the database and
 >   starts fresh instead (`PRIMARY_CASH_DRAWER_PLAN.md` decision #14); there is no cutover
 >   balance left to settle.
@@ -60,7 +62,7 @@ for the model that replaced this one, and `PRIMARY_CASH_DRAWER_PLAN.md` for the 
 
 The invariant form below is the float-model version, kept for historical comparison — the
 current model adds a receivable term and inverts the ledger from fee-only to gross (same
-`Σ(drawer deltas) − Δ(owed) = c + kept_change` *shape*, different meaning per term; see
+`Σ(drawer deltas) − Δ(owed) = c + kept_change` _shape_, different meaning per term; see
 FEATURE_GUIDE §8.1 for the exact current form):
 
 ```
@@ -123,7 +125,7 @@ Check each of these and report what happens when it meets `"FEE"`:
 - `frontend/src/features/audit/` — leg-detail rendering, `cashFlow.ts`, and the "Cash only (till)"
   filter. Does it render a sensible label and classify correctly?
 - `TransactionRepository._reversePayments` — it reads every `payments` row drawer-name-agnostically,
-  so it *should* reverse a `"FEE"` leg. Confirm the leg IS a `payments` row and not a direct
+  so it _should_ reverse a `"FEE"` leg. Confirm the leg IS a `payments` row and not a direct
   `applyDrawerDelta`.
 
 **Then form a view:** was a new method string the right design, or should the fee leg have reused
@@ -219,7 +221,7 @@ found the second bug on its first run. `Services.legsGate.test.tsx` /
 `Services.tenderRate.test.tsx` are the equivalent jest pattern (mount the page, stub
 `MultiPaymentInput` to expose its callbacks, assert the real submitted payload).
 
-**Discriminator:** a payload-constructing test is fine when the page merely *forwards* a form. It
+**Discriminator:** a payload-constructing test is fine when the page merely _forwards_ a form. It
 is insufficient wherever the **frontend does arithmetic before sending** — fee netting, rate
 conversion, split allocation, basket netting — because the same computation then exists on both
 sides of the boundary and can drift.
@@ -269,16 +271,16 @@ into the guard permanently and every suite would still have reported green.
 
 Reproduce this before and after any change here:
 
-| Gate | Expected |
-|---|---|
-| `cd packages/core && npx jest` (after `yarn rebuild:node`) | 1190/1190, 112 suites |
-| `yarn workspace @liratek/frontend test` | 657 passed, 1 skipped, 81 suites |
-| `yarn workspace @liratek/backend test` | 500/500, 36 suites |
-| `yarn typecheck` | clean |
-| `yarn check:tenant-scoping` | **0 violations** / 629 statements |
-| `yarn lint` | 0 errors, 524 warnings (warning count is the baseline) |
-| `yarn test:e2e:web` | 47/47 |
-| `yarn test:e2e` (after `yarn dev` → stop) | 240/240 |
+| Gate                                                       | Expected                                               |
+| ---------------------------------------------------------- | ------------------------------------------------------ |
+| `cd packages/core && npx jest` (after `yarn rebuild:node`) | 1190/1190, 112 suites                                  |
+| `yarn workspace @liratek/frontend test`                    | 657 passed, 1 skipped, 81 suites                       |
+| `yarn workspace @liratek/backend test`                     | 500/500, 36 suites                                     |
+| `yarn typecheck`                                           | clean                                                  |
+| `yarn check:tenant-scoping`                                | **0 violations** / 629 statements                      |
+| `yarn lint`                                                | 0 errors, 524 warnings (warning count is the baseline) |
+| `yarn test:e2e:web`                                        | 47/47                                                  |
+| `yarn test:e2e` (after `yarn dev` → stop)                  | 240/240                                                |
 
 All 19 float-model guards are proven failing-first. Each carries a
 `// rule 17: proven failing-first 2026-07-30 — …` note recording the revert **and** the wrong value
@@ -289,7 +291,7 @@ Two spots that are environment-sensitive, both now guarded — do not "fix" them
 - `lira-102` / `lira-103` derive their instant from the machine's UTC offset and **skip** at
   offset ≤ 0. The TZ-independent proof is `ClosingRepository.localBusinessDay.test.ts`.
 - The 5 `waitForTimeout` calls in `lira-123` carry documented `eslint-disable` exceptions. They
-  wait *past* a reveal window to prove a leg did **not** appear; web-first assertions are
+  wait _past_ a reveal window to prove a leg did **not** appear; web-first assertions are
   pass-seeking and would resolve on the first tick, silently proving nothing.
 
 ---
@@ -305,3 +307,91 @@ twice in full. This is architecture-wide — `createTopUp`, `createTopUpFromDraw
 > generalized into `transferBetweenDrawers` (`PRIMARY_CASH_DRAWER_PLAN.md` §8.6), and the plan's
 > own risk list (§6 item 6) carries this gap forward verbatim: "unchanged, still unowned; the
 > new transfer endpoint inherits it." Still nobody's job.
+
+## Left TODO
+
+<!--
+//TODO — Validation pass 2026-08-04. Verdict: OBSOLETE_SUPERSEDED.
+//TODO   STATUS OF THIS DOCUMENT: The document's own banner (top of file) is CORRECT and
+//TODO   confirmed against code: the float model (§1: OMT_System/Whish_System as a spendable
+//TODO   in-provider-system balance) was superseded by the primary-cash-drawer (PCD) model,
+//TODO   implemented in commit 9553807 "fix(money)!: OMT/Whish system drawer becomes the
+//TODO   primary CASH drawer (#68)" per docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md.
+//TODO   Do not implement anything from §1/§2/§5 of this file — they describe a model that
+//TODO   was deleted before merge. The successor plan's own §8bis/§8bis.1 record Phases A-G
+//TODO   as implemented and second-owner-pass triaged; this pass independently re-verified
+//TODO   the load-bearing claims in code (see VERIFIED DONE).
+//TODO
+//TODO   VERIFIED DONE (do not redo):
+//TODO   - OMT_System/Whish_System are the physical primary cash drawer (PCD), not a float:
+//TODO     packages/core/src/constants/systemFloatDrawers.ts:1-34 defines
+//TODO     PRIMARY_CASH_DRAWER_NAMES / primaryCashDrawerName, replacing SYSTEM_FLOAT_DRAWER_NAMES.
+//TODO   - Routing resolver shipped: resolveServiceCashDrawer (packages/core/src/utils/payments.ts),
+//TODO     wired at every previously-hardcoded "General" site named in PRIMARY_CASH_DRAWER_PLAN.md
+//TODO     §3 Phase B — confirmed at packages/core/src/repositories/FinancialServiceRepository.ts:2608-2620
+//TODO     (RECEIVE customer fee leg, comment: "previously HARDCODED to General") and :2785-2808
+//TODO     (no-legs payout fallback, same comment). This closes handover §3.1 (the "FEE" tag audit)
+//TODO     as part of the same change — it is no longer a separate open thread.
+//TODO   - Gross supplier ledger (grossOwedDelta, replacing feeOwedDelta) present in
+//TODO     packages/core/src/repositories/FinancialServiceRepository.ts and SupplierRepository.ts.
+//TODO   - `_System` drawers are customer-facing again: packages/core/src/repositories/TransactionRepository.ts:169
+//TODO     and :187 carry comments confirming the old endsWith("_System") / NOT LIKE '%\_System'
+//TODO     exclusions were removed per PRIMARY_CASH_DRAWER_PLAN.md §2#4.
+//TODO   - drawer_transfers migration shipped exactly as §8.6 specified: packages/core/src/db/migrations/index.ts
+//TODO     version 140 "rebuild_system_float_topups_as_drawer_transfers" (id-preserving carry-forward
+//TODO     from system_float_topups). Current migration head is v142 (unrelated telecom-days feature).
+//TODO   - transferBetweenDrawers repository method implemented:
+//TODO     packages/core/src/repositories/DrawerTopUpRepository.ts:369.
+//TODO   - docs/FEATURE_GUIDE.md §7/§8/§8.1 rewritten for the PCD model (verified: references to
+//TODO     "primary cash drawer", "PCD", gross ledger, and the settlement identity appear
+//TODO     throughout that range, matching this file's own claim at line ~58).
+//TODO
+//TODO   REMAINING (still live — model-independent process items, not this file's float model):
+//TODO   - §3.2 REST role-gate parity sweep: still not done as a formal deliverable. No
+//TODO     MATCH/MISMATCH/REST-HAS-NONE/NO-IPC-TWIN table exists anywhere in the repo. Individual
+//TODO     gaps have been patched ad hoc since (e.g. backend/src/api/debts.ts:61-63 records one
+//TODO     drift closed; backend/src/api/closing.ts now applies requireAuth per-route). The
+//TODO     comprehensive sweep itself has never been produced — real gaps may remain unfound.
+//TODO   - §3.4 RECEIVE fee-tier direction gating: confirmed STILL open in code. lookupOmtFee
+//TODO     (packages/core/src/utils/omtFees.ts:118, called from FinancialServiceRepository.ts:822)
+//TODO     takes (omtServiceType, amount, currency) with no direction parameter — INTRA_FEE_TIERS/
+//TODO     WESTERN_UNION_FEE_TIERS auto-apply identically to SEND and RECEIVE. Owner has not
+//TODO     answered (also carried forward verbatim in PRIMARY_CASH_DRAWER_PLAN.md §6 item 3).
+//TODO   - §6 idempotency gap: confirmed STILL open. No idempotency-key mechanism exists anywhere
+//TODO     in packages/core/src (only unrelated "idempotent migration" hits found). transferBetweenDrawers
+//TODO     inherits the same gap fundSystemDrawer had, exactly as PRIMARY_CASH_DRAWER_PLAN.md §6
+//TODO     item 6 predicts.
+//TODO
+//TODO   CORRECTED DETAILS (stale claim caught in this pass):
+//TODO   - §3.3's heading claims `check:tenant-scoping` "is not in CI" ("STILL LIVE"). This is
+//TODO     FALSE and was already false the day this handover was written: .github/workflows/ci.yml:78
+//TODO     ("Tenant-scoping check (every tenant-table SQL carries tenant_id)" / "run: yarn check:tenant-scoping")
+//TODO     was added in commit c9f5e4f on 2026-07-10 — three weeks before this document's own
+//TODO     creation commit 08cc406 (2026-07-30) — and is present in that very commit's tree, and
+//TODO     still present at HEAD, wired into the `typecheck` job. The "two-line fix" this section
+//TODO     and PRIMARY_CASH_DRAWER_PLAN.md §4 ask for was already done before either document
+//TODO     existed. Do not re-add it; if anything, verify the job is required-status in branch
+//TODO     protection, which is a different (unverified) question this pass did not check.
+//TODO
+//TODO   GATE when picked up: this file itself needs no further action (historical). Any pickup
+//TODO   of §3.2/§3.4/§6 should follow PRIMARY_CASH_DRAWER_PLAN.md §6's open-items list and
+//TODO   CLAUDE.md rules 17-19; re-run `yarn check:tenant-scoping` (already in CI, per correction
+//TODO   above) after any repository SQL edit per rule 14/handover §3.3's original intent.
+-->
+
+**Summary:** This document is historical. The float model it describes in §1 (OMT_System /
+Whish_System as a spendable balance inside the provider's own system) was rejected by the
+owner one day after being described, and was replaced — not abandoned mid-build — by the
+primary-cash-drawer (PCD) model in `PRIMARY_CASH_DRAWER_PLAN.md`, shipped in commit 9553807
+(PR #68). Code evidence confirms the swap is real and complete: the drawer constants, the
+single routing resolver, the gross supplier-ledger formula, the drawer-transfer migration,
+and the FEATURE_GUIDE rewrite all match the successor plan's contract exactly, including the
+two call sites this file's §3.1 flagged as hardcoded to `"General"` (now resolved through
+`resolveServiceCashDrawer`). Nobody should build anything from §1, §2, or §5 of this file —
+read `PRIMARY_CASH_DRAWER_PLAN.md` and `docs/FEATURE_GUIDE.md` §7/§8/§8.1 instead. Three items
+this file calls out as still-live process gaps remain genuinely open regardless of which money
+model is current — the REST role-gate sweep (§3.2), the RECEIVE fee-tier direction gating
+(§3.4), and the money-endpoint idempotency-key gap (§6) — and are worth tracking as their own
+tickets. One claim in this file is stale and should not be re-actioned: §3.3's "`check:tenant-scoping`
+is not in CI" was already false when this document was written — the CI job has existed since
+commit c9f5e4f (2026-07-10), predating this handover by three weeks.

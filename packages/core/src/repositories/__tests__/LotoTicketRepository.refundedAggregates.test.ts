@@ -343,8 +343,6 @@ describe("LotoTicketRepository — refunded-ticket exclusion from aggregates", (
     );
 
     expect(repo.getTotalSales("2026-07-13", "2026-07-13")).toBe(77_000);
-    expect(
-      repo.getUncheckpointedTickets().map((t) => t.id),
-    ).toContain(kept.id);
+    expect(repo.getUncheckpointedTickets().map((t) => t.id)).toContain(kept.id);
   });
 });

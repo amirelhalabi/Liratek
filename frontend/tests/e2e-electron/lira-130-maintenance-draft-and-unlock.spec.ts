@@ -87,9 +87,7 @@ test.describe("LIRA-130 — maintenance CheckoutModal draft + refund unlock", ()
     await appPage.fill("#maintenance-issue", "Cracked screen — draft test");
     await appPage.fill("#maintenance-price", "77");
 
-    await appPage
-      .getByRole("button", { name: /Proceed to Checkout/i })
-      .click();
+    await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
 
     const modal = appPage.locator('[data-testid="checkout-modal"]');
     await expect(modal).toBeVisible({ timeout: 10_000 });
@@ -188,7 +186,11 @@ test.describe("LIRA-130 — maintenance CheckoutModal draft + refund unlock", ()
           paid_usd: args.price,
           paid_lbp: 0,
           payments: [
-            { method: "CUSTOMER_ACCOUNT", currency_code: "USD", amount: args.price },
+            {
+              method: "CUSTOMER_ACCOUNT",
+              currency_code: "USD",
+              amount: args.price,
+            },
           ],
         });
         return {
@@ -274,9 +276,7 @@ test.describe("LIRA-130 — maintenance CheckoutModal draft + refund unlock", ()
       .click();
     const priceField = appPage.locator("#maintenance-price");
     await expect(priceField).toBeDisabled();
-    await expect(
-      appPage.getByText(/Paid job — void or refund/i),
-    ).toBeVisible();
+    await expect(appPage.getByText(/Paid job — void or refund/i)).toBeVisible();
 
     // ── Refund the job's transaction from /audit (the real Refund button) ──
     await navigateTo(appPage, "/audit");

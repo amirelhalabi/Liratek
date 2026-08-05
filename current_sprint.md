@@ -2059,7 +2059,7 @@ the unrelated Profits-page audit. Multi-unit split checkouts book all payment le
 carrier transaction; voiding a single member (carrier or sibling) broke reversal symmetry
 (rule 20). Shipped fix: metadata `split_group` linkage at create time, a void/refund guard on
 group members, atomic `voidCheckoutGroup`, and a "Void entire checkout (N units)" action —
-full design record in `docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md`. Open follow-ups
+full design record in `docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md`. Open follow-ups
 live there (design-A real column when a migration window opens; legacy pre-fix rows
 undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2026-07-21, see above).
 

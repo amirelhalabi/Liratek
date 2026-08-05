@@ -44,9 +44,7 @@ function truncateSummaryDetail(text: string, maxLength = 60): string {
  * `isJobMoneyLocked` below, the actual gate predicate.
  */
 function jobHasActiveTransaction(id: number): boolean {
-  return (
-    getTransactionRepository().getBySourceId("maintenance", id) !== null
-  );
+  return getTransactionRepository().getBySourceId("maintenance", id) !== null;
 }
 
 /**

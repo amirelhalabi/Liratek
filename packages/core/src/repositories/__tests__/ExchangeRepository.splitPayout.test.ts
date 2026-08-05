@@ -284,15 +284,17 @@ describe("ExchangeRepository — split payout", () => {
     expect(balance(db, "General", "LBP")).toBe(0);
     expect(
       (
-        db
-          .prepare("SELECT COUNT(*) AS n FROM exchange_transactions")
-          .get() as { n: number }
+        db.prepare("SELECT COUNT(*) AS n FROM exchange_transactions").get() as {
+          n: number;
+        }
       ).n,
     ).toBe(0);
     expect(
-      (db.prepare("SELECT COUNT(*) AS n FROM transactions").get() as {
-        n: number;
-      }).n,
+      (
+        db.prepare("SELECT COUNT(*) AS n FROM transactions").get() as {
+          n: number;
+        }
+      ).n,
     ).toBe(0);
   });
 
@@ -318,7 +320,11 @@ describe("ExchangeRepository — split payout", () => {
       repo.createTransaction({
         ...BASE_TX,
         payments: [
-          { method: "CUSTOMER_ACCOUNT", currencyCode: "LBP", amount: 20_000_000 },
+          {
+            method: "CUSTOMER_ACCOUNT",
+            currencyCode: "LBP",
+            amount: 20_000_000,
+          },
         ],
       }),
     ).toThrow(/not supported/);

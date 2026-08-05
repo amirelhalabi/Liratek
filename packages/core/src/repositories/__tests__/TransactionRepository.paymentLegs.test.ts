@@ -416,9 +416,7 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
       row.payments.some((p) => p.method === "Katsh" || p.method === "PM_FEE"),
     ).toBe(false);
     expect(row.payments.some((p) => p.method === "TRANSFER")).toBe(false);
-    expect(row.payments.some((p) => p.method === "CREDIT_RETURN")).toBe(
-      false,
-    );
+    expect(row.payments.some((p) => p.method === "CREDIT_RETURN")).toBe(false);
   });
 
   it("OMT SEND: hides the RESERVE settlement leg but now SURFACES the OMT_System debt leg — both are $37 IN under the primary-cash-drawer model (C2, re-derived)", () => {

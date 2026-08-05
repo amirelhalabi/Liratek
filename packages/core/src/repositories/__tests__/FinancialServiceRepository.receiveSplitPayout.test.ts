@@ -302,10 +302,7 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
     // reads beforeOmtUsd + 196 (a CREDIT, and on General instead of here) —
     // the opposite sign and drawer — so this fails on the old code for the
     // right reason.
-    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-      beforeOmtUsd - 190,
-      2,
-    );
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(beforeOmtUsd - 190, 2);
     expect(balance(db, "OMT_System", "LBP")).toBeCloseTo(
       beforeOmtLbp - 540000,
       2,
@@ -333,10 +330,7 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
     // the bare principal debit (f=0, c=0 → PCD leg = −x = −100).
     expect(balance(db, "General", "USD")).toBeCloseTo(beforeGenUsd, 2);
     expect(balance(db, "General", "LBP")).toBeCloseTo(beforeGenLbp, 2);
-    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-      beforeOmtUsd - 100,
-      2,
-    );
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(beforeOmtUsd - 100, 2);
   });
 
   it("does NOT double-debit an OUT (change) leg — it is handled once by the return-leg loop, and both legs land on the PCD", () => {
@@ -380,10 +374,7 @@ describe("FinancialServiceRepository — OMT RECEIVE split-currency cashout", ()
     expect(balance(db, "General", "USD")).toBeCloseTo(beforeGenUsd, 2);
     expect(balance(db, "General", "LBP")).toBeCloseTo(beforeGenLbp, 2);
     // Payout IN leg (100 USD) debited exactly once.
-    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-      beforeOmtUsd - 100,
-      2,
-    );
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(beforeOmtUsd - 100, 2);
     // Return-leg OUT (50,000 LBP) debited exactly once — NOT 100,000 (which
     // is what a double-debit through both the payout loop AND the return-leg
     // loop would produce).

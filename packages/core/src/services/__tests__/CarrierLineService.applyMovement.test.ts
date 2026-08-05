@@ -140,7 +140,10 @@ describe("CarrierLineService.applyMovement (LIRA-090 §5.2/§8)", () => {
   });
 
   it("rejects a missing/blank reason and writes NOTHING", () => {
-    const line = lineRepo.createLine({ carrier: "mtc", phone_number: "03111111" });
+    const line = lineRepo.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+    });
 
     const result = service.applyMovement({
       carrierLineId: line.id,
@@ -155,7 +158,10 @@ describe("CarrierLineService.applyMovement (LIRA-090 §5.2/§8)", () => {
   });
 
   it("rejects an all-zero delta (nothing to apply) and writes NOTHING", () => {
-    const line = lineRepo.createLine({ carrier: "mtc", phone_number: "03111111" });
+    const line = lineRepo.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+    });
 
     const result = service.applyMovement({
       carrierLineId: line.id,

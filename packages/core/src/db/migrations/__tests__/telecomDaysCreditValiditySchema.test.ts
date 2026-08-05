@@ -93,9 +93,7 @@ function tableColumns(db: Database.Database, table: string): string[] {
 function tableExists(db: Database.Database, table: string): boolean {
   return (
     db
-      .prepare(
-        `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
-      )
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
       .get(table) !== undefined
   );
 }
@@ -168,7 +166,9 @@ describe("Migration v141 — add_telecom_days_credit_validity_schema", () => {
         `INSERT INTO carrier_lines (tenant_id, carrier, phone_number) VALUES (1, 'mtc', '71000000')`,
       ).run();
       const row = db
-        .prepare(`SELECT is_primary FROM carrier_lines WHERE phone_number = '71000000'`)
+        .prepare(
+          `SELECT is_primary FROM carrier_lines WHERE phone_number = '71000000'`,
+        )
         .get() as { is_primary: number };
       expect(row.is_primary).toBe(0);
     });
@@ -263,7 +263,9 @@ describe("Migration v141 — add_telecom_days_credit_validity_schema", () => {
       ).run();
 
       const row = db
-        .prepare(`SELECT credits_delta, validity_days_delta, is_reversed FROM carrier_line_movements WHERE carrier_line_id = 1`)
+        .prepare(
+          `SELECT credits_delta, validity_days_delta, is_reversed FROM carrier_line_movements WHERE carrier_line_id = 1`,
+        )
         .get() as {
         credits_delta: number;
         validity_days_delta: number;
@@ -300,7 +302,9 @@ describe("Migration v141 — add_telecom_days_credit_validity_schema", () => {
 
   describe("(d) telecom_credit_sell_price_lbp setting", () => {
     it("seeds 100000 for every existing tenant", () => {
-      db.prepare(`INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`).run();
+      db.prepare(
+        `INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`,
+      ).run();
 
       getMigration(141).up(db);
 

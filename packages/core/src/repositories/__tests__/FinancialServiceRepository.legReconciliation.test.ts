@@ -707,13 +707,13 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
   // ═══════════════════════════════════════════════════════════════════════
   // Cost/price checkout flow (KatchForm bills / FinancialForm catalog carts)
   // — carrier `checkoutTotal` reconciliation (Wave 8, owner decision
-  // 2026-07-18, docs/plans/todo_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md).
+  // 2026-07-18, docs/plans/done_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md).
   //
   // Unlike every branch above, the "required total" here is NOT this
   // transaction's own `price` — a multi-unit cart books ALL of its legs
   // against exactly ONE carrier transaction, while every sibling unit
   // submits `deferPayment: true` and carries no legs at all (see
-  // docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). Reconciling the
+  // docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). Reconciling the
   // carrier's legs against its own `price` would hard-reject every
   // legitimate multi-unit checkout, so the caller instead supplies
   // `checkoutTotal` — the full cart total — and the repository reconciles

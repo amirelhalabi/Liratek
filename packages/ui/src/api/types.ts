@@ -566,9 +566,7 @@ export type ApiAdapter = {
    *  the message string. */
   addOMTTransaction: (
     payload: any,
-  ) => Promise<
-    ApiResult & { id?: number; code?: string; details?: unknown }
-  >;
+  ) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
   /** Generic, reversible cash transfer between any two of the shop's own
    *  drawers (Primary Cash Drawer plan §8.6) — General <-> the primary cash
    *  drawer (OMT_System/Whish_System) is the pair the UI exposes. Replaces
@@ -582,9 +580,7 @@ export type ApiAdapter = {
     amount_lbp: number;
     notes?: string;
     transaction_time?: string;
-  }) => Promise<
-    ApiResult & { id?: number; code?: string; details?: unknown }
-  >;
+  }) => Promise<ApiResult & { id?: number; code?: string; details?: unknown }>;
 
   // ---------------------------------------------------------------------------
   // Maintenance
@@ -866,9 +862,7 @@ export type ApiAdapter = {
   }>;
   /** LIRA-090: designate a line as the primary for its carrier (admin only).
    *  Atomically clears the previous holder. */
-  setPrimaryCarrierLine: (
-    id: number,
-  ) => Promise<CarrierLineWriteResult>;
+  setPrimaryCarrierLine: (id: number) => Promise<CarrierLineWriteResult>;
 
   // ---------------------------------------------------------------------------
   // Mobile Service Items — admin (LIRA W6.b) + LIRA-090

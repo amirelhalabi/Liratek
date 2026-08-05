@@ -28,8 +28,8 @@ import {
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
-  MAX_CREDIT_PER_SMS_USD,
   SMS_TRANSFER_FEE_USD,
+  planSmsTransfer,
 } from "../utils/telecomCredit.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
@@ -741,12 +741,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // is shaved off an LBP amount (currency mixing).
         const rechargeCommission = data.price - data.cost;
         // Carrier SMS rules live in ONE place (rule 14, LIRA-090 spec §2.1) —
-        // utils/telecomCredit.ts. These literals used to be re-declared here,
-        // a second copy of the same 0.16 / 3 the Only-Days credit-return model
-        // uses; same values, so this is behaviour-preserving.
+        // utils/telecomCredit.ts. This now goes through the one SMS transfer
+        // function (planSmsTransfer, TELECOM_DAYS_COST_PLAN.md §9/§6) shared
+        // with the resale decision table's deliveredCostLbp; same ceil(amount
+        // / 3) messages count as before, so this is behaviour-preserving.
         const smsCount =
           data.type === "CREDIT_TRANSFER"
-            ? Math.ceil(data.amount / MAX_CREDIT_PER_SMS_USD)
+            ? planSmsTransfer(data.amount).messages
             : 0;
         const smsCostUsd = smsCount * SMS_TRANSFER_FEE_USD;
         const sellRate = getUsdLbpSellRate(this.db);

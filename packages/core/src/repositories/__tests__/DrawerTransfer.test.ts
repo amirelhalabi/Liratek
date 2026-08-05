@@ -170,9 +170,8 @@ function transactionRowCount(db: Database.Database): number {
 }
 
 function paymentRowCount(db: Database.Database): number {
-  return (
-    db.prepare("SELECT COUNT(*) c FROM payments").get() as { c: number }
-  ).c;
+  return (db.prepare("SELECT COUNT(*) c FROM payments").get() as { c: number })
+    .c;
 }
 
 describe("DrawerTopUpRepository.transferBetweenDrawers()", () => {

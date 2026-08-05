@@ -133,8 +133,14 @@ router.post(
   (req, res) => {
     try {
       const userId = (req as AuthRequest).user!.userId;
-      const { fromDrawer, toDrawer, amount_usd, amount_lbp, notes, transaction_time } =
-        req.body;
+      const {
+        fromDrawer,
+        toDrawer,
+        amount_usd,
+        amount_lbp,
+        notes,
+        transaction_time,
+      } = req.body;
       res.json(
         getDrawerTopUpService().transferBetweenDrawers({
           fromDrawer,

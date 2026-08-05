@@ -221,9 +221,7 @@ export class DrawerTopUpService {
    * error-handling path (switch on `code`) shared with the RECEIVE-payout
    * guard.
    */
-  transferBetweenDrawers(
-    data: TransferBetweenDrawersData,
-  ): DrawerTopUpResult {
+  transferBetweenDrawers(data: TransferBetweenDrawersData): DrawerTopUpResult {
     try {
       if (!data.fromDrawer || !data.fromDrawer.trim()) {
         return { success: false, error: "fromDrawer is required." };

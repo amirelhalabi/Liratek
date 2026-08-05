@@ -153,9 +153,7 @@ type Api = {
           checkpoint?: LotoCheckpoint;
           error?: string;
         }>;
-        get: (
-          id: number,
-        ) => Promise<{
+        get: (id: number) => Promise<{
           success?: boolean;
           checkpoint?: LotoCheckpoint;
           error?: string;
@@ -260,7 +258,11 @@ async function createCheckpoint(page: Page): Promise<LotoCheckpoint> {
       period_start: today,
       period_end: today,
     });
-    return { ok: res.success === true, error: res.error ?? null, checkpoint: res.checkpoint ?? null };
+    return {
+      ok: res.success === true,
+      error: res.error ?? null,
+      checkpoint: res.checkpoint ?? null,
+    };
   });
   expect(result.error).toBeNull();
   expect(result.ok).toBe(true);
@@ -432,7 +434,8 @@ test.describe("LIRA-129 — loto ticket refund", () => {
     const balanceBeforeRefund = await lotoBalance(appPage);
     await clickRefundOnRow(appPage, ticketBNumber);
 
-    const expectedSalesAfter = cpBefore.total_sales - ticketB.ticket!.sale_amount;
+    const expectedSalesAfter =
+      cpBefore.total_sales - ticketB.ticket!.sale_amount;
     const expectedCommissionAfter =
       cpBefore.total_commission - ticketB.ticket!.commission_amount;
     const expectedTicketsAfter = cpBefore.total_tickets - 1;

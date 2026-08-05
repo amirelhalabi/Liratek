@@ -325,7 +325,7 @@ export interface CreateFinancialServiceData {
    * bills/catalog cart flow (KatchForm / FinancialForm) submits ONE
    * legs-carrying CARRIER transaction per checkout — every sibling unit in
    * the same cart submits `deferPayment: true` and carries no legs (see
-   * docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). The carrier's own
+   * docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md). The carrier's own
    * `price` is only ONE unit's share of the cart, so reconciling legs
    * against `price` alone would hard-reject every legitimate multi-unit
    * checkout. `checkoutTotal` is the FULL amount the customer owes for the
@@ -426,7 +426,9 @@ export interface FinancialServiceAnalytics {
  * iPick/Katsh. Transfer summaries and ledger matching keep the raw enum
  * (e2e specs and existing rows match on "WHISH_APP SEND: …").
  */
-function providerDisplayLabel(provider: CreateFinancialServiceData["provider"]): string {
+function providerDisplayLabel(
+  provider: CreateFinancialServiceData["provider"],
+): string {
   switch (provider) {
     case "WHISH_APP":
       return "Whish App";
@@ -590,7 +592,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     return row?.id ?? 1;
   }
 
-  private mapDrawerName(provider: CreateFinancialServiceData["provider"]): string {
+  private mapDrawerName(
+    provider: CreateFinancialServiceData["provider"],
+  ): string {
     switch (provider) {
       case "OMT":
         return "OMT_System";
@@ -848,10 +852,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           serviceType !== "OMT_WALLET" &&
           serviceType !== "ONLINE_BROKERAGE"
         ) {
-          calculatedCommission = calculateCommission(
-            serviceType,
-            data.omtFee,
-          );
+          calculatedCommission = calculateCommission(serviceType, data.omtFee);
         }
       }
 
@@ -873,9 +874,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // the frontend, so it's stored as-is with no tier fallback here).
       const storedWhishFee =
         data.provider === "WHISH"
-          ? (data.whishFee != null
-              ? data.whishFee
-              : (lookupWhishFee(data.amount) ?? null))
+          ? data.whishFee != null
+            ? data.whishFee
+            : (lookupWhishFee(data.amount) ?? null)
           : data.provider === "WHISH_APP"
             ? (data.whishFee ?? null)
             : null;
@@ -1104,9 +1105,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   .prepare(
                     `SELECT name FROM partners WHERE id = ? AND tenant_id = ?`,
                   )
-                  .get(data.partnerId, tenantId) as
-                  | { name: string }
-                  | undefined
+                  .get(data.partnerId, tenantId) as { name: string } | undefined
               )?.name ?? `#${data.partnerId}`
             } [partner]`
           : null,
@@ -1272,7 +1271,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // return leg (classic walk-in change, or a FOR-partner SEND's
             // disbursement OUT legs — see the FOR-partner dispatch below)
             // comes back out of the PCD, not General.
-            const drawerName = resolveServiceCashDrawer(r.method, cashDrawerCtx);
+            const drawerName = resolveServiceCashDrawer(
+              r.method,
+              cashDrawerCtx,
+            );
             insertPayment.run(
               txnId,
               r.method,
@@ -1711,7 +1713,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           }
 
           if (creditAmount > 0) {
-            insertPartnerLedger(forType, creditAmount, creditCurrency, "CREDIT");
+            insertPartnerLedger(
+              forType,
+              creditAmount,
+              creditCurrency,
+              "CREDIT",
+            );
           }
         } else {
           // Bills (serviceType "BILL") without a cost/price pair have no
@@ -1811,7 +1818,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               note,
               createdBy,
             );
-            upsertBalanceDelta.run(paidByDrawer, p.currencyCode, Math.abs(p.amount));
+            upsertBalanceDelta.run(
+              paidByDrawer,
+              p.currencyCode,
+              Math.abs(p.amount),
+            );
           }
 
           // Create debt for any CUSTOMER_ACCOUNT payment legs.
@@ -2187,7 +2198,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   // No structured legs (legacy/scripted callers): single
                   // lump in the service cash currency via the cashout
                   // method's drawer.
-                  const cashoutDrawer = paymentMethodToDrawerName(cashoutMethod);
+                  const cashoutDrawer =
+                    paymentMethodToDrawerName(cashoutMethod);
                   insertPayment.run(
                     txnId,
                     cashoutMethod,
@@ -2197,7 +2209,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                     `${cashoutMethod} paid to customer (Binance RECEIVE)`,
                     createdBy,
                   );
-                  upsertBalanceDelta.run(cashoutDrawer, cashCurrency, -payoutAmount);
+                  upsertBalanceDelta.run(
+                    cashoutDrawer,
+                    cashCurrency,
+                    -payoutAmount,
+                  );
                 }
               }
             }
@@ -2464,9 +2480,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 .prepare(
                   `SELECT id FROM clients WHERE phone_number = ? AND tenant_id = ? LIMIT 1`,
                 )
-                .get(data.phoneNumber, tenantId) as
-                | { id: number }
-                | undefined;
+                .get(data.phoneNumber, tenantId) as { id: number } | undefined;
               const debtClientId = existingClient
                 ? existingClient.id
                 : Number(
@@ -2798,11 +2812,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   `Cash paid to customer (${data.provider} RECEIVE)`,
                   createdBy,
                 );
-                upsertBalanceDelta.run(
-                  fallbackDrawer,
-                  currency,
-                  -payoutAmount,
-                );
+                upsertBalanceDelta.run(fallbackDrawer, currency, -payoutAmount);
               }
             }
           }
@@ -3076,9 +3086,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       if (!(typeof item.credits === "number" && item.credits > 0)) {
         throw new Error(`Item #${item.id} has no credits configured`);
       }
-      if (
-        !(typeof item.validity_days === "number" && item.validity_days > 0)
-      ) {
+      if (!(typeof item.validity_days === "number" && item.validity_days > 0)) {
         throw new Error(`Item #${item.id} has no validity_days configured`);
       }
 
@@ -3271,12 +3279,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
              AND tenant_id = ?
          ORDER BY created_at ASC`,
       )
-      .all(
-        provider,
-        tenantId,
-        provider,
-        tenantId,
-      ) as FinancialServiceEntity[];
+      .all(provider, tenantId, provider, tenantId) as FinancialServiceEntity[];
   }
 
   /**

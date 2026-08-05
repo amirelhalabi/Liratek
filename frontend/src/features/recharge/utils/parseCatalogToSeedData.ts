@@ -6,6 +6,7 @@
  * This function is only called once on first launch (when the DB table is empty).
  */
 
+import { deriveDaysCostLbp, deriveSellDaysLbp } from "@liratek/core";
 import mobileServices from "@/data/mobileServices";
 
 export interface SeedItem {
@@ -19,6 +20,50 @@ export interface SeedItem {
   /** Structured validity (days) / credit amount — LIRA W6.b. */
   validity_days?: number;
   credits?: number;
+  /**
+   * LIRA-090 / TELECOM_DAYS_COST_PLAN.md §4.3: the LBP cost attributable to
+   * validity days alone, `round(cost_lbp - credits * R)`. Computed here (not
+   * re-derived — rule 14) via the ONE shared core function so a fresh install
+   * seeds the same Only-Days split a migration backfills for upgraded shops.
+   * Omitted when the item isn't an Only-Days candidate or the formula's own
+   * guard rejects it (see {@link isOnlyDaysCandidate}).
+   */
+  days_cost_lbp?: number;
+  /**
+   * TELECOM_CREDIT_RATE_PLAN.md: the customer price for a days-only sale,
+   * looked up from the day count via the ONE shared table (rule 14 — never
+   * re-encode the price curve here). Keyed on `validity_days` rather than the
+   * card, because the customer is buying days: two cards granting 30 days sell
+   * those days for the same price even though they cost the shop different
+   * amounts. Omitted for a non-candidate, or for a day count the table does
+   * not cover (it deliberately does not interpolate — the curve is discounted
+   * at the annual, so interpolating would invent an unapproved price).
+   */
+  sell_days_lbp?: number;
+}
+
+/**
+ * An item is an Only-Days candidate only if it genuinely bundles BOTH USD
+ * credit and validity days (plan §1) — a card carrying only one of the two
+ * has nothing to split. `credits` alone is not the test: mtc Prepaid's
+ * `1`/`1.67` and alfa Prepaid's `1.22`/`3.03` carry `credits` but no
+ * validity days, and are explicitly OUT of scope (plan §1.3, "credit-only,
+ * no validity days — nothing to sell as 'days'"). Computing a days_cost for
+ * them would wrongly flip `isTelecomSplitComplete` to true and route their
+ * sales through the Only-Days netting path.
+ *
+ * So the test is simply: does the card carry validity days?
+ *
+ * HISTORY (do not reintroduce): while the alfa cards had no `validity_days`
+ * seeded, this function special-cased `category === "alfa" && sub ===
+ * "Prepaid"` to qualify by category alone, because the generic test would
+ * have excluded all 22 alfa cards. The owner supplied the alfa day counts on
+ * 2026-08-04, so that crutch is gone — and it MUST stay gone: it would now
+ * wrongly qualify `1.22` and `3.03`, the two alfa cards the owner could not
+ * confirm a day count for, which are deliberately credit-only.
+ */
+function isOnlyDaysCandidate(validityDays: number | undefined): boolean {
+  return validityDays !== undefined;
 }
 
 /** Map of provider keys in mobileServices.ts → canonical DB provider name */
@@ -84,20 +129,40 @@ export function parseCatalogToSeedData(): SeedItem[] {
 
             if ("cost" in obj) {
               // It's a { cost, sell } pricing object
+              const costLbp = Number(obj.cost);
+              const validityDays =
+                typeof obj.validity_days === "number"
+                  ? obj.validity_days
+                  : undefined;
+              const credits =
+                typeof obj.credits === "number" ? obj.credits : undefined;
+              const isCandidate =
+                credits !== undefined && isOnlyDaysCandidate(validityDays);
+              const daysCostLbp = isCandidate
+                ? deriveDaysCostLbp(costLbp, credits)
+                : null;
+              // Gated on the SAME candidate test as days_cost: a card that has
+              // nothing to sell as days must not carry a days price either, or
+              // the Settings row would advertise one for a sale that cannot
+              // happen.
+              const sellDaysLbp = isCandidate
+                ? deriveSellDaysLbp(validityDays)
+                : null;
+
               result.push({
                 provider,
                 category: categoryName,
                 subcategory: subName,
                 label: labelOrGroup,
-                cost_lbp: Number(obj.cost),
+                cost_lbp: costLbp,
                 sell_lbp: Number(obj.sell),
                 sort_order: globalSortOrder++,
-                ...(typeof obj.validity_days === "number"
-                  ? { validity_days: obj.validity_days }
+                ...(validityDays !== undefined
+                  ? { validity_days: validityDays }
                   : {}),
-                ...(typeof obj.credits === "number"
-                  ? { credits: obj.credits }
-                  : {}),
+                ...(credits !== undefined ? { credits } : {}),
+                ...(daysCostLbp != null ? { days_cost_lbp: daysCostLbp } : {}),
+                ...(sellDaysLbp != null ? { sell_days_lbp: sellDaysLbp } : {}),
               });
             } else {
               // One level deeper — group of items

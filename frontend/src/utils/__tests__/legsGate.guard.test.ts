@@ -191,7 +191,7 @@ function formatViolation(v: Violation): string {
     `${v.file} [${v.kind}]\n` +
     `  ${v.detail}\n` +
     `  Law: forms forward ALL legs whenever any line exists — never gate on ` +
-    `split; see docs/plans/todo_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md (S1).\n` +
+    `split; see docs/plans/done_plans/PAYMENT_LEGS_INTEGRITY_PLAN.md (S1).\n` +
     `  Fix: replace the isSplitPayment/split-length condition with ` +
     `"paymentLines.length > 0" (plus any return/change legs), matching ` +
     `KatchForm's shape.\n` +

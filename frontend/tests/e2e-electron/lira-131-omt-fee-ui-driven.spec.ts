@@ -69,8 +69,7 @@ async function drawers(
   return page.evaluate(async () => {
     const w = window as unknown as Api;
     const rows = await w.api.recharge.getDrawerBalances();
-    const pick = (n: string) =>
-      rows.find((d) => d.name === n)?.usdBalance ?? 0;
+    const pick = (n: string) => rows.find((d) => d.name === n)?.usdBalance ?? 0;
     return { general: pick("General"), omtSystem: pick("OMT_System") };
   });
 }
@@ -164,7 +163,6 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
     // repository that netted the fee a SECOND time rejected the submit
     // outright, so the assertion above it (`amountInput` cleared) never
     // passed. That failure mode is independent of which drawer receives.
-    
   });
 
   test("RECEIVE with a fee: float FILLS by the full x, customer collects x−f", async ({

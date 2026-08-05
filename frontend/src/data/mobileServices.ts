@@ -20,8 +20,18 @@ export interface ItemPricing {
    * labels this catalog dropped under the A1/LIRA-072 card-face-value rename).
    */
   validity_days?: number;
-  /** Structured credit amount (USD) — LIRA W6.b. Mutually exclusive with
-   *  validity_days on every card that carries one of the two. */
+  /**
+   * Structured credit amount (USD) — LIRA W6.b. `credits` and `validity_days`
+   * are INDEPENDENT attributes, not mutually exclusive: a prepaid card can
+   * carry both (face credit + bundled validity days) at once. This used to be
+   * documented as mutually exclusive when the catalog recorded one attribute
+   * per card; LIRA-090's Only-Days model (see
+   * `docs/plans/todo_plans/TELECOM_DAYS_COST_PLAN.md` §3.2/§4) needs both set
+   * on the same mtc Prepaid item — the customer keeps the days, the credit is
+   * SMSed back — so a card carrying only one of the two stays out of that
+   * split (nothing to return, or no days to sell), but a card carrying both
+   * is the normal case for Only-Days candidates.
+   */
   credits?: number;
 }
 export type ServiceItems = Record<string, ItemPricing> | string[];
@@ -33,14 +43,59 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
   iPick: {
     alfa: {
       Prepaid: {
-        "1.22": { cost: "140000", sell: "0" },
-        "3.03": { cost: "322000", sell: "355000" },
-        "4.5": { cost: "466000", sell: "500000" },
-        "7.58": { cost: "770000", sell: "800000" },
-        "10": { cost: "1000000", sell: "1100000" },
-        "15.15": { cost: "1515000", sell: "1600000" },
-        "22.73": { cost: "2273000", sell: "2400000" },
-        "77.28": { cost: "7728000", sell: "8000000" },
+        // `credits` = the card's face value (owner-confirmed 2026-08-03):
+        // an Alfa prepaid card labelled "3.03" carries $3.03 of credit.
+        // `validity_days` owner-confirmed 2026-08-04 from the Katsh alfa shelf
+        // and applied to all three providers — the same physical Alfa card is
+        // resold through iPick/Katsh/WHISH_APP, so the face value identifies
+        // the validity (the rule migration v135 already used for mtc).
+        // NOTE these differ from the mtc card of the same face value: alfa 4.5
+        // is 10 days where mtc 4.5 is 30. Only 15.15 matches mtc at 60.
+        // `1.22` and `3.03` are deliberately left WITHOUT validity_days: the
+        // owner could not confirm a day count for them (2026-08-04), so they
+        // are treated as credit-only — the alfa equivalent of mtc's `1`/`1.67`
+        // — and are excluded from Only-Days by `isOnlyDaysCandidate`. Giving
+        // them a days_cost would wrongly flip `isTelecomSplitComplete`.
+        // `days_cost_lbp` is derived at seed time from `credits` and the
+        // configured credit rate R (TELECOM_DAYS_COST_PLAN.md §4.3).
+        "1.22": { cost: "140000", sell: "0", credits: 1.22 },
+        "3.03": { cost: "322000", sell: "355000", credits: 3.03 },
+        "4.5": {
+          cost: "466000",
+          sell: "500000",
+          validity_days: 10,
+          credits: 4.5,
+        },
+        "7.58": {
+          cost: "770000",
+          sell: "800000",
+          validity_days: 30,
+          credits: 7.58,
+        },
+        "10": {
+          cost: "1000000",
+          sell: "1100000",
+          validity_days: 30,
+          credits: 10,
+        },
+        "15.15": {
+          cost: "1515000",
+          sell: "1600000",
+          validity_days: 60,
+          credits: 15.15,
+        },
+        "22.73": {
+          cost: "2273000",
+          sell: "2400000",
+          validity_days: 90,
+          credits: 22.73,
+        },
+        "77.28": {
+          cost: "7728000",
+          sell: "8000000",
+          validity_days: 365,
+          credits: 77.28,
+        },
       },
       "Mobile Internet": {
         "1GB": { cost: "340000", sell: "0" },
@@ -127,13 +182,48 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         // unchanged.
         "1": { cost: "120000", sell: "150000", credits: 1 },
         "1.67": { cost: "186000", sell: "220000", credits: 1.67 },
-        "3.79": { cost: "379000", sell: "430000", validity_days: 10 },
-        "4.5": { cost: "450000", sell: "520000", validity_days: 30 },
-        "7.58": { cost: "758000", sell: "850000", validity_days: 30 },
-        "10": { cost: "1000000", sell: "1100000", validity_days: 30 },
-        "15.15": { cost: "1526000", sell: "1650000", validity_days: 60 },
-        "22.73": { cost: "2273000", sell: "2450000", validity_days: 90 },
-        "77.28": { cost: "7728000", sell: "8200000", validity_days: 365 },
+        "3.79": {
+          cost: "379000",
+          sell: "430000",
+          validity_days: 10,
+          credits: 3.79,
+        },
+        "4.5": {
+          cost: "450000",
+          sell: "520000",
+          validity_days: 30,
+          credits: 4.5,
+        },
+        "7.58": {
+          cost: "758000",
+          sell: "850000",
+          validity_days: 30,
+          credits: 7.58,
+        },
+        "10": {
+          cost: "1000000",
+          sell: "1100000",
+          validity_days: 30,
+          credits: 10,
+        },
+        "15.15": {
+          cost: "1526000",
+          sell: "1650000",
+          validity_days: 60,
+          credits: 15.15,
+        },
+        "22.73": {
+          cost: "2273000",
+          sell: "2450000",
+          validity_days: 90,
+          credits: 22.73,
+        },
+        "77.28": {
+          cost: "7728000",
+          sell: "8200000",
+          validity_days: 365,
+          credits: 77.28,
+        },
         start: { cost: "450000", sell: "520000" },
       },
     },
@@ -350,13 +440,50 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
       Prepaid: {
         // Named by the CARD FACE VALUE (printed on the card), not the sell
         // price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
-        "3.03": { cost: "318978", sell: "355000" },
-        "4.5": { cost: "462075", sell: "500000" },
-        "7.58": { cost: "765007", sell: "800000" },
-        "10": { cost: "1003274", sell: "1100000" },
-        "15.15": { cost: "1511601", sell: "1600000" },
-        "22.73": { cost: "2256769", sell: "2400000" },
-        "77.28": { cost: "7620030", sell: "8000000" },
+        // `credits` = that same face value (owner-confirmed 2026-08-03) — the
+        // identical physical Alfa card sold through iPick/WHISH_APP carries the
+        // same credit, so all three channels declare it.
+        // `validity_days` owner-confirmed 2026-08-04 FROM THIS SHELF (Katsh
+        // alfa) and mirrored to iPick/WHISH_APP. `3.03` has no confirmed day
+        // count, so it stays credit-only and out of Only-Days — see the iPick
+        // alfa block for the full rationale.
+        "3.03": { cost: "318978", sell: "355000", credits: 3.03 },
+        "4.5": {
+          cost: "462075",
+          sell: "500000",
+          validity_days: 10,
+          credits: 4.5,
+        },
+        "7.58": {
+          cost: "765007",
+          sell: "800000",
+          validity_days: 30,
+          credits: 7.58,
+        },
+        "10": {
+          cost: "1003274",
+          sell: "1100000",
+          validity_days: 30,
+          credits: 10,
+        },
+        "15.15": {
+          cost: "1511601",
+          sell: "1600000",
+          validity_days: 60,
+          credits: 15.15,
+        },
+        "22.73": {
+          cost: "2256769",
+          sell: "2400000",
+          validity_days: 90,
+          credits: 22.73,
+        },
+        "77.28": {
+          cost: "7620030",
+          sell: "8000000",
+          validity_days: 365,
+          credits: 77.28,
+        },
       },
     },
     mtc: {
@@ -365,13 +492,48 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         // sell price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
         "1": { cost: "119617", sell: "150000", credits: 1 },
         "1.67": { cost: "186071", sell: "235000", credits: 1.67 },
-        "3.79": { cost: "398723", sell: "440000", validity_days: 10 },
-        "4.5": { cost: "462518", sell: "500000", validity_days: 30 },
-        "7.58": { cost: "765007", sell: "800000", validity_days: 30 },
-        "10": { cost: "1003274 ", sell: "1100000", validity_days: 30 },
-        "15.15": { cost: "1509829", sell: "1600000", validity_days: 60 },
-        "22.73": { cost: "2255883", sell: "2400000", validity_days: 90 },
-        "77.28": { cost: "7620030", sell: "8000000", validity_days: 365 },
+        "3.79": {
+          cost: "398723",
+          sell: "440000",
+          validity_days: 10,
+          credits: 3.79,
+        },
+        "4.5": {
+          cost: "462518",
+          sell: "500000",
+          validity_days: 30,
+          credits: 4.5,
+        },
+        "7.58": {
+          cost: "765007",
+          sell: "800000",
+          validity_days: 30,
+          credits: 7.58,
+        },
+        "10": {
+          cost: "1003274 ",
+          sell: "1100000",
+          validity_days: 30,
+          credits: 10,
+        },
+        "15.15": {
+          cost: "1509829",
+          sell: "1600000",
+          validity_days: 60,
+          credits: 15.15,
+        },
+        "22.73": {
+          cost: "2255883",
+          sell: "2400000",
+          validity_days: 90,
+          credits: 22.73,
+        },
+        "77.28": {
+          cost: "7620030",
+          sell: "8000000",
+          validity_days: 365,
+          credits: 77.28,
+        },
         start: { cost: "464290", sell: "500000" },
         startSOS: { cost: "141768", sell: "2000000" },
         smart: { cost: "765547", sell: "800000" },
@@ -553,13 +715,46 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
       Prepaid: {
         // Named by the CARD FACE VALUE (printed on the card), not the sell
         // price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
-        "3.03": { cost: "318978", sell: "355000" },
-        "4.5": { cost: "462075", sell: "500000" },
-        "7.58": { cost: "765007", sell: "800000" },
-        "10": { cost: "1003274 ", sell: "1100000" },
-        "15.15": { cost: "1511601", sell: "1600000" },
-        "22.73": { cost: "2256769", sell: "2400000" },
-        "77.28": { cost: "7620030", sell: "8000000" },
+        // `credits` and `validity_days` (owner-confirmed 2026-08-03/04) kept
+        // identical to the iPick/Katsh alfa blocks — the same physical card.
+        // `3.03` has no confirmed day count and stays credit-only.
+        "3.03": { cost: "318978", sell: "355000", credits: 3.03 },
+        "4.5": {
+          cost: "462075",
+          sell: "500000",
+          validity_days: 10,
+          credits: 4.5,
+        },
+        "7.58": {
+          cost: "765007",
+          sell: "800000",
+          validity_days: 30,
+          credits: 7.58,
+        },
+        "10": {
+          cost: "1003274 ",
+          sell: "1100000",
+          validity_days: 30,
+          credits: 10,
+        },
+        "15.15": {
+          cost: "1511601",
+          sell: "1600000",
+          validity_days: 60,
+          credits: 15.15,
+        },
+        "22.73": {
+          cost: "2256769",
+          sell: "2400000",
+          validity_days: 90,
+          credits: 22.73,
+        },
+        "77.28": {
+          cost: "7620030",
+          sell: "8000000",
+          validity_days: 365,
+          credits: 77.28,
+        },
       },
     },
     mtc: {
@@ -568,13 +763,48 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         // sell price — owner decision 2026-07-03 (A1). Costs/sells unchanged.
         "1": { cost: "119617", sell: "150000", credits: 1 },
         "1.67": { cost: "186071", sell: "235000", credits: 1.67 },
-        "3.79": { cost: "398723", sell: "440000", validity_days: 10 },
-        "4.5": { cost: "462518", sell: "500000", validity_days: 30 },
-        "7.58": { cost: "765007", sell: "800000", validity_days: 30 },
-        "10": { cost: "1003274 ", sell: "1100000", validity_days: 30 },
-        "15.15": { cost: "1509829", sell: "1600000", validity_days: 60 },
-        "22.73": { cost: "2255883", sell: "2400000", validity_days: 90 },
-        "77.28": { cost: "7620030", sell: "8000000", validity_days: 365 },
+        "3.79": {
+          cost: "398723",
+          sell: "440000",
+          validity_days: 10,
+          credits: 3.79,
+        },
+        "4.5": {
+          cost: "462518",
+          sell: "500000",
+          validity_days: 30,
+          credits: 4.5,
+        },
+        "7.58": {
+          cost: "765007",
+          sell: "800000",
+          validity_days: 30,
+          credits: 7.58,
+        },
+        "10": {
+          cost: "1003274 ",
+          sell: "1100000",
+          validity_days: 30,
+          credits: 10,
+        },
+        "15.15": {
+          cost: "1509829",
+          sell: "1600000",
+          validity_days: 60,
+          credits: 15.15,
+        },
+        "22.73": {
+          cost: "2255883",
+          sell: "2400000",
+          validity_days: 90,
+          credits: 22.73,
+        },
+        "77.28": {
+          cost: "7620030",
+          sell: "8000000",
+          validity_days: 365,
+          credits: 77.28,
+        },
         start: { cost: "464290", sell: "500000" },
         startSOS: { cost: "141768", sell: "2000000" },
         smart: { cost: "765547", sell: "800000" },

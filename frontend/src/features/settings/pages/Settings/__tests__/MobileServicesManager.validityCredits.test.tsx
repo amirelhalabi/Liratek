@@ -27,16 +27,11 @@ jest.mock("@liratek/ui", () => ({
 
 // @liratek/core barrel chains db imports that cannot resolve under jsdom.
 // Provide minimal stubs for the three pure telecom helpers used by the component.
-jest.mock("@liratek/core", () => ({
-  isTelecomSplitComplete: () => false,
-  deriveItemEconomics: () => ({
-    creditCostLbp: null,
-    maxReturnedUsd: null,
-    recoveredRateLbp: null,
-    selfChargeRateLbp: null,
-  }),
-  deliveredCostLbp: () => null,
-}));
+// Load the REAL core module (frontend/jest.config.ts maps @liratek/core to
+// browser.ts, so the Node-only DB chain this mock was written to dodge is no
+// longer in the graph). The previous stubs made the component render against
+// behaviour production never has.
+jest.mock("@liratek/core", () => jest.requireActual("@liratek/core"));
 
 const ITEM: MobileServiceItem = {
   id: 1,

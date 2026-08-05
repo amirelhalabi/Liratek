@@ -210,16 +210,11 @@ function setTestDb(db: Database.Database): void {
 }
 
 function clearTestDb(): void {
-  delete (
-    globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
-  ).__LIRATEK_TEST_DB__;
+  delete (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database })
+    .__LIRATEK_TEST_DB__;
 }
 
-function drawer(
-  db: Database.Database,
-  name: string,
-  currency: string,
-): number {
+function drawer(db: Database.Database, name: string, currency: string): number {
   const row = db
     .prepare(
       `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
@@ -514,7 +509,9 @@ describe("ModuleStoreCreditReversal — RechargeRepository / CustomServiceReposi
     expect(drawer(db, "General", "USD")).toBeCloseTo(generalBefore, 2);
 
     const rows = journalRows(db, CLIENT_ID);
-    expect(rows.find((r) => r.transaction_type === "Repayment")?.amount_usd).toBe(-20);
+    expect(
+      rows.find((r) => r.transaction_type === "Repayment")?.amount_usd,
+    ).toBe(-20);
     expect(
       rows.find((r) => r.transaction_type === "Repayment Reversal")?.amount_usd,
     ).toBe(20);
@@ -552,7 +549,9 @@ describe("ModuleStoreCreditReversal — RechargeRepository / CustomServiceReposi
     expect(drawer(db, "General", "USD")).toBeCloseTo(generalBefore, 2);
 
     const rows = journalRows(db, CLIENT_ID);
-    expect(rows.find((r) => r.transaction_type === "Repayment")?.amount_usd).toBe(-20);
+    expect(
+      rows.find((r) => r.transaction_type === "Repayment")?.amount_usd,
+    ).toBe(-20);
     expect(
       rows.find((r) => r.transaction_type === "Repayment Reversal")?.amount_usd,
     ).toBe(20);

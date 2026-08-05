@@ -54,7 +54,12 @@ item and assert its row's `exchange_rate` == the modal rate. Run jest + (user) `
 
 ---
 
-## #3 — UI e2e specs (optional, lower value)
+## #3 — UI e2e specs (optional, lower value) ❌ NOT DONE
+
+> **Validated 2026-08-04:** neither (a) nor (b) exists. ⚠️ The (a) recipe below is **stale** — it
+> names `sessionBorderClass()` / `border-l-4 border-<color>-500`, which **never shipped**. The
+> feature landed as "WS8" using a `data-session` attribute + a `--session-hue` CSS custom property.
+> Use the corrected recipe in **Left TODO** at the bottom of this file, not the one below.
 
 **(a) Per-session border color** — new `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts`:
 
@@ -77,5 +82,67 @@ Skip unless desired. If wanted: assert the recharge page and the Session Checkou
 1. Full gate: `yarn typecheck`, `yarn lint`, `yarn test` (sequential), then `yarn dev`→stop→`yarn test:e2e`.
 2. Commit: `feat(core): thread exchange_rate on non-financial session txns` (#1);
    `test(e2e): session grouping UI` (#3).
-3. **PR** `feat/session-basket-payment` → `main` — coordinate with the LIRA-059 session (both are on
-   this branch; review the interleaved history before merging).
+3. ✅ **DONE — PR merged.** `feat/session-basket-payment` no longer exists; the core feature,
+   `SessionPaymentRepository`/`SessionPaymentService`/`ProfitRepository`, migrations v100–v103 and
+   the session e2e specs are all on `main`. Only step 2's `test(e2e)` half remains (see below).
+
+---
+
+## Left TODO
+
+<!--
+//TODO — Validation pass 2026-08-04. Verdict: NOT fully implemented, so this plan STAYS in
+//TODO   docs/plans/todo_plans/. Everything except #3 shipped; #3 was never started and its
+//TODO   original recipe (above) points at code that does not exist.
+//
+//TODO   VERIFIED DONE (no action needed — do not redo):
+//TODO     - #1 exchange_rate threading: all five repos pass it into createTransaction —
+//TODO       CustomServiceRepository.ts:139, SalesRepository.ts:506,
+//TODO       LotoTicketRepository.ts:191, LotoCashPrizeRepository.ts:86 (both `?? 100000`),
+//TODO       MaintenanceRepository.ts:383 (`opts.exchangeRate`, was already correct).
+//TODO     - lira-session-exchange-rate.spec.ts covers the custom-service case (L110) and the
+//TODO       loto-ticket case (L168), as the #1 done-note claims.
+//TODO     - Branch merged to main; migrations v100–v103 present.
+//
+//TODO   REMAINING — #3(a) per-session border-accent e2e spec. Still worth doing: the accent has
+//TODO   ZERO test coverage (nothing under frontend/ references `data-session`, `--session-hue`,
+//TODO   or `sessionHue` except the component itself), so a refactor that drops the attribute or
+//TODO   the inline style would ship silently.
+//
+//TODO   CORRECTED RECIPE (the #3(a) text above is wrong — read this instead):
+//TODO     File: frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts
+//TODO     1. Route is `/audit` — NOT `/transactions`. AuditPage defaults to the "transactions"
+//TODO        tab (AuditPage.tsx:22), so TransactionsViewer renders without clicking a tab.
+//TODO     2. Setup: reuse the lira-session-basket-payment pattern — start a session, then
+//TODO        `session.checkout` with 2 custom-service items so both rows share one session_id.
+//TODO     3. Assertions — the implementation is an ATTRIBUTE + CSS VAR, not a Tailwind class:
+//TODO          - both rows expose `data-session` (TransactionsViewer.tsx:984 — note the value is
+//TODO            the EMPTY STRING `""`, so match on presence: `tr[data-session]`, never `="1"`).
+//TODO          - both rows carry the same inline `--session-hue`, read via
+//TODO            `getPropertyValue("--session-hue")` on the row's style, or assert the computed
+//TODO            `border-left-color` is equal across the two rows and non-transparent.
+//TODO          - expected hue is derivable: sessionHue(id) = round(abs(id * 137.508)) % 360
+//TODO            (golden angle, TransactionsViewer.tsx:621) — assert the exact value for the
+//TODO            session id the test created.
+//TODO     4. Light + dark: index.css:474 (`.dark tr[data-session]`) and index.css:483
+//TODO        (`html:not(.dark) tr[data-session]`) use DIFFERENT lightness (62% vs 42%). Toggle
+//TODO        the TopBar sun/moon and re-assert `border-left-color` CHANGES while the hue holds.
+//TODO     5. Rule 15 — do NOT grab `tbody tr.first()`. The e2e DB accumulates across specs; match
+//TODO        the rows by the unique custom-service label this spec created.
+//TODO     6. Sandwiched-sibling rows (TransactionsViewer.tsx:1326/1387) get the accent too — an
+//TODO        optional extra case, e.g. a checkout that auto-writes a SUPPLIER_PAYMENT sibling.
+//
+//TODO   REMAINING — #3(b) sell-rate hook spec: intentionally NOT done. The plan itself rates it
+//TODO   "low value; skip unless desired" and `useSellRate` already has unit/integration cover.
+//TODO   Leave it dropped unless the owner asks; it is not a gap.
+//
+//TODO   GATE for #3(a) when picked up: `yarn typecheck`, `yarn lint`, then
+//TODO   `yarn dev` -> STOP IT -> `yarn test:e2e` (jest leaves better-sqlite3 on the Node ABI;
+//TODO   `yarn dev` restores the Electron ABI). Commit as `test(e2e): session grouping UI`.
+//TODO   Once that spec is green, this file has nothing left -> move it to docs/plans/done_plans/.
+-->
+
+**Summary — one item left:** the #3(a) per-session border-accent e2e spec
+(`lira-session-grouping-ui.spec.ts`), written against the real `data-session` + `--session-hue`
+implementation rather than the stale `sessionBorderClass` recipe above. #3(b) is deliberately
+dropped. Everything else in this plan is verified shipped on `main`.

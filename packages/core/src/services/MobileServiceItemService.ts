@@ -47,7 +47,10 @@ function daysCostLbpConsistencyError(candidate: {
   days_cost_lbp: number | null | undefined;
   credits: number | null | undefined;
 }): string | null {
-  if (candidate.days_cost_lbp === null || candidate.days_cost_lbp === undefined) {
+  if (
+    candidate.days_cost_lbp === null ||
+    candidate.days_cost_lbp === undefined
+  ) {
     return null; // No split being configured — always valid (plan §3 decision 5).
   }
 
@@ -245,7 +248,8 @@ export class MobileServiceItemService {
       }
 
       const splitError = daysCostLbpConsistencyError({
-        cost_lbp: data.cost_lbp !== undefined ? data.cost_lbp : existing.cost_lbp,
+        cost_lbp:
+          data.cost_lbp !== undefined ? data.cost_lbp : existing.cost_lbp,
         days_cost_lbp: data.days_cost_lbp,
         credits: data.credits !== undefined ? data.credits : existing.credits,
       });

@@ -1,6 +1,6 @@
 /**
  * E2E: LIRA-124 — carrier-legs void asymmetry, design B+
- * (docs/plans/todo_plans/CARRIER_LEGS_VOID_ASYMMETRY.md)
+ * (docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md)
  *
  * A multi-unit split checkout (KatchForm bills / FinancialForm catalog
  * units) submits ONE unified transaction per unit, but the customer's full

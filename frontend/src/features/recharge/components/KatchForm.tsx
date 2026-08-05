@@ -15,6 +15,7 @@ import {
 import {
   maxReturnableCredits,
   isTelecomSplitComplete,
+  resolveCreditSellPriceLbp,
 } from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -49,9 +50,127 @@ function isTelecomVoucher(item: ServiceItem): boolean {
  * `days_cost_lbp` via `processTelecomCreditReturn` when `mobileServiceItemId`
  * is present. Pre-netting here AND having the repo also credit the
  * MTC/Alfa drawer was a double-count (HANDOFF §B1).
+ *
+ * The COST side is untouched by the owner pricing model below — that model
+ * changes only what the CUSTOMER PAYS (`calcPrice`), never the card's cost.
  */
 function calcCost(item: ServiceItem): number {
   return item.catalogCost ?? 0;
+}
+
+/** Tenant setting key for the credit-price 3-level fallback's 2nd level (LBP
+ *  per $1 of resold credit). Mirrors the constant of the same name/value in
+ *  `MobileServicesManager.tsx`'s resale table — same setting, read here for
+ *  the Only-Days sale price instead of the decision aid. */
+const TELECOM_CREDIT_SELL_PRICE_SETTING_KEY = "telecom_credit_sell_price_lbp";
+
+/** The pricing-only columns of a catalog item, fetched separately from the
+ *  ServiceItem context (`sell_days_lbp`/`sell_credit_lbp` live on
+ *  `mobile_service_items` but the shared `ServiceItem` type doesn't map them
+ *  through — out of scope to widen for this ticket). Keyed by the item's DB
+ *  id in `KatchFormInner`'s `catalogPricing` map. */
+interface CatalogPricingRow {
+  sell_days_lbp: number | null;
+  sell_credit_lbp: number | null;
+}
+
+/** Result of {@link resolveOnlyDaysPricing}. */
+interface OnlyDaysPricingResult {
+  /** False when the catalog item has no `sell_days_lbp` (a day count outside
+   *  the seeded table, or a non-candidate item) — callers MUST fall back to
+   *  the legacy formula (`sellPrice - returnedCredits * sellRate`) rather
+   *  than treat `total` as chargeable. */
+  hasSellDaysPrice: boolean;
+  sellDaysLbp: number | null;
+  creditPriceLbp: number;
+  keptCredits: number;
+  /** `sellDaysLbp + keptCredits * creditPriceLbp`, or `null` when
+   *  `hasSellDaysPrice` is false. */
+  total: number | null;
+}
+
+/**
+ * Owner pricing model (TELECOM_CREDIT_RATE_PLAN.md §Q4, owner-confirmed
+ * 2026-08-05): an Only-Days sale charges
+ *
+ *   total = sell_days_lbp + kept_credits * credit_price
+ *
+ * BOTH components are editable per sale; each defaults from data:
+ *   - `sellDaysLbp` <- the item's own `sell_days_lbp` (seeded from the
+ *     day-count table, migration v147), overridable per line.
+ *   - `creditPriceLbp` <- per-item `sell_credit_lbp`, else the tenant
+ *     setting `telecom_credit_sell_price_lbp`, else
+ *     `DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP` (rule 14 — imported from
+ *     `@liratek/core`, never re-encoded) — same 3-level fallback
+ *     `MobileServicesManager.tsx`'s resale table uses.
+ *
+ * `keptCredits = max(0, maxReturnableCredits(face credits) - returnedCredits)`
+ * — the gap between the card's face value and what SMS transfer can ever
+ * recover is burned by fees, not left usable on the customer's line, so it
+ * is NEVER counted as kept or charged (owner note, TELECOM_DAYS_COST_PLAN
+ * ticket brief). When the operator returns the full recoverable amount
+ * (the default), `keptCredits` is exactly 0 and `total` is just the days
+ * price.
+ *
+ * Returns `hasSellDaysPrice: false` (and `total: null`) whenever the catalog
+ * item has no `sell_days_lbp` — the caller (`calcPrice`) MUST fall back to
+ * today's pricing exactly in that case. A missing days price must never
+ * silently become 0 and hand the customer a free sale.
+ */
+function resolveOnlyDaysPricing(
+  line: Pick<
+    CartLineItem,
+    | "item"
+    | "returnedCreditsUsd"
+    | "sellDaysLbpOverride"
+    | "creditPriceLbpOverride"
+  >,
+  catalogPricing: Map<number, CatalogPricingRow>,
+  tenantCreditSellPriceLbp: number | null,
+): OnlyDaysPricingResult {
+  const entity =
+    line.item.id != null ? catalogPricing.get(line.item.id) : undefined;
+  const catalogSellDaysLbp = entity?.sell_days_lbp ?? null;
+  const sellDaysLbp = line.sellDaysLbpOverride ?? catalogSellDaysLbp;
+  const creditPriceLbp =
+    line.creditPriceLbpOverride ??
+    resolveCreditSellPriceLbp(entity?.sell_credit_lbp, tenantCreditSellPriceLbp);
+
+  // The face credit MUST be known before this model can price kept credit.
+  // Guarding on it is not defensive noise — `maxReturnableCredits(0)` is 0, so
+  // a null `credits` would clamp `keptCredits` to 0 and bill the customer the
+  // bare days price no matter how much credit they walked away with. That
+  // state is reachable: Settings can now save `sell_days_lbp` on an item whose
+  // `credits` was left blank, and nothing enforces the pair. Found by
+  // adversarial review 2026-08-05 and reproduced (operator kept 4 credits,
+  // charge came out at exactly the days price).
+  const faceCredits = line.item.credits ?? null;
+  const hasFaceCredits = typeof faceCredits === "number" && faceCredits > 0;
+  const keptCredits = hasFaceCredits
+    ? Math.max(0, maxReturnableCredits(faceCredits) - line.returnedCreditsUsd)
+    : 0;
+
+  // `applies` gates the MODEL, not the input. It reads the CATALOG value, never
+  // the editable override: gating on the live override let a mid-edit empty
+  // field (DecimalInput emits 0 for "") flip this false and unmount the very
+  // input being typed into, silently dropping the sale back to legacy pricing.
+  // Also found by that review, and also reproduced.
+  const applies = typeof catalogSellDaysLbp === "number" && catalogSellDaysLbp > 0 && hasFaceCredits;
+
+  // A cleared days-price field means "0 for the days", which is a legitimate
+  // thing to charge (a free-days promotion on a kept-credit sale) — it must NOT
+  // fall through to the legacy formula, or clearing the field would silently
+  // change which formula is in force. Only a MISSING catalog price does that.
+  const effectiveSellDays = typeof sellDaysLbp === "number" ? sellDaysLbp : 0;
+  const total = applies ? effectiveSellDays + keptCredits * creditPriceLbp : null;
+
+  return {
+    hasSellDaysPrice: applies,
+    sellDaysLbp,
+    creditPriceLbp,
+    keptCredits,
+    total,
+  };
 }
 
 function calcPrice(
@@ -59,9 +178,16 @@ function calcPrice(
   onlyDays: boolean,
   returnedCredits: number,
   sellRate: number,
+  onlyDaysTotal: number | null,
 ): number {
   const sellPrice = item.catalogSellPrice ?? 0;
-  return onlyDays ? sellPrice - returnedCredits * sellRate : sellPrice;
+  if (!onlyDays) return sellPrice;
+  // Owner pricing model (2026-08-05, resolveOnlyDaysPricing above):
+  // `onlyDaysTotal` is `sell_days_lbp + kept_credits * credit_price` when the
+  // item has a computed days price. FALLBACK: an item with no `sell_days_lbp`
+  // (a day count outside the seeded table, or a non-candidate) keeps TODAY'S
+  // pricing exactly — never let a missing days price become 0.
+  return onlyDaysTotal ?? sellPrice - returnedCredits * sellRate;
 }
 
 // Bill card follows each provider's own brand color (iPick = sky, Katsh =
@@ -104,11 +230,16 @@ interface ItemCardProps {
   isExpanded: boolean;
   onlyDays: boolean;
   returnedCreditsUsd: number;
+  /** Undefined when the item is not in the cart (qty 0) — the pricing panel
+   *  only ever renders when `onlyDays` is true, which implies a cart line. */
+  onlyDaysPricing?: OnlyDaysPricingResult | undefined;
   onCardClick: (item: ServiceItem) => void;
   onQtyDecrease: (item: ServiceItem) => void;
   onQtyIncrease: (item: ServiceItem) => void;
   onOnlyDaysChange: (item: ServiceItem, checked: boolean) => void;
   onReturnedCreditsChange: (item: ServiceItem, value: number) => void;
+  onSellDaysLbpChange: (item: ServiceItem, value: number) => void;
+  onCreditPriceLbpChange: (item: ServiceItem, value: number) => void;
 }
 
 const ItemCard = memo(function ItemCard({
@@ -117,11 +248,14 @@ const ItemCard = memo(function ItemCard({
   isExpanded,
   onlyDays,
   returnedCreditsUsd,
+  onlyDaysPricing,
   onCardClick,
   onQtyDecrease,
   onQtyIncrease,
   onOnlyDaysChange,
   onReturnedCreditsChange,
+  onSellDaysLbpChange,
+  onCreditPriceLbpChange,
 }: ItemCardProps) {
   const cost = item.catalogCost ?? 0;
   const sellPrice = item.catalogSellPrice ?? 0;
@@ -214,41 +348,94 @@ const ItemCard = memo(function ItemCard({
       {qty > 0 && isExpanded && (
         <div className="mt-2 p-3 bg-slate-900 rounded-lg border border-slate-700">
           {isTelecom && (
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 shrink-0">
-                <input
-                  type="checkbox"
-                  id={`onlydays-${item.key}`}
-                  checked={onlyDays}
-                  onChange={(e) => onOnlyDaysChange(item, e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-600 text-orange-500 focus:ring-orange-500 cursor-pointer"
-                />
-                <label
-                  htmlFor={`onlydays-${item.key}`}
-                  className="text-xs text-slate-300 cursor-pointer select-none whitespace-nowrap"
-                >
-                  Only Days
-                </label>
-              </div>
-              {onlyDays && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-xs text-slate-400 whitespace-nowrap">
-                    Credits
-                  </span>
                   <input
-                    type="number"
-                    step="0.5"
-                    min="0"
-                    max={parseFloat(item.label) || 0}
-                    value={returnedCreditsUsd}
-                    onChange={(e) =>
-                      onReturnedCreditsChange(
-                        item,
-                        parseFloat(e.target.value) || 0,
-                      )
-                    }
-                    className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
+                    type="checkbox"
+                    id={`onlydays-${item.key}`}
+                    checked={onlyDays}
+                    onChange={(e) => onOnlyDaysChange(item, e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-600 text-orange-500 focus:ring-orange-500 cursor-pointer"
                   />
+                  <label
+                    htmlFor={`onlydays-${item.key}`}
+                    className="text-xs text-slate-300 cursor-pointer select-none whitespace-nowrap"
+                  >
+                    Only Days
+                  </label>
+                </div>
+                {onlyDays && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs text-slate-400 whitespace-nowrap">
+                      Credits
+                    </span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max={parseFloat(item.label) || 0}
+                      value={returnedCreditsUsd}
+                      onChange={(e) =>
+                        onReturnedCreditsChange(
+                          item,
+                          parseFloat(e.target.value) || 0,
+                        )
+                      }
+                      className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+                )}
+              </div>
+              {/* Owner pricing model (2026-08-05): total = sell_days_lbp +
+                  kept_credits * credit_price — both editable, prefilled from
+                  the catalog. Renders ONLY when the item has a computed days
+                  price; items without one (FALLBACK) keep the plain
+                  Credits input above with no extra panel. */}
+              {onlyDays && onlyDaysPricing?.hasSellDaysPrice && (
+                <div className="flex flex-col gap-1 pt-1.5 border-t border-slate-700/60">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                      Days price
+                    </span>
+                    <DecimalInput
+                      value={onlyDaysPricing.sellDaysLbp ?? 0}
+                      onChange={(n) => onSellDaysLbpChange(item, n)}
+                      decimals={0}
+                      zeroAsEmpty={false}
+                      aria-label="Only-Days price"
+                      className="w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                      Credit price /$
+                    </span>
+                    <DecimalInput
+                      value={onlyDaysPricing.creditPriceLbp}
+                      onChange={(n) => onCreditPriceLbpChange(item, n)}
+                      decimals={0}
+                      zeroAsEmpty={false}
+                      aria-label="Only-Days credit price"
+                      className="w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[11px] text-white text-right font-mono focus:outline-none focus:border-orange-500"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-slate-500">
+                      Kept credits
+                    </span>
+                    <span className="text-[11px] text-slate-300 font-mono">
+                      ${onlyDaysPricing.keptCredits.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-slate-400 font-semibold">
+                      Total
+                    </span>
+                    <span className="text-xs text-emerald-400 font-mono font-semibold">
+                      {(onlyDaysPricing.total ?? 0).toLocaleString()} LBP
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -274,6 +461,22 @@ interface CartLineItem {
    * explicit override that always wins (including 0 — "no credit returned").
    */
   returnedCreditsEdited: boolean;
+  /**
+   * Owner pricing model (2026-08-05): editable override for the Only-Days
+   * sell price. Undefined = use the catalog default
+   * (`resolveOnlyDaysPricing`'s `catalogSellDaysLbp`). Only ever set via
+   * `handleSellDaysLbpChange`, which only fires from a panel that renders
+   * exclusively when the catalog already provides a `sell_days_lbp` — so an
+   * override can never exist on an item the FALLBACK path governs.
+   */
+  sellDaysLbpOverride?: number | undefined;
+  /**
+   * Owner pricing model (2026-08-05): editable override for the LBP price of
+   * $1 of kept credit. Undefined = use the 3-level default (per-item
+   * `sell_credit_lbp` -> the tenant `telecom_credit_sell_price_lbp` setting
+   * -> `DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP`).
+   */
+  creditPriceLbpOverride?: number | undefined;
 }
 
 interface NewItemForm {
@@ -480,6 +683,53 @@ function KatchFormInner({
     }
   }, [showHistory, activeProvider, api]);
 
+  // Only-Days pricing (owner model, 2026-08-05): `sell_days_lbp` /
+  // `sell_credit_lbp` live on `mobile_service_items` but the shared
+  // `ServiceItem` (MobileServiceItemsContext) type never maps them through —
+  // fetched here directly via the dual-mode adapter (rule 19) rather than
+  // widening that shared context, which is out of scope for this ticket.
+  // `getActiveMobileServiceItems` is a public read (no role gate), so this is
+  // safe for every operator, not just admins.
+  const [catalogPricing, setCatalogPricing] = useState<
+    Map<number, CatalogPricingRow>
+  >(new Map());
+  const [tenantCreditSellPriceLbp, setTenantCreditSellPriceLbp] = useState<
+    number | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [items, settings] = await Promise.all([
+          api.getActiveMobileServiceItems(),
+          api.getAllSettings(),
+        ]);
+        if (cancelled) return;
+        const map = new Map<number, CatalogPricingRow>();
+        for (const it of items) {
+          map.set(it.id, {
+            sell_days_lbp: it.sell_days_lbp,
+            sell_credit_lbp: it.sell_credit_lbp,
+          });
+        }
+        setCatalogPricing(map);
+        const row = (
+          settings as Array<{ key_name: string; value: string }>
+        ).find((s) => s.key_name === TELECOM_CREDIT_SELL_PRICE_SETTING_KEY);
+        const value = row ? Number(row.value) : NaN;
+        if (!cancelled && Number.isFinite(value) && value > 0) {
+          setTenantCreditSellPriceLbp(value);
+        }
+      } catch (err) {
+        logger.error("Failed to load Only-Days pricing catalog:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
   // Reset and defer card grid rendering on every provider switch so the shell
   // (search bar + proceed button) paints before the heavy DOM is created.
   useEffect(() => {
@@ -586,6 +836,11 @@ function KatchFormInner({
           // Enabling Only Days resets the "edited" flag — the value above is
           // the computed default, not an operator override.
           returnedCreditsEdited: false,
+          // Owner pricing model (2026-08-05): reset both price overrides too,
+          // so re-toggling Only Days always starts from the catalog defaults
+          // rather than an override left over from a previous toggle.
+          sellDaysLbpOverride: undefined,
+          creditPriceLbpOverride: undefined,
         });
         return next;
       });
@@ -607,6 +862,37 @@ function KatchFormInner({
           returnedCreditsUsd: value,
           returnedCreditsEdited: true,
         });
+        return next;
+      });
+    },
+    [],
+  );
+
+  // Owner pricing model (2026-08-05): editable overrides for the Only-Days
+  // sale price. Both fire only from a panel that renders exclusively when
+  // the catalog already has a `sell_days_lbp` (see ItemCard above) — a line
+  // without one can never acquire an override, which is what keeps the
+  // FALLBACK behaviour airtight.
+  const handleSellDaysLbpChange = useCallback(
+    (item: ServiceItem, value: number) => {
+      setCart((prev) => {
+        const existing = prev.get(item.key);
+        if (!existing) return prev;
+        const next = new Map(prev);
+        next.set(item.key, { ...existing, sellDaysLbpOverride: value });
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleCreditPriceLbpChange = useCallback(
+    (item: ServiceItem, value: number) => {
+      setCart((prev) => {
+        const existing = prev.get(item.key);
+        if (!existing) return prev;
+        const next = new Map(prev);
+        next.set(item.key, { ...existing, creditPriceLbpOverride: value });
         return next;
       });
     },
@@ -641,6 +927,11 @@ function KatchFormInner({
   };
 
   const totalPrice = Array.from(cart.values()).reduce((sum, line) => {
+    const onlyDaysTotal = resolveOnlyDaysPricing(
+      line,
+      catalogPricing,
+      tenantCreditSellPriceLbp,
+    ).total;
     return (
       sum +
       calcPrice(
@@ -648,6 +939,7 @@ function KatchFormInner({
         line.onlyDays,
         line.returnedCreditsUsd,
         alfaCreditSellRate,
+        onlyDaysTotal,
       ) *
         line.quantity
     );
@@ -804,6 +1096,11 @@ function KatchFormInner({
       const cartItems = Array.from(cart.values());
 
       const totalSellPrice = cartItems.reduce((sum, line) => {
+        const onlyDaysTotal = resolveOnlyDaysPricing(
+          line,
+          catalogPricing,
+          tenantCreditSellPriceLbp,
+        ).total;
         return (
           sum +
           calcPrice(
@@ -811,6 +1108,7 @@ function KatchFormInner({
             line.onlyDays,
             line.returnedCreditsUsd,
             alfaCreditSellRate,
+            onlyDaysTotal,
           ) *
             line.quantity
         );
@@ -948,11 +1246,17 @@ function KatchFormInner({
 
       // Store each line item for replay at checkout
       const formDataItems = cartItems.flatMap((line) => {
+        const onlyDaysTotal = resolveOnlyDaysPricing(
+          line,
+          catalogPricing,
+          tenantCreditSellPriceLbp,
+        ).total;
         const sellPrice = calcPrice(
           line.item,
           line.onlyDays,
           line.returnedCreditsUsd,
           alfaCreditSellRate,
+          onlyDaysTotal,
         );
         // LIRA-090 B1: GROSS cost — the session recorder sends it through to the
         // repository unchanged, and the repo nets to days_cost_lbp when
@@ -984,8 +1288,7 @@ function KatchFormInner({
             ? { mobileServiceItemId: line.item.id }
             : {}),
           returnedCreditsUsd:
-            line.onlyDays &&
-            (line.returnedCreditsEdited || !splitComplete)
+            line.onlyDays && (line.returnedCreditsEdited || !splitComplete)
               ? line.returnedCreditsUsd
               : undefined,
           note: `${formatCatalogItemName(line.item)}${line.onlyDays ? " [Only Days]" : ""}`,
@@ -1065,6 +1368,11 @@ function KatchFormInner({
 
       // Aggregate all items into one transaction
       const totalSellPrice = cartItems.reduce((sum, line) => {
+        const onlyDaysTotal = resolveOnlyDaysPricing(
+          line,
+          catalogPricing,
+          tenantCreditSellPriceLbp,
+        ).total;
         return (
           sum +
           calcPrice(
@@ -1072,6 +1380,7 @@ function KatchFormInner({
             line.onlyDays,
             line.returnedCreditsUsd,
             alfaCreditSellRate,
+            onlyDaysTotal,
           ) *
             line.quantity
         );
@@ -1737,11 +2046,22 @@ function KatchFormInner({
                           isExpanded={expandedKeys.has(item.key)}
                           onlyDays={inCart?.onlyDays ?? false}
                           returnedCreditsUsd={inCart?.returnedCreditsUsd ?? 0}
+                          onlyDaysPricing={
+                            inCart
+                              ? resolveOnlyDaysPricing(
+                                  inCart,
+                                  catalogPricing,
+                                  tenantCreditSellPriceLbp,
+                                )
+                              : undefined
+                          }
                           onCardClick={handleCardClick}
                           onQtyDecrease={handleQtyDecrease}
                           onQtyIncrease={handleQtyIncrease}
                           onOnlyDaysChange={handleOnlyDaysChange}
                           onReturnedCreditsChange={handleReturnedCreditsChange}
+                          onSellDaysLbpChange={handleSellDaysLbpChange}
+                          onCreditPriceLbpChange={handleCreditPriceLbpChange}
                         />
                       );
                     })}
