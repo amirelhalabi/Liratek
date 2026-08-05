@@ -30,43 +30,12 @@ const mockGetRates = jest.fn().mockResolvedValue(MOCK_RATES);
 // @liratek/core. That package pulls in Node-only DB modules which jest/jsdom
 // cannot load — mock only the subset KatchForm uses (same faithful copies as in
 // KatchForm.grossCost.test.tsx; the authoritative definition lives in core).
-jest.mock("@liratek/core", () => ({
-  isTelecomSplitComplete: (item: {
-    cost_lbp: number | null | undefined;
-    days_cost_lbp: number | null | undefined;
-    credits: number | null | undefined;
-  }) => {
-    const { cost_lbp, days_cost_lbp, credits } = item;
-    return (
-      typeof cost_lbp === "number" &&
-      Number.isFinite(cost_lbp) &&
-      cost_lbp > 0 &&
-      typeof days_cost_lbp === "number" &&
-      Number.isFinite(days_cost_lbp) &&
-      days_cost_lbp > 0 &&
-      typeof credits === "number" &&
-      Number.isFinite(credits) &&
-      credits > 0 &&
-      days_cost_lbp < cost_lbp
-    );
-  },
-  maxReturnableCredits: (balanceUsd: number) => {
-    if (!Number.isFinite(balanceUsd) || balanceUsd <= 0) return 0;
-    const balanceCents = Math.floor(balanceUsd * 100 + 1e-9);
-    const perMsg = 316;
-    const maxN = Math.ceil(balanceCents / perMsg);
-    let best = 0;
-    for (let n = 0; n <= maxN; n++) {
-      const cap = 300 * n;
-      const surviving = balanceCents - 16 * n;
-      const transferable = Math.min(cap, surviving);
-      if (transferable <= 0) continue;
-      const floored = Math.floor(transferable / 50) * 50;
-      if (floored > best) best = floored;
-    }
-    return best / 100;
-  },
-}));
+// Load the REAL core module. frontend/jest.config.ts maps @liratek/core to
+// packages/core/src/browser.ts, so the Node-only DB chain the old hand-written
+// mock existed to dodge is not in the graph. Re-implementing core helpers in
+// test code is a rule-14 duplication: it lets the suite drift from production
+// and breaks whenever the component imports one more core function.
+jest.mock("@liratek/core", () => jest.requireActual("@liratek/core"));
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
@@ -75,6 +44,10 @@ jest.mock("@liratek/ui", () => ({
     // useAutoPrintReceipt (LIRA-069 W1.d) pulls shop info via useShopInfo(),
     // which calls this on mount.
     getAllSettings: jest.fn().mockResolvedValue([]),
+    // Only-Days pricing model (2026-08-05): KatchForm fetches the catalog's
+    // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — none of
+    // these fixtures carry a computed days price.
+    getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
   }),
 }));
 

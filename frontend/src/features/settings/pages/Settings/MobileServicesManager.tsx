@@ -28,7 +28,7 @@ import {
   isTelecomSplitComplete,
   deriveItemEconomics,
   deliveredCostLbp,
-  DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP,
+  resolveCreditSellPriceLbp,
 } from "@liratek/core";
 
 /** Tenant setting key for the resale table's reference sell price (LBP per
@@ -689,6 +689,59 @@ export default function MobileServicesManager() {
               Cancel
             </button>
           </div>
+          {/* Only-Days split — was missing entirely: handleAddItem already
+              read these three fields from state, so a new item could never
+              be created with a split until these inputs existed. */}
+          <div className="flex items-end gap-3 border-t border-violet-800/30 pt-3">
+            <span className="text-[10px] text-violet-400 font-medium mb-1.5">
+              Only-Days split:
+            </span>
+            <div className="w-28">
+              <label className="text-slate-400 text-xs block mb-1">
+                Days cost (LBP)
+              </label>
+              <DecimalInput
+                value={parseFloat(newItemForm.days_cost_lbp) || 0}
+                onChange={(n) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    days_cost_lbp: n ? String(n) : "",
+                  })
+                }
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-28">
+              <label className="text-slate-400 text-xs block mb-1">
+                Sell days (LBP)
+              </label>
+              <DecimalInput
+                value={parseFloat(newItemForm.sell_days_lbp) || 0}
+                onChange={(n) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    sell_days_lbp: n ? String(n) : "",
+                  })
+                }
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div className="w-28">
+              <label className="text-slate-400 text-xs block mb-1">
+                Sell credit (LBP)
+              </label>
+              <DecimalInput
+                value={parseFloat(newItemForm.sell_credit_lbp) || 0}
+                onChange={(n) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    sell_credit_lbp: n ? String(n) : "",
+                  })
+                }
+                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -1076,6 +1129,29 @@ export default function MobileServicesManager() {
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-xs text-slate-500">
+                                                    Ord:
+                                                  </span>
+                                                  <input
+                                                    type="number"
+                                                    value={editing.sort_order}
+                                                    onChange={(e) =>
+                                                      setEditing({
+                                                        ...editing,
+                                                        sort_order:
+                                                          e.target.value,
+                                                      })
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter")
+                                                        handleSaveEdit();
+                                                      if (e.key === "Escape")
+                                                        setEditing(null);
+                                                    }}
+                                                    className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
+                                                  />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                  <span className="text-xs text-slate-500">
                                                     Val(d):
                                                   </span>
                                                   <input
@@ -1255,21 +1331,78 @@ export default function MobileServicesManager() {
                                             days_cost_lbp: item.days_cost_lbp,
                                             credits: item.credits,
                                           });
-                                        const economics = splitComplete
-                                          ? deriveItemEconomics({
-                                              costLbp: item.cost_lbp,
-                                              daysCostLbp: item.days_cost_lbp,
-                                              creditsUsd: item.credits,
-                                            })
-                                          : null;
+                                        // Safe to call unconditionally —
+                                        // deriveItemEconomics re-runs the same
+                                        // isTelecomSplitComplete guard inside
+                                        // and returns an all-null shape when
+                                        // the split is incomplete, so no
+                                        // separate ternary is needed here.
+                                        const economics = deriveItemEconomics({
+                                          costLbp: item.cost_lbp,
+                                          daysCostLbp: item.days_cost_lbp,
+                                          creditsUsd: item.credits,
+                                        });
                                         // sell_credit_lbp is the reference price for profit calc.
-                                        // 3-level fallback (TELECOM_DAYS_COST_PLAN.md §10 Q5):
-                                        // per-item price -> the tenant's telecom_credit_sell_price_lbp
-                                        // setting -> the named default (spec §2.4).
+                                        // 3-level fallback (per-item -> tenant
+                                        // setting -> named default) lives in ONE
+                                        // place (rule 14): this chain used to be
+                                        // hand-written here AND in KatchForm's
+                                        // sale pricing, which is how the two
+                                        // screens end up disagreeing about what a
+                                        // credit costs. Extracted 2026-08-05.
                                         const sellCreditRef =
-                                          item.sell_credit_lbp ??
-                                          tenantSellPriceLbp ??
-                                          DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP;
+                                          resolveCreditSellPriceLbp(
+                                            item.sell_credit_lbp,
+                                            tenantSellPriceLbp,
+                                          );
+                                        const sellCreditTier =
+                                          item.sell_credit_lbp != null
+                                            ? "per-item"
+                                            : tenantSellPriceLbp != null
+                                              ? "shop setting"
+                                              : "default";
+                                        // Only-Days candidate: any split-related
+                                        // column is populated. Gates the whole
+                                        // economics block so ordinary catalog
+                                        // items (Loto, vouchers, etc.) stay
+                                        // uncluttered.
+                                        const isTelecomCandidate =
+                                          item.credits != null ||
+                                          item.validity_days != null ||
+                                          item.days_cost_lbp != null ||
+                                          item.sell_days_lbp != null ||
+                                          item.sell_credit_lbp != null;
+                                        // isTelecomSplitComplete does not
+                                        // consider sell_days_lbp — it only
+                                        // gates the computed-flow *cost* side
+                                        // (days_cost_lbp/credits) — so a
+                                        // complete split with no days price is
+                                        // a real third state, not a defect in
+                                        // the shared predicate (do not change
+                                        // isTelecomSplitComplete for this).
+                                        const hasDaysPrice =
+                                          item.sell_days_lbp != null &&
+                                          item.sell_days_lbp > 0;
+                                        const splitBadge = !splitComplete
+                                          ? {
+                                              label: "No split",
+                                              cls: "bg-slate-700/40 text-slate-500",
+                                            }
+                                          : hasDaysPrice
+                                            ? {
+                                                label: "Split",
+                                                cls: "bg-emerald-600/20 text-emerald-400",
+                                              }
+                                            : {
+                                                label: "Split, no days price",
+                                                cls: "bg-amber-600/20 text-amber-400",
+                                              };
+                                        const daysMargin =
+                                          item.sell_days_lbp != null &&
+                                          item.days_cost_lbp != null
+                                            ? item.sell_days_lbp -
+                                              item.days_cost_lbp
+                                            : null;
 
                                         return (
                                           <div
@@ -1285,6 +1418,12 @@ export default function MobileServicesManager() {
                                               <div className="flex items-center gap-4 min-w-0">
                                                 <span className="text-sm text-white font-medium w-28 truncate">
                                                   {item.label}
+                                                </span>
+                                                <span
+                                                  className="text-[10px] text-slate-600 font-mono"
+                                                  title="Sort order"
+                                                >
+                                                  #{item.sort_order}
                                                 </span>
                                                 <span className="text-xs text-slate-400 font-mono">
                                                   C:{" "}
@@ -1315,20 +1454,19 @@ export default function MobileServicesManager() {
                                                     ${item.credits} credit
                                                   </span>
                                                 )}
-                                                {/* Split status badge */}
+                                                {/* Split status badge — 3
+                                                    states: isTelecomSplitComplete
+                                                    gates cost/credits only, so
+                                                    "no days price" is derived
+                                                    here rather than folded into
+                                                    that shared predicate. */}
                                                 <span
-                                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                                    splitComplete
-                                                      ? "bg-emerald-600/20 text-emerald-400"
-                                                      : "bg-slate-700/40 text-slate-500"
-                                                  }`}
+                                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${splitBadge.cls}`}
                                                 >
-                                                  {splitComplete
-                                                    ? "Split"
-                                                    : "No split"}
+                                                  {splitBadge.label}
                                                 </span>
                                               </div>
-                                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                              <div className="flex items-center gap-1">
                                                 <button
                                                   onClick={() =>
                                                     handleToggleActive(item)
@@ -1404,11 +1542,141 @@ export default function MobileServicesManager() {
                                                 </button>
                                               </div>
                                             </div>
-                                            {/* §2.4 decision-aid table — visible only when split is complete */}
+                                            {/* Only-Days economics — always
+                                                visible (no longer hover-gated,
+                                                ticket B "stop hiding on
+                                                hover"); shown for any item that
+                                                carries a split-related column
+                                                so plain catalog items (Loto,
+                                                vouchers, etc.) stay
+                                                uncluttered. */}
+                                            {isTelecomCandidate && (
+                                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+                                                <span>
+                                                  Days cost:{" "}
+                                                  <span
+                                                    className={
+                                                      item.days_cost_lbp !=
+                                                      null
+                                                        ? "text-slate-300 font-mono"
+                                                        : "text-slate-600"
+                                                    }
+                                                  >
+                                                    {item.days_cost_lbp != null
+                                                      ? item.days_cost_lbp.toLocaleString()
+                                                      : "—"}
+                                                  </span>
+                                                </span>
+                                                <span>
+                                                  Days sell:{" "}
+                                                  <span
+                                                    className={
+                                                      item.sell_days_lbp !=
+                                                      null
+                                                        ? "text-slate-300 font-mono"
+                                                        : "text-slate-600"
+                                                    }
+                                                  >
+                                                    {item.sell_days_lbp != null
+                                                      ? item.sell_days_lbp.toLocaleString()
+                                                      : "—"}
+                                                  </span>
+                                                </span>
+                                                <span>
+                                                  Days margin:{" "}
+                                                  {daysMargin != null ? (
+                                                    <span
+                                                      className={`font-mono ${
+                                                        daysMargin > 0
+                                                          ? "text-emerald-400"
+                                                          : daysMargin < 0
+                                                            ? "text-red-400"
+                                                            : "text-slate-600"
+                                                      }`}
+                                                    >
+                                                      {daysMargin > 0
+                                                        ? "+"
+                                                        : ""}
+                                                      {daysMargin.toLocaleString()}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-slate-600">
+                                                      —
+                                                    </span>
+                                                  )}
+                                                </span>
+                                                <span>
+                                                  Credit cost:{" "}
+                                                  <span
+                                                    className={
+                                                      economics.creditCostLbp !=
+                                                      null
+                                                        ? "text-slate-300 font-mono"
+                                                        : "text-slate-600"
+                                                    }
+                                                  >
+                                                    {economics.creditCostLbp !=
+                                                    null
+                                                      ? economics.creditCostLbp.toLocaleString()
+                                                      : "—"}
+                                                  </span>
+                                                </span>
+                                                <span>
+                                                  Recovered:{" "}
+                                                  <span
+                                                    className={
+                                                      economics.maxReturnedUsd !=
+                                                      null
+                                                        ? "text-slate-300 font-mono"
+                                                        : "text-slate-600"
+                                                    }
+                                                  >
+                                                    {economics.maxReturnedUsd !=
+                                                    null
+                                                      ? `$${economics.maxReturnedUsd}`
+                                                      : "—"}
+                                                  </span>
+                                                </span>
+                                                <span>
+                                                  Rate/$:{" "}
+                                                  <span
+                                                    className={
+                                                      economics.recoveredRateLbp !=
+                                                      null
+                                                        ? "text-slate-300 font-mono"
+                                                        : "text-slate-600"
+                                                    }
+                                                  >
+                                                    {economics.recoveredRateLbp !=
+                                                    null
+                                                      ? Math.round(
+                                                          economics.recoveredRateLbp,
+                                                        ).toLocaleString()
+                                                      : "—"}
+                                                  </span>
+                                                </span>
+                                                <span>
+                                                  Sell credit:{" "}
+                                                  <span className="text-slate-300 font-mono">
+                                                    {sellCreditRef.toLocaleString()}
+                                                  </span>{" "}
+                                                  <span className="text-slate-600">
+                                                    ({sellCreditTier})
+                                                  </span>
+                                                </span>
+                                              </div>
+                                            )}
+                                            {/* §2.4 decision-aid table — the
+                                                per-chunk delivered-credit cost
+                                                (chunk × LBP cost per $1
+                                                delivered), from deliveredCostLbp
+                                                (rule 14) — visible only when
+                                                the split is complete, since it
+                                                needs a real recoveredRateLbp. */}
                                             {splitComplete &&
-                                              economics?.recoveredRateLbp !=
+                                              economics.recoveredRateLbp !=
                                                 null && (
-                                                <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <div className="mt-1">
                                                   <p className="text-[10px] text-slate-500 mb-0.5">
                                                     Credit resale cost (per $1
                                                     delivered):

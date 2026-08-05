@@ -18,46 +18,13 @@ import type { ProviderConfig } from "../../types";
 // gross-cost and split-gate tests prove real behaviour, not mocked stubs.
 // This is a jest infrastructure necessity — the authoritative definition still
 // lives ONLY in core (rule 14); this copy exists solely to let jsdom run.
-jest.mock("@liratek/core", () => {
-  function isTelecomSplitComplete(item: {
-    cost_lbp: number | null | undefined;
-    days_cost_lbp: number | null | undefined;
-    credits: number | null | undefined;
-  }): boolean {
-    const { cost_lbp, days_cost_lbp, credits } = item;
-    return (
-      typeof cost_lbp === "number" &&
-      Number.isFinite(cost_lbp) &&
-      cost_lbp > 0 &&
-      typeof days_cost_lbp === "number" &&
-      Number.isFinite(days_cost_lbp) &&
-      days_cost_lbp > 0 &&
-      typeof credits === "number" &&
-      Number.isFinite(credits) &&
-      credits > 0 &&
-      days_cost_lbp < cost_lbp
-    );
-  }
-
-  function maxReturnableCredits(balanceUsd: number): number {
-    if (!Number.isFinite(balanceUsd) || balanceUsd <= 0) return 0;
-    const balanceCents = Math.floor(balanceUsd * 100 + 1e-9);
-    const perMsg = 316; // 300 + 16
-    const maxN = Math.ceil(balanceCents / perMsg);
-    let best = 0;
-    for (let n = 0; n <= maxN; n++) {
-      const cap = 300 * n;
-      const surviving = balanceCents - 16 * n;
-      const transferable = Math.min(cap, surviving);
-      if (transferable <= 0) continue;
-      const floored = Math.floor(transferable / 50) * 50;
-      if (floored > best) best = floored;
-    }
-    return best / 100;
-  }
-
-  return { isTelecomSplitComplete, maxReturnableCredits };
-});
+// Load the REAL core module. frontend/jest.config.ts maps @liratek/core to
+// packages/core/src/browser.ts, which excludes the Node-only DB modules that
+// once forced a hand-written mock here. Those hand-copied "faithful copies" of
+// isTelecomSplitComplete / maxReturnableCredits were a rule-14 duplication:
+// they let this suite agree with itself while drifting from production, and
+// they broke as soon as the component imported one more core function.
+jest.mock("@liratek/core", () => jest.requireActual("@liratek/core"));
 
 // ── Capture addOMTTransaction payloads ──────────────────────────────────────
 const mockAddOMTTransaction = jest
@@ -71,6 +38,12 @@ jest.mock("@liratek/ui", () => ({
     getAllSettings: jest.fn().mockResolvedValue([]),
     // createMobileServiceItem is also on useApi() — not called in these tests
     createMobileServiceItem: jest.fn().mockResolvedValue({ success: true }),
+    // Only-Days pricing model (2026-08-05): KatchForm fetches the catalog's
+    // sell_days_lbp/sell_credit_lbp on mount. Empty here on purpose — these
+    // gross-cost tests are about the COST side, untouched by the pricing
+    // model; the pricing panel stays hidden and the legacy price formula
+    // governs (proved separately in KatchForm.onlyDaysPricing.test.tsx).
+    getActiveMobileServiceItems: jest.fn().mockResolvedValue([]),
   }),
 }));
 

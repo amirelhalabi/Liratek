@@ -486,8 +486,9 @@ export const TELECOM_CREDIT_COST_RATE_LBP = 85_000;
  *   `0 < days_cost_lbp < cost_lbp`
  *
  * @example
- * // iPick alfa 77.28 (plan §4.5)
- * deriveDaysCostLbp(7_728_000, 77.28) // → 515,200
+ * // iPick alfa 77.28 at the default rate (85,000):
+ * //   7,728,000 − 77.28 × 85,000 = 7,728,000 − 6,568,800
+ * deriveDaysCostLbp(7_728_000, 77.28) // → 1,159,200
  */
 export function deriveDaysCostLbp(
   costLbp: number,
@@ -555,6 +556,33 @@ export function deriveDaysCostLbp(
  *
  * Full reasoning: `docs/plans/todo_plans/TELECOM_CREDIT_RATE_PLAN.md`.
  */
+/**
+ * Resolve what the shop charges for $1 of credit, walking the agreed fallback
+ * chain: **per-item → tenant setting → named default**.
+ *
+ * Extracted 2026-08-05 (adversarial review, rule 14). This chain was written
+ * out by hand in two places — the Settings resale table and the Only-Days sale
+ * pricing — which is exactly how the two screens end up disagreeing about what
+ * a credit costs after someone "fixes" one of them.
+ *
+ * A non-positive or non-finite value at any tier is treated as absent rather
+ * than accepted: a 0 credit price would silently make retained credit free.
+ *
+ * @param itemSellCreditLbp - the item's own `sell_credit_lbp`, if configured
+ * @param tenantSellPriceLbp - the tenant's `telecom_credit_sell_price_lbp`
+ */
+export function resolveCreditSellPriceLbp(
+  itemSellCreditLbp?: number | null,
+  tenantSellPriceLbp?: number | null,
+): number {
+  const usable = (v: number | null | undefined): v is number =>
+    typeof v === "number" && Number.isFinite(v) && v > 0;
+
+  if (usable(itemSellCreditLbp)) return itemSellCreditLbp;
+  if (usable(tenantSellPriceLbp)) return tenantSellPriceLbp;
+  return DEFAULT_TELECOM_CREDIT_SELL_PRICE_LBP;
+}
+
 export const TELECOM_DAYS_SELL_PRICE_LBP: Readonly<Record<number, number>> =
   Object.freeze({
     10: 100_000,
