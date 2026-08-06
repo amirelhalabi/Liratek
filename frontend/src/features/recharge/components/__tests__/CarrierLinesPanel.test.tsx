@@ -11,12 +11,14 @@ import type { CarrierLineEntity } from "@liratek/ui";
 
 const mockGetActiveCarrierLines = jest.fn();
 const mockUpdateCarrierLineBalance = jest.fn();
+const mockCreateCarrierLine = jest.fn();
 // A STABLE object reference — CarrierLinesPanel's load() is a useCallback
 // depending on [api, carrier]; a factory that returns a fresh object literal
 // on every useApi() call would re-trigger the effect on every render.
 const mockApi = {
   getActiveCarrierLines: mockGetActiveCarrierLines,
   updateCarrierLineBalance: mockUpdateCarrierLineBalance,
+  createCarrierLine: mockCreateCarrierLine,
 };
 
 jest.mock("@liratek/ui", () => ({
@@ -56,13 +58,58 @@ describe("CarrierLinesPanel", () => {
     mockUpdateCarrierLineBalance
       .mockReset()
       .mockResolvedValue({ success: true, data: LINE });
+    mockCreateCarrierLine.mockReset().mockResolvedValue({
+      success: true,
+      data: { ...LINE, id: 2 },
+    });
   });
 
-  it("renders nothing while there are no active lines", async () => {
+  it("shows an '+ Add line' chip (not empty) when there are no active lines", async () => {
     mockGetActiveCarrierLines.mockResolvedValue([]);
-    const { container } = render(<CarrierLinesPanel carrier="mtc" />);
-    await waitFor(() => expect(mockGetActiveCarrierLines).toHaveBeenCalled());
-    expect(container).toBeEmptyDOMElement();
+    render(<CarrierLinesPanel carrier="mtc" />);
+    expect(
+      await screen.findByTestId("add-carrier-line-mtc"),
+    ).toHaveTextContent("+ Add MTC line");
+  });
+
+  it("add-a-line: opens the inline form, requires a phone number, and creates via useApi().createCarrierLine", async () => {
+    mockGetActiveCarrierLines.mockResolvedValue([]);
+    render(<CarrierLinesPanel carrier="mtc" />);
+
+    fireEvent.click(await screen.findByTestId("add-carrier-line-mtc"));
+    expect(
+      await screen.findByTestId("add-carrier-line-form-mtc"),
+    ).toBeInTheDocument();
+
+    // Empty phone number is rejected client-side — no API call.
+    fireEvent.click(screen.getByText("Add"));
+    expect(await screen.findByTestId("add-carrier-line-error")).toHaveTextContent(
+      "Phone number is required",
+    );
+    expect(mockCreateCarrierLine).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByPlaceholderText("03123456"), {
+      target: { value: "03999999" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("30"), {
+      target: { value: "60" },
+    });
+
+    fireEvent.click(screen.getByText("Add"));
+
+    await waitFor(() =>
+      expect(mockCreateCarrierLine).toHaveBeenCalledWith({
+        carrier: "mtc",
+        phone_number: "03999999",
+        label: null,
+        credits: 0,
+        validity_expires_at: todayPlus(60),
+      }),
+    );
+    // Reloads the (now non-empty) list after a successful create.
+    await waitFor(() =>
+      expect(mockGetActiveCarrierLines).toHaveBeenCalledTimes(2),
+    );
   });
 
   it("shows the line's label, credits, and days-remaining", async () => {

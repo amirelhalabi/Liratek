@@ -94,6 +94,21 @@ export default function StepComplete() {
 
   const enabledModuleCount = payload.enabled_modules.length;
 
+  // "MTC + Alfa set" / "MTC only" / "Alfa only" / "Skipped" (Phase 2 spec).
+  // Reads the SAME payload.carrier_lines array setupHandlers.ts persists —
+  // no separate "was it filled in" state to drift from what was actually sent.
+  const carrierLines = payload.carrier_lines ?? [];
+  const hasMtcLine = carrierLines.some((l) => l.carrier === "mtc");
+  const hasAlfaLine = carrierLines.some((l) => l.carrier === "alfa");
+  const carrierLinesSummary =
+    hasMtcLine && hasAlfaLine
+      ? "MTC + Alfa set"
+      : hasMtcLine
+        ? "MTC only"
+        : hasAlfaLine
+          ? "Alfa only"
+          : "Skipped";
+
   return (
     <div className="space-y-6 text-center">
       <div className="flex justify-center">
@@ -168,6 +183,18 @@ export default function StepComplete() {
             {payload.drawer_amounts && payload.drawer_amounts.length > 0
               ? `${payload.drawer_amounts.length} set`
               : "Skipped"}
+          </span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-slate-400">Carrier Lines</span>
+          <span
+            className={
+              carrierLinesSummary === "Skipped"
+                ? "text-slate-500"
+                : "text-emerald-400"
+            }
+          >
+            {carrierLinesSummary}
           </span>
         </div>
       </div>

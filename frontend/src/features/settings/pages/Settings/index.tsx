@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Settings as SettingsIcon, Tag } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import UsersManager from "./UsersManager";
@@ -24,8 +25,48 @@ type TabKey =
   | "mobile-services"
   | "carrier-lines";
 
+/** Every valid tab key — the single source of truth for the `?tab=` deep
+ *  link below, so a new tab automatically becomes a valid deep-link target
+ *  without a second list to maintain (rule 14). */
+const TAB_KEYS: readonly TabKey[] = [
+  "shop",
+  "categories",
+  "notifications",
+  "modules",
+  "currencies",
+  "users",
+  "diagnostics",
+  "integrations",
+  "mobile-services",
+  "carrier-lines",
+];
+
+function isTabKey(value: string | null): value is TabKey {
+  return value != null && (TAB_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * Deep-link mechanism (carrier-lines-validity plan Phase 4): any caller can
+ * navigate here with `?tab=<key>` (e.g. `navigate("/settings?tab=carrier-lines")`
+ * from the Dashboard's carrier-line expiry banner) and land directly on that
+ * tab instead of the "Shop Config" default. Deliberately generic — keyed off
+ * `TAB_KEYS`, not carrier-lines-specific — so any future tab gets the same
+ * deep-link for free.
+ *
+ * Seeded once, in the `useState` initializer, deliberately not re-synced via
+ * a `useEffect` on every `searchParams` change: `/settings` is one of several
+ * distinct top-level routes (see `App.tsx`), so React Router always unmounts
+ * and remounts this component on the way in from elsewhere — the initializer
+ * reruns on every such navigation. A live-sync effect would only matter for a
+ * second deep-link fired while already mounted here, which nothing in this
+ * app does today, and it trips the `react-hooks/set-state-in-effect` rule.
+ */
 export default function Settings() {
-  const [active, setActive] = useState<TabKey>("shop");
+  const [searchParams] = useSearchParams();
+  const [active, setActive] = useState<TabKey>(() => {
+    const tab = searchParams.get("tab");
+    return isTabKey(tab) ? tab : "shop";
+  });
 
   const tabs = [
     { key: "shop", label: "Shop Config" },

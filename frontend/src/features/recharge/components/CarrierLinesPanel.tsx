@@ -1,20 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@liratek/ui";
 import type { CarrierLineEntity } from "@liratek/ui";
+import { daysRemaining } from "@/shared/utils/daysRemaining";
 
 interface CarrierLinesPanelProps {
   carrier: "alfa" | "mtc";
 }
 
-/** Local YYYY-MM-DD for "today" — date-only, no UTC/local shift risk since
- *  we never touch a server timestamp here, only user-picked local dates. */
-function todayDateString(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+const CARRIER_LABEL: Record<"alfa" | "mtc", string> = {
+  mtc: "MTC",
+  alfa: "Alfa",
+};
 
 function addDaysToToday(days: number): string {
   const d = new Date();
@@ -23,16 +19,6 @@ function addDaysToToday(days: number): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-/** Days remaining until a stored YYYY-MM-DD date, date-only (no time-of-day
- *  component on either side, so no timezone drift). Negative = expired. */
-function daysRemaining(dateStr: string): number {
-  const [ty, tm, td] = todayDateString().split("-").map(Number);
-  const [ey, em, ed] = dateStr.split("-").map(Number);
-  const today = Date.UTC(ty, tm - 1, td);
-  const expiry = Date.UTC(ey, em - 1, ed);
-  return Math.round((expiry - today) / 86_400_000);
 }
 
 /** Compact panel: each active line's credits + days-remaining, with an
@@ -49,6 +35,20 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
   const [dateInput, setDateInput] = useState("");
   const [daysInput, setDaysInput] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // ── Add-a-line (only ever shown while this carrier has zero active lines
+  // — §0.5's UI convention of one slot per carrier) ──────────────────────
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createPhone, setCreatePhone] = useState("");
+  const [createLabel, setCreateLabel] = useState("");
+  const [createCredits, setCreateCredits] = useState("0");
+  const [createExpiryMode, setCreateExpiryMode] = useState<"date" | "days">(
+    "days",
+  );
+  const [createDateInput, setCreateDateInput] = useState("");
+  const [createDaysInput, setCreateDaysInput] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,7 +67,167 @@ export function CarrierLinesPanel({ carrier }: CarrierLinesPanelProps) {
   }, [load]);
 
   if (loading) return null;
-  if (lines.length === 0) return null;
+
+  const openCreateForm = () => {
+    setCreatePhone("");
+    setCreateLabel("");
+    setCreateCredits("0");
+    setCreateExpiryMode("days");
+    setCreateDateInput("");
+    setCreateDaysInput("");
+    setCreateError("");
+    setShowCreateForm(true);
+  };
+
+  const closeCreateForm = () => setShowCreateForm(false);
+
+  const handleCreate = async () => {
+    setCreateError("");
+    if (!createPhone.trim()) {
+      setCreateError("Phone number is required");
+      return;
+    }
+    const resolvedDate =
+      createExpiryMode === "days" && createDaysInput.trim() !== ""
+        ? addDaysToToday(Number(createDaysInput))
+        : createExpiryMode === "date" && createDateInput.trim() !== ""
+          ? createDateInput
+          : null;
+
+    setCreating(true);
+    try {
+      // Same createCarrierLine path Settings' CarrierLinesManager uses —
+      // via useApi() (rule 19a), never raw window.api. NOTE (§0.1/§0.5 gap):
+      // this create path does not yet set the provider drawer to
+      // getCarrierCreditsSum(carrier) — see this phase's report for detail;
+      // not fixed here to avoid a second, divergent write.
+      const res = await api.createCarrierLine({
+        carrier,
+        phone_number: createPhone.trim(),
+        label: createLabel.trim() || null,
+        credits: Number(createCredits) || 0,
+        validity_expires_at: resolvedDate,
+      });
+      if (res.success) {
+        setShowCreateForm(false);
+        await load();
+      } else {
+        setCreateError(res.error || "Failed to add line");
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (lines.length === 0) {
+    if (!showCreateForm) {
+      return (
+        <div className="mb-3" data-testid="carrier-lines-panel-empty">
+          <button
+            type="button"
+            onClick={openCreateForm}
+            data-testid={`add-carrier-line-${carrier}`}
+            className="rounded-lg border border-dashed border-slate-600 bg-slate-800/40 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-white hover:bg-slate-800/60 transition-colors"
+          >
+            + Add {CARRIER_LABEL[carrier]} line
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mb-3" data-testid="carrier-lines-panel-empty">
+        <div
+          className="flex flex-col gap-1.5 min-w-[220px] max-w-xs rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs"
+          data-testid={`add-carrier-line-form-${carrier}`}
+        >
+          {createError && (
+            <span className="text-red-400" data-testid="add-carrier-line-error">
+              {createError}
+            </span>
+          )}
+          <div className="flex items-center gap-1">
+            <span className="text-slate-400 w-14 shrink-0">Phone</span>
+            <input
+              type="text"
+              value={createPhone}
+              onChange={(e) => setCreatePhone(e.target.value)}
+              placeholder="03123456"
+              className="flex-1 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-slate-400 w-14 shrink-0">Label</span>
+            <input
+              type="text"
+              value={createLabel}
+              onChange={(e) => setCreateLabel(e.target.value)}
+              placeholder="optional"
+              className="flex-1 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-slate-400 w-14 shrink-0">Credits</span>
+            <input
+              type="number"
+              step="0.01"
+              value={createCredits}
+              onChange={(e) => setCreateCredits(e.target.value)}
+              className="w-20 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() =>
+                setCreateExpiryMode(
+                  createExpiryMode === "days" ? "date" : "days",
+                )
+              }
+              className="text-slate-400 underline shrink-0"
+            >
+              {createExpiryMode === "days" ? "days from today" : "pick date"}
+            </button>
+            {createExpiryMode === "days" ? (
+              <input
+                type="number"
+                min="0"
+                value={createDaysInput}
+                onChange={(e) => setCreateDaysInput(e.target.value)}
+                placeholder="30"
+                className="w-14 bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+              />
+            ) : (
+              <input
+                type="date"
+                value={createDateInput}
+                onChange={(e) => setCreateDateInput(e.target.value)}
+                className="bg-slate-900 border border-slate-600 rounded px-1.5 py-0.5 text-white"
+              />
+            )}
+          </div>
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              disabled={creating}
+              onClick={handleCreate}
+              className="px-2 py-0.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded"
+            >
+              {creating ? "Adding…" : "Add"}
+            </button>
+            <button
+              type="button"
+              onClick={closeCreateForm}
+              disabled={creating}
+              className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const openEdit = (line: CarrierLineEntity) => {
     setEditingId(line.id);

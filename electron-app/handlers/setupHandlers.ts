@@ -17,6 +17,7 @@ import {
   logger,
   getAuditService,
   getCurrentTenantId,
+  getCarrierLineRepository,
 } from "@liratek/core";
 
 export interface SetupPayload {
@@ -33,6 +34,17 @@ export interface SetupPayload {
   extra_users?: { username: string; password: string; role: string }[];
   whatsapp_phone?: string;
   whatsapp_api_key?: string;
+  // Step 6 - Carrier Lines (optional, LIRA carrier-lines-validity Phase 2).
+  // `credits` is the same number the operator typed once for that carrier —
+  // it also becomes that carrier's starting drawer amount (§0.1), applied
+  // separately via the post-login initial checkpoint (StepComplete.tsx).
+  carrier_lines?: {
+    carrier: "mtc" | "alfa";
+    phone_number: string;
+    label?: string | null;
+    credits?: number;
+    validity_expires_at?: string | null;
+  }[];
 }
 
 function hashPassword(password: string): string {
@@ -241,6 +253,32 @@ export function registerSetupHandlers() {
           db.prepare(
             "INSERT OR REPLACE INTO system_settings (tenant_id, key_name, value) VALUES (?, 'whatsapp_api_key', ?)",
           ).run(tenantId, payload.whatsapp_api_key);
+        }
+
+        // 8b. Carrier lines (optional) — LIRA carrier-lines-validity Phase 2.
+        // Goes through CarrierLineRepository.createLine, never a hand-written
+        // INSERT: setup is the path most likely to create a carrier's very
+        // FIRST line, so it must get the same is_primary auto-designation and
+        // BaseRepository tenant scoping every other creation path gets. This
+        // file is excluded from the tenant-scoping linter's scan roots, so a
+        // raw INSERT missing tenant_id here would be invisible to CI. Runs
+        // inside this same db.transaction (better-sqlite3 nests via SAVEPOINT
+        // when a repository's own `this.db.transaction()` is invoked while
+        // already inside one) and strictly before step 9's `setup_complete`
+        // write below.
+        if (payload.carrier_lines && payload.carrier_lines.length > 0) {
+          const carrierLineRepo = getCarrierLineRepository();
+          for (const line of payload.carrier_lines) {
+            const phone = line.phone_number?.trim();
+            if (!phone) continue;
+            carrierLineRepo.createLine({
+              carrier: line.carrier,
+              phone_number: phone,
+              label: line.label ?? null,
+              credits: line.credits ?? 0,
+              validity_expires_at: line.validity_expires_at ?? null,
+            });
+          }
         }
 
         // 9. Mark setup complete — LAST step

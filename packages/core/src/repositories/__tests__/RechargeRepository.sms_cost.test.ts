@@ -364,19 +364,29 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe("Non-CREDIT_TRANSFER types: no SMS deduction", () => {
-    it("does NOT deduct SMS cost for a DAYS recharge", () => {
+    // A DAYS sale posts no SMS_COST leg AND does not consume its `amount` as
+    // credit — `amount` is a DAY COUNT there, so the drawer moves by the days
+    // cost only (CARRIER_LINES_VALIDITY_PLAN.md Phase 0). Pre-fix this read
+    // `before - 10` for a 10-day sale: the day count charged as dollars.
+    // Full coverage of the days-cost leg lives in
+    // RechargeRepository.daysStockCost.test.ts.
+    it("charges a DAYS recharge the days cost, with no SMS_COST leg", () => {
       const before = drawerBalance(db, "MTC", "USD");
       repo.processRecharge({
         provider: "MTC",
         type: "DAYS",
         amount: 10,
-        cost: 8.0,
-        price: 10.0,
+        // What the Days tab submits for 10 days at $0.30: LBP, at the
+        // `alfa_credit_cost_lbp` rate (85,000 — this DB has no
+        // system_settings table, so the named fallback applies).
+        cost: 0.3 * 85_000,
+        price: 100_000,
+        currency: "LBP",
         paid_by_method: "CASH",
         phoneNumber: "03111111",
         userId: 1,
       });
-      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(before - 10, 4);
+      expect(drawerBalance(db, "MTC", "USD")).toBeCloseTo(before - 0.3, 4);
       expect(smsCostPayments(db)).toHaveLength(0);
     });
 

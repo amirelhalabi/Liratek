@@ -1,9 +1,34 @@
 import { useEffect, useState } from "react";
-import { Wallet, Plus, X } from "lucide-react";
+import { Wallet, Plus, X, Smartphone } from "lucide-react";
 import { DecimalInput } from "@liratek/ui";
 import { useSetup } from "../context/SetupContext";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../../closing/config/drawers";
 import type { DrawerType } from "../../closing/types";
+
+// Carrier-line UI slots (LIRA carrier-lines-validity Phase 2, §0.1/§0.5). One
+// slot per carrier — no per-carrier module exists, both map to `recharge`
+// (create_db.sql:1132), so the section is gated on that single module and
+// shows both drawers or neither.
+type CarrierDrawer = "MTC" | "Alfa";
+const CARRIER_LINE_META: Array<{
+  drawer: CarrierDrawer;
+  carrier: "mtc" | "alfa";
+}> = [
+  { drawer: "MTC", carrier: "mtc" },
+  { drawer: "Alfa", carrier: "alfa" },
+];
+
+interface CarrierLineDraft {
+  phone_number: string;
+  label: string;
+  validity_expires_at: string;
+}
+
+const EMPTY_CARRIER_DRAFT: CarrierLineDraft = {
+  phone_number: "",
+  label: "",
+  validity_expires_at: "",
+};
 
 interface CurrencyOption {
   code: string;
@@ -56,6 +81,12 @@ export default function StepDrawerAmounts() {
   >({});
   // All active currencies, for the "add currency" picker.
   const [allCurrencies, setAllCurrencies] = useState<CurrencyOption[]>([]);
+  // Carrier (MTC/Alfa) line drafts — phone/label/validity only. Credits is
+  // NOT duplicated here: it lives solely in `amounts[drawer]["USD"]` (§0.1),
+  // so the line and the carrier's starting drawer amount can never disagree.
+  const [carrierLineDrafts, setCarrierLineDrafts] = useState<
+    Record<string, CarrierLineDraft>
+  >({});
 
   const enabledModules = payload.enabled_modules;
 
@@ -122,6 +153,46 @@ export default function StepDrawerAmounts() {
     }));
   }
 
+  function handleCarrierFieldChange(
+    drawer: CarrierDrawer,
+    field: keyof CarrierLineDraft,
+    value: string,
+  ) {
+    setCarrierLineDrafts((prev) => ({
+      ...prev,
+      [drawer]: { ...(prev[drawer] ?? EMPTY_CARRIER_DRAFT), [field]: value },
+    }));
+  }
+
+  // Only carriers the operator actually typed a phone number for become a
+  // line (D4 — soft nudge, never blocks Launch). Credits come straight from
+  // `amounts[drawer]["USD"]` — the exact same number the drawer grid above
+  // would show for that drawer, so the line and the starting drawer amount
+  // are the same value read twice, never two independently-typed ones.
+  function buildCarrierLines() {
+    const rows: Array<{
+      carrier: "mtc" | "alfa";
+      phone_number: string;
+      label: string | null;
+      credits: number;
+      validity_expires_at: string | null;
+    }> = [];
+    for (const meta of CARRIER_LINE_META) {
+      if (!visibleDrawers.includes(meta.drawer)) continue;
+      const draft = carrierLineDrafts[meta.drawer] ?? EMPTY_CARRIER_DRAFT;
+      const phone = draft.phone_number.trim();
+      if (!phone) continue;
+      rows.push({
+        carrier: meta.carrier,
+        phone_number: phone,
+        label: draft.label.trim() || null,
+        credits: amounts[meta.drawer]?.["USD"] ?? 0,
+        validity_expires_at: draft.validity_expires_at || null,
+      });
+    }
+    return rows;
+  }
+
   function buildDrawerAmounts() {
     const rows: Array<{
       drawer_name: string;
@@ -160,12 +231,17 @@ export default function StepDrawerAmounts() {
     updatePayload({
       drawer_amounts: buildDrawerAmounts(),
       drawer_currency_config: buildDrawerCurrencyConfig(),
+      carrier_lines: buildCarrierLines(),
     });
     setStep(7);
   }
 
   function handleSkip() {
-    updatePayload({ drawer_amounts: [], drawer_currency_config: [] });
+    updatePayload({
+      drawer_amounts: [],
+      drawer_currency_config: [],
+      carrier_lines: [],
+    });
     setStep(7);
   }
 
@@ -189,6 +265,10 @@ export default function StepDrawerAmounts() {
           const extras = extraCurrencies[drawer] ?? [];
           const options = addableCurrencies(drawer);
           const accent = DRAWER_ACCENT[drawer] ?? "slate";
+          // MTC/Alfa's USD amount is entered once, in the Carrier Lines
+          // section below, as that carrier's Credits field (§0.1) — never a
+          // second field here that could disagree with it.
+          const isCarrierDrawer = drawer === "MTC" || drawer === "Alfa";
 
           return (
             <div
@@ -206,37 +286,43 @@ export default function StepDrawerAmounts() {
                   </span>
                 )}
               </div>
-              <div
-                className={`grid gap-3 ${currencies.length <= 1 ? "grid-cols-1 max-w-xs" : "grid-cols-2"}`}
-              >
-                {currencies.map((currency) => (
-                  <div
-                    key={currency}
-                    data-testid={`setup-amount-${drawer}-${currency}`}
-                  >
-                    <label className="text-xs text-slate-400 mb-1 flex items-center justify-between">
-                      <span>{currency}</span>
-                      {extras.includes(currency) && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveExtra(drawer, currency)}
-                          className="text-slate-500 hover:text-red-400 transition-colors"
-                          title={`Remove ${currency}`}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </label>
-                    <DecimalInput
-                      value={amounts[drawer]?.[currency] ?? 0}
-                      onChange={(v) => handleChange(drawer, currency, v)}
-                      decimals={currency === "LBP" ? 0 : 2}
-                      placeholder="0"
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
-                    />
-                  </div>
-                ))}
-              </div>
+              {isCarrierDrawer ? (
+                <p className="text-xs text-slate-500 italic">
+                  Set below in Carrier Lines ↓
+                </p>
+              ) : (
+                <div
+                  className={`grid gap-3 ${currencies.length <= 1 ? "grid-cols-1 max-w-xs" : "grid-cols-2"}`}
+                >
+                  {currencies.map((currency) => (
+                    <div
+                      key={currency}
+                      data-testid={`setup-amount-${drawer}-${currency}`}
+                    >
+                      <label className="text-xs text-slate-400 mb-1 flex items-center justify-between">
+                        <span>{currency}</span>
+                        {extras.includes(currency) && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveExtra(drawer, currency)}
+                            className="text-slate-500 hover:text-red-400 transition-colors"
+                            title={`Remove ${currency}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </label>
+                      <DecimalInput
+                        value={amounts[drawer]?.[currency] ?? 0}
+                        onChange={(v) => handleChange(drawer, currency, v)}
+                        decimals={currency === "LBP" ? 0 : 2}
+                        placeholder="0"
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Add another currency (e.g. EUR) — only on the General till,
                   where physical foreign cash is held. Provider drawers keep
@@ -266,6 +352,121 @@ export default function StepDrawerAmounts() {
           );
         })}
       </div>
+
+      {CARRIER_LINE_META.some((meta) =>
+        visibleDrawers.includes(meta.drawer),
+      ) && (
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-white">
+              Carrier Lines{" "}
+              <span className="text-slate-500 font-normal">(optional)</span>
+            </h3>
+            <p className="text-xs text-slate-400">
+              The shop's own MTC/Alfa SIM line. Credits entered here also set
+              that carrier's starting drawer amount above — one number, never
+              typed twice.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {CARRIER_LINE_META.filter((meta) =>
+              visibleDrawers.includes(meta.drawer),
+            ).map((meta) => {
+              const draft =
+                carrierLineDrafts[meta.drawer] ?? EMPTY_CARRIER_DRAFT;
+              const accent = DRAWER_ACCENT[meta.drawer] ?? "slate";
+
+              return (
+                <div
+                  key={meta.drawer}
+                  data-testid={`setup-carrier-line-${meta.drawer}`}
+                  className={`bg-slate-900 rounded-xl border border-slate-600/40 border-l-4 border-l-${accent}-500 px-4 py-3`}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <Smartphone className={`w-3.5 h-3.5 text-${accent}-400`} />
+                    <span
+                      className={`text-sm font-semibold text-${accent}-400`}
+                    >
+                      {meta.drawer} Line
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-slate-400 mb-1 block">
+                        Phone Number
+                      </label>
+                      <input
+                        type="text"
+                        value={draft.phone_number}
+                        onChange={(e) =>
+                          handleCarrierFieldChange(
+                            meta.drawer,
+                            "phone_number",
+                            e.target.value,
+                          )
+                        }
+                        placeholder="e.g. 03123456"
+                        data-testid={`setup-carrier-phone-${meta.drawer}`}
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 mb-1 block">
+                        Label
+                      </label>
+                      <input
+                        type="text"
+                        value={draft.label}
+                        onChange={(e) =>
+                          handleCarrierFieldChange(
+                            meta.drawer,
+                            "label",
+                            e.target.value,
+                          )
+                        }
+                        placeholder="e.g. Shop Line 1"
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 mb-1 block">
+                        Credits ($)
+                      </label>
+                      <DecimalInput
+                        value={amounts[meta.drawer]?.["USD"] ?? 0}
+                        onChange={(v) => handleChange(meta.drawer, "USD", v)}
+                        decimals={2}
+                        placeholder="0"
+                        data-testid={`setup-carrier-credits-${meta.drawer}`}
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 mb-1 block">
+                        Validity Expires
+                      </label>
+                      <input
+                        type="date"
+                        value={draft.validity_expires_at}
+                        onChange={(e) =>
+                          handleCarrierFieldChange(
+                            meta.drawer,
+                            "validity_expires_at",
+                            e.target.value,
+                          )
+                        }
+                        data-testid={`setup-carrier-validity-${meta.drawer}`}
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-between pt-2">
         <button

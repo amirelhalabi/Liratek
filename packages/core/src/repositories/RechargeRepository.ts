@@ -5,6 +5,7 @@
  * Uses recharges and drawer_balances tables.
  */
 
+import type Database from "better-sqlite3";
 import { BaseRepository } from "./BaseRepository.js";
 import { rechargeLogger } from "../utils/logger.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
@@ -171,6 +172,145 @@ function rechargeDetailLabel(
   const label = RECHARGE_TYPE_LABELS[type] ?? type;
   const amountDetail = describeRechargeAmount(type, amount);
   return amountDetail ? `${label} ${amountDetail}` : label;
+}
+
+// =============================================================================
+// Provider credit-stock consumption (CARRIER_LINES_VALIDITY_PLAN.md Phase 0)
+// =============================================================================
+
+/**
+ * The setting key the Days tab's LBP conversion actually uses. Settings → Shop
+ * Config writes it (`ShopConfig.tsx`) and both telecom submit paths read it
+ * (`Recharge/index.tsx`, `TelecomForm.tsx` — `alfaCreditCostRate`).
+ *
+ * **Not `telecom_credit_cost_rate_lbp`.** Those two keys hold the same number
+ * today and that is deliberate, not redundant — see the note on
+ * `TELECOM_CREDIT_COST_RATE_LBP` in utils/telecomCredit.ts. One is the cost of
+ * credit bought DIRECTLY as a top-up (this one), the other the cost of credit
+ * that arrives EMBEDDED in a prepaid card. Nothing keeps them in sync, so
+ * inverting at the wrong one silently breaks the moment an owner edits Shop
+ * Config.
+ */
+// NOTE the key: `alfa_credit_cost_lbp`, NOT `telecom_credit_cost_rate_lbp`.
+// Both exist, both sit near 85,000, and they are deliberately separate — see
+// migration v141's note ("named distinctly from the existing
+// alfa_credit_sell_rate_lbp / alfa_credit_cost_rate_lbp / alfa_credit_cost_lbp
+// keys"). `telecom_credit_cost_rate_lbp` is the card-embedded credit rate (R)
+// used to split an Only-Days item's cost; this one is the Alfa/MTC direct
+// credit rate the Days tab multiplies by. Inverting at the wrong one is
+// lossless only while the two happen to hold equal values, and silently wrong
+// the moment an owner edits Shop Config.
+const ALFA_CREDIT_COST_RATE_SETTING = "alfa_credit_cost_lbp";
+
+/**
+ * The frontend's own hardcoded fallback when the setting is unset
+ * (`alfaCreditCostRate || 85000` / `useState(85000)`). Duplicated here on
+ * purpose rather than aliased to `TELECOM_CREDIT_COST_RATE_LBP`: that
+ * constant has been re-anchored before (migration v146 moved it from 93,333.33
+ * to 85,000) and re-anchoring it again must NOT silently make this inversion
+ * disagree with what the form multiplied by.
+ */
+const ALFA_CREDIT_COST_RATE_FALLBACK_LBP = 85_000;
+
+/**
+ * The tenant's cost of $1 of telecom credit in LBP, resolved through the SAME
+ * chain the Recharge page uses before it multiplies the Days tab's `Cost ($)`
+ * field by it (`cost = parseFloat(telecomDaysCostUsd) * (alfaCreditCostRate ||
+ * 85000)`).
+ *
+ * Dividing by this exact rate is what makes the LBP→USD inversion below
+ * lossless. The USD/LBP *sell* rate is a different number, so inverting at it
+ * would debit the provider drawer an amount the operator never saw on screen —
+ * which is precisely what plan §0.3 forbids, since the Cost field is editable.
+ *
+ * Defensive in the same style as `getUsdLbpSellRate`: a missing table/row or an
+ * unusable value falls back to the named default rather than throwing inside a
+ * money transaction.
+ */
+function getAlfaCreditCostRateLbp(
+  db: Database.Database,
+  tenantId: number,
+): number {
+  try {
+    const row = db
+      .prepare(
+        `SELECT value FROM system_settings
+         WHERE key_name = ? AND tenant_id = ?`,
+      )
+      .get(ALFA_CREDIT_COST_RATE_SETTING, tenantId) as
+      | { value?: string | null }
+      | undefined;
+    const parsed = Number(row?.value);
+    return Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : ALFA_CREDIT_COST_RATE_FALLBACK_LBP;
+  } catch {
+    return ALFA_CREDIT_COST_RATE_FALLBACK_LBP;
+  }
+}
+
+/** One negative USD movement against the provider (MTC/Alfa) credit drawer. */
+interface TelecomStockLeg {
+  /** `payments.method` — the carrier for a credit send, a distinct marker
+   *  otherwise (mirrors the `SMS_COST` leg's labelling). */
+  method: string;
+  /** Signed USD delta (always ≤ 0 here). */
+  amountUsd: number;
+  note: string;
+}
+
+/**
+ * Which USD figure leaves the provider credit drawer for a given recharge type,
+ * and how that leg is labelled. Returns `null` when the type consumes nothing.
+ *
+ * **`data.amount` is not always dollars.** It is the USD face value of the
+ * credit sent for every type EXCEPT `DAYS`, where it is a **day count** (see
+ * `describeRechargeAmount` above). The pre-fix code applied
+ * `-Math.abs(data.amount)` unconditionally, so selling 30 days debited the MTC
+ * drawer $30.00 instead of the $0.90 the three SMSes actually cost — a 33x
+ * over-deduction (owner ruling 2026-08-06: each SMS adds 10 days and costs the
+ * shop $0.30; the shop's own validity never moves).
+ *
+ * The days figure comes from the operator-submitted cost, already converted to
+ * USD by the caller — never recomputed from the day count, because the Days
+ * tab's `Cost ($)` field is editable and a recomputed drawer debit would
+ * disagree with the profit stamp on the same sale (plan §0.3).
+ *
+ * Exhaustive by construction: every member of `RechargeData["type"]` has its
+ * own arm and there is deliberately no `default`, so adding a type fails the
+ * build here (missing return) instead of silently inheriting the wrong unit.
+ */
+function telecomStockLeg(args: {
+  type: RechargeData["type"];
+  /** Carrier label used as the `method` on a credit-send leg. */
+  carrier: string;
+  /** `data.amount` — USD face value, or a DAY COUNT when type is `DAYS`. */
+  amount: number;
+  /** The DAYS cost in USD (already inverted from the submitted cost). */
+  daysCostUsd: number;
+}): TelecomStockLeg | null {
+  switch (args.type) {
+    case "CREDIT_TRANSFER":
+    case "VOUCHER":
+    case "TOP_UP":
+    case "ALFA_GIFT":
+      // `amount` is USD face value — consumed from the credit stock 1:1.
+      return {
+        method: args.carrier,
+        amountUsd: -Math.abs(args.amount),
+        note: "Telecom balance sent",
+      };
+    case "DAYS": {
+      // The day count contributes ZERO. Only the days cost moves the drawer.
+      const cost = Math.abs(args.daysCostUsd);
+      if (!Number.isFinite(cost) || cost <= 0) return null;
+      return {
+        method: "VALIDITY_DAYS_COST",
+        amountUsd: -cost,
+        note: `Validity days cost: ${args.amount} days`,
+      };
+    }
+  }
 }
 
 // =============================================================================
@@ -787,18 +927,39 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           hasDebt = true;
         }
 
-        // Telecom balance consumed (shop number stock — always in USD credits)
-        const stockDelta = -Math.abs(data.amount);
-        insertPayment.run(
-          txnId,
-          data.provider === "MTC" ? "MTC" : "Alfa",
-          providerDrawerName,
-          "USD",
-          stockDelta,
-          "Telecom balance sent",
-          createdBy,
-        );
-        upsertBalanceDelta.run(providerDrawerName, "USD", stockDelta);
+        // Telecom balance consumed (shop number stock — always in USD credits).
+        // WHICH figure leaves the drawer depends on the type: `data.amount` is
+        // USD face value for a credit send, but a DAY COUNT for DAYS — see
+        // telecomStockLeg. For DAYS the debit is the operator-submitted cost,
+        // inverted to USD at the SAME telecom credit-cost rate the Days tab
+        // multiplied by (plan §0.3), never at the USD/LBP sell rate.
+        const daysCostUsd =
+          data.type === "DAYS"
+            ? currency === "LBP"
+              ? Math.abs(data.cost) /
+                getAlfaCreditCostRateLbp(this.db, tenantId)
+              : Math.abs(data.cost)
+            : 0;
+        const stockLeg = telecomStockLeg({
+          type: data.type,
+          // Same string as the drawer — the credit-send leg has always been
+          // labelled with the carrier (one derivation, not two).
+          carrier: providerDrawerName,
+          amount: data.amount,
+          daysCostUsd,
+        });
+        if (stockLeg) {
+          insertPayment.run(
+            txnId,
+            stockLeg.method,
+            providerDrawerName,
+            "USD",
+            stockLeg.amountUsd,
+            stockLeg.note,
+            createdBy,
+          );
+          upsertBalanceDelta.run(providerDrawerName, "USD", stockLeg.amountUsd);
+        }
 
         // SMS cost deduction: each CREDIT_TRANSFER requires SMSes to send credits
         if (data.type === "CREDIT_TRANSFER" && smsCostUsd > 0) {

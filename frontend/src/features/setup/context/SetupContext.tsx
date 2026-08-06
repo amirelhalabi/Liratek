@@ -38,6 +38,17 @@ export interface SetupPayload {
     drawer_name: string;
     currency_codes: string[];
   }>;
+  // Step 6 - Carrier Lines (optional, LIRA carrier-lines-validity Phase 2).
+  // The shop's own MTC/Alfa SIM line(s), collected alongside drawer amounts.
+  // `credits` is the SAME value the operator typed into the carrier's
+  // drawer_amounts entry (§0.1) — never a second, independently-typed number.
+  carrier_lines?: Array<{
+    carrier: "mtc" | "alfa";
+    phone_number: string;
+    label?: string | null;
+    credits?: number;
+    validity_expires_at?: string | null;
+  }>;
   // Step 3 - Database path (optional, network mode)
   database_path?: string | null;
   database_type?: "local" | "network";

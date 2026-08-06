@@ -22,6 +22,7 @@ import { PaymentSheet } from "./PaymentSheet";
 import { CardGridPayView, type CardGridPayItem } from "./CardGridPayView";
 import { CarrierLinesPanel } from "./CarrierLinesPanel";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
+import { snapValidityDaysUp } from "../utils/validityDays";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { convertLBPToUSD } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -534,6 +535,17 @@ export function TelecomForm({
                     type="number"
                     value={telecomAmount}
                     onChange={(e) => onTelecomAmountChange(e.target.value)}
+                    onBlur={(e) => {
+                      // Days are sold by SMS, 10 days each — snap free text up
+                      // to the next whole block so the quantity, the prorated
+                      // cost and what the carrier actually delivers agree
+                      // (CARRIER_LINES_VALIDITY_PLAN.md §0.2). The Quick Days
+                      // buttons are already multiples of 10.
+                      if (rechargeType !== "DAYS") return;
+                      const snapped = snapValidityDaysUp(e.target.value);
+                      if (snapped !== e.target.value)
+                        onTelecomAmountChange(snapped);
+                    }}
                     className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl ${rechargeType !== "DAYS" ? "pl-9" : "pl-4"} pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
                     placeholder={rechargeType === "DAYS" ? "0" : "0.00"}
                   />

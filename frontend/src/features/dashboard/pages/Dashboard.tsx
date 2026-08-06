@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   appEvents,
   PageHeader,
@@ -7,7 +8,7 @@ import {
   ServiceTypeTabs,
   DataTable,
 } from "@liratek/ui";
-import type { ServiceTypeOption } from "@liratek/ui";
+import type { ServiceTypeOption, CarrierLineEntity } from "@liratek/ui";
 import {
   Clock,
   BarChart2,
@@ -20,6 +21,7 @@ import {
   ClipboardCheck,
   Banknote,
   HandCoins,
+  Phone,
 } from "lucide-react";
 import { DrawerTopUpModal } from "../components/DrawerTopUpModal";
 import { DrawerCashoutModal } from "../components/DrawerCashoutModal";
@@ -31,6 +33,10 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopBase } from "@/hooks/useShopBase";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localMonth } from "@/shared/utils/localDay";
+import {
+  computeCarrierLineAlerts,
+  carrierLineAlertText,
+} from "../utils/carrierLineAlerts";
 
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
 
@@ -192,6 +198,7 @@ function stalenessTextColor(iso: string | null): string {
 
 export default function Dashboard() {
   const api = useApi();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { formatAmount, getSymbol } = useCurrencyContext();
   const { isModuleEnabled } = useModules();
@@ -323,6 +330,9 @@ export default function Dashboard() {
   const [unsettledSummary, setUnsettledSummary] = useState<UnsettledSummary[]>(
     [],
   );
+  /** Active carrier lines, every carrier — feeds the expiry/missing-line
+   *  banner (D11 / D4). Non-critical: a failed fetch just means no banner. */
+  const [carrierLines, setCarrierLines] = useState<CarrierLineEntity[]>([]);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [showCashOutModal, setShowCashOutModal] = useState(false);
   const [initialBalancesSet, setInitialBalancesSet] = useState(true);
@@ -418,6 +428,15 @@ export default function Dashboard() {
       try {
         const unsettled = await api.getUnsettledSummary();
         if (Array.isArray(unsettled)) setUnsettledSummary(unsettled);
+      } catch {
+        // non-critical
+      }
+
+      // Load active carrier lines (non-critical — feeds the expiry/missing-
+      // line banner, D11/D4). Dual-mode via useApi() — no window.api gate.
+      try {
+        const carrierLinesData = await api.getAllActiveCarrierLines();
+        if (Array.isArray(carrierLinesData)) setCarrierLines(carrierLinesData);
       } catch {
         // non-critical
       }
@@ -539,6 +558,13 @@ export default function Dashboard() {
       offHold();
     };
   }, [loadData, refreshStartingCheckpoint]);
+
+  // Carrier-line expiry / missing-line banner (D11 + D4) — pure derivation
+  // from the loaded lines + whether the shared `recharge` module is on.
+  const carrierLineAlerts = useMemo(
+    () => computeCarrierLineAlerts(carrierLines, isModuleEnabled("recharge")),
+    [carrierLines, isModuleEnabled],
+  );
 
   // Financial Metrics (Row 1)
   const financialCards = [
@@ -818,6 +844,31 @@ export default function Dashboard() {
             </div>
             <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
               Record now →
+            </span>
+          </button>
+        )}
+
+        {/* Carrier-line expiry / missing-line banner (D11: <=7 days or
+            expired; D4: an enabled carrier with zero active lines) — deep
+            links into Settings' Carrier Lines tab via the ?tab= mechanism */}
+        {carrierLineAlerts.length > 0 && (
+          <button
+            onClick={() => navigate("/settings?tab=carrier-lines")}
+            className="flex items-center gap-3 w-full px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-left hover:bg-amber-500/15 transition-colors group"
+          >
+            <Phone className="w-5 h-5 text-amber-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-300">
+                {carrierLineAlerts.length > 1
+                  ? "Carrier lines need attention"
+                  : "Carrier line needs attention"}
+              </p>
+              <p className="text-xs text-amber-400/70 truncate">
+                {carrierLineAlerts.map(carrierLineAlertText).join(" · ")}
+              </p>
+            </div>
+            <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
+              Review →
             </span>
           </button>
         )}
