@@ -300,11 +300,8 @@ describe("SessionCheckoutModal — payout method select (BIDIRECTIONAL_PAYMENT_L
 
       await waitFor(() => {
         expect(
-          (
-            screen.getByTestId(
-              "payout-method-select-USD",
-            ) as HTMLSelectElement
-          ).value,
+          (screen.getByTestId("payout-method-select-USD") as HTMLSelectElement)
+            .value,
         ).toBe("CUSTOMER_ACCOUNT");
       });
 

@@ -94,8 +94,7 @@ export function splitBasketCashSides(
       const fd = item.formData ?? {};
       const includingFees = fd.includingFees === true;
       if (!includingFees) {
-        const rawFee =
-          item.module === "omt_system" ? fd.omtFee : fd.whishFee;
+        const rawFee = item.module === "omt_system" ? fd.omtFee : fd.whishFee;
         const fee = typeof rawFee === "number" && rawFee > 0 ? rawFee : 0;
         if (fee > 0) {
           if (item.currency === "USD") chargeUsd += fee;

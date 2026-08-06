@@ -552,7 +552,9 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
       cashoutMethod: "CASH",
       clientName: "Fee Customer",
       phoneNumber: "70111111",
-      feePayments: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 5 }],
+      feePayments: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 5 },
+      ],
       exchangeRate: 90000,
     });
 
@@ -715,7 +717,9 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   });
 
   it("(l) THROUGH-partner RECEIVE + feePayments throws before any row is written (§6bis finding 1)", () => {
-    db.prepare(`INSERT INTO partners (name) VALUES ('Test Partner THROUGH')`).run();
+    db.prepare(
+      `INSERT INTO partners (name) VALUES ('Test Partner THROUGH')`,
+    ).run();
     const before = snapshot(db);
     const fsCountBefore = rowCount(db, "financial_services");
     const txnCountBefore = rowCount(db, "transactions");
@@ -1043,7 +1047,9 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
            WHERE transaction_id = (SELECT id FROM transactions WHERE source_table = 'financial_services' AND source_id = ?)
              AND transaction_type = 'Refund Reversal'`,
         )
-        .get(fsId) as { transaction_type: string; amount_usd: number } | undefined;
+        .get(fsId) as
+        | { transaction_type: string; amount_usd: number }
+        | undefined;
       expect(reversalRow).toBeDefined();
       expect(reversalRow?.amount_usd).toBeCloseTo(-5, 5);
     });
@@ -1251,9 +1257,10 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
 
     const afterVoid = snapshot(db);
     for (const [name, currency] of DRAWERS) {
-      expect(
-        drawerDelta(before, afterVoid, `${name}_${currency}`),
-      ).toBeCloseTo(0, 5);
+      expect(drawerDelta(before, afterVoid, `${name}_${currency}`)).toBeCloseTo(
+        0,
+        5,
+      );
     }
   });
 

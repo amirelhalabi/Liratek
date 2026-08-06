@@ -148,8 +148,6 @@ describe("SessionCheckoutModal — payment widget gate (BIDIRECTIONAL_PAYMENT_LE
   it("renders the payment widget for a same-currency net-negative basket ($50 charge, $100 payout)", () => {
     render(<SessionCheckoutModal isOpen={true} onClose={() => {}} />);
 
-    expect(
-      screen.getByTestId("stub-multi-payment-input"),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("stub-multi-payment-input")).toBeInTheDocument();
   });
 });

@@ -92,7 +92,10 @@ export function buildDefaultRefundLines(
     // Strict `>` (not `>=`) so a tie keeps the FIRST leg seen for that
     // currency, matching the ticket's "ties: first" contract.
     if (!current || magnitude > current.magnitude) {
-      largestLegByCurrency[leg.currency_code] = { method: leg.method, magnitude };
+      largestLegByCurrency[leg.currency_code] = {
+        method: leg.method,
+        magnitude,
+      };
     }
   }
 

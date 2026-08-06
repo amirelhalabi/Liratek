@@ -33,7 +33,9 @@ const basePayload = {
   feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
 };
 
-function issuesFor(result: ReturnType<typeof FinancialServiceSchema.safeParse>) {
+function issuesFor(
+  result: ReturnType<typeof FinancialServiceSchema.safeParse>,
+) {
   if (result.success) return [];
   return result.error.issues.map((i) => ({
     path: i.path,

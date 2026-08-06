@@ -42,7 +42,10 @@ jest.mock("../../repositories/VoucherRepository", () => ({
   resetVoucherRepository: jest.fn(),
 }));
 
-import { SessionPaymentService, resetSessionPaymentService } from "../SessionPaymentService";
+import {
+  SessionPaymentService,
+  resetSessionPaymentService,
+} from "../SessionPaymentService";
 import { resetCustomerSessionRepository } from "../../repositories/CustomerSessionRepository";
 import { resetClientRepository } from "../../repositories/ClientRepository";
 import { resetSalesRepository } from "../../repositories/SalesRepository";

@@ -304,14 +304,14 @@ before upgrade — flag at release time.
    fee-excluded, the split mechanism stays correct but the ratio's input is wrong. Confirm
    against the frontend basket-item construction, then pin it with the Phase D spec.
    The subtotal also counts any FS row whose provider matches the base system (including
-   BILL_PAYMENT), not just SEND/RECEIVE — confirm that is intended.
+   BILL*PAYMENT), not just SEND/RECEIVE — confirm that is intended.
    6c. **Transfer validator accepts any drawer pair** (`validators/drawerTransfer.ts`): no
    name enum, matching the plan's "generic transfer" language; the UI only offers
    General↔PCD. Decide whether the backend should hard-restrict one side.
    6d. **Suppliers page stale comments + settle math under gross**
    (`features/suppliers/**`, `hooks/useSuppliers.ts`): comments still describe the fee-only
    model and call the PCD "never a real cash drawer". `settleNetPayUsd` sums `supplier_owed`
-   and is _probably_ still correct under gross, but it was out of the labels-only agent's
+   and is \_probably* still correct under gross, but it was out of the labels-only agent's
    scope — needs a money-eyes pass, not a comment fix.
    6e. **Session-basket PCD payouts have no insufficient-funds guard** — decision #11's guard is
    scoped to the FS RECEIVE path only. Decide whether a basket-level cash-out sharing the

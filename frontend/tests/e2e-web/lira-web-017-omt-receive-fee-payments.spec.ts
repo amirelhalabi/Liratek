@@ -117,7 +117,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     const headers = await auth(page);
     const supplierId = await omtSupplierId(page, headers);
 
-    const before = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const before = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
 
     // x=100, f=5, omtServiceType INTRA → c = 5 × 10% = 0.5. No `payments[]`
     // sent — the RECEIVE payout falls back to the legacy single-leg CASH
@@ -139,7 +142,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     ).json();
     expect(res.success, JSON.stringify(res)).toBeTruthy();
 
-    const after = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const after = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
 
     // Identity: WHISH is the ONLY method touching Whish_App/appWalletDrawer
     // in this action — the delta itself identifies the fee leg's method.
@@ -157,7 +163,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     const headers = await auth(page);
     const supplierId = await omtSupplierId(page, headers);
 
-    const before = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const before = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
 
     // x=60, f=5 (2 CASH + 3 OMT-wallet), same INTRA fee → c = 0.5. Principal
     // deliberately differs from (a) so the two transactions' PCD deltas are
@@ -181,7 +190,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     ).json();
     expect(res.success, JSON.stringify(res)).toBeTruthy();
 
-    const after = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const after = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
 
     // The CASH fee leg is cash-family on a primary-system RECEIVE → PCD, same
     // as the payout; net PCD delta = -60 (payout) + 2 (CASH fee share) = -58.
@@ -199,7 +211,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
   }) => {
     const headers = await auth(page);
     const supplierId = await omtSupplierId(page, headers);
-    const before = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const before = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
 
     const partner = await (
       await page.request.post(`${BACKEND_URL}/api/partners`, {
@@ -250,7 +265,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
       "feePayments cannot be used on a partner transaction",
     );
 
-    const after = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const after = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
     expect(after.d.pcd - before.d.pcd).toBeCloseTo(0, 2);
     expect(after.d.general - before.d.general).toBeCloseTo(0, 2);
     expect(after.d.appWallet - before.d.appWallet).toBeCloseTo(0, 2);
@@ -262,7 +280,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
   }) => {
     const headers = await auth(page);
     const supplierId = await omtSupplierId(page, headers);
-    const before = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const before = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
 
     const res = await page.request.post(
       `${BACKEND_URL}/api/services/transactions`,
@@ -289,7 +310,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
       "feePayments requires a non-zero omtFee/whishFee",
     );
 
-    const after = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const after = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
     expect(after.d.pcd - before.d.pcd).toBeCloseTo(0, 2);
     expect(after.d.general - before.d.general).toBeCloseTo(0, 2);
     expect(after.d.appWallet - before.d.appWallet).toBeCloseTo(0, 2);
@@ -301,7 +325,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
   }) => {
     const headers = await auth(page);
     const supplierId = await omtSupplierId(page, headers);
-    const before = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const before = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
 
     // f=5 but only $2 of feePayments — this passes every Zod refine (partner
     // absent, fee > 0, RECEIVE, not fee-included) so it DOES reach the
@@ -327,7 +354,10 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     expect(typeof res.error).toBe("string");
     expect(res.error as string).toContain("do not reconcile");
 
-    const after = { d: await drawers(page, headers), o: await owed(page, headers, supplierId) };
+    const after = {
+      d: await drawers(page, headers),
+      o: await owed(page, headers, supplierId),
+    };
     expect(after.d.pcd - before.d.pcd).toBeCloseTo(0, 2);
     expect(after.d.general - before.d.general).toBeCloseTo(0, 2);
     expect(after.d.appWallet - before.d.appWallet).toBeCloseTo(0, 2);

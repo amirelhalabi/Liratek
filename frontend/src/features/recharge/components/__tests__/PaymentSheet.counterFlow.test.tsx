@@ -62,9 +62,9 @@ describe("PaymentSheet — counterFlow pass-through (BIDIRECTIONAL_PAYMENT_LEGS_
 
     expect(screen.getByTestId("counter-flow-section")).toBeInTheDocument();
     expect(screen.getByText("Customer pays — fee")).toBeInTheDocument();
-    expect(screen.getByTestId("direction-chip-customer-pays")).toHaveTextContent(
-      "Customer pays",
-    );
+    expect(
+      screen.getByTestId("direction-chip-customer-pays"),
+    ).toHaveTextContent("Customer pays");
 
     const amountInput = document.querySelector<HTMLInputElement>(
       '[data-testid^="counter-flow-amount-"]',
@@ -73,7 +73,11 @@ describe("PaymentSheet — counterFlow pass-through (BIDIRECTIONAL_PAYMENT_LEGS_
 
     expect(onChange).toHaveBeenCalled();
     expect(onChange.mock.calls.at(-1)?.[0]).toEqual([
-      expect.objectContaining({ method: "CASH", currencyCode: "USD", amount: 5 }),
+      expect.objectContaining({
+        method: "CASH",
+        currencyCode: "USD",
+        amount: 5,
+      }),
     ]);
   });
 

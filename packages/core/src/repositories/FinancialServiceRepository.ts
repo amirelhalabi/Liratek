@@ -2327,9 +2327,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //    the till (and for app wallets it DID, since their cart items
             //    always netted into the pooled totals pre-Phase-F).
             const isFeeCollectedSeparately =
-              isAppWallet &&
-              !!data.feePayments &&
-              data.feePayments.length > 0;
+              isAppWallet && !!data.feePayments && data.feePayments.length > 0;
             const payoutAmount = isFeeCollectedSeparately
               ? cryptoAmount
               : cryptoAmount - fee;

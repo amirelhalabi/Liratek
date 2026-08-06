@@ -32,6 +32,33 @@ export const SMS_TRANSFER_FEE_USD = 0.16;
 /** Credit transfers must be a multiple of this ($) — 0.5, 1, 1.5, 2, 2.5, 3. */
 export const CREDIT_TRANSFER_STEP_USD = 0.5;
 
+/** The block of validity days the fee below is quoted against. */
+export const VALIDITY_DAYS_PER_BLOCK = 10;
+
+/**
+ * Cost ($) to the shop of extending a customer's validity by
+ * {@link VALIDITY_DAYS_PER_BLOCK} days on the MTC/Alfa Days tab.
+ * **Owner-corrected 2026-08-06: 0.30, not 0.90.**
+ *
+ * Taken from the behaviour already shipped in the Days tab, which derives the
+ * cost as `(days / 10) * 0.3` (`Recharge/index.tsx`, both the Quick Days
+ * buttons and the Days field). The named constants exist so that formula stops
+ * being two copies of a magic number.
+ *
+ * **Prorated, NOT per-message-with-a-ceiling.** 25 days costs `2.5 × 0.30 =
+ * 0.75`, not `ceil(2.5) × 0.30 = 0.90`. That is what the app has always done,
+ * and every Quick Days preset (10/20/30/60/90/120/180/360) is a multiple of 10,
+ * so the two readings only ever diverge on a hand-typed odd day count. Kept
+ * proportional deliberately: switching to a ceiling would change what an
+ * existing sale costs.
+ *
+ * A DIFFERENT carrier operation from {@link SMS_TRANSFER_FEE_USD} (0.16) —
+ * that fee is burned moving CREDIT between balances; this one buys VALIDITY
+ * days. They resemble each other only in both being carrier SMS charges. Do
+ * not merge them or substitute one for the other.
+ */
+export const VALIDITY_COST_PER_BLOCK_USD = 0.3;
+
 // -----------------------------------------------------------------------------
 // Integer-cents helpers (internal — keeps the floating point demons out)
 // -----------------------------------------------------------------------------
@@ -75,6 +102,7 @@ function fromCents(cents: number): number {
 const MAX_CREDIT_PER_SMS_CENTS = toCents(MAX_CREDIT_PER_SMS_USD); // 300
 const SMS_TRANSFER_FEE_CENTS = toCents(SMS_TRANSFER_FEE_USD); // 16
 const CREDIT_TRANSFER_STEP_CENTS = toCents(CREDIT_TRANSFER_STEP_USD); // 50
+const VALIDITY_COST_PER_BLOCK_CENTS = toCents(VALIDITY_COST_PER_BLOCK_USD); // 30
 
 /** Floor a cents amount down to the nearest transfer step, in integer cents. */
 function floorToStepCents(cents: number): number {
@@ -309,6 +337,47 @@ export function planSmsTransfer(
   const totalCostUsd = amountUsd + feeUsd;
 
   return { messages, feeUsd, totalCostUsd };
+}
+
+/**
+ * The USD cost to the shop of extending a customer's validity by `days` on the
+ * MTC/Alfa Days tab: `(days / VALIDITY_DAYS_PER_BLOCK) * VALIDITY_COST_PER_BLOCK_USD`.
+ *
+ * This is the formula the Days tab has always used, lifted out of
+ * `Recharge/index.tsx` where it lived twice over as `(days / 10) * 0.3` — once
+ * behind the Quick Days buttons and once behind the Days field (rule 14).
+ * Behaviour is unchanged; only the magic numbers are gone.
+ *
+ * **Prorated, not rounded up to whole messages.** 25 days costs 0.75, not 0.90.
+ * Every Quick Days preset is a multiple of 10 so the two readings agree there;
+ * they diverge only on a hand-typed odd day count, and rounding up would change
+ * what an existing sale costs.
+ *
+ * This is ONLY the carrier charge. It does **not** value the validity days
+ * consumed off the shop's own line. Whether to also cost those — and at what —
+ * is an OPEN owner question, not a settled one; do not fold an answer into this
+ * function. Separately and regardless of that answer, selling days should
+ * decrement the shop's primary carrier line and today nothing does
+ * (`RechargeRepository` holds no carrier-line reference at all).
+ *
+ * Never throws, never returns NaN — 0 for any non-finite or non-positive input,
+ * matching the zero-returning style used elsewhere in this file.
+ *
+ * @param days - the number of validity days being sent
+ * @returns the USD cost, or 0 for invalid input
+ *
+ * @example
+ * costOfValidityDaysUsd(10)  // 0.3
+ * costOfValidityDaysUsd(30)  // 0.9
+ * costOfValidityDaysUsd(25)  // 0.75 — prorated, not rounded up to 0.9
+ */
+export function costOfValidityDaysUsd(days: number): number {
+  if (!Number.isFinite(days) || days <= 0) {
+    return 0;
+  }
+
+  const blocks = days / VALIDITY_DAYS_PER_BLOCK;
+  return fromCents(Math.round(blocks * VALIDITY_COST_PER_BLOCK_CENTS));
 }
 
 // =============================================================================

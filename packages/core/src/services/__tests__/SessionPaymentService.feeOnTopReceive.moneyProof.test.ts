@@ -327,7 +327,11 @@ interface Snapshot {
   debtUsd: number;
 }
 
-function balance(db: Database.Database, drawer: string, currency: string): number {
+function balance(
+  db: Database.Database,
+  drawer: string,
+  currency: string,
+): number {
   const row = db
     .prepare(
       "SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?",
@@ -468,9 +472,9 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
     });
 
     // No legs written yet — deferPayment skipped both the fee leg and the payout.
-    expect(
-      db.prepare("SELECT COUNT(*) as c FROM payments").get(),
-    ).toEqual({ c: 0 });
+    expect(db.prepare("SELECT COUNT(*) as c FROM payments").get()).toEqual({
+      c: 0,
+    });
 
     const sessionId = 501;
     linkReceiveItemToSession(db, sessionId, fsId, 100);
@@ -513,9 +517,7 @@ describe("SessionPaymentService — fee-on-top RECEIVE session item (Phase F mon
 
     // Note discriminator on the posted payout leg.
     const payoutRow = db
-      .prepare(
-        "SELECT note FROM payments WHERE session_id = ? AND amount < 0",
-      )
+      .prepare("SELECT note FROM payments WHERE session_id = ? AND amount < 0")
       .get(sessionId) as { note: string };
     expect(payoutRow.note).toBe(
       "Basket payout to customer (primary-system item share)",

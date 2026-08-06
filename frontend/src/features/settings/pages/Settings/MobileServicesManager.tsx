@@ -29,12 +29,21 @@ import {
   deriveItemEconomics,
   deliveredCostLbp,
   resolveCreditSellPriceLbp,
+  deriveDaysCostLbp,
 } from "@liratek/core";
 
 /** Tenant setting key for the resale table's reference sell price (LBP per
  *  $1 of resold credit). Seeded per-tenant by migration v141/`TenantRepository`;
  *  read here for the first time (TELECOM_DAYS_COST_PLAN.md §10 Q5). */
 const TELECOM_CREDIT_SELL_PRICE_SETTING_KEY = "telecom_credit_sell_price_lbp";
+
+/** Tenant setting key for R — what $1 of credit COSTS the shop (LBP). Seeded
+ *  by v144, re-anchored to 85,000 by v146, and the exact input v144's
+ *  `days_cost_lbp` backfill used. Read here so the derived-vs-override marker
+ *  compares against the tenant's OWN rate, never the compiled-in default. A
+ *  DIFFERENT number from {@link TELECOM_CREDIT_SELL_PRICE_SETTING_KEY} above
+ *  (what credit SELLS for) — mixing them up silently reclassifies every item. */
+const TELECOM_CREDIT_COST_RATE_SETTING_KEY = "telecom_credit_cost_rate_lbp";
 
 const PROVIDERS = [
   "iPick",
@@ -144,6 +153,14 @@ export default function MobileServicesManager() {
   const [tenantSellPriceLbp, setTenantSellPriceLbp] = useState<number | null>(
     null,
   );
+  // R — the tenant's credit COST rate, the input to the derived days cost.
+  // Null until loaded; while null the derived-vs-override marker renders
+  // nothing at all rather than guessing at the compiled-in default, since
+  // labelling a hand-tuned value "derived" against the wrong rate is worse
+  // than showing no label.
+  const [tenantCostRateLbp, setTenantCostRateLbp] = useState<number | null>(
+    null,
+  );
 
   // Filter
   const [providerFilter, setProviderFilter] = useState<string>("");
@@ -209,13 +226,22 @@ export default function MobileServicesManager() {
     let cancelled = false;
     (async () => {
       try {
-        const settings = await api.getAllSettings();
-        const row = (
-          settings as Array<{ key_name: string; value: string }>
-        ).find((s) => s.key_name === TELECOM_CREDIT_SELL_PRICE_SETTING_KEY);
-        const value = row ? Number(row.value) : NaN;
-        if (!cancelled && Number.isFinite(value) && value > 0) {
-          setTenantSellPriceLbp(value);
+        const settings = (await api.getAllSettings()) as Array<{
+          key_name: string;
+          value: string;
+        }>;
+        const readPositive = (key: string): number | null => {
+          const row = settings.find((s) => s.key_name === key);
+          const value = row ? Number(row.value) : NaN;
+          return Number.isFinite(value) && value > 0 ? value : null;
+        };
+        const sellPrice = readPositive(TELECOM_CREDIT_SELL_PRICE_SETTING_KEY);
+        const costRate = readPositive(TELECOM_CREDIT_COST_RATE_SETTING_KEY);
+        if (!cancelled && sellPrice != null) {
+          setTenantSellPriceLbp(sellPrice);
+        }
+        if (!cancelled && costRate != null) {
+          setTenantCostRateLbp(costRate);
         }
       } catch {
         // Best-effort — the fallback chain covers this.
@@ -1048,6 +1074,43 @@ export default function MobileServicesManager() {
                                                   ? null
                                                   : parseFloat(editing.credits),
                                             });
+                                          // Derived from the values being
+                                          // TYPED, not the saved row: editing
+                                          // cost or credits should move the
+                                          // suggestion with them, otherwise
+                                          // "reset to derived" would write a
+                                          // number that matches neither the
+                                          // old row nor the new one.
+                                          const editDerivedDaysCost =
+                                            tenantCostRateLbp != null
+                                              ? deriveDaysCostLbp(
+                                                  parseFloat(
+                                                    editing.cost_lbp,
+                                                  ) || 0,
+                                                  editing.credits.trim() === ""
+                                                    ? null
+                                                    : parseFloat(
+                                                        editing.credits,
+                                                      ),
+                                                  tenantCostRateLbp,
+                                                )
+                                              : null;
+                                          const editDaysCostValue =
+                                            editing.days_cost_lbp.trim() === ""
+                                              ? null
+                                              : parseFloat(
+                                                  editing.days_cost_lbp,
+                                                );
+                                          // Offered whenever a derived value
+                                          // exists and differs — including when
+                                          // the field is EMPTY, which is the
+                                          // common case for an item that never
+                                          // got a split (one click configures
+                                          // it).
+                                          const canResetDaysCost =
+                                            editDerivedDaysCost != null &&
+                                            editDaysCostValue !==
+                                              editDerivedDaysCost;
                                           return (
                                             <div
                                               key={item.id}
@@ -1251,6 +1314,30 @@ export default function MobileServicesManager() {
                                                     placeholder="—"
                                                     className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-violet-500"
                                                   />
+                                                  {/* One click back to the
+                                                      formula. type="button" is
+                                                      load-bearing — a bare
+                                                      <button> inside a form
+                                                      defaults to submit. */}
+                                                  {canResetDaysCost && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        setEditing({
+                                                          ...editing,
+                                                          days_cost_lbp:
+                                                            String(
+                                                              editDerivedDaysCost,
+                                                            ),
+                                                        })
+                                                      }
+                                                      title={`Reset to the derived value: cost − credits × ${tenantCostRateLbp?.toLocaleString()} LBP/$ = ${editDerivedDaysCost?.toLocaleString()}`}
+                                                      className="text-[9px] px-1 py-px rounded bg-slate-700/60 text-slate-300 hover:bg-slate-600 hover:text-white transition-colors"
+                                                    >
+                                                      ={" "}
+                                                      {editDerivedDaysCost?.toLocaleString()}
+                                                    </button>
+                                                  )}
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                   <span className="text-[10px] text-slate-500">
@@ -1403,6 +1490,34 @@ export default function MobileServicesManager() {
                                             ? item.sell_days_lbp -
                                               item.days_cost_lbp
                                             : null;
+                                        // What v144's backfill WOULD write for
+                                        // this row at the tenant's current rate.
+                                        // Null when the rate hasn't loaded, or
+                                        // when cost/credits can't produce a
+                                        // valid split — deriveDaysCostLbp owns
+                                        // that guard (rule 14), we never
+                                        // re-test 0 < derived < cost here.
+                                        const derivedDaysCost =
+                                          tenantCostRateLbp != null
+                                            ? deriveDaysCostLbp(
+                                                item.cost_lbp,
+                                                item.credits,
+                                                tenantCostRateLbp,
+                                              )
+                                            : null;
+                                        // Exact equality is right, not sloppy:
+                                        // the backfill wrote Math.round(...) of
+                                        // this same expression, so a row it
+                                        // produced matches to the LBP. Anything
+                                        // off by even 1 was typed by a human.
+                                        const daysCostOrigin =
+                                          derivedDaysCost == null ||
+                                          item.days_cost_lbp == null
+                                            ? null
+                                            : item.days_cost_lbp ===
+                                                derivedDaysCost
+                                              ? "derived"
+                                              : "override";
 
                                         return (
                                           <div
@@ -1556,8 +1671,7 @@ export default function MobileServicesManager() {
                                                   Days cost:{" "}
                                                   <span
                                                     className={
-                                                      item.days_cost_lbp !=
-                                                      null
+                                                      item.days_cost_lbp != null
                                                         ? "text-slate-300 font-mono"
                                                         : "text-slate-600"
                                                     }
@@ -1566,13 +1680,41 @@ export default function MobileServicesManager() {
                                                       ? item.days_cost_lbp.toLocaleString()
                                                       : "—"}
                                                   </span>
+                                                  {/* Where this number came
+                                                      from. Without it the
+                                                      formula and a typed-in
+                                                      number look identical, so
+                                                      re-running the derivation
+                                                      after a rate change looks
+                                                      safe when it would in fact
+                                                      wipe someone's tuning. */}
+                                                  {daysCostOrigin && (
+                                                    <span
+                                                      title={
+                                                        daysCostOrigin ===
+                                                        "derived"
+                                                          ? `Matches the formula: cost − credits × ${tenantCostRateLbp?.toLocaleString()} LBP/$`
+                                                          : `Hand-set. The formula at ${tenantCostRateLbp?.toLocaleString()} LBP/$ gives ${derivedDaysCost?.toLocaleString()}.`
+                                                      }
+                                                      className={`ml-1 px-1 py-px rounded text-[9px] font-medium ${
+                                                        daysCostOrigin ===
+                                                        "derived"
+                                                          ? "bg-slate-700/40 text-slate-400"
+                                                          : "bg-sky-600/20 text-sky-400"
+                                                      }`}
+                                                    >
+                                                      {daysCostOrigin ===
+                                                      "derived"
+                                                        ? "derived"
+                                                        : "override"}
+                                                    </span>
+                                                  )}
                                                 </span>
                                                 <span>
                                                   Days sell:{" "}
                                                   <span
                                                     className={
-                                                      item.sell_days_lbp !=
-                                                      null
+                                                      item.sell_days_lbp != null
                                                         ? "text-slate-300 font-mono"
                                                         : "text-slate-600"
                                                     }

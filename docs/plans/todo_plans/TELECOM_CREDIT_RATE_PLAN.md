@@ -16,7 +16,7 @@
 > would have been pure churn. Both sites now carry a comment explaining why two
 > keys holding the same number is deliberate.
 >
-> **Why the exact value matters less than it looks:** R is an *allocation* knob.
+> **Why the exact value matters less than it looks:** R is an _allocation_ knob.
 > Total profit on an Only-Days sale is independent of it — the `credits × R`
 > term cancels between `profit_days` and `profit_credit`. So this migration
 > moves no money and changes no total; it re-attributes cost between the two
@@ -46,7 +46,7 @@
    Config) and read by the credit-sale path.
 2. **We normally sell 1 credit for 100,000 LBP**, sometimes 120,000.
 3. **The 77.28 card's days sell for about $20 — roughly 2,000,000 LBP** — with
-   the customer returning the maximum credits. So a days *cost* of 515,200
+   the customer returning the maximum credits. So a days _cost_ of 515,200
    "doesn't make sense; it should be more."
 4. **Raising the days cost lowers the cost per dollar of credit held**, which is
    what removes the negative resale margins.
@@ -61,12 +61,12 @@ It came from iPick → mtc → Credits (280,000 ÷ 3$, exactly linear across fiv
 entries). Three independent checks say it is too high, and each one was
 available at the time:
 
-| Check | At R = 93,333 | Verdict |
-| ----- | ------------- | ------- |
-| That price list's own **sell** column | 50,000/$ — **half its cost** | The source is stale. Linearity proved arithmetic, not currency. |
-| Cheapest **delivered** cost of $1 | 104,075 vs a 100,000 sell price | Guaranteed loss on every resale. Cannot be true of a daily operation. |
-| Cost of $1 **recovered from a card** | 98,805 vs 85,000 to buy directly | Nobody would ever buy cards for credit. |
-| Implied **days cost per day** | 1,000–2,500 vs 6,500 standalone | Days priced 4× cheaper bundled than standalone. Implausible. |
+| Check                                 | At R = 93,333                    | Verdict                                                               |
+| ------------------------------------- | -------------------------------- | --------------------------------------------------------------------- |
+| That price list's own **sell** column | 50,000/$ — **half its cost**     | The source is stale. Linearity proved arithmetic, not currency.       |
+| Cheapest **delivered** cost of $1     | 104,075 vs a 100,000 sell price  | Guaranteed loss on every resale. Cannot be true of a daily operation. |
+| Cost of $1 **recovered from a card**  | 98,805 vs 85,000 to buy directly | Nobody would ever buy cards for credit.                               |
+| Implied **days cost per day**         | 1,000–2,500 vs 6,500 standalone  | Days priced 4× cheaper bundled than standalone. Implausible.          |
 
 The owner's §1.3 objection is the same finding from the days side: the model was
 allocating too little cost to days and too much to credit.
@@ -79,10 +79,10 @@ An earlier recommendation in this workstream was to consolidate onto ONE
 credit-cost setting. **That was wrong.** There are two acquisition channels and
 they legitimately cost different amounts:
 
-| Quantity | Value | Who uses it |
-| -------- | ----- | ----------- |
-| Cost of $1 of credit bought **directly** as a top-up | **85,000** (`alfa_credit_cost_lbp`) | The MTC/Alfa credit-sale path. Unchanged. |
-| Cost of $1 of credit arriving **embedded in a prepaid card** | **R**, the Only-Days split rate | `days_cost_lbp = cost_lbp − credits × R` |
+| Quantity                                                     | Value                               | Who uses it                               |
+| ------------------------------------------------------------ | ----------------------------------- | ----------------------------------------- |
+| Cost of $1 of credit bought **directly** as a top-up         | **85,000** (`alfa_credit_cost_lbp`) | The MTC/Alfa credit-sale path. Unchanged. |
+| Cost of $1 of credit arriving **embedded in a prepaid card** | **R**, the Only-Days split rate     | `days_cost_lbp = cost_lbp − credits × R`  |
 
 A card is a bundle: the credit is cheaper per dollar, but you are forced to take
 days you may not want, and you pay an SMS haircut to extract it.
@@ -109,30 +109,30 @@ credit margin ≥ 0 @3$  →  R ≤  89,679
 credit margin ≥ 0 @2$  →  R ≤  87,465
 ```
 
-So **R ∈ (74,120, 87,465]**. Note 85,000 *is* inside this window — the 77.28
+So **R ∈ (74,120, 87,465]**. Note 85,000 _is_ inside this window — the 77.28
 card is fine at 85,000. The problem is the smaller faces (§4.2).
 
 ### 4.1 Candidate rates, from the days-margin anchor
 
-| Days margin on 77.28 | days_cost | R | cost/$ held | 3$ deliv | 2$ deliv |
-| -------------------- | --------- | - | ----------- | -------- | -------- |
-| 0% (cost = sell) | 2,000,000 | 74,120 | 78,466 | 82,651 | 84,743 |
-| 10% | 1,818,182 | 76,473 | 80,956 | 85,274 | 87,433 |
-| **20%** | **1,666,667** | **78,433** | **83,032** | **87,460** | **89,674** |
-| 30% | 1,538,462 | 80,092 | 84,788 | 89,310 | 91,571 |
-| 50% | 1,333,333 | 82,747 | 87,598 | 92,270 | 94,606 |
+| Days margin on 77.28 | days_cost     | R          | cost/$ held | 3$ deliv   | 2$ deliv   |
+| -------------------- | ------------- | ---------- | ----------- | ---------- | ---------- |
+| 0% (cost = sell)     | 2,000,000     | 74,120     | 78,466      | 82,651     | 84,743     |
+| 10%                  | 1,818,182     | 76,473     | 80,956      | 85,274     | 87,433     |
+| **20%**              | **1,666,667** | **78,433** | **83,032**  | **87,460** | **89,674** |
+| 30%                  | 1,538,462     | 80,092     | 84,788      | 89,310     | 91,571     |
+| 50%                  | 1,333,333     | 82,747     | 87,598      | 92,270     | 94,606     |
 
 ### 4.2 Full picture at R = 78,433 vs R = 85,000 (credit sell 100,000)
 
-| face | recovers | lost | cost/$ held @78.4k | 3$ margin | 2$ margin | @85k 3$ margin | @85k 2$ margin | items |
-| ---- | -------- | ---- | ------------------ | --------- | --------- | -------------- | -------------- | ----- |
-| **3.79** | 3.00 | **20.8%** | 99,087 | **−4,372** | **−7,014** | **−13,110** | **−15,974** | 3 |
-| 4.5 | 4.00 | 11.1% | 88,237 | +7,057 | +4,704 | **−725** | **−3,275** | 6 |
-| 7.58 | 7.00 | 7.7% | 84,932 | +10,539 | +8,274 | +3,048 | +594 | 6 |
-| 10 | 9.00 | 10.0% | 87,148 | +8,204 | +5,880 | +519 | **−2,000** | 6 |
-| 15.15 | 14.00 | 7.6% | 84,876 | +10,598 | +8,334 | +3,112 | +659 | 6 |
-| 22.73 | 21.00 | 7.6% | 84,894 | +10,578 | +8,314 | +3,091 | +637 | 6 |
-| 77.28 | 73.00 | 5.5% | 83,032 | +12,540 | +10,326 | +5,217 | +2,818 | 6 |
+| face     | recovers | lost      | cost/$ held @78.4k | 3$ margin  | 2$ margin  | @85k 3$ margin | @85k 2$ margin | items |
+| -------- | -------- | --------- | ------------------ | ---------- | ---------- | -------------- | -------------- | ----- |
+| **3.79** | 3.00     | **20.8%** | 99,087             | **−4,372** | **−7,014** | **−13,110**    | **−15,974**    | 3     |
+| 4.5      | 4.00     | 11.1%     | 88,237             | +7,057     | +4,704     | **−725**       | **−3,275**     | 6     |
+| 7.58     | 7.00     | 7.7%      | 84,932             | +10,539    | +8,274     | +3,048         | +594           | 6     |
+| 10       | 9.00     | 10.0%     | 87,148             | +8,204     | +5,880     | +519           | **−2,000**     | 6     |
+| 15.15    | 14.00    | 7.6%      | 84,876             | +10,598    | +8,334     | +3,112         | +659           | 6     |
+| 22.73    | 21.00    | 7.6%      | 84,894             | +10,578    | +8,314     | +3,091         | +637           | 6     |
+| 77.28    | 73.00    | 5.5%      | 83,032             | +12,540    | +10,326    | +5,217         | +2,818         | 6     |
 
 **Items losing money: 3/39 at R = 78,433 · 9/39 (3$) or 15/39 (2$) at
 R = 85,000.**
@@ -149,7 +149,7 @@ is no rate that saves it. It loses 20.8% on recovery — $3.79 of face returns
 only $3.00, because 3.79 lands badly against the $3-per-SMS cap, the $0.16 fee
 and the $0.50 step.
 
-**This is not about small denominations.** The $10 card (10.0% lost) is *worse*
+**This is not about small denominations.** The $10 card (10.0% lost) is _worse_
 than the $7.58 card (7.7%). The driver is how the face value lands on the
 transfer grid, not its size.
 
@@ -157,15 +157,15 @@ transfer grid, not its size.
 
 At R = 78,433, against the standalone iPick mtc Validity list at 6,500 LBP/day:
 
-| Card | days | days_cost | LBP/day |
-| ---- | ---- | --------- | ------- |
-| 3.79 | 10 | 81,739 | 8,174 |
-| 4.5 | 30 | 97,052 | 3,235 |
-| 7.58 | 30 | 163,478 | 5,449 |
-| 10 | 30 | 215,670 | 7,189 |
-| 15.15 | 60 | 337,740 | 5,629 |
-| 22.73 | 90 | 490,218 | 5,447 |
-| 77.28 | 365 | 1,666,698 | 4,566 |
+| Card  | days | days_cost | LBP/day |
+| ----- | ---- | --------- | ------- |
+| 3.79  | 10   | 81,739    | 8,174   |
+| 4.5   | 30   | 97,052    | 3,235   |
+| 7.58  | 30   | 163,478   | 5,449   |
+| 10    | 30   | 215,670   | 7,189   |
+| 15.15 | 60   | 337,740   | 5,629   |
+| 22.73 | 90   | 490,218   | 5,447   |
+| 77.28 | 365  | 1,666,698 | 4,566   |
 
 3,235–8,174, bracketing 6,500 — plausible for bundled days against standalone.
 At R = 93,333 the same figures were 1,000–2,500, four times cheaper than buying
@@ -240,7 +240,7 @@ The **model** from `TELECOM_DAYS_COST_PLAN.md` stands unchanged:
 - `days_cost_lbp = round(cost_lbp − credits × R)`, guarded to
   `0 < days_cost < cost_lbp`
 - the catalog price lists contain no extractable days component (a least-squares
-  fit returns a *negative* day coefficient), so this is an allocation anchored on
+  fit returns a _negative_ day coefficient), so this is an allocation anchored on
   an external rate, not a measurement
 - `days_cost_lbp` drives no drawer amount today — it gates the split and feeds
   the Settings decision aid, so re-backfilling it is money-neutral
