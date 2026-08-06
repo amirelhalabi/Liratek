@@ -16,6 +16,16 @@ export const sessionCheckoutPaymentSchema = z.object({
   currency_code: z.string().min(1),
   amount: z.number(),
   direction: z.enum(["IN", "OUT"]).optional(),
+  /**
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F wire contract (frozen): only
+   * meaningful on a `direction: "OUT"` leg — IN legs never carry it. The
+   * session checkout modal emits charge lines (IN, no `kind`), change lines
+   * (OUT, `kind: "CHANGE"`), and per-currency operator-chosen payout legs
+   * (OUT, `kind: "PAYOUT"`, e.g. a session RECEIVE/Loto-prize cashout).
+   * Absent on an OUT leg = legacy behavior (treated as change) — every
+   * pre-Phase-F payload parses unchanged.
+   */
+  kind: z.enum(["PAYOUT", "CHANGE"]).optional(),
   // Present only for GIFT_CARD legs.
   voucher_code: z.string().optional(),
 });

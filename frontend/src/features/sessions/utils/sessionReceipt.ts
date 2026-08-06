@@ -40,6 +40,17 @@ export interface SessionReceiptLeg {
   currency_code: string;
   amount: number;
   direction: "IN" | "OUT";
+  /**
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F — which kind of OUT leg
+   * this is: `"PAYOUT"` (the shop pays the customer — RECEIVE/loto/Binance
+   * cash-out) or `"CHANGE"` (change handed back from the pooled payment).
+   * Never set on an IN leg. Optional/absent is treated as `"CHANGE"` for
+   * backward compatibility with legs built before this field existed.
+   * TODO(core): mirrors the `kind` field the core-side leg schema
+   * (packages/core/src/validators/...) grows in the parallel core lane —
+   * this file does not import from core.
+   */
+  kind?: "PAYOUT" | "CHANGE";
 }
 
 export interface SessionReceiptInput {
@@ -111,21 +122,39 @@ export function buildSessionCheckoutReceiptText(
 
   r += rule + "\n";
 
-  // Totals per currency (a basket can be USD AND LBP at once).
-  const totalsByCurrency = new Map<string, number>();
+  // GROSS totals per currency (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F):
+  // a basket's Charges (customer pays, +) and Payout to customer (shop pays
+  // out, −) are printed SEPARATELY, never netted against each other — a $50
+  // charge + a $50 cash-out used to print one "Total: $0.00" line, hiding
+  // that both movements actually happened. Mirrors the split
+  // `splitBasketCashSides` (binanceCart.ts) applies to the live basket; this
+  // receipt has no item `module` to fold a Binance USDT tag with, so (as
+  // before this split) each item's OWN `currency` is its own bucket.
+  const chargesByCurrency = new Map<string, number>();
+  const payoutsByCurrency = new Map<string, number>();
   for (const item of items) {
-    totalsByCurrency.set(
-      item.currency,
-      (totalsByCurrency.get(item.currency) ?? 0) + item.amount,
-    );
+    if (item.amount >= 0) {
+      chargesByCurrency.set(
+        item.currency,
+        (chargesByCurrency.get(item.currency) ?? 0) + item.amount,
+      );
+    } else {
+      payoutsByCurrency.set(
+        item.currency,
+        (payoutsByCurrency.get(item.currency) ?? 0) + -item.amount,
+      );
+    }
   }
-  for (const [currency, total] of totalsByCurrency) {
+  for (const [currency, total] of chargesByCurrency) {
     if (total === 0) continue;
-    const sign = total < 0 ? "-" : "";
-    r += line("Total:", `${sign}${fmtMoney(total, currency)}`);
+    r += line("Charges:", fmtMoney(total, currency));
+  }
+  for (const [currency, total] of payoutsByCurrency) {
+    if (total === 0) continue;
+    r += line("Payout to customer:", fmtMoney(total, currency));
   }
 
-  // Payment-method split (customer-paid IN legs) and change (OUT legs).
+  // Payment-method split (customer-paid IN legs) and change/payout (OUT legs).
   const inLegs = legs.filter((l) => l.direction !== "OUT" && l.amount !== 0);
   const outLegs = legs.filter((l) => l.direction === "OUT" && l.amount !== 0);
   if (inLegs.length > 0) {
@@ -139,10 +168,18 @@ export function buildSessionCheckoutReceiptText(
   }
   if (outLegs.length > 0) {
     for (const l of outLegs) {
-      r += line(
-        `${l.method === "CUSTOMER_ACCOUNT" ? "Credited" : "Change"}:`,
-        fmtMoney(l.amount, l.currency_code),
-      );
+      // CUSTOMER_ACCOUNT always reads "Credited" regardless of `kind` (it IS
+      // a payout, just settled to store credit instead of handed over).
+      // Otherwise: `kind: "PAYOUT"` (loto prize / RECEIVE / Binance cash-out)
+      // reads "Payout (<method>)"; missing/`"CHANGE"` reads "Change" — the
+      // pre-Phase-F default, kept for legs built before `kind` existed.
+      const label =
+        l.method === "CUSTOMER_ACCOUNT"
+          ? "Credited"
+          : l.kind === "PAYOUT"
+            ? `Payout (${l.method.replace(/_/g, " ")})`
+            : "Change";
+      r += line(`${label}:`, fmtMoney(l.amount, l.currency_code));
     }
   }
 

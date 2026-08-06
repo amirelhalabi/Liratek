@@ -170,7 +170,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
           }}
           className={({ isActive }) =>
             clsx(
-              "flex items-center gap-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+              "flex items-center gap-3 py-2.5 rounded-xl transition-all font-medium whitespace-nowrap w-full",
               isActive
                 ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
                 : "text-slate-400 hover:bg-slate-800 hover:text-white",

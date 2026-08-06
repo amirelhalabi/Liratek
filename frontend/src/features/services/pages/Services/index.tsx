@@ -334,6 +334,10 @@ export default function Services() {
   // Payment lines (MultiPaymentInput manages single/split internally)
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: the counter-flow lines
+  // collecting a customer-paid fee-on-top on an OMT/WHISH system RECEIVE.
+  // Independent of paymentLines (the shop's payout) — never merged into it.
+  const [feePaymentLines, setFeePaymentLines] = useState<PaymentLine[]>([]);
   const isSplitPayment = paymentLines.length > 1;
   // Direction-agnostic (float model, owner-confirmed 2026-07-29): SEND nets
   // the fee out of what the customer pays; RECEIVE nets it out of the payout.
@@ -453,6 +457,24 @@ export default function Services() {
     return 0;
   })();
 
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: an OMT/WHISH system
+  // RECEIVE with a fee-on-top (never fee-included, never inside a session —
+  // the basket path doesn't wire fee collection yet, §2 bug 1) shows the
+  // MultiPaymentInput counter-flow section so the operator can choose how
+  // the customer pays the fee back (any method, split allowed — owner
+  // decision #1). Mirrors (render-time) the `resolvedFee > 0` gate handleSubmit
+  // computes from its own `resolvedFee` for the actual payload.
+  // §6bis finding 1: a FOR-partner transaction has no walk-in fee to collect —
+  // the toggle alone (before a partner is even selected) must hide this
+  // section, since `forPartner` is what routes to the no-fee-collection
+  // dispatch, not just a fully-selected `forPartnerId`.
+  const showFeeCounterFlow =
+    serviceType === "RECEIVE" &&
+    !includingFees &&
+    renderProviderFee > 0 &&
+    !activeSession &&
+    !forPartner;
+
   // Auto-fill PM fee when amount or eligibility changes
   useEffect(() => {
     if (!pmFeeApplies) {
@@ -545,21 +567,13 @@ export default function Services() {
     }
   }, [activeSession, serviceType, loadData]);
 
-  // Float model (owner-confirmed 2026-07-29): the RECEIVE fee UI is hidden
-  // inside an active session (the basket path doesn't wire a RECEIVE fee leg
-  // through yet — FinancialServiceRepository skips it under deferPayment).
-  // Hiding the inputs alone isn't enough — a fee typed BEFORE a session
-  // started, or before switching into RECEIVE, would otherwise sit in state
-  // invisibly and still ride along into the cart payload. Clear it the
-  // instant the combination becomes inapplicable so what's on screen always
-  // matches what will be submitted.
-  useEffect(() => {
-    if (activeSession && serviceType === "RECEIVE") {
-      setOmtFee("");
-      setWhishFee("");
-      setIncludingFees(false);
-    }
-  }, [activeSession, serviceType]);
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F: a RECEIVE fee typed inside
+  // an active session is now REAL — the session model pools it into the
+  // basket's charge bucket (`splitBasketCashSides`, §1.5) instead of the
+  // fee being silently zeroed (Phase 0's §2 bug-1 fix, superseded here). So
+  // the fee/includingFees state is intentionally NOT cleared on entering a
+  // session/RECEIVE anymore; it rides into the cart payload exactly as
+  // entered, same as the non-session path.
 
   // Ref to track if we should auto-submit after voice command
   const shouldAutoSubmitRef = useRef(false);
@@ -711,6 +725,7 @@ export default function Services() {
         setBinanceSupplier("");
         setPaymentLines([]);
         setReturnLegs([]);
+        setFeePaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
         setMultiPmFees({});
@@ -826,9 +841,31 @@ export default function Services() {
         }
       }
 
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F: a session RECEIVE's
+      // fee is no longer zeroed here (Phase 0's §2 bug-1 fix superseded) —
+      // the session model now pools it into the basket's charge bucket
+      // (`splitBasketCashSides`, §1.5) instead of silently dropping it, so
+      // `resolvedOmtFee`/`resolvedWhishFee` ride through exactly as resolved
+      // above for both the session and non-session paths.
+
       // Resolved fee for the active provider
       const resolvedFee =
         provider === "WHISH" ? resolvedWhishFee : resolvedOmtFee;
+
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: whether this submit
+      // carries operator-chosen fee-collection legs. Mirrors showFeeCounterFlow
+      // (render-time) but recomputed from THIS submit's own resolvedFee/
+      // includingFees/activeSession — the authoritative gate for the payload.
+      // §6bis finding 1: a FOR-partner transaction has no walk-in fee to
+      // collect — the toggle alone (before a partner is even selected) must
+      // suppress these legs, since `forPartner` is what routes to the
+      // no-fee-collection dispatch, not just a fully-selected `forPartnerId`.
+      const feeCounterFlowActive =
+        serviceType === "RECEIVE" &&
+        !includingFees &&
+        (resolvedFee ?? 0) > 0 &&
+        !activeSession &&
+        !forPartner;
 
       // Determine PM fee for non-cash single payments on SEND
       const activePmFeeApplies =
@@ -1055,6 +1092,19 @@ export default function Services() {
                 | "BINANCE",
             }
           : {}),
+        // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: operator-chosen
+        // fee-collection legs for a fee-on-top RECEIVE, outside a session.
+        // Zero-amount lines are dropped. Sent ONLY when feeCounterFlowActive
+        // — false (includingFees checked, no fee, or inside a session) means
+        // this key is entirely absent, preserving the legacy single-leg
+        // fallback in FinancialServiceRepository for every other caller.
+        ...(feeCounterFlowActive
+          ? {
+              feePayments: toCamelLegs(
+                feePaymentLines.filter((l) => l.amount > 0),
+              ),
+            }
+          : {}),
         transaction_time: transactionTime,
       };
 
@@ -1062,9 +1112,19 @@ export default function Services() {
       if (activeSession) {
         const clientLabel = serviceType === "SEND" ? senderName : receiverName;
         const feeTotal = (resolvedFee ?? 0) + finalPmFee;
+        // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F: a RECEIVE fee-on-top
+        // is now real in a session too — shown on the cart label instead of
+        // being suppressed (Phase 0 forced this to "" for every RECEIVE).
+        // Fee-included has nothing extra to show here: it's already netted
+        // out of the (smaller) payout below.
+        const receiveFee = resolvedFee ?? 0;
         const feeLabelStr =
           serviceType === "RECEIVE"
-            ? ""
+            ? receiveFee > 0
+              ? currency === "LBP"
+                ? ` · fee ${receiveFee.toLocaleString()} LBP${includingFees ? " (incl.)" : ""}`
+                : ` · fee $${receiveFee.toFixed(2)}${includingFees ? " (incl.)" : ""}`
+              : ""
             : currency === "LBP"
               ? feeTotal > 0
                 ? ` + ${feeTotal.toLocaleString()} LBP fees`
@@ -1077,10 +1137,18 @@ export default function Services() {
             ? `${sentAmount.toLocaleString()} LBP`
             : `$${sentAmount.toFixed(2)}`;
         const label = `${provider} ${serviceType} - ${clientLabel || "Unknown"} - ${amountStr}${feeLabelStr}`;
-        // Customer total: for SEND, customer pays amount + fees; for RECEIVE, customer gets just the amount
+        // Customer total — the WIRE CONTRACT payout: for SEND, customer pays
+        // amount + fees (unchanged). For RECEIVE (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md
+        // §1.5/§4 Phase F): fee-on-top → the FULL requested amount `x` (the
+        // fee is collected separately, pooled into the basket's charge
+        // bucket by splitBasketCashSides — never subtracted here); fee-
+        // included → the netted `x - f` payout, mirroring the non-session
+        // `receivePayout` calc above (the "Including Fees Checkbox" block).
         const customerTotal =
           serviceType === "RECEIVE"
-            ? sentAmount
+            ? includingFees && receiveFee > 0
+              ? Math.max(0, sentAmount - receiveFee)
+              : sentAmount
             : includingFees
               ? amtVal
               : sentAmount + (resolvedFee ?? 0) + finalPmFee;
@@ -1108,6 +1176,7 @@ export default function Services() {
         setBinanceSupplier("");
         setPaymentLines([]);
         setReturnLegs([]);
+        setFeePaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
         setMultiPmFees({});
@@ -1153,6 +1222,7 @@ export default function Services() {
     binanceSupplier,
     isSplitPayment,
     paymentLines,
+    feePaymentLines,
     includingFees,
     exchangeRate,
     effectiveRate,
@@ -1466,13 +1536,14 @@ export default function Services() {
               {/* Including Fees Checkbox — OMT only, WHISH has no fees per
                   LIRA-023. Float model (owner-confirmed 2026-07-29): a
                   RECEIVE can carry a customer-facing fee exactly like SEND,
-                  so this block now renders for BOTH directions with
-                  direction-specific arithmetic copy. RECEIVE fee entry is
-                  suppressed inside an active session/basket — the basket
-                  path doesn't wire a RECEIVE fee leg through yet
-                  (FinancialServiceRepository skips it under deferPayment). */}
+                  so this block renders for BOTH directions with
+                  direction-specific arithmetic copy. BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md
+                  §4 Phase F: RECEIVE fee entry is no longer suppressed inside
+                  an active session/basket — the session model now pools the
+                  fee into the basket's charge bucket (splitBasketCashSides,
+                  §1.5) and collects it via the pooled payment lines, so this
+                  input is just as real in-session as it is standalone. */}
               {provider !== "WHISH" &&
-                !(serviceType === "RECEIVE" && activeSession) &&
                 (() => {
                   const amtVal = parseFloat(amount) || 0;
                   const autoFee =
@@ -1723,12 +1794,11 @@ export default function Services() {
 
               {/* OMT Fee Input — shown for all OMT SEND/RECEIVE types except
                   WALLET and ONLINE_BROKERAGE. Float model (owner-confirmed
-                  2026-07-29): the fee is direction-agnostic, so this is no
-                  longer SEND-only — see the "Including Fees Checkbox" block
-                  above for why RECEIVE is suppressed inside an active
-                  session/basket. */}
+                  2026-07-29): the fee is direction-agnostic, so this is not
+                  SEND-only. BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F:
+                  no longer suppressed inside an active session/basket either
+                  — see the "Including Fees Checkbox" block above. */}
               {provider === "OMT" &&
-                !(serviceType === "RECEIVE" && activeSession) &&
                 omtServiceType &&
                 omtServiceType !== "OMT_WALLET" &&
                 omtServiceType !== "ONLINE_BROKERAGE" &&
@@ -2098,6 +2168,29 @@ export default function Services() {
                   exchangeRate={exchangeRate}
                   onExchangeRateChange={setEffectiveRate}
                   onReturnChange={setReturnLegs}
+                  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: an OMT/WHISH
+                  // system RECEIVE with a fee-on-top collects the customer's
+                  // fee payment via this counter-flow section, independent of
+                  // the payout lines above. GIFT_CARD is excluded — its fee
+                  // leg would hard-reject server-side (FinancialServiceRepository
+                  // only accepts CUSTOMER_ACCOUNT or a drawer-affecting method;
+                  // GIFT_CARD is neither, and this section has no voucher
+                  // picker to back it anyway).
+                  counterFlow={
+                    showFeeCounterFlow
+                      ? {
+                          label: `Customer pays — ${provider} fee`,
+                          totalAmount: renderProviderFee,
+                          currency,
+                          onChange: setFeePaymentLines,
+                          paymentMethods: allPaymentMethods.filter(
+                            (pm) => pm.code !== "GIFT_CARD",
+                          ),
+                          requiresClient: true,
+                          hasClient: !!receiverName || !!receiverPhone,
+                        }
+                      : undefined
+                  }
                 />
               </div>
 

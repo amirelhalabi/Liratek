@@ -12,6 +12,22 @@ export interface OmtWhishAppFeeInputs {
    *  OMT App RECEIVE always resolves this to its default `false` — the fee
    *  is always charged on top of the entered amount for OMT App today. */
   includingFees: boolean;
+  /**
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D (owner decision Q7,
+   * 2026-08-06): mode C — "customer pays separately". RECEIVE only, both
+   * OMT App and Whish App. When true, the fee touches NEITHER the wallet
+   * inflow nor the cash payout: the wallet receives the BARE entered
+   * amount and the customer receives the FULL entered amount, and the fee
+   * is instead collected via a separate `feePayments[]` leg set (a
+   * counter-flow section in the PaymentSheet). Mutually exclusive with
+   * `includingFees` (mode B, "deducted from payout") — callers must never
+   * set both; when both are true this takes precedence for RECEIVE (mode C
+   * wins) since the caller-side UI already prevents selecting more than one
+   * mode at a time. Ignored for SEND. Default false/omitted — every
+   * existing caller (modes A/B) computes byte-identical wallet/total
+   * amounts to before this field existed.
+   */
+  feeCollectedSeparately?: boolean;
 }
 
 export interface OmtWhishAppFeeResult {
@@ -50,6 +66,7 @@ export function calculateOmtWhishAppFees({
   parsedAmount,
   manualFee,
   includingFees,
+  feeCollectedSeparately = false,
 }: OmtWhishAppFeeInputs): OmtWhishAppFeeResult {
   const autoFee =
     activeProvider === "WHISH_APP" &&
@@ -62,21 +79,30 @@ export function calculateOmtWhishAppFees({
 
   const isAppWalletReceive = serviceType === "RECEIVE"; // both OMT_APP and WHISH_APP reach this form
 
+  // Mode C (RECEIVE only): the fee never touches the wallet inflow or the
+  // cash payout — both collapse to the bare entered amount, exactly like the
+  // "no fee" case, because the fee is realized entirely through the separate
+  // feePayments counter-flow instead of the wallet-vs-payout spread modes
+  // A/B use.
   const walletAmount =
     serviceType === "SEND"
       ? includingFees
         ? parsedAmount - providerFee
         : parsedAmount
-      : includingFees
+      : feeCollectedSeparately
         ? parsedAmount
-        : parsedAmount + providerFee;
+        : includingFees
+          ? parsedAmount
+          : parsedAmount + providerFee;
 
   const totalAmount =
     serviceType === "SEND"
       ? parsedAmount + providerFee
-      : includingFees
-        ? parsedAmount - providerFee
-        : parsedAmount;
+      : feeCollectedSeparately
+        ? parsedAmount
+        : includingFees
+          ? parsedAmount - providerFee
+          : parsedAmount;
 
   // SEND and RECEIVE alike: the fee is charged to the customer on top of the
   // transfer and kept whole by the shop (LEFT_TO_DO.md 2026-07-04 decision).

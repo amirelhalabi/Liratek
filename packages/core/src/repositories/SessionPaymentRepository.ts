@@ -9,8 +9,10 @@
  *                                 → transactions → sales) for settlement back-fill
  *   - getSessionCashSplitContext → Primary Cash Drawer plan §3 Phase D: the
  *                                 primary-system financial-service item subtotal
- *                                 vs. the whole basket total, by currency —
- *                                 the pro-rata inputs SessionPaymentService
+ *                                 vs. the whole basket total, by currency AND
+ *                                 by DIRECTION (charge vs payout — bug 7 fix,
+ *                                 BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase
+ *                                 F) — the pro-rata inputs SessionPaymentService
  *                                 needs to split a cash leg between the PCD
  *                                 and General (decision #7).
  *
@@ -51,26 +53,54 @@ export interface SessionSaleRow {
 
 /**
  * Pro-rata inputs for the session-basket cash split (Primary Cash Drawer plan
- * §3 Phase D, decision #7). `basketTotal*` is every basket item linked to the
- * session so far (all types); `primarySystem*` is the subset of that total
- * contributed by financial-service items whose `provider` equals the shop's
- * `baseSystem` — the portion of a cash leg proportional to
- * `primarySystem / basketTotal` (per currency) belongs in the PCD, the rest
- * in General.
+ * §3 Phase D, decision #7; bug 7 fix — BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
+ * Phase F).
+ *
+ * Two independent buckets, gross per DIRECTION (never a signed net — a
+ * basket item's `customer_session_transactions.amount_usd`/`amount_lbp` is
+ * SIGNED: positive for a charge item, NEGATIVE for a payout item such as a
+ * session RECEIVE/Loto-prize cashout. Summing the signed total let a payout
+ * item shrink or invert the ratio that drives the split — bug 7):
+ *  - `chargeTotal*` / `primarySystemCharge*` — every charge-side (positive)
+ *    item, plus any fee-on-top RECEIVE item's fee (see
+ *    `getSessionCashSplitContext`'s `feeOnTopReceiveFsIds` param); the CHARGE
+ *    ratio (`primarySystemCharge* / chargeTotal*`) drives an IN cash leg's
+ *    (and a kind-less/CHANGE OUT leg's) PCD/General split.
+ *  - `payoutTotal*` / `primarySystemPayout*` — every payout-side (negative)
+ *    item's magnitude; the PAYOUT ratio (`primarySystemPayout* / payoutTotal*`)
+ *    drives a `kind: "PAYOUT"` OUT leg's PCD/General split — the mirror of
+ *    the charge-side ratio, so a primary-system RECEIVE's cash payout debits
+ *    the PCD in proportion to ITS share of the basket's payout total.
  */
 export interface SessionCashSplitContext {
   baseSystem: BaseSystem;
-  basketTotalUsd: number;
-  basketTotalLbp: number;
-  primarySystemUsd: number;
-  primarySystemLbp: number;
+  chargeTotalUsd: number;
+  chargeTotalLbp: number;
+  primarySystemChargeUsd: number;
+  primarySystemChargeLbp: number;
+  payoutTotalUsd: number;
+  payoutTotalLbp: number;
+  primarySystemPayoutUsd: number;
+  primarySystemPayoutLbp: number;
 }
 
 interface SessionCashSplitRow {
-  basket_usd: number;
-  basket_lbp: number;
-  primary_usd: number;
-  primary_lbp: number;
+  charge_usd: number;
+  charge_lbp: number;
+  payout_usd: number;
+  payout_lbp: number;
+  primary_charge_usd: number;
+  primary_charge_lbp: number;
+  primary_payout_usd: number;
+  primary_payout_lbp: number;
+}
+
+/** One `financial_services` row's persisted fee, resolved for the fee-on-top
+ *  RECEIVE charge-bucket attribution (bug 7's third component). */
+interface SessionFeeRow {
+  provider: string;
+  currency: string;
+  fee: number;
 }
 
 export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
@@ -162,31 +192,71 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
 
   /**
    * Pro-rata inputs for the session-basket cash split (Primary Cash Drawer
-   * plan §3 Phase D / decision #7). Reads every basket item linked to the
-   * session SO FAR (this must run after all cart items are processed —
+   * plan §3 Phase D / decision #7; bug 7 fix — BIDIRECTIONAL_PAYMENT_LEGS_
+   * PLAN.md §4 Phase F). Reads every basket item linked to the session SO
+   * FAR (this must run after all cart items are processed —
    * SessionCheckoutService calls recordBasketPayment last, inside the same
    * db.transaction, so every item's customer_session_transactions row already
-   * exists when this query runs) and sums, per currency:
-   *   - basketTotal*    → every linked item's amount (all types)
-   *   - primarySystem*  → the subset whose unified transaction is a
-   *                       financial_services row with provider === baseSystem
+   * exists when this query runs) and sums, per currency, per DIRECTION:
+   *   - chargeTotal* / primarySystemCharge*  → every item whose linked amount
+   *     is POSITIVE (a charge), and the primary-system (shop_base_system)
+   *     subset of it — see `SessionCashSplitContext`'s doc.
+   *   - payoutTotal* / primarySystemPayout*  → every item whose linked amount
+   *     is NEGATIVE (a payout — session RECEIVE/Loto-prize cashout), summed
+   *     as a positive magnitude, and the primary-system subset of it.
+   *
+   * Bug 7 (this was the defect): summing the SIGNED total (one number mixing
+   * both directions) let a negative payout item shrink or invert the ratio
+   * that drives the whole basket's cash split. Gross per-direction sums fix
+   * that; `SessionPaymentService.ratioForCurrency` picks the matching bucket
+   * per leg (IN/kind-less-OUT → charge, kind-PAYOUT-OUT → payout).
+   *
+   * `feeOnTopReceiveFsIds` (bug 7's third component): the ids of every
+   * fee-on-top RECEIVE item in this basket (`includingFees !== true`) —
+   * SessionCheckoutService resolves this gate from each cart item's
+   * formData (the ONLY place that flag is ever available; it is never
+   * persisted on the financial_services row) and hands the ids down. The
+   * fee VALUE itself is read here, once, from the persisted
+   * `financial_services.omt_fee`/`whish_fee` columns (rule 14 — the single
+   * source of truth, already resolved by FinancialServiceRepository's WHISH
+   * tier lookup at create time) and folded into the CHARGE bucket: the fee
+   * is real cash collected via the pooled charge legs even though the
+   * RECEIVE item's OWN linked amount is negative (payout-side).
    *
    * Fails soft (logs + returns an all-zero context, i.e. "no PCD split") on
    * any error — a resolution failure must never block the basket payment
    * itself; it only means the cash stays in General, which is the
    * pre-existing (safe) behavior, not a money-loss bug.
    */
-  getSessionCashSplitContext(sessionId: number): SessionCashSplitContext {
+  getSessionCashSplitContext(
+    sessionId: number,
+    feeOnTopReceiveFsIds: number[] = [],
+  ): SessionCashSplitContext {
     const baseSystem = this.resolveBaseSystem();
+    const zeroContext: SessionCashSplitContext = {
+      baseSystem,
+      chargeTotalUsd: 0,
+      chargeTotalLbp: 0,
+      primarySystemChargeUsd: 0,
+      primarySystemChargeLbp: 0,
+      payoutTotalUsd: 0,
+      payoutTotalLbp: 0,
+      primarySystemPayoutUsd: 0,
+      primarySystemPayoutLbp: 0,
+    };
     try {
       const tenantId = getCurrentTenantId();
       const row = this.db
         .prepare(
           `SELECT
-             COALESCE(SUM(cst.amount_usd), 0) AS basket_usd,
-             COALESCE(SUM(cst.amount_lbp), 0) AS basket_lbp,
-             COALESCE(SUM(CASE WHEN fs.provider = ? THEN cst.amount_usd ELSE 0 END), 0) AS primary_usd,
-             COALESCE(SUM(CASE WHEN fs.provider = ? THEN cst.amount_lbp ELSE 0 END), 0) AS primary_lbp
+             COALESCE(SUM(CASE WHEN cst.amount_usd > 0 THEN cst.amount_usd ELSE 0 END), 0) AS charge_usd,
+             COALESCE(SUM(CASE WHEN cst.amount_lbp > 0 THEN cst.amount_lbp ELSE 0 END), 0) AS charge_lbp,
+             COALESCE(SUM(CASE WHEN cst.amount_usd < 0 THEN -cst.amount_usd ELSE 0 END), 0) AS payout_usd,
+             COALESCE(SUM(CASE WHEN cst.amount_lbp < 0 THEN -cst.amount_lbp ELSE 0 END), 0) AS payout_lbp,
+             COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_usd > 0 THEN cst.amount_usd ELSE 0 END), 0) AS primary_charge_usd,
+             COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_lbp > 0 THEN cst.amount_lbp ELSE 0 END), 0) AS primary_charge_lbp,
+             COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_usd < 0 THEN -cst.amount_usd ELSE 0 END), 0) AS primary_payout_usd,
+             COALESCE(SUM(CASE WHEN fs.provider = ? AND cst.amount_lbp < 0 THEN -cst.amount_lbp ELSE 0 END), 0) AS primary_payout_lbp
            FROM customer_session_transactions cst
            LEFT JOIN transactions t
              ON t.id = cst.unified_transaction_id
@@ -201,31 +271,61 @@ export class SessionPaymentRepository extends BaseRepository<{ id: number }> {
         .get(
           baseSystem,
           baseSystem,
+          baseSystem,
+          baseSystem,
           tenantId,
           tenantId,
           sessionId,
           tenantId,
         ) as SessionCashSplitRow | undefined;
 
+      let feeChargeUsd = 0;
+      let feeChargeLbp = 0;
+      let feePrimaryChargeUsd = 0;
+      let feePrimaryChargeLbp = 0;
+
+      if (feeOnTopReceiveFsIds.length > 0) {
+        const placeholders = feeOnTopReceiveFsIds.map(() => "?").join(",");
+        const feeRows = this.db
+          .prepare(
+            `SELECT provider, currency, COALESCE(omt_fee, whish_fee, 0) AS fee
+             FROM financial_services
+             WHERE tenant_id = ? AND id IN (${placeholders})`,
+          )
+          .all(tenantId, ...feeOnTopReceiveFsIds) as SessionFeeRow[];
+
+        for (const feeRow of feeRows) {
+          const fee = feeRow.fee ?? 0;
+          if (fee <= 0) continue;
+          if (feeRow.currency === "LBP") {
+            feeChargeLbp += fee;
+            if (feeRow.provider === baseSystem) feePrimaryChargeLbp += fee;
+          } else {
+            feeChargeUsd += fee;
+            if (feeRow.provider === baseSystem) feePrimaryChargeUsd += fee;
+          }
+        }
+      }
+
       return {
         baseSystem,
-        basketTotalUsd: row?.basket_usd ?? 0,
-        basketTotalLbp: row?.basket_lbp ?? 0,
-        primarySystemUsd: row?.primary_usd ?? 0,
-        primarySystemLbp: row?.primary_lbp ?? 0,
+        chargeTotalUsd: (row?.charge_usd ?? 0) + feeChargeUsd,
+        chargeTotalLbp: (row?.charge_lbp ?? 0) + feeChargeLbp,
+        primarySystemChargeUsd:
+          (row?.primary_charge_usd ?? 0) + feePrimaryChargeUsd,
+        primarySystemChargeLbp:
+          (row?.primary_charge_lbp ?? 0) + feePrimaryChargeLbp,
+        payoutTotalUsd: row?.payout_usd ?? 0,
+        payoutTotalLbp: row?.payout_lbp ?? 0,
+        primarySystemPayoutUsd: row?.primary_payout_usd ?? 0,
+        primarySystemPayoutLbp: row?.primary_payout_lbp ?? 0,
       };
     } catch (error) {
       closingLogger.error(
         { error, sessionId },
         "getSessionCashSplitContext failed — defaulting to no PCD split (cash stays in General)",
       );
-      return {
-        baseSystem,
-        basketTotalUsd: 0,
-        basketTotalLbp: 0,
-        primarySystemUsd: 0,
-        primarySystemLbp: 0,
-      };
+      return zeroContext;
     }
   }
 

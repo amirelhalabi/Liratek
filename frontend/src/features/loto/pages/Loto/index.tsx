@@ -398,7 +398,6 @@ export function LotoPage() {
       prize_amount: parseFloat(cashPrizeAmount),
       prize_date: localDay(),
       ticket_number: cashPrizeTicketNumber.trim() || undefined,
-      payment_method: "CASH",
     };
 
     // If session is active, add to cart instead of submitting
@@ -408,7 +407,7 @@ export function LotoPage() {
         label: `Loto Prize - ${parseFloat(cashPrizeAmount).toLocaleString()} LBP${cashPrizeTicketNumber.trim() ? ` (#${cashPrizeTicketNumber.trim()})` : ""}`,
         amount: -parseFloat(cashPrizeAmount),
         currency: "LBP",
-        ipcChannel: "loto:cashPrize:create",
+        ipcChannel: "loto:cash-prize:create",
         formData: prizeData,
       });
 

@@ -46,6 +46,14 @@ export interface CheckoutPayment {
   amount: number;
   /** IN = customer paid the shop; OUT = change handed back. Defaults to IN. */
   direction?: "IN" | "OUT";
+  /**
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F wire contract (frozen):
+   * meaningful only on a `direction: "OUT"` leg. "PAYOUT" = the shop pays the
+   * customer for a basket item (session RECEIVE/Loto-prize cashout);
+   * "CHANGE"/absent = legacy overpayment change. See `BasketPaymentLeg.kind`
+   * (SessionPaymentService) for the full note/PCD-split contract.
+   */
+  kind?: "PAYOUT" | "CHANGE";
   voucher_code?: string;
 }
 
@@ -71,7 +79,10 @@ export interface CheckoutItemResult {
   error?: string;
 }
 
-interface ProcessedItem {
+// Exported (like processCartItem below) only because `declaration: true`
+// requires it once processCartItem's return type is public — no behavior
+// change, still internal-only in intent.
+export interface ProcessedItem {
   sourceId: number;
   sourceTable: string;
   transactionType: string;
@@ -93,8 +104,12 @@ export interface CheckoutResult {
  * SESSION-BASKET deferred mode (deferPayment: true) — each service creates its
  * record + side effects + internal legs but SKIPS the customer-cash legs /
  * drawer post / debt; recordBasketPayment owns the single customer payment.
+ *
+ * Exported for tests (same rationale as resolveSessionClientForCheckout
+ * above): the narrowest seam that exercises the ipcChannel dispatch switch
+ * without standing up the full checkout() transaction.
  */
-function processCartItem(
+export function processCartItem(
   item: CheckoutCartItem,
   exchangeRate: number | undefined,
   userId: number,
@@ -175,6 +190,12 @@ function processCartItem(
       };
     }
 
+    // Legacy spelling (BIDIRECTIONAL_PAYMENT_LEGS_PLAN §2 bug 3): the frontend
+    // used to enqueue camelCase "loto:cashPrize:create"; session_cart_items.
+    // ipc_channel is persisted in the DB, so a session basket opened before
+    // this fix (item already added, checkout not yet run) may still hold the
+    // old string — keep accepting it so that checkout doesn't throw.
+    case "loto:cashPrize:create":
     case "loto:cash-prize:create": {
       data.userId = userId;
       const lotoService = getLotoService();
@@ -241,15 +262,37 @@ function processBatchCartItem(
 }
 
 /** Map checkout legs (snake_case) to the camelCase shape the basket recorder
- *  expects (with IN/OUT direction). */
+ *  expects (with IN/OUT direction + Phase F's payout/change `kind`). */
 function checkoutPaymentsToBasketLegs(payments: CheckoutPayment[]) {
   return payments.map((p) => ({
     method: p.method,
     currencyCode: p.currency_code,
     amount: p.amount,
     direction: p.direction ?? ("IN" as const),
+    kind: p.kind,
     voucherCode: p.voucher_code,
   }));
+}
+
+/**
+ * Bug 7's third component (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F):
+ * is this cart item a fee-on-top RECEIVE (the fee is collected via the
+ * pooled CHARGE legs, not netted from the payout)? This is the ONLY layer
+ * that ever sees `includingFees`/`serviceType` — they live in the cart
+ * item's formData and are never persisted on the financial_services row —
+ * so `checkout()` resolves this gate once per item and hands the matching
+ * financial_services ids down to `getSessionCashSplitContext` (via
+ * `recordBasketPayment`), which reads the fee VALUE itself from the
+ * persisted `omt_fee`/`whish_fee` columns (rule 14 — one source of truth,
+ * never re-derived here).
+ */
+// Exported for direct unit coverage (SessionCheckoutService.feeOnTopGate.test.ts)
+// — the narrowest seam that pins this gate's condition without standing up
+// the full async checkout() transaction.
+export function isFeeOnTopReceiveItem(
+  formData: Record<string, unknown>,
+): boolean {
+  return formData.serviceType === "RECEIVE" && formData.includingFees !== true;
 }
 
 /** Resolve the unified transactions.id for a just-created source record. */
@@ -347,6 +390,11 @@ export class SessionCheckoutService {
       let checkoutTotalLbp = 0;
       let checkoutProfitUsd = 0;
       let checkoutProfitLbp = 0;
+      // Bug 7's third component (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase
+      // F): financial_services ids of every fee-on-top RECEIVE item in this
+      // basket, handed to recordBasketPayment → getSessionCashSplitContext
+      // so the fee counts toward the basket's CHARGE-side PCD split.
+      const feeOnTopReceiveFsIds: number[] = [];
 
       const sessionCustomerName =
         sessionResult.session.customer_name || undefined;
@@ -411,6 +459,12 @@ export class SessionCheckoutService {
                     (sub.currency as string) || item.currency || "USD";
                   if (subCurrency === "LBP") subProfitLbp = comm;
                   else subProfitUsd = comm;
+                  if (
+                    result.sourceTable === "financial_services" &&
+                    isFeeOnTopReceiveItem(sub)
+                  ) {
+                    feeOnTopReceiveFsIds.push(result.sourceId);
+                  }
                 }
                 const unifiedId = resolveUnifiedTransactionId(
                   result.sourceTable,
@@ -439,6 +493,13 @@ export class SessionCheckoutService {
               }
             } else {
               const result = processCartItem(item, exchangeRate, userId);
+
+              if (
+                result.sourceTable === "financial_services" &&
+                isFeeOnTopReceiveItem(item.formData)
+              ) {
+                feeOnTopReceiveFsIds.push(result.sourceId);
+              }
 
               let itemProfitUsd = 0;
               let itemProfitLbp = 0;
@@ -527,6 +588,7 @@ export class SessionCheckoutService {
             exchangeRate: exchangeRate && exchangeRate > 0 ? exchangeRate : 1,
             userId,
             clientId: sessionClientId ?? null,
+            feeOnTopReceiveFsIds,
           });
         }
 

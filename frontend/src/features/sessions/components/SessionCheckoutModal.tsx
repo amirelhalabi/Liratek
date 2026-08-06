@@ -124,6 +124,23 @@ function applyItemDiscount(
   return fd;
 }
 
+/**
+ * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F — the `kind` discriminator on
+ * an OUT leg: `"PAYOUT"` (the shop pays the customer — RECEIVE/loto-prize/
+ * Binance cash-out) or `"CHANGE"` (change/return handed back from the pooled
+ * payment). Never set on an IN leg. Typed locally: the core-side leg schema
+ * (packages/core/src/validators/... — the parallel core lane) grows the
+ * matching field; this file does not import from core.
+ */
+type SessionPaymentLegKind = "PAYOUT" | "CHANGE";
+
+/**
+ * Payout methods the operator may route a basket's cash-out payout through,
+ * in display order. CUSTOMER_ACCOUNT is filtered out by the caller when the
+ * session has no chargeable client (see `hasClient` below).
+ */
+const PAYOUT_METHOD_ORDER = ["CASH", "OMT", "WHISH", "BINANCE", "CUSTOMER_ACCOUNT"];
+
 /** Modules where only cashout methods are valid (CASH, CUSTOMER_ACCOUNT, OMT, WHISH, BINANCE) */
 const CASHOUT_ONLY_MODULES = new Set(["binance_receive"]);
 
@@ -233,6 +250,7 @@ export function SessionCheckoutModal({
       setRateEdited(false);
       setKeptChange(null);
       setCheckoutSuccess(null);
+      setPayoutMethodOverride({});
     }
   }, [isOpen]);
 
@@ -276,6 +294,15 @@ export function SessionCheckoutModal({
     usd: number;
     lbp: number;
   } | null>(null);
+
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F — operator override of the
+  // per-currency payout method (undefined = "follow the derived default", see
+  // `resolvedPayoutMethodUsd`/`resolvedPayoutMethodLbp` below). Reset whenever
+  // the modal (re)opens, same as the other per-checkout state above.
+  const [payoutMethodOverride, setPayoutMethodOverride] = useState<{
+    USD?: string;
+    LBP?: string;
+  }>({});
 
   // Key used to force-remount MultiPaymentInput when client context changes
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -328,19 +355,27 @@ export function SessionCheckoutModal({
     [cartItems],
   );
 
-  // Does the operator settle this basket on the customer's account? Then the
-  // cash-out payouts (shop owes the customer, e.g. a Binance/OMT/Whish
-  // cash-out) are booked as store CREDIT on their account — reducing their
-  // balance and showing on the Debts Payments side — rather than handed over
-  // as cash. Requires a chargeable client (name + phone). A cash-paid or
-  // clientless basket keeps the cash payout (lira-098).
+  // Does the operator settle this basket on the customer's account BY
+  // DEFAULT? Then the cash-out payouts (shop owes the customer, e.g. a
+  // Binance/OMT/Whish cash-out) are booked as store CREDIT on their account —
+  // reducing their balance and showing on the Debts Payments side — rather
+  // than handed over as cash. Requires a chargeable client (name + phone). A
+  // cash-paid or clientless basket keeps the cash payout (lira-098). This is
+  // now only the DEFAULT the per-currency payout-method select below seeds —
+  // the operator can override it to any method (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md
+  // §4 Phase F), so an untouched basket behaves exactly as before.
   const payoutOnAccount =
     hasClient && paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT");
+  const defaultPayoutMethod = payoutOnAccount ? "CUSTOMER_ACCOUNT" : "CASH";
 
-  // Cash the operator must physically hand the customer on confirm — the GROSS
-  // payout (not the net), zero when settled to the account instead.
-  const cashPayoutUsd = payoutOnAccount ? 0 : -payoutUsd;
-  const cashPayoutLbp = payoutOnAccount ? 0 : -payoutLbp;
+  // Effective per-currency payout method: the operator's override if they
+  // touched the select, else the pre-existing derived default above.
+  // `payoutMethodChoices` (the select's options — needs `paymentMethodOptions`,
+  // defined further below) computes the actual list.
+  const resolvedPayoutMethodUsd =
+    payoutMethodOverride.USD ?? defaultPayoutMethod;
+  const resolvedPayoutMethodLbp =
+    payoutMethodOverride.LBP ?? defaultPayoutMethod;
 
   // Group items by module for display
   const groupedItems = useMemo(() => {
@@ -367,6 +402,22 @@ export function SessionCheckoutModal({
     label: m.label,
   }));
 
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F — method choices offered by
+  // the per-currency payout select — CASH / OMT Wallet / Whish Wallet /
+  // Binance always; Customer Account only when the session has a chargeable
+  // client (matches the debt-leg gating everywhere else in this modal).
+  // Labels come from the DB-backed payment methods list so a
+  // relabeled/deactivated method stays in sync automatically.
+  const payoutMethodChoices = useMemo(() => {
+    const byCode = new Map(paymentMethodOptions.map((m) => [m.code, m]));
+    return PAYOUT_METHOD_ORDER.filter(
+      (code) => code !== "CUSTOMER_ACCOUNT" || hasClient,
+    )
+      .map((code) => byCode.get(code))
+      .filter((m): m is { code: string; label: string } => !!m);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentMethodOptions.map((m) => m.code).join(","), hasClient]);
+
   // Combined total the pooled MultiPaymentInput must cover — the GROSS charges
   // (never netted against the payouts, which are settled separately below).
   // LBP is converted to USD via the operator rate.
@@ -387,9 +438,12 @@ export function SessionCheckoutModal({
   }, [paymentInputKey]);
 
   // Derive combined payment legs from the pooled MultiPaymentInput. IN legs are
-  // what the customer paid; OUT legs are change handed back. `direction` is
-  // carried through so the checkout handler can record the change (e.g. paid
-  // $100, returned 180,000 LBP) rather than just the net. GIFT_CARD legs carry
+  // what the customer paid; OUT legs are change handed back OR the basket's
+  // payout — `direction` is carried through so the checkout handler can
+  // record the change (e.g. paid $100, returned 180,000 LBP) rather than just
+  // the net, and `kind` (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F)
+  // distinguishes the two OUT flavors for anything downstream that needs to
+  // tell them apart (receipt printing, refund tooling). GIFT_CARD legs carry
   // their voucher_code so the basket recorder can redeem the voucher.
   const allPaymentLegs: Array<{
     method: string;
@@ -397,47 +451,63 @@ export function SessionCheckoutModal({
     amount: number;
     direction: "IN" | "OUT";
     voucher_code?: string;
+    kind?: SessionPaymentLegKind;
   }> = useMemo(() => {
-    const toLeg = (direction: "IN" | "OUT") => (l: PaymentLine) => ({
-      method: l.method,
-      currency_code: l.currencyCode,
-      amount: l.amount,
-      direction,
-      ...(l.method === "GIFT_CARD" && l.voucherCode
-        ? { voucher_code: l.voucherCode }
-        : {}),
-    });
+    const toLeg =
+      (direction: "IN" | "OUT", kind?: SessionPaymentLegKind) =>
+      (l: PaymentLine) => ({
+        method: l.method,
+        currency_code: l.currencyCode,
+        amount: l.amount,
+        direction,
+        ...(kind ? { kind } : {}),
+        ...(l.method === "GIFT_CARD" && l.voucherCode
+          ? { voucher_code: l.voucherCode }
+          : {}),
+      });
     const legs = [
       ...paymentLines.map(toLeg("IN")),
-      ...returnLines.map(toLeg("OUT")),
+      // Change/return from the pooled payment — never a payout.
+      ...returnLines.map(toLeg("OUT", "CHANGE")),
     ];
     // Cash-out payouts (loto cash prize, OMT/Whish RECEIVE, Binance cash out):
     // the shop owes the customer. Emit the GROSS payout as ONE OUT leg per
     // currency — NOT netted against the charges, so the Debts page lists the
-    // full payout ($20), not a net. Route to the customer's ACCOUNT (store
-    // credit) when the basket is settled on account, else to CASH (default,
-    // lira-098). Deferred cash-out items self-post nothing, so this leg is the
-    // only place the payout is booked — recordBasketPayment turns a
-    // CUSTOMER_ACCOUNT OUT leg into a session credit (Debts Payments side).
-    const payoutMethod = payoutOnAccount ? "CUSTOMER_ACCOUNT" : "CASH";
+    // full payout ($20), not a net. Route to the operator-chosen method per
+    // currency (`resolvedPayoutMethodUsd`/`resolvedPayoutMethodLbp` —
+    // defaults to CUSTOMER_ACCOUNT when the basket is settled on account,
+    // else CASH, lira-098; Phase F lets the operator pick any drawer-
+    // affecting method too). Deferred cash-out items self-post nothing, so
+    // this leg is the only place the payout is booked — recordBasketPayment
+    // turns a CUSTOMER_ACCOUNT OUT leg into a session credit (Debts Payments
+    // side).
     if (payoutUsd > 0) {
       legs.push({
-        method: payoutMethod,
+        method: resolvedPayoutMethodUsd,
         currency_code: "USD",
         amount: payoutUsd,
         direction: "OUT",
+        kind: "PAYOUT",
       });
     }
     if (payoutLbp > 0) {
       legs.push({
-        method: payoutMethod,
+        method: resolvedPayoutMethodLbp,
         currency_code: "LBP",
         amount: payoutLbp,
         direction: "OUT",
+        kind: "PAYOUT",
       });
     }
     return legs;
-  }, [paymentLines, returnLines, payoutUsd, payoutLbp, payoutOnAccount]);
+  }, [
+    paymentLines,
+    returnLines,
+    payoutUsd,
+    payoutLbp,
+    resolvedPayoutMethodUsd,
+    resolvedPayoutMethodLbp,
+  ]);
 
   // Primary method is the first non-zero leg's method, or CASH as fallback
   const primaryMethod =
@@ -474,6 +544,15 @@ export function SessionCheckoutModal({
   // operator hands back the difference as change (the Return/Change row), so we
   // must not require an exact match (that disabled Confirm whenever the customer
   // paid more than the total, e.g. $100 paid on a $98 total with $2 change).
+  //
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F: a system RECEIVE's
+  // fee-on-top (§1.5) flows into this check FOR FREE — it's added into
+  // chargeUsd/chargeLbp by splitBasketCashSides (binanceCart.ts), which
+  // combinedTotalUSD is derived from a few lines up, so no separate gate is
+  // needed here. Deliberately NOT adding a "payout must be covered" gate: the
+  // shop's primary cash drawer is allowed to go negative on a payout by
+  // design (FEATURE_GUIDE §7) — there is no balance check anywhere for this
+  // (PRIMARY_CASH_DRAWER_PLAN open item 6e, still open on purpose).
   const isPaymentValid =
     combinedTotalUSD <= 0 || paidUSD >= combinedTotalUSD - combinedTolerance;
 
@@ -515,18 +594,29 @@ export function SessionCheckoutModal({
 
     try {
       // Build cart items: apply the per-item discount (reduces recorded profit)
-      // and, for cashout items, derive the cashout method from the basket's
-      // primary payment method. Payment is collected once at the basket level —
-      // the item formData carries no payment method.
+      // and, for cashout items, stamp the OPERATOR-CHOSEN payout method for
+      // that item's own currency — never the basket's charge-collection
+      // primaryMethod, which answers a different question (how the customer
+      // paid IN, not how the shop pays OUT). Payment is collected once at the
+      // basket level — the item formData carries no payment method of its
+      // own otherwise.
       const updatedCartItems = cartItems.map((item) => {
         const discount = itemDiscounts[item.id] ?? 0;
         const updatedFormData = applyItemDiscount(item, discount);
 
-        // For RECEIVE/cashout items, map the basket's primary method to
-        // cashoutMethod (binance_receive only accepts CASH / CUSTOMER_ACCOUNT).
+        // For RECEIVE/cashout items, stamp the resolved payout method for
+        // THIS item's currency (financial.ts's cashoutMethod enum — CASH /
+        // CUSTOMER_ACCOUNT / OMT / WHISH / BINANCE — is shared across every
+        // provider this repository handles, including app wallets/Binance).
+        // A Binance item's cart `currency` is the mechanical "USDT" tag, not
+        // USD/LBP — but its cash side is folded into the USD payout bucket
+        // (`binanceCashSide`), so it correctly falls through to the USD
+        // method below.
         if (isCashoutItem(item)) {
           updatedFormData.cashoutMethod =
-            primaryMethod === "CUSTOMER_ACCOUNT" ? "CUSTOMER_ACCOUNT" : "CASH";
+            item.currency === "LBP"
+              ? resolvedPayoutMethodLbp
+              : resolvedPayoutMethodUsd;
         }
 
         return {
@@ -576,6 +666,7 @@ export function SessionCheckoutModal({
             currency_code: l.currency_code,
             amount: l.amount,
             direction: l.direction,
+            ...(l.kind ? { kind: l.kind } : {}),
           })),
         };
         clearCart();
@@ -847,8 +938,14 @@ export function SessionCheckoutModal({
 
                 {/* MultiPaymentInput — one pooled section covering both currencies.
               Pre-seeded with one row per positive currency total, opening
-              directly in split mode instead of two separate widgets. */}
-                {(totals.usd > 0 || totals.lbp > 0) && (
+              directly in split mode instead of two separate widgets.
+              Gated on the GROSS charge buckets, NOT the net total: a
+              same-currency payout must never hide the charge collection
+              (a $50 charge + $100 payout nets to -$50 and would otherwise
+              hide this widget while isPaymentValid still requires the
+              GROSS $50 — Confirm permanently disabled;
+              BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2 bug 2). */}
+                {(chargeUsd > 0 || chargeLbp > 0) && (
                   <div className="space-y-1">
                     <MultiPaymentInput
                       key={`payment-${paymentInputKey}`}
@@ -889,56 +986,81 @@ export function SessionCheckoutModal({
                   </div>
                 )}
 
-                {/* Net cash-OUT to the customer (loto prize / RECEIVE / Binance cash
-              out). Shown when the basket nets negative in cash — the shop pays
-              this out of the General drawer on confirm. Binance cash-outs live
-              in the usdt bucket (their payout is self-posted at replay) but the
-              operator still hands over CASH — include them here. */}
-                {(cashPayoutUsd < 0 || cashPayoutLbp < 0) && (
-                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-1">
-                    <div className="text-xs font-medium text-amber-300">
-                      Payout to customer (cash)
-                    </div>
-                    {cashPayoutUsd < 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">USD</span>
-                        <span className="font-mono text-amber-400">
-                          {formatAmount(cashPayoutUsd, "USD")}
-                        </span>
-                      </div>
-                    )}
-                    {cashPayoutLbp < 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">LBP</span>
-                        <span className="font-mono text-amber-400">
-                          {formatAmount(cashPayoutLbp, "LBP")}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* On-account payout: the GROSS cash-out booked as store credit, not
-              cash handed over (never netted against the charges). */}
-                {payoutOnAccount && (payoutUsd > 0 || payoutLbp > 0) && (
-                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 space-y-1">
-                    <div className="text-xs font-medium text-emerald-300">
-                      Credited to customer account
+                {/* Payout to customer (loto prize / RECEIVE / Binance cash out) —
+              the GROSS cash-out per currency (never netted against the
+              charges), with an operator-chosen METHOD per currency
+              (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F): CASH / OMT
+              Wallet / Whish Wallet / Binance / Customer Account. Defaults to
+              the pre-existing derivation (CUSTOMER_ACCOUNT when the basket's
+              charge is already on account, else CASH — lira-098), so an
+              untouched basket behaves exactly as before. Binance cash-outs
+              live in the usdt bucket (their payout is self-posted at replay)
+              but still route through this same selectable payout leg. */}
+                {(payoutUsd > 0 || payoutLbp > 0) && (
+                  <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3 space-y-2">
+                    <div className="text-xs font-medium text-slate-300">
+                      Payout to customer
                     </div>
                     {payoutUsd > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">USD</span>
-                        <span className="font-mono text-emerald-400">
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="text-slate-400 shrink-0">USD</span>
+                        <span
+                          className={`font-mono ${
+                            resolvedPayoutMethodUsd === "CUSTOMER_ACCOUNT"
+                              ? "text-emerald-400"
+                              : "text-amber-400"
+                          }`}
+                        >
                           {formatAmount(-payoutUsd, "USD")}
                         </span>
+                        <select
+                          data-testid="payout-method-select-USD"
+                          value={resolvedPayoutMethodUsd}
+                          onChange={(e) =>
+                            setPayoutMethodOverride((prev) => ({
+                              ...prev,
+                              USD: e.target.value,
+                            }))
+                          }
+                          className="bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
+                        >
+                          {payoutMethodChoices.map((m) => (
+                            <option key={m.code} value={m.code}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     )}
                     {payoutLbp > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-400">LBP</span>
-                        <span className="font-mono text-emerald-400">
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="text-slate-400 shrink-0">LBP</span>
+                        <span
+                          className={`font-mono ${
+                            resolvedPayoutMethodLbp === "CUSTOMER_ACCOUNT"
+                              ? "text-emerald-400"
+                              : "text-amber-400"
+                          }`}
+                        >
                           {formatAmount(-payoutLbp, "LBP")}
                         </span>
+                        <select
+                          data-testid="payout-method-select-LBP"
+                          value={resolvedPayoutMethodLbp}
+                          onChange={(e) =>
+                            setPayoutMethodOverride((prev) => ({
+                              ...prev,
+                              LBP: e.target.value,
+                            }))
+                          }
+                          className="bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
+                        >
+                          {payoutMethodChoices.map((m) => (
+                            <option key={m.code} value={m.code}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     )}
                   </div>

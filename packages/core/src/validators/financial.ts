@@ -97,6 +97,38 @@ export const createFinancialServiceSchema = z
         }),
       )
       .optional(),
+    /**
+     * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§1.4, Phase A (owner decision
+     * #1, 2026-08-06 — "the customer can pay by wish, can pay by any payment
+     * method we have in the system"): on a system RECEIVE with a fee ON TOP
+     * (`includingFees` false/omitted), the customer's provider fee `f` can be
+     * collected via operator-chosen legs instead of the implicit single-leg
+     * fallback — split allowed, any real tender method including
+     * CUSTOMER_ACCOUNT. A deliberately NARROWER leg shape than `payments[]`
+     * above: no `direction` (a fee leg is always customer-paid IN, never a
+     * change/return leg) and no `voucherCode` (GIFT_CARD redemption isn't
+     * wired into fee collection). Refined below: invalid (schema-rejected)
+     * when `includingFees` is true (the fee is netted out of the payout
+     * instead — nothing is separately collected) or when `serviceType !==
+     * "RECEIVE"`. Omitted, with `f > 0`, falls back to the legacy single
+     * implicit leg on the collapsed cashout method (unchanged behavior).
+     * Σ(feePayments) must equal `f` — enforced by a SECOND `reconcileLegs`
+     * hard-reject in the repository, same ±$0.05 epsilon as the payout
+     * reconcile. Mirrored in `electron-app/schemas/index.ts`'s
+     * `FinancialServiceSchema` (rule-14 debt — that file's own LOCAL-
+     * duplicate fields, e.g. `kept_change_usd`/`checkoutTotal`, document the
+     * same trap: both copies must carry the field or the desktop IPC path
+     * silently strips it).
+     */
+    feePayments: z
+      .array(
+        z.object({
+          method: z.string(),
+          currencyCode: z.string(),
+          amount: z.number().positive(),
+        }),
+      )
+      .optional(),
     /** PFT-3b (Partner FOR-Transactions): when partnerMode === "FOR" the
      * transaction is done ON THE PARTNER'S BEHALF — no walk-in customer, no
      * counter cash; the full amount books to partner_ledger (see the
@@ -245,6 +277,86 @@ export const createFinancialServiceSchema = z
     {
       message: "Service type is required when charging fee",
       path: ["omtServiceType"],
+    },
+  )
+  .refine(
+    (data) => {
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.4: feePayments is fee-on-top
+      // RECEIVE only. `includingFees: true` nets the fee out of the payout
+      // instead — there is nothing left for a separate fee leg to collect.
+      if (
+        data.feePayments &&
+        data.feePayments.length > 0 &&
+        data.includingFees === true
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "feePayments is only valid when includingFees is false (fee-on-top RECEIVE) — a fee-included transaction nets the fee out of the payout instead of collecting it separately",
+      path: ["feePayments"],
+    },
+  )
+  .refine(
+    (data) => {
+      if (
+        data.feePayments &&
+        data.feePayments.length > 0 &&
+        data.serviceType !== "RECEIVE"
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "feePayments is only valid on serviceType RECEIVE",
+      path: ["feePayments"],
+    },
+  )
+  .refine(
+    (data) => {
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis finding 1: a partner
+      // transaction (FOR or THROUGH) has no walk-in fee to collect — FOR
+      // never reads feePayments at all (PFT-3b dispatch), THROUGH suppresses
+      // the fee leg via skipSystemDrawer — both used to silently drop the
+      // field. Reject either mode up front.
+      if (
+        data.feePayments &&
+        data.feePayments.length > 0 &&
+        data.partnerId
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "feePayments cannot be used on a partner transaction — the partner handles the fee",
+      path: ["feePayments"],
+    },
+  )
+  .refine(
+    (data) => {
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis finding 2: the resolved
+      // provider fee must actually be > 0 — legs against a zero/omitted fee
+      // used to be silently dropped by the repository's inner gate
+      // (`receiveFeeAmt > 0`) with no reconcile and no booking.
+      if (
+        data.feePayments &&
+        data.feePayments.length > 0 &&
+        (data.omtFee ?? 0) <= 0 &&
+        (data.whishFee ?? 0) <= 0
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "feePayments requires a non-zero omtFee/whishFee — there is no fee to collect",
+      path: ["feePayments"],
     },
   );
 

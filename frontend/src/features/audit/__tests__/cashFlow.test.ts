@@ -33,6 +33,65 @@ describe("getCashFlowDirection — FINANCIAL_SERVICE service_type branch", () =>
   });
 });
 
+/**
+ * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md owner decision #10: a fee-on-top
+ * RECEIVE books an extra customer-paid-IN leg (the fee) alongside the shop's
+ * payout-OUT leg — the plain "out" badge hides that cash also came IN. The
+ * `legs` param is the row's structured payment legs (TransactionsViewer
+ * already loads `row.payments` for the payment-legs subtext); this reads it
+ * rather than metadata fee fields because metadata doesn't record whether
+ * the fee was actually collected via a leg (vs netted into the payout, or
+ * deferred inside a session) — only the legs prove real cash moved.
+ *
+ * Proven failing-first (rule 17): pre-fix, `getCashFlowDirection` had no 4th
+ * param at all — a fee-on-top RECEIVE with both an IN and an OUT leg still
+ * returned "out", indistinguishable from a plain RECEIVE with no fee.
+ */
+describe("getCashFlowDirection — FINANCIAL_SERVICE RECEIVE fee-on-top (owner decision #10)", () => {
+  const receiveMeta = meta("RECEIVE");
+
+  it("returns 'both' when a customer-paid IN leg (the fee) exists alongside the payout OUT leg", () => {
+    expect(
+      getCashFlowDirection("FINANCIAL_SERVICE", receiveMeta, undefined, [
+        { direction: "in" }, // fee leg (customer-paid)
+        { direction: "out" }, // payout leg (shop pays customer)
+      ]),
+    ).toBe("both");
+  });
+
+  it("stays 'out' when there is no IN leg (no fee collected, or fee included/netted)", () => {
+    expect(
+      getCashFlowDirection("FINANCIAL_SERVICE", receiveMeta, undefined, [
+        { direction: "out" },
+      ]),
+    ).toBe("out");
+  });
+
+  it("stays 'out' when legs are entirely absent (backward-compatible — every existing call site)", () => {
+    expect(getCashFlowDirection("FINANCIAL_SERVICE", receiveMeta)).toBe("out");
+    expect(
+      getCashFlowDirection("FINANCIAL_SERVICE", receiveMeta, undefined, []),
+    ).toBe("out");
+  });
+
+  it("stays 'out' when only an IN leg exists with no OUT leg (e.g. CUSTOMER_ACCOUNT payout — no drawer leg)", () => {
+    expect(
+      getCashFlowDirection("FINANCIAL_SERVICE", receiveMeta, undefined, [
+        { direction: "in" },
+      ]),
+    ).toBe("out");
+  });
+
+  it("never affects SEND/BILL — legs param is read only inside the RECEIVE branch", () => {
+    expect(
+      getCashFlowDirection("FINANCIAL_SERVICE", meta("SEND"), undefined, [
+        { direction: "in" },
+        { direction: "out" },
+      ]),
+    ).toBe("in");
+  });
+});
+
 describe("getCashFlowDirection — unchanged types (guard against regressions)", () => {
   it.each([
     ["SALE", "in"],

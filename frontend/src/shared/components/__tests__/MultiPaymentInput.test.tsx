@@ -1093,4 +1093,188 @@ describe("MultiPaymentInput", () => {
       ).toMatchObject({ method: "CUSTOMER_ACCOUNT", amount: 100 });
     });
   });
+
+  describe("counterFlow (opt-in, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C)", () => {
+    // Owner decision #2: ONE payment form, a direction per line, never a
+    // second form — a RECEIVE cashout's main lines are the shop's payout
+    // ("You pay") while a counter-flow section collects a customer-paid fee
+    // ("Customer pays"), in the SAME card. Proven failing-first (rule 17):
+    // before the `counterFlow` prop existed, none of these testids/chips
+    // rendered and the extra onChange was never called.
+    function renderWithCounterFlow(opts: {
+      counterFlowOnChange: jest.Mock;
+      totalAmount?: number;
+      currency?: string;
+      requiresClient?: boolean;
+      hasClient?: boolean;
+    }) {
+      const mainOnChange = jest.fn();
+      const utils = render(
+        <MultiPaymentInput
+          totals={[{ amount: 100, currency: "USD" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={EXCHANGE_RATE}
+          showDiscount={false}
+          onChange={mainOnChange}
+          counterFlow={{
+            label: "Customer pays — OMT fee",
+            totalAmount: opts.totalAmount ?? 5,
+            currency: opts.currency ?? "USD",
+            onChange: opts.counterFlowOnChange,
+            paymentMethods: PAYMENT_METHODS,
+            requiresClient: opts.requiresClient ?? true,
+            hasClient: opts.hasClient ?? false,
+          }}
+        />,
+      );
+      return { ...utils, mainOnChange };
+    }
+
+    it("does not render the section or either chip when counterFlow is absent (regression)", () => {
+      renderMpi();
+
+      expect(
+        screen.queryByTestId("counter-flow-section"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("direction-chip-you-pay"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("direction-chip-customer-pays"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders the section, both direction chips, and seeds one CASH line at totalAmount", () => {
+      const counterFlowOnChange = jest.fn();
+      renderWithCounterFlow({ counterFlowOnChange, totalAmount: 5 });
+
+      expect(screen.getByTestId("counter-flow-section")).toBeInTheDocument();
+      expect(screen.getByTestId("direction-chip-you-pay")).toHaveTextContent(
+        "You pay",
+      );
+      expect(
+        screen.getByTestId("direction-chip-customer-pays"),
+      ).toHaveTextContent("Customer pays");
+      expect(screen.getByText("Customer pays — OMT fee")).toBeInTheDocument();
+
+      const amountInput = document.querySelector<HTMLInputElement>(
+        '[data-testid^="counter-flow-amount-"]',
+      );
+      expect(amountInput?.value).toBe("5");
+
+      const methodSelect = document.querySelector<HTMLSelectElement>(
+        '[data-testid^="counter-flow-method-"]',
+      );
+      expect(methodSelect?.value).toBe("CASH");
+
+      expect(counterFlowOnChange).toHaveBeenCalled();
+      const lastLines = counterFlowOnChange.mock.calls.at(
+        -1,
+      )?.[0] as PaymentLine[];
+      expect(lastLines).toEqual([
+        expect.objectContaining({
+          method: "CASH",
+          currencyCode: "USD",
+          amount: 5,
+        }),
+      ]);
+    });
+
+    it("emits counter-flow edits through counterFlow.onChange only — never contaminates the main onChange", () => {
+      const counterFlowOnChange = jest.fn();
+      const { mainOnChange } = renderWithCounterFlow({
+        counterFlowOnChange,
+        totalAmount: 5,
+      });
+
+      const mainCallsBefore = mainOnChange.mock.calls.length;
+
+      const amountInput = document.querySelector<HTMLInputElement>(
+        '[data-testid^="counter-flow-amount-"]',
+      )!;
+      fireEvent.change(amountInput, { target: { value: "3" } });
+
+      const lastLines = counterFlowOnChange.mock.calls.at(
+        -1,
+      )?.[0] as PaymentLine[];
+      expect(lastLines[0]).toMatchObject({ amount: 3 });
+
+      // The main section's onChange must not have fired again from this edit.
+      expect(mainOnChange.mock.calls.length).toBe(mainCallsBefore);
+      // And the main line must still read the untouched payout amount (100),
+      // proving the counter-flow edit never reached the main lines/totals.
+      const mainAmountInput = document.querySelector<HTMLInputElement>(
+        '[data-testid="payment-summary"]',
+      );
+      expect(mainAmountInput).toBeInTheDocument();
+      const mainLastLines = mainOnChange.mock.calls.at(
+        -1,
+      )?.[0] as PaymentLine[];
+      expect(mainLastLines).toHaveLength(1);
+      expect(mainLastLines[0].amount).toBe(100);
+    });
+
+    it("adds a split counter-flow line prefilled with the remainder", () => {
+      const counterFlowOnChange = jest.fn();
+      renderWithCounterFlow({ counterFlowOnChange, totalAmount: 5 });
+
+      const amountInput = document.querySelector<HTMLInputElement>(
+        '[data-testid^="counter-flow-amount-"]',
+      )!;
+      fireEvent.change(amountInput, { target: { value: "2" } });
+
+      fireEvent.click(screen.getByTestId("counter-flow-add-split"));
+
+      const lines = document.querySelectorAll(
+        '[data-testid^="counter-flow-line-"]',
+      );
+      expect(lines).toHaveLength(2);
+
+      const lastLines = counterFlowOnChange.mock.calls.at(
+        -1,
+      )?.[0] as PaymentLine[];
+      expect(lastLines).toHaveLength(2);
+      expect(lastLines[0]).toMatchObject({ amount: 2 });
+      expect(lastLines[1]).toMatchObject({ amount: 3 }); // 5 - 2 remainder
+    });
+
+    it("disables CUSTOMER_ACCOUNT in the counter-flow method list when requiresClient && !hasClient", () => {
+      const counterFlowOnChange = jest.fn();
+      renderWithCounterFlow({
+        counterFlowOnChange,
+        requiresClient: true,
+        hasClient: false,
+      });
+
+      const methodSelect = document.querySelector<HTMLSelectElement>(
+        '[data-testid^="counter-flow-method-"]',
+      )!;
+      const optionValues = Array.from(methodSelect.options).map(
+        (o) => o.value,
+      );
+      expect(optionValues).not.toContain("CUSTOMER_ACCOUNT");
+    });
+
+    it("allows CUSTOMER_ACCOUNT in the counter-flow method list when hasClient is true", () => {
+      const counterFlowOnChange = jest.fn();
+      renderWithCounterFlow({
+        counterFlowOnChange,
+        requiresClient: true,
+        hasClient: true,
+      });
+
+      const methodSelect = document.querySelector<HTMLSelectElement>(
+        '[data-testid^="counter-flow-method-"]',
+      )!;
+      const optionValues = Array.from(methodSelect.options).map(
+        (o) => o.value,
+      );
+      expect(optionValues).toContain("CUSTOMER_ACCOUNT");
+    });
+  });
 });

@@ -72,7 +72,14 @@ export function RefundMethodModal({
   // Computed once from the legs snapshot the caller passed in when opening
   // this modal — stable for the lifetime of one refund attempt.
   const originalNet = useMemo(() => netByCurrency(legs), [legs]);
-  const defaults = useMemo(() => buildDefaultRefundLines(legs), [legs]);
+  const selectableMethodCodes = useMemo(
+    () => paymentMethods.map((m) => m.code),
+    [paymentMethods],
+  );
+  const defaults = useMemo(
+    () => buildDefaultRefundLines(legs, selectableMethodCodes),
+    [legs, selectableMethodCodes],
+  );
 
   const totals: Money[] = useMemo(
     () => defaults.map((d) => ({ currency: d.currencyCode, amount: d.amount })),

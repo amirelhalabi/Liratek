@@ -7,6 +7,7 @@ import {
   DecimalInput,
   hasNewClientInfo,
   Select,
+  type PaymentLine,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -114,7 +115,33 @@ function OmtWhishAppTransferFormInner({
   const useStructuredPayments =
     paymentLines.length > 0 || returnLegs.length > 0;
   const [paidByMethod, setPaidByMethod] = useState("CASH");
-  const [includingFees, setIncludingFees] = useState(false);
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D: the RECEIVE fee-on-top
+  // "who pays the fee" choice — replaces the old bare `includingFees`
+  // checkbox with a three-way pick (owner decision Q7, 2026-08-06):
+  //  - SENDER (default, unchecked today): the fee is added ON TOP of the
+  //    wallet inflow — mode A, unchanged.
+  //  - DEDUCTED: the fee nets OUT of the payout — mode B, unchanged, and
+  //    still WHISH_APP-only (the checkbox never rendered for OMT App).
+  //  - SEPARATE (NEW): the customer pays the fee back over the counter via
+  //    a dedicated feePayments leg set — mode C, both app wallets.
+  // `includingFees`/`feeCollectedSeparately` below are DERIVED, not stored,
+  // so every existing read site (calculateOmtWhishAppFees, the submit
+  // payload, the repository's `includingFees !== true` feePayments gate)
+  // keeps working unchanged.
+  const [feeMode, setFeeMode] = useState<"SENDER" | "DEDUCTED" | "SEPARATE">(
+    "SENDER",
+  );
+  const includingFees = feeMode === "DEDUCTED";
+  const feeCollectedSeparately = feeMode === "SEPARATE";
+  // Phase D counter-flow lines: the customer's fee-repayment legs, entirely
+  // independent of `paymentLines` (the shop's payout) — never merged into
+  // it, mirrors Services/index.tsx's `feePaymentLines` (Phase C).
+  const [feePaymentLines, setFeePaymentLines] = useState<PaymentLine[]>([]);
+  // Bug 6 (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2): how the shop pays the
+  // customer out on a RECEIVE — synced from the single payout line's method
+  // (mirrors Services/index.tsx) so a non-cash payout no longer silently
+  // hits the General drawer via the repository's no-legs fallback.
+  const [cashoutMethod, setCashoutMethod] = useState("CASH");
   const [manualFee, setManualFee] = useState("");
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
@@ -134,6 +161,26 @@ function OmtWhishAppTransferFormInner({
   );
   const [isSubmittingPartner, setIsSubmittingPartner] = useState(false);
   const [partnerPayFromMethod, setPartnerPayFromMethod] = useState("CASH");
+
+  // Phase D gating: mode C ("Customer pays separately") has no walk-in fee
+  // to collect for a partner transfer (no counter cash at all — PFT-3b) and
+  // is never wired for the session basket (the pooled basket doesn't collect
+  // fee legs, §2 bug 1's territory). Defensively fall back to mode A the
+  // instant either condition becomes true while mode C was selected, so a
+  // stale selection can never reach the submit payload. Mode B is
+  // WHISH_APP-only — same defensive reset if the provider ever changes
+  // under an already-mounted instance.
+  useEffect(() => {
+    if ((forPartner || !!activeSession) && feeMode === "SEPARATE") {
+      setFeeMode("SENDER");
+    }
+  }, [forPartner, activeSession, feeMode]);
+
+  useEffect(() => {
+    if (activeProvider !== "WHISH_APP" && feeMode === "DEDUCTED") {
+      setFeeMode("SENDER");
+    }
+  }, [activeProvider, feeMode]);
 
   // Auto-promote CUSTOMER_ACCOUNT when name+phone are present for a new client
   const activeClientName = serviceType === "SEND" ? senderName : receiverName;
@@ -198,7 +245,20 @@ function OmtWhishAppTransferFormInner({
     parsedAmount,
     manualFee,
     includingFees,
+    feeCollectedSeparately,
   });
+
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C/D: whether the fee counter-
+  // flow section (and, on submit, the feePayments leg set) is offered at all
+  // — mirrors Services/index.tsx's showFeeCounterFlow/feeCounterFlowActive
+  // gate. No walk-in fee to collect for a partner transfer or inside a
+  // session basket (§6bis finding 1 / §2 bug 1's territory).
+  const showFeeCounterFlow =
+    serviceType === "RECEIVE" &&
+    feeCollectedSeparately &&
+    providerFee > 0 &&
+    !activeSession &&
+    !forPartner;
 
   const handleSubmit = async () => {
     const finalSenderName = senderName.trim();
@@ -275,6 +335,9 @@ function OmtWhishAppTransferFormInner({
       setReturnLegs([]);
       setKeptChange(null);
       setManualFee("");
+      setFeeMode("SENDER");
+      setFeePaymentLines([]);
+      setCashoutMethod("CASH");
       resetSaveAsClient();
       return;
     }
@@ -303,7 +366,37 @@ function OmtWhishAppTransferFormInner({
         payments: useStructuredPayments
           ? toCamelLegs(paymentLines, returnLegs)
           : undefined,
+        // Bug 6 (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2): how the shop pays
+        // the customer out — synced from the single payout line's method
+        // (below). RECEIVE only: a SEND has no payout, and the repository's
+        // `cashoutMethod` field only means anything on a RECEIVE cashout.
+        // Previously never sent at all — a non-cash single-line payout
+        // silently hit the General drawer via the repository's no-legs
+        // fallback (`data.cashoutMethod || "CASH"`).
+        ...(serviceType === "RECEIVE"
+          ? {
+              cashoutMethod: cashoutMethod as
+                | "CASH"
+                | "CUSTOMER_ACCOUNT"
+                | "OMT"
+                | "WHISH"
+                | "BINANCE",
+            }
+          : {}),
         includingFees,
+        // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D: mode C's operator-
+        // chosen fee-collection legs. Sent ONLY when showFeeCounterFlow is
+        // (was) true — false (mode A/B, no fee, a partner transfer, or a
+        // session) means this key is entirely absent, preserving byte-
+        // identical payloads for modes A/B and the repository's legacy
+        // single-leg fallback for every other caller.
+        ...(showFeeCounterFlow
+          ? {
+              feePayments: toCamelLegs(
+                feePaymentLines.filter((l) => l.amount > 0),
+              ),
+            }
+          : {}),
         // Payment-Legs Integrity plan (Wave 9 + false-reject fix): SEND-only
         // — this is the customer-owed total, not a payout. `totalAmount` is
         // this form's own computed total (the exact figure the PaymentSheet
@@ -373,6 +466,9 @@ function OmtWhishAppTransferFormInner({
         setReturnLegs([]);
         setKeptChange(null);
         setManualFee("");
+        setFeeMode("SENDER");
+        setFeePaymentLines([]);
+        setCashoutMethod("CASH");
         setTransactionTime(undefined);
         resetSaveAsClient();
         loadFinancialData();
@@ -633,24 +729,68 @@ function OmtWhishAppTransferFormInner({
             </div>
 
             {/* App-wallet RECEIVE (OMT App or Whish App): wallet-vs-payout
-                breakdown. The "fee included" toggle only applies to Whish
-                App — OMT App always charges the fee on top (no UI to net it
-                out of the entered amount). */}
+                breakdown + the "Fee paid by" three-way choice
+                (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D, owner
+                decision Q7 2026-08-06). "Deducted from payout" stays
+                Whish-App-only (mirrors the old checkbox's reachability — OMT
+                App has no UI to net the fee out of the entered amount).
+                "Customer pays separately" is unavailable for a partner
+                transfer (no walk-in fee to collect) or inside a session
+                (the pooled basket doesn't collect fee legs yet). */}
             {isAppWalletReceive && (
               <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3 space-y-2">
-                {activeProvider === "WHISH_APP" && (
+                <div
+                  role="radiogroup"
+                  aria-label="Fee paid by"
+                  className="space-y-1.5"
+                >
+                  <span className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
+                    Fee paid by
+                  </span>
                   <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
                     <input
-                      type="checkbox"
-                      checked={includingFees}
-                      onChange={(e) => setIncludingFees(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
+                      type="radio"
+                      name="app-transfer-fee-mode"
+                      data-testid="fee-mode-sender"
+                      checked={feeMode === "SENDER"}
+                      onChange={() => setFeeMode("SENDER")}
+                      className="w-4 h-4 border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm font-medium">
-                      Fee included in amount
+                      Sender (added to transfer)
                     </span>
                   </label>
-                )}
+                  {activeProvider === "WHISH_APP" && (
+                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="app-transfer-fee-mode"
+                        data-testid="fee-mode-deducted"
+                        checked={feeMode === "DEDUCTED"}
+                        onChange={() => setFeeMode("DEDUCTED")}
+                        className="w-4 h-4 border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium">
+                        Deducted from payout
+                      </span>
+                    </label>
+                  )}
+                  {!forPartner && !activeSession && (
+                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="app-transfer-fee-mode"
+                        data-testid="fee-mode-separate"
+                        checked={feeMode === "SEPARATE"}
+                        onChange={() => setFeeMode("SEPARATE")}
+                        className="w-4 h-4 border-slate-600 bg-slate-900 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-medium">
+                        Customer pays separately
+                      </span>
+                    </label>
+                  )}
+                </div>
                 {parsedAmount > 0 && (
                   <div className="text-xs space-y-0.5 pl-6 border-l border-slate-600 ml-2">
                     <p className="text-slate-400">
@@ -662,7 +802,11 @@ function OmtWhishAppTransferFormInner({
                     <p className="text-slate-400">
                       Fee:{" "}
                       <span className="text-amber-400 font-mono font-medium">
-                        {includingFees ? "-" : "+"}
+                        {feeCollectedSeparately
+                          ? "collected separately: "
+                          : includingFees
+                            ? "-"
+                            : "+"}
                         {formatAmount(providerFee, currency)}
                       </span>
                     </p>
@@ -1037,10 +1181,39 @@ function OmtWhishAppTransferFormInner({
             setPaymentLines(lines);
             if (lines.length === 1) {
               setPaidByMethod(lines[0].method);
+              // Bug 6: sync the cashout method from the single payout line
+              // so a non-cash RECEIVE payout reaches the repository instead
+              // of silently falling back to the General drawer.
+              if (serviceType === "RECEIVE") {
+                setCashoutMethod(lines[0].method);
+              }
             }
           }}
           onReturnChange={setReturnLegs}
           onKeptChange={setKeptChange}
+          // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D: mode C's
+          // counter-flow section — the customer's separately-paid fee,
+          // independent of the payout lines above. Absent (modes A/B, no
+          // fee, a partner transfer, or a session) renders nothing extra —
+          // zero impact on those payloads.
+          {...(showFeeCounterFlow
+            ? {
+                counterFlow: {
+                  label: "Customer pays — fee",
+                  totalAmount: providerFee,
+                  currency,
+                  onChange: setFeePaymentLines,
+                  paymentMethods: allPaymentMethods.filter(
+                    (pm) => pm.code !== "GIFT_CARD",
+                  ),
+                  requiresClient: true,
+                  hasClient:
+                    !!clientId ||
+                    (!!activeClientName.trim() &&
+                      !!activeClientPhone.trim()),
+                },
+              }
+            : {})}
         >
           {(activeClientName.trim() || activeClientPhone.trim()) && (
             <div className="rounded-lg bg-slate-800/60 border border-slate-700/40 p-3 space-y-1">

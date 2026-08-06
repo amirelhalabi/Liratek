@@ -156,6 +156,36 @@ export interface MultiPaymentInputProps {
    *  means "credit the customer's account" and an auto IN-direction debt leg
    *  inverts the sign of the unpaid remainder. */
   autoDebtRemainder?: boolean;
+  /** OPT-IN counter-flow section (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md, owner
+   *  decision #2: ONE payment form, a direction per line, never a second
+   *  form). Renders a second, independent set of payment lines BELOW the
+   *  main lines, in the SAME card, for money moving the OPPOSITE direction —
+   *  e.g. a RECEIVE cashout's main lines are the shop's payout ("You pay")
+   *  while the counter-flow lines collect a fee the customer pays back
+   *  ("Customer pays"). Seeded with ONE CASH line at the full `totalAmount`
+   *  in `currency`. Lines are emitted ONLY through `counterFlow.onChange` —
+   *  never mixed into the main `onChange`/`onReturnChange` outputs, and
+   *  never read by the main section's totalPaid/hasDebt/PM-fee derivations.
+   *  Default (prop absent): renders exactly as today — no chips, no
+   *  section, zero impact on existing consumers. */
+  counterFlow?:
+    | {
+        /** Section heading, e.g. "Customer pays — OMT fee". */
+        label: string;
+        /** Full amount to seed the single line with, in `currency`. */
+        totalAmount: number;
+        currency: string;
+        onChange: (lines: PaymentLine[]) => void;
+        /** Defaults to the main `paymentMethods` prop when omitted. */
+        paymentMethods?: PaymentMethod[];
+        /** When true and `hasClient` is false, CUSTOMER_ACCOUNT is removed
+         *  from this section's method list (mirrors
+         *  canChargeToCustomerAccount-grade gating elsewhere — the caller
+         *  supplies its own validated predicate). */
+        requiresClient?: boolean;
+        hasClient?: boolean;
+      }
+    | undefined;
 }
 
 /** Delay before the auto-added debt remainder visually flips the sheet into
@@ -214,6 +244,7 @@ export default function MultiPaymentInput({
   smartSplitOverpay = false,
   cashOnlyReturn = false,
   autoDebtRemainder = false,
+  counterFlow,
 }: MultiPaymentInputProps) {
   // Seeded lines are captured once — the prop is read at mount only.
   const seededLinesRef = useRef<PaymentLine[] | null>(
@@ -1144,6 +1175,111 @@ export default function MultiPaymentInput({
     setIsSplitMode(!isSplitMode);
   };
 
+  // ── Counter-flow (opposite-direction) lines ────────────────────────────────
+  // Entirely independent of the main payment-lines state above: its own
+  // touched-tracking and split flag, never read by totalPaid/hasDebt/PM-fee.
+  // Seeded with ONE CASH line at counterFlow.totalAmount the instant the prop
+  // is supplied (or its totalAmount/currency change) — unless the operator
+  // already edited a line (touched) or built a manual split.
+  const counterFlowTouchedRef = useRef(false);
+  const [counterFlowSplitMode, setCounterFlowSplitMode] = useState(false);
+  const [counterFlowLines, setCounterFlowLines] = useState<PaymentLine[]>([]);
+
+  useEffect(() => {
+    if (!counterFlow) return;
+    if (counterFlowTouchedRef.current || counterFlowSplitMode) return;
+    const already =
+      counterFlowLines.length === 1 &&
+      counterFlowLines[0].currencyCode === counterFlow.currency &&
+      counterFlowLines[0].amount === counterFlow.totalAmount;
+    const next: PaymentLine[] = already
+      ? counterFlowLines
+      : [
+          {
+            id: counterFlowLines[0]?.id ?? crypto.randomUUID(),
+            method: counterFlowLines[0]?.method ?? "CASH",
+            currencyCode: counterFlow.currency,
+            amount: counterFlow.totalAmount,
+          },
+        ];
+    if (!already) setCounterFlowLines(next);
+    // Always notify the parent, even when unchanged, so its state matches
+    // what is on screen from the first render (mirrors the main single-mode
+    // auto-sync effect above).
+    counterFlow.onChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counterFlow?.totalAmount, counterFlow?.currency, counterFlowSplitMode]);
+
+  /** Outstanding remainder (in counterFlow.currency) across the counter-flow
+   *  lines, excluding one line (used to prefill a freshly added split line). */
+  const counterFlowRemaining = (excludeId?: string): number => {
+    if (!counterFlow) return 0;
+    const paid = counterFlowLines
+      .filter((l) => l.id !== excludeId)
+      .reduce(
+        (sum, l) =>
+          sum + convertSafe(l.amount || 0, l.currencyCode, counterFlow.currency),
+        0,
+      );
+    return Math.max(0, counterFlow.totalAmount - paid);
+  };
+
+  const addCounterFlowLine = () => {
+    if (!counterFlow) return;
+    counterFlowTouchedRef.current = true;
+    setCounterFlowSplitMode(true);
+    const next = [
+      ...counterFlowLines,
+      {
+        id: crypto.randomUUID(),
+        method: "CASH",
+        currencyCode: counterFlow.currency,
+        amount: counterFlowRemaining(),
+      },
+    ];
+    setCounterFlowLines(next);
+    counterFlow.onChange(next);
+  };
+
+  const removeCounterFlowLine = (id: string) => {
+    if (!counterFlow || counterFlowLines.length <= 1) return;
+    const next = counterFlowLines.filter((l) => l.id !== id);
+    setCounterFlowLines(next);
+    counterFlow.onChange(next);
+  };
+
+  const updateCounterFlowLine = (
+    id: string,
+    field: keyof PaymentLine,
+    value: string | number,
+  ) => {
+    if (!counterFlow) return;
+    counterFlowTouchedRef.current = true;
+    const next = counterFlowLines.map((line) => {
+      if (line.id !== id) return line;
+      const updated = { ...line, [field]: value };
+      if (field === "currencyCode" && value !== line.currencyCode) {
+        const newCurr = value as string;
+        updated.amount = roundForCurrency({
+          amount: convertSafe(line.amount, line.currencyCode, newCurr),
+          currency: newCurr,
+        }).amount;
+      }
+      return updated;
+    });
+    setCounterFlowLines(next);
+    counterFlow.onChange(next);
+  };
+
+  // CUSTOMER_ACCOUNT is removed from the counter-flow method list when the
+  // caller's own validated charge predicate says no (requiresClient && no
+  // client) — mirrors canChargeToCustomerAccount-grade gating used elsewhere.
+  const counterFlowMethods = (counterFlow?.paymentMethods ?? paymentMethods).filter(
+    (pm) =>
+      pm.code !== "CUSTOMER_ACCOUNT" ||
+      !(counterFlow?.requiresClient && !counterFlow?.hasClient),
+  );
+
   return (
     <div
       data-testid="multi-payment-input"
@@ -1154,6 +1290,18 @@ export default function MultiPaymentInput({
         <span className="text-sm font-semibold text-slate-200 tracking-wide shrink-0">
           {isSplitMode ? `${label || "Payment"} Split` : label || "Payment"}
         </span>
+        {/* Direction chip — only when a counter-flow section is active
+            (owner decision #10 area, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
+            Phase C): absent counterFlow, nothing renders here — identical to
+            today. */}
+        {counterFlow && (
+          <span
+            data-testid="direction-chip-you-pay"
+            className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 border border-slate-600"
+          >
+            You pay
+          </span>
+        )}
 
         {/* Exchange Rate — centred between title and Split button */}
         <div className="flex flex-1 items-center justify-center gap-1.5">
@@ -1448,6 +1596,104 @@ export default function MultiPaymentInput({
           </div>
         )}
       </div>
+
+      {/* Counter-flow (opposite-direction) section — OPT-IN, owner decision
+          #2: ONE card, a direction per line, never a second form. */}
+      {counterFlow && (
+        <div
+          data-testid="counter-flow-section"
+          className="border-t border-slate-700/40 px-4 py-3 space-y-2"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-200 tracking-wide">
+              {counterFlow.label}
+            </span>
+            <span
+              data-testid="direction-chip-customer-pays"
+              className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-700/30 text-emerald-300 border border-emerald-600/40"
+            >
+              Customer pays
+            </span>
+          </div>
+
+          {counterFlowLines.map((line) => (
+            <div
+              key={line.id}
+              data-testid={`counter-flow-line-${line.id}`}
+              className="flex items-center gap-2"
+            >
+              <select
+                data-testid={`counter-flow-method-${line.id}`}
+                value={line.method}
+                onChange={(e) =>
+                  updateCounterFlowLine(line.id, "method", e.target.value)
+                }
+                className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+              >
+                {counterFlowMethods.map((pm) => (
+                  <option key={pm.code} value={pm.code}>
+                    {pm.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                data-testid={`counter-flow-currency-${line.id}`}
+                value={line.currencyCode}
+                onChange={(e) =>
+                  updateCounterFlowLine(line.id, "currencyCode", e.target.value)
+                }
+                className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+              >
+                {currencies.map((curr) => (
+                  <option key={curr.code} value={curr.code}>
+                    {curr.code}
+                  </option>
+                ))}
+              </select>
+
+              <div className="relative w-28">
+                {["$", "€", "£"].includes(getSymbol(line.currencyCode)) && (
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
+                    {getSymbol(line.currencyCode)}
+                  </span>
+                )}
+                <DecimalInput
+                  data-testid={`counter-flow-amount-${line.id}`}
+                  value={line.amount}
+                  decimals={line.currencyCode === "LBP" ? 0 : 2}
+                  onChange={(n) => updateCounterFlowLine(line.id, "amount", n)}
+                  className={`w-full bg-slate-900 border border-slate-600 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500 transition-colors ${
+                    ["$", "€", "£"].includes(getSymbol(line.currencyCode))
+                      ? "pl-7"
+                      : "pl-3"
+                  }`}
+                  placeholder="0"
+                />
+              </div>
+
+              <button
+                type="button"
+                disabled={counterFlowLines.length === 1}
+                onClick={() => removeCounterFlowLine(line.id)}
+                className="flex-shrink-0 px-0.5 py-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
+                title="Remove"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            data-testid="counter-flow-add-split"
+            onClick={addCounterFlowLine}
+            className="w-full py-1.5 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
+          >
+            + Add Split
+          </button>
+        </div>
+      )}
 
       {/* Summary */}
       <div

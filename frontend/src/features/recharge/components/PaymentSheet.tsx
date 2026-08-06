@@ -72,6 +72,25 @@ export interface PaymentSheetProps {
   fetchClientVouchers?: (clientId: number) => Promise<VoucherOption[]>;
   /** Optional extra content between summary and payment input */
   children?: React.ReactNode;
+  /**
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D — pure pass-through to
+   * MultiPaymentInput's own `counterFlow` prop (owned by packages/ui, not
+   * this file). Renders a second, independent set of payment lines for
+   * money moving the OPPOSITE direction from the main lines above (e.g. a
+   * RECEIVE cashout's main lines are the shop's payout while the
+   * counter-flow lines collect a fee the customer pays back). Default
+   * (prop absent): renders exactly as today — zero impact on existing
+   * consumers of this sheet.
+   */
+  counterFlow?: {
+    label: string;
+    totalAmount: number;
+    currency: string;
+    onChange: (lines: PaymentLine[]) => void;
+    paymentMethods?: PaymentMethod[];
+    requiresClient?: boolean;
+    hasClient?: boolean;
+  };
 }
 
 export function PaymentSheet({
@@ -107,6 +126,7 @@ export function PaymentSheet({
   clientId,
   fetchClientVouchers,
   children,
+  counterFlow,
 }: PaymentSheetProps) {
   useModalFocusFix(open);
   const [visible, setVisible] = useState(false);
@@ -250,6 +270,7 @@ export function PaymentSheet({
               {...(clientId != null ? { clientId } : {})}
               {...(fetchClientVouchers ? { fetchClientVouchers } : {})}
               {...(onReturnChange ? { onReturnChange } : {})}
+              {...(counterFlow ? { counterFlow } : {})}
             />
           </div>
         </div>

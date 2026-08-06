@@ -1905,6 +1905,33 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   }
 
   /**
+   * ONE definition (rule 14) of "signed net customer-facing total per
+   * currency, summed over overridable legs" — shared by
+   * `_validateRefundLegOverride` (the pre-write guard) and the
+   * override-application step in `_reversePayments`, so the sign the
+   * reversal restores can never drift from the total the validator checked
+   * against. `rows` is whatever the caller already fetched (either
+   * `getPaymentsByTransactionId`'s result or the raw `payments` query
+   * `_reversePayments` runs for its own mirror loop) — this never re-queries.
+   */
+  private _overridableNetByCurrency(
+    rows: Array<{
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+      note: string | null;
+    }>,
+  ): Record<string, number> {
+    const net: Record<string, number> = {};
+    for (const p of rows) {
+      if (!isOverridableLeg(p)) continue;
+      net[p.currency_code] = (net[p.currency_code] ?? 0) + p.amount;
+    }
+    return net;
+  }
+
+  /**
    * LIRA-078 (refund tender-selection modal, money contract): validate the
    * operator's chosen return legs against THIS transaction's own net
    * customer-facing total, per currency, BEFORE any row is written. Reuses
@@ -1912,13 +1939,33 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * below uses to decide which original rows the override replaces, so the
    * two can never disagree about what "customer-facing" means.
    *
-   * The rule: for every currency (USD/LBP only — cross-currency refunds are
-   * explicitly out of scope), sum(refundLegs in that currency) must equal
-   * sum(original overridable legs' signed amount in that currency) within a
-   * small per-currency epsilon. No exchange-rate conversion is ever
-   * consulted — this is a same-currency amount check, not a reconciliation
-   * (contrast `reconcileLegs`, which converts cross-currency at a stamped
-   * rate; that mechanism does not apply here by design).
+   * NET-BASED OVERRIDE (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md Phase B): the
+   * override describes the MAGNITUDE of the row's net customer-facing
+   * movement, never a per-leg mirror — the operator picks the METHOD(s), the
+   * DIRECTION is always restored from the original net's sign (see
+   * `_reversePayments`). This is why `originalNet` here is left SIGNED (a
+   * plain SALE/SEND's net is positive — the customer paid in; a fee-on-top
+   * RECEIVE's overridable legs are the payout leg (negative, the shop paid
+   * the customer x) and the customer-paid fee leg (positive, +f) — netting to
+   * `f - x`, negative whenever the fee is smaller than the payout, which it
+   * always is) while `refundLegs[].amount` is validated to be a positive
+   * MAGNITUDE (checked below) and `overrideNet` sums those positive
+   * magnitudes. The check is therefore `|originalNet| == overrideNet` — NOT
+   * `originalNet == overrideNet` (comparing a signed total to an unsigned one
+   * would hard-reject every RECEIVE override, since a $95 override could
+   * never equal a -$95 net) — matching the frontend's identical
+   * `Math.abs(originalNet[c])` comparison in `validateRefundLines`
+   * (refundLegOverride.ts) so the modal's Confirm gate and the backend's
+   * authority never disagree about what's valid.
+   *
+   * Worked example (x=100 payout, f=5 customer-paid fee, CASH throughout):
+   * originalNet.USD = f - x = 5 - 100 = -95. Operator overrides with ONE
+   * CASH leg, amount 95 (a positive magnitude — matches |−95|). Applied in
+   * `_reversePayments`, that leg is written with the ORIGINAL net's sign
+   * negated: since originalNet is negative, the reversal leg posts +95 to the
+   * chosen drawer — arithmetically identical to reversing the two original
+   * legs individually (+100 payout given back, -5 fee returned = +95 net),
+   * just collapsed into one line the way the operator sees it.
    */
   private _validateRefundLegOverride(
     transactionId: number,
@@ -1927,12 +1974,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const EPSILON: Record<string, number> = { USD: 0.01, LBP: 1 };
 
     const originalRows = this.getPaymentsByTransactionId(transactionId);
-    const originalNet: Record<string, number> = {};
-    for (const p of originalRows) {
-      if (!isOverridableLeg(p)) continue;
-      originalNet[p.currency_code] =
-        (originalNet[p.currency_code] ?? 0) + p.amount;
-    }
+    const originalNet = this._overridableNetByCurrency(originalRows);
 
     const paymentMethodRepo = getPaymentMethodRepository();
     const overrideNet: Record<string, number> = {};
@@ -1971,7 +2013,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       );
     }
     for (const currency of currencies) {
-      const original = originalNet[currency] ?? 0;
+      // Magnitude comparison (see the doc comment above): originalNet is
+      // SIGNED (negative for a fee-on-top RECEIVE, whose payout leg
+      // outweighs the customer-paid fee leg), override is always a positive
+      // magnitude sum — comparing the signed value to the unsigned one
+      // directly would hard-reject every such row.
+      const original = Math.abs(originalNet[currency] ?? 0);
       const override = overrideNet[currency] ?? 0;
       const epsilon = EPSILON[currency] ?? 0.01;
       if (Math.abs(original - override) > epsilon) {
@@ -2104,17 +2151,38 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // unchanged for every non-FS / non-primary-system transaction, so this
       // is safe even when `cashDrawerCtx` is null.
       const cashDrawerCtx = this._financialServiceCashDrawerCtx(originalTxnId);
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md Phase B: the override leg carries
+      // a positive MAGNITUDE only (validated in `_validateRefundLegOverride`)
+      // — the DIRECTION it posts in must be restored from the sign of the
+      // ORIGINAL overridable net for that currency, computed here from the
+      // SAME `payments` rows the mirror loop above already fetched (rule 14 —
+      // one query, one predicate, no drift between "what got skipped" and
+      // "what sign the replacement gets"). A plain money-IN row (SALE/SEND: a
+      // positive net, e.g. +100 cash) reverses by SUBTRACTING from the
+      // chosen drawer — unchanged from pre-Phase-B behavior. A fee-on-top
+      // RECEIVE's overridable legs net NEGATIVE (payout f-x, e.g. 5-100=-95:
+      // the shop paid the customer more than the fee it collected back), so
+      // its override reverses by ADDING to the chosen drawer instead — undoing
+      // the OUT movement the original transaction made. See the worked
+      // example in `_validateRefundLegOverride`'s doc comment. A currency
+      // whose original net is exactly 0 can only be reached here by an
+      // override leg of amount 0, which the validator already rejects
+      // (`leg.amount > 0` is required) — so the `-1` default below is never
+      // actually exercised, kept only as the historically-safe fallback.
+      const originalNetByCurrency = this._overridableNetByCurrency(payments);
       for (const leg of refundLegOverride) {
         const drawerName = cashDrawerCtx
           ? resolveServiceCashDrawer(leg.method, cashDrawerCtx)
           : paymentMethodToDrawerName(leg.method);
-        const negatedAmount = -leg.amount;
+        const originalNet = originalNetByCurrency[leg.currencyCode] ?? 0;
+        const reversalSign = originalNet < 0 ? 1 : -1;
+        const signedAmount = reversalSign * leg.amount;
         insertPaymentRow(this.db, {
           transactionId: reversalTxnId,
           method: leg.method,
           drawerName,
           currencyCode: leg.currencyCode,
-          amount: negatedAmount,
+          amount: signedAmount,
           note: "Refund (method override)",
           createdBy: userId,
           tenantId,
@@ -2122,7 +2190,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         applyDrawerDelta(this.db, {
           drawerName,
           currencyCode: leg.currencyCode,
-          delta: negatedAmount,
+          delta: signedAmount,
           tenantId,
         });
       }

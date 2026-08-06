@@ -532,6 +532,12 @@ interface CashFlowBadgeProps {
   amountUsd: number;
   amountLbp: number;
   metaJson?: string | null;
+  /** BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md owner decision #10: the row's
+   *  structured payment legs (already loaded by the caller for the
+   *  payment-legs subtext) — lets getCashFlowDirection detect a fee-on-top
+   *  RECEIVE's customer-paid-IN leg alongside the payout-OUT leg and render
+   *  "both" instead of a plain "out". */
+  legs?: TransactionPaymentLeg[] | undefined;
 }
 
 function CashFlowBadge({
@@ -539,6 +545,7 @@ function CashFlowBadge({
   amountUsd,
   amountLbp,
   metaJson,
+  legs,
 }: CashFlowBadgeProps) {
   // Supplier credit (e.g. a bill commission owed to us): a receivable, not drawer
   // cash. Show a distinct amber "credit" marker instead of the green cash-in
@@ -557,10 +564,15 @@ function CashFlowBadge({
     );
   }
 
-  const direction = getCashFlowDirection(type, metaJson, {
-    usd: amountUsd,
-    lbp: amountLbp,
-  });
+  const direction = getCashFlowDirection(
+    type,
+    metaJson,
+    {
+      usd: amountUsd,
+      lbp: amountLbp,
+    },
+    legs,
+  );
   if (!direction) return null;
 
   // Partner rows carry a signed magnitude (see isSignedPartnerType) — the
@@ -1008,6 +1020,7 @@ export default function TransactionsViewer({
               amountUsd={tender?.usd ?? row.amount_usd}
               amountLbp={tender?.lbp ?? row.amount_lbp}
               metaJson={row.metadata_json}
+              legs={row.payments}
             />
             {row.summary && (
               <span className="text-slate-400 truncate max-w-[480px]">

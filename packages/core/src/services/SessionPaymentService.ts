@@ -72,6 +72,19 @@ export interface BasketPaymentLeg {
   currencyCode: string;
   amount: number;
   direction?: "IN" | "OUT";
+  /**
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F wire contract (frozen):
+   * meaningful ONLY on a `direction: "OUT"` leg — IN legs never carry it.
+   *  - "PAYOUT" — the shop pays the customer for a basket item (a session
+   *    RECEIVE / Loto-prize cashout), operator-chosen method. Debits the PCD
+   *    in proportion to the basket's PAYOUT-side primary-system share
+   *    (mirrors the IN/charge-side ratio — see `ratioForCurrency` below) and
+   *    is noted "Basket payout to customer".
+   *  - "CHANGE" or absent — legacy behavior: overpayment change returned to
+   *    the customer, noted "Basket change returned", split by the
+   *    CHARGE-side ratio (byte-identical to pre-Phase-F).
+   */
+  kind?: "PAYOUT" | "CHANGE";
   /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
   voucherCode?: string;
 }
@@ -86,14 +99,39 @@ export interface RecordBasketPaymentInput {
    * session's resolved client is used.
    */
   clientId?: number | null;
+  /**
+   * Bug 7 fix (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F): the
+   * `financial_services.id`s of every fee-on-top RECEIVE item in this
+   * basket — SessionCheckoutService is the only layer that ever sees
+   * `includingFees`/`serviceType` (parsed from each cart item's formData,
+   * never persisted), so it resolves this gate and hands the ids down.
+   * `getSessionCashSplitContext` reads the fee VALUE itself from the
+   * persisted `financial_services.omt_fee`/`whish_fee` columns (rule 14 —
+   * one source of truth) and folds it into the basket's CHARGE-side split
+   * totals. Omitted/empty = no fee-on-top RECEIVE items (legacy baskets).
+   */
+  feeOnTopReceiveFsIds?: number[];
 }
 
 export interface RecordBasketPaymentResult {
   /** USD posted to drawers (sum of drawer-affecting IN legs in USD). */
   drawerInUsd: number;
   drawerInLbp: number;
+  /**
+   * Total drawer-affecting OUT amount (change + payout combined) — kept for
+   * backward compatibility. Since `kind` was introduced (Phase F) this is a
+   * MIX of change and payout; use `drawerChangeUsd`/`drawerPayoutUsd` (and
+   * their LBP twins) below for the per-kind breakdown so a consumer never
+   * mistakes a payout for change.
+   */
   drawerOutUsd: number;
   drawerOutLbp: number;
+  /** Subset of drawerOut* from `kind: "PAYOUT"` OUT legs (shop pays the customer). */
+  drawerPayoutUsd: number;
+  drawerPayoutLbp: number;
+  /** Subset of drawerOut* from `kind: "CHANGE"`/kind-less OUT legs (overpayment change). */
+  drawerChangeUsd: number;
+  drawerChangeLbp: number;
   /** CUSTOMER_ACCOUNT (incl. GIFT_CARD) debt created, by currency. */
   debtUsd: number;
   debtLbp: number;
@@ -156,19 +194,46 @@ export function splitCashLegByItemShare(
   return { pcdAmount, generalAmount };
 }
 
-/** Per-currency PCD ratio derived from a session's cash-split context. */
+/**
+ * Per-currency PCD ratio derived from a session's cash-split context.
+ *
+ * Two independent buckets (bug 7 fix, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
+ * Phase F — `getSessionCashSplitContext` now sums gross per-DIRECTION totals
+ * instead of a signed net that a negative payout item could shrink or
+ * invert):
+ *  - "charge" — the customer-paid side (every IN leg, and every kind-less/
+ *    CHANGE OUT leg, since change is a byproduct of the charge-side
+ *    overpayment, not of a payout item).
+ *  - "payout" — the shop-pays-customer side (a `kind: "PAYOUT"` OUT leg,
+ *    e.g. a session RECEIVE/Loto-prize cashout) — mirrors the charge-side
+ *    ratio using the basket's PAYOUT-side primary-system share instead.
+ */
 function ratioForCurrency(
   ctx: SessionCashSplitContext,
   currencyCode: string,
+  bucket: "charge" | "payout",
 ): number {
+  if (bucket === "payout") {
+    if (currencyCode === "USD") {
+      return ctx.payoutTotalUsd > 0
+        ? ctx.primarySystemPayoutUsd / ctx.payoutTotalUsd
+        : 0;
+    }
+    if (currencyCode === "LBP") {
+      return ctx.payoutTotalLbp > 0
+        ? ctx.primarySystemPayoutLbp / ctx.payoutTotalLbp
+        : 0;
+    }
+    return 0;
+  }
   if (currencyCode === "USD") {
-    return ctx.basketTotalUsd > 0
-      ? ctx.primarySystemUsd / ctx.basketTotalUsd
+    return ctx.chargeTotalUsd > 0
+      ? ctx.primarySystemChargeUsd / ctx.chargeTotalUsd
       : 0;
   }
   if (currencyCode === "LBP") {
-    return ctx.basketTotalLbp > 0
-      ? ctx.primarySystemLbp / ctx.basketTotalLbp
+    return ctx.chargeTotalLbp > 0
+      ? ctx.primarySystemChargeLbp / ctx.chargeTotalLbp
       : 0;
   }
   return 0;
@@ -210,6 +275,10 @@ export class SessionPaymentService {
       drawerInLbp: 0,
       drawerOutUsd: 0,
       drawerOutLbp: 0,
+      drawerPayoutUsd: 0,
+      drawerPayoutLbp: 0,
+      drawerChangeUsd: 0,
+      drawerChangeLbp: 0,
       debtUsd: 0,
       debtLbp: 0,
       giftCardUsd: 0,
@@ -225,13 +294,21 @@ export class SessionPaymentService {
     // server-side, from the session's own linked items (never from the
     // client-supplied legs) — every eligible cash-family leg below is split
     // against these same ratios.
-    const cashSplitCtx = this.paymentRepo.getSessionCashSplitContext(sessionId);
+    const cashSplitCtx = this.paymentRepo.getSessionCashSplitContext(
+      sessionId,
+      input.feeOnTopReceiveFsIds ?? [],
+    );
     const pcdDrawerName = primaryCashDrawerName(cashSplitCtx.baseSystem);
 
     for (const leg of legs) {
       const amt = Math.abs(leg.amount);
       if (amt <= 0) continue;
       const isOut = leg.direction === "OUT";
+      // Note discriminator (byte-identical legacy when kind is absent/CHANGE).
+      const isPayout = isOut && leg.kind === "PAYOUT";
+      const outNote = isPayout
+        ? "Basket payout to customer"
+        : "Basket change returned";
 
       // GIFT_CARD: redeem the voucher (deposits its full value as account credit)
       // then treat the leg as a non-drawer (debt-like) charge against that credit.
@@ -313,7 +390,7 @@ export class SessionPaymentService {
           drawerName: naturalDrawer,
           currencyCode: leg.currencyCode,
           amount: signed,
-          note: isOut ? "Basket change returned" : "Basket payment",
+          note: isOut ? outNote : "Basket payment",
           userId,
         });
         this.paymentRepo.postDrawerDelta(
@@ -327,7 +404,19 @@ export class SessionPaymentService {
         // to General. Two independent postings, EACH still going through
         // insertPaymentRow + applyDrawerDelta (rule 20 — the generic void
         // path reverses both for free, no hand-rolled UPDATE).
-        const ratio = ratioForCurrency(cashSplitCtx, leg.currencyCode);
+        //
+        // Bug 7 fix (Phase F): an IN leg or a kind-less/CHANGE OUT leg splits
+        // by the CHARGE-side ratio (unchanged for every legacy basket); a
+        // kind-PAYOUT OUT leg splits by the mirrored PAYOUT-side ratio — a
+        // primary-system RECEIVE/Loto-prize cashout debits the PCD in
+        // proportion to ITS share of the basket's payout total, never the
+        // charge-side ratio (which a negative payout item used to corrupt by
+        // shrinking/inverting the old signed basket total).
+        const ratio = ratioForCurrency(
+          cashSplitCtx,
+          leg.currencyCode,
+          isPayout ? "payout" : "charge",
+        );
         const { pcdAmount, generalAmount } = splitCashLegByItemShare(
           amt,
           ratio,
@@ -343,7 +432,7 @@ export class SessionPaymentService {
             currencyCode: leg.currencyCode,
             amount: signed,
             note: isOut
-              ? "Basket change returned (primary-system item share)"
+              ? `${outNote} (primary-system item share)`
               : "Basket payment (primary-system item share)",
             userId,
           });
@@ -362,7 +451,7 @@ export class SessionPaymentService {
             drawerName: "General",
             currencyCode: leg.currencyCode,
             amount: signed,
-            note: isOut ? "Basket change returned" : "Basket payment",
+            note: isOut ? outNote : "Basket payment",
             userId,
           });
           this.paymentRepo.postDrawerDelta("General", leg.currencyCode, signed);
@@ -370,8 +459,15 @@ export class SessionPaymentService {
       }
 
       if (isOut) {
-        if (leg.currencyCode === "USD") result.drawerOutUsd += amt;
-        else if (leg.currencyCode === "LBP") result.drawerOutLbp += amt;
+        if (leg.currencyCode === "USD") {
+          result.drawerOutUsd += amt;
+          if (isPayout) result.drawerPayoutUsd += amt;
+          else result.drawerChangeUsd += amt;
+        } else if (leg.currencyCode === "LBP") {
+          result.drawerOutLbp += amt;
+          if (isPayout) result.drawerPayoutLbp += amt;
+          else result.drawerChangeLbp += amt;
+        }
       } else {
         if (leg.currencyCode === "USD") result.drawerInUsd += amt;
         else if (leg.currencyCode === "LBP") result.drawerInLbp += amt;

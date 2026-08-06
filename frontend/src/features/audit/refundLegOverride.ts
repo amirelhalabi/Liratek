@@ -50,31 +50,64 @@ export function netByCurrency(
 
 /**
  * Build the modal's default pre-fill: ONE line per original currency total
- * (the ticket's explicit contract), method defaulting to the FIRST leg's
- * method for that currency (array order is DB id ASC — the earliest-booked
- * leg for that currency; a deterministic, sane default the operator can
- * still change). A currency whose net rounds to ~0 is dropped — nothing to
- * refund in it.
+ * (the ticket's explicit contract). Method defaults to the method of the
+ * SINGLE leg with the LARGEST absolute `signed_amount` for that currency —
+ * ties broken by keeping the first one seen (stable array order) — NOT the
+ * first leg in array/id order alone.
+ *
+ * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md Phase B (plan §2 bug 4): a fee-on-top
+ * RECEIVE books its customer-paid fee leg BEFORE the payout leg(s), so
+ * "first leg wins" used to default the return method to the FEE's method —
+ * the smaller of the two legs, and on legacy rows literally the retired
+ * "FEE" literal, which isn't even in the modal's selectable method list and
+ * which the backend hard-rejects as not-an-active-method. Picking the
+ * LARGEST-magnitude leg instead means the payout (always the bigger leg on
+ * a fee-on-top RECEIVE, since the fee is a fraction of the principal) wins
+ * the default, matching what the operator actually handed back/received.
+ *
+ * `selectableMethodCodes` is the modal's own active/drawer-affecting method
+ * list (`paymentMethods.map(m => m.code)`, the same list rendered in the
+ * method dropdown) — a candidate method that isn't in that list (the
+ * retired "FEE" string, or any method since deactivated) is never used as a
+ * default; CASH is the fallback since it is a system method
+ * (`PaymentMethodRepository`'s `is_system` guard keeps it present/active in
+ * every install).
+ *
+ * A currency whose net rounds to ~0 is dropped — nothing to refund in it.
  */
 export function buildDefaultRefundLines(
   legs: TransactionPaymentLeg[] | undefined,
+  selectableMethodCodes: string[],
 ): RefundLegOverride[] {
   const net = netByCurrency(legs);
-  const methodByCurrency: Record<string, string> = {};
+  const selectable = new Set(selectableMethodCodes);
+
+  const largestLegByCurrency: Record<
+    string,
+    { method: string; magnitude: number }
+  > = {};
   for (const leg of legs ?? []) {
-    if (methodByCurrency[leg.currency_code] === undefined) {
-      methodByCurrency[leg.currency_code] = leg.method;
+    const magnitude = Math.abs(leg.signed_amount);
+    const current = largestLegByCurrency[leg.currency_code];
+    // Strict `>` (not `>=`) so a tie keeps the FIRST leg seen for that
+    // currency, matching the ticket's "ties: first" contract.
+    if (!current || magnitude > current.magnitude) {
+      largestLegByCurrency[leg.currency_code] = { method: leg.method, magnitude };
     }
   }
+
   return Object.entries(net)
     .filter(
       ([currencyCode, amount]) => Math.abs(amount) > epsilonFor(currencyCode),
     )
-    .map(([currencyCode, amount]) => ({
-      method: methodByCurrency[currencyCode] ?? "CASH",
-      currencyCode,
-      amount: Math.abs(amount),
-    }));
+    .map(([currencyCode, amount]) => {
+      const candidate = largestLegByCurrency[currencyCode]?.method;
+      const method =
+        candidate !== undefined && selectable.has(candidate)
+          ? candidate
+          : "CASH";
+      return { method, currencyCode, amount: Math.abs(amount) };
+    });
 }
 
 /**

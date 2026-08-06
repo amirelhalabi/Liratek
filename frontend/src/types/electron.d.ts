@@ -972,6 +972,18 @@ export interface ElectronAPI {
       split_group?: string;
       split_role?: "carrier" | "sibling";
       split_units?: number;
+      /** BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§4 Phase C: operator-chosen
+       *  fee-collection legs for an OMT/WHISH system RECEIVE with a
+       *  fee-on-top (`includingFees` false, fee > 0). Real tender methods,
+       *  split allowed, CUSTOMER_ACCOUNT allowed (client-gated). Absent
+       *  entirely (not `[]`) falls back to the repository's legacy
+       *  single-leg synthesis on `cashoutMethod`. Never sent inside a
+       *  session (Phase F). */
+      feePayments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: (provider?: string) => Promise<
       Array<{

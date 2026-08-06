@@ -12,11 +12,16 @@ import type { CartItem } from "../types/cart";
  * belongs to the transactions view — never to the basket (no cart line
  * shows the Katsh drawer draw-down either).
  *
- * The item's "USDT" currency is a MECHANICAL flag only: it keeps the item
- * out of the pooled basket payment because FinancialServiceRepository
- * self-posts the cash movement at checkout replay. Do not render it —
- * rendering `amount` as "USDT" once read as "the wallet loses 50 USDT" on a
- * cash out. Returns null for non-Binance items.
+ * The item's "USDT" currency is a MECHANICAL flag only: `splitBasketCashSides`
+ * below folds it into the USD cash-side bucket (charge or payout) instead of
+ * giving it its own currency bucket, which is what actually keeps a Binance
+ * item out of a phantom "USDT total" in the pooled basket payment / debt.
+ * There is no more separate self-posted replay path for this — the gross
+ * charge/payout split (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.5, Phase F) is
+ * now the one model every session-basket item goes through, cashout or not.
+ * Do not render the raw "USDT" tag — rendering `amount` as "USDT" once read
+ * as "the wallet loses 50 USDT" on a cash out. Returns null for non-Binance
+ * items.
  */
 export function binanceCashSide(
   item: Pick<CartItem, "module" | "amount">,
@@ -40,9 +45,24 @@ export function binanceCashSide(
  *
  * `binanceCashSide` folds a Binance item's USDT tag into its USD cash side;
  * every other item contributes its own `amount`/`currency`.
+ *
+ * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.5 Phase F: an OMT/WHISH system RECEIVE
+ * (`omt_system`/`whish_system`, negative cart amount = a payout item) that
+ * carries a customer-paid fee-on-top (`formData.includingFees` falsy,
+ * `omtFee`/`whishFee` > 0) ALSO contributes that fee into the CHARGE bucket,
+ * in the item's own currency — "the fee simply joins the gross charge bucket
+ * ... collected by the pooled payment lines" (§1.5). Fee-included
+ * (`includingFees` true) contributes nothing extra here: the fee is already
+ * netted out of the (smaller) payout amount the item itself carries, so there
+ * is nothing separate left to collect. `formData` is optional so callers that
+ * never carry a fee (every non-financial module, and existing tests built
+ * before this field existed) don't need to supply it.
  */
 export function splitBasketCashSides(
-  items: Array<Pick<CartItem, "module" | "amount" | "currency">>,
+  items: Array<
+    Pick<CartItem, "module" | "amount" | "currency"> &
+      Partial<Pick<CartItem, "formData">>
+  >,
 ): {
   chargeUsd: number;
   chargeLbp: number;
@@ -63,6 +83,25 @@ export function splitBasketCashSides(
     } else {
       if (ccy === "USD") payoutUsd += -amt;
       else if (ccy === "LBP") payoutLbp += -amt;
+    }
+
+    // A system RECEIVE's fee-on-top rides along as a SEPARATE charge, on top
+    // of (never instead of) the payout bucketing above.
+    if (
+      (item.module === "omt_system" || item.module === "whish_system") &&
+      amt < 0
+    ) {
+      const fd = item.formData ?? {};
+      const includingFees = fd.includingFees === true;
+      if (!includingFees) {
+        const rawFee =
+          item.module === "omt_system" ? fd.omtFee : fd.whishFee;
+        const fee = typeof rawFee === "number" && rawFee > 0 ? rawFee : 0;
+        if (fee > 0) {
+          if (item.currency === "USD") chargeUsd += fee;
+          else if (item.currency === "LBP") chargeLbp += fee;
+        }
+      }
     }
   }
   return { chargeUsd, chargeLbp, payoutUsd, payoutLbp };

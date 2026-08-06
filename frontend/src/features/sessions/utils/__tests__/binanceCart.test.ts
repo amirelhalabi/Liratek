@@ -97,3 +97,109 @@ describe("splitBasketCashSides", () => {
     });
   });
 });
+
+describe("splitBasketCashSides — system RECEIVE fee-on-top (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.5 Phase F)", () => {
+  // Pre-Phase-F, a session RECEIVE's fee was zeroed out before it ever
+  // reached the cart (§2 bug 1) and this function had no fee-awareness at
+  // all — every case below returned chargeUsd/chargeLbp = 0 regardless of
+  // formData.omtFee/whishFee. Proven failing-first (rule 17): reverting the
+  // fee-bucketing block in binanceCart.ts back out reproduces that — these
+  // assertions fail with "Expected 5, Received 0" (etc.) against the
+  // pre-fix function.
+  const systemReceive = (
+    module: "omt_system" | "whish_system",
+    payout: number,
+    currency: "USD" | "LBP",
+    formData: Record<string, unknown>,
+  ): Pick<CartItem, "module" | "amount" | "currency" | "formData"> => ({
+    module,
+    amount: -payout,
+    currency,
+    formData,
+  });
+
+  it("adds an OMT RECEIVE fee-on-top to the CHARGE bucket, alongside the full payout", () => {
+    const result = splitBasketCashSides([
+      systemReceive("omt_system", 100, "USD", {
+        omtFee: 5,
+        includingFees: false,
+      }),
+    ]);
+
+    expect(result.chargeUsd).toBe(5);
+    expect(result.payoutUsd).toBe(100);
+  });
+
+  it("adds a WHISH RECEIVE fee-on-top to the CHARGE bucket", () => {
+    const result = splitBasketCashSides([
+      systemReceive("whish_system", 200, "USD", {
+        whishFee: 8,
+        includingFees: false,
+      }),
+    ]);
+
+    expect(result.chargeUsd).toBe(8);
+    expect(result.payoutUsd).toBe(200);
+  });
+
+  it("does NOT add the fee when includingFees is true — it's already netted into the (smaller) payout", () => {
+    // Requested $100, fee $5 deducted: the item's own amount already carries
+    // the netted $95 payout. Adding the fee again here would double-book it.
+    const result = splitBasketCashSides([
+      systemReceive("whish_system", 95, "USD", {
+        whishFee: 5,
+        includingFees: true,
+      }),
+    ]);
+
+    expect(result.chargeUsd).toBe(0);
+    expect(result.payoutUsd).toBe(95);
+  });
+
+  it("keys the fee off the item's OWN currency (LBP), independent of the payout bucket", () => {
+    const result = splitBasketCashSides([
+      systemReceive("omt_system", 1_000_000, "LBP", {
+        omtFee: 50_000,
+        includingFees: false,
+      }),
+    ]);
+
+    expect(result.chargeLbp).toBe(50_000);
+    expect(result.payoutLbp).toBe(1_000_000);
+    expect(result.chargeUsd).toBe(0);
+    expect(result.payoutUsd).toBe(0);
+  });
+
+  it("never adds a fee for a SEND item (positive amount) — the fee is already baked into it", () => {
+    // A SEND's `amount` already includes the fee-on-top per Services/index.tsx
+    // (`customerTotal = sentAmount + resolvedFee + finalPmFee`); this function
+    // must not add it a second time just because formData.omtFee is present.
+    const result = splitBasketCashSides([
+      {
+        module: "omt_system",
+        amount: 105,
+        currency: "USD",
+        formData: { omtFee: 5, includingFees: false },
+      },
+    ]);
+
+    expect(result.chargeUsd).toBe(105);
+    expect(result.payoutUsd).toBe(0);
+  });
+
+  it("ignores a non-financial RECEIVE-shaped item even if formData carries a fee-like key", () => {
+    // Only omt_system/whish_system carry a real provider fee — a loto prize
+    // or Binance cash-out must never pick one up from stray formData.
+    const result = splitBasketCashSides([
+      {
+        module: "loto_prize",
+        amount: -20,
+        currency: "USD",
+        formData: { omtFee: 5, includingFees: false },
+      },
+    ]);
+
+    expect(result.chargeUsd).toBe(0);
+    expect(result.payoutUsd).toBe(20);
+  });
+});

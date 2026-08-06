@@ -109,3 +109,119 @@ describe("buildSessionCheckoutReceiptText", () => {
     expect(text).not.toContain("undefined");
   });
 });
+
+describe("buildSessionCheckoutReceiptText — GROSS Charges/Payout split (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F)", () => {
+  const shop = { name: "Corner Tech", phone: "01-234567", location: "Beirut" };
+
+  it("prints Charges AND Payout to customer separately for a mixed basket — never netted", () => {
+    // A $50 charge (custom service) + a $20 cash-out (same currency) used to
+    // collapse into one "Total: $30.00" line. Proven failing-first (rule
+    // 17): against the pre-fix single-net-Total code this test fails because
+    // "Charges:" / "Payout to customer:" never appear at all (only
+    // "Total:" does), and "$30.00" (the net) DOES appear — the exact
+    // opposite of what this asserts.
+    const text = buildSessionCheckoutReceiptText({
+      shop,
+      sessionId: 10,
+      items: [
+        { label: "Custom Service", amount: 50, currency: "USD" },
+        { label: "OMT RECEIVE", amount: -20, currency: "USD" },
+      ],
+      legs: [],
+    });
+
+    expect(text).toMatch(/Charges:\s+\$50\.00/);
+    expect(text).toMatch(/Payout to customer:\s+\$20\.00/);
+    // The net ($30.00) must never appear — that's the amount this split
+    // guards against silently vanishing from the printed receipt.
+    expect(text).not.toContain("$30.00");
+    expect(text).not.toContain("Total:");
+  });
+
+  it("keeps Charges/Payout separate per currency in a USD+LBP mixed basket", () => {
+    const text = buildSessionCheckoutReceiptText({
+      shop,
+      sessionId: 11,
+      items: [
+        { label: "MTC Recharge", amount: 100_000, currency: "LBP" },
+        { label: "WHISH RECEIVE", amount: -30, currency: "USD" },
+      ],
+      legs: [],
+    });
+
+    expect(text).toMatch(/Charges:\s+100,000 LBP/);
+    expect(text).toMatch(/Payout to customer:\s+\$30\.00/);
+  });
+
+  it("labels a kind:PAYOUT OUT leg as Payout, never Change", () => {
+    // Pre-Phase-F, every non-CUSTOMER_ACCOUNT OUT leg printed "Change:" — a
+    // RECEIVE/loto-prize payout isn't change, it's the shop paying the
+    // customer. Failing-first: legs carried no `kind` field before this
+    // change, so the pre-fix labeling logic (`method === "CUSTOMER_ACCOUNT"
+    // ? "Credited" : "Change"`) always prints "Change:" here — this
+    // assertion on "Payout (CASH):" fails against it.
+    const text = buildSessionCheckoutReceiptText({
+      shop,
+      sessionId: 12,
+      items: [{ label: "Loto Prize", amount: -20, currency: "USD" }],
+      legs: [
+        {
+          method: "CASH",
+          currency_code: "USD",
+          amount: 20,
+          direction: "OUT",
+          kind: "PAYOUT",
+        },
+      ],
+    });
+
+    expect(text).toMatch(/Payout \(CASH\):\s+\$20\.00/);
+    expect(text).not.toContain("Change:");
+  });
+
+  it("still labels a real change/return leg (kind:CHANGE) as Change, not Payout", () => {
+    const text = buildSessionCheckoutReceiptText({
+      shop,
+      sessionId: 13,
+      items: [{ label: "Item A", amount: 10, currency: "USD" }],
+      legs: [
+        {
+          method: "CASH",
+          currency_code: "USD",
+          amount: 20,
+          direction: "IN",
+        },
+        {
+          method: "CASH",
+          currency_code: "USD",
+          amount: 10,
+          direction: "OUT",
+          kind: "CHANGE",
+        },
+      ],
+    });
+
+    expect(text).toMatch(/Change:\s+\$10\.00/);
+    expect(text).not.toContain("Payout (CASH)");
+  });
+
+  it("still labels a CUSTOMER_ACCOUNT payout as Credited even with kind:PAYOUT", () => {
+    const text = buildSessionCheckoutReceiptText({
+      shop,
+      sessionId: 14,
+      items: [{ label: "Loto Prize", amount: -20, currency: "USD" }],
+      legs: [
+        {
+          method: "CUSTOMER_ACCOUNT",
+          currency_code: "USD",
+          amount: 20,
+          direction: "OUT",
+          kind: "PAYOUT",
+        },
+      ],
+    });
+
+    expect(text).toMatch(/Credited:\s+\$20\.00/);
+    expect(text).not.toContain("Payout (CUSTOMER_ACCOUNT)");
+  });
+});

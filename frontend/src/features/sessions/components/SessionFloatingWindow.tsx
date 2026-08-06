@@ -10,7 +10,7 @@ import {
 import logger from "@/utils/logger";
 import { useSession } from "../context/SessionContext";
 import { SessionCheckoutModal } from "./SessionCheckoutModal";
-import { binanceCashSide } from "../utils/binanceCart";
+import { binanceCashSide, splitBasketCashSides } from "../utils/binanceCart";
 
 /**
  * SessionPopupPanel — renders cart items + committed transactions for the active session.
@@ -289,35 +289,74 @@ export function SessionPopupPanel() {
                 // out net to $0 for the customer.
                 const netUsd = totals.usd + totals.usdt;
                 const netLbp = totals.lbp;
+                // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F: the net Cart
+                // Total above cancels a same-currency charge against a payout
+                // (a $50 sale + a $50 cash-out reads "Cart Total $0.00"),
+                // hiding that both movements are real. Surface the GROSS
+                // split too, but ONLY when the basket actually mixes both
+                // directions — a charge-only or payout-only basket is
+                // unchanged (the net already tells the whole story there,
+                // e.g. lira-098's payout-only "-$50.00" assertion).
+                const { chargeUsd, chargeLbp, payoutUsd, payoutLbp } =
+                  splitBasketCashSides(cartItems);
+                const isMixed =
+                  (chargeUsd > 0 || chargeLbp > 0) &&
+                  (payoutUsd > 0 || payoutLbp > 0);
                 return (
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="font-medium text-emerald-300">
-                      Cart Total
-                    </span>
-                    <div className="font-bold">
-                      {(netUsd !== 0 || netLbp === 0) && (
-                        <span
-                          className={
-                            netUsd >= 0 ? "text-emerald-400" : "text-red-400"
-                          }
-                        >
-                          {netUsd < 0 ? "-" : ""}${Math.abs(netUsd).toFixed(2)}
-                        </span>
-                      )}
-                      {netUsd !== 0 && netLbp !== 0 && (
-                        <span className="mx-1 text-slate-500">+</span>
-                      )}
-                      {netLbp !== 0 && (
-                        <span
-                          className={
-                            netLbp >= 0 ? "text-blue-400" : "text-red-400"
-                          }
-                        >
-                          {netLbp < 0 ? "-" : ""}
-                          {Math.abs(netLbp).toLocaleString()} LBP
-                        </span>
-                      )}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="font-medium text-emerald-300">
+                        Cart Total
+                      </span>
+                      <div className="font-bold">
+                        {(netUsd !== 0 || netLbp === 0) && (
+                          <span
+                            className={
+                              netUsd >= 0 ? "text-emerald-400" : "text-red-400"
+                            }
+                          >
+                            {netUsd < 0 ? "-" : ""}$
+                            {Math.abs(netUsd).toFixed(2)}
+                          </span>
+                        )}
+                        {netUsd !== 0 && netLbp !== 0 && (
+                          <span className="mx-1 text-slate-500">+</span>
+                        )}
+                        {netLbp !== 0 && (
+                          <span
+                            className={
+                              netLbp >= 0 ? "text-blue-400" : "text-red-400"
+                            }
+                          >
+                            {netLbp < 0 ? "-" : ""}
+                            {Math.abs(netLbp).toLocaleString()} LBP
+                          </span>
+                        )}
+                      </div>
                     </div>
+                    {isMixed && (
+                      <div
+                        data-testid="session-cart-gross-split"
+                        className="flex justify-between items-center text-xs text-slate-400"
+                      >
+                        <span>
+                          Charge{" "}
+                          {chargeUsd > 0 && <span>${chargeUsd.toFixed(2)}</span>}
+                          {chargeUsd > 0 && chargeLbp > 0 && " + "}
+                          {chargeLbp > 0 && (
+                            <span>{chargeLbp.toLocaleString()} LBP</span>
+                          )}
+                        </span>
+                        <span>
+                          Payout{" "}
+                          {payoutUsd > 0 && <span>${payoutUsd.toFixed(2)}</span>}
+                          {payoutUsd > 0 && payoutLbp > 0 && " + "}
+                          {payoutLbp > 0 && (
+                            <span>{payoutLbp.toLocaleString()} LBP</span>
+                          )}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

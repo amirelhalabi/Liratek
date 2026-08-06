@@ -589,10 +589,11 @@ export default function Debts() {
     // converted net total misclassified mixed positions (USD credit + LBP
     // debt nets to ~0).
     if (repayMode === "cashout") {
-      if (!window.api) {
-        alert("Cash out is only available in the desktop app.");
-        return;
-      }
+      // `api.cashOut` (the dual-mode adapter below) already branches IPC vs
+      // REST internally via `ipcOrHttp` — no transport gate needed here
+      // (rule 19; BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2 bug 10). A raw
+      // `window.api` truthiness check blocked cash-out in the browser even
+      // though the REST route (`POST /api/debts/cash-out`) is live.
       // Allocate the payout against the PER-CURRENCY credit; a remainder in
       // one currency settles the other's credit at the modal rate (paying an
       // LBP credit out in USD is legitimate). The payout may never exceed the

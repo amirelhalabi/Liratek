@@ -353,6 +353,40 @@ export const FinancialServiceSchema = z.object({
   price: z.number().nonnegative().optional(),
   paidByMethod: z.string().optional(),
   payments: z.array(FinancialPaymentLegSchema).optional(),
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§1.4, Phase A — LOCAL duplicate
+  // of the core createFinancialServiceSchema field (rule-14 debt, same trap
+  // as kept_change_usd/checkoutTotal below): fee-on-top RECEIVE only, the
+  // customer's provider fee collected via operator-chosen legs (split
+  // allowed, any method incl. CUSTOMER_ACCOUNT) instead of the legacy
+  // implicit single leg. No `direction`/`voucherCode` — narrower than
+  // FinancialPaymentLegSchema above (a fee leg is always customer-paid IN,
+  // never change, and GIFT_CARD redemption isn't wired here).
+  //
+  // §6bis finding 6 (2026-08-06 adversarial review, Phase A2 fix package):
+  // this comment used to claim "the repository is the enforcement layer for
+  // the desktop path" as the reason the core schema's four feePayments
+  // `.refine()`s were not mirrored here. That claim was WRONG — findings
+  // 1/2/4/5 are exactly the repository silently discarding feePayments on
+  // several paths (FOR-partner RECEIVE, THROUGH-partner, zero/omitted fee,
+  // deferPayment) instead of hard-rejecting. Phase A2 fixed
+  // FinancialServiceRepository.createTransaction to be the real, authoritative
+  // guard (placed right after `resolvedProviderFee` resolves, before the
+  // FOR-partner dispatch) AND mirrored all four refines onto THIS schema
+  // (chained via `.refine()` after the closing `})` below) as a second,
+  // earlier layer. Repository is authoritative; this schema is
+  // defense-in-depth that rejects at the IPC door with the same message
+  // instead of deep inside the repository. Keep both layers in sync if the
+  // rule ever changes — fields (and now refines) must exist in BOTH schema
+  // files or the desktop path silently strips/under-validates it (rule 14).
+  feePayments: z
+    .array(
+      z.object({
+        method: z.string().min(1),
+        currencyCode: z.string().min(1),
+        amount: z.number().positive(),
+      }),
+    )
+    .optional(),
   clientId: z.number().optional(),
   clientName: z.string().optional(),
   referenceNumber: z.string().optional(),
@@ -446,7 +480,83 @@ export const FinancialServiceSchema = z.object({
   // Acting user id; the handler overrides this with the authenticated user,
   // but allowing it through keeps validatePayload from stripping a supplied one.
   userId: z.number().int().optional(),
-});
+})
+  .refine(
+    (data) => {
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.4: feePayments is fee-on-top
+      // RECEIVE only. `includingFees: true` nets the fee out of the payout
+      // instead — there is nothing left for a separate fee leg to collect.
+      if (
+        data.feePayments &&
+        data.feePayments.length > 0 &&
+        data.includingFees === true
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "feePayments is only valid when includingFees is false (fee-on-top RECEIVE) — a fee-included transaction nets the fee out of the payout instead of collecting it separately",
+      path: ["feePayments"],
+    },
+  )
+  .refine(
+    (data) => {
+      if (
+        data.feePayments &&
+        data.feePayments.length > 0 &&
+        data.serviceType !== "RECEIVE"
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "feePayments is only valid on serviceType RECEIVE",
+      path: ["feePayments"],
+    },
+  )
+  .refine(
+    (data) => {
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis finding 1: a partner
+      // transaction (FOR or THROUGH) has no walk-in fee to collect — FOR
+      // never reads feePayments at all (PFT-3b dispatch), THROUGH suppresses
+      // the fee leg via skipSystemDrawer — both used to silently drop the
+      // field. Reject either mode up front.
+      if (data.feePayments && data.feePayments.length > 0 && data.partnerId) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "feePayments cannot be used on a partner transaction — the partner handles the fee",
+      path: ["feePayments"],
+    },
+  )
+  .refine(
+    (data) => {
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis finding 2: the resolved
+      // provider fee must actually be > 0 — legs against a zero/omitted fee
+      // used to be silently dropped by the repository's inner gate
+      // (`receiveFeeAmt > 0`) with no reconcile and no booking.
+      if (
+        data.feePayments &&
+        data.feePayments.length > 0 &&
+        (data.omtFee ?? 0) <= 0 &&
+        (data.whishFee ?? 0) <= 0
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "feePayments requires a non-zero omtFee/whishFee — there is no fee to collect",
+      path: ["feePayments"],
+    },
+  );
 
 // =============================================================================
 // Exchange

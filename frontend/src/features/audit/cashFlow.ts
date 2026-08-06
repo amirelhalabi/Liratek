@@ -29,13 +29,32 @@ export function getCashFlowDirection(
   type: string,
   metaJson?: string | null,
   signedAmounts?: { usd: number; lbp: number },
+  legs?: Array<{ direction: "in" | "out" }>,
 ): "in" | "out" | "both" | null {
   switch (type) {
     case "FINANCIAL_SERVICE": {
       if (metaJson) {
         try {
           const m = JSON.parse(metaJson) as { service_type?: string };
-          if (m.service_type === "RECEIVE") return "out";
+          if (m.service_type === "RECEIVE") {
+            // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md owner decision #10: a
+            // fee-on-top RECEIVE books an ADDITIONAL customer-paid-IN leg
+            // (the fee) alongside the shop's payout-OUT leg — the plain
+            // "out" badge would hide that cash also came IN. `legs` is
+            // `row.payments` (TransactionPaymentLeg[]) — already loaded by
+            // the caller (TransactionsViewer) for the payment-legs subtext,
+            // so passing it through here (rather than re-deriving direction
+            // from metadata fee fields, which don't record whether the fee
+            // was actually collected via a leg vs netted/deferred) is the
+            // one source of truth for "did cash actually move both ways".
+            // Every other RECEIVE row (no fee leg, fee-included, or a
+            // CUSTOMER_ACCOUNT-only payout with no drawer leg) keeps the
+            // plain "out" badge — unchanged.
+            const hasInLeg = legs?.some((l) => l.direction === "in");
+            const hasOutLeg = legs?.some((l) => l.direction === "out");
+            if (hasInLeg && hasOutLeg) return "both";
+            return "out";
+          }
         } catch {
           /* fall through to default "in" */
         }

@@ -188,6 +188,58 @@ export interface CreateFinancialServiceData {
     /** IN (customer pays, default) or OUT (shop returns change to customer). */
     direction?: "IN" | "OUT";
   }>;
+  /**
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§1.4, Phase A — fee-on-top
+   * RECEIVE ONLY (owner decision #1, 2026-08-06): the customer's provider fee
+   * `f` (`resolvedProviderFee`) collected via operator-chosen legs — split
+   * allowed, any real tender method including CUSTOMER_ACCOUNT (charges
+   * `debt_ledger` 'Service Debt', requires a resolved client). No
+   * `direction` (always customer-paid IN, never change) and no
+   * `voucherCode` (GIFT_CARD redemption isn't wired for fee collection).
+   * Σ(feePayments) MUST equal `f` — enforced by a SECOND `reconcileLegs`
+   * hard-reject (same ±$0.05 epsilon as the payout reconcile); a mismatch
+   * throws before any row is written.
+   *
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis (adversarial review, findings
+   * 1/2/4/5): the REPOSITORY — not the validator schema — is the
+   * authoritative enforcement layer for this field. `createTransaction`
+   * hard-rejects a non-empty `feePayments` unless ALL of: `serviceType ===
+   * "RECEIVE"`, `includingFees !== true`, the resolved provider fee is
+   * `> 0`, no `partnerId` (covers both FOR and THROUGH partner modes), and
+   * not `deferPayment` — checked once, right after the fee resolves and
+   * before the FOR-partner early-return dispatch, so every branch hits it.
+   * The core validator (`validators/financial.ts`) and the electron-app
+   * schema duplicate both ALSO refine against partner/zero-fee combinations
+   * as a second layer, but neither is a substitute for this guard: internal
+   * callers (and, before this fix, the FOR-partner/THROUGH-partner/
+   * deferPayment/zero-fee combinations) can reach `createTransaction`
+   * without ever going through Zod, and silently dropping the legs there —
+   * success returned, no booking, no reconcile — is exactly the bug class
+   * this guard closes. Omitted with `f > 0` falls back to the legacy single
+   * implicit leg on the collapsed cashout method (`feeMethod`) — the real
+   * tender method is stored (owner decision #9: the `"FEE"` method literal
+   * is retired for new rows), the note `"<provider> RECEIVE fee
+   * (customer-paid)"` is the discriminator.
+   *
+   * BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D (owner decision Q7,
+   * 2026-08-06: "yes, it happens — the customer can pay the fee separately
+   * in different payment methods"): extended to the app-wallet OMT_APP/
+   * WHISH_APP RECEIVE branch (mode C — "customer pays separately"), same
+   * contract, one difference — the fee source for the presence guard is
+   * `data.omtFee`/`data.whishFee` (not `resolvedProviderFee`, which only
+   * resolves for the SYSTEM providers "OMT"/"WHISH"). When present on an app
+   * wallet, `payoutAmount = cryptoAmount` (no fee netted out of the payout —
+   * modes A/B still net it via the wallet spread; mode C never does) and the
+   * legs are booked by the SAME shared `bookFeeCollectionLegs` helper the
+   * system branch uses (rule 14). BINANCE is explicitly DEFERRED for this
+   * field — its payload builder lives in the Recharge crypto form, untouched
+   * by this phase — and hard-rejects with a named error.
+   */
+  feePayments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+  }>;
   clientId?: number;
   clientName?: string;
   referenceNumber?: string;
@@ -898,6 +950,73 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             ? (storedWhishFee ?? 0)
             : 0;
 
+      // ═══════════════════════════════════════════════════════════════════
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §6bis findings 1/2/4/5 — the
+      // REPOSITORY is the single authoritative enforcement layer for
+      // `feePayments[]`. Checked HERE — right after `resolvedProviderFee`
+      // resolves, before the PFT-3b FOR-partner early return (~:1464 below)
+      // — so EVERY dispatch branch (FOR-partner, THROUGH-partner,
+      // deferPayment, legacy walk-in) hits the same guard before a single
+      // row is written. Previously the only gate lived inside the RECEIVE
+      // fee-leg block itself (`!deferPayment && !receiveFeeIncluded &&
+      // receiveFeeAmt > 0 && !skipSystemDrawer`); every path where that
+      // compound condition was false silently discarded `feePayments` —
+      // success returned, no booking, no reconcile — which is exactly the
+      // adversarial-review defect class. That inner gate stays (belt and
+      // braces); this is the one that actually rejects instead of dropping.
+      if (data.feePayments && data.feePayments.length > 0) {
+        if (data.partnerId) {
+          // Covers BOTH partner modes: FOR (PFT-3b dispatch never reads
+          // feePayments at all) and THROUGH (skipSystemDrawer suppresses
+          // the fee leg but returned success either way).
+          throw new Error(
+            "feePayments cannot be used on a partner transaction — the partner handles the fee",
+          );
+        }
+        if (data.deferPayment === true) {
+          throw new Error(
+            "feePayments is not supported in a session basket — the pooled basket payment collects the fee",
+          );
+        }
+        // Phase D (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 / owner decision Q7,
+        // 2026-08-06): app wallets (OMT_APP/WHISH_APP) reach this guard too
+        // now. `resolvedProviderFee` above is ALWAYS 0 for them — it only
+        // resolves omtFee/whishFee for the SYSTEM providers "OMT"/"WHISH"
+        // (see its own comment a few lines up) — so the fee-presence check
+        // must read the app wallet's OWN fee field instead. The app form
+        // already sends `omtFee`/`whishFee` for display/persistence even
+        // though the wallet's profit is carried by `commission` (unchanged
+        // contract). BINANCE stays deferred — its payload builder lives in
+        // the Recharge crypto form (out of scope for this phase) — and, like
+        // any other provider not yet wired for counter-collected fees, falls
+        // into the same named rejection.
+        if (
+          data.provider !== "OMT" &&
+          data.provider !== "WHISH" &&
+          data.provider !== "OMT_APP" &&
+          data.provider !== "WHISH_APP"
+        ) {
+          throw new Error(
+            `feePayments is not yet supported for ${data.provider}`,
+          );
+        }
+        const feePresenceSource =
+          data.provider === "OMT_APP"
+            ? (data.omtFee ?? 0)
+            : data.provider === "WHISH_APP"
+              ? (data.whishFee ?? 0)
+              : resolvedProviderFee;
+        if (
+          data.serviceType !== "RECEIVE" ||
+          data.includingFees === true ||
+          !(feePresenceSource > 0)
+        ) {
+          throw new Error(
+            "feePayments requires a fee-on-top RECEIVE with a non-zero omtFee/whishFee",
+          );
+        }
+      }
+
       const pmFee = data.paymentMethodFee ?? 0;
       const pmFeeRate = data.paymentMethodFeeRate ?? null;
 
@@ -1232,6 +1351,86 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             delta: balance,
             tenantId,
           }),
+      };
+
+      // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4, rule 14 — the ONE per-leg
+      // fee-collection booking loop, shared by the system OMT/WHISH RECEIVE
+      // branch (Phase A, ~:2712 below) and the app-wallet OMT_APP/WHISH_APP
+      // RECEIVE mode-C branch (Phase D, owner decision Q7 2026-08-06: "the
+      // customer can pay the fee separately in different payment methods").
+      // Reconciles `feePayments` (S2 hard-reject) against the transaction's
+      // OWN fee, then books each leg:
+      //  - CUSTOMER_ACCOUNT  → `bookClientDebtCharge('Service Debt')`
+      //    (requires a resolved client — rule 20: already in
+      //    MODULE_DEBT_TRANSACTION_TYPES, so the generic `_cancelDebt`
+      //    reversal covers it, no new charge type needed).
+      //  - Drawer-affecting  → payment row + drawer delta via
+      //    `resolveServiceCashDrawer`, which correctly falls through to
+      //    `paymentMethodToDrawerName` for app-wallet transactions
+      //    ("OMT_APP" !== ctx.baseSystem ever, so the fee never misroutes
+      //    into the PCD — verified against the resolver's own doc, not
+      //    assumed).
+      //  - Anything else (e.g. GIFT_CARD) → hard-reject. `reconcileLegs`
+      //    already counted the leg toward the fee total, so silently
+      //    dropping the booking would pass reconciliation while nothing
+      //    collects the fee — the phantom-fee bug class (plan §2 bug 1)
+      //    reintroduced inside a new path.
+      const bookFeeCollectionLegs = (params: {
+        feePayments: NonNullable<CreateFinancialServiceData["feePayments"]>;
+        feeAmount: number;
+        currency: string;
+        provider: string;
+        noteSuffix: string;
+        contextLabel: string;
+      }) => {
+        reconcileLegs({
+          inLegs: params.feePayments,
+          expectedTotals: expectedTotalIn(params.feeAmount, params.currency),
+          exchangeRate: stampedExchangeRate,
+          tenderExchangeRate: data.tender_exchange_rate,
+          context: params.contextLabel,
+        });
+        for (const leg of params.feePayments) {
+          const legAmount = Math.abs(leg.amount);
+          if (legAmount <= 0) continue;
+          const note = `${params.provider} ${params.noteSuffix}`;
+          if (leg.method === "CUSTOMER_ACCOUNT") {
+            if (!resolvedPrimaryClientId) {
+              throw new Error(
+                "Client is required to charge the RECEIVE fee to a customer account",
+              );
+            }
+            bookClientDebtCharge(this.db, {
+              clientId: resolvedPrimaryClientId,
+              transactionType: "Service Debt",
+              amountUsd: leg.currencyCode === "USD" ? legAmount : 0,
+              amountLbp: leg.currencyCode === "LBP" ? legAmount : 0,
+              transactionId: txnId,
+              note,
+              createdBy,
+              tenantId,
+            });
+          } else if (isDrawerAffectingMethod(leg.method)) {
+            const legDrawer = resolveServiceCashDrawer(
+              leg.method,
+              cashDrawerCtx,
+            );
+            insertPayment.run(
+              txnId,
+              leg.method,
+              legDrawer,
+              leg.currencyCode,
+              legAmount,
+              note,
+              createdBy,
+            );
+            upsertBalanceDelta.run(legDrawer, leg.currencyCode, legAmount);
+          } else {
+            throw new Error(
+              `${leg.method} is not a valid fee-collection method — use a drawer-affecting method or CUSTOMER_ACCOUNT`,
+            );
+          }
+        }
       };
 
       // Separate shop→customer change (OUT) legs up front so every inflow branch
@@ -2108,15 +2307,59 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             );
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
 
-            // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash.
-            //    Deferred (session basket): the item's negative CASH amount
-            //    nets into the basket totals and the Session Checkout emits
-            //    the net cash-OUT leg, which recordBasketPayment posts — the
+            // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash
+            //    — or, for app wallets, the FULL cryptoAmount when the fee is
+            //    instead collected separately over the counter (mode C,
+            //    BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D, owner
+            //    decision Q7 2026-08-06: "the customer can pay the fee
+            //    separately in different payment methods"). BINANCE stays
+            //    netted — it's explicitly DEFERRED for `feePayments` (the
+            //    createTransaction guard above hard-rejects it), so
+            //    `isFeeCollectedSeparately` is always false there.
+            //    Deferred (session basket): the item's negative CASH amount is
+            //    NOT netted into a single basket number (Phase F,
+            //    BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4) — the checkout modal
+            //    computes the GROSS payout bucket separately from the GROSS
+            //    charge bucket and emits an explicit per-currency
+            //    `kind: "PAYOUT"` OUT leg (operator-chosen method), which
+            //    `SessionPaymentService.recordBasketPayment` posts — the
             //    loto-prize pattern. Self-posting here too would double-debit
             //    the till (and for app wallets it DID, since their cart items
-            //    always netted into the pooled totals).
-            const payoutAmount = cryptoAmount - fee;
+            //    always netted into the pooled totals pre-Phase-F).
+            const isFeeCollectedSeparately =
+              isAppWallet &&
+              !!data.feePayments &&
+              data.feePayments.length > 0;
+            const payoutAmount = isFeeCollectedSeparately
+              ? cryptoAmount
+              : cryptoAmount - fee;
             const cashoutMethod = data.cashoutMethod || "CASH";
+
+            // Mode C fee-collection legs: the customer hands the fee over
+            // the counter via operator-chosen legs, booked with the SAME
+            // per-leg semantics Phase A built for the system OMT/WHISH
+            // RECEIVE branch (rule 14 — shared `bookFeeCollectionLegs`
+            // helper, defined once near `insertPayment`/`upsertBalanceDelta`
+            // above). `resolveServiceCashDrawer` inside that helper falls
+            // through to `paymentMethodToDrawerName` here — an app-wallet fee
+            // never lands in the PCD, exactly like every other app-wallet
+            // leg (`ctx.provider` is "OMT_APP"/"WHISH_APP", which never
+            // equals `ctx.baseSystem` "OMT"/"WHISH" — verified against the
+            // resolver's own contract, not assumed). `deferPayment` +
+            // `partnerId` combinations are already excluded by the
+            // createTransaction guard before `feePayments` can be non-empty
+            // here, so no extra gate is needed for those.
+            if (isFeeCollectedSeparately && !deferPayment) {
+              bookFeeCollectionLegs({
+                feePayments: data.feePayments!,
+                feeAmount: fee,
+                currency: cashCurrency,
+                provider: data.provider,
+                noteSuffix: "RECEIVE fee (customer-paid)",
+                contextLabel: `${data.provider} RECEIVE fee collection`,
+              });
+            }
+
             if (payoutAmount > 0 && !deferPayment) {
               if (cashoutMethod === "CUSTOMER_ACCOUNT") {
                 // Credit customer's account instead of paying cash
@@ -2219,16 +2462,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             }
           }
 
-          // Commission row for profit reporting (fee = commission for Binance).
-          // The fee is realized implicitly via the cash-vs-crypto spread above;
-          // this row is reporting-only and carries no drawer delta.
+          // Commission row for profit reporting (fee = commission for
+          // Binance/app wallets). Reporting-only — always carries a 0 drawer
+          // delta because the fee is already realized elsewhere: modes A/B
+          // implicitly, via the cash-vs-crypto spread above (`payoutAmount =
+          // cryptoAmount - fee`); mode C (app wallets, `isFeeCollectedSeparately`)
+          // explicitly, via `bookFeeCollectionLegs` above. Either way this row
+          // never double-books the fee — it exists purely so profit
+          // reporting can see it.
           if (fee > 0) {
             insertPayment.run(
               txnId,
               "COMMISSION",
               systemDrawer,
               cashCurrency,
-              0, // No drawer delta — fee already realized in the spread above
+              0, // No drawer delta — fee already realized (spread or fee legs) above
               `Commission (${data.provider} fee: $${fee})`,
               createdBy,
             );
@@ -2621,26 +2869,62 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // RECEIVE's fee lands in the PCD (plan §2#2 — this site was
           // previously HARDCODED to "General"). Skipped under deferPayment —
           // no session-basket caller sends a RECEIVE fee today (new
-          // capability, not yet wired into the basket path).
-          if (!deferPayment && !receiveFeeIncluded && receiveFeeAmt > 0) {
-            const feeMethod =
-              cashoutMethod === "CASH" || cashoutMethod === "CUSTOMER_ACCOUNT"
-                ? "CASH"
-                : cashoutMethod;
-            const feeDrawer = resolveServiceCashDrawer(
-              feeMethod,
-              cashDrawerCtx,
-            );
-            insertPayment.run(
-              txnId,
-              "FEE",
-              feeDrawer,
-              currency,
-              receiveFeeAmt,
-              `${data.provider} RECEIVE fee (customer-paid)`,
-              createdBy,
-            );
-            upsertBalanceDelta.run(feeDrawer, currency, receiveFeeAmt);
+          // capability, not yet wired into the basket path). BIDIRECTIONAL_
+          // PAYMENT_LEGS_PLAN.md §2 bug 5: also skipped for a THROUGH-partner
+          // transaction (`skipSystemDrawer`) — the partner handles the
+          // payout, not our cash, so crediting a drawer for the fee with no
+          // offsetting payout leg would be a phantom credit (mirrors the
+          // identical `!skipSystemDrawer` gate the payout branches below
+          // already carry).
+          if (
+            !deferPayment &&
+            !receiveFeeIncluded &&
+            receiveFeeAmt > 0 &&
+            !skipSystemDrawer
+          ) {
+            if (data.feePayments && data.feePayments.length > 0) {
+              // Phase A (owner decision #1, 2026-08-06): operator-chosen fee
+              // legs — split allowed, any real tender method including
+              // CUSTOMER_ACCOUNT. Reconciled hard-reject (S2) against the
+              // transaction's OWN fee, mirroring the payout reconcile below.
+              // Rule 14 (Phase D extraction): booked by the SAME shared
+              // `bookFeeCollectionLegs` helper the app-wallet mode-C branch
+              // (isAppWallet, above) uses — this used to be its own inline
+              // reconcile+loop; the two are now one definition.
+              bookFeeCollectionLegs({
+                feePayments: data.feePayments,
+                feeAmount: receiveFeeAmt,
+                currency,
+                provider: data.provider,
+                noteSuffix: "RECEIVE fee (customer-paid)",
+                contextLabel: `${data.provider} RECEIVE fee collection`,
+              });
+            } else {
+              // Legacy fallback (no operator-chosen fee legs): synthesize ONE
+              // leg on the collapsed cashout method — same drawer routing as
+              // before, except the leg's `method` column now stores the REAL
+              // tender ("CASH" or the wallet cashoutMethod) instead of the
+              // retired "FEE" literal (owner decision #9) — the note is the
+              // discriminator, not the method string.
+              const feeMethod =
+                cashoutMethod === "CASH" || cashoutMethod === "CUSTOMER_ACCOUNT"
+                  ? "CASH"
+                  : cashoutMethod;
+              const feeDrawer = resolveServiceCashDrawer(
+                feeMethod,
+                cashDrawerCtx,
+              );
+              insertPayment.run(
+                txnId,
+                feeMethod,
+                feeDrawer,
+                currency,
+                receiveFeeAmt,
+                `${data.provider} RECEIVE fee (customer-paid)`,
+                createdBy,
+              );
+              upsertBalanceDelta.run(feeDrawer, currency, receiveFeeAmt);
+            }
           }
 
           if (cashoutMethod === "CUSTOMER_ACCOUNT") {
@@ -2695,14 +2979,19 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // Debit the cashout drawer for the payout to customer — net of
             // the fee when fee-included (payoutAmount already reflects
             // that). Deferred (session basket): an OMT/WHISH RECEIVE is a
-            // NEGATIVE cart item in the same cash currency, so the checkout
-            // modal already nets it into the basket total and emits the net
-            // cash-OUT leg the basket recorder posts. Skip the payout here
-            // to avoid double-counting it — the basket recorder's own leg is
-            // now the ONLY posting for this item (no separate internal float
-            // side exists anymore to fall back on; see the Phase D note on
-            // the SEND branch's deferPayment comment above). Non-session
-            // callers post it normally.
+            // NEGATIVE cart item, but Phase F (BIDIRECTIONAL_PAYMENT_LEGS_
+            // PLAN.md §4) no longer nets it into a single basket number —
+            // the checkout modal computes the GROSS payout bucket
+            // separately from the GROSS charge bucket and emits an explicit
+            // per-currency `kind: "PAYOUT"` OUT leg (operator-chosen
+            // method), which `SessionPaymentService.recordBasketPayment`
+            // posts (PCD/General split by the basket's payout-side share —
+            // bug 7). Skip the payout here regardless — to avoid
+            // double-counting it, the basket recorder's own leg is the ONLY
+            // posting for this item (no separate internal float side exists
+            // anymore to fall back on; see the Phase D note on the SEND
+            // branch's deferPayment comment above). Non-session callers
+            // post it normally.
             if (
               !deferPayment &&
               cashoutMethod !== "CASH" &&
