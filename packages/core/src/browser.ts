@@ -22,6 +22,14 @@ export * from "./utils/telecomCredit.js";
 // Validators — zod schemas, no Node.js deps
 export * from "./validators/index.js";
 
+// Lebanese phone-number normalization (CARRIER_LINES_VALIDITY_PLAN.md Phase 6)
+// — pure string manipulation, no Node.js deps. index.ts (the Node entry)
+// exports it too, but Vite/Jest resolve @liratek/core to THIS file (see the
+// telecomCredit.js note above for the exact same failure mode) — the
+// frontend's Recharge/index.tsx imports isSameLebanesePhone to detect
+// whether a typed phone number is the shop's own carrier line.
+export * from "./utils/phoneNumber.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

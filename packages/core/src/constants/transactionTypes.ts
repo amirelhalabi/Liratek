@@ -49,6 +49,19 @@ export const TRANSACTION_TYPES = {
    *  owner for `carrier_lines`) are both type-agnostic, keyed only by
    *  transaction_id. See `FinancialServiceRepository.selfChargeTelecomItem`. */
   TELECOM_SELF_CHARGE: "TELECOM_SELF_CHARGE",
+  /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7/D8): a shop-line credit
+   *  buy-back — the operator typed the shop's OWN carrier line's phone
+   *  number into the Telecom Credit tab, flipping the form into a reversible
+   *  payout: the customer hands the shop credits, the shop pays cash out
+   *  (`RechargeRepository.processCreditBuyback`). Reads as cash-out
+   *  (`cashFlow.ts`, red ↑) — the opposite direction of a normal RECHARGE
+   *  sale. Deliberately kept OUT of `NON_REVERSIBLE_TRANSACTION_TYPES`:
+   *  `_reversePayments` (drawer-delta leg + every payout leg),
+   *  `_reverseCarrierLineMovements` (the credits gain, reason
+   *  'CREDIT_BUYBACK'), and `_cancelDebt`'s widened `CREDIT_DEPOSIT` scan (a
+   *  CUSTOMER_ACCOUNT payout leg) are all type-agnostic and between them
+   *  reverse every side effect this type can write. */
+  TELECOM_CREDIT_BUYBACK: "TELECOM_CREDIT_BUYBACK",
   /** Primary Cash Drawer plan §8.6 (2026-07-30), superseding the owner's
    *  2026-07-29 float-model verdict: a GENERIC, bidirectional cash transfer
    *  between any two of the shop's own drawers — General ↔ the primary cash
@@ -267,6 +280,11 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // provider drawer directly with NO payments legs — the generic reversal
     // touches neither drawer. Rule-20 owner: correct with an opposite manual
     // top-up from the Recharge page.
+    // CARRIER_LINES_VALIDITY_PLAN.md Phase 8.2 (2026-08-06): `topUpFromCustomer`
+    // — this type's only writer — was retired (its UI arm and whole backend
+    // chain deleted); superseded by the reversible TELECOM_CREDIT_BUYBACK
+    // above. Historical rows keep this type and stay gated here; nothing
+    // writes it going forward.
     TRANSACTION_TYPES.MTC_TOPUP,
     TRANSACTION_TYPES.ALFA_TOPUP,
     // DRAWER_TOPUP (createTopUpFromDrawer): two drawer movements but only the

@@ -92,26 +92,6 @@ export class RechargeService {
   }
 
   /**
-   * Top up the MTC/Alfa drawer with credits bought from a customer
-   * (credits in, cash out of the General drawer)
-   */
-  topUpFromCustomer(data: {
-    provider: "MTC" | "Alfa";
-    creditsAmount: number;
-    cashPaid: number;
-    cashPaidCurrency: "USD" | "LBP";
-    userId: number;
-  }): { success: boolean; error?: string } {
-    if (!(data.creditsAmount > 0)) {
-      return { success: false, error: "Credits amount must be greater than 0" };
-    }
-    if (data.cashPaid < 0) {
-      return { success: false, error: "Cash paid cannot be negative" };
-    }
-    return this.rechargeRepo.topUpFromCustomer(data);
-  }
-
-  /**
    * Top up a Katsh or iPick provider drawer via supplier credit.
    * No source drawer is deducted — the supplier extends credit.
    */

@@ -360,9 +360,20 @@ const MOBILE_PROVIDERS = "'iPick', 'Katsh', 'BOB'";
 const INTERNAL_PAYMENT_METHODS =
   "'OMT', 'WHISH', 'BOB', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE', 'RESERVE', 'COMMISSION'";
 
-/** Transaction types that count toward per-user / per-client profit. */
+/**
+ * Transaction types that count toward per-user / per-client profit.
+ *
+ * `TELECOM_CREDIT_BUYBACK` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6) is
+ * included deliberately — the plan's two options were "add it here" or
+ * "type the row RECHARGE and skip this entirely"; D8 requires the dedicated
+ * type, so this is the chosen option. It stamps a real `profit_usd` (credits
+ * gained − cash paid, mirroring RECHARGE's own price−cost spread), so it
+ * belongs in the same revenue/profit reporting bucket as a forward RECHARGE
+ * sale — unlike `TELECOM_SELF_CHARGE` (LIRA-090 M3), which is deliberately
+ * EXCLUDED because it always stamps 0 profit ("no profit row").
+ */
 const PROFIT_TXN_TYPES =
-  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND'";
+  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'TELECOM_CREDIT_BUYBACK'";
 
 /**
  * Maintenance jobs that count as completed revenue: the device was delivered.

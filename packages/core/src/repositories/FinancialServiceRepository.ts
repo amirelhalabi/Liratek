@@ -40,6 +40,7 @@ import {
   bookClientDebtCharge,
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
+  postPayoutLegs,
 } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
@@ -3016,8 +3017,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               !skipSystemDrawer &&
               !skipGeneralDrawer
             ) {
-              // CASH cashout: shop physically pays the customer from the General drawer.
-              // Skipped for FOR-partner mode (partner handles the payout, not our cash).
+              // CASH cashout: shop physically pays the customer from the PCD
+              // (or General, off the primary system). Skipped for FOR-partner
+              // mode (partner handles the payout, not our cash).
               //
               // A split payout (e.g. 190 USD + 540,000 LBP for one transfer) arrives
               // as multi-currency IN legs (the "Cashout" payment lines). Deduct EACH
@@ -3025,84 +3027,58 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               // currency leg is silently dropped and the drawer over-counts the primary
               // currency. Only the IN legs are the payout: OUT/return (change) legs are
               // debited exactly once by the return-leg loop later in this transaction,
-              // so they must NOT be included here (doing so double-debits them). Fall
-              // back to the single-currency amount when no explicit legs are provided.
-              const payoutLegs = (data.payments ?? []).filter((p) =>
-                isDrawerAffectingMethod(p.method),
-              );
-
-              // S2 hard-reject reconciliation (Payment-Legs Integrity plan):
-              // the payout legs must sum to EXACTLY payoutAmount (what the
-              // shop owes the customer after any fee-included netting —
-              // NOT receiveAmount when a RECEIVE fee is included, and never
-              // the commission the shop keeps). No OUT legs are folded in
-              // here: a RECEIVE payout has no "customer overpaid, return
-              // change" concept the way a SEND does — any OUT-tagged leg on
-              // this transaction is a distinct mechanism handled once by the
-              // shared return-leg loop, not part of what this branch owes.
-              // No-ops on an empty `data.payments` (the single-amount
-              // fallback below, still correct for legacy/scripted callers).
-              reconcileLegs({
-                inLegs: data.payments,
-                expectedTotals: expectedTotalIn(payoutAmount, currency),
-                exchangeRate: stampedExchangeRate,
-                tenderExchangeRate: data.tender_exchange_rate,
-                context: `${data.provider} RECEIVE cashout`,
-              });
-
-              // Primary Cash Drawer plan §8.5 — OWNER REVERSAL 2026-08-01.
-              // Decision #11 originally BLOCKED a payout the primary cash
+              // so they must NOT be included here (doing so double-debits them).
+              //
+              // Primary Cash Drawer plan §8.5 — OWNER REVERSAL 2026-08-01:
+              // decision #11 originally BLOCKED a payout the primary cash
               // drawer could not cover. The owner reversed it: every drawer in
               // this system may already go negative, blocking a live payout
               // strands the operator with a customer at the counter, and a
               // negative simply means cash was physically taken from another
-              // drawer without the transfer being recorded yet. The condition
-              // is now SURFACED, not enforced — the drawer-transfer UI flags
-              // any negative drawer and pre-fills the amount that clears it.
-              // Deliberately no balance check here.
-
-              if (payoutLegs.length > 0) {
-                for (const leg of payoutLegs) {
-                  const legDrawer = resolveServiceCashDrawer(
-                    leg.method,
-                    cashDrawerCtx,
-                  );
-                  const legAmount = Math.abs(leg.amount);
-                  insertPayment.run(
-                    txnId,
-                    leg.method,
-                    legDrawer,
-                    leg.currencyCode,
-                    -legAmount,
-                    `Cash paid to customer (${data.provider} RECEIVE)`,
-                    createdBy,
-                  );
-                  upsertBalanceDelta.run(
-                    legDrawer,
-                    leg.currencyCode,
-                    -legAmount,
-                  );
-                }
-              } else {
-                // Primary Cash Drawer plan §2#2: the no-legs fallback was
-                // previously HARDCODED to "General" — a primary-system CASH
-                // payout now lands in the PCD like every other leg on this
-                // path.
-                const fallbackDrawer = resolveServiceCashDrawer(
-                  "CASH",
-                  cashDrawerCtx,
-                );
-                insertPayment.run(
-                  txnId,
-                  "CASH",
-                  fallbackDrawer,
-                  currency,
-                  -payoutAmount,
-                  `Cash paid to customer (${data.provider} RECEIVE)`,
-                  createdBy,
-                );
-                upsertBalanceDelta.run(fallbackDrawer, currency, -payoutAmount);
-              }
+              // drawer without the transfer being recorded yet. Deliberately
+              // no balance check here.
+              //
+              // CARRIER_LINES_VALIDITY_PLAN.md Phase 6: this loop is now the
+              // SHARED `postPayoutLegs` (moneyPosting.ts), reused by the
+              // telecom credit buy-back (RechargeRepository) — rule 14. Its
+              // per-leg CUSTOMER_ACCOUNT branch (modeled on the app-wallet
+              // payout loop above, `onCustomerAccountLeg`) also fixes a
+              // latent bug this exact shape had: the old inline loop filtered
+              // CUSTOMER_ACCOUNT legs OUT of the posting set while
+              // `reconcileLegs` still counted them in its sum, so a mixed
+              // CASH+CUSTOMER_ACCOUNT payout reconciled successfully yet the
+              // account was never credited AND the "no legs" fallback then
+              // paid the full amount a second time in cash.
+              postPayoutLegs({
+                db: this.db,
+                legs: data.payments,
+                payoutAmount,
+                currency,
+                exchangeRate: stampedExchangeRate,
+                tenderExchangeRate: data.tender_exchange_rate,
+                context: `${data.provider} RECEIVE cashout`,
+                txnId,
+                tenantId,
+                createdBy,
+                resolveDrawer: (method) =>
+                  resolveServiceCashDrawer(method, cashDrawerCtx),
+                note: `Cash paid to customer (${data.provider} RECEIVE)`,
+                onCustomerAccountLeg: (usd, lbp) => {
+                  if (!resolvedPrimaryClientId) {
+                    throw new Error(
+                      "Client is required for CUSTOMER_ACCOUNT cashout",
+                    );
+                  }
+                  getDebtService().addCredit({
+                    clientId: resolvedPrimaryClientId,
+                    amountUsd: usd,
+                    amountLbp: lbp,
+                    note: `${data.provider} RECEIVE cashout — credited to account`,
+                    userId: createdBy,
+                    transactionId: txnId,
+                  });
+                },
+              });
             }
           }
         }

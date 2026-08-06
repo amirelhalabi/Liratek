@@ -197,6 +197,19 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     options: [
       { label: "MTC", type: "RECHARGE", provider: "MTC" },
       { label: "Alfa", type: "RECHARGE", provider: "Alfa" },
+      // CARRIER_LINES_VALIDITY_PLAN.md Phase 6: the reverse-direction
+      // buy-back — a customer hands the shop credits, the shop pays cash
+      // out (cashFlow.ts red ↑, the opposite of the two rows above).
+      {
+        label: "MTC Buy-back",
+        type: "TELECOM_CREDIT_BUYBACK",
+        provider: "MTC",
+      },
+      {
+        label: "Alfa Buy-back",
+        type: "TELECOM_CREDIT_BUYBACK",
+        provider: "Alfa",
+      },
     ],
   },
   {
@@ -358,6 +371,12 @@ export const ACTIONABLE_TYPES: ReadonlySet<string> = new Set([
   // has its own void hook in TransactionRepository (rules §11/§20). Absent
   // from NON_REVERSIBLE_TRANSACTION_TYPES per the LIRA-090 handoff spec.
   "TELECOM_SELF_CHARGE",
+  // TELECOM_CREDIT_BUYBACK (CARRIER_LINES_VALIDITY_PLAN.md Phase 6, D8): a
+  // shop-line credit buy-back — reversible via the generic path (the
+  // generic _reversePayments unwinds the drawer-delta leg and every payout
+  // leg; _reverseCarrierLineMovements unwinds the credits gain). Absent
+  // from core's NON_REVERSIBLE_TRANSACTION_TYPES.
+  "TELECOM_CREDIT_BUYBACK",
 ]);
 
 /** Service transactions that can (re)print a detailed receipt (RCP-3). POS
@@ -368,4 +387,8 @@ export const RECEIPTABLE_TYPES: ReadonlySet<string> = new Set([
   "MAINTENANCE",
   "CUSTOM_SERVICE",
   "LOTO",
+  // TELECOM_CREDIT_BUYBACK (Phase 6): the shop hands a customer cash — a
+  // payout slip is as reasonable here as it is for the (already
+  // receiptable) forward RECHARGE sale.
+  "TELECOM_CREDIT_BUYBACK",
 ]);

@@ -7812,6 +7812,150 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v148 rolled back: daily_closing_carrier_lines dropped");
     },
   },
+  {
+    version: 149,
+    name: "allow_credit_buyback_recharge_type",
+    description:
+      "CARRIER_LINES_VALIDITY_PLAN.md Phase 6: add 'CREDIT_BUYBACK' to recharges.recharge_type CHECK. A shop-line credit buy-back (RechargeRepository.processCreditBuyback) records into the recharges table with recharge_type='CREDIT_BUYBACK' — needed for source_table/source_id linkage, refunds via _markSourceRefunded, and the recharge history list — which the CHECK(recharge_type IN ('CREDIT_TRANSFER','VOUCHER','DAYS','TOP_UP','ALFA_GIFT')) established by v114 rejects with SQLITE_CONSTRAINT_CHECK. SQLite cannot ALTER a CHECK, so this recreates the table exactly as v114 did, preserving all rows + ids + indexes.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Defensive against a `recharges`-less DB — see the matching guard on
+      // down() below for why (a synthetic test-harness scenario, never a
+      // real upgrading install, which has had `recharges` since v1). Nothing
+      // to add a CHECK to if the table was never created.
+      const hasRecharges = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'recharges'`,
+        )
+        .get();
+      if (!hasRecharges) {
+        console.log(
+          "Migration v149 skipped: no 'recharges' table present",
+        );
+        return;
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS recharges_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          carrier TEXT NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT', 'CREDIT_BUYBACK')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          default_price_to_client REAL DEFAULT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO recharges_new (
+          id, tenant_id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        )
+        SELECT
+          id, tenant_id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        FROM recharges;
+
+        DROP TABLE recharges;
+        ALTER TABLE recharges_new RENAME TO recharges;
+
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_tenant_id ON recharges(tenant_id);
+      `);
+      console.log(
+        "Migration v149: added 'CREDIT_BUYBACK' to recharges.recharge_type CHECK",
+      );
+    },
+    down(db: Database.Database) {
+      // Defensive against a `recharges`-less DB — a test harness that
+      // fake-applies every OTHER migration (telecomDaysCostMigrationsViaRunner
+      // .test.ts's `markAppliedExcept`, scoped to a schema with no `recharges`
+      // table at all) rolls back EVERY migration above its target through
+      // this exact rollbackTo() path, this one included, even though this
+      // migration's own up() never really ran there. A real upgrading
+      // install always has `recharges` (v1) long before v149, so this guard
+      // never fires there — it only protects the "marked applied but never
+      // run" test scenario from throwing on a table that was never created.
+      const hasRecharges = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'recharges'`,
+        )
+        .get();
+      if (!hasRecharges) {
+        console.log(
+          "Migration v149 rollback skipped: no 'recharges' table present",
+        );
+        return;
+      }
+
+      // Restore the pre-CREDIT_BUYBACK CHECK. Throws if any CREDIT_BUYBACK
+      // rows exist (expected — you can't roll back after recording buy-backs).
+      db.exec(`
+        CREATE TABLE recharges_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          carrier TEXT NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          default_price_to_client REAL DEFAULT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO recharges_old (
+          id, tenant_id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        )
+        SELECT
+          id, tenant_id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        FROM recharges;
+
+        DROP TABLE recharges;
+        ALTER TABLE recharges_old RENAME TO recharges;
+
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_tenant_id ON recharges(tenant_id);
+      `);
+      console.log(
+        "Migration v149 rolled back: removed 'CREDIT_BUYBACK' from recharges.recharge_type CHECK",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

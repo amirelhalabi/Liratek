@@ -21,6 +21,7 @@ export * from "./utils/currencyConverter.js";
 export * from "./utils/tenantSlug.js";
 export * from "./utils/localDate.js";
 export * from "./utils/telecomCredit.js";
+export * from "./utils/phoneNumber.js";
 
 // Repositories
 export * from "./repositories/index.js";

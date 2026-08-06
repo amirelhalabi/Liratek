@@ -45,16 +45,6 @@ export interface TopUpModalProps {
     sourceDrawer: string;
   }) => void;
   /**
-   * When provided for MTC/Alfa, replaces the from-drawer layout with the
-   * customer top-up layout: the customer transfers credits to the shop's
-   * line and is paid cash out of the General drawer. Amounts are USD only.
-   */
-  onConfirmCustomer?: (data: {
-    creditsAmount: number;
-    cashPaid: number;
-    cashPaidCurrency: "USD" | "LBP";
-  }) => Promise<void>;
-  /**
    * When provided for Katsh/iPick, replaces the from-drawer layout with a
    * supplier credit layout: the supplier extends credit, no cash leaves any
    * drawer. The operator settles with the supplier later via the Suppliers page.
@@ -97,7 +87,6 @@ export default function TopUpModal({
   isOpen,
   onClose,
   onConfirm,
-  onConfirmCustomer,
   onConfirmSupplier,
   onConfirmPartner,
   onConfirmClient,
@@ -122,11 +111,6 @@ export default function TopUpModal({
     };
   }, [isOpen]);
 
-  // MTC/Alfa credits can't be moved between drawers — they're bought from a
-  // customer: credits arrive on the shop line, cash is paid out of General.
-  const isCustomerTopUp =
-    (provider === "MTC" || provider === "Alfa") && !!onConfirmCustomer;
-
   // Katsh/iPick: the supplier extends credit — no cash leaves any drawer.
   const isSupplierCredit =
     (provider === "iPick" || provider === "Katsh") && !!onConfirmSupplier;
@@ -138,10 +122,6 @@ export default function TopUpModal({
 
   const [whishMode, setWhishMode] = useState<"partner" | "client">("partner");
   const [amount, setAmount] = useState<string>("");
-  const [cashPaid, setCashPaid] = useState<string>("");
-  const [cashPaidCurrency, setCashPaidCurrency] = useState<"USD" | "LBP">(
-    "USD",
-  );
   const [currency, setCurrency] = useState<TopUpCurrency>("USD");
   const [sourceDrawer, setSourceDrawer] = useState<string>(defaultSourceDrawer);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -178,14 +158,6 @@ export default function TopUpModal({
       ? (sourceDrawerData?.usdBalance ?? 0)
       : (sourceDrawerData?.lbpBalance ?? 0);
 
-  // Customer top-up pays the customer out of the General drawer
-  const generalDrawer = allDrawers.find((d) => d.name === "General");
-  const generalBalance =
-    cashPaidCurrency === "LBP"
-      ? (generalDrawer?.lbpBalance ?? 0)
-      : (generalDrawer?.usdBalance ?? 0);
-  const cashPaidNum = parseFloat(cashPaid) || 0;
-
   // Whish "From Client" fee math (replicates OmtWhishAppTransferForm RECEIVE):
   // 1% auto fee on USD amounts, overridable by a manual fee. The client
   // transfers `parsedAmount` credits, the shop keeps `providerFee`, and pays
@@ -201,8 +173,6 @@ export default function TopUpModal({
   useEffect(() => {
     if (isOpen) {
       setAmount("");
-      setCashPaid("");
-      setCashPaidCurrency("USD");
       setCurrency("USD");
       setSourceDrawer(defaultSourceDrawer);
       setIsSubmitting(false);
@@ -267,32 +237,6 @@ export default function TopUpModal({
       setIsSubmitting(true);
       try {
         await onConfirmSupplier({ amount: amountNum, currency });
-        onClose();
-      } catch (error) {
-        alert(error instanceof Error ? error.message : "Top-up failed");
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
-
-    if (isCustomerTopUp && onConfirmCustomer) {
-      const cashNum = parseFloat(cashPaid) || 0;
-      if (cashNum < 0) {
-        alert("Cash paid cannot be negative");
-        return;
-      }
-      if (cashNum > generalBalance) {
-        alert("Insufficient balance in General drawer");
-        return;
-      }
-      setIsSubmitting(true);
-      try {
-        await onConfirmCustomer({
-          creditsAmount: amountNum,
-          cashPaid: cashNum,
-          cashPaidCurrency,
-        });
         onClose();
       } catch (error) {
         alert(error instanceof Error ? error.message : "Top-up failed");
@@ -590,124 +534,7 @@ export default function TopUpModal({
             </div>
           )}
 
-          {isCustomerTopUp && (
-            <>
-              {/* Customer purchase explainer */}
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-violet-500/10 border border-violet-500/30">
-                <UserRound className="w-4 h-4 flex-shrink-0 text-violet-400" />
-                <p className="text-xs leading-snug text-slate-300">
-                  Buy credits from a customer: they transfer credits to your{" "}
-                  {getProviderLabel()} line and you pay them cash from the
-                  General drawer.
-                </p>
-              </div>
-
-              {/* Credits Received */}
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2">
-                  Credits Received from Customer
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={fmtCommas(amount)}
-                    onChange={(e) => {
-                      const cleaned = e.target.value.replace(/,/g, "");
-                      if (isPartialDecimal(cleaned)) setAmount(cleaned);
-                    }}
-                    placeholder="0.00"
-                    disabled={isSubmitting}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-lg font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
-                    autoFocus
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                    USD
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Added to the {getProviderLabel()} drawer
-                </p>
-              </div>
-
-              {/* Cash Paid to Customer */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-slate-400">
-                    Cash Paid to Customer
-                  </label>
-                  {/* Currency toggle */}
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCashPaidCurrency("USD");
-                        setCashPaid("");
-                      }}
-                      disabled={isSubmitting}
-                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                        cashPaidCurrency === "USD"
-                          ? "bg-violet-600 text-white"
-                          : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                      } disabled:opacity-50`}
-                    >
-                      USD
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCashPaidCurrency("LBP");
-                        setCashPaid("");
-                      }}
-                      disabled={isSubmitting}
-                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                        cashPaidCurrency === "LBP"
-                          ? "bg-violet-600 text-white"
-                          : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                      } disabled:opacity-50`}
-                    >
-                      LBP
-                    </button>
-                  </div>
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={fmtCommas(cashPaid)}
-                    onChange={(e) => {
-                      const cleaned = e.target.value.replace(/,/g, "");
-                      if (isPartialDecimal(cleaned)) setCashPaid(cleaned);
-                    }}
-                    placeholder={cashPaidCurrency === "LBP" ? "0" : "0.00"}
-                    disabled={isSubmitting}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-lg font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                    {cashPaidCurrency}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Deducted from the General drawer — balance:{" "}
-                  <span className="text-white font-medium">
-                    {cashPaidCurrency === "LBP"
-                      ? `${generalBalance.toLocaleString()} LBP`
-                      : `$${generalBalance.toFixed(2)}`}
-                  </span>
-                </p>
-                {cashPaid && cashPaidNum > generalBalance && (
-                  <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                    <AlertTriangle size={12} />
-                    Cash paid exceeds General drawer balance
-                  </p>
-                )}
-              </div>
-            </>
-          )}
-
-          {!isWhishTopUp && !isCustomerTopUp && (
+          {!isWhishTopUp && (
             <>
               {/* Currency Selector */}
               <div>
@@ -817,11 +644,9 @@ export default function TopUpModal({
                     ? whishMode === "partner"
                       ? `${getProviderLabel()} balance will be increased from the selected partner's credit line. Settle with the partner via the Partners page.`
                       : `The client transfers credits to your ${getProviderLabel()} line; the shop keeps the fee and pays out the remainder as cash.`
-                    : isCustomerTopUp
-                      ? `Credits are added to the ${getProviderLabel()} drawer; the cash you pay the customer is deducted from the General drawer.`
-                      : isSupplierCredit
-                        ? `${getProviderLabel()} balance will be increased. Your supplier will be credited — settle with them via the Suppliers page.`
-                        : `Transfer funds to your ${getProviderLabel()} drawer. No fees.`}
+                    : isSupplierCredit
+                      ? `${getProviderLabel()} balance will be increased. Your supplier will be credited — settle with them via the Suppliers page.`
+                      : `Transfer funds to your ${getProviderLabel()} drawer. No fees.`}
                 </p>
               </div>
             </div>
@@ -846,9 +671,7 @@ export default function TopUpModal({
                 parseFloat(amount) <= 0 ||
                 (isWhishTopUp
                   ? whishMode === "partner" && !selectedPartnerId
-                  : isCustomerTopUp
-                    ? cashPaidNum < 0 || cashPaidNum > generalBalance
-                    : !isSupplierCredit && parseFloat(amount) > sourceBalance)
+                  : !isSupplierCredit && parseFloat(amount) > sourceBalance)
               }
               className={`flex-1 px-4 py-2.5 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg ${
                 isWhishTopUp && whishMode === "client"
@@ -862,11 +685,9 @@ export default function TopUpModal({
                   ? whishMode === "partner"
                     ? "Top Up via Partner"
                     : "Buy Credits from Client"
-                  : isCustomerTopUp
-                    ? "Confirm Top-Up"
-                    : isSupplierCredit
-                      ? "Confirm Supplier Credit"
-                      : "Confirm Top-Up"}
+                  : isSupplierCredit
+                    ? "Confirm Supplier Credit"
+                    : "Confirm Top-Up"}
             </button>
           </div>
         </div>

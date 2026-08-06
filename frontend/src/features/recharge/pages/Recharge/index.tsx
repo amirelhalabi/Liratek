@@ -15,7 +15,8 @@ import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useSellRate } from "@/hooks/useSellRate";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
-import type { PaymentLine } from "@liratek/ui";
+import type { PaymentLine, CarrierLineEntity } from "@liratek/ui";
+import { isSameLebanesePhone } from "@liratek/core";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import {
   useMobileServiceItems,
@@ -129,6 +130,55 @@ export default function MobileRecharge() {
   const [telecomTenderRate, setTelecomTenderRate] = useState<
     number | undefined
   >();
+
+  // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7) — single source of truth for
+  // "is the typed phone number this carrier's own shop line", fetched ONCE
+  // here (not duplicated in TelecomForm) and shared by both the form (which
+  // flips its Credit-tab UI) and handleTelecomSubmit below (which flips the
+  // submitted `type`). Deliberately keyed on `activeProvider` alone, not
+  // `rechargeType` — a number typed on the Credit tab must keep flagging the
+  // Days/Alfa Gift tabs too WHILE the operator stays on Credit or navigates
+  // there with the number still in place.
+  //
+  // Review follow-up: this flag is frontend-only signaling, not a backend
+  // guard — `handleTelecomSubmit` below only forwards `phoneNumber` when
+  // `rechargeType === "CREDIT_TRANSFER"` (DAYS/ALFA_GIFT never send it, so
+  // there is nothing for a tab switch to "bypass" server-side). Persisting
+  // it FOREVER across an away-from-Credit switch therefore bought no real
+  // protection, only a dead end: switch to Days/Alfa Gift with a shop number
+  // still in the field, and `TelecomForm` renders ONLY the block-and-redirect
+  // notice with zero controls, recoverable only by manually returning to
+  // Credit to clear it. The tab-switch wrapper passed to `TelecomForm` below
+  // now clears `phoneNumber` whenever the NEW tab is not Credit — same-tab
+  // edits (the actual anti-bypass-while-still-on-Credit case) are untouched.
+  const [primaryLine, setPrimaryLine] = useState<CarrierLineEntity | null>(
+    null,
+  );
+  useEffect(() => {
+    if (activeProvider !== "MTC" && activeProvider !== "Alfa") {
+      setPrimaryLine(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.getPrimaryCarrierLine(
+          activeProvider === "MTC" ? "mtc" : "alfa",
+        );
+        if (!cancelled) setPrimaryLine(res.success ? (res.data ?? null) : null);
+      } catch (error) {
+        logger.error("Failed to load primary carrier line:", error);
+        if (!cancelled) setPrimaryLine(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProvider, api]);
+  const isShopLineMatch = isSameLebanesePhone(
+    phoneNumber,
+    primaryLine?.phone_number,
+  );
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoFeeIncluded, setCryptoFeeIncluded] = useState(false);
@@ -395,6 +445,22 @@ export default function MobileRecharge() {
     )
       return;
 
+    // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7/D8): a shop-line buy-back
+    // is a cash-OUT flow — a payout item inside an IN-direction session
+    // basket has no payment fields to carry it (the basket collects payment
+    // once, at checkout), so block outright rather than silently adding a
+    // payout to the cart. Checked BEFORE the `activeSession` branch below so
+    // it short-circuits instead of falling into it.
+    const isBuyback = rechargeType === "CREDIT_TRANSFER" && isShopLineMatch;
+    if (isBuyback && activeSession) {
+      appEvents.emit(
+        "notification:show",
+        "A shop-line credit buy-back cannot be added to an active customer session — close the session first.",
+        "warning",
+      );
+      return;
+    }
+
     const amount = parseFloat(telecomAmount);
     const price =
       rechargeType === "DAYS"
@@ -471,7 +537,12 @@ export default function MobileRecharge() {
     try {
       const result = await api.processRecharge({
         provider: activeProvider,
-        type: rechargeType,
+        // Phase 6 (D7/D8): a shop-line match on the Credit tab flips the
+        // submitted type to CREDIT_BUYBACK — everything else about this
+        // payload (amount = credits gained, price = payout amount,
+        // payments = the payout legs) is unchanged; processCreditBuyback
+        // reinterprets the same fields per its own contract.
+        type: isBuyback ? "CREDIT_BUYBACK" : rechargeType,
         phoneNumber:
           rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
         amount,
@@ -567,6 +638,7 @@ export default function MobileRecharge() {
     api,
     loadFinancialData,
     activeSession,
+    isShopLineMatch,
     linkTransaction,
     loadDrawerBalances,
     telecomTransactionTime,
@@ -612,17 +684,23 @@ export default function MobileRecharge() {
   const handleTopUpClick = useCallback(async () => {
     if (!activeProvider) return;
 
-    // Provider configuration mapping
+    // Provider configuration mapping. MTC/Alfa deliberately absent
+    // (CARRIER_LINES_VALIDITY_PLAN.md Phase 8.2): the "Customer credit
+    // purchase" arm this map used to size is retired — a shop-line credit
+    // buy-back now goes through the Recharge Credit tab's own flip (Phase
+    // 6), not this modal. Falling through to the generic `onConfirm`
+    // (topUpApp) for MTC/Alfa would silently reach a path never designed or
+    // tested for those two providers, so the button is hidden for them too
+    // (see the render condition below) rather than left to hit this map's
+    // `!config` early return.
     const providerConfig: Record<
       string,
       {
         drawer: string;
         defaultSource: string;
-        type: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+        type: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
       }
     > = {
-      MTC: { drawer: "MTC", defaultSource: "General", type: "MTC" },
-      Alfa: { drawer: "Alfa", defaultSource: "General", type: "Alfa" },
       // Primary Cash Drawer plan §6 open item #4 / §9: OMT_System is no
       // longer a provider float, so there is nothing to draw down by
       // defaulting the funding source to it — default to General (still
@@ -710,45 +788,6 @@ export default function MobileRecharge() {
       );
     },
     [topUpData, activeConfig, loadFinancialData, loadDrawerBalances],
-  );
-
-  // MTC/Alfa: buy credits from a customer (credits in, cash out of General)
-  const handleTopUpConfirmCustomer = useCallback(
-    async (data: {
-      creditsAmount: number;
-      cashPaid: number;
-      cashPaidCurrency: "USD" | "LBP";
-    }) => {
-      if (
-        !topUpData ||
-        (topUpData.provider !== "MTC" && topUpData.provider !== "Alfa")
-      )
-        return;
-
-      const result = await window.api.recharge.topUpFromCustomer({
-        provider: topUpData.provider,
-        creditsAmount: data.creditsAmount,
-        cashPaid: data.cashPaid,
-        cashPaidCurrency: data.cashPaidCurrency,
-      });
-
-      if (!result.success) {
-        throw new Error(result.error || "Top-up failed");
-      }
-
-      loadDrawerBalances();
-
-      const cashDisplay =
-        data.cashPaidCurrency === "LBP"
-          ? `${data.cashPaid.toLocaleString()} LBP`
-          : `$${data.cashPaid.toFixed(2)}`;
-      appEvents.emit(
-        "notification:show",
-        `Successfully topped up ${topUpData.provider} drawer with ${data.creditsAmount} USD credits (paid ${cashDisplay} cash)`,
-        "success",
-      );
-    },
-    [topUpData, loadDrawerBalances],
   );
 
   // Katsh/iPick: supplier extends credit — no cash leaves any drawer
@@ -1294,9 +1333,11 @@ export default function MobileRecharge() {
                 </button>
               )}
 
-              {(activeConfig.key === "MTC" ||
-                activeConfig.key === "Alfa" ||
-                activeConfig.key === "OMT_APP" ||
+              {/* MTC/Alfa deliberately excluded (Phase 8.2): the "Customer
+                  credit purchase" arm this button used to reach is retired —
+                  a shop-line buy-back now goes through the Credit tab's own
+                  flip (Phase 6) instead of this modal. */}
+              {(activeConfig.key === "OMT_APP" ||
                 activeConfig.key === "WHISH_APP" ||
                 activeConfig.key === "iPick" ||
                 activeConfig.key === "Katsh") && (
@@ -1325,6 +1366,20 @@ export default function MobileRecharge() {
               setTelecomPrice("");
               setTelecomAmount("");
               setTelecomDaysCostUsd("");
+              // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 follow-up (review
+              // finding #2): `phoneNumber` is shared across all three
+              // telecom tabs, but only Credit has a phone field of its own.
+              // Days/Alfa Gift render `isShopLineMatch`'s block-and-redirect
+              // notice with ZERO form controls whenever the number left over
+              // from a previous Credit-tab edit still matches the shop's own
+              // line — a dead end recoverable only by manually going back to
+              // Credit to clear the field. Clear it here whenever the NEW
+              // tab is not Credit, so switching away never inherits a stale
+              // value. Switching TO Credit intentionally does NOT clear it
+              // (see `isShopLineMatch`'s doc in TelecomForm.tsx) — that is
+              // the operator's own in-progress edit on the tab that owns the
+              // field, not a stale leftover from elsewhere.
+              if (type !== "CREDIT_TRANSFER") setPhoneNumber("");
             }}
             isSubmitting={isSubmitting}
             handleQuickAmount={handleQuickAmount}
@@ -1356,6 +1411,7 @@ export default function MobileRecharge() {
             activeProvider={activeProvider}
             activeConfig={activeConfig}
             handleTelecomSubmit={handleTelecomSubmit}
+            isShopLineMatch={isShopLineMatch}
             onKeptChange={setKeptChange}
             onEffectiveRateChange={setTelecomTenderRate}
             giftTierKey={giftTierKey}
@@ -1565,7 +1621,6 @@ export default function MobileRecharge() {
             setTopUpPartnerId(null);
           }}
           onConfirm={handleTopUpConfirm}
-          onConfirmCustomer={handleTopUpConfirmCustomer}
           onConfirmSupplier={handleTopUpConfirmSupplier}
           {...(topUpData.provider === "WHISH_APP"
             ? {

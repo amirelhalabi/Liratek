@@ -28,7 +28,10 @@ export const createRechargeSchema = z.object({
   // ALFA_GIFT came from the IPC copy; without it a REST Alfa-gift 400s.
   // `TOP_UP` is deliberately absent: it is a `RechargeData["type"]` the
   // repository writes internally (top-up paths), never a client-submitted one.
-  type: z.enum(["CREDIT_TRANSFER", "VOUCHER", "DAYS", "ALFA_GIFT"]),
+  // `CREDIT_BUYBACK` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6): the shop-line
+  // detection flip — routed to `RechargeRepository.processCreditBuyback`
+  // instead of the normal sale body. Client-submitted, unlike TOP_UP.
+  type: z.enum(["CREDIT_TRANSFER", "VOUCHER", "DAYS", "ALFA_GIFT", "CREDIT_BUYBACK"]),
   // The IPC copy's `positive()` wins over the old REST `nonnegative()`: a
   // zero-amount recharge is meaningless for every type (0 credits, 0 days,
   // a $0 gift) and still writes a transaction row. The shipped desktop

@@ -16,7 +16,6 @@ import type { RechargeData } from "@liratek/core";
 
 import {
   RechargeSchema,
-  RechargeCustomerTopUpSchema,
   TopUpFromSupplierSchema,
   TopUpFromPartnerSchema,
   TopUpFromClientSchema,
@@ -125,54 +124,6 @@ export function registerRechargeHandlers(): void {
           amount: data.amount,
           currency: data.currency,
           sourceDrawer: data.sourceDrawer,
-        },
-      });
-      return result;
-    },
-  );
-
-  // Top up MTC/Alfa drawer with credits bought from a customer:
-  // credits in (provider drawer), cash out (General drawer)
-  ipcMain.handle(
-    "recharge:top-up-customer",
-    (
-      event: IpcMainInvokeEvent,
-      data: {
-        provider: "MTC" | "Alfa";
-        creditsAmount: number;
-        cashPaid: number;
-        cashPaidCurrency: "USD" | "LBP";
-      },
-    ) => {
-      const auth = requireRole(event.sender.id, ["admin", "staff"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-
-      const v = validatePayload(RechargeCustomerTopUpSchema, data);
-      if (!v.ok) return { success: false, error: v.error };
-
-      rechargeLogger.info(
-        {
-          provider: v.data.provider,
-          creditsAmount: v.data.creditsAmount,
-          cashPaid: v.data.cashPaid,
-          cashPaidCurrency: v.data.cashPaidCurrency,
-        },
-        "Processing customer top-up",
-      );
-      const result = rechargeService.topUpFromCustomer({
-        ...v.data,
-        cashPaidCurrency: v.data.cashPaidCurrency ?? "USD",
-        userId: auth.userId,
-      });
-      audit(event.sender.id, {
-        action: "create",
-        entity_type: "recharge_topup",
-        summary: `Customer top-up ${v.data.provider}: +${v.data.creditsAmount} credits, -${v.data.cashPaid} ${v.data.cashPaidCurrency} cash`,
-        metadata: {
-          provider: v.data.provider,
-          creditsAmount: v.data.creditsAmount,
-          cashPaid: v.data.cashPaid,
-          cashPaidCurrency: v.data.cashPaidCurrency,
         },
       });
       return result;

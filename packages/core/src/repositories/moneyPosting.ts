@@ -44,6 +44,7 @@ import {
   type CounterpartyKind,
   type CounterpartyFlow,
 } from "../validators/counterparty.js";
+import { isDrawerAffectingMethod } from "../utils/payments.js";
 
 /** Minimal leg shape this module needs — a structural subset of every
  *  repo's own `payments[]` leg type (CreateFinancialServiceData, RechargeData, …). */
@@ -172,7 +173,18 @@ function resolveReconciliationRate(
   return tenderExchangeRate;
 }
 
-function usdEquivalent(usd: number, lbp: number, exchangeRate: number): number {
+/**
+ * Exported (CARRIER_LINES_VALIDITY_PLAN.md Phase 6) so a caller computing a
+ * cross-currency profit figure (e.g. the telecom credit buy-back: USD
+ * credits gained minus a cash payout that may be split USD+LBP) converts at
+ * the SAME formula `reconcileLegs` uses internally, rather than re-deriving
+ * an equivalent one that could silently disagree at the margins.
+ */
+export function usdEquivalent(
+  usd: number,
+  lbp: number,
+  exchangeRate: number,
+): number {
   return usd + (exchangeRate > 0 ? lbp / exchangeRate : 0);
 }
 
@@ -658,4 +670,182 @@ export function buildCounterpartyDiscountPosting(
       }),
     },
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — shared payout-leg posting loop
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Lifted from the OMT/WHISH system RECEIVE cashout branch
+// (FinancialServiceRepository — the "CASH cashout" arm that follows the
+// `useSystemDrawerFlow` split-currency payout, per plan Phase 6's citation)
+// so the new telecom credit buy-back (RechargeRepository) can reuse it
+// rather than copy the ~95-line block (rule 14).
+//
+// The copied-from shape had a latent bug this extraction also fixes at its
+// ORIGINAL site: it built `payoutLegs` by filtering `data.payments` down to
+// `isDrawerAffectingMethod` BEFORE checking whether any legs remained, while
+// `reconcileLegs` summed the UNFILTERED array. A mixed CASH + CUSTOMER_ACCOUNT
+// split therefore reconciled successfully (the CUSTOMER_ACCOUNT leg counted
+// toward the total) yet the account was never credited AND the full amount
+// was then paid a second time by the "no legs" CASH fallback — a real
+// double-payout, not just a missing credit. `postPayoutLegs` branches
+// PER-LEG instead (modeled on the app-wallet payout loop in the same file,
+// which already does this correctly), so a CUSTOMER_ACCOUNT leg is routed to
+// `onCustomerAccountLeg` and every other drawer-affecting leg is posted
+// individually — matching every OTHER payout branch in that file.
+//
+// Deliberately does NOT import `getDebtService` itself (staying a leaf
+// module, same reasoning as the CQ-4 comment above declining a
+// `bookPartnerCharge` companion): the caller already imports DebtService for
+// its OWN CUSTOMER_ACCOUNT branches, so `onCustomerAccountLeg` is dependency-
+// injected instead of creating a `moneyPosting.ts` -> `DebtService.ts` ->
+// `DebtRepository.ts` -> `moneyPosting.ts` cycle (DebtRepository already
+// imports `applyDrawerDelta`/`insertPaymentRow` FROM this file).
+
+export interface PostPayoutLegsInput {
+  db: Database.Database;
+  /**
+   * The flow's pre-partitioned IN legs (rule 16 — NEVER pass a raw,
+   * un-partitioned `payments[]` that might still contain OUT/change legs;
+   * every call site partitions once at the top of its own flow and reassigns
+   * before reaching a payout branch). This is what the shop pays OUT to the
+   * customer — reconciled against `payoutAmount`, then posted per-leg.
+   */
+  legs: ReconciliationLeg[] | undefined | null;
+  /** The total the shop owes the customer (service-currency magnitude). */
+  payoutAmount: number;
+  /** Currency of `payoutAmount` — the expected-total currency AND the
+   *  currency of the no-legs fallback posting. */
+  currency: string;
+  exchangeRate: number;
+  tenderExchangeRate?: number;
+  /** Label for `reconcileLegs`' thrown error (e.g. "OMT RECEIVE cashout",
+   *  "MTC credit buy-back"). */
+  context: string;
+  txnId: number;
+  tenantId: number;
+  createdBy?: number | null;
+  /** Resolve a drawer-affecting leg's method to the drawer it debits. */
+  resolveDrawer: (method: string) => string;
+  /** Note text stamped on every posted `payments` row (drawer-affecting
+   *  legs AND the no-legs fallback). */
+  note: string;
+  /** Method used for the no-legs (legacy/scripted caller) fallback posting.
+   *  Defaults to `"CASH"`, matching every existing payout branch. */
+  fallbackMethod?: string;
+  /**
+   * Invoked once per CUSTOMER_ACCOUNT leg with its unsigned amount split by
+   * currency (exactly one of the two is non-zero). The caller owns crediting
+   * the client (typically `getDebtService().addCredit(...)`) and validating
+   * a client was actually resolved — throwing here rolls back the whole
+   * `db.transaction(...)` like any other throw. Omitting this while a
+   * CUSTOMER_ACCOUNT leg is present throws inside `postPayoutLegs` itself.
+   */
+  onCustomerAccountLeg?: (legAmountUsd: number, legAmountLbp: number) => void;
+}
+
+export function postPayoutLegs(input: PostPayoutLegsInput): void {
+  const {
+    db,
+    legs,
+    payoutAmount,
+    currency,
+    exchangeRate,
+    tenderExchangeRate,
+    context,
+    txnId,
+    tenantId,
+    createdBy,
+    resolveDrawer,
+    note,
+    fallbackMethod = "CASH",
+    onCustomerAccountLeg,
+  } = input;
+
+  // S2 hard-reject reconciliation (Payment-Legs Integrity plan) — no-ops on
+  // an empty/absent `legs` (the no-legs fallback below is still correct for
+  // a legacy/scripted caller).
+  reconcileLegs({
+    inLegs: legs,
+    expectedTotals: expectedTotalIn(payoutAmount, currency),
+    exchangeRate,
+    tenderExchangeRate,
+    context,
+  });
+
+  const payoutLegs = legs ?? [];
+  if (payoutLegs.length > 0) {
+    for (const leg of payoutLegs) {
+      const legAmount = Math.abs(leg.amount);
+      if (legAmount <= 0) continue;
+
+      if (leg.method === "CUSTOMER_ACCOUNT") {
+        if (!onCustomerAccountLeg) {
+          throw new Error(
+            `${context}: a CUSTOMER_ACCOUNT payout leg is not supported here`,
+          );
+        }
+        onCustomerAccountLeg(
+          leg.currencyCode === "USD" ? legAmount : 0,
+          leg.currencyCode === "LBP" ? legAmount : 0,
+        );
+        continue;
+      }
+
+      // A leg that is neither CUSTOMER_ACCOUNT nor drawer-affecting (e.g.
+      // GIFT_CARD, `affects_drawer=0`) must never be silently skipped here:
+      // `reconcileLegs` above already summed it into the reconciled total
+      // (it doesn't look at `method`), so silently dropping it would let the
+      // caller's carrier-line/wallet credit go through while the leg itself
+      // moves no drawer and credits no debt — a phantom payout, the exact
+      // "money leak" bug class `bookFeeCollectionLegs`
+      // (FinancialServiceRepository.ts) already hard-rejects for fee
+      // collection. Mirrored here so it protects every `postPayoutLegs` call
+      // site (the original RECEIVE payout AND the new CREDIT_BUYBACK path)
+      // from one fix point (rule 14) instead of duplicating the guard per
+      // call site.
+      if (!isDrawerAffectingMethod(leg.method)) {
+        throw new Error(
+          `${context}: ${leg.method} is not a valid payout method — use a drawer-affecting method or CUSTOMER_ACCOUNT`,
+        );
+      }
+
+      const legDrawer = resolveDrawer(leg.method);
+      insertPaymentRow(db, {
+        transactionId: txnId,
+        method: leg.method,
+        drawerName: legDrawer,
+        currencyCode: leg.currencyCode,
+        amount: -legAmount,
+        note,
+        createdBy,
+        tenantId,
+      });
+      applyDrawerDelta(db, {
+        drawerName: legDrawer,
+        currencyCode: leg.currencyCode,
+        delta: -legAmount,
+        tenantId,
+      });
+    }
+  } else {
+    const fallbackDrawer = resolveDrawer(fallbackMethod);
+    insertPaymentRow(db, {
+      transactionId: txnId,
+      method: fallbackMethod,
+      drawerName: fallbackDrawer,
+      currencyCode: currency,
+      amount: -payoutAmount,
+      note,
+      createdBy,
+      tenantId,
+    });
+    applyDrawerDelta(db, {
+      drawerName: fallbackDrawer,
+      currencyCode: currency,
+      delta: -payoutAmount,
+      tenantId,
+    });
+  }
 }

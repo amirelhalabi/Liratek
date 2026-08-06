@@ -434,15 +434,33 @@ contextBridge.exposeInMainWorld("api", {
     getDrawerBalances: () => ipcRenderer.invoke("recharge:get-drawer-balances"),
     process: (data: {
       provider: "MTC" | "Alfa";
-      type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
+      type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS" | "ALFA_GIFT" | "CREDIT_BUYBACK";
       amount: number;
       cost: number;
       price: number;
+      default_price_to_client?: number;
       paid_by_method?: string;
       phoneNumber?: string;
       clientId?: number;
       clientName?: string;
       currency?: string;
+      note?: string;
+      /** Multi-payment legs — required (non-empty) for `type:
+       *  "CREDIT_BUYBACK"` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6). Legs
+       *  without `direction` are IN (customer-paid / payout); `direction:
+       *  "OUT"` marks a change leg (CLAUDE.md rule 16). */
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        voucherCode?: string;
+        direction?: "IN" | "OUT";
+      }>;
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
+      partnerId?: number;
+      partnerMode?: "FOR";
+      transaction_time?: string;
       /** Payment-Legs Integrity plan (false-reject fix): the rate the
        *  payment sheet actually converted the customer's tender at — used
        *  only for leg reconciliation, never the stamped exchange_rate. */
@@ -480,12 +498,6 @@ contextBridge.exposeInMainWorld("api", {
       clientName?: string;
       clientId?: number;
     }) => ipcRenderer.invoke("recharge:top-up-from-client", data),
-    topUpFromCustomer: (data: {
-      provider: "MTC" | "Alfa";
-      creditsAmount: number;
-      cashPaid: number;
-      cashPaidCurrency: "USD" | "LBP";
-    }) => ipcRenderer.invoke("recharge:top-up-customer", data),
     updateMetadata: (data: {
       id: number;
       phone_number?: string;

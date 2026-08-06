@@ -183,6 +183,7 @@ export function getCashFlowDirection(
     case "CREDIT_CASH_OUT": // shop pays the client their credit
     case "DEBT_CASH_OUT": // shop hands the client a cash advance (new debt)
     case "DRAWER_CASHOUT": // owner's draw — cash physically leaves the General drawer
+    case "TELECOM_CREDIT_BUYBACK": // shop pays the customer cash for their credits (Phase 6, D7)
       return "out";
     // DRAWER_TRANSFER: renamed from SYSTEM_FLOAT_TOPUP (Primary Cash Drawer
     // plan §8.6) — a generic, reversible General <-> primary-cash-drawer

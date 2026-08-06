@@ -31,6 +31,51 @@ import {
   ForPartnerNotice,
 } from "@/features/partners/components/ForPartnerToggle";
 
+/** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — Days/Alfa Gift block + redirect
+ *  shown when the typed phone number is this carrier's own shop line.
+ *  Text-only: there is no reliable 1:1 carrier→provider mapping to auto-jump
+ *  to the matching iPick/Katsh item (a self-charge-eligible item's category
+ *  can span either provider), so this only tells the operator where to go. */
+function ShopLineRedirectNotice({
+  carrierLabel,
+  target,
+}: {
+  carrierLabel: string;
+  target: "Days" | "Alfa Gift";
+}) {
+  return (
+    <div className="flex-1 flex items-center justify-center">
+      <div
+        className="max-w-md rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-center"
+        data-testid="shop-line-redirect-notice"
+      >
+        <p className="text-sm font-semibold text-amber-300 mb-2">
+          This is the shop&apos;s own {carrierLabel} line
+        </p>
+        <p className="text-sm text-slate-300">
+          {target === "Days" ? "Validity" : "Gift value"} can only be added
+          by charging an iPick or Katsh catalog item to this line — use{" "}
+          <span className="font-semibold text-white">
+            &quot;Charge to shop line&quot;
+          </span>{" "}
+          on the matching item card.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — a buy-back payout only ever
+ *  leaves via a real drawer/wallet or a customer's account; GIFT_CARD makes
+ *  no sense as a cashout target. */
+const BUYBACK_PAYMENT_METHOD_CODES = new Set([
+  "CASH",
+  "CUSTOMER_ACCOUNT",
+  "OMT",
+  "WHISH",
+  "BINANCE",
+]);
+
 interface TelecomFormProps {
   isMTC: boolean;
   rechargeType: RechargeType;
@@ -101,6 +146,14 @@ interface TelecomFormProps {
    *  loadDrawerBalances call in the parent's handleTelecomSubmit). */
   onRefreshBalances?: () => void;
   onTransactionTimeChange?: (time: string | undefined) => void;
+  /** CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7): true when the typed
+   *  `phoneNumber` matches this carrier's own primary line — computed ONCE
+   *  in the parent (Recharge/index.tsx owns the `getPrimaryCarrierLine`
+   *  fetch) and passed down so there is a single source of truth shared by
+   *  this form AND `handleTelecomSubmit`. Flips the Credit tab to a
+   *  buy-back (cash OUT for credits IN) and blocks/redirects Days & Alfa
+   *  Gift, which can only add validity via an iPick/Katsh self-charge. */
+  isShopLineMatch: boolean;
 }
 
 export function TelecomForm({
@@ -161,6 +214,7 @@ export function TelecomForm({
   onRefreshHistory,
   onRefreshBalances,
   onTransactionTimeChange,
+  isShopLineMatch,
 }: TelecomFormProps) {
   const api = useApi();
   const { activeSession } = useSession();
@@ -259,6 +313,25 @@ export function TelecomForm({
   void giftCostLbp;
 
   const accent = isMTC ? "cyan" : "red";
+  const carrierLabel = isMTC ? "MTC" : "Alfa";
+
+  // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7): the Credit tab flips to a
+  // buy-back (cash OUT for credits IN) only when the typed phone number
+  // matches this carrier's own primary line. `isShopLineMatch` alone is not
+  // enough — it is computed from the SHARED `phoneNumber` state (see the
+  // Days/Alfa Gift block below, which reuses the same flag while ON those
+  // tabs). Review follow-up: the parent (Recharge/index.tsx) now clears
+  // `phoneNumber` whenever the operator switches AWAY from Credit, so a
+  // value typed here no longer survives onto Days/Alfa Gift after a tab
+  // switch — only a same-tab edit (still on Credit) keeps this flag live,
+  // which is what actually matters for flipping THIS line's UI.
+  const isCreditBuyback = rechargeType === "CREDIT_TRANSFER" && isShopLineMatch;
+  // Phase 6: a payout item inside an IN-direction session basket is a design
+  // problem the plan defaults to blocking outright (basket formData carries
+  // no payment fields — checkout collects once — so there is nowhere for a
+  // payout leg to live). The parent's handleTelecomSubmit short-circuits
+  // this too; disabling here just keeps the control from looking clickable.
+  const isBuybackBlockedBySession = isCreditBuyback && !!activeSession;
 
   // Normalized card models for the shared CardGridPayView. Only one of these is
   // rendered at a time (gift for Alfa, vouchers for MTC).
@@ -388,7 +461,16 @@ export function TelecomForm({
         size="sm"
       />
 
-      {rechargeType === "ALFA_GIFT" ? (
+      {rechargeType === "ALFA_GIFT" && isShopLineMatch ? (
+        /* CARRIER_LINES_VALIDITY_PLAN.md Phase 6: a shop-line number can only
+         * gain credits (buy-back, Credit tab) — never validity/gift value.
+         * Block + redirect instead of rendering the card grid at all
+         * (deliberately NOT wired to auto-switch the provider tab: an
+         * iPick/Katsh item's self-charge-eligible category does not map
+         * 1:1 to a single provider, so a text-only redirect is the
+         * conservative choice — see the report for detail). */
+        <ShopLineRedirectNotice carrierLabel={carrierLabel} target="Alfa Gift" />
+      ) : rechargeType === "ALFA_GIFT" ? (
         /* Alfa Gift — shared card-grid pay flow */
         <CardGridPayView
           heading="Select Alfa Gift"
@@ -420,6 +502,11 @@ export function TelecomForm({
           onTransactionTimeChange={handleCardTransactionTime}
           hasActiveSession={!!activeSession}
         />
+      ) : rechargeType === "DAYS" && isShopLineMatch ? (
+        /* CARRIER_LINES_VALIDITY_PLAN.md Phase 6: same block + redirect as
+         * Alfa Gift above — a DAYS sale adds validity, which a shop-line
+         * number can never receive via this form. */
+        <ShopLineRedirectNotice carrierLabel={carrierLabel} target="Days" />
       ) : (
         /* Recharge Form */
         <div className="flex flex-col gap-3 flex-1">
@@ -434,6 +521,15 @@ export function TelecomForm({
                     <Phone size={12} />
                     Phone Number
                   </label>
+                  {isShopLineMatch && (
+                    <p
+                      className="text-xs text-amber-400 font-medium mb-2 -mt-1"
+                      data-testid="shop-line-buyback-note"
+                    >
+                      This is the shop&apos;s own line — this will be
+                      recorded as a credit buy-back
+                    </p>
+                  )}
                   <div className="relative">
                     <div
                       className={`absolute left-0 top-0 bottom-0 flex items-center pl-4 pr-3 rounded-l-xl bg-${accent}-500/10 border-r border-slate-700`}
@@ -590,7 +686,9 @@ export function TelecomForm({
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-                    Price to Client
+                    {rechargeType === "CREDIT_TRANSFER" && isShopLineMatch
+                      ? "Price to Customer"
+                      : "Price to Client"}
                   </label>
                   {rechargeType === "DAYS" && (
                     <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
@@ -687,7 +785,12 @@ export function TelecomForm({
                 )}
               </div>
 
-              {telecomPrice &&
+              {/* Hidden for a buy-back: this formula is price − cost, which
+                  is meaningless here — real profit is credits gained − cash
+                  paid out, and the PaymentSheet's own totals are the only
+                  preview needed (CARRIER_LINES_VALIDITY_PLAN.md Phase 6). */}
+              {!isCreditBuyback &&
+                telecomPrice &&
                 (rechargeType === "DAYS"
                   ? parseFloat(telecomDaysCostUsd) > 0
                   : !!telecomAmount) && (
@@ -779,7 +882,14 @@ export function TelecomForm({
                   onClose={() => setSheetOpen(false)}
                   onConfirm={handleTelecomSubmit}
                   isSubmitting={isSubmitting}
-                  title={`${isMTC ? "MTC" : "Alfa"} ${rechargeType === "DAYS" ? "Days" : "Credit Transfer"}`}
+                  title={
+                    isCreditBuyback
+                      ? `${carrierLabel} Credit Buy-back`
+                      : `${isMTC ? "MTC" : "Alfa"} ${rechargeType === "DAYS" ? "Days" : "Credit Transfer"}`
+                  }
+                  {...(isCreditBuyback
+                    ? { confirmLabel: "Confirm Cashout" }
+                    : {})}
                   accentColor={`bg-${accent}-600 hover:bg-${accent}-500 text-white`}
                   totalAmount={
                     telecomPrice
@@ -790,7 +900,13 @@ export function TelecomForm({
                   }
                   totalAmountCurrency="LBP"
                   currency="LBP"
-                  paymentMethods={methods}
+                  paymentMethods={
+                    isCreditBuyback
+                      ? methods.filter((m) =>
+                          BUYBACK_PAYMENT_METHOD_CODES.has(m.code),
+                        )
+                      : methods
+                  }
                   clientId={telecomClientId}
                   fetchClientVouchers={fetchClientVouchers}
                   exchangeRate={exchangeRate}
@@ -818,7 +934,19 @@ export function TelecomForm({
                   {...(onKeptChange ? { onKeptChange } : {})}
                   hasClient={!!telecomClientId}
                   // Charge flow: shortfall → debt on the resolved client.
-                  autoDebtRemainder={!!telecomClientId}
+                  // Buy-back (D7): HARD off, regardless of client — an auto
+                  // IN-direction debt leg would invert the sign of the
+                  // unpaid remainder on this money-OUT flow (MultiPaymentInput's
+                  // own warning; see FEATURE_GUIDE §7 / plan Phase 6).
+                  autoDebtRemainder={isCreditBuyback ? false : !!telecomClientId}
+                  // Buy-back: only require a client when the operator
+                  // actually picked a CUSTOMER_ACCOUNT leg — otherwise a
+                  // CASH/wallet-only cashout needs no client at all.
+                  requiresClientForDebt={
+                    isCreditBuyback
+                      ? paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
+                      : true
+                  }
                   paymentInputKey={paymentInputKey}
                   initialPaymentMethod={initialPaymentMethod}
                   summary={[
@@ -1023,7 +1151,8 @@ export function TelecomForm({
                 !telecomAmount ||
                 (rechargeType === "DAYS" &&
                   (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)) ||
-                (forPartner && (!telecomPrice || !selectedPartnerId))
+                (forPartner && (!telecomPrice || !selectedPartnerId)) ||
+                isBuybackBlockedBySession
               }
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap flex items-center gap-1.5 ${
                 isSubmitting ||
@@ -1031,17 +1160,35 @@ export function TelecomForm({
                 !telecomAmount ||
                 (rechargeType === "DAYS" &&
                   (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)) ||
-                (forPartner && (!telecomPrice || !selectedPartnerId))
+                (forPartner && (!telecomPrice || !selectedPartnerId)) ||
+                isBuybackBlockedBySession
                   ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                   : `bg-${accent}-600 hover:bg-${accent}-500 text-white shadow-lg shadow-${accent}-500/20`
               }`}
+              title={
+                isBuybackBlockedBySession
+                  ? "A shop-line credit buy-back cannot be added to an active customer session"
+                  : undefined
+              }
             >
               <CreditCard size={15} />
+              {/* Review finding #5: `isBuybackBlockedBySession` (used for
+                  `disabled` above) is `isCreditBuyback && !!activeSession` —
+                  there is no non-blocked "buy-back with an active session"
+                  case (a payout has no cart representation at all, so
+                  `handleTelecomSubmit` always short-circuits it before the
+                  cart branch). Checking `isCreditBuyback` BEFORE
+                  `activeSession` here means a session-blocked buy-back keeps
+                  showing "Proceed to Pay Out" (still disabled, same tooltip)
+                  instead of the misleading "Add to Cart" a disabled button
+                  can never do. Every other combination is unchanged. */}
               {forPartner
                 ? "Submit to Partner"
-                : activeSession
-                  ? "Add to Cart"
-                  : "Proceed to Pay"}
+                : isCreditBuyback
+                  ? "Proceed to Pay Out"
+                  : activeSession
+                    ? "Add to Cart"
+                    : "Proceed to Pay"}
             </button>
           </div>
         </div>

@@ -269,13 +269,6 @@ export const MaintenanceJobSchema = z.object({
 export const RechargeSchema =
   createRechargeSchema as unknown as z.ZodSchema<CreateRechargeInput>;
 
-export const RechargeCustomerTopUpSchema = z.object({
-  provider: z.enum(["MTC", "Alfa"]),
-  creditsAmount: z.number().positive(),
-  cashPaid: z.number().nonnegative(),
-  cashPaidCurrency: z.enum(["USD", "LBP"]).default("USD"),
-});
-
 export const TopUpFromSupplierSchema = z.object({
   provider: z.enum(["iPick", "Katsh"]),
   amount: z.number().positive(),

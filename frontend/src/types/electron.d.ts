@@ -1046,12 +1046,32 @@ export interface ElectronAPI {
     >;
     process: (data: {
       provider: "MTC" | "Alfa";
-      type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
+      type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS" | "ALFA_GIFT" | "CREDIT_BUYBACK";
       amount: number;
       cost: number;
       price: number;
+      default_price_to_client?: number;
       paid_by_method?: string;
       phoneNumber?: string;
+      clientId?: number;
+      clientName?: string;
+      currency?: string;
+      note?: string;
+      /** Multi-payment legs — required (non-empty) for `type:
+       *  "CREDIT_BUYBACK"` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6). Legs
+       *  without `direction` are IN (customer-paid / payout); `direction:
+       *  "OUT"` marks a change leg (CLAUDE.md rule 16). */
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        voucherCode?: string;
+        direction?: "IN" | "OUT";
+      }>;
+      kept_change_usd?: number;
+      kept_change_lbp?: number;
+      partnerId?: number;
+      partnerMode?: "FOR";
       transaction_time?: string;
       /** Payment-Legs Integrity plan (false-reject fix): the rate the
        *  payment sheet actually converted the customer's tender at — used
@@ -1089,12 +1109,6 @@ export interface ElectronAPI {
       currency: "USD" | "LBP";
       clientName?: string;
       clientId?: number;
-    }) => Promise<{ success: boolean; error?: string }>;
-    topUpFromCustomer: (data: {
-      provider: "MTC" | "Alfa";
-      creditsAmount: number;
-      cashPaid: number;
-      cashPaidCurrency: "USD" | "LBP";
     }) => Promise<{ success: boolean; error?: string }>;
     getDrawerBalances: () => Promise<
       Array<{

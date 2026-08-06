@@ -511,7 +511,7 @@ CREATE TABLE IF NOT EXISTS recharges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER REFERENCES tenants(id),
     carrier TEXT NOT NULL,
-    recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+    recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT', 'CREDIT_BUYBACK')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
     amount DECIMAL(10, 2) NOT NULL,
     cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
     price DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -1676,4 +1676,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (145, 'backfill_alfa_prepaid_validity_days'),
     (146, 'reanchor_telecom_credit_cost_rate'),
     (147, 'seed_sell_days_lbp_from_validity_days'),
-    (148, 'add_daily_closing_carrier_lines');
+    (148, 'add_daily_closing_carrier_lines'),
+    (149, 'allow_credit_buyback_recharge_type');

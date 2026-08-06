@@ -25,6 +25,8 @@ import {
   bookClientDebtCharge,
   assertPartnerIdRequired,
   assertNoCounterPayment,
+  postPayoutLegs,
+  usdEquivalent,
 } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
@@ -40,6 +42,12 @@ import {
   TOP_UP_PROVIDER_DRAWERS,
   TOP_UP_PROVIDER_LABELS,
 } from "../constants/index.js";
+import {
+  getCarrierLineRepository,
+  type CarrierKey,
+} from "./CarrierLineRepository.js";
+import { getCarrierLineService } from "../services/CarrierLineService.js";
+import { isSameLebanesePhone } from "../utils/phoneNumber.js";
 
 // =============================================================================
 // Entity Types
@@ -54,7 +62,17 @@ export type RechargePaidByMethod = string;
 
 export interface RechargeData {
   provider: "MTC" | "Alfa";
-  type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS" | "TOP_UP" | "ALFA_GIFT";
+  /**
+   * `"CREDIT_BUYBACK"` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6, D7/D8): the
+   * operator detected the shop's OWN carrier line in the Credit tab's phone
+   * field and flipped the form to a reversible buy-back — the customer hands
+   * the shop credits, the shop pays cash out. Routed to
+   * {@link RechargeRepository.processCreditBuyback} at the very top of
+   * {@link RechargeRepository.processRecharge}, so it never reaches this
+   * method's normal sale body; `amount` is reused as the credits gained
+   * (USD face value) and `price` as the total cash paid out (in `currency`).
+   */
+  type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS" | "TOP_UP" | "ALFA_GIFT" | "CREDIT_BUYBACK";
   amount: number;
   cost: number;
   price: number;
@@ -147,6 +165,7 @@ const RECHARGE_TYPE_LABELS: Record<RechargeData["type"], string> = {
   DAYS: "Days",
   TOP_UP: "Top-up",
   ALFA_GIFT: "Gift",
+  CREDIT_BUYBACK: "Credit Buy-back",
 };
 
 /**
@@ -310,6 +329,14 @@ function telecomStockLeg(args: {
         note: `Validity days cost: ${args.amount} days`,
       };
     }
+    case "CREDIT_BUYBACK":
+      // Unreachable in practice: `processRecharge` dispatches a
+      // CREDIT_BUYBACK payload to `processCreditBuyback` before this
+      // function is ever called (see the type's own doc comment). Kept as
+      // an explicit arm — not folded under a `default` — so the exhaustive-
+      // switch contract this function documents keeps holding if that
+      // dispatch is ever removed.
+      return null;
   }
 }
 
@@ -481,142 +508,6 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
   }
 
   /**
-   * Top up the MTC/Alfa drawer with credits bought from a customer.
-   * The customer transfers credits to the shop's line and is paid cash out of
-   * the General drawer. Credits stock is always tracked in USD.
-   * Books price = credits received and cost = cash paid, so the margin
-   * (credits - cash) shows up as recharge profit at acquisition time.
-   */
-  topUpFromCustomer(data: {
-    provider: "MTC" | "Alfa";
-    creditsAmount: number;
-    cashPaid: number;
-    cashPaidCurrency: "USD" | "LBP";
-    userId: number;
-  }): { success: boolean; error?: string } {
-    try {
-      const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
-      const credits = Math.abs(data.creditsAmount);
-      const cashPaid = Math.abs(data.cashPaid);
-      const cashCurrency = data.cashPaidCurrency;
-      const tenantId = getCurrentTenantId();
-
-      if (credits <= 0) {
-        return {
-          success: false,
-          error: "Credits amount must be greater than 0",
-        };
-      }
-
-      // Validate the General drawer can cover the cash paid to the customer
-      const generalRow = this.db
-        .prepare(
-          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ? AND tenant_id = ?",
-        )
-        .get(cashCurrency, tenantId) as { balance: number | null } | undefined;
-
-      const generalBalance = generalRow?.balance ?? 0;
-      if (generalBalance < cashPaid) {
-        return {
-          success: false,
-          error: `Insufficient balance in General drawer. Available: ${generalBalance} ${cashCurrency}`,
-        };
-      }
-
-      this.db.transaction(() => {
-        // Record the top-up in recharges table
-        const rechargeResult = this.db
-          .prepare(
-            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by, tenant_id)
-             VALUES (?, 'TOP_UP', ?, ?, ?, 'USD', 'CUSTOMER', ?, ?, ?)`,
-          )
-          .run(
-            data.provider,
-            credits,
-            cashPaid,
-            credits,
-            `${data.provider} top-up from customer: +${credits} credits, paid ${cashPaid} ${cashCurrency} cash`,
-            data.userId,
-            tenantId,
-          );
-
-        const rechargeId = Number(rechargeResult.lastInsertRowid);
-
-        // Create unified transaction record
-        getTransactionRepository().createTransaction({
-          type:
-            data.provider === "MTC"
-              ? TRANSACTION_TYPES.MTC_TOPUP
-              : TRANSACTION_TYPES.ALFA_TOPUP,
-          source_table: "recharges",
-          source_id: rechargeId,
-          user_id: data.userId,
-          amount_usd: credits,
-          amount_lbp: 0,
-          // Profit is tracked in USD only (the gained asset — credits — is
-          // always USD). LBP cash paid out is converted at the sell rate and
-          // subtracted here; splitting it as +credits USD / −cash LBP inflated
-          // the USD profit bucket and dumped a phantom negative on LBP.
-          profit_usd:
-            credits -
-            (cashCurrency === "LBP"
-              ? cashPaid / getUsdLbpSellRate(this.db)
-              : cashPaid),
-          profit_lbp: 0,
-          summary: `${data.provider} top-up from customer: +${credits} credits, -${cashPaid} ${cashCurrency} cash`,
-          metadata_json: {
-            provider: data.provider,
-            creditsAmount: credits,
-            cashPaid,
-            cashPaidCurrency: cashCurrency,
-            sourceDrawer: "General",
-            destDrawer,
-          },
-        });
-
-        // Pay the customer from the General drawer (in the chosen currency).
-        // CQ-3 survey note: intentionally NOT `applyDrawerDelta` — a plain
-        // UPDATE that must NOT create a row for a missing General drawer.
-        if (cashPaid > 0) {
-          this.db
-            .prepare(
-              `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
-               WHERE drawer_name = 'General' AND currency_code = ? AND tenant_id = ?`,
-            )
-            .run(cashPaid, cashCurrency, tenantId);
-        }
-
-        // Add the received credits to the provider drawer
-        applyDrawerDelta(this.db, {
-          drawerName: destDrawer,
-          currencyCode: "USD",
-          delta: credits,
-          tenantId,
-        });
-      })();
-
-      rechargeLogger.info(
-        {
-          provider: data.provider,
-          credits,
-          cashPaid,
-          cashCurrency,
-          destDrawer,
-        },
-        `${data.provider} top-up from customer: +${credits} credits, -${cashPaid} ${cashCurrency} cash`,
-      );
-
-      return { success: true };
-    } catch (error) {
-      rechargeLogger.error({ error, data }, "Customer top-up failed");
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  /**
    * Get all drawer balances
    */
   getDrawerBalances(): Array<{
@@ -678,6 +569,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     id?: number;
     error?: string;
   } {
+    // CARRIER_LINES_VALIDITY_PLAN.md Phase 6 (D7/D8): a credit buy-back is a
+    // fundamentally different money direction (payout, not a sale) — routed
+    // to its own method before any of this method's sale-shaped logic runs.
+    if (data.type === "CREDIT_BUYBACK") {
+      return this.processCreditBuyback(data);
+    }
+
     try {
       const result = this.db.transaction(() => {
         const detail = rechargeDetailLabel(data.type, data.amount);
@@ -1087,6 +985,289 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       return { success: true, id: result };
     } catch (error) {
       rechargeLogger.error({ error, data }, "Recharge failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Telecom credit buy-back (CARRIER_LINES_VALIDITY_PLAN.md Phase 6, D7/D8):
+   * a customer hands the shop MTC/Alfa credits — detected because they typed
+   * the shop's OWN carrier line's phone number into the Credit tab — and the
+   * shop pays them cash. The reverse of a normal sale: credits IN (to the
+   * shop's line), cash OUT (from a real drawer, via ordinary payout legs).
+   *
+   * `data.amount` is reused as the credits gained (USD face value, matching
+   * every other type's convention — see {@link telecomStockLeg}'s doc).
+   * `data.price` is reused as the total cash paid out, in `data.currency`.
+   * Neither `data.cost` nor `data.default_price_to_client` is meaningful
+   * here.
+   *
+   * Money movement (mirrors the retired `topUpFromCustomer` modal arm's
+   * profit shape — profit = credits gained − cash paid — but routes the cash
+   * leg through plain `paymentMethodToDrawerName` rather than always
+   * debiting General: MTC/Alfa are never the shop's primary cash system, so
+   * `resolveServiceCashDrawer`'s PCD rerouting never applies here):
+   *   - `getPrimary(carrier)` gains `credits` — a `carrier_line_movements`
+   *     row, reason `CREDIT_BUYBACK`, `validityDaysDelta: 0` (D9 — a
+   *     buy-back never touches validity; that only happens via an iPick/
+   *     Katsh self-charge).
+   *   - The provider drawer is then set to `getCarrierCreditsSum(carrier)`
+   *     (§0.1) — posted as the DIFFERENCE from its current balance, as an
+   *     ordinary auditable `payments` row, so §0.6's "a NEW path does not
+   *     get the grandfather exemption" holds from day one, even if the
+   *     drawer had already drifted from the line sum before this ran.
+   *   - Cash pays out via the shared `postPayoutLegs` (moneyPosting.ts) —
+   *     ordinary IN legs with no `direction` key (D7): a payout is NOT the
+   *     `direction: "OUT"` change-leg marker (this method has no
+   *     end-of-transaction return-leg loop for it to collide with).
+   *
+   * Reversible (D8, deliberately NOT in `NON_REVERSIBLE_TRANSACTION_TYPES`):
+   * `_reversePayments` (the drawer-delta leg and every payout leg),
+   * `_reverseCarrierLineMovements` (the credits gain), and `_cancelDebt`'s
+   * widened `CREDIT_DEPOSIT` scan (a CUSTOMER_ACCOUNT payout leg) between
+   * them net every ledger back to its pre-transaction value.
+   */
+  processCreditBuyback(data: RechargeData): {
+    success: boolean;
+    id?: number;
+    error?: string;
+  } {
+    try {
+      if (!data.payments || data.payments.length === 0) {
+        return {
+          success: false,
+          error: "Payment legs are required for a credit buy-back payout",
+        };
+      }
+
+      const { inLegs: payoutLegs, outLegs } = partitionLegs(data.payments);
+      if (outLegs.length > 0) {
+        return {
+          success: false,
+          error:
+            "A credit buy-back accepts payout legs only — direction:'OUT' legs are not supported here",
+        };
+      }
+
+      const credits = Math.abs(data.amount);
+      if (!(credits > 0)) {
+        return {
+          success: false,
+          error: "Credits amount must be greater than 0",
+        };
+      }
+
+      const carrier: CarrierKey = data.provider === "MTC" ? "mtc" : "alfa";
+      const providerDrawerName = TOP_UP_PROVIDER_DRAWERS[data.provider];
+      const carrierLineRepo = getCarrierLineRepository();
+      const primaryLine = carrierLineRepo.getPrimary(carrier);
+      if (!primaryLine) {
+        return {
+          success: false,
+          error: `No active ${data.provider} line to buy back credits into`,
+        };
+      }
+      // Backend re-validation (rule 14 — the REST route is directly
+      // callable, so a client-computed "this is a buy-back" flag alone
+      // cannot be trusted): if a phone number was submitted, it must
+      // actually be the shop's own line. Omitted entirely → the explicit
+      // `type: "CREDIT_BUYBACK"` the operator chose is the authoritative
+      // signal, same as every other recharge type.
+      if (
+        data.phoneNumber &&
+        !isSameLebanesePhone(data.phoneNumber, primaryLine.phone_number)
+      ) {
+        return {
+          success: false,
+          error: `Phone number does not match the shop's own ${data.provider} line — a buy-back must be against the shop's own line`,
+        };
+      }
+
+      const payoutAmount = Math.abs(data.price);
+      const currency = data.currency ?? "USD";
+      const createdBy = data.userId ?? 1;
+      const tenantId = getCurrentTenantId();
+      const sellRate = getUsdLbpSellRate(this.db);
+      const paidByLabel =
+        payoutLegs.length > 1 ? "MULTI" : payoutLegs[0]?.method || "CASH";
+
+      const result = this.db.transaction(() => {
+        const clientName = data.clientId
+          ? ((
+              this.db
+                .prepare(
+                  "SELECT full_name FROM clients WHERE id = ? AND tenant_id = ?",
+                )
+                .get(data.clientId, tenantId) as
+                | { full_name: string }
+                | undefined
+            )?.full_name ??
+            data.clientName ??
+            null)
+          : (data.clientName ?? null);
+
+        const note = `${data.provider} credit buy-back${data.phoneNumber ? ` - ${data.phoneNumber}` : ""}`;
+
+        const insertRecharge = this.db.prepare(`
+          INSERT INTO recharges (
+            carrier, recharge_type, amount, cost, price, default_price_to_client, currency_code,
+            paid_by, phone_number, client_id, client_name, note, created_by, tenant_id, created_at
+          ) VALUES (?, 'CREDIT_BUYBACK', ?, 0, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        `);
+        const rechargeResult = insertRecharge.run(
+          data.provider,
+          credits,
+          payoutAmount,
+          currency,
+          paidByLabel,
+          data.phoneNumber || null,
+          data.clientId || null,
+          clientName,
+          note,
+          createdBy,
+          tenantId,
+          data.transaction_time ?? null,
+        );
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        const payoutUsd = usdEquivalent(
+          currency === "USD" ? payoutAmount : 0,
+          currency === "LBP" ? payoutAmount : 0,
+          sellRate,
+        );
+
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.TELECOM_CREDIT_BUYBACK,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: createdBy,
+          amount_usd: currency === "USD" ? payoutAmount : 0,
+          amount_lbp: currency === "LBP" ? payoutAmount : 0,
+          // Profit = credits gained − cash paid (USD-equivalent) — the same
+          // spread the retired topUpFromCustomer modal arm booked. Tracked
+          // in USD only (credits are always a USD figure), mirroring that
+          // arm's own convention.
+          profit_usd: credits - payoutUsd,
+          profit_lbp: 0,
+          client_id: data.clientId ?? null,
+          client_name: clientName,
+          summary: `Credit buy-back: ${data.provider} +$${credits} credits — ${currency === "LBP" ? "" : "$"}${payoutAmount.toLocaleString()} ${currency} paid out`,
+          metadata_json: {
+            provider: data.provider,
+            type: "CREDIT_BUYBACK",
+            credits,
+            payoutAmount,
+            currency,
+            phone: data.phoneNumber,
+          },
+          exchange_rate: sellRate,
+          transaction_time: data.transaction_time,
+        });
+
+        // Cash payout — ordinary IN legs, no `direction` key (D7). No
+        // drawer-sufficiency guard, by design (FEATURE_GUIDE §7 / plan
+        // Phase 6) — the PCD/General may go negative.
+        postPayoutLegs({
+          db: this.db,
+          legs: payoutLegs,
+          payoutAmount,
+          currency,
+          exchangeRate: sellRate,
+          tenderExchangeRate: data.tender_exchange_rate,
+          context: `${data.provider} credit buy-back`,
+          txnId,
+          tenantId,
+          createdBy,
+          resolveDrawer: (method) => paymentMethodToDrawerName(method),
+          note: `Cash paid to customer (${data.provider} credit buy-back)`,
+          onCustomerAccountLeg: (usd, lbp) => {
+            if (!data.clientId) {
+              throw new Error(
+                "Client is required for CUSTOMER_ACCOUNT cashout",
+              );
+            }
+            getDebtService().addCredit({
+              clientId: data.clientId,
+              amountUsd: usd,
+              amountLbp: lbp,
+              note: `${data.provider} credit buy-back — credited to account`,
+              userId: createdBy,
+              transactionId: txnId,
+            });
+          },
+        });
+
+        // Credit the shop's own line — D9: credits only, validity never
+        // moves. Established call convention (mirrors
+        // FinancialServiceRepository.selfChargeTelecomItem): repository for
+        // reads (getPrimary, above), service for the paired write.
+        const movement = getCarrierLineService().applyMovement({
+          carrierLineId: primaryLine.id,
+          creditsDelta: credits,
+          validityDaysDelta: 0,
+          reason: "CREDIT_BUYBACK",
+          transactionId: txnId,
+        });
+        if (!movement.success) {
+          throw new Error(
+            `Failed to apply carrier line movement: ${movement.error}`,
+          );
+        }
+
+        // §0.1/§0.6: the drawer follows the line SUM, never the reverse — a
+        // NEW path (this one) does not get the grandfather exemption. Post
+        // the DIFFERENCE from the drawer's CURRENT balance as an ordinary
+        // leg, so drawer == Σ(active lines) holds after this transaction
+        // even if the drawer had already drifted from it beforehand.
+        const currentDrawerRow = this.db
+          .prepare(
+            `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = 'USD' AND tenant_id = ?`,
+          )
+          .get(providerDrawerName, tenantId) as
+          | { balance: number }
+          | undefined;
+        const currentDrawerBalance = currentDrawerRow?.balance ?? 0;
+        const targetSum = carrierLineRepo.getCarrierCreditsSum(carrier);
+        const drawerDelta = targetSum - currentDrawerBalance;
+        if (drawerDelta !== 0) {
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: providerDrawerName,
+            drawerName: providerDrawerName,
+            currencyCode: "USD",
+            amount: drawerDelta,
+            note: `Credits received (buy-back): +${credits}`,
+            createdBy,
+            tenantId,
+          });
+          applyDrawerDelta(this.db, {
+            drawerName: providerDrawerName,
+            currencyCode: "USD",
+            delta: drawerDelta,
+            tenantId,
+          });
+        }
+
+        return rechargeId;
+      })();
+
+      rechargeLogger.info(
+        {
+          id: result,
+          provider: data.provider,
+          credits,
+          payoutAmount,
+          currency,
+        },
+        `${data.provider} credit buy-back: +${credits} credits, -${payoutAmount} ${currency} cash`,
+      );
+
+      return { success: true, id: result };
+    } catch (error) {
+      rechargeLogger.error({ error, data }, "Credit buy-back failed");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
