@@ -114,6 +114,30 @@ export class CarrierLineService {
     }
   }
 
+  /**
+   * The sum invariant's single definition (§0.1, rule 14) — Σ credits of
+   * that carrier's active lines.
+   *
+   * Deliberately RETHROWS rather than returning a fallback. Phase 3 uses
+   * this value to SET the provider drawer balance, so "lookup failed" and
+   * "this carrier has no lines" must never collapse to the same number: a
+   * swallowed error returning 0 would zero the drawer and post a large
+   * negative checkpoint delta. The legitimate empty case is already 0 via
+   * the repository's COALESCE; anything else is a real fault and must
+   * abort the caller's transaction.
+   */
+  getCarrierCreditsSum(carrier: CarrierKey): number {
+    try {
+      return this.repo.getCarrierCreditsSum(carrier);
+    } catch (error) {
+      financialLogger.error(
+        { error, carrier },
+        "Failed to get carrier credits sum",
+      );
+      throw error;
+    }
+  }
+
   /** Every line including archived — the Settings manager. */
   getAllIncludingInactive(): CarrierLineEntity[] {
     try {

@@ -163,6 +163,24 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
       .all(carrier, getCurrentTenantId()) as CarrierLineEntity[];
   }
 
+  /**
+   * The sum invariant's single definition (§0.1, rule 14):
+   * `drawer_balances[carrier][USD] == Σ credits of active carrier_lines`.
+   * `COALESCE` guards the empty-set case — a carrier with zero active lines
+   * sums to `0`, never `null`. Every caller (Phase 3's checkpoint, any
+   * future reconciliation) calls this rather than re-deriving the SUM
+   * inline, so the invariant has exactly one place it can drift from.
+   */
+  getCarrierCreditsSum(carrier: CarrierKey): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(credits), 0) as total FROM carrier_lines
+         WHERE carrier = ? AND is_active = 1 AND tenant_id = ?`,
+      )
+      .get(carrier, getCurrentTenantId()) as { total: number };
+    return row.total;
+  }
+
   /** All active lines, every carrier. */
   getAllActive(): CarrierLineEntity[] {
     return this.db
@@ -195,22 +213,45 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
     );
   }
 
+  /**
+   * Create a new line. Auto-designates it `is_primary = 1` when it is this
+   * carrier's FIRST active line — so the common single-line case always has
+   * a resolvable `getPrimary()` with zero extra caller wiring. Does **not**
+   * throw when the carrier already has an active line: §0.5 (2026-08-06
+   * owner ruling) keeps "one line per carrier" a UI convention only — the
+   * schema (and `idx_carrier_lines_one_primary_per_carrier`, which only
+   * constrains `is_primary = 1` rows) permits multiple by design, so a
+   * second active line is created here with `is_primary = 0` and no error.
+   */
   createLine(data: CreateCarrierLineData): CarrierLineEntity {
-    const stmt = this.db.prepare(`
-      INSERT INTO carrier_lines
-        (tenant_id, carrier, phone_number, label, credits, validity_expires_at, notes, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `);
-    const result = stmt.run(
-      getCurrentTenantId(),
-      data.carrier,
-      data.phone_number,
-      data.label ?? null,
-      data.credits ?? 0,
-      data.validity_expires_at ?? null,
-      data.notes ?? null,
-    );
-    return this.getById(result.lastInsertRowid as number)!;
+    const tenantId = getCurrentTenantId();
+
+    return this.transaction(() => {
+      const existingActive = this.db
+        .prepare(
+          `SELECT 1 FROM carrier_lines
+           WHERE carrier = ? AND is_active = 1 AND tenant_id = ? LIMIT 1`,
+        )
+        .get(data.carrier, tenantId);
+      const isPrimary = existingActive ? 0 : 1;
+
+      const stmt = this.db.prepare(`
+        INSERT INTO carrier_lines
+          (tenant_id, carrier, phone_number, label, credits, validity_expires_at, notes, is_active, is_primary, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `);
+      const result = stmt.run(
+        tenantId,
+        data.carrier,
+        data.phone_number,
+        data.label ?? null,
+        data.credits ?? 0,
+        data.validity_expires_at ?? null,
+        data.notes ?? null,
+        isPrimary,
+      );
+      return this.getById(result.lastInsertRowid as number)!;
+    });
   }
 
   updateLine(

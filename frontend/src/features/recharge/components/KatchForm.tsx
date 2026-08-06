@@ -7,6 +7,7 @@ import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
 import {
   type PaymentLine,
+  type CarrierLineEntity,
   useApi,
   DecimalInput,
   hasNewClientInfo,
@@ -29,6 +30,7 @@ import type { ProviderConfig, FinancialTransaction } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { formatCatalogItemName } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
+import { isSelfChargeEligible } from "../utils/selfChargeEligibility";
 import { HistoryModal } from "./HistoryModal";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
@@ -240,6 +242,15 @@ interface ItemCardProps {
   onReturnedCreditsChange: (item: ServiceItem, value: number) => void;
   onSellDaysLbpChange: (item: ServiceItem, value: number) => void;
   onCreditPriceLbpChange: (item: ServiceItem, value: number) => void;
+  /** Carrier-lines-validity plan Phase 5 / D5: true when this item qualifies
+   *  for the "Charge to shop line" self-charge action (see
+   *  `isSelfChargeEligible` — shared with CarrierLinesManager.tsx). */
+  selfChargeEligible: boolean;
+  /** The carrier's current primary line (`getPrimary`), or null when the
+   *  carrier has no active line yet — the button stays visible but disabled
+   *  with an explanatory tooltip rather than erroring on click (§0.5). */
+  selfChargeTargetLine: CarrierLineEntity | null;
+  onSelfCharge: (item: ServiceItem) => void;
 }
 
 const ItemCard = memo(function ItemCard({
@@ -256,6 +267,9 @@ const ItemCard = memo(function ItemCard({
   onReturnedCreditsChange,
   onSellDaysLbpChange,
   onCreditPriceLbpChange,
+  selfChargeEligible,
+  selfChargeTargetLine,
+  onSelfCharge,
 }: ItemCardProps) {
   const cost = item.catalogCost ?? 0;
   const sellPrice = item.catalogSellPrice ?? 0;
@@ -343,6 +357,25 @@ const ItemCard = memo(function ItemCard({
             </div>
           )}
         </div>
+        {/* Carrier-lines-validity plan Phase 5 / D5: charge this item's cost
+            to the shop's own carrier line instead of a customer. Sibling of
+            the onClick wrapper above (not nested inside it) so a click here
+            never also adds the item to the cart. */}
+        {selfChargeEligible && (
+          <button
+            type="button"
+            onClick={() => onSelfCharge(item)}
+            disabled={!selfChargeTargetLine}
+            title={
+              selfChargeTargetLine
+                ? `Charge this item to ${selfChargeTargetLine.label || selfChargeTargetLine.phone_number}`
+                : `No active ${item.category.toUpperCase()} line configured — add one in Settings → Carrier Lines`
+            }
+            className="mt-2 w-full py-1 rounded text-[10px] font-medium bg-emerald-900/30 hover:bg-emerald-900/50 text-emerald-400 disabled:bg-slate-800/60 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
+          >
+            Charge to shop line
+          </button>
+        )}
       </div>
 
       {qty > 0 && isExpanded && (
@@ -730,6 +763,46 @@ function KatchFormInner({
     };
   }, [api]);
 
+  // ── Self-charge (LIRA-090 §5.2, carrier-lines-validity plan Phase 5 / D5) ──
+  // Item-card entry point: charge an eligible iPick/Katsh item straight to
+  // the shop's own primary MTC/Alfa line — no customer, no sale row, no
+  // profit row. Same repository call and confirm copy as
+  // CarrierLinesManager.tsx's Settings-side modal, but the target line is
+  // resolved automatically via getPrimary(carrier) (there is one line per
+  // carrier today — §0.5) instead of offered as a picker.
+  const [primaryLines, setPrimaryLines] = useState<
+    Record<"alfa" | "mtc", CarrierLineEntity | null>
+  >({ alfa: null, mtc: null });
+  const [selfChargeItem, setSelfChargeItem] = useState<ServiceItem | null>(
+    null,
+  );
+  const [selfChargeSubmitting, setSelfChargeSubmitting] = useState(false);
+  const [selfChargeError, setSelfChargeError] = useState("");
+  const [selfChargeResult, setSelfChargeResult] = useState<{
+    costLbp: number;
+    creditsAdded: number;
+    validityDaysAdded: number;
+  } | null>(null);
+
+  const loadPrimaryLines = useCallback(async () => {
+    try {
+      const [mtc, alfa] = await Promise.all([
+        api.getPrimaryCarrierLine("mtc"),
+        api.getPrimaryCarrierLine("alfa"),
+      ]);
+      setPrimaryLines({
+        mtc: mtc.success ? mtc.data ?? null : null,
+        alfa: alfa.success ? alfa.data ?? null : null,
+      });
+    } catch (err) {
+      logger.error("Failed to load primary carrier lines:", err);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    loadPrimaryLines();
+  }, [loadPrimaryLines]);
+
   // Reset and defer card grid rendering on every provider switch so the shell
   // (search bar + proceed button) paints before the heavy DOM is created.
   useEffect(() => {
@@ -908,12 +981,75 @@ function KatchFormInner({
     });
   }, []);
 
+  // Carrier-lines-validity plan Phase 5 / D5 — opens the confirm modal for a
+  // self-charge-eligible item. Disabled targets (no primary line) are
+  // filtered at the button (ItemCard), so this only ever fires when a
+  // target line exists.
+  const handleSelfChargeClick = useCallback((item: ServiceItem) => {
+    setSelfChargeItem(item);
+    setSelfChargeError("");
+    setSelfChargeResult(null);
+  }, []);
+
+  const closeSelfCharge = useCallback(() => {
+    setSelfChargeItem(null);
+    setSelfChargeError("");
+    setSelfChargeResult(null);
+  }, []);
+
+  // Writes a TELECOM_SELF_CHARGE transaction
+  // (FinancialServiceRepository.selfChargeTelecomItem) — debits the item's
+  // own iPick/Katsh LBP drawer and credits the carrier's primary line's
+  // credits/validity by the item's own `credits`/`validity_days`. No
+  // arithmetic happens here; the repository owns it — this only collects the
+  // item + resolved line and reports what came back.
+  const handleConfirmSelfCharge = useCallback(async () => {
+    if (!selfChargeItem?.id) return;
+    const carrier = selfChargeItem.category.toLowerCase() as "alfa" | "mtc";
+    const targetLine = primaryLines[carrier];
+    if (!targetLine) return;
+    setSelfChargeSubmitting(true);
+    setSelfChargeError("");
+    try {
+      const res = await api.selfChargeTelecomItem({
+        mobileServiceItemId: selfChargeItem.id,
+        carrierLineId: targetLine.id,
+      });
+      if (!res.success || !res.data) {
+        setSelfChargeError(res.error || "Self-charge failed");
+        return;
+      }
+      setSelfChargeResult({
+        costLbp: res.data.costLbp,
+        creditsAdded: res.data.creditsAdded,
+        validityDaysAdded: res.data.validityDaysAdded,
+      });
+      await loadPrimaryLines();
+    } catch (err) {
+      setSelfChargeError(
+        err instanceof Error ? err.message : "Self-charge failed",
+      );
+    } finally {
+      setSelfChargeSubmitting(false);
+    }
+  }, [selfChargeItem, primaryLines, api, loadPrimaryLines]);
+
   if (!activeConfig || !activeProvider) return null;
 
   const billAccent =
     BILL_ACCENTS[activeProvider === "iPick" ? "sky" : "orange"];
 
   const categories = getCategoriesForProvider(activeProvider);
+
+  // Resolved once per render for the self-charge confirm modal below — the
+  // modal only ever shows one item at a time, so this is cheap to derive
+  // straight from state rather than threaded through as extra props.
+  const selfChargeCarrier: "alfa" | "mtc" | null = selfChargeItem
+    ? (selfChargeItem.category.toLowerCase() as "alfa" | "mtc")
+    : null;
+  const selfChargeTargetLine = selfChargeCarrier
+    ? primaryLines[selfChargeCarrier]
+    : null;
 
   const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
     if (!searchQuery.trim()) return items;
@@ -2038,6 +2174,13 @@ function KatchFormInner({
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
                     {categoryItems.map((item) => {
                       const inCart = cart.get(item.key);
+                      const itemCarrier = item.category.toLowerCase();
+                      const selfChargeEligible =
+                        (itemCarrier === "alfa" || itemCarrier === "mtc") &&
+                        isSelfChargeEligible(item, itemCarrier);
+                      const selfChargeTargetLine = selfChargeEligible
+                        ? primaryLines[itemCarrier as "alfa" | "mtc"]
+                        : null;
                       return (
                         <ItemCard
                           key={item.key}
@@ -2062,6 +2205,9 @@ function KatchFormInner({
                           onReturnedCreditsChange={handleReturnedCreditsChange}
                           onSellDaysLbpChange={handleSellDaysLbpChange}
                           onCreditPriceLbpChange={handleCreditPriceLbpChange}
+                          selfChargeEligible={selfChargeEligible}
+                          selfChargeTargetLine={selfChargeTargetLine}
+                          onSelfCharge={handleSelfChargeClick}
                         />
                       );
                     })}
@@ -2186,6 +2332,129 @@ function KatchFormInner({
             return result;
           }}
         />
+      )}
+
+      {/* Self-charge confirm modal (LIRA-090 §5.2, carrier-lines-validity
+          plan Phase 5 / D5) — same repository call and confirm copy as
+          CarrierLinesManager.tsx's Settings-side "Charge item to this line"
+          modal; the target line is resolved automatically via
+          getPrimary(carrier) instead of offered as a picker. */}
+      {selfChargeItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+          <div className="relative w-full max-w-sm bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-6">
+            <h3 className="text-lg font-bold text-white mb-1">
+              Charge to Shop Line
+            </h3>
+            <p className="text-slate-400 text-xs mb-4">
+              {formatCatalogItemName(selfChargeItem)}
+            </p>
+
+            {selfChargeResult ? (
+              <div className="space-y-4">
+                <div className="bg-emerald-900/20 border border-emerald-700/40 rounded-lg p-3 text-sm text-emerald-300">
+                  Charged successfully.
+                </div>
+                <div className="text-sm text-slate-300 space-y-1">
+                  <p>
+                    Cost debited:{" "}
+                    <span className="text-white font-mono">
+                      {selfChargeResult.costLbp.toLocaleString()} LBP
+                    </span>
+                  </p>
+                  <p>
+                    Credits added:{" "}
+                    <span className="text-emerald-400 font-mono">
+                      +${selfChargeResult.creditsAdded}
+                    </span>
+                  </p>
+                  <p>
+                    Validity added:{" "}
+                    <span className="text-emerald-400 font-mono">
+                      +{selfChargeResult.validityDaysAdded} days
+                    </span>
+                  </p>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeSelfCharge}
+                    className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded text-sm"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {selfChargeError && (
+                  <div className="text-red-400 text-sm bg-red-900/20 px-3 py-1.5 rounded">
+                    {selfChargeError}
+                  </div>
+                )}
+
+                <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 space-y-1">
+                  <p className="text-slate-400 text-xs uppercase mb-1">
+                    This will:
+                  </p>
+                  <p>
+                    Debit{" "}
+                    <span className="text-white font-mono">
+                      {(selfChargeItem.catalogCost ?? 0).toLocaleString()} LBP
+                    </span>{" "}
+                    from the {selfChargeItem.provider} drawer
+                  </p>
+                  <p>
+                    Add{" "}
+                    <span className="text-emerald-400 font-mono">
+                      +${selfChargeItem.credits}
+                    </span>{" "}
+                    credit to{" "}
+                    {selfChargeTargetLine
+                      ? selfChargeTargetLine.label ||
+                        selfChargeTargetLine.phone_number
+                      : `the ${selfChargeCarrier?.toUpperCase()} line`}
+                  </p>
+                  <p>
+                    Add{" "}
+                    <span className="text-emerald-400 font-mono">
+                      +{selfChargeItem.validityDays} days
+                    </span>{" "}
+                    validity to{" "}
+                    {selfChargeTargetLine
+                      ? selfChargeTargetLine.label ||
+                        selfChargeTargetLine.phone_number
+                      : `the ${selfChargeCarrier?.toUpperCase()} line`}
+                  </p>
+                  {!selfChargeTargetLine && (
+                    <p className="text-amber-400 text-xs pt-1">
+                      No active {selfChargeCarrier?.toUpperCase()} line — add
+                      one in Settings → Carrier Lines first.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleConfirmSelfCharge}
+                    disabled={selfChargeSubmitting || !selfChargeTargetLine}
+                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded text-sm"
+                  >
+                    {selfChargeSubmitting ? "Charging..." : "Confirm Charge"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeSelfCharge}
+                    disabled={selfChargeSubmitting}
+                    className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

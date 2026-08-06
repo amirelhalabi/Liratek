@@ -1084,23 +1084,6 @@ export async function processRecharge(payload: any) {
   );
 }
 
-export async function topUpRecharge(payload: {
-  provider: "MTC" | "Alfa";
-  amount: number;
-  currency?: string;
-}) {
-  if (isElectron()) {
-    return (window as any).api.recharge.topUp(payload);
-  }
-  return requestJson<{ success: boolean; error?: string }>(
-    `/api/recharge/top-up`,
-    {
-      method: "POST",
-      body: payload,
-    },
-  );
-}
-
 export async function topUpApp(payload: {
   provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
   amount: number;

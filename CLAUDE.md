@@ -8,7 +8,7 @@ LiraTek is a **desktop POS system for retail management** built as an Electron a
 
 - **Monorepo**: Yarn Workspaces (`frontend`, `electron-app`, `packages/core`, `backend`)
 - **Stack**: React 19 + Vite + TypeScript + Electron 31 + SQLite (SQLCipher) + TanStack Query
-- **DB**: Current migration version is **v97** — always check the last entry in `packages/core/src/db/migrations/index.ts` for the real current version and increment from it when adding migrations
+- **DB**: Current migration version is **v147** — always check the last entry in `packages/core/src/db/migrations/index.ts` for the real current version and increment from it when adding migrations
 - **Package manager**: Yarn (use `yarn workspace @liratek/X` commands)
 
 ## Project Structure

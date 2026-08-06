@@ -80,31 +80,6 @@ export function registerRechargeHandlers(): void {
     },
   );
 
-  // Top up MTC/Alfa balance (admin only)
-  ipcMain.handle(
-    "recharge:top-up",
-    (
-      event: IpcMainInvokeEvent,
-      data: { provider: "MTC" | "Alfa"; amount: number; currency?: string },
-    ) => {
-      const auth = requireRole(event.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-
-      rechargeLogger.info(
-        { provider: data.provider, amount: data.amount },
-        "Processing top-up",
-      );
-      const result = rechargeService.topUp({ ...data, userId: auth.userId });
-      audit(event.sender.id, {
-        action: "create",
-        entity_type: "recharge_topup",
-        summary: `Top-up ${data.provider}: ${data.amount}`,
-        metadata: { provider: data.provider, amount: data.amount },
-      });
-      return result;
-    },
-  );
-
   // Top up provider drawer (admin and staff)
   ipcMain.handle(
     "recharge:top-up-app",
@@ -198,52 +173,6 @@ export function registerRechargeHandlers(): void {
           creditsAmount: v.data.creditsAmount,
           cashPaid: v.data.cashPaid,
           cashPaidCurrency: v.data.cashPaidCurrency,
-        },
-      });
-      return result;
-    },
-  );
-
-  // Top up provider drawer from external cash source (no source drawer deduction)
-  ipcMain.handle(
-    "recharge:top-up-app-external",
-    (
-      event: IpcMainInvokeEvent,
-      data: {
-        provider:
-          | "OMT_APP"
-          | "WHISH_APP"
-          | "OMT_SYSTEM"
-          | "WHISH_SYSTEM"
-          | "iPick"
-          | "Katsh";
-        amount: number;
-        currency: "USD" | "LBP";
-      },
-    ) => {
-      const auth = requireRole(event.sender.id, ["admin", "staff"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-
-      rechargeLogger.info(
-        {
-          provider: data.provider,
-          amount: data.amount,
-          currency: data.currency,
-        },
-        "Processing external app top-up",
-      );
-      const result = rechargeService.topUpAppExternal({
-        ...data,
-        userId: auth.userId,
-      });
-      audit(event.sender.id, {
-        action: "create",
-        entity_type: "recharge_topup",
-        summary: `External top-up ${data.provider}: ${data.amount} ${data.currency}`,
-        metadata: {
-          provider: data.provider,
-          amount: data.amount,
-          currency: data.currency,
         },
       });
       return result;

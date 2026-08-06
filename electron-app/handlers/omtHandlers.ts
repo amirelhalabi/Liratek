@@ -18,7 +18,11 @@ import type {
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import { FinancialServiceSchema, validatePayload } from "../schemas/index.js";
+import {
+  FinancialServiceSchema,
+  SelfChargeTelecomItemSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerOMTHandlers(): void {
   const financialService = getFinancialService();
@@ -154,17 +158,25 @@ export function registerOMTHandlers(): void {
   // LIRA-090 §5.2: self-charge a telecom cart to the shop's own carrier line.
   // No customer, no sale row, no profit row — charges the item's full
   // cost_lbp to the iPick/Katsh drawer and credits the item's full USD
-  // credits + validity_days to the target line.  Admin only (mutations the
-  // shop's own carrier inventory; there is no reversal path without a void).
+  // credits + validity_days to the target line.
+  //
+  // Carrier-lines-validity plan, Phase 5 / D6 (2026-08-06): relaxed from
+  // admin-only to ["admin", "staff"] on BOTH transports — staff now have a
+  // day-to-day entry point (the iPick/Katsh item card) onto this same
+  // repository method. Void-able and audited, but nothing flags it for
+  // review; owner-accepted shrinkage vector (plan §5 risk 5).
   ipcMain.handle(
     "financial:self-charge-telecom-item",
     (event, data: SelfChargeTelecomItemData) => {
       try {
-        const auth = requireRole(event.sender.id, ["admin"]);
+        const auth = requireRole(event.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
 
+        const v = validatePayload(SelfChargeTelecomItemSchema, data);
+        if (!v.ok) return { success: false, error: v.error };
+
         const result = getFinancialServiceRepository().selfChargeTelecomItem({
-          ...data,
+          ...v.data,
           userId: auth.userId,
         });
         audit(event.sender.id, {

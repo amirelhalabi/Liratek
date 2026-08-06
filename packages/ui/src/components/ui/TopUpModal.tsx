@@ -5,8 +5,6 @@ import {
   X,
   AlertTriangle,
   Info,
-  ArrowRightLeft,
-  PlusCircle,
   UserRound,
   Users,
 } from "lucide-react";
@@ -27,8 +25,6 @@ export type TopUpProvider =
   | "Alfa"
   | "OMT_APP"
   | "WHISH_APP"
-  | "OMT_SYSTEM"
-  | "WHISH_SYSTEM"
   | "iPick"
   | "Katsh";
 
@@ -48,11 +44,6 @@ export interface TopUpModalProps {
     currency: TopUpCurrency;
     sourceDrawer: string;
   }) => void;
-  /** When provided, shows the External (Cash In) / From Drawer mode toggle */
-  onConfirmExternal?: (data: {
-    amount: number;
-    currency: TopUpCurrency;
-  }) => Promise<void>;
   /**
    * When provided for MTC/Alfa, replaces the from-drawer layout with the
    * customer top-up layout: the customer transfers credits to the shop's
@@ -106,7 +97,6 @@ export default function TopUpModal({
   isOpen,
   onClose,
   onConfirm,
-  onConfirmExternal,
   onConfirmCustomer,
   onConfirmSupplier,
   onConfirmPartner,
@@ -146,9 +136,6 @@ export default function TopUpModal({
   const isWhishTopUp =
     provider === "WHISH_APP" && (!!onConfirmPartner || !!onConfirmClient);
 
-  const [mode, setMode] = useState<"external" | "from_drawer">(
-    onConfirmExternal ? "external" : "from_drawer",
-  );
   const [whishMode, setWhishMode] = useState<"partner" | "client">("partner");
   const [amount, setAmount] = useState<string>("");
   const [cashPaid, setCashPaid] = useState<string>("");
@@ -169,8 +156,6 @@ export default function TopUpModal({
     Alfa: "Alfa",
     OMT_APP: "OMT App",
     WHISH_APP: "Whish App",
-    OMT_SYSTEM: "OMT System",
-    WHISH_SYSTEM: "Whish System",
     iPick: "iPick",
     Katsh: "Katsh",
   };
@@ -221,7 +206,6 @@ export default function TopUpModal({
       setCurrency("USD");
       setSourceDrawer(defaultSourceDrawer);
       setIsSubmitting(false);
-      setMode(onConfirmExternal ? "external" : "from_drawer");
       setWhishMode("partner");
       setManualFee("");
       setIncludingFees(false);
@@ -318,18 +302,14 @@ export default function TopUpModal({
       return;
     }
 
-    if (mode === "from_drawer" && amountNum > sourceBalance) {
+    if (amountNum > sourceBalance) {
       alert("Insufficient balance in source drawer");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      if (mode === "external" && onConfirmExternal) {
-        await onConfirmExternal({ amount: amountNum, currency });
-      } else {
-        await onConfirm({ amount: amountNum, currency, sourceDrawer });
-      }
+      await onConfirm({ amount: amountNum, currency, sourceDrawer });
       onClose();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Top-up failed");
@@ -727,41 +707,6 @@ export default function TopUpModal({
             </>
           )}
 
-          {/* Mode Toggle — only shown when external top-up is supported and not a supplier credit */}
-          {!isWhishTopUp &&
-            !isCustomerTopUp &&
-            !isSupplierCredit &&
-            onConfirmExternal && (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMode("external")}
-                  disabled={isSubmitting}
-                  className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-                    mode === "external"
-                      ? "bg-emerald-600 text-white"
-                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                  } disabled:opacity-50`}
-                >
-                  <PlusCircle size={14} />
-                  External (Cash In)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("from_drawer")}
-                  disabled={isSubmitting}
-                  className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-                    mode === "from_drawer"
-                      ? "bg-violet-600 text-white"
-                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                  } disabled:opacity-50`}
-                >
-                  <ArrowRightLeft size={14} />
-                  From Drawer
-                </button>
-              </div>
-            )}
-
           {!isWhishTopUp && !isCustomerTopUp && (
             <>
               {/* Currency Selector */}
@@ -821,8 +766,7 @@ export default function TopUpModal({
                     {currency}
                   </span>
                 </div>
-                {mode === "from_drawer" &&
-                  !isSupplierCredit &&
+                {!isSupplierCredit &&
                   amount &&
                   parseFloat(amount) > sourceBalance && (
                     <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
@@ -832,8 +776,8 @@ export default function TopUpModal({
                   )}
               </div>
 
-              {/* Source Drawer Selector — only in from_drawer mode (hidden for supplier credit) */}
-              {mode === "from_drawer" && !isSupplierCredit && (
+              {/* Source Drawer Selector (hidden for supplier credit) */}
+              {!isSupplierCredit && (
                 <div>
                   <label className="block text-sm font-medium text-slate-400 mb-2">
                     From Drawer
@@ -877,9 +821,7 @@ export default function TopUpModal({
                       ? `Credits are added to the ${getProviderLabel()} drawer; the cash you pay the customer is deducted from the General drawer.`
                       : isSupplierCredit
                         ? `${getProviderLabel()} balance will be increased. Your supplier will be credited — settle with them via the Suppliers page.`
-                        : mode === "external"
-                          ? `Add cash from an external source to your ${getProviderLabel()} drawer. No drawer deducted.`
-                          : `Transfer funds to your ${getProviderLabel()} drawer. No fees.`}
+                        : `Transfer funds to your ${getProviderLabel()} drawer. No fees.`}
                 </p>
               </div>
             </div>
@@ -906,16 +848,12 @@ export default function TopUpModal({
                   ? whishMode === "partner" && !selectedPartnerId
                   : isCustomerTopUp
                     ? cashPaidNum < 0 || cashPaidNum > generalBalance
-                    : !isSupplierCredit &&
-                      mode === "from_drawer" &&
-                      parseFloat(amount) > sourceBalance)
+                    : !isSupplierCredit && parseFloat(amount) > sourceBalance)
               }
               className={`flex-1 px-4 py-2.5 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg ${
                 isWhishTopUp && whishMode === "client"
                   ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20"
-                  : !isWhishTopUp && !isCustomerTopUp && mode === "external"
-                    ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20"
-                    : "bg-violet-600 hover:bg-violet-500 shadow-violet-500/20"
+                  : "bg-violet-600 hover:bg-violet-500 shadow-violet-500/20"
               }`}
             >
               {isSubmitting
@@ -928,9 +866,7 @@ export default function TopUpModal({
                     ? "Confirm Top-Up"
                     : isSupplierCredit
                       ? "Confirm Supplier Credit"
-                      : mode === "external"
-                        ? "Add Cash"
-                        : "Confirm Top-Up"}
+                      : "Confirm Top-Up"}
             </button>
           </div>
         </div>

@@ -448,11 +448,6 @@ contextBridge.exposeInMainWorld("api", {
        *  only for leg reconciliation, never the stamped exchange_rate. */
       tender_exchange_rate?: number;
     }) => ipcRenderer.invoke("recharge:process", data),
-    topUp: (data: {
-      provider: "MTC" | "Alfa";
-      amount: number;
-      currency?: string;
-    }) => ipcRenderer.invoke("recharge:top-up", data),
     topUpApp: (data: {
       provider:
         | "MTC"
@@ -467,17 +462,6 @@ contextBridge.exposeInMainWorld("api", {
       currency: "USD" | "LBP";
       sourceDrawer: string;
     }) => ipcRenderer.invoke("recharge:top-up-app", data),
-    topUpAppExternal: (data: {
-      provider:
-        | "OMT_APP"
-        | "WHISH_APP"
-        | "OMT_SYSTEM"
-        | "WHISH_SYSTEM"
-        | "iPick"
-        | "Katsh";
-      amount: number;
-      currency: "USD" | "LBP";
-    }) => ipcRenderer.invoke("recharge:top-up-app-external", data),
     topUpFromSupplier: (data: {
       provider: "iPick" | "Katsh";
       amount: number;

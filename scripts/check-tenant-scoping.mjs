@@ -124,6 +124,8 @@ const TENANT_SCOPED_TABLES = [
   "currency_drawers",
   "payment_methods",
   "loto_settings",
+  "carrier_lines",
+  "carrier_line_movements",
 ];
 
 // Explicitly never flagged, even if referenced.

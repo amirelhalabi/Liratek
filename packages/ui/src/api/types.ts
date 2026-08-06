@@ -548,11 +548,6 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getRechargeStock: () => Promise<VirtualStock>;
   processRecharge: (payload: any) => Promise<ApiResult>;
-  topUpRecharge: (payload: {
-    provider: "MTC" | "Alfa";
-    amount: number;
-    currency?: string;
-  }) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)

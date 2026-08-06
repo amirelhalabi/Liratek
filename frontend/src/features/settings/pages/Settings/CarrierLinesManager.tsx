@@ -18,29 +18,9 @@ import {
   formatCatalogItemName,
   type ServiceItem,
 } from "@/features/recharge/hooks/useMobileServiceItems";
-
-/** Self-charge (LIRA-090 §5.2) is only eligible for MTC/Alfa Prepaid items
- *  that carry BOTH a face credit and validity days, sold by iPick/Katsh
- *  (the two providers `selfChargeTelecomItem` accepts — see
- *  FinancialServiceRepository.selfChargeTelecomItem). This mirrors that
- *  repository's own guard clauses so the picker never offers an item the
- *  backend would reject. */
-function isSelfChargeEligible(
-  item: ServiceItem,
-  carrier: "alfa" | "mtc",
-): boolean {
-  return (
-    item.id != null &&
-    item.category.toLowerCase() === carrier &&
-    (item.provider === "iPick" || item.provider === "Katsh") &&
-    typeof item.credits === "number" &&
-    item.credits > 0 &&
-    typeof item.validityDays === "number" &&
-    item.validityDays > 0 &&
-    typeof item.catalogCost === "number" &&
-    item.catalogCost > 0
-  );
-}
+// Shared with KatchForm.tsx's "Charge to shop line" item-card action
+// (carrier-lines-validity plan Phase 5 / D5) — defined once per rule 14.
+import { isSelfChargeEligible } from "@/features/recharge/utils/selfChargeEligibility";
 
 interface FormData {
   carrier: "alfa" | "mtc";

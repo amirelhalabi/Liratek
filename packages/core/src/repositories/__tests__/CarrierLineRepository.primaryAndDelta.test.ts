@@ -116,9 +116,66 @@ describe("CarrierLineRepository — is_primary (LIRA-090 §3 decision 8)", () =>
     resetCarrierLineMovementRepository();
   });
 
-  it("getPrimary() returns null when no line has been designated primary", () => {
-    repo.createLine({ carrier: "mtc", phone_number: "03111111" });
+  it("getPrimary() returns null when the carrier has no lines at all", () => {
+    repo.createLine({ carrier: "alfa", phone_number: "70999999" });
+    // A line on a DIFFERENT carrier must not satisfy mtc's lookup.
     expect(repo.getPrimary("mtc")).toBeNull();
+  });
+
+  // Contract change — carrier-lines-validity plan, Phase 1 (§0.5).
+  // Previously a new line was created with is_primary = 0, so a shop with
+  // exactly one line still had NO primary and `processTelecomCreditReturn`
+  // silently skipped credit/validity attribution with only a warning
+  // (FinancialServiceRepository). The first active line of a carrier is now
+  // auto-designated, so the single-line case always resolves.
+  it("createLine() auto-designates the carrier's FIRST active line as primary", () => {
+    const first = repo.createLine({ carrier: "mtc", phone_number: "03111111" });
+    expect(first.is_primary).toBe(1);
+    expect(repo.getPrimary("mtc")!.id).toBe(first.id);
+  });
+
+  it("createLine() leaves a SECOND active line non-primary and does not throw", () => {
+    // §0.5: "one line per carrier" is a UI convention only — the schema
+    // permits several by design (drawer = Σ of the carrier's lines), so this
+    // must not raise, and must not steal the primary flag from the first.
+    const first = repo.createLine({ carrier: "mtc", phone_number: "03111111" });
+    const second = repo.createLine({
+      carrier: "mtc",
+      phone_number: "03222222",
+    });
+
+    expect(second.is_primary).toBe(0);
+    expect(repo.getPrimary("mtc")!.id).toBe(first.id);
+    expect(
+      repo.getAllIncludingInactive().filter((l) => l.is_primary === 1),
+    ).toHaveLength(1);
+  });
+
+  // getCarrierCreditsSum is the single definition of the sum invariant
+  // (plan §0.1, rule 14): drawer_balances[carrier][USD] == Σ credits of that
+  // carrier's ACTIVE lines. Phase 3's checkpoint SETS the drawer from this
+  // value, so an over-count (archived rows) or a null (empty set) would post
+  // a bogus drawer delta.
+  it("getCarrierCreditsSum() returns 0 — not null — for a carrier with no lines", () => {
+    expect(repo.getCarrierCreditsSum("mtc")).toBe(0);
+  });
+
+  it("getCarrierCreditsSum() sums active lines and ignores archived and other carriers", () => {
+    const a = repo.createLine({
+      carrier: "mtc",
+      phone_number: "03111111",
+      credits: 15,
+    });
+    repo.createLine({ carrier: "mtc", phone_number: "03222222", credits: 4.5 });
+    repo.createLine({ carrier: "alfa", phone_number: "70333333", credits: 99 });
+
+    expect(repo.getCarrierCreditsSum("mtc")).toBeCloseTo(19.5, 4);
+    expect(repo.getCarrierCreditsSum("alfa")).toBeCloseTo(99, 4);
+
+    // Archiving must remove the line from the sum — otherwise the checkpoint
+    // would reconcile the drawer against credit that is no longer in play.
+    repo.archive(a.id);
+    expect(repo.getCarrierCreditsSum("mtc")).toBeCloseTo(4.5, 4);
   });
 
   it("setPrimary() sets the flag and getPrimary() then finds it", () => {

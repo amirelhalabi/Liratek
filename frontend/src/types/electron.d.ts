@@ -1058,11 +1058,6 @@ export interface ElectronAPI {
        *  only for leg reconciliation, never the stamped exchange_rate. */
       tender_exchange_rate?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    topUp: (data: {
-      provider: "MTC" | "Alfa";
-      amount: number;
-      currency?: string;
-    }) => Promise<{ success: boolean; error?: string }>;
     topUpApp: (data: {
       provider:
         | "MTC"
@@ -1076,17 +1071,6 @@ export interface ElectronAPI {
       amount: number;
       currency: "USD" | "LBP";
       sourceDrawer: string;
-    }) => Promise<{ success: boolean; error?: string }>;
-    topUpAppExternal: (data: {
-      provider:
-        | "OMT_APP"
-        | "WHISH_APP"
-        | "OMT_SYSTEM"
-        | "WHISH_SYSTEM"
-        | "iPick"
-        | "Katsh";
-      amount: number;
-      currency: "USD" | "LBP";
     }) => Promise<{ success: boolean; error?: string }>;
     topUpFromSupplier: (data: {
       provider: "iPick" | "Katsh";

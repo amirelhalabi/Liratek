@@ -79,18 +79,6 @@ export class RechargeService {
   }
 
   /**
-   * Top up the MTC or Alfa drawer balance
-   */
-  topUp(data: {
-    provider: "MTC" | "Alfa";
-    amount: number;
-    currency?: string;
-    userId: number;
-  }): { success: boolean; error?: string } {
-    return this.rechargeRepo.topUp(data);
-  }
-
-  /**
    * Top up provider drawer from another drawer
    */
   topUpApp(data: {
@@ -101,18 +89,6 @@ export class RechargeService {
     userId: number;
   }): { success: boolean; error?: string } {
     return this.rechargeRepo.topUpApp(data);
-  }
-
-  /**
-   * Top up provider drawer from an external source (no source deduction)
-   */
-  topUpAppExternal(data: {
-    provider: TopUpProvider;
-    amount: number;
-    currency: string;
-    userId: number;
-  }): { success: boolean; error?: string } {
-    return this.rechargeRepo.topUpAppExternal(data);
   }
 
   /**

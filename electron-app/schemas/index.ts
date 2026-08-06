@@ -43,6 +43,8 @@ import {
   createDrawerCashoutSchema,
   createWalletExchangeSchema,
   createDrawerTransferSchema,
+  selfChargeTelecomItemSchema,
+  type SelfChargeTelecomItemInput,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
   type RefundLegsInput,
@@ -557,6 +559,14 @@ export const FinancialServiceSchema = z.object({
       path: ["feePayments"],
     },
   );
+
+// Self-charge (LIRA-090 §5.2 / Phase 5 of the carrier-lines-validity plan):
+// shared by the IPC handler (`financial:self-charge-telecom-item`) and the
+// REST route (`/api/services/self-charge`) per rule 14/19. Cast bridges the
+// zod major mismatch (core built against zod 4, this workspace against
+// zod 3) — the runtime API used is identical.
+export const SelfChargeTelecomItemSchema =
+  selfChargeTelecomItemSchema as unknown as z.ZodSchema<SelfChargeTelecomItemInput>;
 
 // =============================================================================
 // Exchange
