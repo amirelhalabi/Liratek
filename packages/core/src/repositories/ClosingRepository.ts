@@ -5,6 +5,11 @@ import { localDay } from "../utils/localDate.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import {
+  getCarrierLineRepository,
+  carrierDrawerName,
+  type CarrierKey,
+} from "./CarrierLineRepository.js";
 
 /**
  * Payments-journal method used for the balance adjustment posted when a
@@ -16,6 +21,14 @@ const CHECKPOINT_ADJUSTMENT_METHOD = "CHECKPOINT_ADJUSTMENT";
 
 /** Sub-cent threshold below which a reconciliation delta is treated as zero. */
 const RECONCILE_EPSILON = 0.0001;
+
+/**
+ * `carrier_line_movements.reason` written by the checkpoint's per-line
+ * credits/validity count. The column is FREE TEXT — verified 2026-08-06
+ * against both `create_db.sql` (`reason TEXT NOT NULL`, no CHECK) and
+ * migration v141 — so no enum extension was needed for this value.
+ */
+const CHECKPOINT_MOVEMENT_REASON = "CHECKPOINT";
 
 /**
  * SQL predicate: timestamp column `col` falls on TODAY in machine-local time.
@@ -84,12 +97,46 @@ export interface CheckpointAmount {
   physical_amount: number;
 }
 
+/**
+ * One shop-owned SIM line counted during a checkpoint (D2, plan Phase 3).
+ *
+ * Only the COUNTED values travel from the client. `expected_credits` /
+ * `expected_expires_at` are read off `carrier_lines` server-side at count
+ * time so the audit snapshot cannot be spoofed by a crafted payload, and so
+ * the expected value is always the one the delta was actually computed
+ * against.
+ */
+export interface CheckpointCarrierLineCount {
+  carrier_line_id: number;
+  /** USD credits read off the line. */
+  counted_credits: number;
+  /** `YYYY-MM-DD` read off the line. Omitted or null = validity was not
+   *  counted for this line; the stored expiry is left untouched. A
+   *  checkpoint never CLEARS an expiry. */
+  counted_expires_at?: string | null;
+}
+
+/** A checkpoint's per-line count, joined back to the line for display. */
+export interface CheckpointCarrierLineRecord {
+  carrier_line_id: number;
+  carrier: string;
+  phone_number: string;
+  label: string | null;
+  expected_credits: number;
+  counted_credits: number;
+  expected_expires_at: string | null;
+  counted_expires_at: string | null;
+}
+
 export interface CreateCheckpointData {
   user_id: number;
   drawer_name: string;
   notes?: string;
   report_path?: string;
   amounts: CheckpointAmount[];
+  /** Per-line SIM counts (MTC/Alfa). Absent/empty on every non-carrier
+   *  drawer, which is why the whole feature is additive. */
+  carrier_lines?: CheckpointCarrierLineCount[];
 }
 
 export interface DrawerCheckpointStatus {
@@ -115,6 +162,9 @@ export interface CheckpointRecord {
   user_name: string;
   notes?: string;
   currencies: CheckpointCurrency[];
+  /** Per-line SIM counts recorded with this checkpoint (empty on every
+   *  non-carrier drawer). Drives the timeline's validity variance. */
+  carrier_lines: CheckpointCarrierLineRecord[];
 }
 
 export interface CheckpointFilters {
@@ -256,6 +306,28 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   /**
    * Create a unified checkpoint record.
    * Records both expected and actual (physical) amounts per drawer/currency.
+   *
+   * CARRIER LINES (D2, plan §0.1/§0.6 — the sum invariant is BUILT here).
+   * When `data.carrier_lines` is non-empty the operator has counted the
+   * shop's own MTC/Alfa SIMs. The line is the source of truth and the
+   * provider drawer FOLLOWS it, never the reverse:
+   *
+   *   1. each counted line gets a `carrier_line_movements` row (reason
+   *      `CHECKPOINT`, `creditsDelta = counted − stored`) tied to THIS
+   *      checkpoint's transaction, plus the absolute counted expiry;
+   *   2. the provider drawer's USD counted figure is then OVERWRITTEN with
+   *      `getCarrierCreditsSum(carrier)` — the one definition of the sum
+   *      (rule 14) — and reconciled through the same delta machinery every
+   *      other drawer/currency uses.
+   *
+   * With one line per carrier the two deltas are numerically identical, so
+   * this reads like a detour today; it is written as a SUM so that a second
+   * line works without revisiting this method (§0.5 keeps the schema
+   * multi-line-capable). The projected sum is computed arithmetically
+   * BEFORE the movements are applied — the transaction row must exist first
+   * to own them — and then re-read from `getCarrierCreditsSum` afterwards
+   * and asserted equal, so an unexpected concurrent write aborts the whole
+   * checkpoint rather than silently desynchronising drawer from lines.
    */
   createCheckpoint(data: CreateCheckpointData): {
     success: boolean;
@@ -301,81 +373,234 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ? AND tenant_id = ?`,
       );
 
-      const tx = this.db.transaction((rows: CheckpointAmount[]) => {
-        // 1. Persist the audit snapshot (expected vs physical) for variance reports.
-        for (const r of rows) {
-          upsertAmounts.run(
-            tenantId,
-            result.lastInsertRowid,
-            r.drawer_name,
-            r.currency_code,
-            r.expected_amount,
-            r.physical_amount,
-          );
-        }
+      const upsertCarrierLines = this.db.prepare(`
+        INSERT INTO daily_closing_carrier_lines
+          (tenant_id, closing_id, carrier_line_id, expected_credits, counted_credits,
+           expected_expires_at, counted_expires_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(closing_id, carrier_line_id) DO UPDATE SET
+          expected_credits = excluded.expected_credits,
+          counted_credits = excluded.counted_credits,
+          expected_expires_at = excluded.expected_expires_at,
+          counted_expires_at = excluded.counted_expires_at,
+          updated_at = CURRENT_TIMESTAMP
+      `);
 
-        // 2. Compute per-currency reconciliation deltas against live balances.
-        const adjustments = rows
-          .map((r) => {
-            const existing = getBalance.get(
+      const tx = this.db.transaction(
+        (rows: CheckpointAmount[], lineCounts: CheckpointCarrierLineCount[]) => {
+          // 0. Resolve every counted SIM line against the DB (the client
+          //    sends only ids + counted values) and project what each
+          //    carrier's credits sum becomes once the counts are applied.
+          const carrierRepo = getCarrierLineRepository();
+          const counted = lineCounts.map((c) => {
+            const line = carrierRepo.getById(c.carrier_line_id);
+            if (!line) {
+              throw new Error(`Carrier line #${c.carrier_line_id} not found`);
+            }
+            if (line.is_active !== 1) {
+              throw new Error(
+                `Carrier line #${c.carrier_line_id} is archived and cannot be counted`,
+              );
+            }
+            const rawCreditsDelta = c.counted_credits - (line.credits ?? 0);
+            // A null/absent counted date means "validity was not counted",
+            // NOT "clear the expiry" — a checkpoint never erases a date.
+            const countedExpiry = c.counted_expires_at ?? null;
+            return {
+              line,
+              countedCredits: c.counted_credits,
+              creditsDelta:
+                Math.abs(rawCreditsDelta) > RECONCILE_EPSILON
+                  ? rawCreditsDelta
+                  : 0,
+              countedExpiry,
+              expiryChanged:
+                countedExpiry !== null &&
+                countedExpiry !== line.validity_expires_at,
+            };
+          });
+
+          const carriers = [...new Set(counted.map((c) => c.line.carrier))];
+          const projectedSum = new Map<CarrierKey, number>();
+          for (const carrier of carriers) {
+            // rule 14: the sum invariant has exactly ONE definition. The
+            // projection is (current sum + the counted deltas) rather than a
+            // second SUM query, and is verified against the real thing in
+            // step 5 once the movements have landed.
+            const base = carrierRepo.getCarrierCreditsSum(carrier);
+            const delta = counted
+              .filter((c) => c.line.carrier === carrier)
+              .reduce((sum, c) => sum + c.creditsDelta, 0);
+            projectedSum.set(carrier, base + delta);
+          }
+
+          // The provider drawer's USD count is the SUM of that carrier's
+          // lines — whatever figure the client typed into the drawer field
+          // is superseded, so drawer and lines can never be reconciled to
+          // two different numbers in one checkpoint. A carrier counted with
+          // no matching drawer row gets one appended.
+          const drawerToCarrier = new Map<string, CarrierKey>(
+            carriers.map((c) => [carrierDrawerName(c), c]),
+          );
+          const effectiveRows: CheckpointAmount[] = rows.map((r) => {
+            const carrier =
+              r.currency_code === "USD"
+                ? drawerToCarrier.get(r.drawer_name)
+                : undefined;
+            return carrier === undefined
+              ? r
+              : { ...r, physical_amount: projectedSum.get(carrier)! };
+          });
+          for (const [drawer, carrier] of drawerToCarrier) {
+            const present = effectiveRows.some(
+              (r) => r.drawer_name === drawer && r.currency_code === "USD",
+            );
+            if (present) continue;
+            const existing = getBalance.get(drawer, "USD", tenantId) as
+              | { balance: number }
+              | undefined;
+            effectiveRows.push({
+              drawer_name: drawer,
+              currency_code: "USD",
+              expected_amount: existing?.balance ?? 0,
+              physical_amount: projectedSum.get(carrier)!,
+            });
+          }
+
+          // 1. Persist the audit snapshot (expected vs physical) for variance reports.
+          for (const r of effectiveRows) {
+            upsertAmounts.run(
+              tenantId,
+              result.lastInsertRowid,
               r.drawer_name,
               r.currency_code,
+              r.expected_amount,
+              r.physical_amount,
+            );
+          }
+
+          // 2. Compute per-currency reconciliation deltas against live balances.
+          const adjustments = effectiveRows
+            .map((r) => {
+              const existing = getBalance.get(
+                r.drawer_name,
+                r.currency_code,
+                tenantId,
+              ) as { balance: number } | undefined;
+              const current = existing?.balance ?? 0;
+              return {
+                drawer_name: r.drawer_name,
+                currency_code: r.currency_code,
+                delta: r.physical_amount - current,
+              };
+            })
+            .filter((a) => Math.abs(a.delta) > RECONCILE_EPSILON);
+
+          const netUsd = adjustments
+            .filter((a) => a.currency_code === "USD")
+            .reduce((sum, a) => sum + a.delta, 0);
+          const netLbp = adjustments
+            .filter((a) => a.currency_code === "LBP")
+            .reduce((sum, a) => sum + a.delta, 0);
+
+          // 3. Anchor the audit snapshot and reconciliation to one CHECKPOINT
+          //    transaction. Its headline amounts are the net journal movement.
+          const txnId = getTransactionRepository().createTransaction({
+            type: TRANSACTION_TYPES.CHECKPOINT,
+            source_table: "daily_closings",
+            source_id: Number(result.lastInsertRowid),
+            user_id: data.user_id,
+            amount_usd: netUsd,
+            amount_lbp: netLbp,
+            summary: `Checkpoint: ${data.drawer_name} for ${closingDate}`,
+            metadata_json: {
+              amounts: effectiveRows,
+              adjustments,
+              carrier_lines: counted.map((c) => ({
+                carrier_line_id: c.line.id,
+                carrier: c.line.carrier,
+                credits_delta: c.creditsDelta,
+                counted_credits: c.countedCredits,
+                counted_expires_at: c.countedExpiry,
+              })),
+              notes: data.notes,
+            },
+          });
+
+          // 4. Apply the per-line counts. The movement rides on THIS
+          //    checkpoint's transaction, and the absolute counted expiry is
+          //    passed as a date rather than a day-delta — a delta would be
+          //    rebased onto today for an already-expired line and store an
+          //    expiry nobody counted (see applyMovement's doc).
+          //    A line whose credits AND expiry both already match is skipped
+          //    entirely: nothing changed, so there is nothing to audit.
+          for (const c of counted) {
+            if (c.creditsDelta === 0 && !c.expiryChanged) continue;
+            carrierRepo.applyMovement({
+              carrierLineId: c.line.id,
+              creditsDelta: c.creditsDelta,
+              validityDaysDelta: 0,
+              ...(c.expiryChanged
+                ? { validityExpiresAt: c.countedExpiry as string }
+                : {}),
+              reason: CHECKPOINT_MOVEMENT_REASON,
+              transactionId: txnId,
+            });
+          }
+
+          // 5. The sum invariant, verified against its ONE definition after
+          //    the writes (rule 14). A mismatch means something moved the
+          //    lines underneath this checkpoint — abort rather than leave
+          //    drawer and lines disagreeing.
+          for (const carrier of carriers) {
+            const actual = carrierRepo.getCarrierCreditsSum(carrier);
+            const expected = projectedSum.get(carrier)!;
+            if (Math.abs(actual - expected) > RECONCILE_EPSILON) {
+              throw new Error(
+                `Carrier credits sum for ${carrier} is ${actual}, expected ${expected} after applying the checkpoint counts`,
+              );
+            }
+          }
+
+          // 6. Per-line audit snapshot. `expected_*` come from the line as it
+          //    stood BEFORE the count (the entity was read in step 0), never
+          //    from the client. `counted_expires_at` stays NULL when the
+          //    operator did not count validity — distinguishable from
+          //    "counted and it matched", which stores the date.
+          for (const c of counted) {
+            upsertCarrierLines.run(
               tenantId,
-            ) as { balance: number } | undefined;
-            const current = existing?.balance ?? 0;
-            return {
-              drawer_name: r.drawer_name,
-              currency_code: r.currency_code,
-              delta: r.physical_amount - current,
-            };
-          })
-          .filter((a) => Math.abs(a.delta) > RECONCILE_EPSILON);
+              result.lastInsertRowid,
+              c.line.id,
+              c.line.credits ?? 0,
+              c.countedCredits,
+              c.line.validity_expires_at,
+              c.countedExpiry,
+            );
+          }
 
-        const netUsd = adjustments
-          .filter((a) => a.currency_code === "USD")
-          .reduce((sum, a) => sum + a.delta, 0);
-        const netLbp = adjustments
-          .filter((a) => a.currency_code === "LBP")
-          .reduce((sum, a) => sum + a.delta, 0);
-
-        // 3. Anchor the audit snapshot and reconciliation to one CHECKPOINT
-        //    transaction. Its headline amounts are the net journal movement.
-        const txnId = getTransactionRepository().createTransaction({
-          type: TRANSACTION_TYPES.CHECKPOINT,
-          source_table: "daily_closings",
-          source_id: Number(result.lastInsertRowid),
-          user_id: data.user_id,
-          amount_usd: netUsd,
-          amount_lbp: netLbp,
-          summary: `Checkpoint: ${data.drawer_name} for ${closingDate}`,
-          metadata_json: {
-            amounts: data.amounts,
-            adjustments,
-            notes: data.notes,
-          },
-        });
-
-        // 4. Post the reconciliation entries to the journal + live balances.
-        for (const a of adjustments) {
-          insertPaymentRow(this.db, {
-            transactionId: txnId,
-            method: CHECKPOINT_ADJUSTMENT_METHOD,
-            drawerName: a.drawer_name,
-            currencyCode: a.currency_code,
-            amount: a.delta,
-            note: `Checkpoint reconciliation for ${closingDate}`,
-            createdBy: data.user_id,
-            tenantId,
-          });
-          applyDrawerDelta(this.db, {
-            drawerName: a.drawer_name,
-            currencyCode: a.currency_code,
-            delta: a.delta,
-            tenantId,
-          });
-        }
-      });
-      tx(data.amounts);
+          // 7. Post the reconciliation entries to the journal + live balances.
+          for (const a of adjustments) {
+            insertPaymentRow(this.db, {
+              transactionId: txnId,
+              method: CHECKPOINT_ADJUSTMENT_METHOD,
+              drawerName: a.drawer_name,
+              currencyCode: a.currency_code,
+              amount: a.delta,
+              note: `Checkpoint reconciliation for ${closingDate}`,
+              createdBy: data.user_id,
+              tenantId,
+            });
+            applyDrawerDelta(this.db, {
+              drawerName: a.drawer_name,
+              currencyCode: a.currency_code,
+              delta: a.delta,
+              tenantId,
+            });
+          }
+        },
+      );
+      tx(data.amounts, data.carrier_lines ?? []);
 
       closingLogger.info(
         { closingDate, id: result.lastInsertRowid },
@@ -642,6 +867,29 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
+   * The per-line SIM counts recorded with one checkpoint, joined to the line
+   * for display (phone number / label). Empty for every checkpoint of a
+   * non-carrier drawer.
+   */
+  getCheckpointCarrierLines(
+    checkpointId: number,
+  ): CheckpointCarrierLineRecord[] {
+    return this.query<CheckpointCarrierLineRecord>(
+      `SELECT dccl.carrier_line_id, cl.carrier, cl.phone_number, cl.label,
+              dccl.expected_credits, dccl.counted_credits,
+              dccl.expected_expires_at, dccl.counted_expires_at
+         FROM daily_closing_carrier_lines dccl
+         JOIN carrier_lines cl
+           ON cl.id = dccl.carrier_line_id AND cl.tenant_id = ?
+        WHERE dccl.closing_id = ? AND dccl.tenant_id = ?
+        ORDER BY cl.carrier, cl.phone_number`,
+      getCurrentTenantId(),
+      checkpointId,
+      getCurrentTenantId(),
+    );
+  }
+
+  /**
    * Get checkpoint timeline for a date
    */
   getCheckpointTimeline(filters: CheckpointFilters = {}): CheckpointRecord[] {
@@ -719,6 +967,8 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         checkpoint.id,
         tenantId,
       );
+
+      checkpoint.carrier_lines = this.getCheckpointCarrierLines(checkpoint.id);
 
       checkpoint.currencies = amounts.map((a: any) => ({
         currency_code: a.currency_code,

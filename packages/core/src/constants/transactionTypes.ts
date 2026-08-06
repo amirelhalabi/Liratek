@@ -293,6 +293,25 @@ export const NON_REVERSIBLE_TRANSACTION_TYPES: ReadonlySet<TransactionType> =
     // CHECKPOINT: a physical-count reconciliation anchor — reversing its
     // adjustment legs shifts live balances away from counted reality and
     // orphans the daily_closings snapshot. Correct with a new checkpoint.
+    //
+    // As of the carrier-lines-validity plan (Phase 3, D2) a checkpoint of the
+    // MTC/Alfa drawers also writes TWO more kinds of row, and the same ruling
+    // covers both (rule 20 — every row a flow writes needs a named owner):
+    //   - `carrier_line_movements` rows (reason 'CHECKPOINT') carrying the
+    //     counted credits delta and the counted validity expiry for each of
+    //     the shop's own SIM lines. They ARE tied to this transaction_id, so
+    //     the generic `_reverseCarrierLineMovements` COULD undo them — but
+    //     that path only runs on a void/refund, and there is no void or
+    //     delete path for a unified checkpoint anywhere in the app (only Loto
+    //     has `deleteCheckpoint`, on its own separate table). The movement row
+    //     is therefore terminal by design: the next checkpoint RE-COUNTS from
+    //     whatever the line then holds, which is a fresh measurement and not
+    //     a reversal — nothing nets to zero, and no test should assert that it
+    //     does.
+    //   - `daily_closing_carrier_lines` rows (the per-line count snapshot).
+    //     Owned by CASCADE, not by a reversal: both its FKs are ON DELETE
+    //     CASCADE, so if the parent `daily_closings` row is ever removed the
+    //     snapshot goes with it.
     TRANSACTION_TYPES.CHECKPOINT,
     // CLIENT_* rows are non-financial audit markers; a reversal row is
     // meaningless noise.

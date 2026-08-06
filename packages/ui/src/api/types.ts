@@ -631,6 +631,14 @@ export type ApiAdapter = {
       expected_amount: number;
       physical_amount: number;
     }>;
+    /** Per-line SIM counts, MTC/Alfa only (carrier-lines-validity Phase 3).
+     *  Only counted values cross the wire; the expected side is read
+     *  server-side off carrier_lines. */
+    carrier_lines?: Array<{
+      carrier_line_id: number;
+      counted_credits: number;
+      counted_expires_at?: string | null;
+    }>;
   }) => Promise<{ success: boolean; id?: number; error?: string }>;
   getCheckpointTimeline: (filters?: {
     date_from?: string;

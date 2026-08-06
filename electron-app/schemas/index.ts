@@ -44,6 +44,8 @@ import {
   createWalletExchangeSchema,
   createDrawerTransferSchema,
   selfChargeTelecomItemSchema,
+  createRechargeSchema,
+  type CreateRechargeInput,
   type SelfChargeTelecomItemInput,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
@@ -253,47 +255,19 @@ export const MaintenanceJobSchema = z.object({
 // Recharge
 // =============================================================================
 
-export const RechargeSchema = z.object({
-  provider: z.enum(["MTC", "Alfa"]),
-  type: z.enum(["CREDIT_TRANSFER", "VOUCHER", "DAYS", "ALFA_GIFT"]),
-  amount: z.number().positive(),
-  cost: z.number().nonnegative(),
-  price: z.number().nonnegative(),
-  paid_by_method: z.string().optional(),
-  payments: z
-    .array(
-      z.object({
-        method: z.string().min(1),
-        currencyCode: z.string().min(1),
-        amount: z.number(),
-        voucherCode: z.string().optional(),
-        direction: z.enum(["IN", "OUT"]).optional(),
-      }),
-    )
-    .optional(),
-  phoneNumber: z.string().optional(),
-  clientId: z.number().optional(),
-  clientName: z.string().optional(),
-  currency: z.string().optional(),
-  // T3 keep-change (KC-3) — LOCAL duplicate of the core schema (rule-14
-  // debt, same trap as DebtRepaymentSchema): fields must exist in BOTH or the
-  // desktop path silently strips them.
-  kept_change_usd: z.number().nonnegative().optional(),
-  kept_change_lbp: z.number().nonnegative().optional(),
-  default_price_to_client: z.number().nonnegative().optional(),
-  // PFT-3a (Partner FOR-Transactions) — LOCAL duplicate of the core schema
-  // (rule-14 debt, same trap as DebtRepaymentSchema): fields must exist in
-  // BOTH or the desktop path silently strips them.
-  partnerId: z.number().int().positive().optional(),
-  partnerMode: z.enum(["FOR"]).optional(),
-  // Payment-Legs Integrity plan (false-reject fix, 2026-07-2x) — LOCAL
-  // duplicate of the core createRechargeSchema field (rule-14 debt, same
-  // trap as partnerId/partnerMode above): the USD→LBP rate MultiPaymentInput
-  // actually converted the customer's tender at, used to reconcile legs
-  // instead of the stamped rate-of-record. Fields must exist in BOTH or the
-  // desktop path silently strips it.
-  tender_exchange_rate: z.number().positive().optional(),
-});
+// The recharge-processing contract lives in packages/core/src/validators/recharge.ts
+// so the Electron IPC handler and REST /api/recharge/process validate against
+// ONE schema (CLAUDE.md rules 14 + 19b — CARRIER_LINES_VALIDITY_PLAN.md Phase
+// 6a). This file used to hold a LOCAL duplicate that was the only copy
+// carrying `payments[]`, `clientName`, `default_price_to_client` and
+// `ALFA_GIFT`; because `backend/src/middleware/validation.ts` reassigns
+// `req.body = schema.parse(req.body)` and Zod strips unknown keys, every REST
+// recharge silently lost its payment legs and fell into the repository's
+// legacy single-method fallback. Re-exported under the historical local name.
+// Cast bridges the zod major mismatch (core types against zod 4, this
+// workspace types against zod 3); the runtime API used is identical.
+export const RechargeSchema =
+  createRechargeSchema as unknown as z.ZodSchema<CreateRechargeInput>;
 
 export const RechargeCustomerTopUpSchema = z.object({
   provider: z.enum(["MTC", "Alfa"]),

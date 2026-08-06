@@ -742,6 +742,16 @@ contextBridge.exposeInMainWorld("api", {
         expected_amount: number;
         physical_amount: number;
       }>;
+      /** Per-line SIM counts, MTC/Alfa only (rule 12 — spelled out in full so
+       *  a future refactor cannot silently drop a field). Only the COUNTED
+       *  values travel; the expected side is read server-side off
+       *  carrier_lines. `counted_expires_at` absent/null = validity was not
+       *  counted, and the stored expiry is left untouched. */
+      carrier_lines?: Array<{
+        carrier_line_id: number;
+        counted_credits: number;
+        counted_expires_at?: string | null;
+      }>;
     }) => ipcRenderer.invoke("closing:create-checkpoint", data),
     getLastCheckpointActuals: () =>
       ipcRenderer.invoke("closing:get-last-checkpoint-actuals"),

@@ -22,6 +22,28 @@ import {
 
 export type CarrierKey = "alfa" | "mtc";
 
+/**
+ * The carrier → provider-drawer name map, defined ONCE (rule 14). The
+ * `drawer_balances` / `payments` rows for a carrier's credit stock live under
+ * these exact names, and §0.1's sum invariant is stated in terms of them:
+ * `drawer_balances[CARRIER_DRAWER_NAMES[c]]["USD"] == getCarrierCreditsSum(c)`.
+ *
+ * `FinancialServiceRepository` still spells the same mapping out inline twice
+ * (`carrier === "alfa" ? "Alfa" : "MTC"`, at the Only-Days credit return and
+ * the self-charge); those call sites should move onto this constant — they
+ * were out of Phase 3's file scope.
+ */
+export const CARRIER_DRAWER_NAMES: Record<CarrierKey, string> = {
+  alfa: "Alfa",
+  mtc: "MTC",
+};
+
+/** The provider drawer that holds this carrier's credit stock (rule 14 — see
+ *  {@link CARRIER_DRAWER_NAMES}). */
+export function carrierDrawerName(carrier: CarrierKey): string {
+  return CARRIER_DRAWER_NAMES[carrier];
+}
+
 export interface CarrierLineEntity {
   id: number;
   carrier: CarrierKey;
@@ -122,6 +144,33 @@ export interface ApplyCarrierLineMovementInput {
   /** Days to extend validity by (§5.2's `max(today, current_expiry) +
    *  validity_days`). 0 for a credits-only movement. */
   validityDaysDelta: number;
+  /**
+   * ABSOLUTE new expiry (`YYYY-MM-DD`) — the counted-date variant added for
+   * the checkpoint (carrier-lines-validity plan, Phase 3). Mutually
+   * exclusive with a non-zero `validityDaysDelta`: passing both throws,
+   * because they answer different questions and `computeAppliedState` can
+   * only honour one.
+   *
+   * WHY IT EXISTS: `validityDaysDelta` cannot express "the operator read
+   * this date off the SIM". `computeAppliedState` REBASES a day-delta onto
+   * `max(today, current_expiry)`, so on an ALREADY-EXPIRED line a delta
+   * derived as `counted − stored` lands N days from TODAY, not on the
+   * counted date — the checkpoint would silently store an expiry the
+   * operator never counted. An absolute date has no rebasing to get wrong.
+   *
+   * The movement row still snapshots `previous_validity_expires_at`
+   * verbatim, so `reverseMovement` restores the exact pre-count value.
+   * `validity_days_delta` is recorded as the true calendar difference when
+   * BOTH sides are real dates, and 0 when the previous expiry was null
+   * (no clean day count exists) — which means a null→date absolute movement
+   * is NOT restorable by `reverseMovement` (it keys the restore off
+   * `validity_days_delta !== 0`). That is acceptable here and only here:
+   * the sole caller is the CHECKPOINT path, which is in
+   * `NON_REVERSIBLE_TRANSACTION_TYPES` by design (see transactionTypes.ts)
+   * — a count is corrected by counting again, never by reversal. Any FUTURE
+   * reversible caller of this field must fix that first.
+   */
+  validityExpiresAt?: string;
   /** `carrier_line_movements.reason` is NOT NULL. */
   reason: string;
   /** The unified `transactions.id` this movement rides on, or null for a
@@ -553,6 +602,12 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
   applyMovement(
     input: ApplyCarrierLineMovementInput,
   ): CarrierLineMovementMutation {
+    if (input.validityExpiresAt !== undefined && input.validityDaysDelta !== 0) {
+      throw new Error(
+        "applyMovement: validityExpiresAt and a non-zero validityDaysDelta are mutually exclusive",
+      );
+    }
+
     return this.transaction(() => {
       const line = this.getById(input.carrierLineId);
       if (!line) {
@@ -564,14 +619,28 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
         line,
         input.creditsDelta,
         input.validityDaysDelta,
+        input.validityExpiresAt,
       );
       const updatedLine = this.updateLine(input.carrierLineId, nextState)!;
+
+      // On the absolute-date variant the movement's day-delta is purely the
+      // audit-trail figure (the reversal restores the snapshot, never this
+      // number) — see ApplyCarrierLineMovementInput.validityExpiresAt.
+      const recordedDaysDelta =
+        input.validityExpiresAt !== undefined
+          ? previousValidityExpiresAt
+            ? daysBetweenDateStrings(
+                previousValidityExpiresAt,
+                input.validityExpiresAt,
+              )
+            : 0
+          : input.validityDaysDelta;
 
       const movement = this.movementRepo.createMovement({
         carrier_line_id: input.carrierLineId,
         transaction_id: input.transactionId,
         credits_delta: input.creditsDelta,
-        validity_days_delta: input.validityDaysDelta,
+        validity_days_delta: recordedDaysDelta,
         previous_validity_expires_at: previousValidityExpiresAt,
         reason: input.reason,
       });
@@ -655,8 +724,16 @@ function computeAppliedState(
   line: CarrierLineEntity,
   creditsDelta: number,
   validityDaysDelta: number,
+  /** Absolute counted expiry — wins outright over the day-delta rebasing
+   *  when supplied (Phase 3; see the input type's doc for why the delta form
+   *  cannot express a counted date on an expired line). */
+  validityExpiresAt?: string,
 ): Pick<UpdateCarrierLineData, "credits" | "validity_expires_at"> {
   const newCredits = (line.credits ?? 0) + creditsDelta;
+
+  if (validityExpiresAt !== undefined) {
+    return { credits: newCredits, validity_expires_at: validityExpiresAt };
+  }
 
   let newExpiry = line.validity_expires_at;
   if (validityDaysDelta !== 0) {

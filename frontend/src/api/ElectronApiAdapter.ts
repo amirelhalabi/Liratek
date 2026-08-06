@@ -187,6 +187,11 @@ export class ElectronApiAdapter implements ApiAdapter {
       expected_amount: number;
       physical_amount: number;
     }>;
+    carrier_lines?: Array<{
+      carrier_line_id: number;
+      counted_credits: number;
+      counted_expires_at?: string | null;
+    }>;
   }) => api.createCheckpoint(data);
   getCheckpointTimeline = (filters?: {
     date_from?: string;

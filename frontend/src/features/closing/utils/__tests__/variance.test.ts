@@ -1,4 +1,9 @@
-import { getVarianceStatus, formatCurrencyAmount } from "../variance";
+import {
+  getVarianceStatus,
+  getDateVarianceStatus,
+  formatCurrencyAmount,
+  formatDayVariance,
+} from "../variance";
 
 describe("getVarianceStatus", () => {
   it("reports a match when physical equals expected", () => {
@@ -54,5 +59,53 @@ describe("formatCurrencyAmount", () => {
         maximumFractionDigits: 2,
       }),
     );
+  });
+});
+
+// Carrier-line validity (checkpoint Phase 3) — the ONE definition of "did the
+// counted SIM expiry differ", shared by the checkpoint card and the timeline.
+describe("getDateVarianceStatus", () => {
+  it("treats an uncounted expiry as a match, not a variance", () => {
+    expect(getDateVarianceStatus(null, "2026-09-01")).toEqual({
+      status: "match",
+      days: 0,
+    });
+    expect(getDateVarianceStatus("", "2026-09-01")).toEqual({
+      status: "match",
+      days: 0,
+    });
+  });
+
+  it("matches when the counted date equals the stored one", () => {
+    expect(getDateVarianceStatus("2026-09-01", "2026-09-01")).toEqual({
+      status: "match",
+      days: 0,
+    });
+  });
+
+  it("reports the signed calendar-day difference, across a month boundary", () => {
+    expect(getDateVarianceStatus("2026-09-10", "2026-08-31")).toEqual({
+      status: "diff",
+      days: 10,
+    });
+    expect(getDateVarianceStatus("2026-08-25", "2026-09-01")).toEqual({
+      status: "diff",
+      days: -7,
+    });
+  });
+
+  it("flags a counted date on a line that had none, with no day count", () => {
+    expect(getDateVarianceStatus("2026-09-01", null)).toEqual({
+      status: "diff",
+      days: 0,
+    });
+  });
+});
+
+describe("formatDayVariance", () => {
+  it("signs the day count and renders an unmeasurable one as a dash", () => {
+    expect(formatDayVariance(10)).toBe("+10d");
+    expect(formatDayVariance(-3)).toBe("-3d");
+    expect(formatDayVariance(0)).toBe("—");
   });
 });

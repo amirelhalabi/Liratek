@@ -343,7 +343,10 @@ export class ClosingService {
 
   /**
    * Create a unified checkpoint (replaces both opening and closing).
-   * Records expected vs actual per drawer/currency.
+   * Records expected vs actual per drawer/currency, plus — for the MTC/Alfa
+   * drawers — the per-line SIM count in `data.carrier_lines` (credits and
+   * validity expiry). The line is the source of truth there and the provider
+   * drawer follows it; see `ClosingRepository.createCheckpoint`.
    */
   createCheckpoint(data: CreateCheckpointData): ClosingResult {
     try {

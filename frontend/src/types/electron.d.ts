@@ -1700,6 +1700,12 @@ export interface ElectronAPI {
         expected_amount: number;
         physical_amount: number;
       }>;
+      /** Per-line SIM counts, MTC/Alfa only (carrier-lines-validity Phase 3). */
+      carrier_lines?: Array<{
+        carrier_line_id: number;
+        counted_credits: number;
+        counted_expires_at?: string | null;
+      }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getLastCheckpointActuals: () => Promise<{
       success: boolean;

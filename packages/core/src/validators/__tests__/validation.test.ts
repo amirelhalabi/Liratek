@@ -123,13 +123,36 @@ describe("Validation Schemas", () => {
       expect(() => createRechargeSchema.parse(validRecharge)).not.toThrow();
     });
 
-    it("rejects invalid phone number", () => {
+    // CARRIER_LINES_VALIDITY_PLAN.md Phase 6a: this case used to assert that
+    // `phoneNumber: "invalid"` throws, because the REST-only copy of this
+    // schema used `phoneNumberSchema` (/^\+?[0-9]{8,15}$/). The consolidation
+    // adopted the DESKTOP contract, which has always taken a free-form string
+    // here — and it had to: the telecom form's Proceed button is not gated on
+    // the phone field at all (TelecomForm.tsx:1020-1027), so a CREDIT_TRANSFER
+    // submitted with a blank or half-typed number succeeds on desktop today.
+    // Applying the regex to the shared schema would start rejecting those at
+    // the counter. `phone_number` is a display/lookup label on the recharge
+    // row, not money, so the loose side wins. Format checking belongs to the
+    // form (and to Phase 6's normalizeLebanesePhone), not to the wire schema.
+    it("accepts a free-form phone number (desktop contract — no format gate)", () => {
+      const looseRecharge = {
+        provider: "MTC",
+        type: "CREDIT_TRANSFER",
+        amount: 10000,
+        price: 5,
+        phoneNumber: "70 12 34",
+      };
+
+      expect(() => createRechargeSchema.parse(looseRecharge)).not.toThrow();
+    });
+
+    it("still rejects a non-string phone number", () => {
       const invalidRecharge = {
         provider: "MTC",
         type: "CREDIT_TRANSFER",
         amount: 10000,
         price: 5,
-        phoneNumber: "invalid",
+        phoneNumber: 70123456,
       };
 
       expect(() => createRechargeSchema.parse(invalidRecharge)).toThrow();

@@ -269,6 +269,8 @@ export type {
   DynamicSystemExpectedBalances,
   DailyStatsSnapshot,
   CheckpointAmount,
+  CheckpointCarrierLineCount,
+  CheckpointCarrierLineRecord,
   CreateCheckpointData,
   CheckpointRecord,
   CheckpointFilters,
@@ -456,6 +458,8 @@ export {
   CarrierLineRepository,
   getCarrierLineRepository,
   resetCarrierLineRepository,
+  CARRIER_DRAWER_NAMES,
+  carrierDrawerName,
 } from "./CarrierLineRepository.js";
 export type {
   CarrierKey,

@@ -1008,6 +1008,33 @@ CREATE TABLE IF NOT EXISTS daily_closing_amounts (
     FOREIGN KEY (closing_id) REFERENCES daily_closings(id)
 );
 
+-- Daily Closing Carrier Lines (v148 — carrier-lines-validity Phase 3, D2)
+-- Per-line credits + validity-expiry snapshot for a checkpoint. The
+-- daily_closing_amounts grain above has nowhere to store a DATE and nowhere
+-- to store a per-line breakdown, so the SIM count lives here.
+-- expected_* are read off carrier_lines server-side at count time (never
+-- trusted from the client); counted_* are what the operator entered.
+-- Credits are deliberately duplicated with daily_closing_amounts' provider
+-- USD row — createCheckpoint writes both from ONE value (the post-count
+-- getCarrierCreditsSum, §0.1) and a core test asserts they agree.
+-- Both FKs CASCADE: a CHECKPOINT transaction is non-reversible by design
+-- (rule 20), so these rows have a cascade owner rather than a reversal owner.
+CREATE TABLE IF NOT EXISTS daily_closing_carrier_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    closing_id INTEGER NOT NULL REFERENCES daily_closings(id) ON DELETE CASCADE,
+    carrier_line_id INTEGER NOT NULL REFERENCES carrier_lines(id) ON DELETE CASCADE,
+    expected_credits REAL NOT NULL DEFAULT 0,
+    counted_credits REAL NOT NULL DEFAULT 0,
+    expected_expires_at TEXT,
+    counted_expires_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(closing_id, carrier_line_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dccl_tenant_id ON daily_closing_carrier_lines(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_dccl_closing_id ON daily_closing_carrier_lines(closing_id);
+
 -- =============================================================================
 -- 5. Sync & Infrastructure
 -- =============================================================================
@@ -1648,4 +1675,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (144, 'seed_telecom_credit_cost_rate_and_backfill_days_cost'),
     (145, 'backfill_alfa_prepaid_validity_days'),
     (146, 'reanchor_telecom_credit_cost_rate'),
-    (147, 'seed_sell_days_lbp_from_validity_days');
+    (147, 'seed_sell_days_lbp_from_validity_days'),
+    (148, 'add_daily_closing_carrier_lines');

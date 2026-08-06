@@ -226,6 +226,12 @@ router.put("/daily-closing/:id", requireAuth, async (req: AuthRequest, res) => {
 // POST /api/closing/checkpoint — create a unified checkpoint (money write:
 // reconciles each drawer/currency to its physical count). Admin-only, mirroring
 // the IPC handler; user_id injected from the JWT (never trusted from client).
+//
+// The optional `carrier_lines[]` (per-line MTC/Alfa SIM count, plan Phase 3)
+// needs no code here: `{...req.body}` forwards it and it is declared on the
+// shared `createCheckpointSchema`. That declaration is load-bearing — with the
+// field absent from the schema, `validateRequest` would strip it from the body
+// and the count would post on desktop but silently vanish on web.
 router.post(
   "/checkpoint",
   requireAuth,

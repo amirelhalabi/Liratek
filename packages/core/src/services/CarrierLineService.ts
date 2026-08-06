@@ -46,6 +46,13 @@ export interface ApplyMovementInput {
   /** Days to extend validity by (spec §5.2's `max(today, current_expiry) +
    *  validity_days`). Omit or 0 for a credits-only movement. */
   validityDaysDelta?: number;
+  /** ABSOLUTE new expiry (`YYYY-MM-DD`) — the counted-date variant (Phase 3).
+   *  Mutually exclusive with a non-zero `validityDaysDelta`; satisfies the
+   *  "at least one thing changed" guard on its own, so a validity-only count
+   *  with `creditsDelta === 0` is a legal movement. See
+   *  {@link import("../repositories/CarrierLineRepository.js").ApplyCarrierLineMovementInput.validityExpiresAt}
+   *  for why a day-delta cannot express a counted date. */
+  validityExpiresAt?: string;
   /** Required — `carrier_line_movements.reason` is NOT NULL. Use one
    *  consistent vocabulary per call site (e.g. 'ONLY_DAYS_RETURN',
    *  'SELF_CHARGE'). */
@@ -243,11 +250,15 @@ export class CarrierLineService {
       if (!input.reason || input.reason.trim() === "") {
         return { success: false, error: "reason is required" };
       }
-      if (creditsDelta === 0 && validityDaysDelta === 0) {
+      if (
+        creditsDelta === 0 &&
+        validityDaysDelta === 0 &&
+        input.validityExpiresAt === undefined
+      ) {
         return {
           success: false,
           error:
-            "At least one of creditsDelta or validityDaysDelta must be non-zero",
+            "At least one of creditsDelta, validityDaysDelta or validityExpiresAt must be supplied",
         };
       }
 
@@ -255,6 +266,9 @@ export class CarrierLineService {
         carrierLineId: input.carrierLineId,
         creditsDelta,
         validityDaysDelta,
+        ...(input.validityExpiresAt !== undefined
+          ? { validityExpiresAt: input.validityExpiresAt }
+          : {}),
         reason: input.reason,
         transactionId: input.transactionId ?? null,
       });
@@ -264,6 +278,7 @@ export class CarrierLineService {
           carrierLineId: input.carrierLineId,
           creditsDelta,
           validityDaysDelta,
+          validityExpiresAt: input.validityExpiresAt ?? null,
           reason: input.reason,
           transactionId: input.transactionId ?? null,
           movementId: data.movement.id,

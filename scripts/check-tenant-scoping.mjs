@@ -104,6 +104,7 @@ const TENANT_SCOPED_TABLES = [
   "drawer_topups",
   "daily_closings",
   "daily_closing_amounts",
+  "daily_closing_carrier_lines",
   "vouchers",
   "loto_tickets",
   "loto_monthly_fees",

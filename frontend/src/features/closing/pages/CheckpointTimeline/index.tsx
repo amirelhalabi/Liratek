@@ -4,7 +4,12 @@ import { PageHeader, Select, useApi } from "@liratek/ui";
 import { Clock, Eye, X, Check, AlertTriangle } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
 import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";
-import { formatCurrencyAmount, getVarianceStatus } from "../../utils/variance";
+import {
+  formatCurrencyAmount,
+  formatDayVariance,
+  getDateVarianceStatus,
+  getVarianceStatus,
+} from "../../utils/variance";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { localDay } from "@/shared/utils/localDay";
 import type { DrawerType } from "../../types";
@@ -17,6 +22,19 @@ interface CheckpointCurrency {
   drawer_name?: string;
 }
 
+/** A shop SIM line counted during the checkpoint (MTC/Alfa, plan Phase 3). */
+interface CheckpointCarrierLine {
+  carrier_line_id: number;
+  carrier: string;
+  phone_number: string;
+  label: string | null;
+  expected_credits: number;
+  counted_credits: number;
+  expected_expires_at: string | null;
+  /** Null when validity was not counted for this line. */
+  counted_expires_at: string | null;
+}
+
 interface CheckpointRecord {
   id: number;
   closing_date: string;
@@ -27,6 +45,8 @@ interface CheckpointRecord {
   user_name: string;
   notes?: string;
   currencies: CheckpointCurrency[];
+  /** Absent on rows written before v148 and on every non-carrier drawer. */
+  carrier_lines?: CheckpointCarrierLine[];
 }
 
 interface CheckpointFilters {
@@ -156,17 +176,36 @@ export default function CheckpointTimeline() {
       })
       .filter((d) => d.status === "diff");
 
+  // SIM lines whose counted expiry differed from the stored one. Credits
+  // variance already shows up through the provider drawer's USD row above —
+  // the checkpoint writes the same counted figure to both — so only validity
+  // needs its own line here, and only when it was actually counted.
+  const getValidityDiffs = (checkpoint: CheckpointRecord) =>
+    (checkpoint.carrier_lines ?? [])
+      .map((l) => ({
+        phone: l.phone_number,
+        ...getDateVarianceStatus(l.counted_expires_at, l.expected_expires_at),
+      }))
+      .filter((d) => d.status === "diff");
+
   // Compact one-line variance summary for the timeline row.
   const getVarianceSummary = (
     diffs: ReturnType<typeof getCheckpointDiffs>,
+    validityDiffs: ReturnType<typeof getValidityDiffs> = [],
   ): string => {
-    if (diffs.length > 2) return `Variance in ${diffs.length} currencies`;
-    return diffs
-      .map(
-        (d) =>
-          `${d.code} ${d.variance > 0 ? "+" : ""}${formatCurrencyAmount(d.variance, d.code)}`,
-      )
-      .join(", ");
+    const parts: string[] =
+      diffs.length > 2
+        ? [`Variance in ${diffs.length} currencies`]
+        : diffs.map(
+            (d) =>
+              `${d.code} ${d.variance > 0 ? "+" : ""}${formatCurrencyAmount(d.variance, d.code)}`,
+          );
+    if (validityDiffs.length === 1) {
+      parts.push(`Validity ${formatDayVariance(validityDiffs[0].days)}`);
+    } else if (validityDiffs.length > 1) {
+      parts.push(`Validity variance on ${validityDiffs.length} lines`);
+    }
+    return parts.join(", ");
   };
 
   const filteredCheckpoints = useMemo(() => {
@@ -352,6 +391,7 @@ export default function CheckpointTimeline() {
                 DRAWER_CONFIGS[checkpoint.drawer_name as DrawerType]?.label ??
                 checkpoint.drawer_name;
               const diffs = getCheckpointDiffs(checkpoint);
+              const validityDiffs = getValidityDiffs(checkpoint);
               return (
                 <tr
                   key={checkpoint.id}
@@ -366,10 +406,10 @@ export default function CheckpointTimeline() {
                       <span className="text-emerald-400 font-mono font-medium">
                         {getAmountDisplay(checkpoint)}
                       </span>
-                      {diffs.length > 0 && (
+                      {(diffs.length > 0 || validityDiffs.length > 0) && (
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 font-mono">
                           <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-                          {getVarianceSummary(diffs)}
+                          {getVarianceSummary(diffs, validityDiffs)}
                         </span>
                       )}
                     </div>
@@ -506,6 +546,107 @@ export default function CheckpointTimeline() {
                 );
               })()}
             </div>
+
+            {/* Counted SIM lines — credits + validity expiry (plan Phase 3) */}
+            {(viewCheckpoint.carrier_lines?.length ?? 0) > 0 && (
+              <div className="border-t border-slate-700 pt-4 mt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-slate-400 uppercase tracking-wide">
+                    Carrier Lines
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Expected → Counted
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {viewCheckpoint.carrier_lines!.map((line) => {
+                    const credits = getVarianceStatus(
+                      line.counted_credits,
+                      line.expected_credits,
+                    );
+                    const validity = getDateVarianceStatus(
+                      line.counted_expires_at,
+                      line.expected_expires_at,
+                    );
+                    return (
+                      <div
+                        key={line.carrier_line_id}
+                        className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2.5 space-y-1.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-300 uppercase">
+                            {line.carrier}
+                          </span>
+                          <span className="text-xs text-slate-400 font-mono">
+                            {line.phone_number}
+                          </span>
+                          {line.label && (
+                            <span className="text-[11px] text-slate-500 truncate">
+                              {line.label}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="flex-shrink-0 w-16 text-[11px] text-slate-500">
+                            Credits
+                          </span>
+                          <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
+                            <span className="text-sm text-slate-500 truncate">
+                              {formatCurrencyAmount(
+                                line.expected_credits,
+                                "USD",
+                              )}
+                            </span>
+                            <span className="text-slate-600">→</span>
+                            <span className="text-sm text-white font-semibold truncate">
+                              {formatCurrencyAmount(line.counted_credits, "USD")}
+                            </span>
+                          </div>
+                          {credits.status === "match" ? (
+                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+                              <Check className="w-3.5 h-3.5" /> Matched
+                            </span>
+                          ) : (
+                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              {credits.variance > 0 ? "+" : ""}
+                              {formatCurrencyAmount(credits.variance, "USD")}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="flex-shrink-0 w-16 text-[11px] text-slate-500">
+                            Validity
+                          </span>
+                          <div className="flex-1 min-w-0 flex items-baseline gap-2 font-mono">
+                            <span className="text-sm text-slate-500 truncate">
+                              {line.expected_expires_at ?? "not set"}
+                            </span>
+                            <span className="text-slate-600">→</span>
+                            <span className="text-sm text-white font-semibold truncate">
+                              {line.counted_expires_at ?? "not counted"}
+                            </span>
+                          </div>
+                          {validity.status === "match" ? (
+                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+                              <Check className="w-3.5 h-3.5" /> Matched
+                            </span>
+                          ) : (
+                            <span className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-bold font-mono text-amber-400">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              {formatDayVariance(validity.days)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="mt-4 flex justify-end">
               <button
                 onClick={() => setViewCheckpoint(null)}

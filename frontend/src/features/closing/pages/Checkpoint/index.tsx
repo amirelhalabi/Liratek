@@ -10,14 +10,17 @@
 import { useEffect, useRef, useState } from "react";
 import logger from "@/utils/logger";
 import type { DrawerType } from "../../types";
-import { DRAWER_CONFIGS } from "../../config/drawers";
+import { DRAWER_CONFIGS, DRAWER_CARRIER } from "../../config/drawers";
+import type { CarrierLineEntity } from "@liratek/ui";
 import { useCurrencies } from "../../hooks/useCurrencies";
 import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
 import { useSystemExpected } from "../../hooks/useSystemExpected";
 import { DrawerCard } from "../../components/DrawerCard";
 import {
   getVarianceStatus,
+  getDateVarianceStatus,
   formatCurrencyAmount,
+  formatDayVariance,
   type VarianceStatus,
 } from "../../utils/variance";
 import { appEvents, useApi } from "@liratek/ui";
@@ -84,6 +87,18 @@ export default function CheckpointModal({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // ── Carrier line (MTC/Alfa only, D2) ───────────────────────────────────────
+  // These two drawers hold the shop's OWN SIM credit stock, so the checkpoint
+  // counts the LINE (credits + validity expiry) and the drawer follows — see
+  // ClosingRepository.createCheckpoint. `countedExpiry` pre-fills from the
+  // line's stored date exactly as the amount fields pre-fill from expected, so
+  // an untouched checkpoint posts no validity change at all.
+  const carrier = DRAWER_CARRIER[drawer];
+  const [carrierLine, setCarrierLine] = useState<CarrierLineEntity | null>(
+    null,
+  );
+  const [countedExpiry, setCountedExpiry] = useState("");
   const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
     Record<string, string[]>
   >({});
@@ -113,10 +128,33 @@ export default function CheckpointModal({
   }, [currencies, isOpen, systemExpected]);
 
   useEffect(() => {
+    if (!isOpen || !carrier) return;
+    let cancelled = false;
+    api
+      .getActiveCarrierLines(carrier)
+      .then((lines) => {
+        if (cancelled) return;
+        // §0.5 keeps the schema multi-line-capable while the UI offers one
+        // slot per carrier, so prefer the primary and fall back to the first.
+        const line = lines.find((l) => l.is_primary === 1) ?? lines[0] ?? null;
+        setCarrierLine(line);
+        setCountedExpiry(line?.validity_expires_at ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setCarrierLine(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, carrier, api]);
+
+  useEffect(() => {
     if (!isOpen) {
       hasInitializedAmounts.current = false;
       setNotes("");
       setSaveError(null);
+      setCarrierLine(null);
+      setCountedExpiry("");
       drawerAmounts.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,19 +199,36 @@ export default function CheckpointModal({
     }
   }
 
+  // A counted expiry that differs from the stored one is a variance too — it
+  // is a real change the checkpoint will post, so the Save button must not
+  // read "Balanced" while it is pending.
+  const validityInfo = carrierLine
+    ? getDateVarianceStatus(
+        countedExpiry || null,
+        carrierLine.validity_expires_at,
+      )
+    : null;
+  const hasValidityDiff = validityInfo?.status === "diff";
+  if (hasValidityDiff) overallStatus = "diff";
+
   const saveLabel = (() => {
     if (saving) return "Saving...";
-    if (overallStatus === "match" || diffs.length === 0)
-      return "Save Checkpoint — Balanced";
-    if (diffs.length > 2)
-      return `Save — Variance in ${diffs.length} currencies`;
-    const summary = diffs
-      .map(
-        (d) =>
-          `${d.code} ${d.variance > 0 ? "+" : ""}${formatCurrencyAmount(d.variance, d.code)}`,
-      )
-      .join(", ");
-    return `Save — ${summary}`;
+    if (overallStatus === "match") return "Save Checkpoint — Balanced";
+    const parts: string[] = [];
+    if (diffs.length > 2) {
+      parts.push(`Variance in ${diffs.length} currencies`);
+    } else {
+      parts.push(
+        ...diffs.map(
+          (d) =>
+            `${d.code} ${d.variance > 0 ? "+" : ""}${formatCurrencyAmount(d.variance, d.code)}`,
+        ),
+      );
+    }
+    if (hasValidityDiff) {
+      parts.push(`Validity ${formatDayVariance(validityInfo!.days)}`);
+    }
+    return `Save — ${parts.join(", ")}`;
   })();
 
   const handleSave = async () => {
@@ -201,6 +256,17 @@ export default function CheckpointModal({
         drawer_name: drawerName,
         amounts,
       };
+      // The SIM count travels as counted values only — the backend reads the
+      // expected side off carrier_lines and derives the drawer from the sum.
+      if (carrierLine) {
+        checkpointData.carrier_lines = [
+          {
+            carrier_line_id: carrierLine.id,
+            counted_credits: drawerAmounts.amounts[drawer]?.["USD"] ?? 0,
+            counted_expires_at: countedExpiry || null,
+          },
+        ];
+      }
       if (notes) checkpointData.notes = notes;
       const result = await api.createCheckpoint(checkpointData);
 
@@ -280,7 +346,7 @@ export default function CheckpointModal({
       return status !== "match";
     });
     const hasNotes = notes.trim().length > 0;
-    if (hasInput || hasNotes) {
+    if (hasInput || hasNotes || hasValidityDiff) {
       if (
         confirm("You have unsaved changes. Are you sure you want to close?")
       ) {
@@ -388,6 +454,22 @@ export default function CheckpointModal({
                     onResetToExpected={handleResetToExpected}
                     disabled={saving || isPartnerDrawerInactive}
                     focusRingColor="violet-500"
+                    {...(carrierLine
+                      ? {
+                          currencyLabels: { USD: "Credits" },
+                          carrierLine: {
+                            phoneNumber: carrierLine.phone_number,
+                            label: carrierLine.label,
+                            countedExpiresAt: countedExpiry,
+                            expectedExpiresAt: carrierLine.validity_expires_at,
+                            onExpiryChange: setCountedExpiry,
+                            onResetExpiry: () =>
+                              setCountedExpiry(
+                                carrierLine.validity_expires_at ?? "",
+                              ),
+                          },
+                        }
+                      : {})}
                   />
                 </div>
               )}

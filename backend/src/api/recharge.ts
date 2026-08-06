@@ -35,6 +35,15 @@ router.get("/stock", (_req, res): void => {
 // requireRole(["admin"]) — rechargeHandlers.ts:51); this route previously had
 // no role check at all, so any authenticated web user (any role) could move
 // the MTC/Alfa drawers.
+//
+// `createRechargeSchema` is THE shared contract (rules 14 + 19b): the IPC
+// handler validates against the same object, re-exported as `RechargeSchema`
+// from electron-app/schemas/index.ts. That matters here because
+// `validateRequest` REPLACES the body with the parse result, so anything the
+// schema doesn't declare is dropped before the service sees it — which is how
+// this route used to lose every split payment leg (CARRIER_LINES_VALIDITY_PLAN.md
+// Phase 6a; guarded by __tests__/recharge.api.test.ts). Add new recharge fields
+// to the core schema, never to a local copy.
 router.post(
   "/process",
   requireRole(["admin"]),

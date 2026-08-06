@@ -7774,6 +7774,44 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 148,
+    name: "add_daily_closing_carrier_lines",
+    description:
+      "CARRIER_LINES_VALIDITY_PLAN.md Phase 3 (D2): the checkpoint stops being a pure cash count for MTC/Alfa and starts counting the shop's own SIM lines — credits AND validity expiry — per line. daily_closing_amounts cannot hold either fact: its grain is (closing_id, drawer_name, currency_code) -> (opening_amount = the EXPECTED value, physical_amount = the counted one), so it has nowhere to put a DATE and nowhere to put a per-line breakdown once a carrier has more than one line (§0.5 keeps the schema multi-line-capable). This table is the per-line audit snapshot: expected_credits/expected_expires_at are read server-side off carrier_lines at count time (never trusted from the client) and counted_* are what the operator entered. Credits are deliberately DUPLICATED here and in daily_closing_amounts' USD row for the provider drawer — nothing in the schema enforces the duplicate, so createCheckpoint sets both from ONE value (the post-count getCarrierCreditsSum, §0.1's single definition of the sum invariant) and a core test asserts they match for the same closing. UNIQUE(closing_id, carrier_line_id) makes a line countable at most once per checkpoint. Both FKs CASCADE: deleting a closing disposes its snapshot rows (rule 20 — the CHECKPOINT transaction itself is non-reversible, so this table has no reversal owner by design, only a cascade owner), and archiving is a soft is_active flip so a carrier line is never hard-deleted in practice.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS daily_closing_carrier_lines (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+          closing_id INTEGER NOT NULL REFERENCES daily_closings(id) ON DELETE CASCADE,
+          carrier_line_id INTEGER NOT NULL REFERENCES carrier_lines(id) ON DELETE CASCADE,
+          expected_credits REAL NOT NULL DEFAULT 0,
+          counted_credits REAL NOT NULL DEFAULT 0,
+          expected_expires_at TEXT,
+          counted_expires_at TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(closing_id, carrier_line_id)
+        )
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_dccl_tenant_id ON daily_closing_carrier_lines(tenant_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_dccl_closing_id ON daily_closing_carrier_lines(closing_id)`,
+      );
+
+      console.log(
+        "Migration v148: daily_closing_carrier_lines created (per-line credits + validity count snapshot)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS daily_closing_carrier_lines`);
+      console.log("Migration v148 rolled back: daily_closing_carrier_lines dropped");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

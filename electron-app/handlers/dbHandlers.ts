@@ -298,6 +298,15 @@ export function registerDatabaseHandlers(): void {
           expected_amount: number;
           physical_amount: number;
         }>;
+        /** Per-line SIM counts (MTC/Alfa) — carrier-lines-validity Phase 3.
+         *  Mirrors `createCheckpointSchema.carrier_lines` in
+         *  packages/core/src/validators/closing.ts, which the REST twin
+         *  validates against. */
+        carrier_lines?: Array<{
+          carrier_line_id: number;
+          counted_credits: number;
+          counted_expires_at?: string | null;
+        }>;
       },
     ) => {
       try {

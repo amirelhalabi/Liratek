@@ -126,6 +126,18 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
 };
 
+/**
+ * The two provider drawers whose balance is the shop's OWN SIM credit stock
+ * (D2 / plan §0.1: `drawer == Σ credits of that carrier's active lines`).
+ * A checkpoint of these counts the line — credits AND validity expiry — and
+ * lets the drawer follow. Mirrors `CARRIER_DRAWER_NAMES` in `@liratek/core`,
+ * inverted; the two must stay in step.
+ */
+export const DRAWER_CARRIER: Partial<Record<DrawerType, "alfa" | "mtc">> = {
+  MTC: "mtc",
+  Alfa: "alfa",
+};
+
 export const DRAWER_ORDER: DrawerType[] = [
   "General",
   "OMT_System",
