@@ -181,11 +181,24 @@ test.describe("LIRA-098 — Binance session cash out display", () => {
       appPage.getByText("Total", { exact: true }).locator(".."),
     ).toContainText("-$50.00");
     await expect(appPage.getByText("Binance wallet")).toHaveCount(0);
-    await expect(appPage.getByText("Payout to customer (cash)")).toBeVisible();
+    // Phase F retitled the panel ("Payout to customer (cash)" →
+    // "Payout to customer") because the payout METHOD is now
+    // operator-chosen per currency via a select
+    // (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase F) instead of being
+    // hardcoded to cash.
+    await expect(appPage.getByText("Payout to customer")).toBeVisible();
     // The amber panel (the title's parent) carries the USD amount row.
     await expect(
-      appPage.getByText("Payout to customer (cash)").locator(".."),
+      appPage.getByText("Payout to customer").locator(".."),
     ).toContainText("$50.00");
+    // Untouched, the per-currency payout method must still default to Cash
+    // (this basket has no chargeable client on account, so the pre-existing
+    // derivation stays CASH — lira-098's original guarantee).
+    const payoutMethodSelectUsd = appPage.locator(
+      '[data-testid="payout-method-select-USD"]',
+    );
+    await expect(payoutMethodSelectUsd).toBeVisible();
+    await expect(payoutMethodSelectUsd).toHaveValue("CASH");
     await expect(appPage.getByText("-50.00 USDT")).toHaveCount(0);
     await expect(appPage.getByText("+50.00 USDT")).toHaveCount(0);
 

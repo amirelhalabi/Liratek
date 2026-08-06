@@ -181,8 +181,14 @@ async function submitReceive(
   }
 
   if (opts.includingFees) {
-    const checkbox = page.getByLabel("Fee included in amount");
-    await checkbox.check();
+    // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D — the old "Fee included
+    // in amount" checkbox was replaced by a 3-way "Fee paid by" radio group
+    // (OmtWhishAppTransferForm.tsx:744-783). The old checked-checkbox
+    // semantics map to selecting "Deducted from payout"
+    // (`fee-mode-deducted`, Whish-App-only — mirrors the checkbox's old
+    // reachability).
+    const deductedRadio = page.getByTestId("fee-mode-deducted");
+    await deductedRadio.check();
   }
 
   await page.locator("#receiver-name").fill(opts.receiverName);
@@ -389,24 +395,52 @@ test.describe("LIRA-101 — App wallet RECEIVE fee handling", () => {
     await expect(trow.getByTestId("payment-legs")).toContainText("out: $100");
   });
 
-  test("OMT App RECEIVE: 'fee included' is not a reachable UI state (no toggle, no leaked state from Whish App)", async ({
+  test("OMT App RECEIVE: 'fee deducted from payout' is not a reachable UI state (no radio, no leaked state from Whish App)", async ({
     appPage,
   }) => {
-    // First, actually check the box on Whish App RECEIVE, to prove its state
-    // does NOT leak into OMT App when switching tabs (different JSX branch
-    // per provider in Recharge/index.tsx → full remount, not a prop change).
+    const ts = Date.now();
+    const receiverName = `OMT RECV NOLEAK ${ts}`;
+
+    // First, actually select "Deducted from payout" on Whish App RECEIVE, to
+    // prove its state does NOT leak into OMT App when switching tabs
+    // (feeMode resets to SENDER whenever activeProvider !== "WHISH_APP" —
+    // OmtWhishAppTransferForm.tsx:180-183 — the same remount-safety property
+    // the old checkbox test guarded).
     await providerTab(appPage, "Whish App");
     await selectReceive(appPage);
     await appPage.locator("#transfer-amount").fill("50");
-    await expect(appPage.getByLabel("Fee included in amount")).toBeVisible();
-    await appPage.getByLabel("Fee included in amount").check();
-    await expect(appPage.getByLabel("Fee included in amount")).toBeChecked();
+    await expect(appPage.getByTestId("fee-mode-deducted")).toBeVisible();
+    await appPage.getByTestId("fee-mode-deducted").check();
+    await expect(appPage.getByTestId("fee-mode-deducted")).toBeChecked();
 
     await providerTab(appPage, "OMT App");
     await selectReceive(appPage);
 
-    // No checkbox at all for OMT App — the scenario "OMT App receive, fee
-    // included" has no UI expression, regardless of prior Whish App state.
-    await expect(appPage.getByLabel("Fee included in amount")).toHaveCount(0);
+    // No "Deducted from payout" radio at all for OMT App — the scenario
+    // "OMT App receive, fee deducted from payout" has no UI expression,
+    // regardless of prior Whish App state.
+    await expect(appPage.getByTestId("fee-mode-deducted")).toHaveCount(0);
+
+    // Prove the non-leak isn't just cosmetic: submit an OMT App RECEIVE with
+    // a manual fee and confirm it still books the ordinary "fee charged on
+    // top" numbers already proven by the "manual $5 fee" case above (wallet
+    // +105, payout −100, $5 profit — mode A/SENDER math) — NOT the
+    // Whish-App "deducted" math (which would read wallet +100, payout −95)
+    // that a leaked feeMode would have produced.
+    const before = await drawers(appPage);
+    await submitReceive(appPage, {
+      amount: "100",
+      fee: "5",
+      receiverName,
+    });
+    const after = await drawers(appPage);
+
+    expect(after.omtApp - before.omtApp).toBeCloseTo(105, 2);
+    expect(after.general - before.general).toBeCloseTo(-100, 2);
+
+    const row = await findRow(appPage, "OMT_APP", receiverName);
+    expect(row.amount).toBeCloseTo(105, 2);
+    expect(row.commission).toBeCloseTo(5, 2);
+    expect(row.omt_fee).toBeCloseTo(5, 2);
   });
 });
