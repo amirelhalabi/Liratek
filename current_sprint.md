@@ -2086,3 +2086,576 @@ undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2
 > Full per-note disposition (all 32 owner notes, including the ones that were INVALID/already
 > working, FIXED today, or already tracked under an existing ticket) is logged in
 > `LEFT_TO_DO.md`, dated section "2026-07-20 — Owner notes batch (32 notes)".
+
+---
+
+---
+
+# Sprint 5 — Owner Notes Batch (2026-08-07/08)
+
+> **Sprint Focus:** Triage of a fresh owner QA note batch (11 notes, tested against v1.30.0).
+> **Created:** 2026-08-08
+> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW`
+
+**Source:** 11 freeform owner notes from a live QA session, 2026-08-07 (1:34–2:46 AM). 8 of the
+11 were bug reports — all 8 re-validated against the codebase, confirmed, fixed, and independently
+verified same-day (commits `dd6cbb6` "fix: resolve 6 QA-reported bugs across money repositories
+and UI" and `a65ce03` "fix: stamp the operator's tendered exchange rate on transactions" — the
+latter from a separate live follow-up report, not this note batch, but shipped in the same
+session). The 3 tickets below are the notes that were **feature/design requests, not bugs** —
+correctly not attacked as part of the bug-fix pass; filed here so they aren't lost.
+
+## LIRA-095: OMT/Whish/Katsh — Rethink Commission Flow (Don't Deduct From Transaction Amount)
+
+| Field                | Value                                                     |
+| --------------------- | --------------------------------------------------------- |
+| **Epic**              | Financial Services / Suppliers                             |
+| **Type**              | Feature / Decision                                         |
+| **Priority**          | High (money-flow architecture)                             |
+| **Status**            | NEEDS INTERVIEW                                            |
+| **Affected Modules**  | Financial Services (OMT, Whish, Katsh, iPick), Suppliers, Profits |
+| **Assigned To**       | —                                                           |
+| **Depends On**        | —                                                           |
+
+### Summary
+
+Owner note (2026-08-07, 2:04 AM): *"Commission should not be deduced from the amount (we have
+this function amount + fee - commission). We should rethink about commission flow. Commission
+should not be deduced directly in ledgers. It should be entered in payment between shop and
+supplier. In the new way we should still be able to track the commissions per transaction type
+for the profits page."*
+
+This asks to move WHERE commission is recognized: today it's computed and deducted inline as
+part of each transaction's own amount/ledger math; the owner wants it moved to be a value entered
+at supplier-payment/settlement time instead — while the Profits page still needs to attribute it
+back to the originating transaction type. This is an architectural change touching every
+OMT/Whish/Katsh/iPick money flow, not a bug fix. Needs an owner interview before any code is
+touched (see LIRA-089 above for the closely related, already-filed "iPick/Katsh bills commission
+at settlement" ticket — this note may be the general case LIRA-089 is one instance of; resolve
+LIRA-089's open questions and this one together).
+
+### Open Questions (owner interview required)
+
+- [ ] If commission moves to settlement time, how does the Profits page still split it per
+      transaction TYPE — a batch total apportioned across the types in that batch, or something else?
+- [ ] Does this apply uniformly to all four providers (OMT, Whish, Katsh, iPick), or only some?
+- [ ] What happens to historical commission already booked under the current (per-transaction)
+      model — backfill, leave as-is, or migrate?
+- [ ] Relationship to LIRA-089 (iPick/Katsh bills commission at settlement) — same redesign, or
+      does LIRA-089 stay scoped to bills only while this covers SEND/RECEIVE too?
+
+### Acceptance Criteria
+
+- [ ] _(To be defined after interview)_
+
+### Files to Modify
+
+| Layer   | File                                                            | Change                                    |
+| ------- | ---------------------------------------------------------------- | ------------------------------------------ |
+| Backend | `packages/core/src/repositories/FinancialServiceRepository.ts` | Commission recognition point (TBD)         |
+| Backend | `packages/core/src/repositories/ProfitRepository.ts`            | Per-transaction-type attribution (TBD)     |
+| Frontend| `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Settlement-time commission entry UI (TBD)  |
+
+---
+
+## LIRA-096: Partners Page — Remove "Record Transaction" (Redundant with Add Credit/Debt)
+
+| Field                | Value                        |
+| --------------------- | ----------------------------- |
+| **Epic**              | Partner System                |
+| **Type**              | Cleanup / Decision             |
+| **Priority**          | Low                            |
+| **Status**            | NEEDS INTERVIEW                |
+| **Affected Modules**  | Partners                       |
+| **Assigned To**       | —                              |
+| **Depends On**        | LIRA-051 (DONE — prior Record Transaction type-list simplification) |
+
+### Summary
+
+Owner note (2026-08-07, 2:20 AM): *"Remove record txn in partner. Its redundant we have add
+credit debt."* Requests removing the "Record Transaction" action/modal from the Partners page
+entirely, on the grounds that "Add Credit/Debt" already covers the same need. LIRA-051 (DONE)
+previously simplified Record Transaction's type dropdown rather than removing the feature — this
+note goes a step further. Before removing anything, confirm there's no transaction type or
+capability Record Transaction covers that Add Credit/Debt cannot currently express — if a gap
+exists, it needs to move into Add Credit/Debt first, or the owner needs to accept losing that case.
+
+### Open Questions (owner interview required)
+
+- [ ] Confirm every Record Transaction type in current use is already reachable via Add
+      Credit/Debit before removing the feature.
+
+### Acceptance Criteria
+
+- [ ] _(To be defined once the above is confirmed — likely: remove the Record Transaction
+      action/modal from the Partners page once no functional gap is found)_
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                             |
+| -------- | ------------------------------------------------------------ | ----------------------------------------------------- |
+| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx`  | Remove Record Transaction UI (pending confirmation)  |
+
+---
+
+## LIRA-097: Partners Page — Enable LBP Option for Add Credit/Debt
+
+| Field                | Value           |
+| --------------------- | ----------------- |
+| **Epic**              | Partner System    |
+| **Type**              | Enhancement       |
+| **Priority**          | Low               |
+| **Status**            | TODO              |
+| **Affected Modules**  | Partners          |
+| **Assigned To**       | —                 |
+| **Depends On**        | —                 |
+
+### Summary
+
+Owner note (2026-08-07, 2:21 AM): *"Enable lbp option to add credit debt in partner page."* The
+Add Credit/Debt action on the Partners page needs an LBP currency option — confirm the exact
+current currency options on that action before building (the note implies LBP isn't currently
+selectable there, unlike the equivalent actions on Debts/Suppliers).
+
+### Acceptance Criteria
+
+- [ ] Confirm current currency options on the Partners page's Add Credit/Debt action.
+- [ ] Add LBP as a selectable currency, mirroring the equivalent Debts/Suppliers pattern
+      (USD + LBP already selectable there).
+- [ ] Partner ledger correctly books the amount in the selected currency.
+- [ ] Typecheck and lint pass.
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                  |
+| -------- | ------------------------------------------------------------ | ------------------------------------------ |
+| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx`  | Add LBP option to Add Credit/Debt form  |
+| Backend  | `packages/core/src/repositories/PartnerRepository.ts`       | Verify/extend currency handling if needed |
+
+---
+
+## Summary (Sprint 5 — LIRA-095..097)
+
+| Priority  | Total | Done  | Remaining |
+| --------- | ----- | ----- | --------- |
+| High      | 1     | 0     | 1         |
+| Low       | 2     | 0     | 2         |
+| **Total** | **3** | **0** | **3**     |
+
+### Sprint 5 board
+
+| ID       | Title                                                       | Priority | Status          |
+| -------- | ------------------------------------------------------------ | -------- | --------------- |
+| LIRA-095 | OMT/Whish/Katsh — rethink commission flow                   | High     | NEEDS INTERVIEW |
+| LIRA-096 | Partners — remove Record Transaction (redundant)             | Low      | NEEDS INTERVIEW |
+| LIRA-097 | Partners — enable LBP for Add Credit/Debt                    | Low      | TODO            |
+
+> The other 8 notes from this same batch were bugs — all fixed and independently verified
+> 2026-08-07/08 (commits `dd6cbb6`, `a65ce03`). One further note (OMT receive fee override) was
+> investigated and found to already work correctly — no ticket needed.
+
+---
+
+---
+
+# Sprint 6 — Todo-Plans Sweep (2026-08-08)
+
+> **Sprint Focus:** `current_sprint.md` as the single source of truth — every `docs/plans/todo_plans/*.md`
+> file was re-verified against the actual current code (not just its own claimed status/checkboxes,
+> which are known to go stale within days), and every genuinely-remaining item is filed below as a
+> real ticket. Nothing here was found by trusting a plan doc's own words — each item was independently
+> confirmed via grep/read/`git log` before being ticketed.
+> **Created:** 2026-08-08
+> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW`
+
+**Source:** all 8 files under `docs/plans/todo_plans/`. `OWNER_NOTES_TASK_PLAN.md`'s remainder needs
+**no new ticket** — it's already fully represented by the existing **LIRA-083, 084, 086, 087, 088, 089**
+(Sprint 4, above). The other 7 files each had 1-2 genuine, verified residuals — ticketed below.
+Several plans turned out MORE complete than their own "Left TODO" notes claimed (e.g.
+`PRIMARY_CASH_DRAWER_PLAN.md` flagged a spec as broken that was actually already fixed 2026-08-07) —
+a reminder that the plan docs themselves are not reliable evidence, only the code is.
+
+## LIRA-098: Guard test — profit queries must use the debt/partner-pending recognition gate
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Profits / Counterparty Ledgers        |
+| **Type**              | Test / Guard                          |
+| **Priority**          | Medium                                |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Profits                               |
+| **Assigned To**       | —                                      |
+| **Depends On**        | —                                      |
+| **Source Plan**       | `docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md` (CQ-1, last item) |
+
+### Summary
+
+`ProfitRepository.ts` defines and reuses `notDebtPending`/`notPartnerPending`/`saleFullyPaid`/
+`salePaidOrPartnerSettled` fragments (~15 call sites) so profit is only recognized once money is
+real — but nothing scans for a future profit query that skips the gate. A second file-scanning
+guard test (the plan's own CQ-1 goal) was never written — only `moduleDebtTypes.guard.test.ts` and
+`partnerLedgerTypes.guard.test.ts` exist in `constants/__tests__/`, no third file.
+
+### Acceptance Criteria
+
+- [ ] New `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts`, mirroring
+      `partnerLedgerTypes.guard.test.ts`'s file-scanning approach: statically scan
+      `ProfitRepository.ts` for any SQL string containing `profit` and assert it also references
+      at least one recognition-gate fragment.
+- [ ] Full core + backend jest green before/after; typecheck/lint.
+
+### Files to Modify
+
+| Layer   | File                                                                              | Change                  |
+| ------- | ------------------------------------------------------------------------------------ | -------------------------- |
+| Backend | `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` (new)     | File-scanning guard test |
+
+---
+
+## LIRA-099: Multi-tenant — admin/impersonation e2e spec + final full-suite proof
+
+| Field                | Value                                     |
+| --------------------- | -------------------------------------------- |
+| **Epic**              | Multi-Tenant / Admin                          |
+| **Type**              | Test                                          |
+| **Priority**          | Medium                                        |
+| **Status**            | TODO                                          |
+| **Affected Modules**  | Admin, Multi-Tenant                           |
+| **Assigned To**       | —                                              |
+| **Depends On**        | —                                              |
+| **Source Plan**       | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item) |
+
+### Summary
+
+Every other work package (WP1-WP8, WP10a/c) is shipped and merged — confirmed via `git log`,
+`check-tenant-scoping` run live (647 statements, 0 violations), and existing WP2/WP5/WP6/WP8 test
+files. WP9, the dedicated end-to-end proof, was never written: no spec anywhere drives super-admin
+login → provision a tenant → impersonate → verify data isolation → disconnect through a real
+browser (`impersonat` has zero hits across all of `frontend/tests/`).
+
+### Acceptance Criteria
+
+- [ ] `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts`: super-admin login → `/admin/tenants`
+      list renders → provision a tenant via `AddTenantModal` → "Connect as admin" → `ImpersonationBanner`
+      shows the right tenant → create a row while impersonating → confirm invisible from a different
+      tenant's session → Disconnect.
+- [ ] One final confirmed full-suite green run: `yarn dev` → stop → `yarn test:e2e` AND
+      `yarn test:e2e:web`, plus `yarn check:tenant-scoping`, `yarn check:bind-arity`,
+      `yarn typecheck && yarn lint` repo-wide — none of these has been run together as one proof yet.
+- [ ] Once green, archive `MULTI_TENANT_IMPLEMENTATION_PLAN.md` to `done_plans/`.
+
+### Files to Modify
+
+| Layer | File                                                          | Change      |
+| ----- | ---------------------------------------------------------------- | ------------- |
+| E2E   | `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts` (new) | New spec    |
+
+---
+
+## LIRA-100: Loto — no in-module ticket reprint UI
+
+| Field                | Value                                    |
+| --------------------- | -------------------------------------------- |
+| **Epic**              | Loto                                          |
+| **Type**              | Feature / Gap                                 |
+| **Priority**          | Low                                            |
+| **Status**            | TODO                                          |
+| **Affected Modules**  | Loto                                          |
+| **Assigned To**       | —                                              |
+| **Depends On**        | LIRA-069 (DONE — receipt-print gating foundation) |
+| **Source Plan**       | `docs/plans/todo_plans/PARTIAL_TASKS_COMPLETION_PLAN.md` (W1.c, last item) |
+
+### Summary
+
+Recharge, Maintenance, and Custom Services all got a per-ticket History/reprint entry point when
+receipt-print gating shipped (LIRA-069) — Loto didn't. `Loto/index.tsx` has no history/reprint UI
+for individual ticket sales; its only history surface, `CheckpointHistory.tsx`, operates on
+aggregate checkpoint rows (`total_tickets`, `settlement_id`), not individual tickets. A loto ticket
+can only be reprinted today via the general `/audit` Transactions viewer.
+
+### Acceptance Criteria
+
+- [ ] Ticket-level History view in the Loto module (pattern: `frontend/src/features/recharge/components/HistoryModal.tsx`).
+- [ ] Rows gated by `isReceiptableRow` (`frontend/src/features/audit/receiptGating.ts:113`).
+- [ ] Resolves the transaction via `TransactionRepository.getBySourceId("loto_tickets", ticketId)`.
+- [ ] Component test + extend `frontend/tests/e2e-electron/lira-069-receipt-print-gating.spec.ts`.
+- [ ] `yarn typecheck` + `yarn workspace @liratek/frontend test`.
+
+### Files to Modify
+
+| Layer    | File                                              | Change                       |
+| -------- | ---------------------------------------------------- | -------------------------------- |
+| Frontend | `frontend/src/features/loto/pages/Loto/index.tsx`  | Ticket-level History/reprint UI |
+
+---
+
+## LIRA-101: Primary Cash Drawer — cleanup stale docs/dead code + verify Suppliers `settleNetPayUsd`
+
+| Field                | Value                                          |
+| --------------------- | -------------------------------------------------- |
+| **Epic**              | Suppliers / Financial Services                      |
+| **Type**              | Cleanup / Verification                              |
+| **Priority**          | Medium (one sub-item touches money math)            |
+| **Status**            | TODO                                                |
+| **Affected Modules**  | Suppliers, Financial Services                       |
+| **Assigned To**       | —                                                    |
+| **Depends On**        | —                                                    |
+| **Source Plan**       | `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items) |
+
+### Summary
+
+The Primary Cash Drawer feature itself is fully shipped (commit `9553807`) and `FEATURE_GUIDE.md`
+§7/§8/§8.1 is current. What's left is small cleanup, EXCEPT one item that needs real money-eyes
+attention:
+
+1. Stale JSDoc still references the withdrawn §8.5 insufficient-funds guard (`packages/ui/src/api/types.ts:606,619`,
+   `packages/core/src/services/FinancialService.ts:41-42`, `frontend/src/api/backendApi.ts:3194`) —
+   could mislead a future reader into re-adding a guard the owner explicitly reversed.
+2. Dead code: unused `getBalance()` in `DrawerTopUpRepository.ts:409-418`; unused import
+   `primaryCashDrawerName` in `FinancialServiceRepository.ts:17`.
+3. **Money item**: `frontend/src/features/suppliers/pages/Suppliers/index.tsx:625` and
+   `frontend/src/features/suppliers/hooks/useSuppliers.ts:298-299` still describe the superseded
+   fee-only ledger model. Needs a verification pass confirming `settleNetPayUsd` computes correctly
+   under the current GROSS supplier-ledger model, not just a comment edit.
+
+### Acceptance Criteria
+
+- [ ] Stale JSDoc/comments corrected to describe the current (no insufficient-funds guard) reality.
+- [ ] Dead code removed (`getBalance()`, unused import).
+- [ ] `settleNetPayUsd` independently verified correct under the GROSS model (failing-first test if
+      a discrepancy is found; otherwise document the verification and update the stale comments).
+- [ ] Typecheck and lint pass.
+
+### Files to Modify
+
+| Layer    | File                                                                | Change                          |
+| -------- | ---------------------------------------------------------------------- | ------------------------------------ |
+| Backend  | `packages/core/src/services/FinancialService.ts`                    | Correct stale JSDoc                  |
+| Backend  | `packages/core/src/repositories/DrawerTopUpRepository.ts`           | Remove dead `getBalance()`           |
+| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts`      | Remove unused import                 |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`         | Correct stale comment; verify math   |
+| Frontend | `frontend/src/features/suppliers/hooks/useSuppliers.ts`             | Correct stale comment; verify math   |
+| Types    | `packages/ui/src/api/types.ts`, `frontend/src/api/backendApi.ts`    | Correct stale JSDoc                  |
+
+---
+
+## LIRA-102: Session grouping UI — missing e2e coverage
+
+| Field                | Value                                |
+| --------------------- | ---------------------------------------- |
+| **Epic**              | Customer Sessions / Transactions           |
+| **Type**              | Test                                        |
+| **Priority**          | Low                                          |
+| **Status**            | TODO                                        |
+| **Affected Modules**  | Transactions (Audit)                        |
+| **Assigned To**       | —                                            |
+| **Depends On**        | —                                            |
+| **Source Plan**       | `docs/plans/todo_plans/session-basket-payment-remaining.md` (#3a, last item) |
+
+### Summary
+
+The per-session border-accent feature itself shipped and is unchanged (`TransactionsViewer.tsx`'s
+`sessionHue`/`data-session`, `index.css`'s dark/light accent colors) — only the e2e spec the plan
+called for was never written. `lira-session-grouping-ui.spec.ts` does not exist (confirmed: never
+created, not deleted).
+
+### Acceptance Criteria
+
+- [ ] `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts`: checkout 2 custom-service
+      items in one session → assert both rows expose `data-session=""` and share the same
+      `--session-hue` (`round(abs(id * 137.508)) % 360`) → toggle dark mode → assert
+      `border-left-color` changes (62% dark / 42% light) while hue holds. Match rows by unique
+      label (rule 15), never `tbody tr.first()`.
+- [ ] Once green, `session-basket-payment-remaining.md` has nothing left — move to `done_plans/`.
+
+### Files to Modify
+
+| Layer | File                                                              | Change   |
+| ----- | ---------------------------------------------------------------------- | ---------- |
+| E2E   | `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts` (new)  | New spec |
+
+---
+
+## LIRA-103: Recharge — close remaining REST-parity gaps (history route + unmigrated drawer-balances call)
+
+| Field                | Value                                 |
+| --------------------- | ------------------------------------------ |
+| **Epic**              | Recharge / Web Parity                       |
+| **Type**              | Bug / Dual-Transport                        |
+| **Priority**          | Medium                                       |
+| **Status**            | TODO                                         |
+| **Affected Modules**  | Recharge                                     |
+| **Assigned To**       | —                                             |
+| **Depends On**        | —                                             |
+| **Source Plan**       | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9, Recharge items) |
+
+### Summary
+
+Recharge's transfer/top-up endpoints already went dual-mode (carrier-lines waves, 2026-08-06/07),
+but two spots still call raw `window.api.recharge.*` with no REST backing:
+
+1. **History has no REST route at all**: `Recharge/index.tsx:673` calls
+   `window.api.recharge.getHistory(activeProvider)` for the MTC/Alfa history tab. No `/history`
+   route exists in `backend/src/api/recharge.ts`, no wrapper in `backendApi.ts`/`ElectronApiAdapter.ts`.
+   Degrades to a silently-empty history list in a real browser (wrapped in try/catch) rather than
+   crashing — a real data gap, not a crash.
+2. **Leftover unmigrated call site in the SAME file**: `Recharge/index.tsx:391-400`
+   (`loadDrawerBalances`) still calls raw `window.api.recharge.getDrawerBalances()` even though a
+   working dual-mode twin, `api.getRechargeDrawerBalances()`, already exists and is used elsewhere
+   in this same file (`handleTopUpClick:753`) — this call site was simply never switched over. The
+   `line 392` comment ("Drawer balances are IPC-only") is stale.
+
+### Acceptance Criteria
+
+- [ ] `GET /api/recharge/history` route + `getRechargeHistory` wrapper in `backendApi.ts`/`ElectronApiAdapter.ts`,
+      same envelope/auth pattern as the other recharge routes.
+- [ ] `Recharge/index.tsx:391-400` switched to the existing `api.getRechargeDrawerBalances()`; stale
+      comment removed.
+- [ ] Web e2e coverage for the history tab and drawer-balance readout in browser mode.
+- [ ] Typecheck and lint pass.
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                              |
+| -------- | -------------------------------------------------------------- | -------------------------------------- |
+| Backend  | `backend/src/api/recharge.ts`                                | Add `/history` route                    |
+| Frontend | `frontend/src/api/backendApi.ts`, `.../ElectronApiAdapter.ts` | `getRechargeHistory` wrapper            |
+| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`    | Both call sites switched to dual-mode   |
+
+---
+
+## LIRA-104: Web-mode REST write routes create no audit trail
+
+| Field                | Value                            |
+| --------------------- | ------------------------------------- |
+| **Epic**              | Web Parity / Security                  |
+| **Type**              | Design / Feature                       |
+| **Priority**          | Medium                                 |
+| **Status**            | TODO                                   |
+| **Affected Modules**  | All web-migrated modules                |
+| **Assigned To**       | —                                       |
+| **Depends On**        | —                                       |
+| **Source Plan**       | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9) |
+
+### Summary
+
+Every Electron IPC handler that writes money/state calls the audit logger — 31 handler files call
+`audit(...)`. Zero REST routes do (`grep audit( backend/src/api/*.ts` → 0 matches across every
+migrated module: loto, sessions, holdMoney, servicePresets, sales, recharge, …). A web-mode write
+today leaves no audit trail at all. Needs a design decision on where/how REST audit entries should
+be recorded (same `audit()` call reused from `req.user`? a middleware wrapper?) before broad
+implementation — flagging as TODO rather than NEEDS INTERVIEW since the shape of the fix is fairly
+standard, but the rollout touches every REST route file.
+
+### Acceptance Criteria
+
+- [ ] Design: how REST routes record audit entries (reuse the existing `audit()` helper, sourcing
+      the actor from `req.user` instead of an IPC-side `auth.userId`).
+- [ ] Applied consistently across every REST write route.
+- [ ] Test asserting a REST write produces the same audit entry shape an equivalent IPC call would.
+
+### Files to Modify
+
+| Layer   | File                          | Change                        |
+| ------- | -------------------------------- | -------------------------------- |
+| Backend | `backend/src/api/*.ts` (all write routes) | Add audit-trail recording |
+
+---
+
+## LIRA-105: Payment-method unknown-code fallback disagrees between `payments.ts` and `PaymentMethodRepository`
+
+| Field                | Value                                        |
+| --------------------- | -------------------------------------------------- |
+| **Epic**              | Payments (shared)                                    |
+| **Type**              | Bug (latent)                                          |
+| **Priority**          | Low                                                    |
+| **Status**            | TODO                                                   |
+| **Affected Modules**  | Payments (shared utility)                              |
+| **Assigned To**       | —                                                        |
+| **Depends On**        | —                                                        |
+| **Source Plan**       | `docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md` (§2 bug 8) |
+
+### Summary
+
+`packages/core/src/utils/payments.ts`'s `isDrawerAffectingMethod`/`isNonCashDrawerMethod` treat an
+unregistered payment-method code as drawer-affecting (`true`) when `getByCode()` returns null;
+`PaymentMethodRepository.isDrawerAffecting` treats the same case as `false`. Exposure is currently
+latent only — no code path can create an unregistered method code today (the retired `"FEE"`
+literal that used to trigger this was removed) — but the two predicates disagree and should be
+reconciled before that changes.
+
+### Acceptance Criteria
+
+- [ ] Pick one semantics for an unregistered method code (recommend: match the repository, "false" —
+      it's the source of truth) and align both predicates.
+- [ ] Test proving the two predicates now agree for an unregistered code.
+
+### Files to Modify
+
+| Layer   | File                                                          | Change                    |
+| ------- | ------------------------------------------------------------------ | ---------------------------- |
+| Backend | `packages/core/src/utils/payments.ts`                             | Align fallback semantics    |
+| Backend | `packages/core/src/repositories/PaymentMethodRepository.ts`       | Reference point for the fix  |
+
+---
+
+## LIRA-106: Recharge — provider-tab switch doesn't reset stale crypto fields
+
+| Field                | Value                            |
+| --------------------- | -------------------------------------- |
+| **Epic**              | Recharge / Binance                      |
+| **Type**              | Bug (UI hygiene, no money risk)          |
+| **Priority**          | Low                                       |
+| **Status**            | TODO                                       |
+| **Affected Modules**  | Recharge > Binance                        |
+| **Assigned To**       | —                                           |
+| **Depends On**        | —                                           |
+| **Source Plan**       | `docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md` (adversarial-review finding) |
+
+### Summary
+
+`Recharge/index.tsx`'s `useEffect` keyed on `[activeProvider]` (~line 317) resets several
+provider-specific fields on a tab switch but touches zero `crypto*` state
+(`cryptoFeeCollectedSeparately`, `cryptoFeePaymentLines`, `cryptoAmount`, `cryptoFeeIncluded`). A
+stale Binance selection can carry across a provider-tab switch or SEND↔RECEIVE flip until the next
+successful submit (which does clear them). No money-correctness risk — a real submit still clears
+state correctly — but it's a UI-hygiene gap worth closing.
+
+### Acceptance Criteria
+
+- [ ] The tab-switch reset effect also clears the 4 `crypto*` fields.
+- [ ] Component test: switch away from Binance mid-edit, switch back, assert fields are reset.
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                          |
+| -------- | -------------------------------------------------------------- | ------------------------------------ |
+| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`    | Extend tab-switch reset effect       |
+
+---
+
+## Summary (Sprint 6 — LIRA-098..106)
+
+| Priority  | Total | Done  | Remaining |
+| --------- | ----- | ----- | --------- |
+| Medium    | 5     | 0     | 5         |
+| Low       | 4     | 0     | 4         |
+| **Total** | **9** | **0** | **9**     |
+
+### Sprint 6 board
+
+| ID       | Title                                                              | Priority | Status | Source Plan                             |
+| -------- | --------------------------------------------------------------------- | -------- | ------ | ------------------------------------------ |
+| LIRA-098 | Profit-recognition guard test                                       | Medium   | TODO   | COUNTERPARTY_CONSOLIDATION_PLAN.md          |
+| LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof              | Medium   | TODO   | MULTI_TENANT_IMPLEMENTATION_PLAN.md         |
+| LIRA-100 | Loto — in-module ticket reprint UI                                   | Low      | TODO   | PARTIAL_TASKS_COMPLETION_PLAN.md            |
+| LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification                | Medium   | TODO   | PRIMARY_CASH_DRAWER_PLAN.md                 |
+| LIRA-102 | Session-grouping UI e2e spec                                          | Low      | TODO   | session-basket-payment-remaining.md         |
+| LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
+| LIRA-104 | Web-mode REST writes have no audit trail                              | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
+| LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | TODO   | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md          |
+| LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | TODO   | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md          |
+
+> `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
+> LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully
+> represented in this registry — `current_sprint.md` is the source of truth going forward.
