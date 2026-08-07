@@ -326,6 +326,28 @@ export default function MobileRecharge() {
       byProvider: [],
     });
     setFinTransactions([]);
+    // LIRA-106: a successful crypto submit already clears all 13 of these
+    // (see the resets at ~1242-1254 and the mode-C early-return branch at
+    // ~1148-1161) — mirror the same reset values here so a stale Binance
+    // selection (e.g. mode C's fee-collected-separately toggle + its
+    // counter-flow fee legs, a stale payment/return leg, or a stale
+    // client attribution) doesn't survive a provider-tab switch or a
+    // SEND<->RECEIVE flip mid-edit. `cryptoType`/`cryptoPaidBy`/
+    // `cryptoTenderRate` are deliberately NOT reset here — the submit
+    // paths leave them alone too, so they're intentionally sticky.
+    setCryptoAmount("");
+    setCryptoFeeIncluded(false);
+    setCryptoFeeCollectedSeparately(false);
+    setCryptoFeePaymentLines([]);
+    setCryptoPaymentLines([]);
+    setCryptoReturnLegs([]);
+    setCryptoKeptChange(null);
+    setCryptoClientId(null);
+    setCryptoClientName("");
+    setCryptoClientPhone("");
+    setCryptoFee("");
+    setCryptoDescription("");
+    setCryptoTransactionTime(undefined);
   }, [activeProvider]);
 
   const activeConfig = useMemo(
