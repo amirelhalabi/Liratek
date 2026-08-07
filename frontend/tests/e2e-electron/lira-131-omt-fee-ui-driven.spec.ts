@@ -45,6 +45,16 @@
  * Rule 15 discipline: every assertion is a DELTA snapshotted immediately
  * before the action, matched by drawer NAME. No absolute totals, no row
  * positions, no `getRecent()[0]` — this suite shares one accumulating DB.
+ *
+ * EXTENSION (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.3 item (i), 2026-08-07):
+ * the fourth test below drives the Phase C counter-flow section — a
+ * fee-on-top RECEIVE where the customer pays the fee back via a WALLET
+ * (Whish) instead of cash, through the REAL `MultiPaymentInput` counter-flow
+ * UI embedded in the Services page form (never a hand-built `feePayments[]`
+ * IPC payload). §1.4 of the plan: a wallet-collected fee on a fee-on-top
+ * RECEIVE does NOT net the payout — the PCD still pays out the FULL
+ * requested amount `x`, and the fee `f` is credited separately to the
+ * wallet drawer the operator chose.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -65,12 +75,16 @@ type Api = {
 /** Named drawer balances — matched by name, never by position (rule 15). */
 async function drawers(
   page: Page,
-): Promise<{ general: number; omtSystem: number }> {
+): Promise<{ general: number; omtSystem: number; whishApp: number }> {
   return page.evaluate(async () => {
     const w = window as unknown as Api;
     const rows = await w.api.recharge.getDrawerBalances();
     const pick = (n: string) => rows.find((d) => d.name === n)?.usdBalance ?? 0;
-    return { general: pick("General"), omtSystem: pick("OMT_System") };
+    return {
+      general: pick("General"),
+      omtSystem: pick("OMT_System"),
+      whishApp: pick("Whish_App"),
+    };
   });
 }
 
@@ -203,5 +217,55 @@ test.describe("LIRA-131 — OMT system fees, driven through the real form", () =
     // which the transfer modal then flags for the operator to cover. An
     // earlier revision of this feature rejected the transaction here, which
     // is why this spec used to fail with the amount field still filled.
+  });
+
+  test("RECEIVE fee-on-top, fee collected via the Whish wallet: PCD pays the FULL x, Whish_App collects f", async ({
+    appPage,
+  }) => {
+    await navigateTo(appPage, "/services");
+    await pickOmt(appPage, "RECEIVE");
+
+    const amountInput = appPage.locator("#service-amount");
+    await expect(amountInput).toBeVisible({ timeout: 15_000 });
+    await amountInput.fill("100");
+
+    // Explicit fee, fee-on-top (includingFees toggle left OFF) — the same
+    // §4 Phase C gate lira-131's third test exercises, but this time the
+    // counter-flow's fee-collection LEG is switched from the auto-seeded
+    // CASH default to the Whish wallet — a real drawer-affecting method
+    // distinct from the OMT provider itself, proving the fee is routed by
+    // the LEG's own method, not by which provider tab is active.
+    const feeInput = appPage.getByTestId("service-omt-fee-input");
+    await expect(feeInput).toBeVisible({ timeout: 10_000 });
+    await feeInput.fill("5");
+
+    // The Phase C counter-flow card ("Customer pays — OMT fee") renders the
+    // instant serviceType===RECEIVE && !includingFees && fee>0 (no session,
+    // no partner) — no extra toggle needed, mirrors Services.feeCounterFlow
+    // .test.tsx's `showFeeCounterFlow` gate. It auto-seeds ONE CASH line at
+    // the fee amount; switch that line's method to WHISH.
+    const counterFlowSection = appPage.getByTestId("counter-flow-section");
+    await expect(counterFlowSection).toBeVisible({ timeout: 10_000 });
+    const feeMethodSelect = counterFlowSection.locator(
+      '[data-testid^="counter-flow-method-"]',
+    );
+    await expect(feeMethodSelect).toBeVisible();
+    await feeMethodSelect.selectOption("WHISH");
+
+    const before = await drawers(appPage);
+
+    await appPage.getByRole("button", { name: /Record Receive/i }).click();
+    await expect(amountInput).toHaveValue("", { timeout: 15_000 });
+
+    const after = await drawers(appPage);
+
+    // §1.4 table, "WHISH wallet" row: PCD −x (the FULL requested amount —
+    // fee-on-top never nets the payout, unlike the fee-included case above),
+    // Whish_App +f (the fee, collected separately via the counter-flow leg).
+    expect(after.omtSystem - before.omtSystem).toBeCloseTo(-100, 2);
+    expect(after.whishApp - before.whishApp).toBeCloseTo(5, 2);
+    // General never moves for a primary-system RECEIVE — the whole point of
+    // the PCD model this suite guards throughout.
+    expect(after.general - before.general).toBeCloseTo(0, 2);
   });
 });
