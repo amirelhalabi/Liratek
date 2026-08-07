@@ -198,14 +198,15 @@ describe("Suppliers REST routes", () => {
       expect(res.status).toBe(403);
     });
 
-    it("400s on an invalid entry_type (core supplierLedgerEntrySchema)", async () => {
+    it("rejects an invalid entry_type (core supplierLedgerEntrySchema) — rule 19c: 200 + string error", async () => {
       const res = await request(app)
         .post("/api/suppliers/1/ledger")
         .set("x-test-role", "admin")
         .send({ entry_type: "NOT_A_TYPE", amount_usd: 10, amount_lbp: 0 });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
 
     it("happy path: supplier_id comes from the URL, created_by from the JWT", async () => {
@@ -252,14 +253,15 @@ describe("Suppliers REST routes", () => {
       expect(res.status).toBe(403);
     });
 
-    it("400s when financial_service_ids is empty", async () => {
+    it("rejects when financial_service_ids is empty (rule 19c: 200 + string error)", async () => {
       const res = await request(app)
         .post("/api/suppliers/1/settle")
         .set("x-test-role", "admin")
         .send({ ...validSettleBody, financial_service_ids: [] });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
 
     it("happy path hits SupplierService.settleTransactions with supplier_id from the URL", async () => {
@@ -296,14 +298,15 @@ describe("Suppliers REST routes", () => {
       expect(res.status).toBe(403);
     });
 
-    it("400s on an invalid direction", async () => {
+    it("rejects an invalid direction (rule 19c: 200 + string error)", async () => {
       const res = await request(app)
         .post("/api/suppliers/1/cashflow")
         .set("x-test-role", "admin")
         .send({ ...validCashflowBody, direction: "SIDEWAYS" });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
 
     it("happy path hits SupplierService.recordSupplierCashflow", async () => {
@@ -335,14 +338,15 @@ describe("Suppliers REST routes", () => {
       expect(res.status).toBe(403);
     });
 
-    it("400s when total_usd is not positive", async () => {
+    it("rejects when total_usd is not positive (rule 19c: 200 + string error)", async () => {
       const res = await request(app)
         .post("/api/suppliers/1/purchases")
         .set("x-test-role", "admin")
         .send({ total_usd: 0 });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
 
     it("happy path forwards the IPC-identical envelope verbatim (no success wrapper)", async () => {

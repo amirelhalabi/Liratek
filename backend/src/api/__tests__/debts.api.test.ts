@@ -123,14 +123,15 @@ describe("Debts REST routes", () => {
       expect(res.status).toBe(403);
     });
 
-    it("400s when neither amount is greater than 0", async () => {
+    it("rejects when neither amount is greater than 0 (rule 19c: 200 + string error)", async () => {
       const res = await request(app)
         .post("/api/debts/use-credit")
         .set("x-test-role", "admin")
         .send({ clientId: 1, amountUsd: 0, amountLbp: 0 });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
 
     it("happy path hits DebtService.useCredit with userId from the JWT", async () => {
@@ -162,14 +163,15 @@ describe("Debts REST routes", () => {
       expect(res.status).toBe(403);
     });
 
-    it("400s when id is missing", async () => {
+    it("rejects when id is missing (rule 19c: 200 + string error)", async () => {
       const res = await request(app)
         .post("/api/debts/update-metadata")
         .set("x-test-role", "admin")
         .send({ note: "hi" });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
 
     it("happy path reshapes the envelope to { success, data } like the IPC handler", async () => {

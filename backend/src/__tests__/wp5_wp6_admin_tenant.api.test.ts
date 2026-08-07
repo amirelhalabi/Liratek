@@ -376,7 +376,7 @@ describe("POST /api/admin/tenants (provisioning)", () => {
     expect(res.status).toBe(409);
   });
 
-  it("rejects a reserved slug with 400", async () => {
+  it("rejects a reserved slug (rule 19c: 200 + plain-string error)", async () => {
     const token = await loginToken("root");
     const res = await request(app)
       .post("/api/admin/tenants")
@@ -387,10 +387,12 @@ describe("POST /api/admin/tenants (provisioning)", () => {
         adminUsername: "reserved_admin",
         adminPassword: "ReservedPass123!",
       });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(typeof res.body.error).toBe("string");
   });
 
-  it("rejects an invalid-charset slug with 400", async () => {
+  it("rejects an invalid-charset slug (rule 19c: 200 + plain-string error)", async () => {
     const token = await loginToken("root");
     const res = await request(app)
       .post("/api/admin/tenants")
@@ -401,7 +403,9 @@ describe("POST /api/admin/tenants (provisioning)", () => {
         adminUsername: "bad_charset_admin",
         adminPassword: "BadPass123!",
       });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(typeof res.body.error).toBe("string");
   });
 });
 

@@ -184,7 +184,7 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it("400s on a missing amount (Zod, before the service is ever reached)", async () => {
+    it("rejects a missing amount (Zod, before the service is ever reached) — rule 19c: 200 + string error", async () => {
       const spy = jest.spyOn(rechargeService, "topUpApp");
 
       const res = await request(app)
@@ -192,7 +192,9 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
         .set("x-test-role", "admin")
         .send({ provider: "OMT_APP", currency: "USD", sourceDrawer: "General" });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
       expect(spy).not.toHaveBeenCalled();
     });
   });

@@ -72,36 +72,33 @@ describe("Validation Middleware", () => {
       expect(res.body.data).toEqual({ name: "Widget", age: 5 });
     });
 
-    it("returns 400 with field details for invalid body", async () => {
+    it("returns 200 with a plain-string error for invalid body (rule 19c)", async () => {
       const res = await request(bodyApp())
         .post("/items")
         .send({ name: "", age: -1 });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("VALIDATION_ERROR");
-      expect(res.body.error.details.errors).toBeInstanceOf(Array);
-      expect(res.body.error.details.errors.length).toBeGreaterThan(0);
-
-      const fieldNames = res.body.error.details.errors.map((e: any) => e.field);
-      expect(fieldNames).toContain("name");
+      expect(res.body.error).toBe("Name is required");
     });
 
-    it("returns 400 when body is missing required fields", async () => {
+    it("returns 200 with a plain-string error when body is missing required fields", async () => {
       const res = await request(bodyApp()).post("/items").send({});
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("VALIDATION_ERROR");
+      expect(typeof res.body.error).toBe("string");
+      expect(res.body.error.length).toBeGreaterThan(0);
     });
 
-    it("includes field name in the top-level error response", async () => {
+    it("returns a plain-string error — never an object — for a field type mismatch", async () => {
       const res = await request(bodyApp())
         .post("/items")
         .send({ name: 123, age: "not-a-number" });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error.field).toBeDefined();
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
   });
 
@@ -113,20 +110,21 @@ describe("Validation Middleware", () => {
       expect(res.body.success).toBe(true);
     });
 
-    it("returns 400 for invalid query params", async () => {
+    it("returns 200 with a plain-string error for invalid query params", async () => {
       const res = await request(queryApp()).get("/items?page=abc&limit=xyz");
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("VALIDATION_ERROR");
-      expect(res.body.error.details.errors).toBeInstanceOf(Array);
+      expect(res.body.error).toBe("Page must be numeric");
     });
 
-    it("returns 400 when required query params are missing", async () => {
+    it("returns 200 with a plain-string error when required query params are missing", async () => {
       const res = await request(queryApp()).get("/items");
 
-      expect(res.status).toBe(400);
-      expect(res.body.error.code).toBe("VALIDATION_ERROR");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(res.body.error.length).toBeGreaterThan(0);
     });
   });
 
@@ -140,17 +138,12 @@ describe("Validation Middleware", () => {
       expect(res.body.success).toBe(true);
     });
 
-    it("returns 400 for invalid params", async () => {
+    it("returns 200 with a plain-string error for invalid params", async () => {
       const res = await request(paramsApp()).get("/items/not-a-uuid");
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("VALIDATION_ERROR");
-      expect(res.body.error.details.errors).toBeInstanceOf(Array);
-
-      const firstErr = res.body.error.details.errors[0];
-      expect(firstErr.field).toBe("id");
-      expect(firstErr.message).toBe("Invalid UUID");
+      expect(res.body.error).toBe("Invalid UUID");
     });
   });
 });

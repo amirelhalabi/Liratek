@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from "express";
-import { createErrorResponse, ErrorCodes } from "@liratek/core";
 import type { ParsedQs } from "qs";
 
 /** Structural type compatible with both Zod v3 and v4 schemas */
@@ -32,9 +31,10 @@ interface ZodLikeError {
  * `instanceof ZodError` against backend's own top-level v3 import — two
  * different classes from two different module instances. Left unfixed,
  * every validation failure on an `@liratek/core`-sourced schema silently
- * falls through to the generic 500 handler instead of a 400 (caught by the
- * WP5/WP6 admin-router tests: `createTenantSchema`'s reserved/invalid-slug
- * rejections came back 500, not 400). Duck-typing on `.name` + the
+ * falls through to the generic 500 handler instead of being recognized as
+ * a validation rejection (caught by the WP5/WP6 admin-router tests:
+ * `createTenantSchema`'s reserved/invalid-slug rejections came back 500
+ * instead of the intended rejection response). Duck-typing on `.name` + the
  * issue-list shape works across both major versions.
  */
 function isZodError(error: unknown): error is ZodLikeError {
@@ -70,25 +70,18 @@ export function validateRequest(schema: Schema) {
       next();
     } catch (error) {
       if (isZodError(error)) {
-        // Format Zod validation errors into our standard format
-        const issues = zodIssues(error);
-        const firstError = issues[0];
-        const field = firstError?.path.join(".");
-
-        const errorResponse = createErrorResponse(
-          ErrorCodes.VALIDATION_ERROR,
-          firstError?.message || "Validation failed",
-          {
-            errors: issues.map((err) => ({
-              field: err.path.join("."),
-              message: err.message,
-              code: err.code,
-            })),
-          },
-          field,
-        );
-
-        res.status(400).json(errorResponse);
+        // Rule 19c contract (§10.4 fix): every REST route answers a
+        // business-rule/validation failure with HTTP 200 and
+        // { success: false, error: <plain string> } — never a 4xx status
+        // or an object-shaped `error` — because the frontend adapter
+        // branches on `result.success`, never on status code or error
+        // shape. This used to be the one exception (400 + an
+        // {code,message,details,field} object); it no longer is.
+        const firstError = zodIssues(error)[0];
+        res.status(200).json({
+          success: false,
+          error: firstError?.message || "Validation failed",
+        });
         return;
       }
 
@@ -108,24 +101,12 @@ export function validateQuery(schema: Schema) {
       next();
     } catch (error) {
       if (isZodError(error)) {
-        const issues = zodIssues(error);
-        const firstError = issues[0];
-        const field = firstError?.path.join(".");
-
-        const errorResponse = createErrorResponse(
-          ErrorCodes.VALIDATION_ERROR,
-          firstError?.message || "Query validation failed",
-          {
-            errors: issues.map((err) => ({
-              field: err.path.join("."),
-              message: err.message,
-              code: err.code,
-            })),
-          },
-          field,
-        );
-
-        res.status(400).json(errorResponse);
+        // See the rule-19c note in validateRequest() above.
+        const firstError = zodIssues(error)[0];
+        res.status(200).json({
+          success: false,
+          error: firstError?.message || "Query validation failed",
+        });
         return;
       }
 
@@ -144,24 +125,12 @@ export function validateParams(schema: Schema) {
       next();
     } catch (error) {
       if (isZodError(error)) {
-        const issues = zodIssues(error);
-        const firstError = issues[0];
-        const field = firstError?.path.join(".");
-
-        const errorResponse = createErrorResponse(
-          ErrorCodes.VALIDATION_ERROR,
-          firstError?.message || "Parameter validation failed",
-          {
-            errors: issues.map((err) => ({
-              field: err.path.join("."),
-              message: err.message,
-              code: err.code,
-            })),
-          },
-          field,
-        );
-
-        res.status(400).json(errorResponse);
+        // See the rule-19c note in validateRequest() above.
+        const firstError = zodIssues(error)[0];
+        res.status(200).json({
+          success: false,
+          error: firstError?.message || "Parameter validation failed",
+        });
         return;
       }
 

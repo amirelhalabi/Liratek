@@ -98,7 +98,7 @@ describe("Drawer cash-out REST routes", () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it("400s (never reaches the service) when notes is missing", async () => {
+    it("rejects (never reaches the service) when notes is missing — rule 19c: 200 + string error", async () => {
       const spy = jest.spyOn(drawerCashoutService, "addCashout");
 
       const res = await request(app)
@@ -106,12 +106,13 @@ describe("Drawer cash-out REST routes", () => {
         .set("x-test-role", "admin")
         .send({ amount_usd: 50 });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it("400s (never reaches the service) when both amounts are zero", async () => {
+    it("rejects (never reaches the service) when both amounts are zero — rule 19c: 200 + string error", async () => {
       const spy = jest.spyOn(drawerCashoutService, "addCashout");
 
       const res = await request(app)
@@ -119,8 +120,9 @@ describe("Drawer cash-out REST routes", () => {
         .set("x-test-role", "admin")
         .send({ amount_usd: 0, amount_lbp: 0, notes: "Owner withdrawal" });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
       expect(spy).not.toHaveBeenCalled();
     });
 

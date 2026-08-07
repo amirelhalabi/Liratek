@@ -123,7 +123,7 @@ describe("Partners REST routes — CQ-11 split-leg settlement", () => {
       );
     });
 
-    it("400s (never reaches the service) when legs don't sum to the settlement amount", async () => {
+    it("rejects (never reaches the service) when legs don't sum to the settlement amount — rule 19c: 200 + string error", async () => {
       const spy = jest.spyOn(partnerService, "settle");
 
       const res = await request(app)
@@ -140,12 +140,13 @@ describe("Partners REST routes — CQ-11 split-leg settlement", () => {
           ],
         });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it("400s when a leg's currency_code differs from the settlement currency", async () => {
+    it("rejects when a leg's currency_code differs from the settlement currency (rule 19c: 200 + string error)", async () => {
       const res = await request(app)
         .post("/api/partners/settle")
         .set("x-test-role", "staff")
@@ -160,11 +161,12 @@ describe("Partners REST routes — CQ-11 split-leg settlement", () => {
           ],
         });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
 
-    it("400s on a CLIENT_ACCOUNT leg inside payments[]", async () => {
+    it("rejects a CLIENT_ACCOUNT leg inside payments[] (rule 19c: 200 + string error)", async () => {
       const res = await request(app)
         .post("/api/partners/settle")
         .set("x-test-role", "staff")
@@ -179,8 +181,9 @@ describe("Partners REST routes — CQ-11 split-leg settlement", () => {
           ],
         });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
     });
 
     it("still accepts the legacy payload with no payments field (regression)", async () => {

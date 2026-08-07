@@ -243,25 +243,20 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     );
     const body = await res.json();
 
-    // DISCOVERED PARITY GAP (reported, not fixed — out of this phase's file
-    // scope): this exact combination is ALSO rejected by a Zod `.refine` on
-    // `createFinancialServiceSchema` (validators/financial.ts), and the
-    // generic `validateRequest` Express middleware answers Zod refinement
-    // failures with HTTP 400 and an OBJECT-shaped `error` ({code, message,
-    // details, field}) — never reaching the repository's OWN "authoritative
-    // enforcement layer" guard (§6bis), which would have answered HTTP 200
-    // with a STRING `error`, matching rule 19c. Confirmed by direct
-    // execution against this exact payload (see the file's PR notes). The
-    // repository's guard is real and still fires for any caller that
-    // bypasses `validateRequest` (e.g. a raw/scripted request, or the
-    // Electron IPC path if its schema mirror ever drifts) — this assertion
-    // matches CURRENT REST reality rather than the general rule-19c "never
-    // assert 4xx" guidance, which holds for every OTHER business-rule
-    // rejection in this file (see (e) below, which the repository itself
-    // throws and which DOES answer 200).
-    expect(res.status()).toBe(400);
+    // This exact combination is ALSO rejected by a Zod `.refine` on
+    // `createFinancialServiceSchema` (validators/financial.ts), reached via
+    // the generic `validateRequest` Express middleware — before it ever
+    // reaches the repository's OWN "authoritative enforcement layer" guard
+    // (§6bis). Formerly a DISCOVERED PARITY GAP: `validateRequest` answered
+    // Zod refinement failures with HTTP 400 and an OBJECT-shaped `error`
+    // ({code, message, details, field}), diverging from rule 19c. Fixed
+    // (§10.4, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md): `validateRequest` now
+    // answers every Zod rejection with HTTP 200 and a plain-string `error`,
+    // same as the repository's own guard — so this assertion is now
+    // consistent with every other business-rule rejection in this file.
+    expect(res.status()).toBe(200);
     expect(body.success).toBe(false);
-    expect(body.error?.message ?? body.error).toContain(
+    expect(body.error).toContain(
       "feePayments cannot be used on a partner transaction",
     );
 
@@ -302,11 +297,12 @@ test.describe("OMT RECEIVE feePayments[] over REST", () => {
     );
     const body = await res.json();
 
-    // Same discovered parity gap as (c) — caught by the Zod refine (400,
-    // object error), never reaching the repository's own zero-fee guard.
-    expect(res.status()).toBe(400);
+    // Same path as (c) — caught by the Zod refine before the repository's
+    // own zero-fee guard; validateRequest now answers 200 + string error
+    // (rule 19c, §10.4 fix), same as every other rejection in this file.
+    expect(res.status()).toBe(200);
     expect(body.success).toBe(false);
-    expect(body.error?.message ?? body.error).toContain(
+    expect(body.error).toContain(
       "feePayments requires a non-zero omtFee/whishFee",
     );
 
