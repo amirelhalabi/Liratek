@@ -745,13 +745,23 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Check if there is at least one checkpoint record in daily_closings for today's date.
    */
   hasOpeningBalanceToday(): boolean {
-    // closing_date is stamped with the machine-local day (see createCheckpoint),
-    // so compare against SQLite's local day, not a UTC JS date.
+    // closing_date is a plain 'YYYY-MM-DD' string stamped via localDay() (see
+    // createCheckpoint) — compare against that SAME JS-computed value, not
+    // SQLite's own DATE('now','localtime'). The two are NOT interchangeable:
+    // SQLite's 'localtime' modifier calls the platform C runtime's localtime(),
+    // which on Windows does not reliably honor an IANA TZ string (e.g.
+    // TZ=Asia/Beirut resolves to the wrong UTC offset there), while Node's own
+    // Date getters (which localDay() uses) correctly respect process.env.TZ on
+    // every platform. Binding the same JS value on both sides of the
+    // comparison removes the cross-system disagreement entirely — verified
+    // via a direct comparison: with TZ=Asia/Beirut, SQLite's
+    // DATE('now','localtime') on Windows returned a day BEHIND the correct
+    // Beirut calendar day.
     const row = this.db
       .prepare(
-        `SELECT 1 FROM daily_closings WHERE closing_date = DATE('now', 'localtime') AND tenant_id = ? LIMIT 1`,
+        `SELECT 1 FROM daily_closings WHERE closing_date = ? AND tenant_id = ? LIMIT 1`,
       )
-      .get(getCurrentTenantId());
+      .get(localDay(), getCurrentTenantId());
     return row !== undefined;
   }
 
