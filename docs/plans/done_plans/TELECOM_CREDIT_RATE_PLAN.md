@@ -32,10 +32,18 @@
 > removing it clobbered a hand-entered 900,000 to 1,159,200 on `up()` and to
 > 515,200 on `down()`, then it was restored and the tree verified clean.
 >
-> **Still open:** §6 Q2(b) per-card anchoring; Q3 — owner ruled **leave `3.79`
-> sellable** ("most people buy it as a whole"); and the owner's days sell prices
-> so `sell_days_lbp` can be seeded (365d ≈ 2,000,000 known; 10d / 30d / 60d /
-> 90d outstanding).
+> **RESIDUAL (carried here so archiving does not bury it):** §6 Q2(b) —
+> per-card anchoring of R from each item's own `sell_days_lbp`, instead of
+> today's single global rate. This is an explicitly deferred future
+> refinement ("(a) now, (b) as the target … compatible — the global rate is
+> the fallback"), not a committed deliverable. Zero implementation exists;
+> not started, not blocking.
+>
+> Resolved since this header was written (not by this plan's own commit, but
+> confirmed shipped): Q3 — owner ruled leave `3.79` sellable (already
+> reflected above); and the owner's days sell prices, seeded by migration
+> **v147** / commit `9c17cc2` (10d→100k, 30d→250k, 60d→500k, 90d→750k,
+> 365d→2.3M LBP).
 
 ---
 

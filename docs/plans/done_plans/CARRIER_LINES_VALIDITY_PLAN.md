@@ -1,5 +1,14 @@
 # Carrier Lines, Validity Days & Shop Credit Buy-Back — Implementation Plan
 
+> **Status: COMPLETE 2026-08-07.** All waves (1–5) landed and merged to
+> `main` via `dbbb710`. Migrations **v148** (`add_daily_closing_carrier_lines`)
+> and **v149** (adds `CREDIT_BUYBACK` to `recharges.recharge_type`) both
+> present with `down()`. E2E: `lira-133-telecom-credit-buyback-ui-driven.spec.ts`
+> (desktop) + `lira-web-019-telecom-buyback.spec.ts` (web). The "Outbound
+> A/B/C/D" items at the end of this doc are explicitly separate, already-
+> tracked future tickets (cross-referenced to `WEB_PARITY_ROADMAP.md`), not
+> unfinished parts of this plan.
+
 **Status:** approved in interview 2026-08-06. Verified against source by an 8-agent audit on 2026-08-06 (87 claims: 54 confirmed, 33 corrected). **All decisions resolved — §0. Ready to implement.**
 **Migration baseline:** last applied is **v147** (`seed_sell_days_lbp_from_validity_days`, `packages/core/src/db/migrations/index.ts:7713`). New migrations start at **v148**. *(CLAUDE.md still says v97 — stale; the migrations file is authoritative. Updating CLAUDE.md is a Phase 1 task.)*
 **Data situation:** one test install with a pilot client; no production installs. Data disposable **by agreement with that client**. That agreement is load-bearing once — Phase 0, where existing `DAYS` rows carry the 33x over-deduction — so query the pilot install before Phase 0 rather than assuming zero rows. (Phase 1 no longer collapses any data; see §0.5.)
