@@ -197,9 +197,7 @@ test.describe("LIRA-136 — Binance mode C (customer pays separately), UI-driven
     ).not.toBeVisible();
     // The other two modes stay available — only mode C is session-gated.
     await expect(appPage.getByTestId("crypto-fee-mode-sender")).toBeVisible();
-    await expect(
-      appPage.getByTestId("crypto-fee-mode-deducted"),
-    ).toBeVisible();
+    await expect(appPage.getByTestId("crypto-fee-mode-deducted")).toBeVisible();
   });
 
   test("'Customer pays separately' is absent once For Partner is checked", async ({
@@ -207,9 +205,9 @@ test.describe("LIRA-136 — Binance mode C (customer pays separately), UI-driven
   }) => {
     await openBinanceCashOut(appPage);
 
-    await expect(
-      appPage.getByTestId("crypto-fee-mode-separate"),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(appPage.getByTestId("crypto-fee-mode-separate")).toBeVisible({
+      timeout: 10_000,
+    });
 
     await appPage.getByTestId("crypto-for-partner-toggle").click();
 

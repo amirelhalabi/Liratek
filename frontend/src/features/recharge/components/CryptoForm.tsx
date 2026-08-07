@@ -163,7 +163,12 @@ export function CryptoForm({
     if ((forPartner || !!activeSession) && feeCollectedSeparately) {
       setFeeCollectedSeparately(false);
     }
-  }, [forPartner, activeSession, feeCollectedSeparately, setFeeCollectedSeparately]);
+  }, [
+    forPartner,
+    activeSession,
+    feeCollectedSeparately,
+    setFeeCollectedSeparately,
+  ]);
 
   if (!activeConfig) return null;
 
@@ -382,9 +387,7 @@ export function CryptoForm({
                 }}
                 className="w-4 h-4 border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
               />
-              <span className="text-sm font-medium">
-                Deducted from payout
-              </span>
+              <span className="text-sm font-medium">Deducted from payout</span>
             </label>
             {/* Mode C has no walk-in fee to collect for a partner
                 transaction (no counter cash at all) and is never wired for

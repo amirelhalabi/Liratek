@@ -177,10 +177,10 @@ describe("CryptoForm — Binance mode C (Customer pays separately)", () => {
   it("SEND keeps the plain checkbox — no fee-mode radios at all", () => {
     render(<Harness initialCryptoType="SEND" />);
 
+    expect(screen.getByText("Fee included in amount")).toBeInTheDocument();
     expect(
-      screen.getByText("Fee included in amount"),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("crypto-fee-mode-sender")).not.toBeInTheDocument();
+      screen.queryByTestId("crypto-fee-mode-sender"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("crypto-fee-mode-deducted"),
     ).not.toBeInTheDocument();

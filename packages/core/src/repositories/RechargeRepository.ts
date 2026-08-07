@@ -73,7 +73,13 @@ export interface RechargeData {
    * method's normal sale body; `amount` is reused as the credits gained
    * (USD face value) and `price` as the total cash paid out (in `currency`).
    */
-  type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS" | "TOP_UP" | "ALFA_GIFT" | "CREDIT_BUYBACK";
+  type:
+    | "CREDIT_TRANSFER"
+    | "VOUCHER"
+    | "DAYS"
+    | "TOP_UP"
+    | "ALFA_GIFT"
+    | "CREDIT_BUYBACK";
   amount: number;
   cost: number;
   price: number;
@@ -779,7 +785,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // by contract (the partner ledger / session basket owns the
         // customer-cash side there), so `paidBy` is irrelevant in those
         // branches regardless of its value.
-        if (!isForPartner && !deferPayment && paidBy === "MULTI" && inPayments.length === 0) {
+        if (
+          !isForPartner &&
+          !deferPayment &&
+          paidBy === "MULTI" &&
+          inPayments.length === 0
+        ) {
           throw new Error(
             "Payment legs are required when paid_by_method is MULTI",
           );
@@ -1276,9 +1287,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           .prepare(
             `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = 'USD' AND tenant_id = ?`,
           )
-          .get(providerDrawerName, tenantId) as
-          | { balance: number }
-          | undefined;
+          .get(providerDrawerName, tenantId) as { balance: number } | undefined;
         const currentDrawerBalance = currentDrawerRow?.balance ?? 0;
         const targetSum = carrierLineRepo.getCarrierCreditsSum(carrier);
         const drawerDelta = targetSum - currentDrawerBalance;

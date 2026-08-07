@@ -91,9 +91,30 @@ const mockApi = {
 // currencies that are shop-wide active and/or live-feed-carried but have no
 // General-drawer config row, i.e. exactly what the backend would reject.
 const mockDrawerCurrencies = [
-  { id: 1, code: "USD", name: "US Dollar", symbol: "$", decimal_places: 2, is_active: 1 },
-  { id: 2, code: "LBP", name: "Lebanese Pound", symbol: "LBP", decimal_places: 0, is_active: 1 },
-  { id: 3, code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, is_active: 1 },
+  {
+    id: 1,
+    code: "USD",
+    name: "US Dollar",
+    symbol: "$",
+    decimal_places: 2,
+    is_active: 1,
+  },
+  {
+    id: 2,
+    code: "LBP",
+    name: "Lebanese Pound",
+    symbol: "LBP",
+    decimal_places: 0,
+    is_active: 1,
+  },
+  {
+    id: 3,
+    code: "EUR",
+    name: "Euro",
+    symbol: "€",
+    decimal_places: 2,
+    is_active: 1,
+  },
 ];
 const mockGetCurrenciesForDrawer = jest
   .fn()
@@ -191,8 +212,22 @@ describe("DrawerTopUpModal — extra-currency picker", () => {
 
   it("renders the empty state when the General drawer has no extra currencies configured", async () => {
     mockGetCurrenciesForDrawer.mockResolvedValue([
-      { id: 1, code: "USD", name: "US Dollar", symbol: "$", decimal_places: 2, is_active: 1 },
-      { id: 2, code: "LBP", name: "Lebanese Pound", symbol: "LBP", decimal_places: 0, is_active: 1 },
+      {
+        id: 1,
+        code: "USD",
+        name: "US Dollar",
+        symbol: "$",
+        decimal_places: 2,
+        is_active: 1,
+      },
+      {
+        id: 2,
+        code: "LBP",
+        name: "Lebanese Pound",
+        symbol: "LBP",
+        decimal_places: 0,
+        is_active: 1,
+      },
     ]);
     renderModal();
 

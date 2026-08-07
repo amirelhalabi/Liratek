@@ -20,7 +20,10 @@
 
 import Database from "better-sqlite3";
 import { ExchangeRepository } from "../ExchangeRepository";
-import { initFixedTenantContext, resetTenantContext } from "../../db/tenantContext";
+import {
+  initFixedTenantContext,
+  resetTenantContext,
+} from "../../db/tenantContext";
 import { resetTransactionRepository } from "../TransactionRepository";
 
 jest.mock("../../db/connection", () => {

@@ -203,16 +203,12 @@ describe("Recharge page — tab switch clears the stale Credit-tab phoneNumber (
 
     fireEvent.click(screen.getByTestId("type-shop-phone"));
     await waitFor(() =>
-      expect(screen.getByTestId("is-shop-line-match").textContent).toBe(
-        "true",
-      ),
+      expect(screen.getByTestId("is-shop-line-match").textContent).toBe("true"),
     );
 
     fireEvent.click(screen.getByTestId("switch-to-days"));
 
-    expect(screen.getByTestId("recharge-type-value").textContent).toBe(
-      "DAYS",
-    );
+    expect(screen.getByTestId("recharge-type-value").textContent).toBe("DAYS");
     // The fix: phoneNumber is cleared, so Days no longer inherits the stale
     // shop-line flag and would render its normal form, not the redirect.
     expect(screen.getByTestId("phone-number-value").textContent).toBe("");
@@ -228,9 +224,7 @@ describe("Recharge page — tab switch clears the stale Credit-tab phoneNumber (
 
     fireEvent.click(screen.getByTestId("type-shop-phone"));
     await waitFor(() =>
-      expect(screen.getByTestId("is-shop-line-match").textContent).toBe(
-        "true",
-      ),
+      expect(screen.getByTestId("is-shop-line-match").textContent).toBe("true"),
     );
 
     fireEvent.click(screen.getByTestId("switch-to-alfa-gift"));
@@ -243,9 +237,7 @@ describe("Recharge page — tab switch clears the stale Credit-tab phoneNumber (
 
     fireEvent.click(screen.getByTestId("type-shop-phone"));
     await waitFor(() =>
-      expect(screen.getByTestId("is-shop-line-match").textContent).toBe(
-        "true",
-      ),
+      expect(screen.getByTestId("is-shop-line-match").textContent).toBe("true"),
     );
 
     // Switching to the SAME tab it's already on (CREDIT_TRANSFER is the
@@ -263,9 +255,7 @@ describe("Recharge page — tab switch clears the stale Credit-tab phoneNumber (
 
     fireEvent.click(screen.getByTestId("type-shop-phone"));
     await waitFor(() =>
-      expect(screen.getByTestId("is-shop-line-match").textContent).toBe(
-        "true",
-      ),
+      expect(screen.getByTestId("is-shop-line-match").textContent).toBe("true"),
     );
 
     fireEvent.click(screen.getByTestId("switch-to-days"));
@@ -276,9 +266,7 @@ describe("Recharge page — tab switch clears the stale Credit-tab phoneNumber (
 
     fireEvent.click(screen.getByTestId("type-shop-phone"));
     await waitFor(() =>
-      expect(screen.getByTestId("is-shop-line-match").textContent).toBe(
-        "true",
-      ),
+      expect(screen.getByTestId("is-shop-line-match").textContent).toBe("true"),
     );
 
     fireEvent.click(screen.getByTestId("switch-to-days"));

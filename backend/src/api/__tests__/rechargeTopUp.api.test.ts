@@ -129,9 +129,11 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
     });
 
     it("surfaces a service exception as { success: false, error } instead of an unhandled 500", async () => {
-      jest.spyOn(rechargeService, "getDrawerBalances").mockImplementation(() => {
-        throw new Error("db exploded");
-      });
+      jest
+        .spyOn(rechargeService, "getDrawerBalances")
+        .mockImplementation(() => {
+          throw new Error("db exploded");
+        });
 
       const res = await request(app)
         .get("/api/recharge/drawer-balances")
@@ -190,7 +192,11 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
       const res = await request(app)
         .post("/api/recharge/top-up-app")
         .set("x-test-role", "admin")
-        .send({ provider: "OMT_APP", currency: "USD", sourceDrawer: "General" });
+        .send({
+          provider: "OMT_APP",
+          currency: "USD",
+          sourceDrawer: "General",
+        });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
@@ -243,7 +249,12 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
       const res = await request(app)
         .post("/api/recharge/top-up-from-partner")
         .set("x-test-role", "staff")
-        .send({ provider: "WHISH_APP", partnerId: 7, amount: 30, currency: "USD" });
+        .send({
+          provider: "WHISH_APP",
+          partnerId: 7,
+          amount: 30,
+          currency: "USD",
+        });
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: true });
@@ -261,7 +272,12 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
 
       const res = await request(app)
         .post("/api/recharge/top-up-from-partner")
-        .send({ provider: "WHISH_APP", partnerId: 7, amount: 30, currency: "USD" });
+        .send({
+          provider: "WHISH_APP",
+          partnerId: 7,
+          amount: 30,
+          currency: "USD",
+        });
 
       expect(res.status).toBe(401);
       expect(spy).not.toHaveBeenCalled();

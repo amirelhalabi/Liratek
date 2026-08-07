@@ -7809,7 +7809,9 @@ export const MIGRATIONS: Migration[] = [
     },
     down(db: Database.Database) {
       db.exec(`DROP TABLE IF EXISTS daily_closing_carrier_lines`);
-      console.log("Migration v148 rolled back: daily_closing_carrier_lines dropped");
+      console.log(
+        "Migration v148 rolled back: daily_closing_carrier_lines dropped",
+      );
     },
   },
   {
@@ -7829,9 +7831,7 @@ export const MIGRATIONS: Migration[] = [
         )
         .get();
       if (!hasRecharges) {
-        console.log(
-          "Migration v149 skipped: no 'recharges' table present",
-        );
+        console.log("Migration v149 skipped: no 'recharges' table present");
         return;
       }
 

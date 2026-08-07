@@ -67,9 +67,9 @@ describe("CarrierLinesPanel", () => {
   it("shows an '+ Add line' chip (not empty) when there are no active lines", async () => {
     mockGetActiveCarrierLines.mockResolvedValue([]);
     render(<CarrierLinesPanel carrier="mtc" />);
-    expect(
-      await screen.findByTestId("add-carrier-line-mtc"),
-    ).toHaveTextContent("+ Add MTC line");
+    expect(await screen.findByTestId("add-carrier-line-mtc")).toHaveTextContent(
+      "+ Add MTC line",
+    );
   });
 
   it("add-a-line: opens the inline form, requires a phone number, and creates via useApi().createCarrierLine", async () => {
@@ -83,9 +83,9 @@ describe("CarrierLinesPanel", () => {
 
     // Empty phone number is rejected client-side — no API call.
     fireEvent.click(screen.getByText("Add"));
-    expect(await screen.findByTestId("add-carrier-line-error")).toHaveTextContent(
-      "Phone number is required",
-    );
+    expect(
+      await screen.findByTestId("add-carrier-line-error"),
+    ).toHaveTextContent("Phone number is required");
     expect(mockCreateCarrierLine).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByPlaceholderText("03123456"), {

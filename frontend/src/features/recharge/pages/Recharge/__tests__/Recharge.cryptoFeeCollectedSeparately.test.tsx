@@ -206,7 +206,9 @@ describe("Recharge page — Binance mode C (Customer pays separately)", () => {
     fireEvent.change(screen.getByTestId("crypto-fee-input"), {
       target: { value: "2" },
     });
-    fireEvent.click(screen.getByTestId("crypto-toggle-fee-collected-separately"));
+    fireEvent.click(
+      screen.getByTestId("crypto-toggle-fee-collected-separately"),
+    );
     fireEvent.click(screen.getByTestId("crypto-inject-payout"));
     fireEvent.click(screen.getByTestId("crypto-inject-fee-payment"));
     fireEvent.click(screen.getByTestId("crypto-confirm"));
@@ -270,7 +272,9 @@ describe("Recharge page — Binance mode C (Customer pays separately)", () => {
       target: { value: "100" },
     });
     // No fee typed — cryptoFee stays "".
-    fireEvent.click(screen.getByTestId("crypto-toggle-fee-collected-separately"));
+    fireEvent.click(
+      screen.getByTestId("crypto-toggle-fee-collected-separately"),
+    );
     fireEvent.click(screen.getByTestId("crypto-inject-payout"));
     fireEvent.click(screen.getByTestId("crypto-confirm"));
 

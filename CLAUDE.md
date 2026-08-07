@@ -165,31 +165,31 @@ yarn rebuild:node
 
 ## Key Reference Files
 
-| What                                       | Where                                                      |
-| ------------------------------------------ | ---------------------------------------------------------- |
-| Money rules & feature checklist            | `docs/FEATURE_GUIDE.md`                                    |
-| Dual-transport (desktop+web) status & shim | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md`              |
-| Dual-mode API adapter                      | `frontend/src/api/backendApi.ts` + `ElectronApiAdapter.ts` |
-| E2E suite index & conventions              | `frontend/tests/e2e-electron/README.md`                    |
-| Repository example                         | `packages/core/src/repositories/SalesRepository.ts`        |
-| Service example                            | `packages/core/src/services/SalesService.ts`               |
-| IPC handler example                        | `electron-app/handlers/salesHandlers.ts`                   |
-| Preload bindings                           | `electron-app/preload.ts`                                  |
-| TypeScript types                           | `frontend/src/types/electron.d.ts`                         |
-| Page example                               | `frontend/src/features/loto/pages/Loto/index.tsx`          |
-| Routes                                     | `frontend/src/app/App.tsx`                                 |
-| Migrations                                 | `packages/core/src/db/migrations/index.ts`                 |
-| Fresh schema                               | `electron-app/create_db.sql`                               |
-| DB connection                              | `packages/core/src/db/connection.ts`                       |
-| Loggers                                    | `packages/core/src/utils/logger.ts`                        |
-| CI workflow                                | `.github/workflows/ci.yml`                                 |
-| Build workflow                             | `.github/workflows/build.yml`                              |
-| Backend patterns (repository/service/logger conventions, build & sync) | `packages/core/CLAUDE.md` |
-| Electron patterns (IPC handler/preload/Zod conventions)   | `electron-app/CLAUDE.md`                                   |
-| Frontend patterns (page/component/hook templates, routes) | `frontend/src/CLAUDE.md`                                   |
-| CI/CD conventions                          | `.github/CLAUDE.md`                                        |
-| Adding a DB migration (template, schema standards)        | `add-migration` skill                                      |
-| Adding a brand-new feature module end-to-end               | `add-feature-module` skill                                 |
+| What                                                                   | Where                                                      |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Money rules & feature checklist                                        | `docs/FEATURE_GUIDE.md`                                    |
+| Dual-transport (desktop+web) status & shim                             | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md`              |
+| Dual-mode API adapter                                                  | `frontend/src/api/backendApi.ts` + `ElectronApiAdapter.ts` |
+| E2E suite index & conventions                                          | `frontend/tests/e2e-electron/README.md`                    |
+| Repository example                                                     | `packages/core/src/repositories/SalesRepository.ts`        |
+| Service example                                                        | `packages/core/src/services/SalesService.ts`               |
+| IPC handler example                                                    | `electron-app/handlers/salesHandlers.ts`                   |
+| Preload bindings                                                       | `electron-app/preload.ts`                                  |
+| TypeScript types                                                       | `frontend/src/types/electron.d.ts`                         |
+| Page example                                                           | `frontend/src/features/loto/pages/Loto/index.tsx`          |
+| Routes                                                                 | `frontend/src/app/App.tsx`                                 |
+| Migrations                                                             | `packages/core/src/db/migrations/index.ts`                 |
+| Fresh schema                                                           | `electron-app/create_db.sql`                               |
+| DB connection                                                          | `packages/core/src/db/connection.ts`                       |
+| Loggers                                                                | `packages/core/src/utils/logger.ts`                        |
+| CI workflow                                                            | `.github/workflows/ci.yml`                                 |
+| Build workflow                                                         | `.github/workflows/build.yml`                              |
+| Backend patterns (repository/service/logger conventions, build & sync) | `packages/core/CLAUDE.md`                                  |
+| Electron patterns (IPC handler/preload/Zod conventions)                | `electron-app/CLAUDE.md`                                   |
+| Frontend patterns (page/component/hook templates, routes)              | `frontend/src/CLAUDE.md`                                   |
+| CI/CD conventions                                                      | `.github/CLAUDE.md`                                        |
+| Adding a DB migration (template, schema standards)                     | `add-migration` skill                                      |
+| Adding a brand-new feature module end-to-end                           | `add-feature-module` skill                                 |
 
 ---
 

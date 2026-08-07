@@ -602,7 +602,10 @@ export class CarrierLineRepository extends BaseRepository<CarrierLineEntity> {
   applyMovement(
     input: ApplyCarrierLineMovementInput,
   ): CarrierLineMovementMutation {
-    if (input.validityExpiresAt !== undefined && input.validityDaysDelta !== 0) {
+    if (
+      input.validityExpiresAt !== undefined &&
+      input.validityDaysDelta !== 0
+    ) {
       throw new Error(
         "applyMovement: validityExpiresAt and a non-zero validityDaysDelta are mutually exclusive",
       );

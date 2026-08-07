@@ -32,7 +32,13 @@ export const createRechargeSchema = z.object({
   // `CREDIT_BUYBACK` (CARRIER_LINES_VALIDITY_PLAN.md Phase 6): the shop-line
   // detection flip — routed to `RechargeRepository.processCreditBuyback`
   // instead of the normal sale body. Client-submitted, unlike TOP_UP.
-  type: z.enum(["CREDIT_TRANSFER", "VOUCHER", "DAYS", "ALFA_GIFT", "CREDIT_BUYBACK"]),
+  type: z.enum([
+    "CREDIT_TRANSFER",
+    "VOUCHER",
+    "DAYS",
+    "ALFA_GIFT",
+    "CREDIT_BUYBACK",
+  ]),
   // The IPC copy's `positive()` wins over the old REST `nonnegative()`: a
   // zero-amount recharge is meaningless for every type (0 credits, 0 days,
   // a $0 gift) and still writes a transaction row. The shipped desktop

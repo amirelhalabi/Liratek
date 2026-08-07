@@ -1048,7 +1048,12 @@ export interface ElectronAPI {
     >;
     process: (data: {
       provider: "MTC" | "Alfa";
-      type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS" | "ALFA_GIFT" | "CREDIT_BUYBACK";
+      type:
+        | "CREDIT_TRANSFER"
+        | "VOUCHER"
+        | "DAYS"
+        | "ALFA_GIFT"
+        | "CREDIT_BUYBACK";
       amount: number;
       cost: number;
       price: number;

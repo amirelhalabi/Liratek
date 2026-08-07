@@ -647,9 +647,7 @@ describe("MultiPaymentInput", () => {
       rerender(ui(90_500));
 
       // The operator's edit must survive — not be clobbered by the new prop.
-      expect(screen.getByTestId("payment-exchange-rate")).toHaveValue(
-        "89,000",
-      );
+      expect(screen.getByTestId("payment-exchange-rate")).toHaveValue("89,000");
       expect(onExchangeRateChange).toHaveBeenLastCalledWith(89000);
     });
 
@@ -657,9 +655,7 @@ describe("MultiPaymentInput", () => {
       const onExchangeRateChange: RateMock = jest.fn();
       renderMpi({ exchangeRate: 91_000, onExchangeRateChange });
 
-      expect(screen.getByTestId("payment-exchange-rate")).toHaveValue(
-        "91,000",
-      );
+      expect(screen.getByTestId("payment-exchange-rate")).toHaveValue("91,000");
       expect(onExchangeRateChange).toHaveBeenCalledWith(91000);
     });
   });

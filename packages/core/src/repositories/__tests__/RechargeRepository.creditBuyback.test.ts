@@ -287,7 +287,9 @@ describe("RechargeRepository.processCreditBuyback()", () => {
     expect(balance(db, "General", "USD")).toBeCloseTo(491, 2);
 
     const txn = db
-      .prepare(`SELECT * FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK'`)
+      .prepare(
+        `SELECT * FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK'`,
+      )
       .get() as any;
     expect(txn).toBeDefined();
     expect(txn.amount_usd).toBeCloseTo(9, 2);
@@ -334,7 +336,9 @@ describe("RechargeRepository.processCreditBuyback()", () => {
     expect(balance(db, "General", "LBP")).toBeCloseTo(100_000_000 - 447_500, 2);
 
     const txn = db
-      .prepare(`SELECT * FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK'`)
+      .prepare(
+        `SELECT * FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK'`,
+      )
       .get() as any;
     expect(txn.profit_usd).toBeCloseTo(2, 2); // 12 - 10
   });
@@ -383,7 +387,9 @@ describe("RechargeRepository.processCreditBuyback()", () => {
       cost: 0,
       price: 10,
       currency: "USD",
-      payments: [{ method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 10 }],
+      payments: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 10 },
+      ],
       userId: 1,
     });
 
@@ -497,14 +503,20 @@ describe("RechargeRepository.processCreditBuyback()", () => {
 
     expect(result.success).toBe(true);
     const txn = db
-      .prepare(`SELECT * FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK'`)
+      .prepare(
+        `SELECT * FROM transactions WHERE type = 'TELECOM_CREDIT_BUYBACK'`,
+      )
       .get() as any;
     expect(txn.profit_usd).toBeCloseTo(10 - 850_500 / 89_500, 4);
     expect(txn.profit_lbp).toBeCloseTo(0, 2);
   });
 
   it("§0.1/§0.6: the drawer converges to the line sum even when it had already drifted beforehand (a NEW path gets no grandfather exemption)", () => {
-    const line = lineRepo.createLine({ carrier: "alfa", phone_number: "70123456", credits: 5 });
+    const line = lineRepo.createLine({
+      carrier: "alfa",
+      phone_number: "70123456",
+      credits: 5,
+    });
     seedDrawer(db, "Alfa", "USD", 100); // deliberately NOT in sync with the line (5)
     seedDrawer(db, "General", "USD", 500);
 

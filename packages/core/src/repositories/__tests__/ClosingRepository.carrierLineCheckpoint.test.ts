@@ -288,7 +288,9 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
     expect(
       (
         db
-          .prepare(`SELECT COUNT(*) AS n FROM payments WHERE drawer_name = 'MTC'`)
+          .prepare(
+            `SELECT COUNT(*) AS n FROM payments WHERE drawer_name = 'MTC'`,
+          )
           .get() as { n: number }
       ).n,
     ).toBe(0);
@@ -317,9 +319,7 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
           physical_amount: 32.5,
         },
       ],
-      carrier_lines: [
-        { carrier_line_id: line.id, counted_credits: 32.5 },
-      ],
+      carrier_lines: [{ carrier_line_id: line.id, counted_credits: 32.5 }],
     });
     expect(result.success).toBe(true);
 
@@ -606,9 +606,9 @@ describe("ClosingRepository — checkpoint counts carrier credits + validity", (
     expect(movementCount()).toBe(0);
     expect(
       (
-        db
-          .prepare(`SELECT COUNT(*) AS n FROM daily_closing_amounts`)
-          .get() as { n: number }
+        db.prepare(`SELECT COUNT(*) AS n FROM daily_closing_amounts`).get() as {
+          n: number;
+        }
       ).n,
     ).toBe(0);
   });

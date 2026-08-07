@@ -501,7 +501,10 @@ describe("RechargeRepository — DAYS sale debits the days cost, not the day cou
     expect(result.success).toBe(true);
 
     expect(drawer(db, "MTC", "USD")).toBeCloseTo(mtcBefore - 0.9, 6);
-    expect(drawer(db, "General", "LBP")).toBeCloseTo(generalBefore + 250_000, 6);
+    expect(drawer(db, "General", "LBP")).toBeCloseTo(
+      generalBefore + 250_000,
+      6,
+    );
 
     txnRepo.voidTransaction(txnIdFor(db, "recharges", result.id as number), 1);
 

@@ -52,8 +52,8 @@ function ShopLineRedirectNotice({
           This is the shop&apos;s own {carrierLabel} line
         </p>
         <p className="text-sm text-slate-300">
-          {target === "Days" ? "Validity" : "Gift value"} can only be added
-          by charging an iPick or Katsh catalog item to this line — use{" "}
+          {target === "Days" ? "Validity" : "Gift value"} can only be added by
+          charging an iPick or Katsh catalog item to this line — use{" "}
           <span className="font-semibold text-white">
             &quot;Charge to shop line&quot;
           </span>{" "}
@@ -468,7 +468,10 @@ export function TelecomForm({
          * iPick/Katsh item's self-charge-eligible category does not map
          * 1:1 to a single provider, so a text-only redirect is the
          * conservative choice — see the report for detail). */
-        <ShopLineRedirectNotice carrierLabel={carrierLabel} target="Alfa Gift" />
+        <ShopLineRedirectNotice
+          carrierLabel={carrierLabel}
+          target="Alfa Gift"
+        />
       ) : rechargeType === "ALFA_GIFT" ? (
         /* Alfa Gift — shared card-grid pay flow */
         <CardGridPayView
@@ -525,8 +528,8 @@ export function TelecomForm({
                       className="text-xs text-amber-400 font-medium mb-2 -mt-1"
                       data-testid="shop-line-buyback-note"
                     >
-                      This is the shop&apos;s own line — this will be
-                      recorded as a credit buy-back
+                      This is the shop&apos;s own line — this will be recorded
+                      as a credit buy-back
                     </p>
                   )}
                   <div className="relative">
@@ -915,13 +918,17 @@ export function TelecomForm({
                   // IN-direction debt leg would invert the sign of the
                   // unpaid remainder on this money-OUT flow (MultiPaymentInput's
                   // own warning; see FEATURE_GUIDE §7 / plan Phase 6).
-                  autoDebtRemainder={isCreditBuyback ? false : !!telecomClientId}
+                  autoDebtRemainder={
+                    isCreditBuyback ? false : !!telecomClientId
+                  }
                   // Buy-back: only require a client when the operator
                   // actually picked a CUSTOMER_ACCOUNT leg — otherwise a
                   // CASH/wallet-only cashout needs no client at all.
                   requiresClientForDebt={
                     isCreditBuyback
-                      ? paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
+                      ? paymentLines.some(
+                          (l) => l.method === "CUSTOMER_ACCOUNT",
+                        )
                       : true
                   }
                   paymentInputKey={paymentInputKey}

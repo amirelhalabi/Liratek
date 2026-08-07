@@ -600,7 +600,10 @@ export default function CheckpointTimeline() {
                             </span>
                             <span className="text-slate-600">→</span>
                             <span className="text-sm text-white font-semibold truncate">
-                              {formatCurrencyAmount(line.counted_credits, "USD")}
+                              {formatCurrencyAmount(
+                                line.counted_credits,
+                                "USD",
+                              )}
                             </span>
                           </div>
                           {credits.status === "match" ? (

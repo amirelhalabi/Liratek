@@ -58,9 +58,7 @@ type Api = {
         data?: { id: number };
         error?: string;
       }>;
-      setPrimary: (
-        id: number,
-      ) => Promise<{ success: boolean; error?: string }>;
+      setPrimary: (id: number) => Promise<{ success: boolean; error?: string }>;
       getAllAdmin: () => Promise<{
         success: boolean;
         data?: Array<{
@@ -166,10 +164,7 @@ async function seedPrimaryMtcLine(
   return { id: created.data.id, creditsBefore };
 }
 
-async function readCarrierLineCredits(
-  page: Page,
-  id: number,
-): Promise<number> {
+async function readCarrierLineCredits(page: Page, id: number): Promise<number> {
   return page.evaluate(async (lineId) => {
     const w = window as unknown as Api;
     const res = await w.api.carrierLines.getAllAdmin();
@@ -206,9 +201,9 @@ test.describe("CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — telecom credit buy-bac
 
     // ── The seam this spec exists to prove: the UI detects the shop's own
     // line and flips, BEFORE any IPC call happens. ────────────────────────
-    await expect(
-      appPage.getByTestId("shop-line-buyback-note"),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(appPage.getByTestId("shop-line-buyback-note")).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(appPage.getByText("Price to Customer")).toBeVisible();
     const submitBtn = appPage.getByRole("button", {
       name: /Proceed to Pay Out/i,

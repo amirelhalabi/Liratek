@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  lazy,
+  Suspense,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   appEvents,

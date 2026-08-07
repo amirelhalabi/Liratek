@@ -282,22 +282,17 @@ test.describe("Telecom credit buy-back over REST (CARRIER_LINES_VALIDITY_PLAN.md
     seedStaffUser();
     const headers = await loginHeaders(page, STAFF_USERNAME, STAFF_PASSWORD);
 
-    const res = await page.request.post(
-      `${BACKEND_URL}/api/recharge/process`,
-      {
-        headers,
-        data: {
-          provider: "MTC",
-          type: "CREDIT_BUYBACK",
-          amount: 5,
-          price: 100_000,
-          currency: "LBP",
-          payments: [
-            { method: "CASH", currencyCode: "LBP", amount: 100_000 },
-          ],
-        },
+    const res = await page.request.post(`${BACKEND_URL}/api/recharge/process`, {
+      headers,
+      data: {
+        provider: "MTC",
+        type: "CREDIT_BUYBACK",
+        amount: 5,
+        price: 100_000,
+        currency: "LBP",
+        payments: [{ method: "CASH", currencyCode: "LBP", amount: 100_000 }],
       },
-    );
+    });
 
     // requireRole(["admin"]) (backend/src/middleware/auth.ts) — 403, no
     // `success` envelope at this layer (matches the middleware's existing,

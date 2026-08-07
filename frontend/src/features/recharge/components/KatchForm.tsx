@@ -799,8 +799,8 @@ function KatchFormInner({
         api.getPrimaryCarrierLine("alfa"),
       ]);
       setPrimaryLines({
-        mtc: mtc.success ? mtc.data ?? null : null,
-        alfa: alfa.success ? alfa.data ?? null : null,
+        mtc: mtc.success ? (mtc.data ?? null) : null,
+        alfa: alfa.success ? (alfa.data ?? null) : null,
       });
     } catch (err) {
       logger.error("Failed to load primary carrier lines:", err);

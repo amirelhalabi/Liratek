@@ -19,9 +19,9 @@ describe("derivePaidByMethod", () => {
   });
 
   it("returns the single leg's own method — never the stale fallback", () => {
-    expect(
-      derivePaidByMethod([{ method: "CUSTOMER_ACCOUNT" }], "CASH"),
-    ).toBe("CUSTOMER_ACCOUNT");
+    expect(derivePaidByMethod([{ method: "CUSTOMER_ACCOUNT" }], "CASH")).toBe(
+      "CUSTOMER_ACCOUNT",
+    );
   });
 
   // rule 17 — the exact bug this closes: pre-fix, a form that only updated

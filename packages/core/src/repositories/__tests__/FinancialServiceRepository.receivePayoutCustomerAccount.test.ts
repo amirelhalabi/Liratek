@@ -289,10 +289,7 @@ describe("FinancialServiceRepository — OMT RECEIVE payout, mixed CASH + CUSTOM
     // was the OPPOSITE defect — the fallback fired for the FULL amount on
     // TOP of the real CASH leg never being isolated correctly. Either way,
     // -60 exactly is the only correct outcome.)
-    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-      beforeOmtUsd - 60,
-      2,
-    );
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(beforeOmtUsd - 60, 2);
 
     // The CUSTOMER_ACCOUNT leg was credited to the client's account exactly
     // once, for exactly its own 40 — not silently dropped.
@@ -321,10 +318,7 @@ describe("FinancialServiceRepository — OMT RECEIVE payout, mixed CASH + CUSTOM
       exchangeRate: 89000,
     });
 
-    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(
-      beforeOmtUsd - 100,
-      2,
-    );
+    expect(balance(db, "OMT_System", "USD")).toBeCloseTo(beforeOmtUsd - 100, 2);
     expect(addCreditMock).not.toHaveBeenCalled();
   });
 

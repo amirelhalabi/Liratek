@@ -1337,10 +1337,7 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
       5,
     );
     // Cash side, USD only: -100 (full payout, no netting) + 5 (fee) = -95.
-    expect(balance(db, "General", "USD")).toBeCloseTo(
-      generalUsdBefore - 95,
-      5,
-    );
+    expect(balance(db, "General", "USD")).toBeCloseTo(generalUsdBefore - 95, 5);
 
     const legs = feeLegRows(db, fsId);
     expect(legs).toHaveLength(1);
@@ -1396,10 +1393,7 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
     );
     expect(balance(db, "OMT_App", "USD")).toBeCloseTo(omtAppUsdBefore + 3, 5);
     // General: +2 (CASH fee leg) - 100 (payout) = -98
-    expect(balance(db, "General", "USD")).toBeCloseTo(
-      generalUsdBefore - 98,
-      5,
-    );
+    expect(balance(db, "General", "USD")).toBeCloseTo(generalUsdBefore - 98, 5);
   });
 
   it("(r3) BINANCE mode C fee charged to CUSTOMER_ACCOUNT — no drawer for the fee, debt_ledger 'Service Debt' +f", () => {

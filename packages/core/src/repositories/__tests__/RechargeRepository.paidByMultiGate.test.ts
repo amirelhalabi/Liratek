@@ -180,8 +180,7 @@ function counts(db: Database.Database): {
   payments: number;
 } {
   const one = (table: string) =>
-    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number })
-      .n;
+    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
   return {
     recharges: one("recharges"),
     transactions: one("transactions"),

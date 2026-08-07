@@ -1,13 +1,6 @@
 import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
-import {
-  Wallet,
-  X,
-  AlertTriangle,
-  Info,
-  UserRound,
-  Users,
-} from "lucide-react";
+import { Wallet, X, AlertTriangle, Info, UserRound, Users } from "lucide-react";
 
 function fmtCommas(value: string): string {
   if (!value) return value;

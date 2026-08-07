@@ -3,10 +3,7 @@
  * Phase 6. Format list is the plan's own: "03 123456", "+96103123456",
  * "96103123456", and an international-access-code variant ("00...").
  */
-import {
-  normalizeLebanesePhone,
-  isSameLebanesePhone,
-} from "../phoneNumber";
+import { normalizeLebanesePhone, isSameLebanesePhone } from "../phoneNumber";
 
 describe("normalizeLebanesePhone", () => {
   it("returns the same core for every equivalent format the plan lists", () => {

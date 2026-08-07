@@ -387,7 +387,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       `);
 
       const tx = this.db.transaction(
-        (rows: CheckpointAmount[], lineCounts: CheckpointCarrierLineCount[]) => {
+        (
+          rows: CheckpointAmount[],
+          lineCounts: CheckpointCarrierLineCount[],
+        ) => {
           // 0. Resolve every counted SIM line against the DB (the client
           //    sends only ids + counted values) and project what each
           //    carrier's credits sum becomes once the counts are applied.

@@ -89,9 +89,7 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
         customer_name: name,
         started_by: "admin",
       });
-      return (
-        started.sessionId ?? (await w.api.session.getActive()).session?.id
-      );
+      return started.sessionId ?? (await w.api.session.getActive()).session?.id;
     }, `L135 Mixed Basket Customer ${ts}`);
     expect(sessionId).toBeTruthy();
 
@@ -112,9 +110,7 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
     await expect(search).toBeVisible({ timeout: 15_000 });
     await search.fill(SERVICE_DESC);
     await search.press("Enter");
-    await expect(appPage.locator("#svc-description")).toHaveValue(
-      SERVICE_DESC,
-    );
+    await expect(appPage.locator("#svc-description")).toHaveValue(SERVICE_DESC);
     await appPage.locator("#svc-price").fill("50");
     await appPage.getByRole("button", { name: /Submit Service/i }).click();
     await expect(

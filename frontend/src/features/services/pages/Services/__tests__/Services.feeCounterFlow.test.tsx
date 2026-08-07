@@ -464,9 +464,7 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
       await setUpReceiveWithFee();
 
       fireEvent.change(
-        document.getElementById(
-          "service-receiver-phone",
-        ) as HTMLInputElement,
+        document.getElementById("service-receiver-phone") as HTMLInputElement,
         { target: { value: "70111222" } },
       );
 
@@ -483,9 +481,7 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
         { target: { value: "Jane Doe" } },
       );
       fireEvent.change(
-        document.getElementById(
-          "service-receiver-phone",
-        ) as HTMLInputElement,
+        document.getElementById("service-receiver-phone") as HTMLInputElement,
         { target: { value: "70111222" } },
       );
 

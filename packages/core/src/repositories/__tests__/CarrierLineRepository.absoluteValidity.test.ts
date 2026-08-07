@@ -160,7 +160,9 @@ describe("CarrierLineRepository — absolute validity date (Phase 3)", () => {
     // Nothing was written on the rejected call.
     expect(
       (
-        db.prepare(`SELECT COUNT(*) AS n FROM carrier_line_movements`).get() as {
+        db
+          .prepare(`SELECT COUNT(*) AS n FROM carrier_line_movements`)
+          .get() as {
           n: number;
         }
       ).n,
