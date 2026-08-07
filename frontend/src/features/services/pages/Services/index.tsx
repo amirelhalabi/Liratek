@@ -26,6 +26,7 @@ import {
   useApi,
   appEvents,
   DecimalInput,
+  canChargeToCustomerAccount,
 } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
@@ -2187,7 +2188,10 @@ export default function Services() {
                             (pm) => pm.code !== "GIFT_CARD",
                           ),
                           requiresClient: true,
-                          hasClient: !!receiverName || !!receiverPhone,
+                          hasClient: canChargeToCustomerAccount({
+                            name: receiverName,
+                            phone: receiverPhone,
+                          }),
                         }
                       : undefined
                   }

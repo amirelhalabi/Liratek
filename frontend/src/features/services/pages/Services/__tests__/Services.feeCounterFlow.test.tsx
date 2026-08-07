@@ -42,6 +42,23 @@ const mockGetSupplierBalances = jest.fn().mockResolvedValue([]);
 const mockPartnersGetAll = jest.fn().mockResolvedValue([]);
 const mockAddToCart = jest.fn();
 
+// Stable reference — must NOT be a fresh object literal per call. The real
+// useApi() is referentially stable across renders; the page's `loadData`
+// useCallback depends on `api` (~line 547), and its enclosing effect
+// (~line 549) resets sender/receiver name+phone to "" whenever `serviceType`/
+// `activeSession`/`loadData` change identity. A fresh `useApi()` object each
+// render would make `loadData` (and so that effect) re-fire on every
+// keystroke, silently wiping whatever the §10.3 hasClient tests below just
+// typed into the receiver name/phone fields before the assertion ever runs.
+const mockApi = {
+  getOMTHistory: mockGetOMTHistory,
+  getOMTAnalytics: mockGetOMTAnalytics,
+  getSuppliers: mockGetSuppliers,
+  getSupplierBalances: mockGetSupplierBalances,
+  partners: { getAll: mockPartnersGetAll },
+  addOMTTransaction: mockAddOMTTransaction,
+};
+
 // Mutable — flipped per-test so the SAME mocked module can represent both
 // the non-session and active-session cases (jest.mock factories read this
 // at render time via the useSession() call, not at module-eval time).
@@ -53,19 +70,15 @@ let mockActiveSession: {
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
-  useApi: () => ({
-    getOMTHistory: mockGetOMTHistory,
-    getOMTAnalytics: mockGetOMTAnalytics,
-    getSuppliers: mockGetSuppliers,
-    getSupplierBalances: mockGetSupplierBalances,
-    partners: { getAll: mockPartnersGetAll },
-    addOMTTransaction: mockAddOMTTransaction,
-  }),
+  useApi: () => mockApi,
   // Stub exposing exactly the callback surface the page wires: the main
   // onChange/onReturnChange (unused here) plus — when the page supplies a
   // `counterFlow` config — a button that fires ITS onChange with one CASH
   // line at the full totalAmount, mirroring the real component's
   // mount-seeding effect (covered in full by MultiPaymentInput.test.tsx).
+  // Also surfaces `counterFlow.hasClient` as text so tests can assert on the
+  // CUSTOMER_ACCOUNT gate (§10.3: must be name-AND-phone, not name-OR-phone)
+  // without reaching into the real MultiPaymentInput/PaymentSheet internals.
   MultiPaymentInput: ({
     counterFlow,
   }: {
@@ -74,23 +87,29 @@ jest.mock("@liratek/ui", () => ({
       totalAmount: number;
       currency: string;
       onChange: (lines: unknown[]) => void;
+      hasClient?: boolean;
     };
   }) => (
     <div data-testid="stub-multi-payment-input">
       {counterFlow && (
-        <button
-          data-testid="mpi-seed-counter-flow"
-          onClick={() =>
-            counterFlow.onChange([
-              {
-                id: "FEE1",
-                method: "CASH",
-                currencyCode: counterFlow.currency,
-                amount: counterFlow.totalAmount,
-              },
-            ])
-          }
-        />
+        <>
+          <span data-testid="counter-flow-has-client">
+            {String(counterFlow.hasClient)}
+          </span>
+          <button
+            data-testid="mpi-seed-counter-flow"
+            onClick={() =>
+              counterFlow.onChange([
+                {
+                  id: "FEE1",
+                  method: "CASH",
+                  currencyCode: counterFlow.currency,
+                  amount: counterFlow.totalAmount,
+                },
+              ])
+            }
+          />
+        </>
       )}
     </div>
   ),
@@ -191,8 +210,28 @@ jest.mock("@/shared/components/TransactionTimeOverride", () => ({
   TransactionTimeOverride: () => null,
 }));
 
+// A working (non-null) stub — needed for the §10.3 hasClient tests below,
+// which type into the receiver name/phone fields. Mirrors the real
+// component's controlled-input contract (value/onChange(value: string)).
 jest.mock("@/shared/components/ClientAutocompleteInput", () => ({
-  ClientAutocompleteInput: () => null,
+  ClientAutocompleteInput: ({
+    id,
+    value,
+    onChange,
+    placeholder,
+  }: {
+    id?: string;
+    value: string;
+    onChange: (v: string) => void;
+    placeholder?: string;
+  }) => (
+    <input
+      id={id}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
 }));
 
 // The THROUGH-mode selector (`systemFilter="WHISH"`, ~line 1412) never
@@ -386,5 +425,73 @@ describe("Services page — RECEIVE fee counter-flow wiring (BIDIRECTIONAL_PAYME
     expect(payload.partnerMode).toBe("FOR");
     expect(payload.partnerId).toBe(1);
     expect(payload).not.toHaveProperty("feePayments");
+  });
+
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.3: the counter-flow's CUSTOMER_ACCOUNT
+  // gate must use the canonical name-AND-phone rule (`canChargeToCustomerAccount`),
+  // not the one-off name-OR-phone check it shipped with. Proven failing-first
+  // (rule 17): reverting the fix's line to `!!receiverName || !!receiverPhone`
+  // turns the first two assertions below green→red (they'd read "true" instead
+  // of "false"), confirming the test exercises the exact regressed predicate.
+  describe("counter-flow hasClient gate (§10.3 — name-AND-phone, not name-OR-phone)", () => {
+    async function setUpReceiveWithFee() {
+      await renderPage();
+      switchToOmtReceive();
+      fireEvent.change(
+        document.getElementById("service-amount") as HTMLInputElement,
+        { target: { value: "100" } },
+      );
+      fireEvent.change(
+        document.getElementById("service-omt-fee") as HTMLInputElement,
+        { target: { value: "5" } },
+      );
+    }
+
+    it("receiver name only (no phone) → hasClient is false", async () => {
+      await setUpReceiveWithFee();
+
+      fireEvent.change(
+        document.getElementById("service-receiver-name") as HTMLInputElement,
+        { target: { value: "Jane Doe" } },
+      );
+
+      expect(screen.getByTestId("counter-flow-has-client")).toHaveTextContent(
+        "false",
+      );
+    });
+
+    it("receiver phone only (no name) → hasClient is false", async () => {
+      await setUpReceiveWithFee();
+
+      fireEvent.change(
+        document.getElementById(
+          "service-receiver-phone",
+        ) as HTMLInputElement,
+        { target: { value: "70111222" } },
+      );
+
+      expect(screen.getByTestId("counter-flow-has-client")).toHaveTextContent(
+        "false",
+      );
+    });
+
+    it("receiver name AND phone → hasClient is true", async () => {
+      await setUpReceiveWithFee();
+
+      fireEvent.change(
+        document.getElementById("service-receiver-name") as HTMLInputElement,
+        { target: { value: "Jane Doe" } },
+      );
+      fireEvent.change(
+        document.getElementById(
+          "service-receiver-phone",
+        ) as HTMLInputElement,
+        { target: { value: "70111222" } },
+      );
+
+      expect(screen.getByTestId("counter-flow-has-client")).toHaveTextContent(
+        "true",
+      );
+    });
   });
 });
