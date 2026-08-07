@@ -513,6 +513,32 @@ function buildSchema(db: Database.Database): void {
       UNIQUE(closing_id, drawer_name, currency_code)
     );
 
+    -- Carrier lines (shop-owned SIM lines) + their per-checkpoint count
+    -- snapshot. Needed only so getCheckpointCarrierLines()'s JOIN (called
+    -- from getCheckpointTimeline() on every checkpoint read) doesn't throw
+    -- "no such table" — no test in this file asserts carrier-line data.
+    CREATE TABLE IF NOT EXISTS carrier_lines (
+      tenant_id INTEGER DEFAULT 1,
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      carrier      TEXT NOT NULL,
+      phone_number TEXT NOT NULL,
+      label        TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_closing_carrier_lines (
+      tenant_id INTEGER DEFAULT 1,
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      closing_id          INTEGER NOT NULL,
+      carrier_line_id     INTEGER NOT NULL,
+      expected_credits    REAL DEFAULT 0,
+      counted_credits     REAL DEFAULT 0,
+      expected_expires_at TEXT,
+      counted_expires_at  TEXT,
+      created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(closing_id, carrier_line_id)
+    );
+
     -- ══════════════════════════════════════════
     -- LOTO (ticket purchases use __LIRATEK_TEST_DB__ too since LotoTicketRepository calls getTransactionRepository)
     -- ══════════════════════════════════════════

@@ -97,6 +97,33 @@ function createTestDb(): Database.Database {
       updated_at    TEXT DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (tenant_id, drawer_name, currency_code)
     );
+
+    -- Carrier lines (shop-owned SIM lines) + their per-checkpoint count
+    -- snapshot. Needed only so getCheckpointCarrierLines()'s JOIN (called
+    -- from getCheckpointTimeline() on every checkpoint read) doesn't throw
+    -- "no such table" — no test in this file seeds or asserts carrier-line
+    -- data, so both tables stay empty across tenants.
+    CREATE TABLE carrier_lines (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id    INTEGER,
+      carrier      TEXT NOT NULL,
+      phone_number TEXT NOT NULL,
+      label        TEXT
+    );
+
+    CREATE TABLE daily_closing_carrier_lines (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id           INTEGER,
+      closing_id          INTEGER NOT NULL,
+      carrier_line_id     INTEGER NOT NULL,
+      expected_credits    REAL DEFAULT 0,
+      counted_credits     REAL DEFAULT 0,
+      expected_expires_at TEXT,
+      counted_expires_at  TEXT,
+      created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(closing_id, carrier_line_id)
+    );
   `);
   return db;
 }
