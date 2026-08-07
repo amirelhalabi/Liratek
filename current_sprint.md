@@ -2569,7 +2569,7 @@ standard, but the rollout touches every REST route file.
 | **Epic**              | Payments (shared)                                    |
 | **Type**              | Bug (latent)                                          |
 | **Priority**          | Low                                                    |
-| **Status**            | DONE (2026-08-08, `c9f2262`)                           |
+| **Status**            | DONE (2026-08-08, `c9f2262` + regression fix `6f74cfd`) |
 | **Affected Modules**  | Payments (shared utility)                              |
 | **Assigned To**       | —                                                        |
 | **Depends On**        | —                                                        |
@@ -2611,7 +2611,27 @@ still uses the hardcoded map, so the `SessionPaymentService.basket` tests that o
 still reach the repositories from an external caller. Pre-existing and orthogonal — and this fix makes
 that scenario safer (reject/no-op instead of a silent post to General) rather than worse.
 
-Core suite after: 153/153 suites, 1653/1653 tests.
+### Regression + fix (`6f74cfd`) — read this before touching `payments.ts` again
+
+The first attempt (`c9f2262`) was verified against the **core** suite only, and broke
+`backend/src/__tests__/core_payments.test.ts`. The lesson is not "run more tests" but **what** the
+failure exposed: `c9f2262` split two cases that had always shared one return path — "DB unavailable"
+(the `catch`) and "DB reachable but no row" — and sent the latter to `false`. A canonical method's row
+can legitimately be missing while the DB is fine:
+
+1. `TenantRepository.seedPaymentMethods()` seeds OMT/WHISH/BINANCE with `is_system = 0` — **deletable
+   per tenant.** A shop deleting its OMT method would have silently stopped crediting the `OMT_App`
+   drawer. Real money.
+2. `backend/jest.config.cjs` mocks better-sqlite3, so `getByCode()` resolves `undefined` for every
+   code and the `catch` path is never reached in that workspace.
+
+Fix: `CANONICAL_METHODS` (derived from `FALLBACK_DRAWER_MAP` keys ∪ `NON_DRAWER_METHODS`, so it can't
+drift). "Reachable but no row" returns `false` ONLY for a non-canonical code; a canonical one falls
+through to the hardcoded-map answer. `core_payments.test.ts` was deliberately left **unmodified** —
+its expectations were right all along, and editing it would have buried the bug.
+
+Full `yarn test` after, exit 0: backend 38/38 · 516 tests, frontend 107/107 · 843+1 skipped,
+core 153/153 · 1654 tests.
 
 ### Files to Modify
 
@@ -2676,18 +2696,28 @@ Recharge module suite after: 23 suites / 146 tests (143 baseline + 3 new).
 
 ---
 
-## LIRA-107: Recharge — SEND↔RECEIVE flip resets nothing (NEEDS INTERVIEW)
+## LIRA-107: Recharge — SEND↔RECEIVE flip resets nothing (CLOSED — WON'T DO)
 
 | Field                | Value                            |
 | --------------------- | -------------------------------------- |
 | **Epic**              | Recharge / Binance                      |
 | **Type**              | Design question                          |
 | **Priority**          | Low                                       |
-| **Status**            | NEEDS INTERVIEW                            |
+| **Status**            | CLOSED — WON'T DO (owner decision 2026-08-08) |
 | **Affected Modules**  | Recharge > Binance                        |
 | **Assigned To**       | —                                           |
 | **Depends On**        | LIRA-106 (DONE)                             |
 | **Source Plan**       | Found while reviewing LIRA-106 (2026-08-08) |
+
+### Owner decision — NO
+
+Asked whether flipping SEND↔RECEIVE should clear the crypto form. Owner answered **no** (2026-08-08).
+A direction flip keeps the operator's in-progress entry; only a **provider-tab** switch clears it
+(LIRA-106). No `cryptoType`-keyed reset effect will be added.
+
+**Do not "fix" this later as if it were an oversight** — the asymmetry between the provider-switch
+reset and the direction flip is intentional and owner-confirmed. A future adversarial review that
+re-flags it should be pointed at this decision.
 
 ### Summary
 
@@ -2696,27 +2726,25 @@ SEND↔RECEIVE flip. Only the first is now fixed. The reset effect is keyed on `
 there is **no `cryptoType`-keyed reset effect anywhere in the file** (verified by grep) — so flipping
 direction mid-edit resets nothing at all.
 
-### Open question for the owner
+### The question that was asked (kept for the record)
 
-Should flipping SEND↔RECEIVE clear the crypto form? It's a UX trade-off, not a correctness bug:
+Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a correctness bug:
 
 - **Clear it** — matches the "direction change means a different transaction" reading; legs entered
   under SEND semantics are arguably wrong for RECEIVE (opposite money flow: SEND wallet−/General+,
   RECEIVE wallet+/General−).
 - **Keep it** — an operator who flips direction just to check something doesn't lose their entry.
-
-Deliberately NOT implemented unilaterally, since either choice is defensible and the wrong one is an
-active annoyance to the operator.
+  ← **owner chose this**
 
 ---
 
 ## Summary (Sprint 6 — LIRA-098..107)
 
-| Priority  | Total  | Done  | Remaining |
-| --------- | ------ | ----- | --------- |
-| Medium    | 5      | 0     | 5         |
-| Low       | 5      | 2     | 3         |
-| **Total** | **10** | **2** | **8**     |
+| Priority  | Total  | Done  | Closed (won't do) | Remaining |
+| --------- | ------ | ----- | ----------------- | --------- |
+| Medium    | 5      | 0     | 0                 | 5         |
+| Low       | 5      | 2     | 1                 | 2         |
+| **Total** | **10** | **2** | **1**             | **7**     |
 
 > LIRA-102's spec is **written and committed but never executed** — running it needs the
 > `yarn dev` → stop → `yarn test:e2e` sequence, which the owner runs. It stays TODO until it has
@@ -2733,9 +2761,9 @@ active annoyance to the operator.
 | LIRA-102 | Session-grouping UI e2e spec                                          | Low      | TODO (spec written `0579942`, never executed) | session-basket-payment-remaining.md |
 | LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
 | LIRA-104 | Web-mode REST writes have no audit trail                              | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
-| LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | DONE `c9f2262` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
+| LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | DONE `c9f2262`+`6f74cfd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md |
 | LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | DONE `0c910cd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
-| LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing                           | Low      | NEEDS INTERVIEW | found reviewing LIRA-106            |
+| LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing                           | Low      | CLOSED — WON'T DO (owner) | found reviewing LIRA-106  |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
 > LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully
