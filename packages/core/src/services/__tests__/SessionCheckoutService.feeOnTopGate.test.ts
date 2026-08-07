@@ -28,9 +28,9 @@ import { isFeeOnTopReceiveItem } from "../SessionCheckoutService";
 
 describe("SessionCheckoutService.isFeeOnTopReceiveItem — bug 7's fee-on-top gate", () => {
   it("(a) RECEIVE with includingFees omitted (fee-on-top, the default) -> true", () => {
-    expect(
-      isFeeOnTopReceiveItem({ serviceType: "RECEIVE", omtFee: 5 }),
-    ).toBe(true);
+    expect(isFeeOnTopReceiveItem({ serviceType: "RECEIVE", omtFee: 5 })).toBe(
+      true,
+    );
   });
 
   it("(b) RECEIVE with includingFees: false (explicit fee-on-top) -> true", () => {
@@ -57,9 +57,7 @@ describe("SessionCheckoutService.isFeeOnTopReceiveItem — bug 7's fee-on-top ga
     expect(
       isFeeOnTopReceiveItem({ serviceType: "SEND", includingFees: false }),
     ).toBe(false);
-    expect(
-      isFeeOnTopReceiveItem({ serviceType: "SEND" }),
-    ).toBe(false);
+    expect(isFeeOnTopReceiveItem({ serviceType: "SEND" })).toBe(false);
   });
 
   it("(e) a non-financial item (no serviceType at all, e.g. a custom service) -> false", () => {

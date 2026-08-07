@@ -166,7 +166,7 @@ export function CardGridPayView({
                     <button
                       type="button"
                       aria-label="Margin details"
-                      className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-700/70 text-slate-300 transition-colors hover:bg-slate-600 hover:text-white"
+                      className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-slate-400 transition-colors hover:bg-slate-700 hover:text-slate-200"
                     >
                       <Info size={12} />
                     </button>

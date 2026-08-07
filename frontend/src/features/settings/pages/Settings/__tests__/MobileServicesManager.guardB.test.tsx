@@ -30,7 +30,13 @@
  *   version.
  */
 
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import MobileServicesManager from "../MobileServicesManager";
 import type { MobileServiceItem } from "@/types/electron";
 

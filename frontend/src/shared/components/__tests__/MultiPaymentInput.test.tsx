@@ -1254,9 +1254,7 @@ describe("MultiPaymentInput", () => {
       const methodSelect = document.querySelector<HTMLSelectElement>(
         '[data-testid^="counter-flow-method-"]',
       )!;
-      const optionValues = Array.from(methodSelect.options).map(
-        (o) => o.value,
-      );
+      const optionValues = Array.from(methodSelect.options).map((o) => o.value);
       expect(optionValues).not.toContain("CUSTOMER_ACCOUNT");
     });
 
@@ -1271,9 +1269,7 @@ describe("MultiPaymentInput", () => {
       const methodSelect = document.querySelector<HTMLSelectElement>(
         '[data-testid^="counter-flow-method-"]',
       )!;
-      const optionValues = Array.from(methodSelect.options).map(
-        (o) => o.value,
-      );
+      const optionValues = Array.from(methodSelect.options).map((o) => o.value);
       expect(optionValues).toContain("CUSTOMER_ACCOUNT");
     });
   });

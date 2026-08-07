@@ -341,7 +341,9 @@ export function SessionPopupPanel() {
                       >
                         <span>
                           Charge{" "}
-                          {chargeUsd > 0 && <span>${chargeUsd.toFixed(2)}</span>}
+                          {chargeUsd > 0 && (
+                            <span>${chargeUsd.toFixed(2)}</span>
+                          )}
                           {chargeUsd > 0 && chargeLbp > 0 && " + "}
                           {chargeLbp > 0 && (
                             <span>{chargeLbp.toLocaleString()} LBP</span>
@@ -349,7 +351,9 @@ export function SessionPopupPanel() {
                         </span>
                         <span>
                           Payout{" "}
-                          {payoutUsd > 0 && <span>${payoutUsd.toFixed(2)}</span>}
+                          {payoutUsd > 0 && (
+                            <span>${payoutUsd.toFixed(2)}</span>
+                          )}
                           {payoutUsd > 0 && payoutLbp > 0 && " + "}
                           {payoutLbp > 0 && (
                             <span>{payoutLbp.toLocaleString()} LBP</span>

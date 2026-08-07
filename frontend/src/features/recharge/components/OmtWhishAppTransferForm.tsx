@@ -1209,8 +1209,7 @@ function OmtWhishAppTransferFormInner({
                   requiresClient: true,
                   hasClient:
                     !!clientId ||
-                    (!!activeClientName.trim() &&
-                      !!activeClientPhone.trim()),
+                    (!!activeClientName.trim() && !!activeClientPhone.trim()),
                 },
               }
             : {})}

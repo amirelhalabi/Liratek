@@ -110,7 +110,11 @@ jest.mock("@liratek/ui", () => ({
 // object; `addToCart` is what captures the cart payload we assert against.
 jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => ({
-    activeSession: { id: 1, customer_name: "Jane Doe", customer_phone: "70111222" },
+    activeSession: {
+      id: 1,
+      customer_name: "Jane Doe",
+      customer_phone: "70111222",
+    },
     linkTransaction: jest.fn(),
     addToCart: mockAddToCart,
   }),

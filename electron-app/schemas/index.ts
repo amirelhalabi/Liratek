@@ -308,154 +308,155 @@ const FinancialPaymentLegSchema = z.object({
   direction: z.enum(["IN", "OUT"]).optional(),
 });
 
-export const FinancialServiceSchema = z.object({
-  provider: z.enum([
-    "OMT",
-    "WHISH",
-    "BOB",
-    "OTHER",
-    "iPick",
-    "Katsh",
-    "WHISH_APP",
-    "OMT_APP",
-    "BINANCE",
-  ]),
-  serviceType: z.enum(["SEND", "RECEIVE", "BILL"]),
-  amount: z.number().nonnegative(),
-  currency: z.string().optional(),
-  commission: z.number().nonnegative().optional().default(0),
-  cost: z.number().nonnegative().optional(),
-  price: z.number().nonnegative().optional(),
-  paidByMethod: z.string().optional(),
-  payments: z.array(FinancialPaymentLegSchema).optional(),
-  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§1.4, Phase A — LOCAL duplicate
-  // of the core createFinancialServiceSchema field (rule-14 debt, same trap
-  // as kept_change_usd/checkoutTotal below): fee-on-top RECEIVE only, the
-  // customer's provider fee collected via operator-chosen legs (split
-  // allowed, any method incl. CUSTOMER_ACCOUNT) instead of the legacy
-  // implicit single leg. No `direction`/`voucherCode` — narrower than
-  // FinancialPaymentLegSchema above (a fee leg is always customer-paid IN,
-  // never change, and GIFT_CARD redemption isn't wired here).
-  //
-  // §6bis finding 6 (2026-08-06 adversarial review, Phase A2 fix package):
-  // this comment used to claim "the repository is the enforcement layer for
-  // the desktop path" as the reason the core schema's four feePayments
-  // `.refine()`s were not mirrored here. That claim was WRONG — findings
-  // 1/2/4/5 are exactly the repository silently discarding feePayments on
-  // several paths (FOR-partner RECEIVE, THROUGH-partner, zero/omitted fee,
-  // deferPayment) instead of hard-rejecting. Phase A2 fixed
-  // FinancialServiceRepository.createTransaction to be the real, authoritative
-  // guard (placed right after `resolvedProviderFee` resolves, before the
-  // FOR-partner dispatch) AND mirrored all four refines onto THIS schema
-  // (chained via `.refine()` after the closing `})` below) as a second,
-  // earlier layer. Repository is authoritative; this schema is
-  // defense-in-depth that rejects at the IPC door with the same message
-  // instead of deep inside the repository. Keep both layers in sync if the
-  // rule ever changes — fields (and now refines) must exist in BOTH schema
-  // files or the desktop path silently strips/under-validates it (rule 14).
-  feePayments: z
-    .array(
-      z.object({
-        method: z.string().min(1),
-        currencyCode: z.string().min(1),
-        amount: z.number().positive(),
-      }),
-    )
-    .optional(),
-  clientId: z.number().optional(),
-  clientName: z.string().optional(),
-  referenceNumber: z.string().optional(),
-  phoneNumber: z.string().optional(),
-  senderName: z.string().optional(),
-  senderPhone: z.string().optional(),
-  receiverName: z.string().optional(),
-  receiverPhone: z.string().optional(),
-  senderClientId: z.number().optional(),
-  receiverClientId: z.number().optional(),
-  omtServiceType: z.string().optional(),
-  omtFee: z.number().optional(),
-  whishFee: z.number().optional(),
-  profitRate: z.number().optional(),
-  payFee: z.boolean().optional(),
-  itemKey: z.string().optional(),
-  itemCategory: z.string().optional(),
-  note: z.string().optional(),
-  includingFees: z.boolean().optional(),
-  paymentMethodFee: z.number().optional(),
-  paymentMethodFeeRate: z.number().optional(),
-  returnedCreditsUsd: z.number().optional(),
-  // LIRA-090 (v140) Only-Days fields — all three optional; their absence is the
-  // "this is a normal (non Only-Days) financial service" signal and preserves
-  // byte-identical behaviour for every pre-ticket caller. Zod strips unknown
-  // keys by default, so these MUST be declared here or the computed credit-return
-  // feature is dead code over IPC (B2 blocker). Matched verbatim against
-  // `CreateFinancialServiceData` in FinancialServiceRepository.ts:
-  //   mobileServiceItemId  — the catalog item id; its presence drives the computed
-  //     returned-credit default and the primary carrier-line movement (spec §5.1/§8).
-  //   returnedCreditsUsd   — operator override; 0 is a meaningful value ("no credit
-  //     returned this time") so z.number() without .nonnegative() guard is correct;
-  //     the field ABOVE is now also plain .number() to match (it was .nonnegative()
-  //     before — 0 override was inadvertently accepted, but the intent is preserved).
-  //   telecomCreditReturns — walk-in aggregated cart: per-line override array
-  //     (spec §6 bug 2 groundwork). One entry per Only-Days line in the cart.
-  mobileServiceItemId: z.number().int().positive().optional(),
-  telecomCreditReturns: z
-    .array(
-      z.object({
-        itemCategory: z.string().optional(),
-        mobileServiceItemId: z.number().int().positive().optional(),
-        returnedCreditsUsd: z.number().optional(),
-      }),
-    )
-    .optional(),
-  partnerId: z.number().optional(),
-  partnerMode: z.enum(["THROUGH", "FOR"]).optional(),
-  cashoutMethod: z.string().optional(),
-  // T3 keep-change (KC-4) — LOCAL duplicate of core createFinancialServiceSchema
-  // (rule-14 debt): fields must exist in BOTH. Kept (not returned) change per currency → added
-  // to the transaction's profit stamp (tender-native amounts).
-  kept_change_usd: z.number().nonnegative().optional(),
-  kept_change_lbp: z.number().nonnegative().optional(),
-  transaction_time: z.string().optional(),
-  // Batch member whose customer payment is booked by another transaction in the
-  // same checkout (session basket, or the legs-carrying first bill of a
-  // multi-bill payment): skips the customer-inflow and change-leg blocks while
-  // still booking cost outflow + supplier commission.
-  deferPayment: z.boolean().optional(),
-  // Payment-Legs Integrity plan (Wave 8) — LOCAL duplicate of the core
-  // createFinancialServiceSchema field (rule-14 debt, same trap as
-  // kept_change_usd/lbp above): the bills/catalog cart's CARRIER transaction
-  // (the one that carries `payments`) may attach the full checkout total
-  // here so the repository reconciles legs against the WHOLE cart rather
-  // than this one unit's `price`. Fields must exist in BOTH or the desktop
-  // path silently strips it.
-  checkoutTotal: z
-    .object({
-      usd: z.number().min(0),
-      lbp: z.number().min(0),
-    })
-    .optional(),
-  // Payment-Legs Integrity plan (Wave 9) — LOCAL duplicate of the core
-  // createFinancialServiceSchema field (rule-14 debt, same trap as
-  // checkoutTotal above): the USD→LBP rate MultiPaymentInput actually
-  // converted the customer's tender at (may be the buy rate, per the
-  // owner's 2026-07-06 MPI-buy-rate decision), used to reconcile legs
-  // instead of the stamped rate-of-record. Fields must exist in BOTH or the
-  // desktop path silently strips it.
-  tender_exchange_rate: z.number().positive().optional(),
-  // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — LOCAL duplicate of the core
-  // createFinancialServiceSchema field (rule-14 debt, same trap as
-  // checkoutTotal/deferPayment above): identifies which multi-unit split
-  // checkout this unit belongs to, sent with EVERY unit (carrier and
-  // siblings alike) by KatchForm/FinancialForm. Fields must exist in BOTH or
-  // the desktop path silently strips them.
-  split_group: z.string().uuid().optional(),
-  split_role: z.enum(["carrier", "sibling"]).optional(),
-  split_units: z.number().int().min(2).optional(),
-  // Acting user id; the handler overrides this with the authenticated user,
-  // but allowing it through keeps validatePayload from stripping a supplied one.
-  userId: z.number().int().optional(),
-})
+export const FinancialServiceSchema = z
+  .object({
+    provider: z.enum([
+      "OMT",
+      "WHISH",
+      "BOB",
+      "OTHER",
+      "iPick",
+      "Katsh",
+      "WHISH_APP",
+      "OMT_APP",
+      "BINANCE",
+    ]),
+    serviceType: z.enum(["SEND", "RECEIVE", "BILL"]),
+    amount: z.number().nonnegative(),
+    currency: z.string().optional(),
+    commission: z.number().nonnegative().optional().default(0),
+    cost: z.number().nonnegative().optional(),
+    price: z.number().nonnegative().optional(),
+    paidByMethod: z.string().optional(),
+    payments: z.array(FinancialPaymentLegSchema).optional(),
+    // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.2/§1.4, Phase A — LOCAL duplicate
+    // of the core createFinancialServiceSchema field (rule-14 debt, same trap
+    // as kept_change_usd/checkoutTotal below): fee-on-top RECEIVE only, the
+    // customer's provider fee collected via operator-chosen legs (split
+    // allowed, any method incl. CUSTOMER_ACCOUNT) instead of the legacy
+    // implicit single leg. No `direction`/`voucherCode` — narrower than
+    // FinancialPaymentLegSchema above (a fee leg is always customer-paid IN,
+    // never change, and GIFT_CARD redemption isn't wired here).
+    //
+    // §6bis finding 6 (2026-08-06 adversarial review, Phase A2 fix package):
+    // this comment used to claim "the repository is the enforcement layer for
+    // the desktop path" as the reason the core schema's four feePayments
+    // `.refine()`s were not mirrored here. That claim was WRONG — findings
+    // 1/2/4/5 are exactly the repository silently discarding feePayments on
+    // several paths (FOR-partner RECEIVE, THROUGH-partner, zero/omitted fee,
+    // deferPayment) instead of hard-rejecting. Phase A2 fixed
+    // FinancialServiceRepository.createTransaction to be the real, authoritative
+    // guard (placed right after `resolvedProviderFee` resolves, before the
+    // FOR-partner dispatch) AND mirrored all four refines onto THIS schema
+    // (chained via `.refine()` after the closing `})` below) as a second,
+    // earlier layer. Repository is authoritative; this schema is
+    // defense-in-depth that rejects at the IPC door with the same message
+    // instead of deep inside the repository. Keep both layers in sync if the
+    // rule ever changes — fields (and now refines) must exist in BOTH schema
+    // files or the desktop path silently strips/under-validates it (rule 14).
+    feePayments: z
+      .array(
+        z.object({
+          method: z.string().min(1),
+          currencyCode: z.string().min(1),
+          amount: z.number().positive(),
+        }),
+      )
+      .optional(),
+    clientId: z.number().optional(),
+    clientName: z.string().optional(),
+    referenceNumber: z.string().optional(),
+    phoneNumber: z.string().optional(),
+    senderName: z.string().optional(),
+    senderPhone: z.string().optional(),
+    receiverName: z.string().optional(),
+    receiverPhone: z.string().optional(),
+    senderClientId: z.number().optional(),
+    receiverClientId: z.number().optional(),
+    omtServiceType: z.string().optional(),
+    omtFee: z.number().optional(),
+    whishFee: z.number().optional(),
+    profitRate: z.number().optional(),
+    payFee: z.boolean().optional(),
+    itemKey: z.string().optional(),
+    itemCategory: z.string().optional(),
+    note: z.string().optional(),
+    includingFees: z.boolean().optional(),
+    paymentMethodFee: z.number().optional(),
+    paymentMethodFeeRate: z.number().optional(),
+    returnedCreditsUsd: z.number().optional(),
+    // LIRA-090 (v140) Only-Days fields — all three optional; their absence is the
+    // "this is a normal (non Only-Days) financial service" signal and preserves
+    // byte-identical behaviour for every pre-ticket caller. Zod strips unknown
+    // keys by default, so these MUST be declared here or the computed credit-return
+    // feature is dead code over IPC (B2 blocker). Matched verbatim against
+    // `CreateFinancialServiceData` in FinancialServiceRepository.ts:
+    //   mobileServiceItemId  — the catalog item id; its presence drives the computed
+    //     returned-credit default and the primary carrier-line movement (spec §5.1/§8).
+    //   returnedCreditsUsd   — operator override; 0 is a meaningful value ("no credit
+    //     returned this time") so z.number() without .nonnegative() guard is correct;
+    //     the field ABOVE is now also plain .number() to match (it was .nonnegative()
+    //     before — 0 override was inadvertently accepted, but the intent is preserved).
+    //   telecomCreditReturns — walk-in aggregated cart: per-line override array
+    //     (spec §6 bug 2 groundwork). One entry per Only-Days line in the cart.
+    mobileServiceItemId: z.number().int().positive().optional(),
+    telecomCreditReturns: z
+      .array(
+        z.object({
+          itemCategory: z.string().optional(),
+          mobileServiceItemId: z.number().int().positive().optional(),
+          returnedCreditsUsd: z.number().optional(),
+        }),
+      )
+      .optional(),
+    partnerId: z.number().optional(),
+    partnerMode: z.enum(["THROUGH", "FOR"]).optional(),
+    cashoutMethod: z.string().optional(),
+    // T3 keep-change (KC-4) — LOCAL duplicate of core createFinancialServiceSchema
+    // (rule-14 debt): fields must exist in BOTH. Kept (not returned) change per currency → added
+    // to the transaction's profit stamp (tender-native amounts).
+    kept_change_usd: z.number().nonnegative().optional(),
+    kept_change_lbp: z.number().nonnegative().optional(),
+    transaction_time: z.string().optional(),
+    // Batch member whose customer payment is booked by another transaction in the
+    // same checkout (session basket, or the legs-carrying first bill of a
+    // multi-bill payment): skips the customer-inflow and change-leg blocks while
+    // still booking cost outflow + supplier commission.
+    deferPayment: z.boolean().optional(),
+    // Payment-Legs Integrity plan (Wave 8) — LOCAL duplicate of the core
+    // createFinancialServiceSchema field (rule-14 debt, same trap as
+    // kept_change_usd/lbp above): the bills/catalog cart's CARRIER transaction
+    // (the one that carries `payments`) may attach the full checkout total
+    // here so the repository reconciles legs against the WHOLE cart rather
+    // than this one unit's `price`. Fields must exist in BOTH or the desktop
+    // path silently strips it.
+    checkoutTotal: z
+      .object({
+        usd: z.number().min(0),
+        lbp: z.number().min(0),
+      })
+      .optional(),
+    // Payment-Legs Integrity plan (Wave 9) — LOCAL duplicate of the core
+    // createFinancialServiceSchema field (rule-14 debt, same trap as
+    // checkoutTotal above): the USD→LBP rate MultiPaymentInput actually
+    // converted the customer's tender at (may be the buy rate, per the
+    // owner's 2026-07-06 MPI-buy-rate decision), used to reconcile legs
+    // instead of the stamped rate-of-record. Fields must exist in BOTH or the
+    // desktop path silently strips it.
+    tender_exchange_rate: z.number().positive().optional(),
+    // CARRIER_LEGS_VOID_ASYMMETRY.md (design B+) — LOCAL duplicate of the core
+    // createFinancialServiceSchema field (rule-14 debt, same trap as
+    // checkoutTotal/deferPayment above): identifies which multi-unit split
+    // checkout this unit belongs to, sent with EVERY unit (carrier and
+    // siblings alike) by KatchForm/FinancialForm. Fields must exist in BOTH or
+    // the desktop path silently strips them.
+    split_group: z.string().uuid().optional(),
+    split_role: z.enum(["carrier", "sibling"]).optional(),
+    split_units: z.number().int().min(2).optional(),
+    // Acting user id; the handler overrides this with the authenticated user,
+    // but allowing it through keeps validatePayload from stripping a supplied one.
+    userId: z.number().int().optional(),
+  })
   .refine(
     (data) => {
       // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §1.4: feePayments is fee-on-top

@@ -1218,7 +1218,8 @@ export default function MultiPaymentInput({
       .filter((l) => l.id !== excludeId)
       .reduce(
         (sum, l) =>
-          sum + convertSafe(l.amount || 0, l.currencyCode, counterFlow.currency),
+          sum +
+          convertSafe(l.amount || 0, l.currencyCode, counterFlow.currency),
         0,
       );
     return Math.max(0, counterFlow.totalAmount - paid);
@@ -1274,7 +1275,9 @@ export default function MultiPaymentInput({
   // CUSTOMER_ACCOUNT is removed from the counter-flow method list when the
   // caller's own validated charge predicate says no (requiresClient && no
   // client) — mirrors canChargeToCustomerAccount-grade gating used elsewhere.
-  const counterFlowMethods = (counterFlow?.paymentMethods ?? paymentMethods).filter(
+  const counterFlowMethods = (
+    counterFlow?.paymentMethods ?? paymentMethods
+  ).filter(
     (pm) =>
       pm.code !== "CUSTOMER_ACCOUNT" ||
       !(counterFlow?.requiresClient && !counterFlow?.hasClient),

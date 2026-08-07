@@ -322,11 +322,7 @@ export const createFinancialServiceSchema = z
       // never reads feePayments at all (PFT-3b dispatch), THROUGH suppresses
       // the fee leg via skipSystemDrawer — both used to silently drop the
       // field. Reject either mode up front.
-      if (
-        data.feePayments &&
-        data.feePayments.length > 0 &&
-        data.partnerId
-      ) {
+      if (data.feePayments && data.feePayments.length > 0 && data.partnerId) {
         return false;
       }
       return true;

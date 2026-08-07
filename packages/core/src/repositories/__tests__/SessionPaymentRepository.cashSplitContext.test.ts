@@ -216,7 +216,10 @@ describe("SessionPaymentRepository.getSessionCashSplitContext — bug 7 (gross p
     // A RECEIVE item whose OWN linked amount is the payout (-100), but whose
     // omt_fee (5) is fee-on-top — collected via the pooled charge legs, not
     // reflected in the item's own cst amount.
-    const fsId = seedFsItem(db, sessionId, { provider: "OMT", amountUsd: -100 });
+    const fsId = seedFsItem(db, sessionId, {
+      provider: "OMT",
+      amountUsd: -100,
+    });
     db.prepare("UPDATE financial_services SET omt_fee = 5 WHERE id = ?").run(
       fsId,
     );

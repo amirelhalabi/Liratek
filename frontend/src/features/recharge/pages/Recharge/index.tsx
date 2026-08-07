@@ -8,6 +8,7 @@ import {
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { appEvents, useApi } from "@liratek/ui";
+import { costOfValidityDaysUsd } from "@liratek/core";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -1226,7 +1227,10 @@ export default function MobileRecharge() {
     (val: number) => {
       setTelecomAmount(val.toString());
       if (rechargeType === "DAYS") {
-        setTelecomDaysCostUsd(((val / 10) * 0.3).toFixed(2));
+        // rule 14: the (days / 10) * 0.3 rule lived here and in the Days-field
+        // handler below as two copies of the same magic numbers. One
+        // definition now, in core, beside the other carrier constants.
+        setTelecomDaysCostUsd(costOfValidityDaysUsd(val).toFixed(2));
       } else {
         setTelecomPrice((val * alfaCreditSellRate).toString());
       }
@@ -1242,7 +1246,9 @@ export default function MobileRecharge() {
       setTelecomAmount(val);
       if (rechargeType === "DAYS") {
         const days = parseFloat(val);
-        setTelecomDaysCostUsd(days > 0 ? ((days / 10) * 0.3).toFixed(2) : "");
+        setTelecomDaysCostUsd(
+          days > 0 ? costOfValidityDaysUsd(days).toFixed(2) : "",
+        );
       } else {
         const num = parseFloat(val);
         setTelecomPrice(num > 0 ? (num * alfaCreditSellRate).toString() : "");

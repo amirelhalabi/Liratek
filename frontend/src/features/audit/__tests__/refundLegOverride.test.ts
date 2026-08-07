@@ -113,9 +113,9 @@ describe("buildDefaultRefundLines", () => {
     // "FEE" is not in the modal's selectable list at all, so even though the
     // fee leg is smaller, prove the fallback triggers on it directly too.
     const feeOnlyLegs = [leg("in", 5, "USD", "FEE")];
-    expect(
-      buildDefaultRefundLines(feeOnlyLegs, SELECTABLE)[0]?.method,
-    ).toBe("CASH");
+    expect(buildDefaultRefundLines(feeOnlyLegs, SELECTABLE)[0]?.method).toBe(
+      "CASH",
+    );
 
     const lines = buildDefaultRefundLines(legs, SELECTABLE);
     expect(lines).toEqual([

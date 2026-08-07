@@ -220,9 +220,10 @@ test("mixed charge + fee-on-top RECEIVE payout basket checks out over REST with 
   const itemBDrawerDelta = 4 + -50;
   const itemBReceivableDelta = 0;
   const itemBOwedDelta = after.o - before.o;
-  expect(
-    itemBDrawerDelta + itemBReceivableDelta - itemBOwedDelta,
-  ).toBeCloseTo(0.4, 2);
+  expect(itemBDrawerDelta + itemBReceivableDelta - itemBOwedDelta).toBeCloseTo(
+    0.4,
+    2,
+  );
 
   // The session must be closed by the checkout (matches lira-web-002 WP4).
   const details = await (

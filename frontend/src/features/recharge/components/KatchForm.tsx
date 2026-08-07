@@ -136,7 +136,10 @@ function resolveOnlyDaysPricing(
   const sellDaysLbp = line.sellDaysLbpOverride ?? catalogSellDaysLbp;
   const creditPriceLbp =
     line.creditPriceLbpOverride ??
-    resolveCreditSellPriceLbp(entity?.sell_credit_lbp, tenantCreditSellPriceLbp);
+    resolveCreditSellPriceLbp(
+      entity?.sell_credit_lbp,
+      tenantCreditSellPriceLbp,
+    );
 
   // The face credit MUST be known before this model can price kept credit.
   // Guarding on it is not defensive noise — `maxReturnableCredits(0)` is 0, so
@@ -157,14 +160,19 @@ function resolveOnlyDaysPricing(
   // field (DecimalInput emits 0 for "") flip this false and unmount the very
   // input being typed into, silently dropping the sale back to legacy pricing.
   // Also found by that review, and also reproduced.
-  const applies = typeof catalogSellDaysLbp === "number" && catalogSellDaysLbp > 0 && hasFaceCredits;
+  const applies =
+    typeof catalogSellDaysLbp === "number" &&
+    catalogSellDaysLbp > 0 &&
+    hasFaceCredits;
 
   // A cleared days-price field means "0 for the days", which is a legitimate
   // thing to charge (a free-days promotion on a kept-credit sale) — it must NOT
   // fall through to the legacy formula, or clearing the field would silently
   // change which formula is in force. Only a MISSING catalog price does that.
   const effectiveSellDays = typeof sellDaysLbp === "number" ? sellDaysLbp : 0;
-  const total = applies ? effectiveSellDays + keptCredits * creditPriceLbp : null;
+  const total = applies
+    ? effectiveSellDays + keptCredits * creditPriceLbp
+    : null;
 
   return {
     hasSellDaysPrice: applies,

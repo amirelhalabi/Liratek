@@ -85,8 +85,22 @@ type MobileServiceItemRow = {
   cost_lbp: number;
   sell_lbp: number;
   days_cost_lbp: number | null;
+  /** v147 / parseCatalogToSeedData: the days-only customer price. */
+  sell_days_lbp: number | null;
+  /** Per-item credit resale price; null on the shipped catalog (falls back to
+   *  the tenant setting, then the core default). */
+  sell_credit_lbp: number | null;
+  validity_days: number | null;
   credits: number | null;
   is_active: number;
+};
+
+type TransactionRow = {
+  id: number;
+  type: string;
+  status: string;
+  amount_usd: number;
+  amount_lbp: number;
 };
 
 type CarrierLineRow = {
@@ -115,6 +129,12 @@ type Api = {
         data?: MobileServiceItemRow[];
         error?: string;
       }>;
+    };
+    transactions: {
+      /** Returns the RAW array (no `{success,…}` envelope) — see
+       *  `transactionHandlers.ts`, which returns `txnService.getRecent(...)`
+       *  directly. */
+      getRecent: (limit?: number) => Promise<TransactionRow[]>;
     };
     carrierLines: {
       getAllAdmin: () => Promise<{
@@ -569,6 +589,181 @@ test.describe("LIRA-132 — Telecom Only-Days credit model (MTC via iPick, B1 re
       await expect(appPage.getByText("No split").first()).not.toBeVisible({
         timeout: 5_000,
       });
+    },
+  );
+
+  /**
+   * The CHARGED PRICE — the other half of the money model, and the half no
+   * test covered until now.
+   *
+   * The first test in this file guards the COST side (what leaves the iPick
+   * drawer). Nothing guarded what the CUSTOMER pays, and the two are wired
+   * through completely different code: cost comes from `calcCost`, price from
+   * `calcPrice` → `resolveOnlyDaysPricing`. A regression that charged the plain
+   * `sell_lbp` (430,000 for this card) instead of the Only-Days total would
+   * leave every cost assertion in this file green.
+   *
+   * The rule under guard (owner-confirmed 2026-08-05):
+   *
+   *     total = sell_days_lbp + kept_credits × credit_price
+   *
+   * Exercised with kept_credits > 0 ON PURPOSE. The default sale returns the
+   * full recoverable amount, which makes `kept_credits` exactly 0 and collapses
+   * the formula to `total = sell_days_lbp` — a run in that state would pass
+   * even if the second term were dropped from the code entirely. Returning
+   * HALF the recoverable credit is what makes both terms load-bearing.
+   *
+   * FAILING-FIRST PROOF (rule 17): in `KatchForm.tsx`'s
+   * `resolveOnlyDaysPricing`, change the total to `effectiveSellDays` (drop
+   * `+ keptCredits * creditPriceLbp`). The Pay-button and booked-amount
+   * assertions below then see the bare days price and FAIL; restore the term
+   * and they pass.
+   *
+   * Rule 15 throughout: the days price and credit price are READ back (from the
+   * DB and from the form respectively) rather than hardcoded, the booked row is
+   * matched by `id > baseline` plus type, and no absolute balance is asserted.
+   */
+  test(
+    "Only-Days sale CHARGES sell_days_lbp + kept_credits × credit_price — " +
+      "asserted on the Pay button and on the booked transaction",
+    async ({ appPage }) => {
+      // ── The card, and the seeded days price behind it ─────────────────────
+      await navigateTo(appPage, "/recharge");
+      const ipickBtn = appPage
+        .locator("button")
+        .filter({ hasText: /^iPick$/ })
+        .first();
+      await expect(ipickBtn).toBeVisible({ timeout: 15_000 });
+      await ipickBtn.click();
+
+      const searchBox = appPage.getByPlaceholder(/Search iPick items/i);
+      await expect(searchBox).toBeVisible({ timeout: 15_000 });
+
+      const item = await findCatalogItem(appPage, {
+        provider: "iPick",
+        category: "mtc",
+        subcategory: "Prepaid",
+        label: ITEM_LABEL,
+      });
+      expect(item, `catalog item "${ITEM_LABEL}" not found`).not.toBeNull();
+
+      // The days price must have been seeded, or the form falls back to legacy
+      // pricing and this test would silently assert the wrong formula. 3.79
+      // carries validity_days = 10, and 10 days is the first entry in the
+      // owner's day-price table — so 100,000 is the expected seed. Pinned
+      // rather than re-derived: re-running `deriveSellDaysLbp` here would just
+      // agree with whatever the code says.
+      expect(item!.validity_days).toBe(10);
+      expect(item!.sell_days_lbp).toBe(100_000);
+      const daysPriceLbp = item!.sell_days_lbp!;
+
+      // ── Baseline for the booked row (rule 15: identity, not position) ─────
+      const baselineMaxTxnId = await appPage.evaluate(async () => {
+        const w = window as unknown as Api;
+        const rows = await w.api.transactions.getRecent(50);
+        return rows.reduce((max, r) => (r.id > max ? r.id : max), 0);
+      });
+
+      // ── Select the card and switch it to Only Days ────────────────────────
+      await searchBox.fill(ITEM_LABEL);
+      const itemCard = appPage
+        .locator("div.cursor-pointer")
+        .filter({ hasText: ITEM_LABEL });
+      await expect(itemCard.first()).toBeVisible({ timeout: 10_000 });
+      await itemCard.first().click();
+
+      const onlyDaysLabel = appPage.locator(`label:has-text("Only Days")`);
+      await expect(onlyDaysLabel).toBeVisible({ timeout: 8_000 });
+      await onlyDaysLabel.click();
+
+      // The pricing panel renders only when the item has a catalog days price —
+      // its presence IS the assertion that the seed reached the sale form.
+      const daysPriceInput = appPage.locator(
+        `input[aria-label="Only-Days price"]`,
+      );
+      await expect(daysPriceInput).toBeVisible({ timeout: 8_000 });
+      await expect(daysPriceInput).toHaveValue(daysPriceLbp.toLocaleString(), {
+        timeout: 5_000,
+      });
+
+      // ── Keep half the recoverable credit ──────────────────────────────────
+      const creditsInput = appPage.locator(`input[type="number"][step="0.5"]`);
+      await expect(creditsInput).toHaveValue(
+        String(EXPECTED_RETURNED_CREDITS),
+        { timeout: 5_000 },
+      );
+      const returnedCredits = EXPECTED_RETURNED_CREDITS / 2; // 1.5
+      const keptCredits = EXPECTED_RETURNED_CREDITS - returnedCredits; // 1.5
+      await creditsInput.fill(String(returnedCredits));
+
+      // The form's own kept-credit readout must agree before we trust its total.
+      await expect(
+        appPage.getByText(`$${keptCredits.toFixed(2)}`).first(),
+      ).toBeVisible({ timeout: 5_000 });
+
+      // Credit price is an INPUT to the rule, not the rule itself: read
+      // whatever the 3-level fallback resolved to rather than pinning the
+      // tenant setting, which earlier specs in this shared DB may have moved.
+      const creditPriceRaw = await appPage
+        .locator(`input[aria-label="Only-Days credit price"]`)
+        .inputValue();
+      const creditPriceLbp = Number(creditPriceRaw.replace(/[^0-9.]/g, ""));
+      expect(creditPriceLbp).toBeGreaterThan(0);
+
+      const expectedTotalLbp = daysPriceLbp + keptCredits * creditPriceLbp;
+      const expectedTotalText = `${expectedTotalLbp.toLocaleString()} LBP`;
+
+      // The line's own Total row, before anything is charged.
+      await expect(appPage.getByText(expectedTotalText).first()).toBeVisible({
+        timeout: 5_000,
+      });
+
+      // ── The charged price, at the checkout the operator confirms ──────────
+      const proceedBtn = appPage.getByRole("button", {
+        name: /Proceed to Pay/i,
+      });
+      await expect(proceedBtn).toBeEnabled({ timeout: 5_000 });
+      await proceedBtn.click();
+
+      // Asserted on the sheet SUBTITLE (`${n} items — ${totalPrice} LBP`),
+      // not the Pay button. The button label follows the payment LINE, so its
+      // currency flips to "$…" the moment anyone pays in USD; the subtitle is
+      // always the LBP transaction total, which is the number under test.
+      // getByText matches on a substring, so this pins the "items — <total>"
+      // fragment without depending on the item count's exact rendering.
+      await expect(
+        appPage.getByText(`items — ${expectedTotalText}`).first(),
+      ).toBeVisible({ timeout: 8_000 });
+
+      const confirmBtn = appPage
+        .locator("button")
+        .filter({ hasText: /^Pay / })
+        .last();
+      await expect(confirmBtn).toBeVisible({ timeout: 8_000 });
+      await confirmBtn.click();
+      await expect(confirmBtn).toBeHidden({ timeout: 15_000 });
+
+      // ── ...and on the row that got written ────────────────────────────────
+      // Filter to rows this action created (id > baseline) AND to the service
+      // type, because one Only-Days sale can also write a supplier-ledger
+      // sibling (rule 15a) that carries a different amount.
+      const bookedAmounts = await appPage.evaluate(async (baseline) => {
+        const w = window as unknown as Api;
+        const rows = await w.api.transactions.getRecent(50);
+        return rows
+          .filter((r) => r.id > baseline && r.type === "FINANCIAL_SERVICE")
+          .map((r) => r.amount_lbp);
+      }, baselineMaxTxnId);
+
+      expect(
+        bookedAmounts.length,
+        "no FINANCIAL_SERVICE row was written for the Only-Days sale",
+      ).toBeGreaterThan(0);
+      expect(
+        bookedAmounts.some((amount) => Math.abs(amount - expectedTotalLbp) < 1),
+        `expected a booked amount of ${expectedTotalLbp} (= ${daysPriceLbp} days ` +
+          `+ ${keptCredits} kept × ${creditPriceLbp}), got ${JSON.stringify(bookedAmounts)}`,
+      ).toBe(true);
     },
   );
 });

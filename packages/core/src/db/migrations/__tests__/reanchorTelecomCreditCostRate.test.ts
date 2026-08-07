@@ -179,7 +179,9 @@ describe("migration v146 — reanchor_telecom_credit_cost_rate", () => {
   });
 
   it("uses each tenant's OWN rate, not the global constant", () => {
-    db.prepare(`INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`).run();
+    db.prepare(
+      `INSERT INTO tenants (id, name) VALUES (2, 'Second Shop')`,
+    ).run();
     setRate(db, OLD_RATE, 1);
     setRate(db, 80_000, 2); // customised — must be respected AND used
     addItem(db, "77.28", COST_7728, CREDITS_7728, OLD_7728, 1);

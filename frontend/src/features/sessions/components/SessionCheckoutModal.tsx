@@ -139,7 +139,13 @@ type SessionPaymentLegKind = "PAYOUT" | "CHANGE";
  * in display order. CUSTOMER_ACCOUNT is filtered out by the caller when the
  * session has no chargeable client (see `hasClient` below).
  */
-const PAYOUT_METHOD_ORDER = ["CASH", "OMT", "WHISH", "BINANCE", "CUSTOMER_ACCOUNT"];
+const PAYOUT_METHOD_ORDER = [
+  "CASH",
+  "OMT",
+  "WHISH",
+  "BINANCE",
+  "CUSTOMER_ACCOUNT",
+];
 
 /** Modules where only cashout methods are valid (CASH, CUSTOMER_ACCOUNT, OMT, WHISH, BINANCE) */
 const CASHOUT_ONLY_MODULES = new Set(["binance_receive"]);
