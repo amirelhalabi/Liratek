@@ -319,14 +319,16 @@ still-open pre-existing-pattern item, not a regression).
 
 ### 10.4 Owner decisions — RESOLVED 2026-08-07
 
-- [x] **REST envelope**: owner decided — change the middleware, not rule 19's wording. Fix
-      dispatched same session: `validateRequest`/`validateQuery`/`validateParams`
-      (`backend/src/middleware/validation.ts`) to return HTTP 200 + `{success:false, error:
+- [x] **REST envelope**: owner decided — change the middleware, not rule 19's wording. Fixed
+      same session (`074887b`): `validateRequest`/`validateQuery`/`validateParams`
+      (`backend/src/middleware/validation.ts`) now return HTTP 200 + `{success:false, error:
       <plain string>}` instead of HTTP 400 + the `createErrorResponse` object shape (`{code,
-      message, details, field}`) — confirmed via grep that zero frontend code depends on the
-      object shape, so it's dropped rather than preserved under a new key. Status of this fix at
-      time of writing: dispatched, not yet verified on the committed tree — confirm before
-      archiving this doc.
+      message, details, field}`) — confirmed via grep that zero frontend code depended on the
+      object shape, so it's dropped rather than preserved under a new key. Proven failing-first
+      (reverting the source alone sent 34/79 touched tests red); `lira-web-017`'s two
+      "discovered parity gap" assertions updated to expect 200 + string. Full `yarn test`:
+      backend 516/516, frontend 827/828 (1 pre-existing skip), core's 3 pre-existing unrelated
+      failures reconfirmed via stash comparison to predate this fix too.
 - [x] **`lira-web-016`**: RESOLVED, not by this feature. Root-caused 2026-08-07: the spec asserted
       PR #66's "float model" (OMT_System as a spendable balance), written 2026-07-29 — the owner
       rejected that model the very next day for the Primary Cash Drawer model, and the spec was
