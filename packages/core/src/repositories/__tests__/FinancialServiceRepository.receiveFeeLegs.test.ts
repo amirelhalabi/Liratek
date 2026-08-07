@@ -1487,11 +1487,23 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
         currency: "USDT",
         commission: 5,
         cashoutMethod: "CASH",
-        payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+        // No `payments` leg deliberately: the payout side has nothing to
+        // reconcile against (reconcileLegs no-ops on empty/absent inLegs —
+        // moneyPosting.ts:234), so it is STRUCTURALLY incapable of throwing.
+        // The ONLY reconcile this payload can trip is bookFeeCollectionLegs'
+        // feePayments-vs-fee check. An adversarial revert of the
+        // `isFeeCollectedSeparately` wiring (dropping `|| isBINANCE`) proved
+        // the OLD version of this test — which passed a matching `payments:
+        // [...100]` leg — still threw "do not reconcile" under the revert,
+        // but via the unrelated payout-cashout reconcile (mismatched against
+        // the reverted mode A/B payoutAmount of 95), not the fee-leg one;
+        // both throw identical text, so the assertion below couldn't tell
+        // them apart. Dropping `payments` removes that second, unrelated
+        // throw path entirely (see final report for the revert transcript).
         feePayments: [{ method: "CASH", currencyCode: "USD", amount: 4 }],
         exchangeRate: 90000,
       }),
-    ).toThrow(/do not reconcile/i);
+    ).toThrow(/BINANCE RECEIVE fee collection.*do not reconcile/i);
 
     expect(rowCount(db, "financial_services")).toBe(fsCountBefore);
     expect(rowCount(db, "transactions")).toBe(txnCountBefore);
