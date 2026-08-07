@@ -235,6 +235,60 @@ Known/expected reds going in: `lira-web-016` (pre-existing rot, §Phase G); desk
 specs may assert pre-bug-7 PCD split numbers (§7 risk 3); prettier may reformat agent-written
 files on `yarn format`. `yarn dev` must not be running during `yarn test` (SQLite lock).
 
+## 10. Left TODO (written 2026-08-07 — pick up next session)
+
+Implementation state: **all phases shipped or closed** (0/A/A2/B/C/D/F/G ✅, E dropped by owner)
+in `59de32e` (feature) + `155f037` (e2e interaction-script repair after the D/F UI redesigns —
+money assertions byte-identical, 7/7 green through the real harness).
+
+### 10.1 Verification-gate status (§9 checklist)
+
+- [x] Desktop e2e — owner ran the full suite (240 green) + the 3 redesign-rotted specs repaired
+      and re-run green (`155f037`).
+- [x] Format — owner's `8943ab0`.
+- [ ] `yarn lint`
+- [ ] `yarn typecheck`
+- [ ] `yarn test` (all workspaces; NOT while `yarn dev` runs)
+- [ ] `cd electron-app && npx jest --config jest.config.cjs` (new harness, outside `yarn test`)
+- [ ] `yarn test:e2e:web` — **expected red**: `lira-web-016` (pre-existing, §10.3)
+
+Any red → a follow-up fix commit (owner decision 2026-08-06: gates deferred post-commit).
+
+### 10.2 The one deferred feature piece
+
+- [ ] **Binance "customer pays separately" (mode C)** — blocked ONLY by the owner's
+      carrier-lines work owning `frontend/src/features/recharge/pages/Recharge/index.tsx`
+      (the Binance submit path lives there). Until then the repo guard hard-rejects with
+      `"feePayments is not yet supported for BINANCE"` (guarded by test (r)). Once that file
+      lands: mirror Phase D — mode-C radio in `CryptoForm.tsx`, bare-amount contract, payout =
+      full amount, `bookFeeCollectionLegs` (already shared), provider added to the A2 guard's
+      allow-list, failing-first tests per §1.4.
+
+### 10.3 Optional guards & polish (correctness not at risk — recorded so they don't vanish)
+
+- [ ] Three §5 desktop guard specs never written (do them in a session where the Electron e2e
+      harness is already up): (i) lira-131 extension — fee collected via Whish wallet driven
+      through the REAL Services form; (ii) refund of a fee-on-top RECEIVE driven through the
+      REAL RefundMethodModal (Phase B is unit-guarded only); (iii) same-currency net-negative
+      mixed basket through the REAL SessionCheckoutModal (both existing mixed-basket specs
+      bypass the modal via IPC).
+- [ ] Counter-flow CUSTOMER_ACCOUNT gate accepts name-OR-phone; house rule
+      (`canChargeToCustomerAccount`) is name-AND-phone. Repo hard-reject protects the money;
+      UX-only. (`Services/index.tsx` counterFlow `hasClient`, Phase C entry.)
+- [ ] Legacy tidy-up: `utils/payments.ts` vs `PaymentMethodRepository.isDrawerAffecting`
+      disagree on UNKNOWN method codes (§2 bug 8). New rows can't carry `"FEE"` anymore and
+      Phase B fixed the legacy-row refund path — remaining exposure is latent only.
+
+### 10.4 Owner decisions parked (no code until called)
+
+- [ ] **REST envelope**: `validateRequest` returns HTTP 400/object-error for schema-level
+      rejections instead of the rule-19 `200 {success:false}` envelope — general middleware
+      behavior across ALL modules, surfaced by Phase G (its specs assert the real 400 shape).
+      Decide: change the middleware, or amend rule 19's wording.
+- [ ] **`lira-web-016`**: red since before this feature (asserts pre-PR#68 `general` drawer
+      targets instead of the PCD). Re-derive to the §8.1 table or retire in favor of
+      `lira-web-017`.
+
 **Phase E — DROPPED (owner Q6, 2026-08-06: keep Loto as-is).** The Loto prize keeps its
 hardcoded `CASH`/`General`/`LBP` payout. Its two §2 bugs (#3 session channel crash, #9 dead
 `payment_method` field) ship in Phase 0.
