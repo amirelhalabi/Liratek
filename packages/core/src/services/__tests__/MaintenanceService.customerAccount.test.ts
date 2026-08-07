@@ -30,8 +30,8 @@ jest.mock("../../db/connection", () => {
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec(`
-    CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, tenant_id INTEGER DEFAULT 1);
-    INSERT INTO users (id, username) VALUES (1, 'admin');
+    CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, tenant_id INTEGER DEFAULT 1, role TEXT);
+    INSERT INTO users (id, username, role) VALUES (1, 'admin', 'admin');
 
     CREATE TABLE clients (
       tenant_id INTEGER DEFAULT 1,

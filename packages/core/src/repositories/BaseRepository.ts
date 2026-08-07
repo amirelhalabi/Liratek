@@ -451,6 +451,31 @@ export abstract class BaseRepository<T extends BaseEntity> {
   // ---------------------------------------------------------------------------
 
   /**
+   * A guaranteed-existing user id to stamp on transaction/payment/debt rows
+   * when a caller does not supply one. Prefers an admin, then the lowest id.
+   * Returns 1 only as a last resort (empty users table). This keeps the
+   * FK on user_id valid on databases whose admin was recreated at id ≠ 1 —
+   * a bare `?? 1` would reintroduce the FK-violation bug.
+   *
+   * Moved here (from FinancialServiceRepository, commit c21948f / v1.29.1)
+   * per rule 14 — ExchangeRepository, CustomServiceRepository, and
+   * MaintenanceRepository all hardcoded the same `createdBy = 1` bug and need
+   * the identical fallback query; a shared base-class method is the single
+   * source instead of a 4th copy-paste.
+   */
+  protected resolveFallbackUserId(): number {
+    const row = this.db
+      .prepare(
+        `SELECT id FROM users
+         WHERE tenant_id = ?
+         ORDER BY (role = 'admin') DESC, id ASC
+         LIMIT 1`,
+      )
+      .get(getCurrentTenantId()) as { id: number } | undefined;
+    return row?.id ?? 1;
+  }
+
+  /**
    * Check if a column exists in the current table
    */
   protected hasColumn(columnName: string): boolean {

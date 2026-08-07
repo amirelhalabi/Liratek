@@ -14,6 +14,7 @@ import {
   PageHeader,
   useApi,
   DecimalInput,
+  roundForCurrency,
   type PaymentLine,
 } from "@liratek/ui";
 import { PaymentSheet } from "@/features/recharge/components/PaymentSheet";
@@ -1230,7 +1231,14 @@ export default function Exchange() {
             color: "text-red-400",
           },
         ]}
-        totalAmount={effectiveResult?.totalAmountOut ?? 0}
+        totalAmount={
+          effectiveResult
+            ? roundForCurrency({
+                amount: effectiveResult.totalAmountOut,
+                currency: toCurrency,
+              }).amount
+            : 0
+        }
         totalAmountCurrency={toCurrency}
         currency={toCurrency}
         paymentMethods={

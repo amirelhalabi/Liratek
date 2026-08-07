@@ -1,15 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 import { useShopBase } from "@/hooks/useShopBase";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
-import type { CurrencyRate } from "@liratek/core";
-import {
-  fetchLiveCurrencyRates,
-  CURRENCY_NAMES,
-  getCurrencySymbol,
-} from "@/utils/liveExchangeRates";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -54,7 +48,7 @@ export function DrawerTopUpModal({
 }: DrawerTopUpModalProps) {
   const api = useApi();
   useModalFocusFix(isOpen);
-  const { activeCurrencies } = useCurrencyContext();
+  const { getCurrenciesForDrawer } = useCurrencyContext();
   const [mode, setMode] = useState<TopUpMode>("external");
   const [amountUsd, setAmountUsd] = useState("");
   const [amountLbp, setAmountLbp] = useState("");
@@ -65,49 +59,40 @@ export function DrawerTopUpModal({
   const [extraCurrencies, setExtraCurrencies] = useState<ExtraCurrencyRow[]>(
     [],
   );
-  const [liveCurrencyRates, setLiveCurrencyRates] = useState<CurrencyRate[]>(
-    [],
-  );
+  const [availableExtraCurrencies, setAvailableExtraCurrencies] = useState<
+    AvailableCurrency[]
+  >([]);
 
   /**
-   * Currencies offerable as an extra top-up leg: the shop's own active
-   * currencies (minus USD/LBP, which have dedicated inputs above), then every
-   * currency the live feed carries.
+   * Currencies offerable as an extra top-up leg: ONLY currencies explicitly
+   * enabled for the General drawer (Settings → Currencies → "Drawer
+   * Currencies"), minus USD/LBP which have dedicated inputs above.
    *
-   * DERIVED, not fetched into state. The previous version built this inside an
-   * effect keyed on `[isOpen]` while reading `liveCurrencyRates`, so it always
-   * ran before the feed resolved and never re-ran afterwards — the list showed
-   * nothing but EUR no matter what the feed returned.
-   *
-   * Offering a currency the drawer has no config row for is safe in EXTERNAL
-   * mode specifically (see the note on DrawerTopUpCreateInput in
-   * electron-app/schemas/index.ts): an external cash-in posts a fresh General
-   * row for a brand-new currency, whereas a from-drawer debit against a
-   * missing row would silently no-op. This section only renders for
-   * `mode === "external"`.
+   * This MUST mirror the backend gate exactly. `DrawerTopUpService.addTopUp`
+   * hard-rejects any `extra_currencies` entry whose code is not linked to the
+   * General drawer via `currency_drawers` — offering shop-wide active
+   * currencies or live-feed currencies (as a prior version did) let the
+   * operator pick a currency, type an amount, and only then get rejected.
+   * `getCurrenciesForDrawer` (CurrencyContext) is the same drawer-scoped
+   * lookup the backend enforces, so what's offered here is exactly what will
+   * be accepted.
    */
-  const availableExtraCurrencies = useMemo<AvailableCurrency[]>(() => {
-    const configured = activeCurrencies
-      .filter((c) => c.code !== "USD" && c.code !== "LBP")
-      .map((c) => ({ code: c.code, name: c.name, symbol: c.symbol }));
-    const seen = new Set(configured.map((c) => c.code));
-    const fromFeed = liveCurrencyRates
-      .filter(
-        (r) =>
-          !seen.has(r.to_code) && r.to_code !== "USD" && r.to_code !== "LBP",
-      )
-      .map((r) => {
-        const symbol = getCurrencySymbol(r.to_code);
-        return {
-          code: r.to_code,
-          name: CURRENCY_NAMES[r.to_code] ?? r.to_code,
-          // getCurrencySymbol falls back to the code itself; carrying that
-          // through would render "JPY (JPY)" in the option label.
-          ...(symbol !== r.to_code ? { symbol } : {}),
-        };
-      });
-    return [...configured, ...fromFeed];
-  }, [activeCurrencies, liveCurrencyRates]);
+  useEffect(() => {
+    if (!isOpen || mode !== "external") return;
+    let cancelled = false;
+    (async () => {
+      const drawerCurrencies = await getCurrenciesForDrawer("General");
+      if (cancelled) return;
+      setAvailableExtraCurrencies(
+        drawerCurrencies
+          .filter((c) => c.code !== "USD" && c.code !== "LBP")
+          .map((c) => ({ code: c.code, name: c.name, symbol: c.symbol })),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode, getCurrenciesForDrawer]);
 
   // Transfer mode — General <-> the primary cash drawer (PCD), the shop's
   // OWN physical till at the money-transfer counter (Primary Cash Drawer
@@ -134,20 +119,6 @@ export function DrawerTopUpModal({
       loadTransferBalances();
     }
   }, [isOpen, mode]);
-
-  useEffect(() => {
-    const loadLive = async () => {
-      try {
-        const live = await fetchLiveCurrencyRates();
-        setLiveCurrencyRates(live);
-      } catch {
-        // non-critical
-      }
-    };
-    if (isOpen) {
-      loadLive();
-    }
-  }, [isOpen]);
 
   async function loadSourceDrawers() {
     const result = await api.drawerTopUp.getSourceDrawers();
@@ -177,6 +148,7 @@ export function DrawerTopUpModal({
     setMode("external");
     setSelectedDrawer("");
     setExtraCurrencies([]);
+    setAvailableExtraCurrencies([]);
     setTransferDirection("to_primary");
     setTransferBalances({});
     onClose();

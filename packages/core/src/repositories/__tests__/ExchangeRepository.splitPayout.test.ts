@@ -28,6 +28,14 @@ function createTestDb(): Database.Database {
   const db = new Database(":memory:");
 
   db.exec(`
+    CREATE TABLE users (
+      tenant_id INTEGER DEFAULT 1,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL,
+      role TEXT
+    );
+    INSERT INTO users (id, username, role) VALUES (1, 'Admin', 'admin');
+
     CREATE TABLE exchange_transactions (
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,

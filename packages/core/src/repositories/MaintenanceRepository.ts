@@ -350,7 +350,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       issueDescription?: string | null;
     },
   ): void {
-    const createdBy = 1;
+    const createdBy = this.resolveFallbackUserId();
     const tenantId = getCurrentTenantId();
     const defer = opts.defer === true;
     const isLbp = opts.currency === "LBP";

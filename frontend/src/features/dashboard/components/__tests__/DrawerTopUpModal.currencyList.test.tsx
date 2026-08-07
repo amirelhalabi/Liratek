@@ -1,73 +1,35 @@
 /** @jest-environment jsdom */
 
 /**
- * DrawerTopUpModal — the "Other Currencies" picker is built from the LIVE FEED.
+ * DrawerTopUpModal — the "Other Currencies" picker must be scoped to the
+ * General drawer's OWN currency configuration, not the shop-wide active
+ * currency list or the live FX feed.
  *
- * Regression guard for a bug that shipped once (fixed in a1e073b): the list was
- * loaded inside an effect keyed on `[isOpen]` that read `liveCurrencyRates` from
- * state, so it ran before the feed's promise resolved, saw the initial `[]`, and
- * never re-ran. The picker therefore only ever offered the shop's own configured
- * non-USD/LBP currencies — in practice EUR alone, and nothing at all when EUR
- * was not configured.
+ * Regression guard for a customer-reported bug: the picker used to be built
+ * from `activeCurrencies` (shop-wide, unfiltered by drawer) UNIONED with
+ * every currency the live feed happened to carry (e.g. GBP, JPY — currencies
+ * with zero drawer configuration). The backend
+ * (`DrawerTopUpService.addTopUp`) hard-rejects any `extra_currencies` entry
+ * whose code is not explicitly linked to the General drawer via
+ * `currency_drawers`, so the old picker let the operator pick a currency,
+ * type an amount, and only THEN get rejected.
  *
- * To isolate exactly that, `activeCurrencies` here holds ONLY USD and LBP (both
- * of which the picker excludes, since they have dedicated inputs above). The
- * feed is therefore the sole possible source of options, so:
- *   - fixed  -> the feed's currencies are offered
- *   - buggy  -> zero options, and the empty-state copy renders instead
+ * The fix scopes the picker to `getCurrenciesForDrawer("General")`
+ * (CurrencyContext) — the same drawer-scoped lookup the backend enforces —
+ * filtered to exclude USD/LBP (dedicated inputs above). A currency present in
+ * `activeCurrencies`/the live feed but NOT returned by that call must never
+ * appear as an option.
  *
- * Proven against the buggy code per rule 17: restoring the pre-fix modal
- * (a1e073b~1) fails all three cases. The first two are the real guards — they
- * fail because the feed's currencies are absent. The third fails only because
- * the pre-fix empty state used different copy, so it documents intended
- * behaviour rather than guarding the regression; it is labelled as such below.
+ * Proven against the buggy code per rule 17: reverting to the
+ * `activeCurrencies` + live-feed memo makes every assertion below fail
+ * (GBP/JPY appear despite no drawer config; EUR is sourced from
+ * `activeCurrencies` instead of the drawer call; `getCurrenciesForDrawer` is
+ * never invoked at all).
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 import { DrawerTopUpModal } from "../DrawerTopUpModal";
-
-// ─── Feed ─────────────────────────────────────────────────────────────────────
-
-// AFN is deliberately a code with no symbol mapping: getCurrencySymbol falls
-// back to the code itself, and the option label must stay "AFN" rather than
-// degrading to "AFN (AFN)".
-const mockFeedRates = [
-  {
-    to_code: "GBP",
-    market_rate: 1.3,
-    buy_rate: 1.3,
-    sell_rate: 1.3,
-    is_stronger: -1,
-  },
-  {
-    to_code: "JPY",
-    market_rate: 160,
-    buy_rate: 160,
-    sell_rate: 160,
-    is_stronger: 1,
-  },
-  {
-    to_code: "AFN",
-    market_rate: 65,
-    buy_rate: 65,
-    sell_rate: 65,
-    is_stronger: 1,
-  },
-];
-const mockFetchLiveCurrencyRates = jest.fn();
-
-jest.mock("@/utils/liveExchangeRates", () => ({
-  fetchLiveCurrencyRates: () => mockFetchLiveCurrencyRates(),
-  CURRENCY_NAMES: {
-    GBP: "British Pound",
-    JPY: "Japanese Yen",
-    EUR: "Euro",
-  },
-  // Faithful to the real implementation: unknown codes fall back to the code.
-  getCurrencySymbol: (code: string) =>
-    ({ GBP: "£", JPY: "¥", EUR: "€" })[code] ?? code,
-}));
 
 // ─── @liratek/ui ──────────────────────────────────────────────────────────────
 
@@ -124,19 +86,23 @@ const mockApi = {
 
 // ─── Contexts ─────────────────────────────────────────────────────────────────
 
-// Referentially STABLE across renders — a fresh object per call re-runs the
-// component's memo/effect dependencies every render (the Exchange split-payout
-// spec documents burning 18 minutes of CPU on exactly that mistake).
-const mockCurrencyContext = {
-  // USD/LBP only: both are excluded by the picker, so the feed is the sole
-  // source of options and the assertions isolate the regression.
-  activeCurrencies: [
-    { code: "USD", name: "US Dollar", symbol: "$" },
-    { code: "LBP", name: "Lebanese Pound", symbol: "LBP" },
-  ],
-};
+// Currencies actually enabled for the General drawer (`currency_drawers`).
+// EUR is configured here; GBP/JPY are deliberately NOT — they represent
+// currencies that are shop-wide active and/or live-feed-carried but have no
+// General-drawer config row, i.e. exactly what the backend would reject.
+const mockDrawerCurrencies = [
+  { id: 1, code: "USD", name: "US Dollar", symbol: "$", decimal_places: 2, is_active: 1 },
+  { id: 2, code: "LBP", name: "Lebanese Pound", symbol: "LBP", decimal_places: 0, is_active: 1 },
+  { id: 3, code: "EUR", name: "Euro", symbol: "€", decimal_places: 2, is_active: 1 },
+];
+const mockGetCurrenciesForDrawer = jest
+  .fn()
+  .mockResolvedValue(mockDrawerCurrencies);
+
 jest.mock("@/contexts/CurrencyContext", () => ({
-  useCurrencyContext: () => mockCurrencyContext,
+  useCurrencyContext: () => ({
+    getCurrenciesForDrawer: mockGetCurrenciesForDrawer,
+  }),
 }));
 
 const mockShopBase = { baseSystem: "OMT" };
@@ -160,7 +126,8 @@ function renderModal() {
 async function openCurrencyRow(): Promise<HTMLSelectElement> {
   const addBtn = await screen.findByRole("button", { name: /add currency/i });
   // The button is disabled while the option list is empty, so waiting for it
-  // to enable IS the assertion that the feed reached the picker.
+  // to enable IS the assertion that the drawer-scoped list reached the
+  // picker.
   await waitFor(() =>
     expect((addBtn as HTMLButtonElement).disabled).toBe(false),
   );
@@ -177,81 +144,56 @@ function optionLabels(select: HTMLSelectElement): string[] {
 describe("DrawerTopUpModal — extra-currency picker", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockFetchLiveCurrencyRates.mockResolvedValue(mockFeedRates);
-    // Reset the baseline: USD/LBP only, so the feed is the sole source of
-    // options. One case below reassigns this, so it must be restored per test
-    // rather than relying on declaration order.
-    mockCurrencyContext.activeCurrencies = [
-      { code: "USD", name: "US Dollar", symbol: "$" },
-      { code: "LBP", name: "Lebanese Pound", symbol: "LBP" },
-    ];
+    mockGetCurrenciesForDrawer.mockResolvedValue(mockDrawerCurrencies);
   });
 
-  it("offers the live feed's currencies once the feed resolves", async () => {
+  it("calls getCurrenciesForDrawer('General') and offers only what it returns", async () => {
     renderModal();
 
     const select = await openCurrencyRow();
     const labels = optionLabels(select);
 
-    // The regression: with the effect+state version these were all absent.
-    expect(labels).toContain("GBP (£)");
-    expect(labels).toContain("JPY (¥)");
+    expect(mockGetCurrenciesForDrawer).toHaveBeenCalledWith("General");
 
-    // A code with no symbol mapping keeps its bare code — getCurrencySymbol's
-    // fallback must not surface as "AFN (AFN)".
-    expect(labels).toContain("AFN");
-    expect(labels).not.toContain("AFN (AFN)");
+    // EUR is enabled for the General drawer.
+    expect(labels).toContain("EUR (€)");
 
-    // USD/LBP have dedicated inputs above and must never be offered here.
+    // USD/LBP have dedicated inputs above and must never be offered here,
+    // even though the drawer call returns them.
     expect(labels.some((l) => l.startsWith("USD"))).toBe(false);
     expect(labels.some((l) => l.startsWith("LBP"))).toBe(false);
   });
 
-  it("puts configured currencies first and never duplicates one the feed also carries", async () => {
-    // EUR is configured AND present in the feed — the two halves of the list
-    // must be deduped, and the shop's own entry is the one that wins (it
-    // carries the real name/symbol from settings).
-    mockCurrencyContext.activeCurrencies = [
-      { code: "USD", name: "US Dollar", symbol: "$" },
-      { code: "LBP", name: "Lebanese Pound", symbol: "LBP" },
-      { code: "EUR", name: "Euro", symbol: "€" },
-    ];
-    mockFetchLiveCurrencyRates.mockResolvedValue([
-      {
-        to_code: "EUR",
-        market_rate: 1.1,
-        buy_rate: 1.1,
-        sell_rate: 1.1,
-        is_stronger: -1,
-      },
-      ...mockFeedRates,
-    ]);
-
+  it("never offers a currency the General drawer has no config row for, even if it's shop-wide active or live-feed-carried", async () => {
+    // GBP/JPY are NOT in mockDrawerCurrencies — the backend
+    // (`DrawerTopUpService.addTopUp`) would reject them. The picker must not
+    // offer them regardless of what any other source (activeCurrencies, the
+    // live feed) might contain.
     renderModal();
 
     const select = await openCurrencyRow();
     const labels = optionLabels(select);
 
-    // Exactly once, despite appearing on both sides.
-    expect(labels.filter((l) => l.startsWith("EUR"))).toHaveLength(1);
-
-    // Configured before feed-sourced. (Fails pre-fix for the right reason:
-    // GBP was absent entirely, so it had no index to compare.)
-    expect(labels.indexOf("EUR (€)")).toBeGreaterThanOrEqual(0);
-    expect(labels.indexOf("GBP (£)")).toBeGreaterThan(
-      labels.indexOf("EUR (€)"),
-    );
+    expect(labels.some((l) => l.startsWith("GBP"))).toBe(false);
+    expect(labels.some((l) => l.startsWith("JPY"))).toBe(false);
   });
 
-  it("renders the empty state when the feed is unavailable", async () => {
-    // A failed fetch is swallowed as non-critical. With no configured extras
-    // either, there is genuinely nothing to offer — the one case where the
-    // empty-state copy is correct and the add button stays disabled.
-    //
-    // NOTE: this documents intended behaviour; it is NOT the rule-17 guard
-    // (the two cases above are). Pre-fix code also rendered an empty list
-    // here, just under different copy.
-    mockFetchLiveCurrencyRates.mockRejectedValue(new Error("offline"));
+  it("renders the empty state and does not call the drawer lookup when the modal is not in external mode", async () => {
+    renderModal();
+
+    fireEvent.click(screen.getByRole("button", { name: /from drawer/i }));
+
+    // Give any stray effect a tick to fire before asserting it didn't.
+    await waitFor(() => {
+      expect(screen.queryByText(/other currencies/i)).toBeNull();
+    });
+  });
+
+  it("renders the empty state when the General drawer has no extra currencies configured", async () => {
+    mockGetCurrenciesForDrawer.mockResolvedValue([
+      { id: 1, code: "USD", name: "US Dollar", symbol: "$", decimal_places: 2, is_active: 1 },
+      { id: 2, code: "LBP", name: "Lebanese Pound", symbol: "LBP", decimal_places: 0, is_active: 1 },
+    ]);
     renderModal();
 
     expect(

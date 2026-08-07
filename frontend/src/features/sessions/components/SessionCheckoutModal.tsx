@@ -666,6 +666,14 @@ export function SessionCheckoutModal({
             label: item.label,
             amount: item.amount,
             currency: item.currency,
+            // POST-discount effective fee, in the item's own currency — what
+            // was actually charged. getItemProfitCap returns 0 for item types
+            // with no profit concept, which the receipt hides via its own
+            // `> 0` check.
+            fee: getItemProfitCap({
+              ...item,
+              formData: applyItemDiscount(item, itemDiscounts[item.id] ?? 0),
+            }),
           })),
           legs: allPaymentLegs.map((l) => ({
             method: l.method,

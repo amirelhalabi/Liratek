@@ -82,11 +82,17 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
    */
   createService(
     data: CreateCustomServiceInput,
-    createdBy: number = 1,
+    createdByParam?: number,
   ): { success: boolean; id?: number; error?: string } {
     try {
       const tenantId = getCurrentTenantId();
       const result = this.db.transaction(() => {
+        // Resolve inside the transaction so it reads a consistent snapshot;
+        // falls back to a real (admin) user id instead of the hardcoded `1`
+        // that used to trip the FK on transactions.user_id / payments.created_by
+        // / custom_services.created_by whenever the admin's real id isn't 1.
+        const createdBy = createdByParam ?? this.resolveFallbackUserId();
+
         // 1. Insert the custom service record
         const insertService = this.db.prepare(`
           INSERT INTO custom_services (

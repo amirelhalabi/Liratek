@@ -33,6 +33,15 @@ export interface SessionReceiptItem {
   /** Signed — negative for a cashout/payout item (e.g. RECEIVE, loto prize). */
   amount: number;
   currency: string;
+  /**
+   * Commission/fee already charged as part of `amount` (in this item's own
+   * currency), POST per-item discount. Optional/absent (or 0) for item types
+   * with no profit concept (POS/loto/maintenance/custom_service) — no "Fees:"
+   * line is printed for those. Mirrors `serviceReceipt.ts`'s standalone
+   * "Fee:" line, which this session-basket receipt lacked (LIRA note:
+   * "iPick: no commission on bill" — the gap was here, not iPick-specific).
+   */
+  fee?: number;
 }
 
 export interface SessionReceiptLeg {
@@ -152,6 +161,22 @@ export function buildSessionCheckoutReceiptText(
   for (const [currency, total] of payoutsByCurrency) {
     if (total === 0) continue;
     r += line("Payout to customer:", fmtMoney(total, currency));
+  }
+
+  // Commission/fee already included in the item amounts above, broken out
+  // per currency — mirrors serviceReceipt.ts's standalone "Fee:" line.
+  const feesByCurrency = new Map<string, number>();
+  for (const item of items) {
+    const fee = item.fee ?? 0;
+    if (fee <= 0) continue;
+    feesByCurrency.set(
+      item.currency,
+      (feesByCurrency.get(item.currency) ?? 0) + fee,
+    );
+  }
+  for (const [currency, total] of feesByCurrency) {
+    if (total <= 0) continue;
+    r += line("Fees:", fmtMoney(total, currency));
   }
 
   // Payment-method split (customer-paid IN legs) and change/payout (OUT legs).

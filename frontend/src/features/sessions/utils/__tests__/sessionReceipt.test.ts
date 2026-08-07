@@ -205,6 +205,48 @@ describe("buildSessionCheckoutReceiptText — GROSS Charges/Payout split (BIDIRE
     expect(text).not.toContain("Payout (CASH)");
   });
 
+  it("prints a Fees line for an item's commission (LIRA note: 'iPick: no commission on bill' — the gap was in this session-basket receipt, not iPick-specific)", () => {
+    // Proven failing-first (rule 17): pre-fix, SessionReceiptItem had no
+    // `fee` field and buildSessionCheckoutReceiptText never printed a
+    // "Fees:" line at all — this assertion fails against that code.
+    const text = buildSessionCheckoutReceiptText({
+      shop,
+      sessionId: 20,
+      items: [
+        { label: "iPick Bill Payment", amount: 50, currency: "USD", fee: 5 },
+      ],
+      legs: [],
+    });
+
+    expect(text).toMatch(/Fees:\s+\$5\.00/);
+  });
+
+  it("sums fees across items sharing a currency and omits the line when there is no fee", () => {
+    const text = buildSessionCheckoutReceiptText({
+      shop,
+      sessionId: 21,
+      items: [
+        { label: "KATCH Bill A", amount: 30, currency: "USD", fee: 2 },
+        { label: "KATCH Bill B", amount: 20, currency: "USD", fee: 3 },
+        { label: "POS Sale", amount: 10, currency: "USD" },
+      ],
+      legs: [],
+    });
+
+    expect(text).toMatch(/Fees:\s+\$5\.00/);
+  });
+
+  it("omits the Fees line entirely when no item carries a fee", () => {
+    const text = buildSessionCheckoutReceiptText({
+      shop,
+      sessionId: 22,
+      items: [{ label: "POS Sale", amount: 10, currency: "USD" }],
+      legs: [],
+    });
+
+    expect(text).not.toContain("Fees:");
+  });
+
   it("still labels a CUSTOMER_ACCOUNT payout as Credited even with kind:PAYOUT", () => {
     const text = buildSessionCheckoutReceiptText({
       shop,

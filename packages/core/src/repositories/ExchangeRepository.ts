@@ -160,7 +160,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    */
   createTransaction(data: CreateExchangeData): { id: number } {
     const drawerName = "General";
-    const createdBy = 1;
+    const createdBy = this.resolveFallbackUserId();
     const note = data.note ?? null;
 
     // Derive type for display: SELL if customer receives USD, BUY otherwise
