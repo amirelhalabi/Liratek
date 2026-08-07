@@ -86,7 +86,7 @@ describe("FinancialServiceSchema — feePayments refines (§6bis finding 6)", ()
     expect(issuesFor(result)).toContainEqual({
       path: ["feePayments"],
       message:
-        "feePayments requires a non-zero omtFee/whishFee — there is no fee to collect",
+        "feePayments requires a non-zero omtFee/whishFee/commission — there is no fee to collect",
     });
   });
 
@@ -97,7 +97,46 @@ describe("FinancialServiceSchema — feePayments refines (§6bis finding 6)", ()
     expect(issuesFor(result)).toContainEqual({
       path: ["feePayments"],
       message:
-        "feePayments requires a non-zero omtFee/whishFee — there is no fee to collect",
+        "feePayments requires a non-zero omtFee/whishFee/commission — there is no fee to collect",
+    });
+  });
+
+  // §10.2 — BINANCE has no omtFee/whishFee field of its own; its fee
+  // travels in `commission` (the live frontend contract, CryptoForm.tsx's
+  // `commission: fee`). Without this escape clause the zero-fee refine
+  // above would reject every legitimate BINANCE mode-C payload at the
+  // schema layer, before it ever reaches the repository's own
+  // (already-correct) `calculatedCommission`-aware guard. Mirrors
+  // packages/core's `createFinancialServiceSchema` equivalent cases in
+  // FinancialServiceRepository.receiveFeeLegs.test.ts (§10.2 block).
+  it("accepts feePayments on a BINANCE fee-on-top RECEIVE via commission (no omtFee/whishFee)", () => {
+    const result = FinancialServiceSchema.safeParse({
+      provider: "BINANCE" as const,
+      serviceType: "RECEIVE" as const,
+      amount: 100,
+      currency: "USDT",
+      commission: 5,
+      cashoutMethod: "CASH",
+      feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects feePayments on a BINANCE RECEIVE when commission is 0 (no fee to collect)", () => {
+    const result = FinancialServiceSchema.safeParse({
+      provider: "BINANCE" as const,
+      serviceType: "RECEIVE" as const,
+      amount: 100,
+      currency: "USDT",
+      commission: 0,
+      cashoutMethod: "CASH",
+      feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+    });
+    expect(result.success).toBe(false);
+    expect(issuesFor(result)).toContainEqual({
+      path: ["feePayments"],
+      message:
+        "feePayments requires a non-zero omtFee/whishFee/commission — there is no fee to collect",
     });
   });
 
