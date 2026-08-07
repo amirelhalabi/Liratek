@@ -2569,7 +2569,7 @@ standard, but the rollout touches every REST route file.
 | **Epic**              | Payments (shared)                                    |
 | **Type**              | Bug (latent)                                          |
 | **Priority**          | Low                                                    |
-| **Status**            | TODO                                                   |
+| **Status**            | DONE (2026-08-08, `c9f2262`)                           |
 | **Affected Modules**  | Payments (shared utility)                              |
 | **Assigned To**       | —                                                        |
 | **Depends On**        | —                                                        |
@@ -2586,9 +2586,32 @@ reconciled before that changes.
 
 ### Acceptance Criteria
 
-- [ ] Pick one semantics for an unregistered method code (recommend: match the repository, "false" —
-      it's the source of truth) and align both predicates.
-- [ ] Test proving the two predicates now agree for an unregistered code.
+- [x] Pick one semantics for an unregistered method code (matched the repository, `false`) and align
+      both predicates — defined ONCE as `UNREGISTERED_METHOD_IS_DRAWER_AFFECTING` (rule 14).
+- [x] Test proving the two predicates now agree for an unregistered code (5 new tests; the 3
+      agreement assertions were observed FAILING pre-fix per rule 17).
+
+### Outcome — this was more than a consistency cleanup
+
+Reviewing the call sites showed `false` is not merely the *consistent* choice but the **safer** one:
+the permissive `true` fallback let an unregistered code fall through to
+`paymentMethodToDrawerName`'s own unknown-code default (`FALLBACK_DRAWER_MAP[method] ?? "General"`),
+silently posting real money into the General drawer for a code nobody configured. All ~40 call sites
+across every money repository were reviewed — each either skips to a debt branch on `false` or throws;
+none relied on `true` to post a legitimate drawer movement.
+
+Exposure was confirmed latent (verified by grep, not assumed): the retired `"FEE"` literal is gone
+(owner decision #9) and the `"MULTI"` sentinel is hard-rejected in `RechargeRepository.processRecharge`
+before reaching these functions. The DB-*unavailable* `catch` fallback is deliberately untouched and
+still uses the hardcoded map, so the `SessionPaymentService.basket` tests that omit the
+`payment_methods` table on purpose keep passing.
+
+**Residual (not blocking, worth a follow-up):** every Zod leg schema types `method` as a free
+`z.string().min(1)` with no enum restricting it to registered codes, so a bogus method string can
+still reach the repositories from an external caller. Pre-existing and orthogonal — and this fix makes
+that scenario safer (reject/no-op instead of a silent post to General) rather than worse.
+
+Core suite after: 153/153 suites, 1653/1653 tests.
 
 ### Files to Modify
 
@@ -2606,7 +2629,7 @@ reconciled before that changes.
 | **Epic**              | Recharge / Binance                      |
 | **Type**              | Bug (UI hygiene, no money risk)          |
 | **Priority**          | Low                                       |
-| **Status**            | TODO                                       |
+| **Status**            | DONE (2026-08-08, `0c910cd`) — scope widened, see Outcome |
 | **Affected Modules**  | Recharge > Binance                        |
 | **Assigned To**       | —                                           |
 | **Depends On**        | —                                           |
@@ -2623,8 +2646,27 @@ state correctly — but it's a UI-hygiene gap worth closing.
 
 ### Acceptance Criteria
 
-- [ ] The tab-switch reset effect also clears the 4 `crypto*` fields.
-- [ ] Component test: switch away from Binance mid-edit, switch back, assert fields are reset.
+- [x] The tab-switch reset effect also clears the `crypto*` fields — **all 13**, not just the 4 this
+      ticket originally named (see Outcome).
+- [x] Component test: switch away from Binance mid-edit, switch back, assert fields are reset
+      (5 assertions, all observed FAILING pre-fix per rule 17).
+
+### Outcome — this ticket under-specified its own fix
+
+The ticket named 4 fields (`cryptoAmount`, `cryptoFeeIncluded`, `cryptoFeeCollectedSeparately`,
+`cryptoFeePaymentLines`). Reviewing the first pass against the two crypto submit paths
+(`index.tsx:1148-1160` mode-C early return, `:1242-1254` main submit) showed those paths reset **13**
+fields — so 9 were still surviving a tab switch, and they carry **higher** stakes than the 4 named:
+
+- `cryptoPaymentLines`, `cryptoReturnLegs`, `cryptoKeptChange` — money-leg state
+- `cryptoClientId`, `cryptoClientName`, `cryptoClientPhone` — a stale `client_id` could attribute the
+  next crypto transaction to the **wrong client** (rule 11 territory)
+- `cryptoFee`, `cryptoDescription`, `cryptoTransactionTime`
+
+All 13 now reset, using the submit paths' exact values. `cryptoType`/`cryptoPaidBy`/`cryptoTenderRate`
+are deliberately left sticky — neither submit path resets them either.
+
+Recharge module suite after: 23 suites / 146 tests (143 baseline + 3 new).
 
 ### Files to Modify
 
@@ -2634,13 +2676,51 @@ state correctly — but it's a UI-hygiene gap worth closing.
 
 ---
 
-## Summary (Sprint 6 — LIRA-098..106)
+## LIRA-107: Recharge — SEND↔RECEIVE flip resets nothing (NEEDS INTERVIEW)
 
-| Priority  | Total | Done  | Remaining |
-| --------- | ----- | ----- | --------- |
-| Medium    | 5     | 0     | 5         |
-| Low       | 4     | 0     | 4         |
-| **Total** | **9** | **0** | **9**     |
+| Field                | Value                            |
+| --------------------- | -------------------------------------- |
+| **Epic**              | Recharge / Binance                      |
+| **Type**              | Design question                          |
+| **Priority**          | Low                                       |
+| **Status**            | NEEDS INTERVIEW                            |
+| **Affected Modules**  | Recharge > Binance                        |
+| **Assigned To**       | —                                           |
+| **Depends On**        | LIRA-106 (DONE)                             |
+| **Source Plan**       | Found while reviewing LIRA-106 (2026-08-08) |
+
+### Summary
+
+LIRA-106's summary named two triggers for stale crypto state: a provider-tab switch **and** a
+SEND↔RECEIVE flip. Only the first is now fixed. The reset effect is keyed on `[activeProvider]`, and
+there is **no `cryptoType`-keyed reset effect anywhere in the file** (verified by grep) — so flipping
+direction mid-edit resets nothing at all.
+
+### Open question for the owner
+
+Should flipping SEND↔RECEIVE clear the crypto form? It's a UX trade-off, not a correctness bug:
+
+- **Clear it** — matches the "direction change means a different transaction" reading; legs entered
+  under SEND semantics are arguably wrong for RECEIVE (opposite money flow: SEND wallet−/General+,
+  RECEIVE wallet+/General−).
+- **Keep it** — an operator who flips direction just to check something doesn't lose their entry.
+
+Deliberately NOT implemented unilaterally, since either choice is defensible and the wrong one is an
+active annoyance to the operator.
+
+---
+
+## Summary (Sprint 6 — LIRA-098..107)
+
+| Priority  | Total  | Done  | Remaining |
+| --------- | ------ | ----- | --------- |
+| Medium    | 5      | 0     | 5         |
+| Low       | 5      | 2     | 3         |
+| **Total** | **10** | **2** | **8**     |
+
+> LIRA-102's spec is **written and committed but never executed** — running it needs the
+> `yarn dev` → stop → `yarn test:e2e` sequence, which the owner runs. It stays TODO until it has
+> actually passed once; a spec that has never run proves nothing.
 
 ### Sprint 6 board
 
@@ -2650,11 +2730,12 @@ state correctly — but it's a UI-hygiene gap worth closing.
 | LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof              | Medium   | TODO   | MULTI_TENANT_IMPLEMENTATION_PLAN.md         |
 | LIRA-100 | Loto — in-module ticket reprint UI                                   | Low      | TODO   | PARTIAL_TASKS_COMPLETION_PLAN.md            |
 | LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification                | Medium   | TODO   | PRIMARY_CASH_DRAWER_PLAN.md                 |
-| LIRA-102 | Session-grouping UI e2e spec                                          | Low      | TODO   | session-basket-payment-remaining.md         |
+| LIRA-102 | Session-grouping UI e2e spec                                          | Low      | TODO (spec written `0579942`, never executed) | session-basket-payment-remaining.md |
 | LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
 | LIRA-104 | Web-mode REST writes have no audit trail                              | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
-| LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | TODO   | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md          |
-| LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | TODO   | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md          |
+| LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | DONE `c9f2262` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
+| LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | DONE `0c910cd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
+| LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing                           | Low      | NEEDS INTERVIEW | found reviewing LIRA-106            |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
 > LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully
