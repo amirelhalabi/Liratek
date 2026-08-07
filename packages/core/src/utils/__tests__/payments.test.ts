@@ -11,7 +11,32 @@
  * repository-level money test.
  */
 
-import { partitionLegs, isReturnLeg } from "../payments";
+// ─────────────────────────────────────────────────────────────────────────
+// LIRA-105 — unregistered payment-method code: isDrawerAffectingMethod /
+// isNonCashDrawerMethod must agree with PaymentMethodRepository.isDrawerAffecting.
+// ─────────────────────────────────────────────────────────────────────────
+//
+// PaymentMethodRepository.isDrawerAffecting(code) is `method?.affects_drawer
+// === 1` — `undefined === 1` is `false` for a code with no `payment_methods`
+// row. Before the fix, `isDrawerAffectingMethod`/`isNonCashDrawerMethod` in
+// this file defaulted the SAME "DB reachable, code not found" case to `true`
+// (via `!NON_DRAWER_METHODS.has(method)`), disagreeing with the repository.
+// This mocks `getPaymentMethodRepository` so `getByCode()` resolves (no
+// throw) and returns `undefined` — the exact "unregistered code" case, NOT
+// the separate "DB unavailable" `catch` fallback (which intentionally keeps
+// using the hardcoded map — see the sibling SessionPaymentService.basket.test.ts
+// files that omit the `payment_methods` table on purpose).
+const mockGetByCode = jest.fn();
+jest.mock("../../repositories/PaymentMethodRepository", () => ({
+  getPaymentMethodRepository: () => ({ getByCode: mockGetByCode }),
+}));
+
+import {
+  partitionLegs,
+  isReturnLeg,
+  isDrawerAffectingMethod,
+  isNonCashDrawerMethod,
+} from "../payments";
 
 interface TestLeg {
   method: string;
@@ -106,5 +131,56 @@ describe("isReturnLeg", () => {
 
   it("is true only when direction is exactly 'OUT'", () => {
     expect(isReturnLeg({ direction: "OUT" })).toBe(true);
+  });
+});
+
+describe("isDrawerAffectingMethod / isNonCashDrawerMethod — LIRA-105 unregistered-code fallback", () => {
+  const UNREGISTERED_CODE = "TOTALLY_UNKNOWN_METHOD_XYZ";
+
+  beforeEach(() => {
+    // DB IS reachable (no throw) — it just has no row for this code. This is
+    // the "unregistered code" case, distinct from the DB-unavailable `catch`
+    // fallback exercised elsewhere (which must keep returning `true` for
+    // known codes like CASH via the hardcoded map — untouched by this fix).
+    mockGetByCode.mockReturnValue(undefined);
+  });
+
+  afterEach(() => {
+    mockGetByCode.mockReset();
+  });
+
+  it("isDrawerAffectingMethod(unregistered code) is false — matches PaymentMethodRepository.isDrawerAffecting", () => {
+    // PaymentMethodRepository.isDrawerAffecting: `method?.affects_drawer === 1`.
+    // `undefined?.affects_drawer === 1` is `false` — the reconciled answer.
+    expect(isDrawerAffectingMethod(UNREGISTERED_CODE)).toBe(false);
+  });
+
+  it("isNonCashDrawerMethod(unregistered code) is also false", () => {
+    expect(isNonCashDrawerMethod(UNREGISTERED_CODE)).toBe(false);
+  });
+
+  it("both predicates AGREE for an unregistered code (the ticket's core assertion)", () => {
+    expect(isDrawerAffectingMethod(UNREGISTERED_CODE)).toBe(
+      isNonCashDrawerMethod(UNREGISTERED_CODE),
+    );
+    expect(isDrawerAffectingMethod(UNREGISTERED_CODE)).toBe(false);
+  });
+
+  it("a REGISTERED drawer-affecting code (e.g. CASH) is unaffected by this fix", () => {
+    mockGetByCode.mockReturnValue({
+      code: "CASH",
+      affects_drawer: 1,
+      drawer_name: "General",
+    });
+    expect(isDrawerAffectingMethod("CASH")).toBe(true);
+  });
+
+  it("a REGISTERED non-drawer code (e.g. CUSTOMER_ACCOUNT) is unaffected by this fix", () => {
+    mockGetByCode.mockReturnValue({
+      code: "CUSTOMER_ACCOUNT",
+      affects_drawer: 0,
+      drawer_name: "General",
+    });
+    expect(isDrawerAffectingMethod("CUSTOMER_ACCOUNT")).toBe(false);
   });
 });

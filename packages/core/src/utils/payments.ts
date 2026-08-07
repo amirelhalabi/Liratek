@@ -27,13 +27,35 @@ const FALLBACK_DRAWER_MAP: Record<string, string> = {
 /** Methods that never move a drawer (value is tracked outside the cash drawers). */
 const NON_DRAWER_METHODS = new Set(["CUSTOMER_ACCOUNT", "GIFT_CARD"]);
 
+/**
+ * LIRA-105 — ONE definition (rule 14) of what an *unregistered* payment-
+ * method code means (the DB was reachable and `getByCode()` ran, but no
+ * `payment_methods` row exists for this tenant/code). `PaymentMethodRepository`
+ * is the source of truth for payment-method configuration —
+ * `isDrawerAffecting(code)` returns `method?.affects_drawer === 1`, which is
+ * `false` for an unregistered code — so both predicates below now defer to
+ * that same answer instead of each guessing independently. Before this fix
+ * they disagreed: this file defaulted an unregistered code to drawer-
+ * affecting (`true`) via `!NON_DRAWER_METHODS.has(method)`, the repository
+ * defaulted it to `false`. Exposure was latent only: the one historical
+ * caller that could reach this branch (the retired `"FEE"` method literal)
+ * was removed (owner decision #9), and the `"MULTI"` sentinel
+ * (`RechargeRepository.processRecharge`) is now hard-rejected before it ever
+ * reaches these functions. Does NOT apply to the DB-*unavailable* fallback
+ * (the `catch` blocks below) — that path still uses the hardcoded map so
+ * known codes (CASH/OMT/WHISH/BINANCE) keep resolving correctly in tests
+ * that run without a `payment_methods` table.
+ */
+const UNREGISTERED_METHOD_IS_DRAWER_AFFECTING = false;
+
 export function isDrawerAffectingMethod(method: string): boolean {
   try {
     const repo = getPaymentMethodRepository();
     const pm = repo.getByCode(method);
     if (pm) return pm.affects_drawer === 1;
+    return UNREGISTERED_METHOD_IS_DRAWER_AFFECTING;
   } catch {
-    // DB not available
+    // DB not available (e.g. not yet initialised in a test) — hardcoded map.
   }
   return !NON_DRAWER_METHODS.has(method);
 }
@@ -51,6 +73,9 @@ export function isNonCashDrawerMethod(method: string): boolean {
     const repo = getPaymentMethodRepository();
     const pm = repo.getByCode(method);
     if (pm) return pm.affects_drawer === 1 && pm.drawer_name !== "General";
+    // Unregistered code (LIRA-105): matches isDrawerAffectingMethod — not
+    // drawer-affecting at all, so it can't be a non-cash drawer method either.
+    return UNREGISTERED_METHOD_IS_DRAWER_AFFECTING;
   } catch {
     // DB not available — fall through to hardcoded list
   }
