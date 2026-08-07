@@ -339,11 +339,19 @@ export const createFinancialServiceSchema = z
       // provider fee must actually be > 0 — legs against a zero/omitted fee
       // used to be silently dropped by the repository's inner gate
       // (`receiveFeeAmt > 0`) with no reconcile and no booking.
+      // §10.2: BINANCE has no `omtFee`/`whishFee` field of its own — its
+      // customer-facing fee travels in `commission` (verified against the
+      // live frontend contract, `CryptoForm.tsx`'s `commission: fee`, which
+      // never populates omtFee/whishFee for Binance). Mirrors the identical
+      // BINANCE branch on the repository's `feePresenceSource`
+      // (`FinancialServiceRepository.ts`) — one fee resolution, two
+      // consumers (rule 14).
       if (
         data.feePayments &&
         data.feePayments.length > 0 &&
         (data.omtFee ?? 0) <= 0 &&
-        (data.whishFee ?? 0) <= 0
+        (data.whishFee ?? 0) <= 0 &&
+        !(data.provider === "BINANCE" && (data.commission ?? 0) > 0)
       ) {
         return false;
       }
@@ -351,7 +359,7 @@ export const createFinancialServiceSchema = z
     },
     {
       message:
-        "feePayments requires a non-zero omtFee/whishFee — there is no fee to collect",
+        "feePayments requires a non-zero omtFee/whishFee/commission — there is no fee to collect",
       path: ["feePayments"],
     },
   );

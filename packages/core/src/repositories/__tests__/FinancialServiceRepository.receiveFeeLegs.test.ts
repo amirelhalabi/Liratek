@@ -904,6 +904,43 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
         ).toBe(true);
       }
     });
+
+    // §10.2 — BINANCE has no omtFee/whishFee field of its own; its fee
+    // travels in `commission` (the live frontend contract, CryptoForm.tsx's
+    // `commission: fee`). Without this escape clause the zero-fee refine
+    // above would reject every legitimate BINANCE mode-C payload at the
+    // schema layer, before it ever reaches the repository's own
+    // (already-correct) `calculatedCommission`-aware guard.
+    it("accepts feePayments on a BINANCE fee-on-top RECEIVE via commission (no omtFee/whishFee)", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "BINANCE",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USDT",
+        commission: 5,
+        cashoutMethod: "CASH",
+        feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects feePayments on a BINANCE RECEIVE when commission is 0 (no fee to collect)", () => {
+      const result = createFinancialServiceSchema.safeParse({
+        provider: "BINANCE",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USDT",
+        commission: 0,
+        cashoutMethod: "CASH",
+        feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(
+          result.error.issues.some((i) => i.path.join(".") === "feePayments"),
+        ).toBe(true);
+      }
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1265,12 +1302,182 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // (r) BINANCE + feePayments → named rejection, deferred for this phase
+  // (r) BINANCE mode C (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2) — the
+  // Binance payload builder in `Recharge/index.tsx` (the previous blocker)
+  // has landed, so BINANCE now reaches the same mode C as OMT_APP/WHISH_APP.
+  // The ONE real difference from the app-wallet cases above: BINANCE's fee
+  // source is `commission` (via `Math.abs(calculatedCommission)`), not
+  // `omtFee`/`whishFee` — it has neither field — and its crypto leg is
+  // ALWAYS denominated in USDT while the cash/fee side is ALWAYS USD
+  // (`cashCurrency`), regardless of the `currency` field passed in. These
+  // cases assert both currencies directly (no shared `assertInvariant` —
+  // that helper sums same-currency USD drawers only; mixing in the raw USDT
+  // leg would corrupt the sum across a currency boundary, which is exactly
+  // the multi-currency case being proven here instead).
   // ═══════════════════════════════════════════════════════════════════════
-  it("(r) BINANCE + feePayments hard-rejects with a named error — deferred, nothing written", () => {
-    const before = snapshot(db);
+  it("(r1) BINANCE mode C, fee via CASH — Binance +100 USDT, payout -100 General USD, fee +5 General USD, no netting", () => {
+    const binanceUsdtBefore = balance(db, "Binance", "USDT");
+    const generalUsdBefore = balance(db, "General", "USD");
+
+    const { id: fsId } = repo.createTransaction({
+      provider: "BINANCE",
+      serviceType: "RECEIVE",
+      amount: 100, // bare USDT inflow (mode C never folds the fee into amount)
+      currency: "USDT",
+      commission: 5, // BINANCE's fee source — no omtFee/whishFee field exists for it
+      cashoutMethod: "CASH",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }], // FULL payout
+      feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+      exchangeRate: 90000,
+    });
+
+    // Crypto leg: +100 USDT into the Binance drawer — untouched by the fee.
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(
+      binanceUsdtBefore + 100,
+      5,
+    );
+    // Cash side, USD only: -100 (full payout, no netting) + 5 (fee) = -95.
+    expect(balance(db, "General", "USD")).toBeCloseTo(
+      generalUsdBefore - 95,
+      5,
+    );
+
+    const legs = feeLegRows(db, fsId);
+    expect(legs).toHaveLength(1);
+    expect(legs[0].method).toBe("CASH");
+    expect(legs[0].drawer_name).toBe("General");
+    expect(legs[0].currency_code).toBe("USD");
+    expect(legs[0].amount).toBeCloseTo(5, 5);
+    expect(legs[0].note).toBe("BINANCE RECEIVE fee (customer-paid)");
+
+    // Payout leg: the FULL amount, not amount - fee, denominated in USD.
+    const txnId = txnIdForFsRow(db, fsId);
+    const payoutRow = db
+      .prepare(
+        `SELECT amount, currency_code FROM payments WHERE transaction_id = ? AND drawer_name = 'General' AND amount < 0`,
+      )
+      .get(txnId) as { amount: number; currency_code: string };
+    expect(payoutRow.amount).toBeCloseTo(-100, 5);
+    expect(payoutRow.currency_code).toBe("USD");
+
+    // Crypto leg itself must be USDT, never conflated with the USD cash side.
+    const cryptoRow = db
+      .prepare(
+        `SELECT currency_code, amount FROM payments WHERE transaction_id = ? AND drawer_name = 'Binance'`,
+      )
+      .get(txnId) as { currency_code: string; amount: number };
+    expect(cryptoRow.currency_code).toBe("USDT");
+    expect(cryptoRow.amount).toBeCloseTo(100, 5);
+  });
+
+  it("(r2) BINANCE mode C split fee CASH 2 + OMT wallet 3 — both drawers move, crypto leg untouched", () => {
+    const binanceUsdtBefore = balance(db, "Binance", "USDT");
+    const generalUsdBefore = balance(db, "General", "USD");
+    const omtAppUsdBefore = balance(db, "OMT_App", "USD");
+
+    repo.createTransaction({
+      provider: "BINANCE",
+      serviceType: "RECEIVE",
+      amount: 100,
+      currency: "USDT",
+      commission: 5,
+      cashoutMethod: "CASH",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      feePayments: [
+        { method: "CASH", currencyCode: "USD", amount: 2 },
+        { method: "OMT", currencyCode: "USD", amount: 3 },
+      ],
+      exchangeRate: 90000,
+    });
+
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(
+      binanceUsdtBefore + 100,
+      5,
+    );
+    expect(balance(db, "OMT_App", "USD")).toBeCloseTo(omtAppUsdBefore + 3, 5);
+    // General: +2 (CASH fee leg) - 100 (payout) = -98
+    expect(balance(db, "General", "USD")).toBeCloseTo(
+      generalUsdBefore - 98,
+      5,
+    );
+  });
+
+  it("(r3) BINANCE mode C fee charged to CUSTOMER_ACCOUNT — no drawer for the fee, debt_ledger 'Service Debt' +f", () => {
+    const binanceUsdtBefore = balance(db, "Binance", "USDT");
+    const generalUsdBefore = balance(db, "General", "USD");
+    const debtBefore = debtLedgerSumUsd(db);
+
+    const { id: fsId } = repo.createTransaction({
+      provider: "BINANCE",
+      serviceType: "RECEIVE",
+      amount: 100,
+      currency: "USDT",
+      commission: 5,
+      cashoutMethod: "CASH",
+      clientName: "Binance Fee Customer",
+      phoneNumber: "70222222",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      feePayments: [
+        { method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 5 },
+      ],
+      exchangeRate: 90000,
+    });
+
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(
+      binanceUsdtBefore + 100,
+      5,
+    );
+    // General: only the payout (-100) — the fee never touches a drawer.
+    expect(balance(db, "General", "USD")).toBeCloseTo(
+      generalUsdBefore - 100,
+      5,
+    );
+    expect(debtLedgerSumUsd(db) - debtBefore).toBeCloseTo(5, 5);
+
+    const debtRow = db
+      .prepare(
+        `SELECT transaction_type, amount_usd FROM debt_ledger WHERE transaction_id = (
+           SELECT id FROM transactions WHERE source_table = 'financial_services' AND source_id = ?
+         )`,
+      )
+      .get(fsId) as { transaction_type: string; amount_usd: number };
+    expect(debtRow.transaction_type).toBe("Service Debt");
+    expect(debtRow.amount_usd).toBeCloseTo(5, 5);
+  });
+
+  it("(r4) BINANCE mode C with commission: 0 + feePayments throws (guard fee-source is calculatedCommission-aware, not resolvedProviderFee)", () => {
+    const binanceUsdtBefore = balance(db, "Binance", "USDT");
+    const generalUsdBefore = balance(db, "General", "USD");
     const fsCountBefore = rowCount(db, "financial_services");
     const txnCountBefore = rowCount(db, "transactions");
+
+    expect(() =>
+      repo.createTransaction({
+        provider: "BINANCE",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USDT",
+        commission: 0, // calculatedCommission = 0 — nothing for feePayments to collect
+        cashoutMethod: "CASH",
+        feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+        exchangeRate: 90000,
+      }),
+    ).toThrow(
+      /feePayments requires a fee-on-top RECEIVE with a non-zero omtFee\/whishFee/i,
+    );
+
+    expect(rowCount(db, "financial_services")).toBe(fsCountBefore);
+    expect(rowCount(db, "transactions")).toBe(txnCountBefore);
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(binanceUsdtBefore, 5);
+    expect(balance(db, "General", "USD")).toBeCloseTo(generalUsdBefore, 5);
+  });
+
+  it("(r5) BINANCE mode C fee legs summing to 4 against a $5 fee hard-rejects — nothing written, neither drawer moves", () => {
+    const binanceUsdtBefore = balance(db, "Binance", "USDT");
+    const generalUsdBefore = balance(db, "General", "USD");
+    const fsCountBefore = rowCount(db, "financial_services");
+    const txnCountBefore = rowCount(db, "transactions");
+    const paymentsCountBefore = rowCount(db, "payments");
 
     expect(() =>
       repo.createTransaction({
@@ -1281,18 +1488,49 @@ describe("FinancialServiceRepository — app-wallet RECEIVE mode C (BIDIRECTIONA
         commission: 5,
         cashoutMethod: "CASH",
         payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
-        feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+        feePayments: [{ method: "CASH", currencyCode: "USD", amount: 4 }],
         exchangeRate: 90000,
       }),
-    ).toThrow(/feePayments is not yet supported for BINANCE/);
+    ).toThrow(/do not reconcile/i);
 
-    const after = snapshot(db);
     expect(rowCount(db, "financial_services")).toBe(fsCountBefore);
     expect(rowCount(db, "transactions")).toBe(txnCountBefore);
-    expect(after.drawers).toEqual(before.drawers);
+    expect(rowCount(db, "payments")).toBe(paymentsCountBefore);
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(binanceUsdtBefore, 5);
+    expect(balance(db, "General", "USD")).toBeCloseTo(generalUsdBefore, 5);
   });
 
-  it("(r2) an unlisted provider (BOB) + feePayments hard-rejects with the same named-rejection shape", () => {
+  it("(r6) BINANCE mode C create + void nets every drawer to 0 across BOTH currencies (USD cash + USDT crypto) — rule 20", () => {
+    const binanceUsdtBefore = balance(db, "Binance", "USDT");
+    const generalUsdBefore = balance(db, "General", "USD");
+
+    const { id: fsId } = repo.createTransaction({
+      provider: "BINANCE",
+      serviceType: "RECEIVE",
+      amount: 100,
+      currency: "USDT",
+      commission: 5,
+      cashoutMethod: "CASH",
+      payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      feePayments: [{ method: "CASH", currencyCode: "USD", amount: 5 }],
+      exchangeRate: 90000,
+    });
+
+    // Sanity: money actually moved, on BOTH currencies.
+    expect(balance(db, "Binance", "USDT")).not.toBeCloseTo(
+      binanceUsdtBefore,
+      5,
+    );
+    expect(balance(db, "General", "USD")).not.toBeCloseTo(generalUsdBefore, 5);
+
+    const txnId = txnIdForFsRow(db, fsId);
+    txnRepo.voidTransaction(txnId, 1);
+
+    expect(balance(db, "Binance", "USDT")).toBeCloseTo(binanceUsdtBefore, 5);
+    expect(balance(db, "General", "USD")).toBeCloseTo(generalUsdBefore, 5);
+  });
+
+  it("(r7) an unlisted provider (BOB) + feePayments hard-rejects with the same named-rejection shape", () => {
     expect(() =>
       repo.createTransaction({
         provider: "BOB",

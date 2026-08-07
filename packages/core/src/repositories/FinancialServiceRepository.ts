@@ -232,9 +232,11 @@ export interface CreateFinancialServiceData {
    * wallet, `payoutAmount = cryptoAmount` (no fee netted out of the payout —
    * modes A/B still net it via the wallet spread; mode C never does) and the
    * legs are booked by the SAME shared `bookFeeCollectionLegs` helper the
-   * system branch uses (rule 14). BINANCE is explicitly DEFERRED for this
-   * field — its payload builder lives in the Recharge crypto form, untouched
-   * by this phase — and hard-rejects with a named error.
+   * system branch uses (rule 14). §10.2: BINANCE reaches the same mode C —
+   * its fee source for the presence guard is `Math.abs(calculatedCommission)`
+   * (it has no `omtFee`/`whishFee` field of its own); the cash side is
+   * always denominated in USD (`cashCurrency`), never the crypto
+   * `currency`/USDT.
    */
   feePayments?: Array<{
     method: string;
@@ -987,26 +989,38 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         // must read the app wallet's OWN fee field instead. The app form
         // already sends `omtFee`/`whishFee` for display/persistence even
         // though the wallet's profit is carried by `commission` (unchanged
-        // contract). BINANCE stays deferred — its payload builder lives in
-        // the Recharge crypto form (out of scope for this phase) — and, like
-        // any other provider not yet wired for counter-collected fees, falls
-        // into the same named rejection.
+        // contract). §10.2: BINANCE is now wired the same way — its payload
+        // builder in the Recharge crypto form (`Recharge/index.tsx`) was the
+        // only blocker and has since landed (carrier-lines workstream), so
+        // BINANCE mode C ("customer pays the RECEIVE fee separately, over
+        // the counter, via any payment method") is live. Any OTHER provider
+        // not yet wired for counter-collected fees still falls into the
+        // named rejection below.
         if (
           data.provider !== "OMT" &&
           data.provider !== "WHISH" &&
           data.provider !== "OMT_APP" &&
-          data.provider !== "WHISH_APP"
+          data.provider !== "WHISH_APP" &&
+          data.provider !== "BINANCE"
         ) {
           throw new Error(
             `feePayments is not yet supported for ${data.provider}`,
           );
         }
+        // BINANCE has no `omtFee`/`whishFee` field of its own — its
+        // customer-facing fee is `calculatedCommission` (resolved above,
+        // mutated by the BINANCE `payFee` branch when applicable). This MUST
+        // match exactly what the wallet-transfer branch below computes as
+        // `fee` (`Math.abs(calculatedCommission)`) — one resolution, two
+        // consumers, rule 14.
         const feePresenceSource =
           data.provider === "OMT_APP"
             ? (data.omtFee ?? 0)
             : data.provider === "WHISH_APP"
               ? (data.whishFee ?? 0)
-              : resolvedProviderFee;
+              : data.provider === "BINANCE"
+                ? Math.abs(calculatedCommission)
+                : resolvedProviderFee;
         if (
           data.serviceType !== "RECEIVE" ||
           data.includingFees === true ||
@@ -2309,14 +2323,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
 
             // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash
-            //    — or, for app wallets, the FULL cryptoAmount when the fee is
-            //    instead collected separately over the counter (mode C,
-            //    BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase D, owner
-            //    decision Q7 2026-08-06: "the customer can pay the fee
-            //    separately in different payment methods"). BINANCE stays
-            //    netted — it's explicitly DEFERRED for `feePayments` (the
-            //    createTransaction guard above hard-rejects it), so
-            //    `isFeeCollectedSeparately` is always false there.
+            //    — or, for app wallets AND BINANCE, the FULL cryptoAmount
+            //    when the fee is instead collected separately over the
+            //    counter (mode C, BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4
+            //    Phase D / §10.2, owner decision Q7 2026-08-06: "the customer
+            //    can pay the fee separately in different payment methods").
+            //    BINANCE's only difference from the app wallets is that its
+            //    cash side is ALWAYS denominated in USD via `cashCurrency`
+            //    (never the crypto `currency`/USDT — see `cashCurrency`
+            //    above) — `bookFeeCollectionLegs` below is otherwise
+            //    identical for all three providers.
             //    Deferred (session basket): the item's negative CASH amount is
             //    NOT netted into a single basket number (Phase F,
             //    BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4) — the checkout modal
@@ -2328,7 +2344,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //    the till (and for app wallets it DID, since their cart items
             //    always netted into the pooled totals pre-Phase-F).
             const isFeeCollectedSeparately =
-              isAppWallet && !!data.feePayments && data.feePayments.length > 0;
+              (isAppWallet || isBINANCE) &&
+              !!data.feePayments &&
+              data.feePayments.length > 0;
             const payoutAmount = isFeeCollectedSeparately
               ? cryptoAmount
               : cryptoAmount - fee;
@@ -2340,10 +2358,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // RECEIVE branch (rule 14 — shared `bookFeeCollectionLegs`
             // helper, defined once near `insertPayment`/`upsertBalanceDelta`
             // above). `resolveServiceCashDrawer` inside that helper falls
-            // through to `paymentMethodToDrawerName` here — an app-wallet fee
-            // never lands in the PCD, exactly like every other app-wallet
-            // leg (`ctx.provider` is "OMT_APP"/"WHISH_APP", which never
-            // equals `ctx.baseSystem` "OMT"/"WHISH" — verified against the
+            // through to `paymentMethodToDrawerName` here — an app-wallet or
+            // BINANCE fee never lands in the PCD, exactly like every other
+            // app-wallet/Binance leg (`ctx.provider` is
+            // "OMT_APP"/"WHISH_APP"/"BINANCE", which never equals
+            // `ctx.baseSystem` "OMT"/"WHISH" — verified against the
             // resolver's own contract, not assumed). `deferPayment` +
             // `partnerId` combinations are already excluded by the
             // createTransaction guard before `feePayments` can be non-empty
