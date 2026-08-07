@@ -183,4 +183,24 @@ describe("isDrawerAffectingMethod / isNonCashDrawerMethod — LIRA-105 unregiste
     });
     expect(isDrawerAffectingMethod("CUSTOMER_ACCOUNT")).toBe(false);
   });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // LIRA-105 regression guard — canonical code with no DB row (deleted
+  // method) must NOT be treated as unregistered garbage.
+  // ───────────────────────────────────────────────────────────────────────
+  //
+  // `TenantRepository.seedPaymentMethods()` seeds OMT/WHISH/BINANCE with
+  // `is_system = 0` — they are deletable per tenant. If a shop deletes its
+  // OMT method, `getByCode("OMT")` returns `undefined` (DB reachable, just
+  // no row) — the EXACT same shape as a genuinely unknown code. The LIRA-105
+  // fix (commit c9f2262) could not tell the two apart and made a canonical
+  // code with a missing row read as `false` (non-drawer-affecting), which
+  // would silently stop crediting the `OMT_App` drawer for real money. This
+  // guards the carve-out: a canonical code falls through to the same
+  // hardcoded-map answer the DB-unavailable `catch` path already returns.
+  it("a CANONICAL code with no DB row (e.g. a deleted OMT method) still resolves via the hardcoded map — not treated as unregistered garbage", () => {
+    mockGetByCode.mockReturnValue(undefined);
+    expect(isDrawerAffectingMethod("OMT")).toBe(true);
+    expect(isNonCashDrawerMethod("OMT")).toBe(true);
+  });
 });

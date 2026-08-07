@@ -28,23 +28,58 @@ const FALLBACK_DRAWER_MAP: Record<string, string> = {
 const NON_DRAWER_METHODS = new Set(["CUSTOMER_ACCOUNT", "GIFT_CARD"]);
 
 /**
- * LIRA-105 — ONE definition (rule 14) of what an *unregistered* payment-
- * method code means (the DB was reachable and `getByCode()` ran, but no
- * `payment_methods` row exists for this tenant/code). `PaymentMethodRepository`
- * is the source of truth for payment-method configuration —
- * `isDrawerAffecting(code)` returns `method?.affects_drawer === 1`, which is
- * `false` for an unregistered code — so both predicates below now defer to
- * that same answer instead of each guessing independently. Before this fix
- * they disagreed: this file defaulted an unregistered code to drawer-
- * affecting (`true`) via `!NON_DRAWER_METHODS.has(method)`, the repository
- * defaulted it to `false`. Exposure was latent only: the one historical
- * caller that could reach this branch (the retired `"FEE"` method literal)
- * was removed (owner decision #9), and the `"MULTI"` sentinel
- * (`RechargeRepository.processRecharge`) is now hard-rejected before it ever
- * reaches these functions. Does NOT apply to the DB-*unavailable* fallback
- * (the `catch` blocks below) — that path still uses the hardcoded map so
- * known codes (CASH/OMT/WHISH/BINANCE) keep resolving correctly in tests
- * that run without a `payment_methods` table.
+ * LIRA-105 follow-up — the set of codes this file KNOWS about (rule 14: ONE
+ * definition, not hand-duplicated literals). Built from the two maps already
+ * above, so it can never drift from them:
+ *   - `FALLBACK_DRAWER_MAP` keys   → CASH, OMT, WHISH, BINANCE, CUSTOMER_ACCOUNT
+ *   - `NON_DRAWER_METHODS`         → CUSTOMER_ACCOUNT, GIFT_CARD
+ * Used below to distinguish a *canonical* code with a temporarily-missing DB
+ * row (deleted/unseeded method, or a mocked DB in tests) from a *truly
+ * unknown* code (typo, retired sentinel, garbage input).
+ */
+const CANONICAL_METHODS = new Set<string>([
+  ...Object.keys(FALLBACK_DRAWER_MAP),
+  ...NON_DRAWER_METHODS,
+]);
+
+/**
+ * LIRA-105 — ONE definition (rule 14) of what a *truly unregistered*
+ * payment-method code means (the DB was reachable and `getByCode()` ran, no
+ * `payment_methods` row exists for this tenant/code, AND the code is not one
+ * of the app's canonical methods — see `CANONICAL_METHODS`).
+ * `PaymentMethodRepository` is the source of truth for payment-method
+ * configuration — `isDrawerAffecting(code)` returns `method?.affects_drawer
+ * === 1`, which is `false` for an unregistered code — so both predicates
+ * below defer to that same answer for a code they don't recognise, instead
+ * of each guessing independently. Before the LIRA-105 fix they disagreed:
+ * this file defaulted an unregistered code to drawer-affecting (`true`) via
+ * `!NON_DRAWER_METHODS.has(method)`, the repository defaulted it to `false`.
+ *
+ * Canonical-code carve-out (LIRA-105 caused a regression here, fixed after):
+ * a code IN `CANONICAL_METHODS` with no DB row does NOT hit this constant —
+ * it falls through to the same hardcoded-map answer the `catch` block below
+ * already returns. Two real reasons a canonical code's row can be missing
+ * even though the DB itself is perfectly reachable:
+ *   1. `TenantRepository.seedPaymentMethods()` seeds OMT/WHISH/BINANCE with
+ *      `is_system = 0` — they are deletable per tenant. A shop that deletes
+ *      its OMT method must NOT silently stop crediting the `OMT_App` drawer;
+ *      that is real money, not a fallback-map nicety.
+ *   2. `backend/jest.config.cjs` maps `better-sqlite3` to a mock, so
+ *      `getDatabase()` never throws and `getByCode()` resolves `undefined`
+ *      for every code in that test process — the DB-unavailable `catch`
+ *      path is never exercised there, so without this carve-out canonical
+ *      codes would wrongly read as unregistered garbage in every backend
+ *      test that imports these predicates.
+ * A code NOT in `CANONICAL_METHODS` (typo, retired sentinel like the old
+ * `"FEE"` literal, a hard-rejected sentinel like `"MULTI"`, or genuine
+ * garbage input) still resolves to `false` here — it must not fall through
+ * to `paymentMethodToDrawerName`'s own `?? "General"` default and silently
+ * post real money into the General drawer for a code nobody configured.
+ *
+ * Does NOT apply to the DB-*unavailable* fallback (the `catch` blocks
+ * below) — that path always uses the hardcoded map regardless of whether
+ * the code is canonical, so known codes (CASH/OMT/WHISH/BINANCE) keep
+ * resolving correctly in tests that run without a `payment_methods` table.
  */
 const UNREGISTERED_METHOD_IS_DRAWER_AFFECTING = false;
 
@@ -53,7 +88,12 @@ export function isDrawerAffectingMethod(method: string): boolean {
     const repo = getPaymentMethodRepository();
     const pm = repo.getByCode(method);
     if (pm) return pm.affects_drawer === 1;
-    return UNREGISTERED_METHOD_IS_DRAWER_AFFECTING;
+    if (!CANONICAL_METHODS.has(method)) {
+      return UNREGISTERED_METHOD_IS_DRAWER_AFFECTING;
+    }
+    // Canonical code, no DB row (deleted/unseeded method, or a mocked DB in
+    // tests) — fall through to the same hardcoded-map answer the `catch`
+    // block below returns.
   } catch {
     // DB not available (e.g. not yet initialised in a test) — hardcoded map.
   }
@@ -73,9 +113,15 @@ export function isNonCashDrawerMethod(method: string): boolean {
     const repo = getPaymentMethodRepository();
     const pm = repo.getByCode(method);
     if (pm) return pm.affects_drawer === 1 && pm.drawer_name !== "General";
-    // Unregistered code (LIRA-105): matches isDrawerAffectingMethod — not
-    // drawer-affecting at all, so it can't be a non-cash drawer method either.
-    return UNREGISTERED_METHOD_IS_DRAWER_AFFECTING;
+    if (!CANONICAL_METHODS.has(method)) {
+      // Unregistered code (LIRA-105): matches isDrawerAffectingMethod — not
+      // drawer-affecting at all, so it can't be a non-cash drawer method
+      // either.
+      return UNREGISTERED_METHOD_IS_DRAWER_AFFECTING;
+    }
+    // Canonical code, no DB row — fall through to the hardcoded list below,
+    // same carve-out as isDrawerAffectingMethod (see the doc comment above
+    // UNREGISTERED_METHOD_IS_DRAWER_AFFECTING).
   } catch {
     // DB not available — fall through to hardcoded list
   }
