@@ -123,6 +123,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Recharge
   // ---------------------------------------------------------------------------
   getRechargeStock = () => api.getRechargeStock();
+  getRechargeDrawerBalances = () => api.getRechargeDrawerBalances();
   processRecharge = (payload: any) => api.processRecharge(payload);
   topUpApp = (payload: {
     provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
@@ -130,6 +131,24 @@ export class ElectronApiAdapter implements ApiAdapter {
     currency: "USD" | "LBP";
     sourceDrawer: string;
   }) => api.topUpApp(payload);
+  topUpFromSupplier = (payload: {
+    provider: "iPick" | "Katsh";
+    amount: number;
+    currency: "USD" | "LBP";
+  }) => api.topUpFromSupplier(payload);
+  topUpFromPartner = (payload: {
+    provider: "WHISH_APP";
+    partnerId: number;
+    amount: number;
+    currency: "USD" | "LBP";
+  }) => api.topUpFromPartner(payload);
+  topUpFromClient = (payload: {
+    amount: number;
+    cashPaid: number;
+    currency: "USD" | "LBP";
+    clientName?: string;
+    clientId?: number;
+  }) => api.topUpFromClient(payload);
 
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)

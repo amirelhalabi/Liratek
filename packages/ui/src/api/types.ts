@@ -98,6 +98,17 @@ export type VirtualStock = {
   alfa: number;
 };
 
+/** One row of `RechargeRepository.getDrawerBalances()` — the funding-source
+ *  picker data for all four recharge top-up arms. Distinct from
+ *  `DrawerBalances` above (that one is the dashboard's generalDrawer/
+ *  omtDrawer summary, a different repository/shape entirely). */
+export type RechargeDrawerBalance = {
+  name: string;
+  usdBalance: number;
+  lbpBalance: number;
+  usdtBalance: number;
+};
+
 export type MonthlyPL = {
   month: string;
   salesProfitUSD: number;
@@ -548,6 +559,40 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getRechargeStock: () => Promise<VirtualStock>;
   processRecharge: (payload: any) => Promise<ApiResult>;
+  /** Funding-source drawer balances for the top-up modal opened by
+   *  `handleTopUpClick` — feeds all four top-up arms below. Previously a
+   *  raw, unguarded `window.api.recharge.getDrawerBalances()` call with no
+   *  REST twin, so the modal never opened in web mode. */
+  getRechargeDrawerBalances: () => Promise<RechargeDrawerBalance[]>;
+  /** Generic drawer-to-drawer top-up into a provider drawer (desktop's only
+   *  path to `OMT_App` — CARRIER_LINES_VALIDITY_PLAN.md §8.3). */
+  topUpApp: (payload: {
+    provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+    amount: number;
+    currency: "USD" | "LBP";
+    sourceDrawer: string;
+  }) => Promise<ApiResult>;
+  /** Katsh/iPick: the supplier extends credit — no source drawer moves. */
+  topUpFromSupplier: (payload: {
+    provider: "iPick" | "Katsh";
+    amount: number;
+    currency: "USD" | "LBP";
+  }) => Promise<ApiResult>;
+  /** Whish App: a partner extends credit — no source drawer moves. */
+  topUpFromPartner: (payload: {
+    provider: "WHISH_APP";
+    partnerId: number;
+    amount: number;
+    currency: "USD" | "LBP";
+  }) => Promise<ApiResult>;
+  /** Whish App: a client transfers credits, paid cash out of General. */
+  topUpFromClient: (payload: {
+    amount: number;
+    cashPaid: number;
+    currency: "USD" | "LBP";
+    clientName?: string;
+    clientId?: number;
+  }) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)

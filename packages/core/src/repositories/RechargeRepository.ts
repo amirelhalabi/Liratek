@@ -745,6 +745,28 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         }
         const deferPayment = data.deferPayment === true;
 
+        // CARRIER_LINES_VALIDITY_PLAN.md Phase 7 — backend guard, not
+        // frontend inspection. `paid_by_method: "MULTI"` is ONLY ever a
+        // truthful value when the caller actually split the payment into
+        // 2+ legs (Recharge/index.tsx's `derivePaidByMethod`, mirroring the
+        // crypto/FinancialForm/KatchForm pattern) — it is never a real
+        // payment method. If `inPayments` is empty despite `paidBy ===
+        // "MULTI"` (a REST caller whose `payments[]` got stripped/omitted,
+        // or any other caller that lies about having split), the legacy
+        // single-method fallback below would post the WHOLE `data.price`
+        // into whatever drawer `paymentMethodToDrawerName("MULTI")`
+        // resolves to (General, via the unknown-method fallback) instead of
+        // across the real legs — silently wrong, not merely stale. Excludes
+        // isForPartner/deferPayment: both legitimately carry zero inPayments
+        // by contract (the partner ledger / session basket owns the
+        // customer-cash side there), so `paidBy` is irrelevant in those
+        // branches regardless of its value.
+        if (!isForPartner && !deferPayment && paidBy === "MULTI" && inPayments.length === 0) {
+          throw new Error(
+            "Payment legs are required when paid_by_method is MULTI",
+          );
+        }
+
         // S2 hard-reject reconciliation (Payment-Legs Integrity plan): the
         // customer's legs must cover `data.price` — the same total this
         // flow credits to drawers/debt below. No-ops on an empty

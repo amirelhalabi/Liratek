@@ -16,6 +16,7 @@ import type { RechargeData } from "@liratek/core";
 
 import {
   RechargeSchema,
+  TopUpAppSchema,
   TopUpFromSupplierSchema,
   TopUpFromPartnerSchema,
   TopUpFromClientSchema,
@@ -102,28 +103,33 @@ export function registerRechargeHandlers(): void {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      // CARRIER_LINES_VALIDITY_PLAN.md Phase 8.4 — this handler had no Zod
+      // validation at all before now (CLAUDE.md's write-path gotcha list).
+      const v = validatePayload(TopUpAppSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       rechargeLogger.info(
         {
-          provider: data.provider,
-          amount: data.amount,
-          currency: data.currency,
-          sourceDrawer: data.sourceDrawer,
+          provider: v.data.provider,
+          amount: v.data.amount,
+          currency: v.data.currency,
+          sourceDrawer: v.data.sourceDrawer,
         },
         "Processing app top-up",
       );
       const result = rechargeService.topUpApp({
-        ...data,
+        ...v.data,
         userId: auth.userId,
       });
       audit(event.sender.id, {
         action: "create",
         entity_type: "recharge_topup",
-        summary: `App top-up ${data.provider}: ${data.amount} ${data.currency} from ${data.sourceDrawer}`,
+        summary: `App top-up ${v.data.provider}: ${v.data.amount} ${v.data.currency} from ${v.data.sourceDrawer}`,
         metadata: {
-          provider: data.provider,
-          amount: data.amount,
-          currency: data.currency,
-          sourceDrawer: data.sourceDrawer,
+          provider: v.data.provider,
+          amount: v.data.amount,
+          currency: v.data.currency,
+          sourceDrawer: v.data.sourceDrawer,
         },
       });
       return result;

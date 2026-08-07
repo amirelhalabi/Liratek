@@ -45,7 +45,15 @@ import {
   createDrawerTransferSchema,
   selfChargeTelecomItemSchema,
   createRechargeSchema,
+  topUpAppSchema,
+  topUpFromSupplierSchema,
+  topUpFromPartnerSchema,
+  topUpFromClientSchema,
   type CreateRechargeInput,
+  type TopUpAppInput,
+  type TopUpFromSupplierInput,
+  type TopUpFromPartnerInput,
+  type TopUpFromClientInput,
   type SelfChargeTelecomItemInput,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
@@ -269,26 +277,24 @@ export const MaintenanceJobSchema = z.object({
 export const RechargeSchema =
   createRechargeSchema as unknown as z.ZodSchema<CreateRechargeInput>;
 
-export const TopUpFromSupplierSchema = z.object({
-  provider: z.enum(["iPick", "Katsh"]),
-  amount: z.number().positive(),
-  currency: z.enum(["USD", "LBP"]),
-});
+// CARRIER_LINES_VALIDITY_PLAN.md Phase 8.4: the four remaining top-up arm
+// contracts now live in packages/core/src/validators/recharge.ts (rules 14 +
+// 19b), shared with the new REST routes in backend/src/api/recharge.ts. This
+// file used to hold local duplicates for three of them (`topUpApp` had NO
+// schema at all — closed here for the first time on both transports). Cast
+// bridges the zod major mismatch (core types against zod 4, this workspace
+// types against zod 3); the runtime API used is identical.
+export const TopUpAppSchema =
+  topUpAppSchema as unknown as z.ZodSchema<TopUpAppInput>;
 
-export const TopUpFromPartnerSchema = z.object({
-  provider: z.literal("WHISH_APP"),
-  partnerId: z.number().int().positive(),
-  amount: z.number().positive(),
-  currency: z.enum(["USD", "LBP"]),
-});
+export const TopUpFromSupplierSchema =
+  topUpFromSupplierSchema as unknown as z.ZodSchema<TopUpFromSupplierInput>;
 
-export const TopUpFromClientSchema = z.object({
-  amount: z.number().positive(),
-  cashPaid: z.number().nonnegative(),
-  currency: z.enum(["USD", "LBP"]),
-  clientName: z.string().optional(),
-  clientId: z.number().int().positive().optional(),
-});
+export const TopUpFromPartnerSchema =
+  topUpFromPartnerSchema as unknown as z.ZodSchema<TopUpFromPartnerInput>;
+
+export const TopUpFromClientSchema =
+  topUpFromClientSchema as unknown as z.ZodSchema<TopUpFromClientInput>;
 
 // =============================================================================
 // Financial Services (OMT / WHISH / BOB / iPick / Katsh / Binance)

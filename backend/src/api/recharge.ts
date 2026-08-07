@@ -1,7 +1,14 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
-import { getRechargeService, createRechargeSchema } from "@liratek/core";
+import {
+  getRechargeService,
+  createRechargeSchema,
+  topUpAppSchema,
+  topUpFromSupplierSchema,
+  topUpFromPartnerSchema,
+  topUpFromClientSchema,
+} from "@liratek/core";
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
 
@@ -66,6 +73,132 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to process recharge" });
+    }
+  },
+);
+
+// GET /api/recharge/drawer-balances - Funding-source balances for the
+// top-up modal `handleTopUpClick` opens (Recharge/index.tsx), feeding all
+// four top-up arms below. Deliberately NOT role-gated, mirroring
+// `recharge:get-drawer-balances` (rechargeHandlers.ts) which has no
+// requireRole — same rule-19c rationale as `/stock` above: any authenticated
+// session may read balances on desktop, so gating this route would make web
+// stricter than desktop. This route closes the review finding that
+// `handleTopUpClick` called the raw, unguarded
+// `window.api.recharge.getDrawerBalances()` with no REST twin — in the
+// browser that throws before `setShowTopUpModal(true)`, so the top-up modal
+// for all four arms never opened on web even though their submit routes
+// were already wired.
+router.get("/drawer-balances", (_req, res): void => {
+  try {
+    const rechargeService = getRechargeService();
+    const balances = rechargeService.getDrawerBalances();
+    res.json({ success: true, balances });
+  } catch (error) {
+    logger.error({ error }, "Get recharge drawer balances error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch drawer balances" });
+  }
+});
+
+// POST /api/recharge/top-up-app - Top up a provider drawer from another
+// drawer (CARRIER_LINES_VALIDITY_PLAN.md Phase 8.4). Role-parity with the
+// desktop IPC handler (`recharge:top-up-app` requires
+// requireRole(["admin", "staff"]) — rechargeHandlers.ts). `topUpAppSchema`
+// is THE shared contract (rules 14 + 19b) — the IPC handler validates
+// against the same object, re-exported as `TopUpAppSchema` from
+// electron-app/schemas/index.ts.
+router.post(
+  "/top-up-app",
+  requireRole(["admin", "staff"]),
+  validateRequest(topUpAppSchema),
+  async (req, res): Promise<void> => {
+    try {
+      const rechargeService = getRechargeService();
+      const userId = (req as AuthRequest).user!.userId;
+      const result = rechargeService.topUpApp({ ...req.body, userId });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "App top-up error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to process app top-up" });
+    }
+  },
+);
+
+// POST /api/recharge/top-up-from-supplier - Top up Katsh/iPick via supplier
+// credit (Phase 8.4). Role-parity with `recharge:top-up-from-supplier`
+// (requireRole(["admin", "staff"])).
+router.post(
+  "/top-up-from-supplier",
+  requireRole(["admin", "staff"]),
+  validateRequest(topUpFromSupplierSchema),
+  async (req, res): Promise<void> => {
+    try {
+      const rechargeService = getRechargeService();
+      const userId = (req as AuthRequest).user!.userId;
+      const result = rechargeService.topUpFromSupplier({
+        ...req.body,
+        userId,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Supplier top-up error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to process supplier top-up" });
+    }
+  },
+);
+
+// POST /api/recharge/top-up-from-partner - Top up Whish App via a partner's
+// credit (Phase 8.4). Role-parity with `recharge:top-up-from-partner`
+// (requireRole(["admin", "staff"])).
+router.post(
+  "/top-up-from-partner",
+  requireRole(["admin", "staff"]),
+  validateRequest(topUpFromPartnerSchema),
+  async (req, res): Promise<void> => {
+    try {
+      const rechargeService = getRechargeService();
+      const userId = (req as AuthRequest).user!.userId;
+      const result = rechargeService.topUpFromPartner({
+        ...req.body,
+        userId,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Partner top-up error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to process partner top-up" });
+    }
+  },
+);
+
+// POST /api/recharge/top-up-from-client - Top up Whish App with credits a
+// client transfers, cash paid out in exchange (Phase 8.4). Role-parity with
+// `recharge:top-up-from-client` (requireRole(["admin", "staff"])).
+router.post(
+  "/top-up-from-client",
+  requireRole(["admin", "staff"]),
+  validateRequest(topUpFromClientSchema),
+  async (req, res): Promise<void> => {
+    try {
+      const rechargeService = getRechargeService();
+      const userId = (req as AuthRequest).user!.userId;
+      const result = rechargeService.topUpFromClient({
+        ...req.body,
+        userId,
+      });
+      res.json(result);
+    } catch (error) {
+      logger.error({ error }, "Client top-up error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to process client top-up" });
     }
   },
 );

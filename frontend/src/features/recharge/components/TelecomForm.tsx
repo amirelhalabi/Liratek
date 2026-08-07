@@ -7,7 +7,6 @@ import {
   useApi,
   hasNewClientInfo,
   type PaymentLine,
-  Select,
   appEvents,
 } from "@liratek/ui";
 import type {
@@ -826,8 +825,8 @@ export function TelecomForm({
 
               {/* PFT-3a: "For Partner" opt-in — routes the FULL price to a
                   selected partner's ledger instead of collecting counter
-                  cash. Hides the Payment Method dropdown and the Payment
-                  Sheet below (no walk-in customer, no cash taken). */}
+                  cash. Hides the Payment Sheet below (no walk-in customer,
+                  no cash taken). */}
               <div>
                 <ForPartnerToggle
                   testId="recharge-for-partner-toggle"
@@ -838,28 +837,6 @@ export function TelecomForm({
                   autoSelectSingle
                 />
               </div>
-
-              {/* Payment method dropdown — quick inline selection */}
-              {!forPartner && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider">
-                    Payment Method
-                  </label>
-                  <Select
-                    value={initialPaymentMethod}
-                    onChange={(v) => {
-                      setInitialPaymentMethod(v);
-                      setPaymentInputKey((k) => k + 1);
-                      setPaidBy(v);
-                    }}
-                    options={methods.map((m) => ({
-                      value: m.code,
-                      label: m.label,
-                    }))}
-                    buttonClassName={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-4 pr-10 py-3 text-white font-medium focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all cursor-pointer`}
-                  />
-                </div>
-              )}
 
               {/* Payment Sheet — skipped entirely for a partner recharge:
                   it collects no cash, so show a short notice instead. */}

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { positiveDecimalSchema, transactionTimeSchema } from "./common.js";
+import { TOP_UP_PROVIDERS } from "../constants/rechargeProviders.js";
 
 /**
  * Recharge validation schemas (MTC, Alfa)
@@ -104,5 +105,53 @@ export const getRechargeStockSchema = z.object({
   // No parameters needed - empty schema for consistency
 });
 
+/**
+ * CARRIER_LINES_VALIDITY_PLAN.md Phase 8.4 — the four remaining top-up arms
+ * (`topUpApp`, `topUpFromSupplier`, `topUpFromPartner`, `topUpFromClient`)
+ * lift their contracts here so the desktop IPC handler
+ * (`electron-app/schemas/index.ts`'s re-export) and the new REST routes
+ * (`backend/src/api/recharge.ts`) validate against ONE schema (rules 14 +
+ * 19b) — the same pattern Phase 6a established for `createRechargeSchema`.
+ *
+ * `topUpAppSchema` is new: the IPC handler (`recharge:top-up-app`) had NO
+ * Zod validation at all before this phase — closing that gap on both
+ * transports at once, rather than moving a schema that didn't exist yet.
+ */
+export const topUpAppSchema = z.object({
+  provider: z.enum(TOP_UP_PROVIDERS),
+  // .positive(), not positiveDecimalSchema (which is actually .nonnegative()
+  // despite the name) — matches the electron-app handler's existing
+  // (unvalidated) contract: a zero-amount top-up moves nothing and is
+  // meaningless.
+  amount: z.number().positive(),
+  currency: z.enum(["USD", "LBP"]),
+  sourceDrawer: z.string().min(1),
+});
+
+export const topUpFromSupplierSchema = z.object({
+  provider: z.enum(["iPick", "Katsh"]),
+  amount: z.number().positive(),
+  currency: z.enum(["USD", "LBP"]),
+});
+
+export const topUpFromPartnerSchema = z.object({
+  provider: z.literal("WHISH_APP"),
+  partnerId: z.number().int().positive(),
+  amount: z.number().positive(),
+  currency: z.enum(["USD", "LBP"]),
+});
+
+export const topUpFromClientSchema = z.object({
+  amount: z.number().positive(),
+  cashPaid: z.number().nonnegative(),
+  currency: z.enum(["USD", "LBP"]),
+  clientName: z.string().optional(),
+  clientId: z.number().int().positive().optional(),
+});
+
 export type CreateRechargeInput = z.infer<typeof createRechargeSchema>;
 export type GetRechargeStockInput = z.infer<typeof getRechargeStockSchema>;
+export type TopUpAppInput = z.infer<typeof topUpAppSchema>;
+export type TopUpFromSupplierInput = z.infer<typeof topUpFromSupplierSchema>;
+export type TopUpFromPartnerInput = z.infer<typeof topUpFromPartnerSchema>;
+export type TopUpFromClientInput = z.infer<typeof topUpFromClientSchema>;

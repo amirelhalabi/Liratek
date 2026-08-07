@@ -26,7 +26,7 @@ import type {
 import { HistoryModal } from "./HistoryModal";
 import { useSellRate } from "@/hooks/useSellRate";
 import logger from "@/utils/logger";
-import { toCamelLegs } from "@/utils/paymentUtils";
+import { toCamelLegs, derivePaidByMethod } from "@/utils/paymentUtils";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import {
@@ -136,7 +136,6 @@ export function FinancialForm({
   const [effectiveRate, setEffectiveRate] = useState<number | undefined>();
 
   const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const isSplitPayment = paymentLines.length > 1;
   const [localSubmitting, setLocalSubmitting] = useState(false);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const { buyRate, sellRate } = useSellRate();
@@ -399,7 +398,12 @@ export function FinancialForm({
     setLocalSubmitting(true);
 
     const cartItems = Array.from(cart.values());
-    const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
+    // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: derive straight from the pay
+    // sheet's CURRENT legs, not the `paymentMethod` state alone — that state
+    // is only ever written from `onPaymentChange`'s `lines.length === 1`
+    // self-heal, so deriving here (rather than trusting the state to have
+    // tracked every change) matches the sheet on every render.
+    const finalPaymentMethod = derivePaidByMethod(paymentLines, paymentMethod);
     // S1 — never gate legs on split (or voucher): forward the full leg set
     // (IN tender + OUT change) whenever ANY payment line exists. Gating on
     // isSplitPayment/hasVoucherLeg alone silently dropped a single-line
@@ -777,11 +781,10 @@ export function FinancialForm({
               </div>
             )}
             {/* "For Partner" opt-in — routes every cart unit to a selected
-                partner's ledger instead of collecting counter cash. Hides
-                the payment-method quick-select and skips the PaymentSheet
-                entirely (see handleForPartnerSubmit). Renders for EVERY
-                provider this form serves, unlike the old always-on header
-                PartnerSelector it replaces. */}
+                partner's ledger instead of collecting counter cash. Skips
+                the PaymentSheet entirely (see handleForPartnerSubmit).
+                Renders for EVERY provider this form serves, unlike the old
+                always-on header PartnerSelector it replaces. */}
             <ForPartnerToggle
               testId="financial-for-partner-toggle"
               checked={forPartner}
@@ -794,22 +797,6 @@ export function FinancialForm({
               textClassName=""
               selectorClassName=""
             />
-            {/* Payment method quick-select — hidden in partner mode (no
-                counter cash is collected from a customer). */}
-            {!forPartner && (
-              <Select
-                value={initialPaymentMethod}
-                onChange={(v) => {
-                  setInitialPaymentMethod(v);
-                  setPaymentInputKey((k) => k + 1);
-                }}
-                options={methods.map((m) => ({
-                  value: m.code,
-                  label: m.label,
-                }))}
-                buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-500 transition-all cursor-pointer"
-              />
-            )}
             <button
               type="button"
               onClick={() => {

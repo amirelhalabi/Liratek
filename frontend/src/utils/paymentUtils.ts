@@ -57,6 +57,36 @@ export function toSnakeLegs(
 }
 
 /**
+ * CARRIER_LINES_VALIDITY_PLAN.md Phase 7: derive the submitted
+ * `paid_by_method`/`paidByMethod` DIRECTLY from the pay sheet's current
+ * payment legs — the first leg's method, or `"MULTI"` once there are 2+ legs.
+ * Matches the pattern already used by the crypto submit (Recharge/index.tsx
+ * `handleCryptoSubmit`), FinancialForm and KatchForm.
+ *
+ * Do NOT rely on a `lines.length === 1`-gated setter alone (e.g. a
+ * `MultiPaymentInput onPaymentChange` callback that only calls `setPaidBy`
+ * when there is exactly one line): that self-heals the single-leg case
+ * because `MultiPaymentInput` re-emits on mount before submit is possible,
+ * but it NEVER fires for a split (2+ legs) — the removed in-form Payment
+ * Method dropdown's stale value (or whatever the state last held) would be
+ * sent as `paid_by_method` even though the customer actually split the
+ * payment. Calling this at the point of building the submit payload (from
+ * the CURRENT `paymentLines` array) fixes both cases in one place.
+ *
+ * `fallback` covers the zero-leg case (practically unreachable at submit
+ * time — the pay sheet always seeds at least one line, rule 16) and mirrors
+ * the crypto form's own always-"CASH" `cryptoPaidBy` default.
+ */
+export function derivePaidByMethod(
+  lines: Array<{ method: string }>,
+  fallback: string = "CASH",
+): string {
+  if (lines.length > 1) return "MULTI";
+  if (lines.length === 1) return lines[0].method;
+  return fallback;
+}
+
+/**
  * Calculates change due
  * @param paid - Amount paid
  * @param total - Total amount due

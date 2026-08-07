@@ -1084,6 +1084,33 @@ export async function processRecharge(payload: any) {
   );
 }
 
+// Funding-source drawer balances for the top-up modal `handleTopUpClick`
+// opens — feeds the four top-up arms below. Was a raw, unguarded
+// `window.api.recharge.getDrawerBalances()` call with no REST twin, so in
+// web mode it threw before the modal ever opened (rule 19 gap).
+export async function getRechargeDrawerBalances(): Promise<
+  Array<{
+    name: string;
+    usdBalance: number;
+    lbpBalance: number;
+    usdtBalance: number;
+  }>
+> {
+  if (isElectron()) {
+    return (window as any).api.recharge.getDrawerBalances();
+  }
+  const res = await requestJson<{
+    success: boolean;
+    balances: Array<{
+      name: string;
+      usdBalance: number;
+      lbpBalance: number;
+      usdtBalance: number;
+    }>;
+  }>(`/api/recharge/drawer-balances`);
+  return res.balances;
+}
+
 export async function topUpApp(payload: {
   provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
   amount: number;
@@ -1095,6 +1122,64 @@ export async function topUpApp(payload: {
   }
   return requestJson<{ success: boolean; error?: string }>(
     `/api/recharge/top-up-app`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+// CARRIER_LINES_VALIDITY_PLAN.md Phase 8.4 — the remaining three top-up arms
+// (Katsh/iPick supplier credit, Whish App via partner, Whish App from a
+// client) close the same rule-19 gap `topUpApp` above already had a (dead)
+// REST branch for.
+export async function topUpFromSupplier(payload: {
+  provider: "iPick" | "Katsh";
+  amount: number;
+  currency: "USD" | "LBP";
+}) {
+  if (isElectron()) {
+    return (window as any).api.recharge.topUpFromSupplier(payload);
+  }
+  return requestJson<{ success: boolean; error?: string }>(
+    `/api/recharge/top-up-from-supplier`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function topUpFromPartner(payload: {
+  provider: "WHISH_APP";
+  partnerId: number;
+  amount: number;
+  currency: "USD" | "LBP";
+}) {
+  if (isElectron()) {
+    return (window as any).api.recharge.topUpFromPartner(payload);
+  }
+  return requestJson<{ success: boolean; error?: string }>(
+    `/api/recharge/top-up-from-partner`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function topUpFromClient(payload: {
+  amount: number;
+  cashPaid: number;
+  currency: "USD" | "LBP";
+  clientName?: string;
+  clientId?: number;
+}) {
+  if (isElectron()) {
+    return (window as any).api.recharge.topUpFromClient(payload);
+  }
+  return requestJson<{ success: boolean; error?: string }>(
+    `/api/recharge/top-up-from-client`,
     {
       method: "POST",
       body: payload,

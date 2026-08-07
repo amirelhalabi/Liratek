@@ -17,7 +17,7 @@ import { useSellRate } from "@/hooks/useSellRate";
 import { useAutoPrintReceipt } from "@/shared/hooks/useAutoPrintReceipt";
 import type { PaymentLine, CarrierLineEntity } from "@liratek/ui";
 import { isSameLebanesePhone } from "@liratek/core";
-import { toCamelLegs } from "@/utils/paymentUtils";
+import { toCamelLegs, derivePaidByMethod } from "@/utils/paymentUtils";
 import {
   useMobileServiceItems,
   type ProviderKey,
@@ -224,7 +224,12 @@ export default function MobileRecharge() {
     }>
   >([]);
   const [topUpData, setTopUpData] = useState<{
-    provider: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+    // Phase 8.2 dropped MTC/Alfa from `handleTopUpClick`'s `providerConfig`
+    // map (the "Customer credit purchase" arm this state used to size is
+    // retired), so those two members were already dead here — narrowed to
+    // match what `providerConfig` can actually produce, and what
+    // `useApi().topUpApp` (Phase 8.4) accepts.
+    provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
     destinationDrawer: string;
     defaultSourceDrawer: string;
     availableDrawers: Array<{
@@ -550,7 +555,11 @@ export default function MobileRecharge() {
         price,
         default_price_to_client: defaultPriceToClient,
         currency: "LBP",
-        paid_by_method: paidBy,
+        // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: derive from the pay sheet's
+        // OWN legs on every submit — never the (now-removed) dropdown's
+        // `paidBy` state alone, which never advanced past a single-leg
+        // self-heal and stayed stale on a split.
+        paid_by_method: derivePaidByMethod(paymentLines, paidBy),
         payments:
           paymentLines.length > 0
             ? toCamelLegs(paymentLines, returnLegs)
@@ -730,7 +739,7 @@ export default function MobileRecharge() {
     } = config;
 
     try {
-      const drawers = await window.api.recharge.getDrawerBalances();
+      const drawers = await api.getRechargeDrawerBalances();
       const availableDrawers = drawers.filter(
         (d) => d.name !== destinationDrawer,
       );
@@ -746,7 +755,7 @@ export default function MobileRecharge() {
       logger.error("Failed to load drawer balances:", error);
       alert("Failed to load drawer balances");
     }
-  }, [activeProvider]);
+  }, [activeProvider, api]);
 
   const handleTopUpConfirm = useCallback(
     async (data: {
@@ -756,7 +765,7 @@ export default function MobileRecharge() {
     }) => {
       if (!topUpData) return;
 
-      const result = await window.api.recharge.topUpApp({
+      const result = await api.topUpApp({
         provider: topUpData.provider,
         amount: data.amount,
         currency: data.currency,
@@ -787,7 +796,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [topUpData, activeConfig, loadFinancialData, loadDrawerBalances],
+    [topUpData, activeConfig, loadFinancialData, loadDrawerBalances, api],
   );
 
   // Katsh/iPick: supplier extends credit — no cash leaves any drawer
@@ -799,7 +808,7 @@ export default function MobileRecharge() {
       )
         return;
 
-      const result = await window.api.recharge.topUpFromSupplier({
+      const result = await api.topUpFromSupplier({
         provider: topUpData.provider as "iPick" | "Katsh",
         amount: data.amount,
         currency: data.currency,
@@ -818,7 +827,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [topUpData, loadFinancialData, loadDrawerBalances],
+    [topUpData, loadFinancialData, loadDrawerBalances, api],
   );
 
   // Whish App: top up from a partner's credit line
@@ -828,7 +837,7 @@ export default function MobileRecharge() {
       amount: number;
       currency: "USD" | "LBP";
     }) => {
-      const result = await window.api.recharge.topUpFromPartner({
+      const result = await api.topUpFromPartner({
         provider: "WHISH_APP",
         partnerId: data.partnerId,
         amount: data.amount,
@@ -845,7 +854,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [loadFinancialData, loadDrawerBalances],
+    [loadFinancialData, loadDrawerBalances, api],
   );
 
   // Whish App: buy credits from a client (client transfers credits, shop pays cash)
@@ -856,7 +865,7 @@ export default function MobileRecharge() {
       currency: "USD" | "LBP";
       clientName?: string;
     }) => {
-      const result = await window.api.recharge.topUpFromClient(data);
+      const result = await api.topUpFromClient(data);
       if (!result.success) {
         throw new Error(result.error || "Top-up failed");
       }
@@ -868,7 +877,7 @@ export default function MobileRecharge() {
         "success",
       );
     },
-    [loadFinancialData, loadDrawerBalances],
+    [loadFinancialData, loadDrawerBalances, api],
   );
 
   const resetGiftForm = useCallback(() => {
@@ -946,7 +955,10 @@ export default function MobileRecharge() {
         cost,
         price,
         currency: "LBP",
-        paid_by_method: paidBy,
+        // CARRIER_LINES_VALIDITY_PLAN.md Phase 7: see handleTelecomSubmit's
+        // identical comment above — derive from the sheet's legs, not the
+        // removed dropdown's `paidBy` state alone.
+        paid_by_method: derivePaidByMethod(paymentLines, paidBy),
         payments:
           paymentLines.length > 0
             ? toCamelLegs(paymentLines, returnLegs)
