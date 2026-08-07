@@ -42,6 +42,20 @@ interface CryptoFormProps {
   setCryptoFee: (val: string) => void;
   feeIncluded: boolean;
   setFeeIncluded: (val: boolean) => void;
+  /** BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — mode C: the customer pays
+   *  the RECEIVE fee separately (any method), independent of the payout. */
+  feeCollectedSeparately: boolean;
+  setFeeCollectedSeparately: (val: boolean) => void;
+  onFeePaymentLinesChange: (lines: PaymentLine[]) => void;
+  /** UNFILTERED payment methods (minus GIFT_CARD) for the fee counter-flow
+   *  ONLY — the customer can pay the fee via any method in the system
+   *  (owner decision), unlike `paymentMethods` below, which is the payout
+   *  method list restricted for a RECEIVE. */
+  feePaymentMethods: Array<{
+    code: string;
+    label: string;
+    drawer_name?: string;
+  }>;
   handleCryptoSubmit: () => void;
   isSubmitting: boolean;
   binanceTransactions: BinanceTransaction[];
@@ -82,6 +96,10 @@ export function CryptoForm({
   setCryptoFee,
   feeIncluded,
   setFeeIncluded,
+  feeCollectedSeparately,
+  setFeeCollectedSeparately,
+  onFeePaymentLinesChange,
+  feePaymentMethods,
   handleCryptoSubmit,
   isSubmitting,
   binanceTransactions,
@@ -134,6 +152,19 @@ export function CryptoForm({
     initialPaymentMethod,
   ]);
 
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 (mirrors OmtWhishAppTransferForm.
+  // tsx:173-177): mode C ("Customer pays separately") has no walk-in fee to
+  // collect for a partner transaction (PFT-3b — no counter cash at all) and
+  // is never wired for the session basket (the pooled basket doesn't collect
+  // fee legs). Defensively fall back to mode A (sender-pays) the instant
+  // either condition becomes true while mode C was selected, so a stale
+  // selection can never reach the submit payload.
+  useEffect(() => {
+    if ((forPartner || !!activeSession) && feeCollectedSeparately) {
+      setFeeCollectedSeparately(false);
+    }
+  }, [forPartner, activeSession, feeCollectedSeparately, setFeeCollectedSeparately]);
+
   if (!activeConfig) return null;
 
   const parsedAmount = parseFloat(cryptoAmount || "0");
@@ -144,10 +175,21 @@ export function CryptoForm({
   //         !feeIncluded → USDT out = amount,     customer pays amount+fee
   // RECEIVE: feeIncluded → USDT in  = amount,     payout = amount-fee
   //         !feeIncluded → USDT in  = amount+fee,  payout = amount
+  // RECEIVE mode C (feeCollectedSeparately): the wallet side collapses to
+  // the SAME numbers as feeIncluded=true (bare amount in), but the payout
+  // stays FULL — the fee is collected back from the customer separately
+  // instead of being netted out of the payout. This is the one place modes
+  // B (feeIncluded) and C (feeCollectedSeparately) diverge. Never applies to
+  // SEND — sendUsdt/sendTotal are untouched.
   const sendUsdt = feeIncluded ? parsedAmount - fee : parsedAmount;
   const sendTotal = feeIncluded ? parsedAmount : parsedAmount + fee;
-  const payout = feeIncluded ? parsedAmount - fee : parsedAmount;
-  const receiveUsdt = feeIncluded ? parsedAmount : parsedAmount + fee;
+  const receiveUsdt =
+    feeIncluded || feeCollectedSeparately ? parsedAmount : parsedAmount + fee;
+  const payout = feeCollectedSeparately
+    ? parsedAmount
+    : feeIncluded
+      ? parsedAmount - fee
+      : parsedAmount;
 
   // PFT-3b direct submission for a "for partner" Binance transaction —
   // bypasses handleCryptoSubmit (the parent's normal path) and the
@@ -288,16 +330,86 @@ export function CryptoForm({
           </div>
         </div>
 
-        {/* Fee included checkbox */}
-        <label className="flex items-center gap-2 text-slate-300 cursor-pointer pt-1">
-          <input
-            type="checkbox"
-            checked={feeIncluded}
-            onChange={(e) => setFeeIncluded(e.target.checked)}
-            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
-          />
-          <span className="text-sm font-medium">Fee included in amount</span>
-        </label>
+        {/* SEND keeps the plain "fee included" checkbox — completely
+            untouched by mode C, which never applies to SEND. */}
+        {cryptoType === "SEND" ? (
+          <label className="flex items-center gap-2 text-slate-300 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={feeIncluded}
+              onChange={(e) => setFeeIncluded(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+            />
+            <span className="text-sm font-medium">Fee included in amount</span>
+          </label>
+        ) : (
+          /* RECEIVE (Cash Out): three-way "who pays the fee" choice
+             (BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2, mirrors
+             OmtWhishAppTransferForm.tsx's Phase D radio group). */
+          <div
+            role="radiogroup"
+            aria-label="Fee paid by"
+            className="pt-1 space-y-1.5"
+          >
+            <span className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
+              Fee paid by
+            </span>
+            <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input
+                type="radio"
+                name="crypto-receive-fee-mode"
+                data-testid="crypto-fee-mode-sender"
+                checked={!feeIncluded && !feeCollectedSeparately}
+                onChange={() => {
+                  setFeeIncluded(false);
+                  setFeeCollectedSeparately(false);
+                }}
+                className="w-4 h-4 border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+              />
+              <span className="text-sm font-medium">
+                Sender (added to payout)
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <input
+                type="radio"
+                name="crypto-receive-fee-mode"
+                data-testid="crypto-fee-mode-deducted"
+                checked={feeIncluded}
+                onChange={() => {
+                  setFeeIncluded(true);
+                  setFeeCollectedSeparately(false);
+                }}
+                className="w-4 h-4 border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+              />
+              <span className="text-sm font-medium">
+                Deducted from payout
+              </span>
+            </label>
+            {/* Mode C has no walk-in fee to collect for a partner
+                transaction (no counter cash at all) and is never wired for
+                the session basket — hidden in both cases; the defensive
+                effect above also force-resets a stale selection. */}
+            {!forPartner && !activeSession && (
+              <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                <input
+                  type="radio"
+                  name="crypto-receive-fee-mode"
+                  data-testid="crypto-fee-mode-separate"
+                  checked={feeCollectedSeparately}
+                  onChange={() => {
+                    setFeeIncluded(false);
+                    setFeeCollectedSeparately(true);
+                  }}
+                  className="w-4 h-4 border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+                />
+                <span className="text-sm font-medium">
+                  Customer pays separately
+                </span>
+              </label>
+            )}
+          </div>
+        )}
 
         {/* Totals */}
         {cryptoType === "RECEIVE" ? (
@@ -313,6 +425,9 @@ export function CryptoForm({
               <span
                 className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}
               >
+                {feeCollectedSeparately && fee > 0
+                  ? "collected separately: "
+                  : ""}
                 ${fee.toFixed(2)}
               </span>
             </div>
@@ -621,6 +736,28 @@ export function CryptoForm({
           onPaymentChange={onPaymentLinesChange}
           {...(onReturnChange ? { onReturnChange } : {})}
           {...(onKeptChange ? { onKeptChange } : {})}
+          // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — mode C's counter-flow
+          // section: the customer's separately-paid fee, independent of the
+          // payout lines above. Absent (modes A/B, no fee, a partner
+          // transaction, or a session) renders nothing extra.
+          {...(cryptoType === "RECEIVE" &&
+          feeCollectedSeparately &&
+          fee > 0 &&
+          !forPartner
+            ? {
+                counterFlow: {
+                  label: `Customer pays — Binance fee`,
+                  totalAmount: fee,
+                  currency: "USD",
+                  onChange: onFeePaymentLinesChange,
+                  paymentMethods: feePaymentMethods,
+                  requiresClient: true,
+                  hasClient:
+                    !!cryptoClientId ||
+                    (!!cryptoClientName.trim() && !!cryptoClientPhone.trim()),
+                },
+              }
+            : {})}
         >
           {cryptoClientName.trim() &&
             cryptoClientPhone.trim() &&

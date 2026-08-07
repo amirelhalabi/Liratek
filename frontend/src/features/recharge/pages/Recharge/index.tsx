@@ -183,6 +183,16 @@ export default function MobileRecharge() {
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoFeeIncluded, setCryptoFeeIncluded] = useState(false);
+  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — Binance mode C ("Customer
+  // pays separately"): the wallet receives the bare amount, the payout
+  // stays FULL, and the fee is collected back from the customer via a
+  // dedicated feePayments leg set — additive to cryptoFeeIncluded, mutually
+  // exclusive at the UI layer (CryptoForm's radio group never sets both).
+  const [cryptoFeeCollectedSeparately, setCryptoFeeCollectedSeparately] =
+    useState(false);
+  const [cryptoFeePaymentLines, setCryptoFeePaymentLines] = useState<
+    PaymentLine[]
+  >([]);
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [cryptoClientName, setCryptoClientName] = useState("");
   const [cryptoClientPhone, setCryptoClientPhone] = useState("");
@@ -1029,10 +1039,19 @@ export default function MobileRecharge() {
     // fee included → the entered amount already contains the fee
     // SEND:    feeIncluded → USDT sent = amount - fee;  !feeIncluded → USDT sent = amount
     // RECEIVE: feeIncluded → USDT received = amount;    !feeIncluded → USDT received = amount + fee
+    // RECEIVE mode C (cryptoFeeCollectedSeparately): the wallet receives the
+    // BARE amount — same "else" branch as feeIncluded=true — because the fee
+    // is collected back from the customer via feePayments[] instead of being
+    // netted through the wallet. Must be excluded from the "+fee" branch or
+    // the fee gets double-counted into the wallet AND collected separately.
     let amount: number;
     if (cryptoType === "SEND" && cryptoFeeIncluded) {
       amount = rawAmount - fee;
-    } else if (cryptoType === "RECEIVE" && !cryptoFeeIncluded) {
+    } else if (
+      cryptoType === "RECEIVE" &&
+      !cryptoFeeIncluded &&
+      !cryptoFeeCollectedSeparately
+    ) {
       amount = rawAmount + fee;
     } else {
       amount = rawAmount;
@@ -1112,6 +1131,8 @@ export default function MobileRecharge() {
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoFeeIncluded(false);
+      setCryptoFeeCollectedSeparately(false);
+      setCryptoFeePaymentLines([]);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
@@ -1147,6 +1168,20 @@ export default function MobileRecharge() {
           : {}),
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
           ? { cashoutMethod: derivedCashoutMethod }
+          : {}),
+        // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §10.2 — mode C's operator-
+        // chosen fee-collection legs. Sent ONLY when the customer pays the
+        // fee separately on a fee-on-top RECEIVE — absent entirely (not [])
+        // for modes A/B, SEND, a zero fee, a partner transfer (routed via
+        // handleForPartnerSubmit, which never reaches this payload), or a
+        // session (cryptoFeeCollectedSeparately is force-reset by CryptoForm
+        // whenever activeSession is true, so this branch never fires there).
+        ...(cryptoType === "RECEIVE" && cryptoFeeCollectedSeparately && fee > 0
+          ? {
+              feePayments: toCamelLegs(
+                cryptoFeePaymentLines.filter((l) => l.amount > 0),
+              ),
+            }
           : {}),
         // T3 keep-change: kept amounts join the profit stamp.
         ...(cryptoKeptChange &&
@@ -1189,6 +1224,8 @@ export default function MobileRecharge() {
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoFeeIncluded(false);
+      setCryptoFeeCollectedSeparately(false);
+      setCryptoFeePaymentLines([]);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoKeptChange(null);
@@ -1204,6 +1241,8 @@ export default function MobileRecharge() {
     cryptoType,
     cryptoAmount,
     cryptoFeeIncluded,
+    cryptoFeeCollectedSeparately,
+    cryptoFeePaymentLines,
     cryptoClientName,
     cryptoClientPhone,
     cryptoClientId,
@@ -1600,6 +1639,15 @@ export default function MobileRecharge() {
             setCryptoFee={setCryptoFee}
             feeIncluded={cryptoFeeIncluded}
             setFeeIncluded={setCryptoFeeIncluded}
+            feeCollectedSeparately={cryptoFeeCollectedSeparately}
+            setFeeCollectedSeparately={setCryptoFeeCollectedSeparately}
+            onFeePaymentLinesChange={setCryptoFeePaymentLines}
+            // Mode C's counter-flow fee is collected via ANY payment method
+            // in the system (owner decision Q1) — the UNFILTERED list, minus
+            // GIFT_CARD (the server hard-rejects it). Deliberately NOT the
+            // `paymentMethods` prop below, which is the PAYOUT method list,
+            // restricted to CASH/CUSTOMER_ACCOUNT for a RECEIVE payout.
+            feePaymentMethods={methods.filter((pm) => pm.code !== "GIFT_CARD")}
             handleCryptoSubmit={handleCryptoSubmit}
             onKeptChange={setCryptoKeptChange}
             isSubmitting={isSubmitting}
