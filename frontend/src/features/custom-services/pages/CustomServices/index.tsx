@@ -199,6 +199,19 @@ export default function CustomServices() {
   // MultiPaymentInput converts LBP↔USD at buyRate.
   const { buyRate: exchangeRate } = useSellRate();
 
+  // Payment-Legs Integrity plan pattern (mirrors FinancialForm/KatchForm/
+  // OmtWhishAppTransferForm/CheckoutModal): the rate MultiPaymentInput
+  // ACTUALLY converted tender at — the operator's own edit of "1 USD = X
+  // LBP" inside the payment sheet, or the buyRate default it was seeded
+  // with (onExchangeRateChange fires at least once either way, on mount).
+  // This page never captured it, so the submit payload never carried
+  // exchange_rate at all — the validator/repository already fully support
+  // the field (packages/core/src/validators/customService.ts,
+  // CustomServiceRepository.ts), they just never received a value.
+  const [effectiveRate, setEffectiveRate] = useState<number | undefined>(
+    undefined,
+  );
+
   // ─── Product Search ───
   const clearProduct = () => {
     setSelectedProduct(null);
@@ -285,6 +298,19 @@ export default function CustomServices() {
       const primaryMethod =
         paymentLines.length > 0 ? paymentLines[0].method : "CASH";
 
+      // Tendered rate: prefer the operator's own edit of the payment
+      // sheet's "1 USD = X LBP" field, else the buyRate default it was
+      // seeded with (mirrors Services/index.tsx's resolvedTenderRate).
+      // Guarded against a non-positive/non-finite value: the validator's
+      // z.number().positive() would otherwise hard-reject the whole
+      // submission — omitting the key entirely lets the repository's own
+      // live snapshot-rate fallback apply instead.
+      const resolvedRate = effectiveRate ?? exchangeRate;
+      const exchangeRateForPayload =
+        Number.isFinite(resolvedRate) && resolvedRate > 0
+          ? resolvedRate
+          : undefined;
+
       const payload: Parameters<typeof api.addCustomService>[0] = {
         description: description.trim(),
         cost_usd: costUsdVal,
@@ -292,6 +318,9 @@ export default function CustomServices() {
         price_usd: priceUsdVal,
         price_lbp: priceLbpVal,
         paid_by: primaryMethod,
+        ...(exchangeRateForPayload !== undefined
+          ? { exchange_rate: exchangeRateForPayload }
+          : {}),
         // LIRA-081: a for-partner service takes NO counter payment at all —
         // never forward payment legs even if stale state lingers from before
         // the toggle was checked (PartnerRepository/CustomServiceRepository
@@ -993,6 +1022,7 @@ export default function CustomServices() {
                         { code: "LBP", symbol: "LBP" },
                       ]}
                       exchangeRate={exchangeRate}
+                      onExchangeRateChange={setEffectiveRate}
                       clientId={clientId}
                       fetchClientVouchers={fetchClientVouchers}
                       {...(paymentInitialMethod

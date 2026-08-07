@@ -48,6 +48,10 @@ export interface RepaymentData {
    *  Y, discount Z"). Posts its own 'Debt Discount' ledger row + a signed
    *  COUNTERPARTY_DISCOUNT transaction. */
   discount?: CounterpartyDiscountData;
+  /** See `DebtRepository.CreateRepaymentData.tender_exchange_rate`'s doc —
+   *  the payment sheet's operator-tendered rate, threaded straight through
+   *  to the repository (no business logic here). */
+  tender_exchange_rate?: number;
 }
 
 // =============================================================================
@@ -112,6 +116,7 @@ export class DebtService {
       keptChangeLBP,
       transaction_time,
       discount,
+      tender_exchange_rate,
     } = data;
 
     // Validate
@@ -173,6 +178,7 @@ export class DebtService {
         kept_change_lbp: keptChangeLBP,
         transaction_time,
         discount,
+        tender_exchange_rate,
       });
 
       debtLogger.info(
@@ -355,6 +361,9 @@ export class DebtService {
     note?: string;
     userId: number;
     transaction_time?: string;
+    /** See `RepaymentData.tender_exchange_rate`'s doc — threaded straight
+     *  through to the repository. */
+    tender_exchange_rate?: number;
   }): RepaymentResult {
     const { clientId, amountUSD, amountLBP } = data;
 
@@ -400,6 +409,7 @@ export class DebtService {
         note: data.note || null,
         created_by: data.userId,
         transaction_time: data.transaction_time,
+        tender_exchange_rate: data.tender_exchange_rate,
       });
 
       debtLogger.info(

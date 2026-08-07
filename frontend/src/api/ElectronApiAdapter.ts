@@ -801,6 +801,9 @@ export class ElectronApiAdapter implements ApiAdapter {
     note?: string;
     category?: string;
     transaction_time?: string;
+    /** Operator-edited USD↔LBP rate of record — stamped verbatim onto the
+     *  transaction; omitted falls back to a live snapshot rate. */
+    exchange_rate?: number;
     partnerId?: number;
     partnerMode?: "FOR";
   }) => api.addCustomService(data);

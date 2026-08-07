@@ -304,6 +304,12 @@ export default function MultiPaymentInput({
   // Tracks whether the user manually edited the single-mode amount, so a
   // deliberate overpayment isn't clobbered by the auto-sync-to-total effect.
   const singleAmountTouchedRef = useRef<boolean>(false);
+  // Tracks whether the operator manually edited the exchange-rate field, so a
+  // late-resolving async rate-fetch prop (callers commonly seed `exchangeRate`
+  // from a hook like useSellRate that starts at a fallback and overwrites
+  // itself once its fetch resolves) can't silently clobber the operator's
+  // typed rate. Mirrors singleAmountTouchedRef's pattern for the amount field.
+  const rateTouchedRef = useRef<boolean>(false);
 
   // Auto-debt remainder line id (or null). In single-payment mode, a typed
   // amount below the total used to be cosmetic — only the method + the FULL
@@ -461,8 +467,13 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clampedDiscount]);
 
-  // Update custom rate when exchange rate prop changes
+  // Update custom rate when exchange rate prop changes. Skipped once the
+  // operator manually edits the rate field, so a deliberate typed rate isn't
+  // reset when the caller's exchangeRate prop later changes (e.g. an async
+  // rate-fetch hook resolving after the edit) — mirrors the amount field's
+  // singleAmountTouchedRef guard above.
   useEffect(() => {
+    if (rateTouchedRef.current) return;
     setCustomExchangeRate(safeExchangeRate.toString());
     onExchangeRateChange?.(safeExchangeRate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1315,6 +1326,7 @@ export default function MultiPaymentInput({
             inputMode="decimal"
             value={fmtNum(customExchangeRate)}
             onChange={(e) => {
+              rateTouchedRef.current = true;
               const raw = e.target.value.replace(/,/g, "");
               setCustomExchangeRate(raw);
               const newRate = parseFloat(raw) || safeExchangeRate;

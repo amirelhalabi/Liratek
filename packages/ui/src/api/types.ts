@@ -477,6 +477,10 @@ export type ApiAdapter = {
     user_id?: number;
     payments?: Array<{ method: string; currencyCode: string; amount: number }>;
     transaction_time?: string;
+    /** Owner decision (2026-08-08) — the USD/LBP rate the operator actually
+     *  tendered at, stamped onto the transaction (packages/core/src/validators/debt.ts
+     *  addRepaymentSchema's `tender_exchange_rate`). */
+    tender_exchange_rate?: number;
     /** CQ-10: bundled discount — forgives part of the debt alongside the
      *  cash payment. Posts a signed-profit 'Debt Discount' ledger row. */
     discount?: { amount_usd: number; amount_lbp: number; reason?: string };
@@ -1367,6 +1371,9 @@ export type ApiAdapter = {
     note?: string;
     category?: string;
     transaction_time?: string;
+    /** Operator-edited USD↔LBP rate of record — stamped verbatim onto the
+     *  transaction; omitted falls back to a live snapshot rate. */
+    exchange_rate?: number;
     /** LIRA-081: for-partner custom service — no counter payment, the FULL
      *  price books to the partner's tab instead. */
     partnerId?: number;

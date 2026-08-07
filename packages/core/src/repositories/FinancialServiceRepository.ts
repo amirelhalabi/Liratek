@@ -41,6 +41,7 @@ import {
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
   postPayoutLegs,
+  resolveStampedExchangeRate,
 } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
@@ -352,8 +353,15 @@ export interface CreateFinancialServiceData {
    * math must be compared at the SAME rate it used, or a legitimate
    * buy/sell-spread checkout false-rejects (lira-095). Falls back to
    * `exchangeRate` (then a live sell-rate lookup) when omitted — every
-   * existing caller that doesn't send it is unaffected. Never used to stamp
-   * `transactions.exchange_rate` — only the reconciliation check.
+   * existing caller that doesn't send it is unaffected.
+   *
+   * Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): ALSO used
+   * to stamp `transactions.exchange_rate` — via `resolveStampedExchangeRate`
+   * (moneyPosting.ts), a non-throwing sibling of the reconciliation
+   * band-check that falls back to the server rate silently outside the ±10%
+   * band or when absent. This does NOT change what `reconcileLegs`/
+   * `postPayoutLegs` reconcile against — they keep anchoring at the server
+   * rate (`exchangeRate`), unchanged.
    */
   tender_exchange_rate?: number;
   /** Partner ID: when set, this transaction involves a partner */
@@ -628,24 +636,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   // Transaction Operations
   // ---------------------------------------------------------------------------
 
-  /**
-   * A guaranteed-existing user id to stamp on transaction/payment/debt rows
-   * when a caller does not supply one. Prefers an admin, then the lowest id.
-   * Returns 1 only as a last resort (empty users table). This keeps the
-   * FK on user_id valid on databases whose admin was recreated at id ≠ 1 —
-   * a bare `?? 1` would reintroduce the FK-violation bug.
-   */
-  private resolveFallbackUserId(): number {
-    const row = this.db
-      .prepare(
-        `SELECT id FROM users
-         WHERE tenant_id = ?
-         ORDER BY (role = 'admin') DESC, id ASC
-         LIMIT 1`,
-      )
-      .get(getCurrentTenantId()) as { id: number } | undefined;
-    return row?.id ?? 1;
-  }
+  // resolveFallbackUserId() now lives on BaseRepository (rule 14 — shared by
+  // ExchangeRepository, CustomServiceRepository, MaintenanceRepository too).
 
   private mapDrawerName(
     provider: CreateFinancialServiceData["provider"],
@@ -741,17 +733,31 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const currency = data.currency ?? "USD";
 
       // Payment-Legs Integrity plan (false-reject fix, 2026-07-2x):
-      // `stampedExchangeRate` is the server rate-of-record — the SAME value
-      // the `transactions.exchange_rate` stamp below uses, and never
-      // affected by `tender_exchange_rate`. Every reconcileLegs call site in
-      // this method passes BOTH this rate (as `exchangeRate`) and
-      // `data.tender_exchange_rate` (as `tenderExchangeRate`) — the gate
-      // itself (moneyPosting.ts's reconcileLegs/resolveReconciliationRate)
-      // decides which one to reconcile at, banding the tender rate against
-      // this one (±10%) so an implausible tender value can't launder a real
-      // leg discrepancy as "just a rate difference".
+      // `stampedExchangeRate` is the server rate-of-record — the reconciliation
+      // ANCHOR every reconcileLegs call site in this method passes as
+      // `exchangeRate`, alongside `data.tender_exchange_rate` (as
+      // `tenderExchangeRate`) — the gate itself (moneyPosting.ts's
+      // reconcileLegs/resolveReconciliationRate) decides which one to
+      // reconcile at, banding the tender rate against this one (±10%) so an
+      // implausible tender value can't launder a real leg discrepancy as
+      // "just a rate difference". This anchor is UNCHANGED by the owner's
+      // 2026-08-08 stamping decision below — only the value written to
+      // `transactions.exchange_rate` differs from it now, never the
+      // reconciliation math.
       const stampedExchangeRate =
         data.exchangeRate ?? getUsdLbpSellRate(this.db);
+      // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): the
+      // `transactions.exchange_rate` stamp should reflect what the operator
+      // actually tendered, when that's a plausible edit — within
+      // `TENDER_RATE_BAND_PCT` of the server rate. Outside that band (or
+      // absent), falls back to `stampedExchangeRate` SILENTLY — this never
+      // throws (see `resolveStampedExchangeRate`'s doc); the hard-reject path
+      // for an implausible tender rate stays exclusively in `reconcileLegs`/
+      // `postPayoutLegs` below, which keep anchoring at `stampedExchangeRate`.
+      const recordExchangeRate = resolveStampedExchangeRate(
+        stampedExchangeRate,
+        data.tender_exchange_rate,
+      );
 
       const cost = data.cost ?? 0;
       const price = data.price ?? (useCostPriceFlow ? data.amount : 0);
@@ -1321,11 +1327,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               }
             : {}),
         },
-        // Stamped rate-of-record — deliberately `stampedExchangeRate`, never
-        // `tender_exchange_rate` (see the field's doc and the comment at
-        // this method's top): the two diverge on purpose when the till used
-        // a different rate for change than the day's server rate.
-        exchange_rate: stampedExchangeRate,
+        // Stamped rate-of-record — `recordExchangeRate`, which reflects the
+        // operator's tendered rate when it's within `TENDER_RATE_BAND_PCT` of
+        // the server rate (owner decision 2026-08-08), else falls back to
+        // `stampedExchangeRate` (see the field's doc and the comment at this
+        // method's top). The RECONCILIATION anchor below is unaffected —
+        // every `reconcileLegs`/`postPayoutLegs` call in this method still
+        // passes `exchangeRate: stampedExchangeRate`, never this value.
+        exchange_rate: recordExchangeRate,
         transaction_time: data.transaction_time,
       });
 

@@ -46,6 +46,14 @@ export const addRepaymentSchema = z
     // paid ("owed X, paid Y, discount Z") — posts its OWN 'Debt Discount'
     // ledger row + COUNTERPARTY_DISCOUNT transaction (DebtRepository.addRepayment).
     discount: counterpartyDiscountInputSchema.optional(),
+    // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000) — same
+    // gap already fixed for FinancialServiceRepository/RechargeRepository:
+    // the USD→LBP rate MultiPaymentInput actually converted the operator's
+    // tender at, so `transactions.exchange_rate` reflects what was really
+    // tendered instead of always falling back to a live market-rate snapshot.
+    // See `resolveStampedExchangeRate` (moneyPosting.ts) for the ±10% band /
+    // fallback rule — never throws, this is a stamp-only field.
+    tender_exchange_rate: z.number().positive().optional(),
     transaction_time: transactionTimeSchema,
   })
   .refine(
@@ -96,6 +104,10 @@ export const debtCashOutSchema = z.object({
   payments: z.array(debtPaymentLegSchema).optional(),
   note: z.string().optional(),
   transaction_time: z.string().optional(),
+  // Owner decision (2026-08-08) — same tendered-rate stamp fix as
+  // addRepaymentSchema above; the Debts page's cash-out modal shares the
+  // SAME MultiPaymentInput/rate state as the repayment modal.
+  tender_exchange_rate: z.number().positive().optional(),
 });
 
 // Manual, till-moving account entry from the Accounts (Debts) page.

@@ -128,12 +128,14 @@ jest.mock("@liratek/ui", () => ({
     totals,
     currency,
     totalAmountCurrency,
+    onExchangeRateChange,
   }: {
     totalAmount?: number;
     onChange?: (payments: unknown[]) => void;
     totals?: { amount: number; currency: string }[];
     currency?: string;
     totalAmountCurrency?: string;
+    onExchangeRateChange?: (rate: number) => void;
   }) => (
     <div data-testid="multi-payment-input">
       {/* Exposes the currency contract the page feeds the payment section —
@@ -157,6 +159,16 @@ jest.mock("@liratek/ui", () => ({
         <option value="CARD">Card</option>
         <option value="CUSTOMER_ACCOUNT">Customer Account</option>
       </select>
+      {/* Simulates the operator editing the payment sheet's own "1 USD = X
+          LBP" rate field — the real MultiPaymentInput fires
+          onExchangeRateChange on every edit (and once on mount). */}
+      <button
+        type="button"
+        data-testid="stub-edit-rate"
+        onClick={() => onExchangeRateChange?.(91000)}
+      >
+        Edit Rate
+      </button>
     </div>
   ),
   SearchBar: ({
@@ -422,6 +434,33 @@ describe("CustomServices Page", () => {
       totals: [{ amount: 420000, currency: "LBP" }],
       currency: "LBP",
       totalAmountCurrency: "LBP",
+    });
+  });
+
+  it("includes the operator-edited exchange rate in the submit payload", async () => {
+    render(<CustomServices />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Phone screen repair/), {
+      target: { value: "Rate test service" },
+    });
+    const usdInputs = screen.getAllByPlaceholderText("0.00");
+    fireEvent.change(usdInputs[0], { target: { value: "3" } }); // cost USD
+    fireEvent.change(usdInputs[1], { target: { value: "5" } }); // price USD
+
+    // Operator edits the payment sheet's "1 USD = X LBP" rate field —
+    // previously this page wired neither onRateChange nor
+    // onExchangeRateChange, so the typed rate was captured nowhere.
+    fireEvent.click(screen.getByTestId("stub-edit-rate"));
+
+    fireEvent.click(screen.getByText("Submit Service"));
+
+    await waitFor(() => {
+      expect(mockAddCustomService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: "Rate test service",
+          exchange_rate: 91000,
+        }),
+      );
     });
   });
 

@@ -653,6 +653,7 @@ export interface ElectronAPI {
         direction?: "IN" | "OUT";
       }>;
       transaction_time?: string;
+      tender_exchange_rate?: number;
       /** CQ-10: bundled discount — forgives part of the debt alongside the
        *  cash payment. Posts a signed-profit 'Debt Discount' ledger row. */
       discount?: { amount_usd: number; amount_lbp: number; reason?: string };
@@ -683,6 +684,7 @@ export interface ElectronAPI {
       }>;
       note?: string;
       transaction_time?: string;
+      tender_exchange_rate?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     addAccountEntry: (data: {
       direction: "credit" | "debt";
@@ -2626,6 +2628,10 @@ export interface ElectronAPI {
         direction?: "IN" | "OUT";
       }>;
       transaction_time?: string;
+      /** Operator-edited USD↔LBP rate of record (rule 12: preload type
+       *  completeness) — stamped verbatim onto the transaction by
+       *  CustomServiceRepository; omitted falls back to a live snapshot rate. */
+      exchange_rate?: number;
       partnerId?: number;
       partnerMode?: "FOR";
     }) => Promise<{ success: boolean; id?: number; error?: string }>;

@@ -174,6 +174,31 @@ function resolveReconciliationRate(
 }
 
 /**
+ * Non-throwing sibling of `resolveReconciliationRate`, for stamping
+ * `transactions.exchange_rate` (owner decision, 2026-08-08: the stamp should
+ * reflect what the operator actually tendered, when that's a plausible
+ * edit — repro: buy 89,000 vs. sell 90,000). Reuses the SAME
+ * `TENDER_RATE_BAND_PCT` band as `resolveReconciliationRate` (one threshold,
+ * not two) but never throws: an absent or implausible (>10% off) tender rate
+ * falls back to the server rate SILENTLY, because this function only decides
+ * what gets written to a display/audit column, not whether the flow's money
+ * math is valid. `reconcileLegs`/`postPayoutLegs` (unchanged) remain the ONLY
+ * place an out-of-band tender rate causes a thrown error, and only for the
+ * branches that actually call them today — `isForPartner`/`deferPayment`
+ * branches skip reconciliation entirely and must keep doing so; this function
+ * does not change that.
+ */
+export function resolveStampedExchangeRate(
+  serverRate: number,
+  tenderRate: number | undefined,
+): number {
+  if (tenderRate == null) return serverRate;
+  if (!(serverRate > 0)) return tenderRate;
+  const deviation = Math.abs(tenderRate - serverRate) / serverRate;
+  return deviation > TENDER_RATE_BAND_PCT ? serverRate : tenderRate;
+}
+
+/**
  * Exported (CARRIER_LINES_VALIDITY_PLAN.md Phase 6) so a caller computing a
  * cross-currency profit figure (e.g. the telecom credit buy-back: USD
  * credits gained minus a cash payout that may be split USD+LBP) converts at

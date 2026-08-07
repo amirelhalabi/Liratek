@@ -632,6 +632,9 @@ export default function Debts() {
           amountLBP: outLbp,
           payments: paymentLegs,
           note: repayNote,
+          ...(repayModalRate != null
+            ? { tender_exchange_rate: repayModalRate }
+            : {}),
           ...(repayTransactionTime
             ? { transaction_time: repayTransactionTime }
             : {}),
@@ -741,6 +744,9 @@ export default function Debts() {
             amountLBP: reduceLbp,
             payments: paymentLegs,
             note: repayNote,
+            ...(repayModalRate != null
+              ? { tender_exchange_rate: repayModalRate }
+              : {}),
             ...keptFields,
             ...discountFields,
             ...(repayTransactionTime
@@ -754,6 +760,9 @@ export default function Debts() {
             amount_lbp: reduceLbp,
             payments: paymentLegs,
             note: repayNote,
+            ...(repayModalRate != null
+              ? { tender_exchange_rate: repayModalRate }
+              : {}),
             ...keptFields,
             ...discountFields,
             ...(repayTransactionTime

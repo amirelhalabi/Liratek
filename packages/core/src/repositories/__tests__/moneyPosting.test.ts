@@ -17,6 +17,7 @@ import {
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
   bookClientDebtCharge,
+  resolveStampedExchangeRate,
   type ReconciliationLeg,
 } from "../moneyPosting";
 
@@ -465,6 +466,49 @@ describe("reconcileLegs", () => {
     it("treats a non-LBP currency (e.g. USDT) as the USD bucket", () => {
       expect(expectedTotalIn(20, "USDT")).toEqual({ usd: 20, lbp: 0 });
     });
+  });
+});
+
+/**
+ * resolveStampedExchangeRate — owner decision 2026-08-08 (repro: buy 89,000
+ * vs. sell 90,000): the non-throwing sibling of resolveReconciliationRate,
+ * for stamping `transactions.exchange_rate`. Reuses TENDER_RATE_BAND_PCT but
+ * must NEVER throw — an absent or out-of-band tender rate falls back to the
+ * server rate silently.
+ */
+describe("resolveStampedExchangeRate (stamp-only, never throws)", () => {
+  it("owner repro: tender 89,000 within band of server 90,000 — tender wins", () => {
+    expect(resolveStampedExchangeRate(90_000, 89_000)).toBe(89_000);
+  });
+
+  it("tender absent (undefined) falls back to the server rate", () => {
+    expect(resolveStampedExchangeRate(90_000, undefined)).toBe(90_000);
+  });
+
+  it("tender more than 10% off falls back to the server rate — and does NOT throw", () => {
+    expect(() => resolveStampedExchangeRate(90_000, 50_000)).not.toThrow();
+    expect(resolveStampedExchangeRate(90_000, 50_000)).toBe(90_000);
+  });
+
+  it("passes at exactly the +10% band boundary — tender wins", () => {
+    expect(resolveStampedExchangeRate(90_000, 99_000)).toBe(99_000);
+  });
+
+  it("passes at exactly the -10% band boundary — tender wins", () => {
+    expect(resolveStampedExchangeRate(90_000, 81_000)).toBe(81_000);
+  });
+
+  it("falls back just outside the +10% band", () => {
+    expect(resolveStampedExchangeRate(90_000, 99_001)).toBe(90_000);
+  });
+
+  it("no valid server rate (e.g. 0) — trusts the tender rate as-is, does not throw", () => {
+    expect(() => resolveStampedExchangeRate(0, 89_000)).not.toThrow();
+    expect(resolveStampedExchangeRate(0, 89_000)).toBe(89_000);
+  });
+
+  it("reuses TENDER_RATE_BAND_PCT (0.10) rather than a duplicated threshold", () => {
+    expect(TENDER_RATE_BAND_PCT).toBe(0.1);
   });
 });
 

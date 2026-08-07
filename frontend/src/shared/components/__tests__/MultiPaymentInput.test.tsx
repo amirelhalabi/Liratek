@@ -609,6 +609,61 @@ describe("MultiPaymentInput", () => {
     });
   });
 
+  describe("rate field manual-edit protection (async rate-fetch race)", () => {
+    // Caller pages commonly seed the `exchangeRate` prop from an async
+    // rate-fetch hook (e.g. useSellRate for Recharge forms) that starts at a
+    // fallback and overwrites itself once its own fetch resolves. Before this
+    // fix, the "sync custom rate from prop" effect had no touched-guard (unlike
+    // the analogous singleAmountTouchedRef for the amount field) and re-fired
+    // on every exchangeRate prop change — silently discarding an operator's
+    // manually typed rate, and the value reported to the parent via
+    // onExchangeRateChange, the instant the late fetch resolved.
+    // Proven failing-first on the pre-fix code (rule 17).
+    it("keeps the operator's manually-typed rate when exchangeRate changes afterward (late async resolve)", () => {
+      const onExchangeRateChange: RateMock = jest.fn();
+      const ui = (rate: number) => (
+        <MultiPaymentInput
+          totals={[{ amount: 100, currency: "USD" }]}
+          currency="USD"
+          totalAmountCurrency="USD"
+          hasClient={false}
+          requiresClientForDebt={true}
+          paymentMethods={PAYMENT_METHODS}
+          currencies={CURRENCIES}
+          exchangeRate={rate}
+          showDiscount={false}
+          onChange={jest.fn()}
+          onExchangeRateChange={onExchangeRateChange}
+        />
+      );
+      const { rerender } = render(ui(90_000));
+
+      // Operator types a custom rate before the "live" rate fetch resolves.
+      setRate("89,000");
+      expect(onExchangeRateChange).toHaveBeenLastCalledWith(89000);
+
+      // The caller's async rate-fetch hook resolves late with a slightly
+      // different live rate — this is the trigger condition for the bug.
+      rerender(ui(90_500));
+
+      // The operator's edit must survive — not be clobbered by the new prop.
+      expect(screen.getByTestId("payment-exchange-rate")).toHaveValue(
+        "89,000",
+      );
+      expect(onExchangeRateChange).toHaveBeenLastCalledWith(89000);
+    });
+
+    it("still seeds the rate field from the prop on the FIRST render (mount-sync unaffected)", () => {
+      const onExchangeRateChange: RateMock = jest.fn();
+      renderMpi({ exchangeRate: 91_000, onExchangeRateChange });
+
+      expect(screen.getByTestId("payment-exchange-rate")).toHaveValue(
+        "91,000",
+      );
+      expect(onExchangeRateChange).toHaveBeenCalledWith(91000);
+    });
+  });
+
   describe("T2 — native-LBP total round-tripped through the USD scalar (bug proof)", () => {
     // Sprint task T2 (docs/tickets/CURRENT_SPRINT.md), owner repro 2026-07-12:
     // a 600,000 LBP debt opened at rate 89,000 showed 606,742 after editing

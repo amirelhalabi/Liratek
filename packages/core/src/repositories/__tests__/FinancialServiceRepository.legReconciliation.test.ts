@@ -495,13 +495,18 @@ describe("FinancialServiceRepository — S2 leg reconciliation wiring", () => {
         tender_exchange_rate: 89000, // the till's own buy-rate conversion
       });
       expect(counts(db).transactions).toBe(before.transactions + 1);
-      // The stamp uses the SERVER rate, never the tender rate.
+      // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): the
+      // stamp reflects the operator's tendered rate when it's within the
+      // reconciliation band of the server rate — 89,000 is ~1.1% off 90,000,
+      // well inside ±10%. The RECONCILIATION anchor above is unaffected —
+      // this transaction still reconciled at the stamped sell rate (90,000),
+      // per the `exchangeRate: 90000` passed above; only the STAMP differs.
       const txn = db
         .prepare(
           `SELECT exchange_rate FROM transactions ORDER BY id DESC LIMIT 1`,
         )
         .get() as { exchange_rate: number };
-      expect(txn.exchange_rate).toBe(90000);
+      expect(txn.exchange_rate).toBe(89000);
     });
 
     it("REJECTS a tender_exchange_rate outside the ±10% band with a distinct error (not a leg mismatch)", () => {

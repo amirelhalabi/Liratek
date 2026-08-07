@@ -27,6 +27,7 @@ import {
   assertNoCounterPayment,
   postPayoutLegs,
   usdEquivalent,
+  resolveStampedExchangeRate,
 } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
@@ -110,9 +111,16 @@ export interface RechargeData {
    * false-reject (the owner's MTC CREDIT_TRANSFER repro: 720,000 LBP price,
    * $10 IN, 170,000 LBP OUT, till rate 89,000 vs. stamped sell rate 90,000).
    * `reconcileLegs` bands this against the stamped rate (±10%) and throws a
-   * distinct error if it's implausibly far off. Never used to stamp
-   * `transactions.exchange_rate` — only the reconciliation check. Omitted →
-   * current behavior, reconciles at the stamped sell rate alone.
+   * distinct error if it's implausibly far off. Omitted → current behavior,
+   * reconciles at the stamped sell rate alone.
+   *
+   * Owner decision (2026-08-08, same repro): ALSO used to stamp
+   * `transactions.exchange_rate` — via `resolveStampedExchangeRate`
+   * (moneyPosting.ts), a non-throwing sibling of the reconciliation
+   * band-check that falls back to the server (sell) rate silently outside
+   * the band or when absent. This does NOT change what `reconcileLegs`/
+   * `postPayoutLegs` reconcile against — they keep anchoring at the server
+   * sell rate, unchanged.
    */
   tender_exchange_rate?: number;
   /**
@@ -642,6 +650,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             : 0;
         const smsCostUsd = smsCount * SMS_TRANSFER_FEE_USD;
         const sellRate = getUsdLbpSellRate(this.db);
+        // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000):
+        // the `transactions.exchange_rate` stamp reflects the operator's
+        // tendered rate when it's within the reconciliation band of `sellRate`
+        // (see `resolveStampedExchangeRate`'s doc on `RechargeData.
+        // tender_exchange_rate`); falls back to `sellRate` silently otherwise.
+        // `reconcileLegs` below keeps anchoring at `sellRate` — unaffected.
+        const recordExchangeRate = resolveStampedExchangeRate(
+          sellRate,
+          data.tender_exchange_rate,
+        );
         const smsCostInSaleCurrency =
           currency === "LBP" ? smsCostUsd * sellRate : smsCostUsd;
         const netRechargeCommission =
@@ -678,7 +696,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             paid_by: paidBy,
             phone: data.phoneNumber,
           },
-          exchange_rate: sellRate,
+          exchange_rate: recordExchangeRate,
           transaction_time: data.transaction_time,
         });
 
@@ -1113,6 +1131,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const createdBy = data.userId ?? 1;
       const tenantId = getCurrentTenantId();
       const sellRate = getUsdLbpSellRate(this.db);
+      // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): the
+      // `transactions.exchange_rate` stamp reflects the operator's tendered
+      // rate when it's within the reconciliation band of `sellRate` (see
+      // `resolveStampedExchangeRate`'s doc on `RechargeData.
+      // tender_exchange_rate`); falls back to `sellRate` silently otherwise.
+      // `postPayoutLegs` below keeps anchoring at `sellRate` — unaffected.
+      const recordExchangeRate = resolveStampedExchangeRate(
+        sellRate,
+        data.tender_exchange_rate,
+      );
       const paidByLabel =
         payoutLegs.length > 1 ? "MULTI" : payoutLegs[0]?.method || "CASH";
 
@@ -1185,7 +1213,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             currency,
             phone: data.phoneNumber,
           },
-          exchange_rate: sellRate,
+          exchange_rate: recordExchangeRate,
           transaction_time: data.transaction_time,
         });
 

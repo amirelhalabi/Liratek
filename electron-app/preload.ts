@@ -175,6 +175,7 @@ contextBridge.exposeInMainWorld("api", {
       keptChangeUSD?: number;
       keptChangeLBP?: number;
       transaction_time?: string;
+      tender_exchange_rate?: number;
     }) => ipcRenderer.invoke("debt:add-repayment", data),
     cashOut: (data: {
       clientId: number;
@@ -188,6 +189,7 @@ contextBridge.exposeInMainWorld("api", {
       }>;
       note?: string;
       transaction_time?: string;
+      tender_exchange_rate?: number;
     }) => ipcRenderer.invoke("debt:cash-out", data),
     addAccountEntry: (data: {
       direction: "credit" | "debt";

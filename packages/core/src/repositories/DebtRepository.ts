@@ -18,10 +18,12 @@ import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
   buildCounterpartyDiscountPosting,
+  resolveStampedExchangeRate,
 } from "./moneyPosting.js";
 
 /** CQ-10 — a discount/write-off amount bundled with a settlement, or posted
@@ -117,6 +119,20 @@ export interface CreateRepaymentData {
    *  DebtRepository._postDebtDiscount) with the SAME FIFO coverage steps a
    *  repayment gets, applied to its own (separate) budget. */
   discount?: CounterpartyDiscountData;
+  /**
+   * The USD→LBP rate MultiPaymentInput actually converted the operator's
+   * TENDER at (the payment sheet's editable rate field — same
+   * `repayModalRate` state the Debts page feeds into both the repayment and
+   * cash-out modals). Owner decision (2026-08-08, repro: buy 89,000 vs. sell
+   * 90,000): used to stamp `transactions.exchange_rate` via
+   * `resolveStampedExchangeRate` (moneyPosting.ts) — preferred when within
+   * `TENDER_RATE_BAND_PCT` (±10%) of the server sell rate
+   * (`getUsdLbpSellRate`), else falls back to the server rate SILENTLY
+   * (never throws — this repository has no `reconcileLegs` hard-reject for
+   * repayments/cash-outs to weaken). Omitted → unchanged legacy behavior,
+   * stamps the server sell rate exactly as before.
+   */
+  tender_exchange_rate?: number;
 }
 
 // =============================================================================
@@ -313,6 +329,19 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       const primaryMethod =
         uniqueMethods.length === 1 ? uniqueMethods[0] : "SPLIT";
 
+      // Owner decision (2026-08-08, repro: buy 89,000 vs. sell 90,000): the
+      // `transactions.exchange_rate` stamp should reflect what the operator
+      // actually tendered, when that's a plausible edit — within
+      // `TENDER_RATE_BAND_PCT` of the server sell rate. Outside that band (or
+      // absent), falls back to the server rate SILENTLY (never throws — see
+      // `CreateRepaymentData.tender_exchange_rate`'s doc). This repository has
+      // no `reconcileLegs` anchor to preserve for repayments — nothing else
+      // depends on this rate here.
+      const recordExchangeRate = resolveStampedExchangeRate(
+        getUsdLbpSellRate(this.db),
+        data.tender_exchange_rate,
+      );
+
       // Create unified transaction row
       const clientName = this._getClientName(data.client_id);
       const txnId = getTransactionRepository().createTransaction({
@@ -331,6 +360,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         // note 14 — thin-summary enrichment: client's name appended after
         // the existing "Debt Repayment: $X + Y LBP" prefix.
         summary: `Debt Repayment: $${data.amount_usd} + ${data.amount_lbp} LBP — ${clientName}`,
+        exchange_rate: recordExchangeRate,
         metadata_json: {
           paid_by: primaryMethod,
           legs: paymentLegs.length > 1 ? paymentLegs : undefined,
@@ -1026,6 +1056,10 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     note?: string | null;
     created_by: number;
     transaction_time?: string;
+    /** See `CreateRepaymentData.tender_exchange_rate`'s doc — same
+     *  payment-sheet rate concept, same `resolveStampedExchangeRate` stamp
+     *  rule, applied here for CREDIT_CASH_OUT. */
+    tender_exchange_rate?: number;
   }): { id: number } {
     const tenantId = getCurrentTenantId();
     return this.transaction(() => {
@@ -1071,6 +1105,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
                 : []),
             ];
 
+      // See addRepayment's identical comment — same owner decision, same
+      // non-throwing stamp rule, no reconcileLegs anchor to preserve here.
+      const recordExchangeRate = resolveStampedExchangeRate(
+        getUsdLbpSellRate(this.db),
+        data.tender_exchange_rate,
+      );
+
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.CREDIT_CASH_OUT,
         source_table: "debt_ledger",
@@ -1082,6 +1123,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         summary: `Credit Cash Out: $${Math.abs(data.amount_usd)} + ${Math.abs(
           data.amount_lbp,
         )} LBP`,
+        exchange_rate: recordExchangeRate,
         metadata_json: {
           legs: legs.length > 1 ? legs : undefined,
           paid_by: legs.length === 1 ? legs[0].method : "SPLIT",
