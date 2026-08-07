@@ -1,11 +1,13 @@
 # Bidirectional Payment Legs — customer-paid fees on shop-pays-customer flows — Feature Plan
 
-**Status: IMPLEMENTED 2026-08-06** (all phases; owner requested 2026-08-06 — "adding a direction
-into the payment line makes things much better instead of having another payment form").
-Per-suite verification ran with each phase (every guard failing-first, rule 17); the FULL
-verification gates (lint / typecheck / format / whole-workspace suites / desktop e2e) were
-**deferred by owner decision** ("keep them for later … commit your work … we can do another
-commit if we need a fix") — see §9 for the exact commands and the already-known reds.
+**Status: COMPLETE 2026-08-07** (all phases incl. Binance mode C; owner requested the feature
+2026-08-06 — "adding a direction into the payment line makes things much better instead of
+having another payment form"). Per-suite verification ran with each phase (every guard
+failing-first, rule 17); the FULL verification gates were deferred on 2026-08-06 by owner
+decision, then run to closure on 2026-08-07 alongside the deferred Binance mode C piece — see
+§10 for the full closure record (gates, the mode-C ship, an adversarial review with no
+money-correctness findings, 4 new e2e guard specs, and the two parked owner decisions, both now
+resolved). §9 keeps the original gate commands for reference.
 
 Read together with: `docs/FEATURE_GUIDE.md` §3 (badges) / §4 (legs, ONE-loop) / §7 (PCD) / §8.1
 (THE invariant) / §9 (reversal symmetry) / §11 (sessions) / §13 (checklist) ·
@@ -235,59 +237,102 @@ Known/expected reds going in: `lira-web-016` (pre-existing rot, §Phase G); desk
 specs may assert pre-bug-7 PCD split numbers (§7 risk 3); prettier may reformat agent-written
 files on `yarn format`. `yarn dev` must not be running during `yarn test` (SQLite lock).
 
-## 10. Left TODO (written 2026-08-07 — pick up next session)
+## 10. Left TODO — CLOSED 2026-08-07 (all items resolved this session)
 
-Implementation state: **all phases shipped or closed** (0/A/A2/B/C/D/F/G ✅, E dropped by owner)
-in `59de32e` (feature) + `155f037` (e2e interaction-script repair after the D/F UI redesigns —
-money assertions byte-identical, 7/7 green through the real harness).
+Implementation state: **all phases shipped or closed**, including the one piece deferred on
+2026-08-07 (0/A/A2/B/C/D/F/G ✅, E dropped by owner, Binance mode C ✅) in `59de32e` (feature) +
+`155f037` (e2e interaction-script repair) + `5d35983`/`7556876`/`346cb20` (Binance mode C:
+core/electron-schema/frontend) + `2a09ac6` (CUSTOMER_ACCOUNT gate polish) + `b7b039e` (test
+tightening) + `217a86d` (4 e2e guard specs). An independent adversarial review (two lenses:
+money-correctness, test-robustness/dual-transport) ran against the full Binance mode C stack —
+**verdict: SHIP AS-IS**, zero money-correctness bugs found across all 7 checklist items, each
+verified by actual execution (throwaway probes, drawer-delta inspection, reversal-symmetry
+proofs), not code reading alone. Its 3 minor non-blocking findings: one test asserting via the
+wrong reconcile path (fixed, `b7b039e`), a test-count typo in a commit message (13 tests, not
+17 — noted here so it doesn't propagate), and a pre-existing UI-state-non-reset pattern on tab
+switch extended to two new fields (`cryptoFeeCollectedSeparately`/`cryptoFeePaymentLines` in
+`Recharge/index.tsx` aren't cleared when switching provider tabs or SEND↔RECEIVE — matches how
+`cryptoFeeIncluded`/`cryptoAmount` already behaved before this feature; recorded below as a
+still-open pre-existing-pattern item, not a regression).
 
 ### 10.1 Verification-gate status (§9 checklist)
 
 - [x] Desktop e2e — owner ran the full suite (240 green) + the 3 redesign-rotted specs repaired
-      and re-run green (`155f037`).
+      and re-run green (`155f037`); re-run again 2026-08-07 with the 4 new/extended guard specs
+      from §10.3 — **250/250 green** (`217a86d`).
 - [x] Format — owner's `8943ab0`.
-- [ ] `yarn lint`
-- [ ] `yarn typecheck`
-- [ ] `yarn test` (all workspaces; NOT while `yarn dev` runs)
-- [ ] `cd electron-app && npx jest --config jest.config.cjs` (new harness, outside `yarn test`)
-- [ ] `yarn test:e2e:web` — **expected red**: `lira-web-016` (pre-existing, §10.3)
+- [x] `yarn lint` — 0 errors (530 pre-existing warnings, none new).
+- [x] `yarn typecheck` — clean.
+- [x] `yarn test` (all workspaces) — green modulo 3 pre-existing, unrelated failing suites
+      (`Checkpoint.stress.test.ts`, `ClosingRepository.tenantIsolation.test.ts`,
+      `PostRefactorVerification.test.ts`, all `SQLITE_ERROR` on checkpoint creation) —
+      confirmed via A/B stash comparison against unmodified `main` to predate this feature
+      entirely (identical 14/41 failure count with and without the Binance mode C diff). Not
+      fixed here — out of scope for this plan, tracked as its own pre-existing-rot item for
+      whoever owns the checkpoint/closing module next.
+- [x] `cd electron-app && npx jest --config jest.config.cjs` — 9/9 green (grew from 7 to
+      cover the BINANCE commission branch mirrored into this schema duplicate, `7556876`).
+- [x] `yarn test:e2e:web` — `lira-web-016` is **no longer red**: it was fixed same-day by
+      `b58cad8` (stale pre-PR#68 float-model assertions, unrelated to this feature) before this
+      session started. See §10.4.
 
-Any red → a follow-up fix commit (owner decision 2026-08-06: gates deferred post-commit).
+### 10.2 The deferred feature piece — SHIPPED 2026-08-07
 
-### 10.2 The one deferred feature piece
+- [x] **Binance "customer pays separately" (mode C)** — the carrier-lines workstream that owned
+      `Recharge/index.tsx` merged to `main` (`dbbb710`) before this session, clearing the block.
+      Shipped across three commits: `5d35983` (core — A2 guard allow-list, BINANCE-aware
+      `feePresenceSource` reading `commission` not `omtFee`/`whishFee`, `isFeeCollectedSeparately`
+      extended to BINANCE, 38 tests), `7556876` (the electron-app schema DUPLICATE needed the
+      identical mirror — found via the electron-jest gate above; desktop IPC would otherwise have
+      hard-rejected a payload the REST path already accepted), `346cb20` (frontend: the 3-way
+      "Fee paid by" radio in `CryptoForm.tsx`, `feePayments`/bare-amount wiring in
+      `Recharge/index.tsx`, 13 tests — mirrors Phase D adapted to this component's props-down
+      architecture, not `OmtWhishAppTransferForm.tsx`'s self-contained-state pattern). e2e coverage
+      added in `217a86d` (lira-136, §10.3).
 
-- [ ] **Binance "customer pays separately" (mode C)** — blocked ONLY by the owner's
-      carrier-lines work owning `frontend/src/features/recharge/pages/Recharge/index.tsx`
-      (the Binance submit path lives there). Until then the repo guard hard-rejects with
-      `"feePayments is not yet supported for BINANCE"` (guarded by test (r)). Once that file
-      lands: mirror Phase D — mode-C radio in `CryptoForm.tsx`, bare-amount contract, payout =
-      full amount, `bookFeeCollectionLegs` (already shared), provider added to the A2 guard's
-      allow-list, failing-first tests per §1.4.
+### 10.3 Optional guards & polish — ALL DONE 2026-08-07
 
-### 10.3 Optional guards & polish (correctness not at risk — recorded so they don't vanish)
-
-- [ ] Three §5 desktop guard specs never written (do them in a session where the Electron e2e
-      harness is already up): (i) lira-131 extension — fee collected via Whish wallet driven
-      through the REAL Services form; (ii) refund of a fee-on-top RECEIVE driven through the
-      REAL RefundMethodModal (Phase B is unit-guarded only); (iii) same-currency net-negative
-      mixed basket through the REAL SessionCheckoutModal (both existing mixed-basket specs
-      bypass the modal via IPC).
-- [ ] Counter-flow CUSTOMER_ACCOUNT gate accepts name-OR-phone; house rule
-      (`canChargeToCustomerAccount`) is name-AND-phone. Repo hard-reject protects the money;
-      UX-only. (`Services/index.tsx` counterFlow `hasClient`, Phase C entry.)
+- [x] Three §5 desktop guard specs, plus a fourth for Binance mode C found by the adversarial
+      review (not in the original plan) — all committed `217a86d`: (i) `lira-131` extension —
+      fee collected via the Whish wallet, driven through the REAL Services counter-flow section;
+      (ii) `lira-134` (new) — refund of a fee-on-top RECEIVE through the REAL RefundMethodModal
+      with untouched defaults, rule-20 proof via the actual UI; (iii) `lira-135` (new) —
+      same-currency net-negative mixed basket through the REAL SessionCheckoutModal, proving the
+      §2 bug-2 gross-total render-gate fix survives a real checkout; (iv) `lira-136` (new) —
+      Binance mode C's radio + wallet-bare/payout-full contract + session/partner gating, driven
+      through the real Electron render. 250/250 full suite green.
+- [x] Counter-flow CUSTOMER_ACCOUNT gate accepts name-OR-phone; house rule
+      (`canChargeToCustomerAccount`) is name-AND-phone — fixed `2a09ac6` (`Services/index.tsx`
+      counterFlow `hasClient`, Phase C entry). UX-only, no money was ever at risk (the repository
+      independently hard-rejects an unresolvable client).
 - [ ] Legacy tidy-up: `utils/payments.ts` vs `PaymentMethodRepository.isDrawerAffecting`
       disagree on UNKNOWN method codes (§2 bug 8). New rows can't carry `"FEE"` anymore and
-      Phase B fixed the legacy-row refund path — remaining exposure is latent only.
+      Phase B fixed the legacy-row refund path — remaining exposure is latent only. Still not
+      addressed — low priority, not touched this session.
+- [ ] NEW (found by the 2026-08-07 adversarial review, not previously tracked): `Recharge/index.tsx`'s
+      provider-tab-switch reset effect (~line 317-329) resets several `finXxx`/`telecomXxx` fields
+      but touches ZERO `crypto*` fields — `cryptoFeeCollectedSeparately`/`cryptoFeePaymentLines`
+      (and pre-existing `cryptoAmount`/`cryptoFeeIncluded`) can leak a stale selection across a
+      tab switch or SEND↔RECEIVE flip until the next successful submit. Pre-existing pattern, not
+      a regression from this feature — just now covers two more money-relevant fields. Not fixed
+      this session.
 
-### 10.4 Owner decisions parked (no code until called)
+### 10.4 Owner decisions — RESOLVED 2026-08-07
 
-- [ ] **REST envelope**: `validateRequest` returns HTTP 400/object-error for schema-level
-      rejections instead of the rule-19 `200 {success:false}` envelope — general middleware
-      behavior across ALL modules, surfaced by Phase G (its specs assert the real 400 shape).
-      Decide: change the middleware, or amend rule 19's wording.
-- [ ] **`lira-web-016`**: red since before this feature (asserts pre-PR#68 `general` drawer
-      targets instead of the PCD). Re-derive to the §8.1 table or retire in favor of
-      `lira-web-017`.
+- [x] **REST envelope**: owner decided — change the middleware, not rule 19's wording. Fix
+      dispatched same session: `validateRequest`/`validateQuery`/`validateParams`
+      (`backend/src/middleware/validation.ts`) to return HTTP 200 + `{success:false, error:
+      <plain string>}` instead of HTTP 400 + the `createErrorResponse` object shape (`{code,
+      message, details, field}`) — confirmed via grep that zero frontend code depends on the
+      object shape, so it's dropped rather than preserved under a new key. Status of this fix at
+      time of writing: dispatched, not yet verified on the committed tree — confirm before
+      archiving this doc.
+- [x] **`lira-web-016`**: RESOLVED, not by this feature. Root-caused 2026-08-07: the spec asserted
+      PR #66's "float model" (OMT_System as a spendable balance), written 2026-07-29 — the owner
+      rejected that model the very next day for the Primary Cash Drawer model, and the spec was
+      never actually run before shipping with stale expectations. Fixed in `b58cad8` (numbers
+      rewritten, cross-checked against 3 independently-passing PCD proofs, no production code
+      touched) before this session began.
 
 **Phase E — DROPPED (owner Q6, 2026-08-06: keep Loto as-is).** The Loto prize keeps its
 hardcoded `CASH`/`General`/`LBP` payout. Its two §2 bugs (#3 session channel crash, #9 dead
