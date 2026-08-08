@@ -1922,15 +1922,15 @@ NEEDS INTERVIEW — confirm which balance the owner meant before building
 
 ## LIRA-089: iPick/Katsh Bills — Commission at Settlement, Not Per-Bill
 
-| Field                | Value                              |
-| -------------------- | ---------------------------------- |
-| **Epic**             | Suppliers / Recharge               |
-| **Type**             | Feature / Decision                 |
-| **Priority**         | Medium                             |
+| Field                | Value                                                                       |
+| -------------------- | --------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Recharge                                                        |
+| **Type**             | Feature / Decision                                                          |
+| **Priority**         | Medium                                                                      |
 | **Status**           | INTERVIEW DONE (2026-08-08) → Phase 1 of `COMMISSION_AT_SETTLEMENT_PLAN.md` |
-| **Affected Modules** | Recharge > iPick, Katsh; Suppliers |
-| **Assigned To**      | —                                  |
-| **Depends On**       | —                                  |
+| **Affected Modules** | Recharge > iPick, Katsh; Suppliers                                          |
+| **Assigned To**      | —                                                                           |
+| **Depends On**       | —                                                                           |
 
 ### Summary
 
@@ -2071,23 +2071,23 @@ undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2
 
 ### Sprint 4 board
 
-| ID       | Title                                                   | Priority | Status          |
-| -------- | ------------------------------------------------------- | -------- | --------------- |
-| LIRA-078 | Refund tender-selection modal                           | High     | DONE            |
-| LIRA-079 | Refund scope + Void button decision                     | Medium   | NEEDS INTERVIEW |
-| LIRA-080 | No-drawer paper credit/debt on Accounts + Supplier      | High     | DONE            |
-| LIRA-081 | For-Partner toggle on Exchange + Custom Services        | Medium   | DONE            |
-| LIRA-082 | Detailed summaries on all createTransaction call sites  | Medium   | DONE            |
-| LIRA-083 | Custom Services status workflow                         | Medium   | TODO            |
-| LIRA-084 | Partial keep-change                                     | Medium   | TODO            |
-| LIRA-085 | Undo/reverse for partner & supplier ledger transactions | High     | DONE            |
-| LIRA-086 | Dashboard checkpoint freshness coloring                 | Low      | TODO            |
-| LIRA-087 | Product-supplier — debt now, attach products later      | Medium   | TODO            |
-| LIRA-088 | MTC/Alfa provider-balance decrement                     | Medium   | NEEDS INTERVIEW |
+| ID       | Title                                                   | Priority | Status                                                 |
+| -------- | ------------------------------------------------------- | -------- | ------------------------------------------------------ |
+| LIRA-078 | Refund tender-selection modal                           | High     | DONE                                                   |
+| LIRA-079 | Refund scope + Void button decision                     | Medium   | NEEDS INTERVIEW                                        |
+| LIRA-080 | No-drawer paper credit/debt on Accounts + Supplier      | High     | DONE                                                   |
+| LIRA-081 | For-Partner toggle on Exchange + Custom Services        | Medium   | DONE                                                   |
+| LIRA-082 | Detailed summaries on all createTransaction call sites  | Medium   | DONE                                                   |
+| LIRA-083 | Custom Services status workflow                         | Medium   | TODO                                                   |
+| LIRA-084 | Partial keep-change                                     | Medium   | TODO                                                   |
+| LIRA-085 | Undo/reverse for partner & supplier ledger transactions | High     | DONE                                                   |
+| LIRA-086 | Dashboard checkpoint freshness coloring                 | Low      | TODO                                                   |
+| LIRA-087 | Product-supplier — debt now, attach products later      | Medium   | TODO                                                   |
+| LIRA-088 | MTC/Alfa provider-balance decrement                     | Medium   | NEEDS INTERVIEW                                        |
 | LIRA-089 | iPick/Katsh bills commission at settlement              | Medium   | INTERVIEW DONE → COMMISSION_AT_SETTLEMENT_PLAN Phase 1 |
-| LIRA-090 | Telecom days/credit model                               | High     | NEEDS INTERVIEW |
-| LIRA-091 | Void cascade for auto supplier-ledger siblings          | High     | DONE            |
-| LIRA-094 | Carrier-legs void asymmetry (retroactive — shipped W5)  | High     | DONE            |
+| LIRA-090 | Telecom days/credit model                               | High     | NEEDS INTERVIEW                                        |
+| LIRA-091 | Void cascade for auto supplier-ledger siblings          | High     | DONE                                                   |
+| LIRA-094 | Carrier-legs void asymmetry (retroactive — shipped W5)  | High     | DONE                                                   |
 
 > Full per-note disposition (all 32 owner notes, including the ones that were INVALID/already
 > working, FIXED today, or already tracked under an existing ticket) is logged in
@@ -2113,23 +2113,23 @@ correctly not attacked as part of the bug-fix pass; filed here so they aren't lo
 
 ## LIRA-095: OMT/Whish/Katsh — Rethink Commission Flow (Don't Deduct From Transaction Amount)
 
-| Field                | Value                                                     |
-| --------------------- | --------------------------------------------------------- |
-| **Epic**              | Financial Services / Suppliers                             |
-| **Type**              | Feature / Decision                                         |
-| **Priority**          | High (money-flow architecture)                             |
-| **Status**            | INTERVIEW DONE (2026-08-08) → plan: `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` |
-| **Affected Modules**  | Financial Services (OMT, Whish, Katsh, iPick), Suppliers, Profits |
-| **Assigned To**       | —                                                           |
-| **Depends On**        | —                                                           |
+| Field                | Value                                                                                        |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| **Epic**             | Financial Services / Suppliers                                                               |
+| **Type**             | Feature / Decision                                                                           |
+| **Priority**         | High (money-flow architecture)                                                               |
+| **Status**           | INTERVIEW DONE (2026-08-08) → plan: `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` |
+| **Affected Modules** | Financial Services (OMT, Whish, Katsh, iPick), Suppliers, Profits                            |
+| **Assigned To**      | —                                                                                            |
+| **Depends On**       | —                                                                                            |
 
 ### Summary
 
-Owner note (2026-08-07, 2:04 AM): *"Commission should not be deduced from the amount (we have
+Owner note (2026-08-07, 2:04 AM): _"Commission should not be deduced from the amount (we have
 this function amount + fee - commission). We should rethink about commission flow. Commission
 should not be deduced directly in ledgers. It should be entered in payment between shop and
 supplier. In the new way we should still be able to track the commissions per transaction type
-for the profits page."*
+for the profits page."_
 
 This asks to move WHERE commission is recognized: today it's computed and deducted inline as
 part of each transaction's own amount/ledger math; the owner wants it moved to be a value entered
@@ -2164,30 +2164,30 @@ LIRA-095 + LIRA-089). This ticket closes when that plan's OMT/Whish phases ship.
 
 ### Files to Modify
 
-| Layer   | File                                                            | Change                                    |
-| ------- | ---------------------------------------------------------------- | ------------------------------------------ |
-| Backend | `packages/core/src/repositories/FinancialServiceRepository.ts` | Commission recognition point (TBD)         |
-| Backend | `packages/core/src/repositories/ProfitRepository.ts`            | Per-transaction-type attribution (TBD)     |
-| Frontend| `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Settlement-time commission entry UI (TBD)  |
+| Layer    | File                                                           | Change                                    |
+| -------- | -------------------------------------------------------------- | ----------------------------------------- |
+| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts` | Commission recognition point (TBD)        |
+| Backend  | `packages/core/src/repositories/ProfitRepository.ts`           | Per-transaction-type attribution (TBD)    |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Settlement-time commission entry UI (TBD) |
 
 ---
 
 ## LIRA-096: Partners Page — Remove "Record Transaction" (Redundant with Add Credit/Debt)
 
-| Field                | Value                        |
-| --------------------- | ----------------------------- |
-| **Epic**              | Partner System                |
-| **Type**              | Cleanup / Decision             |
-| **Priority**          | Low                            |
-| **Status**            | NEEDS INTERVIEW                |
-| **Affected Modules**  | Partners                       |
-| **Assigned To**       | —                              |
-| **Depends On**        | LIRA-051 (DONE — prior Record Transaction type-list simplification) |
+| Field                | Value                                                               |
+| -------------------- | ------------------------------------------------------------------- |
+| **Epic**             | Partner System                                                      |
+| **Type**             | Cleanup / Decision                                                  |
+| **Priority**         | Low                                                                 |
+| **Status**           | NEEDS INTERVIEW                                                     |
+| **Affected Modules** | Partners                                                            |
+| **Assigned To**      | —                                                                   |
+| **Depends On**       | LIRA-051 (DONE — prior Record Transaction type-list simplification) |
 
 ### Summary
 
-Owner note (2026-08-07, 2:20 AM): *"Remove record txn in partner. Its redundant we have add
-credit debt."* Requests removing the "Record Transaction" action/modal from the Partners page
+Owner note (2026-08-07, 2:20 AM): _"Remove record txn in partner. Its redundant we have add
+credit debt."_ Requests removing the "Record Transaction" action/modal from the Partners page
 entirely, on the grounds that "Add Credit/Debt" already covers the same need. LIRA-051 (DONE)
 previously simplified Record Transaction's type dropdown rather than removing the feature — this
 note goes a step further. Before removing anything, confirm there's no transaction type or
@@ -2206,27 +2206,27 @@ exists, it needs to move into Add Credit/Debt first, or the owner needs to accep
 
 ### Files to Modify
 
-| Layer    | File                                                        | Change                                             |
-| -------- | ------------------------------------------------------------ | ----------------------------------------------------- |
-| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx`  | Remove Record Transaction UI (pending confirmation)  |
+| Layer    | File                                                      | Change                                              |
+| -------- | --------------------------------------------------------- | --------------------------------------------------- |
+| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx` | Remove Record Transaction UI (pending confirmation) |
 
 ---
 
 ## LIRA-097: Partners Page — Enable LBP Option for Add Credit/Debt
 
-| Field                | Value           |
-| --------------------- | ----------------- |
-| **Epic**              | Partner System    |
-| **Type**              | Enhancement       |
-| **Priority**          | Low               |
-| **Status**            | CLOSED — ALREADY WORKING (2026-08-08; guard test added) |
-| **Affected Modules**  | Partners          |
-| **Assigned To**       | —                 |
-| **Depends On**        | —                 |
+| Field                | Value                                                   |
+| -------------------- | ------------------------------------------------------- |
+| **Epic**             | Partner System                                          |
+| **Type**             | Enhancement                                             |
+| **Priority**         | Low                                                     |
+| **Status**           | CLOSED — ALREADY WORKING (2026-08-08; guard test added) |
+| **Affected Modules** | Partners                                                |
+| **Assigned To**      | —                                                       |
+| **Depends On**       | —                                                       |
 
 ### Summary
 
-Owner note (2026-08-07, 2:21 AM): *"Enable lbp option to add credit debt in partner page."* The
+Owner note (2026-08-07, 2:21 AM): _"Enable lbp option to add credit debt in partner page."_ The
 Add Credit/Debt action on the Partners page needs an LBP currency option — confirm the exact
 current currency options on that action before building (the note implies LBP isn't currently
 selectable there, unlike the equivalent actions on Debts/Suppliers).
@@ -2259,10 +2259,10 @@ proven failing-first by temporarily removing the LBP option (rule 17).
 
 ### Files to Modify
 
-| Layer    | File                                                        | Change                                  |
-| -------- | ------------------------------------------------------------ | ------------------------------------------ |
-| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx`  | Add LBP option to Add Credit/Debt form  |
-| Backend  | `packages/core/src/repositories/PartnerRepository.ts`       | Verify/extend currency handling if needed |
+| Layer    | File                                                      | Change                                    |
+| -------- | --------------------------------------------------------- | ----------------------------------------- |
+| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx` | Add LBP option to Add Credit/Debt form    |
+| Backend  | `packages/core/src/repositories/PartnerRepository.ts`     | Verify/extend currency handling if needed |
 
 ---
 
@@ -2276,11 +2276,11 @@ proven failing-first by temporarily removing the LBP option (rule 17).
 
 ### Sprint 5 board
 
-| ID       | Title                                                       | Priority | Status          |
-| -------- | ------------------------------------------------------------ | -------- | --------------- |
-| LIRA-095 | OMT/Whish/Katsh — rethink commission flow                   | High     | INTERVIEW DONE → COMMISSION_AT_SETTLEMENT_PLAN |
-| LIRA-096 | Partners — remove Record Transaction (redundant)             | Low      | NEEDS INTERVIEW |
-| LIRA-097 | Partners — enable LBP for Add Credit/Debt                    | Low      | CLOSED — already working (guard test `d217221`) |
+| ID       | Title                                            | Priority | Status                                          |
+| -------- | ------------------------------------------------ | -------- | ----------------------------------------------- |
+| LIRA-095 | OMT/Whish/Katsh — rethink commission flow        | High     | INTERVIEW DONE → COMMISSION_AT_SETTLEMENT_PLAN  |
+| LIRA-096 | Partners — remove Record Transaction (redundant) | Low      | NEEDS INTERVIEW                                 |
+| LIRA-097 | Partners — enable LBP for Add Credit/Debt        | Low      | CLOSED — already working (guard test `d217221`) |
 
 > The other 8 notes from this same batch were bugs — all fixed and independently verified
 > 2026-08-07/08 (commits `dd6cbb6`, `a65ce03`). One further note (OMT receive fee override) was
@@ -2309,16 +2309,16 @@ a reminder that the plan docs themselves are not reliable evidence, only the cod
 
 ## LIRA-098: Guard test — profit queries must use the debt/partner-pending recognition gate
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Profits / Counterparty Ledgers        |
-| **Type**              | Test / Guard                          |
-| **Priority**          | Medium                                |
-| **Status**            | DONE (2026-08-08) — and it found LIRA-108 |
-| **Affected Modules**  | Profits                               |
-| **Assigned To**       | —                                      |
-| **Depends On**        | —                                      |
-| **Source Plan**       | `docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md` (CQ-1, last item) |
+| Field                | Value                                                                        |
+| -------------------- | ---------------------------------------------------------------------------- |
+| **Epic**             | Profits / Counterparty Ledgers                                               |
+| **Type**             | Test / Guard                                                                 |
+| **Priority**         | Medium                                                                       |
+| **Status**           | DONE (2026-08-08) — and it found LIRA-108                                    |
+| **Affected Modules** | Profits                                                                      |
+| **Assigned To**      | —                                                                            |
+| **Depends On**       | —                                                                            |
+| **Source Plan**      | `docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md` (CQ-1, last item) |
 
 ### Summary
 
@@ -2353,24 +2353,24 @@ has nothing left and can be archived once LIRA-108 is resolved (the plan's own s
 
 ### Files to Modify
 
-| Layer   | File                                                                              | Change                  |
-| ------- | ------------------------------------------------------------------------------------ | -------------------------- |
-| Backend | `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` (new)     | File-scanning guard test |
+| Layer   | File                                                                          | Change                   |
+| ------- | ----------------------------------------------------------------------------- | ------------------------ |
+| Backend | `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` (new) | File-scanning guard test |
 
 ---
 
 ## LIRA-108: `getRealizedCommissionTotals` missing counterparty gates — "Commission (Settled)" may overstate
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Profits / Counterparty Ledgers        |
-| **Type**              | Bug (candidate — needs money-eyes verification) |
-| **Priority**          | Medium                                |
-| **Status**            | DONE (2026-08-08) — CONFIRMED REAL, fixed, double-SHIP verdict |
-| **Affected Modules**  | Profits                               |
-| **Assigned To**       | —                                      |
-| **Depends On**        | —                                      |
-| **Source Plan**       | Found by LIRA-098's guard-building analysis (2026-08-08) |
+| Field                | Value                                                          |
+| -------------------- | -------------------------------------------------------------- |
+| **Epic**             | Profits / Counterparty Ledgers                                 |
+| **Type**             | Bug (candidate — needs money-eyes verification)                |
+| **Priority**         | Medium                                                         |
+| **Status**           | DONE (2026-08-08) — CONFIRMED REAL, fixed, double-SHIP verdict |
+| **Affected Modules** | Profits                                                        |
+| **Assigned To**      | —                                                              |
+| **Depends On**       | —                                                              |
+| **Source Plan**      | Found by LIRA-098's guard-building analysis (2026-08-08)       |
 
 ### Summary
 
@@ -2428,25 +2428,25 @@ every row the ACTIVE-join excludes was already excluded by the old `notRefunded`
 
 ### Files to Modify
 
-| Layer   | File                                                    | Change                        |
-| ------- | ------------------------------------------------------------ | -------------------------------- |
-| Backend | `packages/core/src/repositories/ProfitRepository.ts`        | Add gates if confirmed          |
+| Layer   | File                                                                    | Change                     |
+| ------- | ----------------------------------------------------------------------- | -------------------------- |
+| Backend | `packages/core/src/repositories/ProfitRepository.ts`                    | Add gates if confirmed     |
 | Backend | `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` | Optionally widen heuristic |
 
 ---
 
 ## LIRA-099: Multi-tenant — admin/impersonation e2e spec + final full-suite proof
 
-| Field                | Value                                     |
-| --------------------- | -------------------------------------------- |
-| **Epic**              | Multi-Tenant / Admin                          |
-| **Type**              | Test                                          |
-| **Priority**          | Medium                                        |
-| **Status**            | TODO                                          |
-| **Affected Modules**  | Admin, Multi-Tenant                           |
-| **Assigned To**       | —                                              |
-| **Depends On**        | —                                              |
-| **Source Plan**       | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item) |
+| Field                | Value                                                                        |
+| -------------------- | ---------------------------------------------------------------------------- |
+| **Epic**             | Multi-Tenant / Admin                                                         |
+| **Type**             | Test                                                                         |
+| **Priority**         | Medium                                                                       |
+| **Status**           | TODO                                                                         |
+| **Affected Modules** | Admin, Multi-Tenant                                                          |
+| **Assigned To**      | —                                                                            |
+| **Depends On**       | —                                                                            |
+| **Source Plan**      | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item) |
 
 ### Summary
 
@@ -2469,24 +2469,24 @@ browser (`impersonat` has zero hits across all of `frontend/tests/`).
 
 ### Files to Modify
 
-| Layer | File                                                          | Change      |
-| ----- | ---------------------------------------------------------------- | ------------- |
-| E2E   | `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts` (new) | New spec    |
+| Layer | File                                                              | Change   |
+| ----- | ----------------------------------------------------------------- | -------- |
+| E2E   | `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts` (new) | New spec |
 
 ---
 
 ## LIRA-100: Loto — no in-module ticket reprint UI
 
-| Field                | Value                                    |
-| --------------------- | -------------------------------------------- |
-| **Epic**              | Loto                                          |
-| **Type**              | Feature / Gap                                 |
-| **Priority**          | Low                                            |
-| **Status**            | DONE (2026-08-08) — e2e LOTO row executed GREEN same day |
-| **Affected Modules**  | Loto                                          |
-| **Assigned To**       | —                                              |
-| **Depends On**        | LIRA-069 (DONE — receipt-print gating foundation) |
-| **Source Plan**       | `docs/plans/todo_plans/PARTIAL_TASKS_COMPLETION_PLAN.md` (W1.c, last item) |
+| Field                | Value                                                                      |
+| -------------------- | -------------------------------------------------------------------------- |
+| **Epic**             | Loto                                                                       |
+| **Type**             | Feature / Gap                                                              |
+| **Priority**         | Low                                                                        |
+| **Status**           | DONE (2026-08-08) — e2e LOTO row executed GREEN same day                   |
+| **Affected Modules** | Loto                                                                       |
+| **Assigned To**      | —                                                                          |
+| **Depends On**       | LIRA-069 (DONE — receipt-print gating foundation)                          |
+| **Source Plan**      | `docs/plans/todo_plans/PARTIAL_TASKS_COMPLETION_PLAN.md` (W1.c, last item) |
 
 ### Summary
 
@@ -2514,24 +2514,24 @@ can only be reprinted today via the general `/audit` Transactions viewer.
 
 ### Files to Modify
 
-| Layer    | File                                              | Change                       |
-| -------- | ---------------------------------------------------- | -------------------------------- |
-| Frontend | `frontend/src/features/loto/pages/Loto/index.tsx`  | Ticket-level History/reprint UI |
+| Layer    | File                                              | Change                          |
+| -------- | ------------------------------------------------- | ------------------------------- |
+| Frontend | `frontend/src/features/loto/pages/Loto/index.tsx` | Ticket-level History/reprint UI |
 
 ---
 
 ## LIRA-101: Primary Cash Drawer — cleanup stale docs/dead code + verify Suppliers `settleNetPayUsd`
 
-| Field                | Value                                          |
-| --------------------- | -------------------------------------------------- |
-| **Epic**              | Suppliers / Financial Services                      |
-| **Type**              | Cleanup / Verification                              |
-| **Priority**          | Medium (one sub-item touches money math)            |
-| **Status**            | TODO                                                |
-| **Affected Modules**  | Suppliers, Financial Services                       |
-| **Assigned To**       | —                                                    |
-| **Depends On**        | —                                                    |
-| **Source Plan**       | `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items) |
+| Field                | Value                                                                     |
+| -------------------- | ------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Financial Services                                            |
+| **Type**             | Cleanup / Verification                                                    |
+| **Priority**         | Medium (one sub-item touches money math)                                  |
+| **Status**           | TODO                                                                      |
+| **Affected Modules** | Suppliers, Financial Services                                             |
+| **Assigned To**      | —                                                                         |
+| **Depends On**       | —                                                                         |
+| **Source Plan**      | `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items) |
 
 ### Summary
 
@@ -2559,29 +2559,29 @@ attention:
 
 ### Files to Modify
 
-| Layer    | File                                                                | Change                          |
-| -------- | ---------------------------------------------------------------------- | ------------------------------------ |
-| Backend  | `packages/core/src/services/FinancialService.ts`                    | Correct stale JSDoc                  |
-| Backend  | `packages/core/src/repositories/DrawerTopUpRepository.ts`           | Remove dead `getBalance()`           |
-| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts`      | Remove unused import                 |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`         | Correct stale comment; verify math   |
-| Frontend | `frontend/src/features/suppliers/hooks/useSuppliers.ts`             | Correct stale comment; verify math   |
-| Types    | `packages/ui/src/api/types.ts`, `frontend/src/api/backendApi.ts`    | Correct stale JSDoc                  |
+| Layer    | File                                                             | Change                             |
+| -------- | ---------------------------------------------------------------- | ---------------------------------- |
+| Backend  | `packages/core/src/services/FinancialService.ts`                 | Correct stale JSDoc                |
+| Backend  | `packages/core/src/repositories/DrawerTopUpRepository.ts`        | Remove dead `getBalance()`         |
+| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts`   | Remove unused import               |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`      | Correct stale comment; verify math |
+| Frontend | `frontend/src/features/suppliers/hooks/useSuppliers.ts`          | Correct stale comment; verify math |
+| Types    | `packages/ui/src/api/types.ts`, `frontend/src/api/backendApi.ts` | Correct stale JSDoc                |
 
 ---
 
 ## LIRA-102: Session grouping UI — missing e2e coverage
 
-| Field                | Value                                |
-| --------------------- | ---------------------------------------- |
-| **Epic**              | Customer Sessions / Transactions           |
-| **Type**              | Test                                        |
-| **Priority**          | Low                                          |
-| **Status**            | DONE (2026-08-08) — spec `0579942`, executed GREEN same day |
-| **Affected Modules**  | Transactions (Audit)                        |
-| **Assigned To**       | —                                            |
-| **Depends On**        | —                                            |
-| **Source Plan**       | `docs/plans/todo_plans/session-basket-payment-remaining.md` (#3a, last item) |
+| Field                | Value                                                                        |
+| -------------------- | ---------------------------------------------------------------------------- |
+| **Epic**             | Customer Sessions / Transactions                                             |
+| **Type**             | Test                                                                         |
+| **Priority**         | Low                                                                          |
+| **Status**           | DONE (2026-08-08) — spec `0579942`, executed GREEN same day                  |
+| **Affected Modules** | Transactions (Audit)                                                         |
+| **Assigned To**      | —                                                                            |
+| **Depends On**       | —                                                                            |
+| **Source Plan**      | `docs/plans/todo_plans/session-basket-payment-remaining.md` (#3a, last item) |
 
 ### Summary
 
@@ -2604,24 +2604,24 @@ created, not deleted).
 
 ### Files to Modify
 
-| Layer | File                                                              | Change   |
-| ----- | ---------------------------------------------------------------------- | ---------- |
-| E2E   | `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts` (new)  | New spec |
+| Layer | File                                                                 | Change   |
+| ----- | -------------------------------------------------------------------- | -------- |
+| E2E   | `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts` (new) | New spec |
 
 ---
 
 ## LIRA-103: Recharge — close remaining REST-parity gaps (history route + unmigrated drawer-balances call)
 
-| Field                | Value                                 |
-| --------------------- | ------------------------------------------ |
-| **Epic**              | Recharge / Web Parity                       |
-| **Type**              | Bug / Dual-Transport                        |
-| **Priority**          | Medium                                       |
-| **Status**            | DONE (2026-08-08) — web spec executed GREEN same day; found residual LIRA-109 |
-| **Affected Modules**  | Recharge                                     |
-| **Assigned To**       | —                                             |
-| **Depends On**        | —                                             |
-| **Source Plan**       | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9, Recharge items) |
+| Field                | Value                                                                         |
+| -------------------- | ----------------------------------------------------------------------------- |
+| **Epic**             | Recharge / Web Parity                                                         |
+| **Type**             | Bug / Dual-Transport                                                          |
+| **Priority**         | Medium                                                                        |
+| **Status**           | DONE (2026-08-08) — web spec executed GREEN same day; found residual LIRA-109 |
+| **Affected Modules** | Recharge                                                                      |
+| **Assigned To**      | —                                                                             |
+| **Depends On**       | —                                                                             |
+| **Source Plan**      | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9, Recharge items)            |
 
 ### Summary
 
@@ -2665,26 +2665,26 @@ ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 
 ### Files to Modify
 
-| Layer    | File                                                        | Change                              |
-| -------- | -------------------------------------------------------------- | -------------------------------------- |
-| Backend  | `backend/src/api/recharge.ts`                                | Add `/history` route                    |
-| Frontend | `frontend/src/api/backendApi.ts`, `.../ElectronApiAdapter.ts` | `getRechargeHistory` wrapper            |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`    | Both call sites switched to dual-mode   |
+| Layer    | File                                                          | Change                                |
+| -------- | ------------------------------------------------------------- | ------------------------------------- |
+| Backend  | `backend/src/api/recharge.ts`                                 | Add `/history` route                  |
+| Frontend | `frontend/src/api/backendApi.ts`, `.../ElectronApiAdapter.ts` | `getRechargeHistory` wrapper          |
+| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`     | Both call sites switched to dual-mode |
 
 ---
 
 ## LIRA-110: Daily closing sums financial-services commission with ZERO gates
 
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Closing / Profits                     |
-| **Type**              | Bug (candidate — same class as LIRA-108) |
-| **Priority**          | Medium                                |
-| **Status**            | TODO                                  |
-| **Affected Modules**  | Closing                               |
-| **Assigned To**       | —                                      |
-| **Depends On**        | —                                      |
-| **Source Plan**       | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers) |
+| Field                | Value                                                                  |
+| -------------------- | ---------------------------------------------------------------------- |
+| **Epic**             | Closing / Profits                                                      |
+| **Type**             | Bug (candidate — same class as LIRA-108)                               |
+| **Priority**         | Medium                                                                 |
+| **Status**           | TODO                                                                   |
+| **Affected Modules** | Closing                                                                |
+| **Assigned To**      | —                                                                      |
+| **Depends On**       | —                                                                      |
+| **Source Plan**      | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers) |
 
 ### Summary
 
@@ -2706,24 +2706,24 @@ the closing screen's daily commission number. Also rule-14 debt: a third hand-ro
 
 ### Files to Modify
 
-| Layer   | File                                                  | Change              |
-| ------- | ---------------------------------------------------------- | ---------------------- |
-| Backend | `packages/core/src/repositories/ClosingRepository.ts`   | Gate or document    |
+| Layer   | File                                                  | Change           |
+| ------- | ----------------------------------------------------- | ---------------- |
+| Backend | `packages/core/src/repositories/ClosingRepository.ts` | Gate or document |
 
 ---
 
 ## LIRA-109: Recharge — `updateMetadata` still raw `window.api` (history-edit path)
 
-| Field                | Value                                 |
-| --------------------- | ------------------------------------------ |
-| **Epic**              | Recharge / Web Parity                       |
-| **Type**              | Bug / Dual-Transport                        |
-| **Priority**          | Low                                          |
-| **Status**            | DONE (2026-08-08) — web e2e executed green (60/60) |
-| **Affected Modules**  | Recharge                                     |
-| **Assigned To**       | —                                             |
-| **Depends On**        | —                                             |
-| **Source Plan**       | Found during LIRA-103 (2026-08-08)           |
+| Field                | Value                                              |
+| -------------------- | -------------------------------------------------- |
+| **Epic**             | Recharge / Web Parity                              |
+| **Type**             | Bug / Dual-Transport                               |
+| **Priority**         | Low                                                |
+| **Status**           | DONE (2026-08-08) — web e2e executed green (60/60) |
+| **Affected Modules** | Recharge                                           |
+| **Assigned To**      | —                                                  |
+| **Depends On**       | —                                                  |
+| **Source Plan**      | Found during LIRA-103 (2026-08-08)                 |
 
 ### Summary
 
@@ -2756,26 +2756,26 @@ roles!), dual-mode wrapper, adapter type, switch the call site (rule 19).
 
 ### Files to Modify
 
-| Layer    | File                                                      | Change                    |
-| -------- | ------------------------------------------------------------- | ---------------------------- |
-| Backend  | `backend/src/api/recharge.ts`                              | Add update-metadata route   |
-| Frontend | `frontend/src/api/backendApi.ts`, `ElectronApiAdapter.ts`   | Dual-mode wrapper           |
-| Frontend | `frontend/src/features/recharge/components/TelecomForm.tsx` | Switch call site            |
+| Layer    | File                                                        | Change                    |
+| -------- | ----------------------------------------------------------- | ------------------------- |
+| Backend  | `backend/src/api/recharge.ts`                               | Add update-metadata route |
+| Frontend | `frontend/src/api/backendApi.ts`, `ElectronApiAdapter.ts`   | Dual-mode wrapper         |
+| Frontend | `frontend/src/features/recharge/components/TelecomForm.tsx` | Switch call site          |
 
 ---
 
 ## LIRA-104: Web-mode REST write routes create no audit trail
 
-| Field                | Value                            |
-| --------------------- | ------------------------------------- |
-| **Epic**              | Web Parity / Security                  |
-| **Type**              | Design / Feature                       |
-| **Priority**          | Medium                                 |
-| **Status**            | TODO                                   |
-| **Affected Modules**  | All web-migrated modules                |
-| **Assigned To**       | —                                       |
-| **Depends On**        | —                                       |
-| **Source Plan**       | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9) |
+| Field                | Value                                              |
+| -------------------- | -------------------------------------------------- |
+| **Epic**             | Web Parity / Security                              |
+| **Type**             | Design / Feature                                   |
+| **Priority**         | Medium                                             |
+| **Status**           | TODO                                               |
+| **Affected Modules** | All web-migrated modules                           |
+| **Assigned To**      | —                                                  |
+| **Depends On**       | —                                                  |
+| **Source Plan**      | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9) |
 
 ### Summary
 
@@ -2796,24 +2796,24 @@ standard, but the rollout touches every REST route file.
 
 ### Files to Modify
 
-| Layer   | File                          | Change                        |
-| ------- | -------------------------------- | -------------------------------- |
+| Layer   | File                                      | Change                    |
+| ------- | ----------------------------------------- | ------------------------- |
 | Backend | `backend/src/api/*.ts` (all write routes) | Add audit-trail recording |
 
 ---
 
 ## LIRA-105: Payment-method unknown-code fallback disagrees between `payments.ts` and `PaymentMethodRepository`
 
-| Field                | Value                                        |
-| --------------------- | -------------------------------------------------- |
-| **Epic**              | Payments (shared)                                    |
-| **Type**              | Bug (latent)                                          |
-| **Priority**          | Low                                                    |
-| **Status**            | DONE (2026-08-08, `c9f2262` + regression fix `6f74cfd`) |
-| **Affected Modules**  | Payments (shared utility)                              |
-| **Assigned To**       | —                                                        |
-| **Depends On**        | —                                                        |
-| **Source Plan**       | `docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md` (§2 bug 8) |
+| Field                | Value                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| **Epic**             | Payments (shared)                                                     |
+| **Type**             | Bug (latent)                                                          |
+| **Priority**         | Low                                                                   |
+| **Status**           | DONE (2026-08-08, `c9f2262` + regression fix `6f74cfd`)               |
+| **Affected Modules** | Payments (shared utility)                                             |
+| **Assigned To**      | —                                                                     |
+| **Depends On**       | —                                                                     |
+| **Source Plan**      | `docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md` (§2 bug 8) |
 
 ### Summary
 
@@ -2833,7 +2833,7 @@ reconciled before that changes.
 
 ### Outcome — this was more than a consistency cleanup
 
-Reviewing the call sites showed `false` is not merely the *consistent* choice but the **safer** one:
+Reviewing the call sites showed `false` is not merely the _consistent_ choice but the **safer** one:
 the permissive `true` fallback let an unregistered code fall through to
 `paymentMethodToDrawerName`'s own unknown-code default (`FALLBACK_DRAWER_MAP[method] ?? "General"`),
 silently posting real money into the General drawer for a code nobody configured. All ~40 call sites
@@ -2842,7 +2842,7 @@ none relied on `true` to post a legitimate drawer movement.
 
 Exposure was confirmed latent (verified by grep, not assumed): the retired `"FEE"` literal is gone
 (owner decision #9) and the `"MULTI"` sentinel is hard-rejected in `RechargeRepository.processRecharge`
-before reaching these functions. The DB-*unavailable* `catch` fallback is deliberately untouched and
+before reaching these functions. The DB-_unavailable_ `catch` fallback is deliberately untouched and
 still uses the hardcoded map, so the `SessionPaymentService.basket` tests that omit the
 `payment_methods` table on purpose keep passing.
 
@@ -2875,25 +2875,25 @@ core 153/153 · 1654 tests.
 
 ### Files to Modify
 
-| Layer   | File                                                          | Change                    |
-| ------- | ------------------------------------------------------------------ | ---------------------------- |
-| Backend | `packages/core/src/utils/payments.ts`                             | Align fallback semantics    |
-| Backend | `packages/core/src/repositories/PaymentMethodRepository.ts`       | Reference point for the fix  |
+| Layer   | File                                                        | Change                      |
+| ------- | ----------------------------------------------------------- | --------------------------- |
+| Backend | `packages/core/src/utils/payments.ts`                       | Align fallback semantics    |
+| Backend | `packages/core/src/repositories/PaymentMethodRepository.ts` | Reference point for the fix |
 
 ---
 
 ## LIRA-106: Recharge — provider-tab switch doesn't reset stale crypto fields
 
-| Field                | Value                            |
-| --------------------- | -------------------------------------- |
-| **Epic**              | Recharge / Binance                      |
-| **Type**              | Bug (UI hygiene, no money risk)          |
-| **Priority**          | Low                                       |
-| **Status**            | DONE (2026-08-08, `0c910cd`) — scope widened, see Outcome |
-| **Affected Modules**  | Recharge > Binance                        |
-| **Assigned To**       | —                                           |
-| **Depends On**        | —                                           |
-| **Source Plan**       | `docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md` (adversarial-review finding) |
+| Field                | Value                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| **Epic**             | Recharge / Binance                                                                      |
+| **Type**             | Bug (UI hygiene, no money risk)                                                         |
+| **Priority**         | Low                                                                                     |
+| **Status**           | DONE (2026-08-08, `0c910cd`) — scope widened, see Outcome                               |
+| **Affected Modules** | Recharge > Binance                                                                      |
+| **Assigned To**      | —                                                                                       |
+| **Depends On**       | —                                                                                       |
+| **Source Plan**      | `docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md` (adversarial-review finding) |
 
 ### Summary
 
@@ -2930,24 +2930,24 @@ Recharge module suite after: 23 suites / 146 tests (143 baseline + 3 new).
 
 ### Files to Modify
 
-| Layer    | File                                                        | Change                          |
-| -------- | -------------------------------------------------------------- | ------------------------------------ |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`    | Extend tab-switch reset effect       |
+| Layer    | File                                                      | Change                         |
+| -------- | --------------------------------------------------------- | ------------------------------ |
+| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx` | Extend tab-switch reset effect |
 
 ---
 
 ## LIRA-107: Recharge — SEND↔RECEIVE flip resets nothing (CLOSED — WON'T DO)
 
-| Field                | Value                            |
-| --------------------- | -------------------------------------- |
-| **Epic**              | Recharge / Binance                      |
-| **Type**              | Design question                          |
-| **Priority**          | Low                                       |
-| **Status**            | CLOSED — WON'T DO (owner decision 2026-08-08) |
-| **Affected Modules**  | Recharge > Binance                        |
-| **Assigned To**       | —                                           |
-| **Depends On**        | LIRA-106 (DONE)                             |
-| **Source Plan**       | Found while reviewing LIRA-106 (2026-08-08) |
+| Field                | Value                                         |
+| -------------------- | --------------------------------------------- |
+| **Epic**             | Recharge / Binance                            |
+| **Type**             | Design question                               |
+| **Priority**         | Low                                           |
+| **Status**           | CLOSED — WON'T DO (owner decision 2026-08-08) |
+| **Affected Modules** | Recharge > Binance                            |
+| **Assigned To**      | —                                             |
+| **Depends On**       | LIRA-106 (DONE)                               |
+| **Source Plan**      | Found while reviewing LIRA-106 (2026-08-08)   |
 
 ### Owner decision — NO
 
@@ -2996,21 +2996,21 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 
 ### Sprint 6 board
 
-| ID       | Title                                                              | Priority | Status | Source Plan                             |
-| -------- | --------------------------------------------------------------------- | -------- | ------ | ------------------------------------------ |
-| LIRA-098 | Profit-recognition guard test                                       | Medium   | DONE `e6e3747` (found LIRA-108) | COUNTERPARTY_CONSOLIDATION_PLAN.md |
-| LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof              | Medium   | TODO   | MULTI_TENANT_IMPLEMENTATION_PLAN.md         |
-| LIRA-100 | Loto — in-module ticket reprint UI                                   | Low      | DONE `a3e24af` (e2e row green) | PARTIAL_TASKS_COMPLETION_PLAN.md |
-| LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification                | Medium   | TODO   | PRIMARY_CASH_DRAWER_PLAN.md                 |
-| LIRA-102 | Session-grouping UI e2e spec                                          | Low      | DONE — executed green 2026-08-08 (4/4 with lira-069+LOTO) | session-basket-payment-remaining.md |
-| LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | DONE (web spec green; found LIRA-109) | WEB_PARITY_ROADMAP.md |
-| LIRA-104 | Web-mode REST writes have no audit trail                              | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
-| LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | DONE `c9f2262`+`6f74cfd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md |
-| LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | DONE `0c910cd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
-| LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing                           | Low      | CLOSED — WON'T DO (owner) | found reviewing LIRA-106  |
-| LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates              | Medium   | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP | found by LIRA-098's guard |
-| LIRA-110 | Daily closing sums fs commission with zero gates                      | Medium   | TODO   | found by LIRA-108's workflow                |
-| LIRA-109 | Recharge `updateMetadata` still raw `window.api`                      | Low      | DONE — web e2e green 60/60 | found during LIRA-103         |
+| ID       | Title                                                    | Priority | Status                                                    | Source Plan                         |
+| -------- | -------------------------------------------------------- | -------- | --------------------------------------------------------- | ----------------------------------- |
+| LIRA-098 | Profit-recognition guard test                            | Medium   | DONE `e6e3747` (found LIRA-108)                           | COUNTERPARTY_CONSOLIDATION_PLAN.md  |
+| LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof  | Medium   | TODO                                                      | MULTI_TENANT_IMPLEMENTATION_PLAN.md |
+| LIRA-100 | Loto — in-module ticket reprint UI                       | Low      | DONE `a3e24af` (e2e row green)                            | PARTIAL_TASKS_COMPLETION_PLAN.md    |
+| LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification   | Medium   | TODO                                                      | PRIMARY_CASH_DRAWER_PLAN.md         |
+| LIRA-102 | Session-grouping UI e2e spec                             | Low      | DONE — executed green 2026-08-08 (4/4 with lira-069+LOTO) | session-basket-payment-remaining.md |
+| LIRA-103 | Recharge — remaining REST-parity gaps                    | Medium   | DONE (web spec green; found LIRA-109)                     | WEB_PARITY_ROADMAP.md               |
+| LIRA-104 | Web-mode REST writes have no audit trail                 | Medium   | TODO                                                      | WEB_PARITY_ROADMAP.md               |
+| LIRA-105 | Payment-method unknown-code semantics mismatch           | Low      | DONE `c9f2262`+`6f74cfd`                                  | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md  |
+| LIRA-106 | Recharge — crypto fields not reset on tab switch         | Low      | DONE `0c910cd`                                            | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md  |
+| LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing              | Low      | CLOSED — WON'T DO (owner)                                 | found reviewing LIRA-106            |
+| LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates | Medium   | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP | found by LIRA-098's guard           |
+| LIRA-110 | Daily closing sums fs commission with zero gates         | Medium   | TODO                                                      | found by LIRA-108's workflow        |
+| LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
 > LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully

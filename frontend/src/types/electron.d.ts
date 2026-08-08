@@ -24,7 +24,7 @@ export interface Voucher {
 /** A single financial_services row as returned by the Suppliers history tab. */
 export interface SupplierTransaction {
   id: number;
-  service_type: "SEND" | "RECEIVE";
+  service_type: "SEND" | "RECEIVE" | "BILL";
   amount: number;
   currency: string;
   commission: number;
@@ -1223,6 +1223,9 @@ export interface ElectronAPI {
         pending_commission_lbp: number;
         total_owed_usd: number;
         total_owed_lbp: number;
+        /** COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 — count of unsettled
+         *  BILL rows in this provider's bucket (feeds RATE × count entry). */
+        bill_count: number;
       }>
     >;
     settleTransactions: (data: {
@@ -1232,6 +1235,12 @@ export interface ElectronAPI {
       amount_lbp: number;
       commission_usd: number;
       commission_lbp: number;
+      // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — entry mode + audit snapshot of
+      // the rate/count used for a new-model (commission_model=1) batch.
+      // Ignored for a legacy batch.
+      entry_mode?: "LUMP" | "RATE";
+      commission_rate?: number;
+      commission_unit_count?: number;
       /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
       drawer_name?: string;
       note?: string;

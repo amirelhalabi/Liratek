@@ -206,8 +206,7 @@ describe("LIRA-108 — getRealizedCommissionTotals counterparty gates", () => {
     const e = seedSettledCommission(db, 2); // (e)
     seedDebtRow(db, e.txnId, 102, 102);
 
-    (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__ =
-      db;
+    (globalThis as unknown as Record<string, unknown>).__LIRATEK_TEST_DB__ = db;
     repo = new ProfitRepository();
   });
 

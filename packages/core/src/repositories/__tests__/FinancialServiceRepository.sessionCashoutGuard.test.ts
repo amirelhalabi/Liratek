@@ -85,7 +85,8 @@ function createTestDb(): Database.Database {
       is_settled INTEGER NOT NULL DEFAULT 1, settled_at TEXT, settlement_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP, created_by INTEGER,
       paid_amount REAL DEFAULT NULL, paid_currency TEXT DEFAULT NULL,
-      partner_id INTEGER, partner_mode TEXT
+      partner_id INTEGER, partner_mode TEXT,
+      commission_model INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE transactions (

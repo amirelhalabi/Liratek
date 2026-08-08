@@ -135,6 +135,7 @@ function createTestDb(): Database.Database {
       paid_currency TEXT DEFAULT NULL,
       partner_id INTEGER REFERENCES partners(id),
       partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
+      commission_model INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER DEFAULT 0,
       refunded_at TEXT DEFAULT NULL
     );

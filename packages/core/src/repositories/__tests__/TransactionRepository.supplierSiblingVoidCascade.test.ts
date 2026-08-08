@@ -151,6 +151,7 @@ function createTestDb(): Database.Database {
       paid_currency TEXT DEFAULT NULL,
       partner_id INTEGER,
       partner_mode TEXT,
+      commission_model INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at TEXT
     );
@@ -647,8 +648,41 @@ describe("LIRA-091 — supplier-ledger sibling void cascade", () => {
       userId: 1,
     });
 
-    // Both split units book their OWN auto SUPPLIER_PAYS_US commission row
-    // (the BILL branch runs per FS row, independent of carrier/sibling role).
+    // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 cut over the live BILL
+    // auto-booking: every BILL row `createTransaction` creates today (both
+    // fixtures above are BILLs) is born `commission_model = 1` — the stamp
+    // is gated to `service_type === "BILL"` specifically, not every new row
+    // (OMT/WHISH stay `commission_model = 0` until Phase 2 ships; see
+    // FinancialServiceRepository.omtCommissionModelGate.test.ts) — which
+    // books NOTHING at creation (commission is entered at settlement
+    // instead — see
+    // FinancialServiceRepository.billsSettlement.test.ts). The auto
+    // SUPPLIER_PAYS_US sibling + cascade mechanism THIS test proves still
+    // exists for legacy (`commission_model = 0`) rows — pre-migration data
+    // this method never produces anymore, so it's reconstructed directly
+    // here: flip both rows to the legacy flag and call the REAL
+    // `addLedgerEntry` is_auto:true/source_ref call site by hand (the exact
+    // call the old unconditional booking made), so it creates its own hidden
+    // SUPPLIER_PAYMENT transaction + link exactly like production code did.
+    for (const fs of [carrierFs, siblingFs]) {
+      db.prepare(
+        `UPDATE financial_services SET commission_model = 0 WHERE id = ?`,
+      ).run(fs.id);
+      getSupplierRepository().addLedgerEntry({
+        supplier_id: katshId,
+        entry_type: "SUPPLIER_PAYS_US",
+        amount_usd: 0,
+        amount_lbp: -20000,
+        note: "Auto: BILL commission from Katsh",
+        created_by: 1,
+        is_auto: true,
+        source_ref_table: "financial_services",
+        source_ref_id: fs.id,
+      });
+    }
+
+    // Both split units carry their OWN auto SUPPLIER_PAYS_US commission row
+    // (the legacy BILL branch ran per FS row, independent of carrier/sibling role).
     const ledgerBefore = ledgerRowsForSupplier(db, katshId);
     expect(ledgerBefore).toHaveLength(2);
     expect(ledgerBefore.every((r) => r.entry_type === "SUPPLIER_PAYS_US")).toBe(

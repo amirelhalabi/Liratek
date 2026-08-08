@@ -1,0 +1,293 @@
+/** @jest-environment jsdom */
+/**
+ * COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 0+1 — Settlement UI.
+ *
+ * Proves `handleBatchSettle` (Suppliers/index.tsx) builds the right
+ * `settleTransactions` payload for the two batch kinds the backend
+ * distinguishes by `commission_model` (D2/D3/D4):
+ *
+ *   - NEW-MODEL batch (commission_model = 1, e.g. an iPick BILL row): the
+ *     commission is ENTERED in the Settle modal (D8) — the payload must carry
+ *     the money-bearing `commission_usd`/`commission_lbp` PLUS the
+ *     `entry_mode`/`commission_rate`/`commission_unit_count` audit snapshot.
+ *   - LEGACY batch (commission_model = 0, a pre-cutover OMT SEND row): the
+ *     payload must stay byte-for-byte what it was before this feature —
+ *     informational `commission_usd` only, no D8 fields at all.
+ *
+ * Rule 17 (failing-first): reverting `handleBatchSettle`'s
+ * `...(isNewModelBatch ? {...} : {...})` branch back to the old
+ * unconditional `commission_usd: settleCommissionUsd, commission_lbp: 0`
+ * shape (temporarily, to confirm red) makes the "NEW-MODEL" test below fail
+ * — `payload.entry_mode`/`commission_rate`/`commission_unit_count` come back
+ * `undefined` and `payload.commission_lbp` comes back `0` instead of the
+ * entered 20000. Confirmed against that reverted code, then restored — see
+ * the task report for the exact diff and failure output.
+ */
+
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import Suppliers from "../index";
+
+const mockGetSuppliers = jest.fn();
+const mockGetSupplierBalances = jest.fn();
+const mockGetSupplierProductBalances = jest.fn();
+const mockGetSupplierLedger = jest.fn();
+const mockGetSupplierProductItems = jest.fn();
+const mockGetAllSupplierTransactions = jest.fn();
+const mockGetUnsettledTransactions = jest.fn();
+const mockSettleTransactions = jest.fn();
+const mockAppEventsEmit = jest.fn();
+
+jest.mock("@liratek/ui", () => ({
+  useApi: () => ({
+    getSuppliers: mockGetSuppliers,
+    getSupplierBalances: mockGetSupplierBalances,
+    getSupplierProductBalances: mockGetSupplierProductBalances,
+    getSupplierLedger: mockGetSupplierLedger,
+    getSupplierProductItems: mockGetSupplierProductItems,
+    getAllSupplierTransactions: mockGetAllSupplierTransactions,
+    getUnsettledTransactions: mockGetUnsettledTransactions,
+    settleTransactions: mockSettleTransactions,
+    recordSupplierCashflow: jest.fn(),
+    addSupplierLedgerEntry: jest.fn(),
+    supplierWriteOff: jest.fn(),
+    getSupplierPurchases: jest.fn(),
+    createSupplierPurchase: jest.fn(),
+  }),
+  // Wrapped in a closure — see Partners.addCreditLbp.test.tsx's comment on
+  // why a direct `{ emit: mockAppEventsEmit }` property throws a TDZ error
+  // (jest.mock factories are hoisted above this file's `const` declarations).
+  appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
+  // Minimal stand-in that renders beforeContent/children (the D8 entry-mode
+  // UI lives in beforeContent) and exposes onConfirm — what's under test is
+  // Suppliers/index.tsx's own payload-building code, not the shared modal
+  // shell (covered elsewhere).
+  CounterpartySettleModal: ({
+    title,
+    onConfirm,
+    confirmLabel,
+    beforeContent,
+    children,
+  }: {
+    title?: string;
+    onConfirm: () => void;
+    confirmLabel: string;
+    beforeContent?: React.ReactNode;
+    children?: React.ReactNode;
+  }) => (
+    <div data-testid="settle-modal">
+      <h2>{title}</h2>
+      {beforeContent}
+      {children}
+      <button type="button" onClick={onConfirm}>
+        {confirmLabel}
+      </button>
+    </div>
+  ),
+  PageHeader: ({ title }: { title: string }) => (
+    <div data-testid="page-header">
+      <h1>{title}</h1>
+    </div>
+  ),
+}));
+
+jest.mock("@/features/auth/context/AuthContext", () => ({
+  useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),
+}));
+
+jest.mock("@/shared/hooks/useModalFocusFix", () => ({
+  useModalFocusFix: () => {},
+}));
+
+jest.mock("@/hooks/usePaymentMethods", () => ({
+  usePaymentMethods: () => ({
+    methods: [],
+    drawerAffectingMethods: [],
+    allMethods: [],
+    loading: false,
+    refresh: jest.fn(),
+  }),
+}));
+
+jest.mock("@/hooks/useSellRate", () => ({
+  useSellRate: () => ({ sellRate: 89500, buyRate: 89000, isLoading: false }),
+}));
+
+jest.mock("@/hooks/useShopBase", () => ({
+  useShopBase: () => ({
+    baseSystem: "OMT",
+    partnerSystem: "WHISH",
+    loading: false,
+  }),
+}));
+
+const NEW_MODEL_SUPPLIER = {
+  id: 1,
+  name: "iPick",
+  contact_name: null,
+  phone: null,
+  note: null,
+  is_active: 1,
+  module_key: null,
+  provider: "iPick",
+  is_system: 1,
+  created_at: "2026-08-01T00:00:00Z",
+  // D8 — pre-selects RATE mode with the supplier's saved per-bill rate.
+  commission_entry_mode: "RATE" as const,
+  commission_rate: 20000,
+};
+
+const LEGACY_SUPPLIER = {
+  id: 2,
+  name: "OMT",
+  contact_name: null,
+  phone: null,
+  note: null,
+  is_active: 1,
+  module_key: null,
+  provider: "OMT",
+  is_system: 1,
+  created_at: "2026-08-01T00:00:00Z",
+  commission_entry_mode: "LUMP" as const,
+  commission_rate: null,
+};
+
+// commission_model = 1 (AT_SETTLEMENT) — born commission = 0, joins the
+// unsettled queue via the BILL branch of PENDING_SETTLEMENT_SQL.
+const BILL_ROW = {
+  id: 101,
+  service_type: "BILL" as const,
+  amount: 500000,
+  currency: "LBP",
+  commission: 0,
+  omt_fee: null,
+  omt_service_type: null,
+  client_name: null,
+  supplier_owed: 0,
+  commission_model: 1,
+  created_at: "2026-08-08T10:00:00Z",
+};
+
+// commission_model = 0 (EMBEDDED legacy) — the pre-cutover OMT float model,
+// commission > 0 is still the historical pending-settlement marker.
+const LEGACY_ROW = {
+  id: 201,
+  service_type: "SEND" as const,
+  amount: 100,
+  currency: "USD",
+  commission: 5,
+  omt_fee: 2,
+  omt_service_type: "OMT_TRANSFER",
+  client_name: null,
+  supplier_owed: 100,
+  commission_model: 0,
+  created_at: "2026-08-08T10:05:00Z",
+};
+
+function renderPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Suppliers />
+    </QueryClientProvider>,
+  );
+}
+
+describe("Suppliers page — commission-at-settlement Settle modal (Phase 0+1)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetSuppliers.mockResolvedValue([NEW_MODEL_SUPPLIER, LEGACY_SUPPLIER]);
+    mockGetSupplierBalances.mockResolvedValue([]);
+    mockGetSupplierProductBalances.mockResolvedValue([]);
+    mockGetSupplierLedger.mockResolvedValue([]);
+    mockGetAllSupplierTransactions.mockResolvedValue([]);
+    mockSettleTransactions.mockResolvedValue({ success: true, id: 1 });
+  });
+
+  it("NEW-MODEL batch (BILL row): sends money-bearing commission + the D8 entry_mode/rate/count snapshot", async () => {
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "iPick" ? [BILL_ROW] : []),
+    );
+
+    renderPage();
+
+    // "iPick" also appears as the drawer badge next to the name — target
+    // the supplier-list button specifically via getAllByText.
+    fireEvent.click((await screen.findAllByText("iPick"))[0]);
+
+    // Wait for the pending-row list itself to render (not just the "select
+    // all" checkbox, which is present from the first render, before
+    // `unsettledTxns` has loaded — checking it too early would toggle a
+    // stale, still-empty `selectableUnsettled` closure) — then check the
+    // bill row's own checkbox.
+    const billRow = (await screen.findByText("Bill")).closest("label")!;
+    fireEvent.click(within(billRow).getByRole("checkbox"));
+
+    fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
+
+    // D8 default: RATE mode pre-selected from the supplier's preference,
+    // rate pre-filled from commission_rate, count pre-filled from the
+    // selection size — confirm without touching any input.
+    expect(await screen.findByDisplayValue("20000")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Confirm Settlement"));
+
+    await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
+    const payload = mockSettleTransactions.mock.calls[0][0];
+    expect(payload.financial_service_ids).toEqual([101]);
+    // Bill principal never reaches the ledger (SUPPLIER_OWED_EXPR's BILL
+    // branch is 0) — a bill-only batch settles for $0 cash.
+    expect(payload.amount_usd).toBe(0);
+    expect(payload.amount_lbp).toBe(0);
+    // Money-bearing: 20000 (rate) × 1 (count), booked as LBP (the bill's
+    // selection defaults the rate currency to LBP).
+    expect(payload.commission_lbp).toBe(20000);
+    expect(payload.commission_usd).toBe(0);
+    expect(payload.entry_mode).toBe("RATE");
+    expect(payload.commission_rate).toBe(20000);
+    expect(payload.commission_unit_count).toBe(1);
+  });
+
+  it("LEGACY batch (OMT SEND row, commission_model=0): payload stays informational-commission-only, no D8 fields", async () => {
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "OMT" ? [LEGACY_ROW] : []),
+    );
+
+    renderPage();
+
+    fireEvent.click(await screen.findByText("OMT"));
+
+    const legacyRow = (await screen.findByText("OMT_TRANSFER")).closest(
+      "label",
+    )!;
+    fireEvent.click(within(legacyRow).getByRole("checkbox"));
+
+    fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
+
+    // Legacy UI: no entry-mode toggle — the derived-commission line is shown
+    // instead (byte-for-byte the pre-existing display).
+    expect(
+      screen.queryByText("Lump sum") || screen.queryByText("Rate × count"),
+    ).toBeNull();
+    fireEvent.click(await screen.findByText("Confirm Settlement"));
+
+    await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
+    const payload = mockSettleTransactions.mock.calls[0][0];
+    expect(payload.financial_service_ids).toEqual([201]);
+    // Fee-only supplier_owed already nets the shop's cut — pay exactly that.
+    expect(payload.amount_usd).toBe(100);
+    expect(payload.amount_lbp).toBe(0);
+    expect(payload.commission_usd).toBe(5);
+    expect(payload.commission_lbp).toBe(0);
+    expect(payload.entry_mode).toBeUndefined();
+    expect(payload.commission_rate).toBeUndefined();
+    expect(payload.commission_unit_count).toBeUndefined();
+  });
+});

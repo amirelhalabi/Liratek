@@ -38,12 +38,33 @@ export const supplierSettleSchema = z.object({
   financial_service_ids: z.array(z.number().int().positive()).min(1),
   amount_usd: z.number(),
   amount_lbp: z.number(),
-  // Informational/audit only under the OMT/WHISH float model (owner-
-  // confirmed 2026-07-29) — the fee-only supplier_owed figure already
-  // excludes the shop's commission, so this no longer drives any drawer
-  // movement (see SupplierRepository.SettleTransactionsData doc comment).
+  // COMMISSION_AT_SETTLEMENT_PLAN.md D1-D9 — the batch's commission MODEL is
+  // derived server-side from the selected financial_services rows'
+  // `commission_model` (never trusted from the client), so this field's
+  // meaning depends on what SupplierRepository.settleTransactions resolves
+  // it to be:
+  //   LEGACY batches (commission_model = 0, embedded — pre-existing OMT/
+  //     WHISH float model, owner-confirmed 2026-07-29): INFORMATIONAL/AUDIT
+  //     ONLY — the gross supplier_owed figure already excludes the shop's
+  //     commission, so this drives NO drawer/ledger movement (see
+  //     SupplierRepository.SettleTransactionsData doc comment).
+  //   NEW-MODEL batches (commission_model = 1, at-settlement — D1-D9):
+  //     MONEY-BEARING — booked as a real `SUPPLIER_PAYS_US` supplier_ledger
+  //     credit and split across the settled rows via largest-remainder
+  //     proportional allocation (`supplier_settlements` +
+  //     `settlement_commission_allocations`, D5/D6).
   commission_usd: z.number(),
   commission_lbp: z.number(),
+  // D8 — how the operator entered commission_usd/commission_lbp for a
+  // NEW-MODEL batch: a single LUMP total for the whole batch, or a per-unit
+  // RATE × commission_unit_count. Snapshotted onto supplier_settlements for
+  // audit; ignored for a LEGACY batch. Defaults to 'LUMP' when omitted.
+  entry_mode: z.enum(["LUMP", "RATE"]).optional(),
+  // RATE mode only — audit snapshot of the per-unit rate/count the operator
+  // entered; the FINAL money amount always lives in commission_usd/
+  // commission_lbp above regardless of entry mode.
+  commission_rate: z.number().nonnegative().optional(),
+  commission_unit_count: z.number().int().nonnegative().optional(),
   // Deprecated — no longer used to move money (OMT_System/Whish_System is
   // the provider float, never a real cash drawer). Kept optional so older
   // callers that still send it don't fail validation; ignored by the

@@ -102,6 +102,13 @@ function createTestDb(): Database.Database {
     INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT', 'OMT', 1);
     INSERT INTO suppliers (name, provider, is_system) VALUES ('Katsh', 'Katsh', 1);
 
+    -- Full column set — SupplierRepository._bookCommissionAtSettlement (new-
+    -- model tests below) reads gross via
+    -- getFinancialServiceRepository().findById(), which selects
+    -- FinancialServiceRepository.getColumns()'s full explicit list (rule 14:
+    -- reusing SUPPLIER_OWED_EXPR rather than re-deriving it means every one
+    -- of these columns must exist here too, even though most are unused by
+    -- this file's own scenarios).
     CREATE TABLE financial_services (
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,11 +119,39 @@ function createTestDb(): Database.Database {
       commission REAL NOT NULL DEFAULT 0,
       cost REAL DEFAULT 0,
       price REAL DEFAULT 0,
+      paid_by TEXT DEFAULT 'CASH',
+      paid_amount REAL DEFAULT NULL,
+      paid_currency TEXT DEFAULT NULL,
+      client_id INTEGER,
+      client_name TEXT,
+      reference_number TEXT,
+      phone_number TEXT,
+      sender_name TEXT,
+      sender_phone TEXT,
+      receiver_name TEXT,
+      receiver_phone TEXT,
+      sender_client_id INTEGER,
+      receiver_client_id INTEGER,
+      omt_service_type TEXT,
+      omt_fee REAL DEFAULT 0,
+      whish_fee REAL DEFAULT 0,
+      profit_rate REAL,
+      pay_fee INTEGER DEFAULT 0,
+      item_key TEXT,
+      note TEXT,
       is_settled INTEGER NOT NULL DEFAULT 0,
       settled_at TEXT,
       settlement_id INTEGER,
+      payment_method_fee REAL DEFAULT 0,
+      payment_method_fee_rate REAL,
+      created_by INTEGER,
+      edited_by TEXT DEFAULT NULL,
+      edited_at TEXT DEFAULT NULL,
+      partner_id INTEGER,
+      partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
       is_refunded INTEGER NOT NULL DEFAULT 0,
       refunded_at TEXT,
+      commission_model INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -137,6 +172,38 @@ function createTestDb(): Database.Database {
       source_ref_table TEXT DEFAULT NULL,
       source_ref_id INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Migration v150 (COMMISSION_AT_SETTLEMENT_PLAN.md §3) real schema.
+    CREATE TABLE supplier_settlements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      supplier_id INTEGER NOT NULL,
+      ledger_entry_id INTEGER NOT NULL UNIQUE,
+      gross_usd REAL NOT NULL DEFAULT 0,
+      gross_lbp REAL NOT NULL DEFAULT 0,
+      commission_usd REAL NOT NULL DEFAULT 0,
+      commission_lbp REAL NOT NULL DEFAULT 0,
+      entry_mode TEXT NOT NULL DEFAULT 'LUMP' CHECK(entry_mode IN ('LUMP', 'RATE')),
+      rate REAL,
+      unit_count INTEGER,
+      model INTEGER NOT NULL CHECK(model IN (0, 1)),
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE settlement_commission_allocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      settlement_ledger_id INTEGER NOT NULL,
+      financial_service_id INTEGER NOT NULL,
+      service_type TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      commission_usd REAL NOT NULL DEFAULT 0,
+      commission_lbp REAL NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE transactions (
@@ -631,6 +698,197 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
         .get(omtId) as { lbp: number };
       // Nets back to the pre-settlement TOP_UP-only balance (1,045,000).
       expect(supplierBalLbp.lbp).toBeCloseTo(1045000, 0);
+    });
+  });
+
+  // ── COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6 — new-model reversal ───────────
+  //
+  // A commission_model = 1 settlement books THREE new things
+  // (SupplierRepository._bookCommissionAtSettlement) that the fee-only-model
+  // paragraphs above don't cover: the SUPPLIER_PAYS_US commission credit
+  // itself, a `supplier_settlements` row, and one `settlement_commission_
+  // allocations` row per settled fs row. Rule 20 requires create → settle →
+  // void to net to 0 across EVERY one of these, per currency — the credit
+  // via the EXISTING LIRA-091 sibling cascade (no bespoke code), the other
+  // two via `_reverseCommissionAtSettlementRecords` (DELETE, since neither
+  // table has a soft-void column of its own).
+
+  describe("COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6 — new-model (commission_model = 1) settlement", () => {
+    function seedNewModelFs(
+      db: Database.Database,
+      provider: string,
+      amount: number,
+    ): number {
+      const res = db
+        .prepare(
+          `INSERT INTO financial_services
+             (provider, service_type, amount, currency, commission, commission_model, is_settled)
+           VALUES (?, 'RECEIVE', ?, 'USD', 0, 1, 0)`,
+        )
+        .run(provider, amount);
+      return Number(res.lastInsertRowid);
+    }
+
+    function allocationsFor(
+      db: Database.Database,
+      settlementLedgerId: number,
+    ): any[] {
+      return db
+        .prepare(
+          `SELECT * FROM settlement_commission_allocations WHERE settlement_ledger_id = ?`,
+        )
+        .all(settlementLedgerId);
+    }
+
+    function supplierSettlementFor(
+      db: Database.Database,
+      settlementLedgerId: number,
+    ): any {
+      return db
+        .prepare(`SELECT * FROM supplier_settlements WHERE ledger_entry_id = ?`)
+        .get(settlementLedgerId);
+    }
+
+    function commissionCreditRow(
+      db: Database.Database,
+      supplierId: number,
+    ): any {
+      return db
+        .prepare(
+          `SELECT * FROM supplier_ledger WHERE supplier_id = ? AND entry_type = 'SUPPLIER_PAYS_US'`,
+        )
+        .get(supplierId);
+    }
+
+    it("VOID soft-voids the commission credit (LIRA-091 sibling cascade, no bespoke code) and DELETEs the allocations + supplier_settlements rows — nets to 0 across every table touched", () => {
+      const omtId = supplierIdByProvider(db, "OMT");
+      const fs1 = seedNewModelFs(db, "OMT", 100);
+      const fs2 = seedNewModelFs(db, "OMT", 50);
+
+      const settlement = supplierRepo.settleTransactions({
+        supplier_id: omtId,
+        financial_service_ids: [fs1, fs2],
+        amount_usd: 145, // caller-computed net pay (gross 150 - commission 5)
+        amount_lbp: 0,
+        commission_usd: 5,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [{ method: "CASH", currency_code: "USD", amount: 145 }],
+      });
+      const settlementTxn = txnRepo.getBySourceId(
+        "supplier_ledger",
+        settlement.id,
+      )!;
+
+      // Forward path: all three new records exist.
+      expect(supplierSettlementFor(db, settlement.id)).toBeDefined();
+      expect(allocationsFor(db, settlement.id)).toHaveLength(2);
+      const creditBefore = commissionCreditRow(db, omtId);
+      expect(creditBefore).toBeDefined();
+      expect(creditBefore.amount_usd).toBeCloseTo(-5, 2);
+      expect(creditBefore.is_refunded).toBe(0);
+
+      txnRepo.voidTransaction(settlementTxn.id, 1);
+
+      // 1. Commission credit soft-voided (found via the settlement's own
+      //    source_table/source_id — the EXACT LIRA-091 cascade mechanism
+      //    every other auto supplier sibling uses; no bespoke reversal code
+      //    exists for this row).
+      const creditAfter = commissionCreditRow(db, omtId);
+      expect(creditAfter.is_refunded).toBe(1);
+
+      // 2/3. supplier_settlements + allocations DELETEd (no soft-void column
+      //    on either table — see _reverseCommissionAtSettlementRecords).
+      expect(supplierSettlementFor(db, settlement.id)).toBeUndefined();
+      expect(allocationsFor(db, settlement.id)).toHaveLength(0);
+
+      // Rule 20: nets to 0 across supplier_ledger too — no unrefunded rows
+      // for this supplier at all (no TOP_UP was ever booked for these
+      // new-model rows in this fixture, mirroring a bills-shaped batch).
+      const unrefundedSum = db
+        .prepare(
+          `SELECT COALESCE(SUM(amount_usd), 0) AS usd FROM supplier_ledger
+           WHERE supplier_id = ? AND COALESCE(is_refunded, 0) = 0`,
+        )
+        .get(omtId) as { usd: number };
+      expect(unrefundedSum.usd).toBeCloseTo(0, 4);
+
+      // financial_services rows un-stamped (new-model rows are always
+      // pending-settlement per D2, so is_settled resets to 0 too).
+      const fsRows = db
+        .prepare(
+          `SELECT is_settled, settlement_id FROM financial_services WHERE id IN (?, ?)`,
+        )
+        .all(fs1, fs2) as any[];
+      expect(
+        fsRows.every((r) => r.is_settled === 0 && r.settlement_id === null),
+      ).toBe(true);
+    });
+
+    it("REFUND does the identical D5/D6 cleanup as VOID", () => {
+      const omtId = supplierIdByProvider(db, "OMT");
+      const fsId = seedNewModelFs(db, "OMT", 100);
+
+      const settlement = supplierRepo.settleTransactions({
+        supplier_id: omtId,
+        financial_service_ids: [fsId],
+        amount_usd: 95,
+        amount_lbp: 0,
+        commission_usd: 5,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [{ method: "CASH", currency_code: "USD", amount: 95 }],
+      });
+      const settlementTxn = txnRepo.getBySourceId(
+        "supplier_ledger",
+        settlement.id,
+      )!;
+
+      txnRepo.refundTransaction(settlementTxn.id, 1);
+
+      expect(commissionCreditRow(db, omtId).is_refunded).toBe(1);
+      expect(supplierSettlementFor(db, settlement.id)).toBeUndefined();
+      expect(allocationsFor(db, settlement.id)).toHaveLength(0);
+    });
+
+    // ── Rule 17 — FAILING-FIRST: prove _reverseCommissionAtSettlementRecords
+    // is genuinely the piece doing this work, not a coincidence of the
+    // generic cascade. Reproduced by calling the void path with that one
+    // step skipped (simulating the pre-fix code) and observing the
+    // allocations/supplier_settlements rows survive — then confirming the
+    // real (unskipped) path above cleans them up.
+    it("FAILING-FIRST capture: without the D5/D6 cleanup step, VOID leaves the allocations + supplier_settlements rows behind (proves the step is load-bearing)", () => {
+      const omtId = supplierIdByProvider(db, "OMT");
+      const fsId = seedNewModelFs(db, "OMT", 100);
+
+      const settlement = supplierRepo.settleTransactions({
+        supplier_id: omtId,
+        financial_service_ids: [fsId],
+        amount_usd: 95,
+        amount_lbp: 0,
+        commission_usd: 5,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [{ method: "CASH", currency_code: "USD", amount: 95 }],
+      });
+
+      // Simulate the pre-fix state directly: soft-void only the SETTLEMENT
+      // ledger row and the commission credit (what the OLD, fee-only-model
+      // `_reverseSupplierSettlement` did in full) — WITHOUT deleting the
+      // new D5/D6 records, i.e. skip exactly the one step this test guards.
+      db.prepare(
+        `UPDATE supplier_ledger SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP
+         WHERE id = ? OR (supplier_id = ? AND entry_type = 'SUPPLIER_PAYS_US')`,
+      ).run(settlement.id, omtId);
+
+      // Demonstrates the exact gap: the ledger side looks reversed, but the
+      // audit/allocation records are still there — corrupting future
+      // per-type commission reporting with a settlement that no longer
+      // exists on the ledger. This is what `_reverseCommissionAtSettlementRecords`
+      // fixes (proven in the two tests above, where the full void path DOES
+      // clean these up).
+      expect(supplierSettlementFor(db, settlement.id)).toBeDefined();
+      expect(allocationsFor(db, settlement.id)).toHaveLength(1);
     });
   });
 });

@@ -215,6 +215,10 @@ CREATE TABLE IF NOT EXISTS suppliers (
   provider TEXT DEFAULT NULL,
   is_system INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  -- v150 (COMMISSION_AT_SETTLEMENT_PLAN.md D8): per-supplier commission
+  -- entry-mode preference, pre-selected at settlement time.
+  commission_entry_mode TEXT CHECK(commission_entry_mode IN ('LUMP', 'RATE')) DEFAULT 'LUMP',
+  commission_rate REAL,
   UNIQUE (tenant_id, name),
   FOREIGN KEY (tenant_id, module_key) REFERENCES modules(tenant_id, key) ON DELETE SET NULL
 );
@@ -439,6 +443,49 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
+-- Supplier Settlements (v150, COMMISSION_AT_SETTLEMENT_PLAN.md D5): real
+-- commission storage per settlement batch, uniquely linked to the
+-- settlement's own supplier_ledger SETTLEMENT row (never by time proximity).
+CREATE TABLE IF NOT EXISTS supplier_settlements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+  ledger_entry_id INTEGER NOT NULL UNIQUE REFERENCES supplier_ledger(id) ON DELETE CASCADE,
+  gross_usd REAL NOT NULL DEFAULT 0,
+  gross_lbp REAL NOT NULL DEFAULT 0,
+  commission_usd REAL NOT NULL DEFAULT 0,
+  commission_lbp REAL NOT NULL DEFAULT 0,
+  entry_mode TEXT NOT NULL DEFAULT 'LUMP' CHECK(entry_mode IN ('LUMP', 'RATE')),
+  rate REAL,
+  unit_count INTEGER,
+  model INTEGER NOT NULL CHECK(model IN (0, 1)),
+  created_by INTEGER REFERENCES users(id),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_settlements_supplier_id ON supplier_settlements(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_settlements_tenant_id ON supplier_settlements(tenant_id);
+
+-- Settlement Commission Allocations (v150, D6): one row per settled
+-- financial_services row, per-currency share of a settlement's entered
+-- commission (largest-remainder rounding at write, so allocations sum
+-- exactly to the entered amount).
+CREATE TABLE IF NOT EXISTS settlement_commission_allocations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id INTEGER REFERENCES tenants(id),
+  settlement_ledger_id INTEGER NOT NULL REFERENCES supplier_ledger(id) ON DELETE CASCADE,
+  financial_service_id INTEGER NOT NULL REFERENCES financial_services(id) ON DELETE CASCADE,
+  service_type TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  commission_usd REAL NOT NULL DEFAULT 0,
+  commission_lbp REAL NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_sca_settlement_ledger_id ON settlement_commission_allocations(settlement_ledger_id);
+CREATE INDEX IF NOT EXISTS idx_sca_financial_service_id ON settlement_commission_allocations(financial_service_id);
+CREATE INDEX IF NOT EXISTS idx_sca_tenant_id ON settlement_commission_allocations(tenant_id);
+
 -- Supplier Purchases (delivery batches for FIFO payment coverage)
 CREATE TABLE IF NOT EXISTS supplier_purchases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -610,7 +657,20 @@ CREATE TABLE IF NOT EXISTS financial_services (
     partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
     -- v115: 1 = legacy row that booked a per-sale SALE_COST supplier debt
     -- (individually settleable); 0 = prepaid-units model (debt booked at top-up)
-    supplier_debt_booked INTEGER NOT NULL DEFAULT 0
+    supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
+    -- v150 (COMMISSION_AT_SETTLEMENT_PLAN.md D3): per-row cutover flag.
+    -- 0 = EMBEDDED (legacy), 1 = AT_SETTLEMENT. The repository's insert path
+    -- (FinancialServiceRepository.createTransaction) explicitly stamps this
+    -- on every row it writes, gated on service_type === "BILL" — that
+    -- explicit stamp is the ONLY thing that ever writes 1; OMT/WHISH
+    -- SEND/RECEIVE stay 0 until Phase 2's gross-payable flip ships (their
+    -- supplier_owed is still commission-netted at creation, so flagging them
+    -- 1 early would double-subtract the commission at settlement). This
+    -- column DEFAULT (used only if a row is ever inserted without
+    -- specifying the column) mirrors the migration's own
+    -- `ALTER ... DEFAULT 0` — 0 (legacy/safe) matches "no BILL gate matched",
+    -- never AT_SETTLEMENT by default.
+    commission_model INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
@@ -1677,4 +1737,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (146, 'reanchor_telecom_credit_cost_rate'),
     (147, 'seed_sell_days_lbp_from_validity_days'),
     (148, 'add_daily_closing_carrier_lines'),
-    (149, 'allow_credit_buyback_recharge_type');
+    (149, 'allow_credit_buyback_recharge_type'),
+    (150, 'commission_at_settlement_foundation');

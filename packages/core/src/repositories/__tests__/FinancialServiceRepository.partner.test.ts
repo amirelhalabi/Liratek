@@ -145,6 +145,7 @@ function createTestDb(): Database.Database {
       paid_currency         TEXT DEFAULT NULL,
       partner_id            INTEGER REFERENCES partners(id),
       partner_mode          TEXT CHECK(partner_mode IN ('THROUGH', 'FOR')),
+      commission_model      INTEGER NOT NULL DEFAULT 0,
       -- v68: required by TransactionRepository._markSourceRefunded, which
       -- every void/refund of a financial_services-sourced transaction hits
       -- unconditionally (task B/void proof needs a real void to complete).

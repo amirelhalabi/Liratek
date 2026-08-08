@@ -186,9 +186,7 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
     it("an unauthenticated caller is refused with 401 and never reaches the service", async () => {
       const spy = jest.spyOn(rechargeService, "getHistory");
 
-      const res = await request(app).get(
-        "/api/recharge/history?provider=MTC",
-      );
+      const res = await request(app).get("/api/recharge/history?provider=MTC");
 
       expect(res.status).toBe(401);
       expect(spy).not.toHaveBeenCalled();

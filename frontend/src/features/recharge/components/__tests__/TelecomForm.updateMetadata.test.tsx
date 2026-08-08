@@ -103,7 +103,9 @@ const historyRow: FinancialTransaction = {
 // Minimal-but-complete TelecomForm props — CREDIT_TRANSFER tab, no active
 // session, no shop-line match, so the plain form (not the buy-back/redirect
 // branches) renders alongside the History modal under test.
-function buildProps(overrides: Partial<React.ComponentProps<typeof TelecomForm>> = {}) {
+function buildProps(
+  overrides: Partial<React.ComponentProps<typeof TelecomForm>> = {},
+) {
   return {
     isMTC: true,
     rechargeType: "CREDIT_TRANSFER" as const,

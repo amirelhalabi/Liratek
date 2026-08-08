@@ -289,9 +289,7 @@ describe("Recharge page — [activeProvider] reset effect clears stale crypto* f
     );
 
     await waitFor(() =>
-      expect(screen.getByTestId("crypto-amount-value").textContent).toBe(
-        "123",
-      ),
+      expect(screen.getByTestId("crypto-amount-value").textContent).toBe("123"),
     );
     expect(screen.getByTestId("crypto-fee-included-value").textContent).toBe(
       "true",
@@ -367,9 +365,7 @@ describe("Recharge page — [activeProvider] reset effect clears stale crypto* f
     fireEvent.click(screen.getByTestId("crypto-inject-payout"));
     fireEvent.click(screen.getByTestId("crypto-confirm"));
 
-    await waitFor(() =>
-      expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
     const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
       string,
       unknown
@@ -437,9 +433,7 @@ describe("Recharge page — [activeProvider] reset effect clears stale crypto* f
     });
     fireEvent.click(screen.getByTestId("crypto-confirm"));
 
-    await waitFor(() =>
-      expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
     const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
       string,
       unknown
@@ -478,9 +472,7 @@ describe("Recharge page — [activeProvider] reset effect clears stale crypto* f
     });
     fireEvent.click(screen.getByTestId("crypto-confirm"));
 
-    await waitFor(() =>
-      expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1),
-    );
+    await waitFor(() => expect(mockAddOMTTransaction).toHaveBeenCalledTimes(1));
     const payload = mockAddOMTTransaction.mock.calls[0][0] as Record<
       string,
       unknown

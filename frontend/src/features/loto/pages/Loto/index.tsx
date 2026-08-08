@@ -726,9 +726,7 @@ export function LotoPage() {
 
       {/* Ticket History Modal (LIRA-100) */}
       {showTicketHistoryModal && (
-        <TicketHistoryModal
-          onClose={() => setShowTicketHistoryModal(false)}
-        />
+        <TicketHistoryModal onClose={() => setShowTicketHistoryModal(false)} />
       )}
     </div>
   );

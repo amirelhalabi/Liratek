@@ -1,14 +1,36 @@
 /**
  * E2E: LIRA-062 — iPick / Katsh: Bills Section
  *
- * Validates the Bill feature added to the KatchForm grid:
- *   1. A Katsh BILL of 50,000 LBP is submitted via IPC.
- *   2. The financial_services row has service_type = 'BILL'.
- *   3. The Katsh supplier ledger gains a SUPPLIER_PAYS_US entry
- *      with amount_lbp = -20,000 (the hardcoded commission the supplier owes us).
- *   4. The Bill card is visible in the Katsh tab of the Recharge page.
+ * ORIGINAL (pre-plan) behaviour: every BILL hardcoded a −20,000 LBP
+ * SUPPLIER_PAYS_US credit AT CREATION. `docs/plans/todo_plans/
+ * COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 1 removed that: a fresh iPick/
+ * Katsh BILL is now born `commission_model = 1` (AT_SETTLEMENT) —
+ * `FinancialServiceRepository.createTransaction`'s `commissionModel` stamp
+ * (gated on `service_type === "BILL"`, `FinancialServiceRepository.ts:1047`)
+ * and its legacy −20,000 booking gate (`commissionModel === 0 &&
+ * !skipSecondarySupplierLedger`, `:3337`) both key off it — so a NEW bill
+ * books NOTHING at creation. It joins the unsettled queue instead
+ * (`isPendingSupplierSettlement` / `PENDING_SETTLEMENT_SQL`, same file
+ * `:679-709`) and the real commission is entered later, at supplier
+ * settlement (`SupplierRepository.settleTransactions` →
+ * `_bookCommissionAtSettlement`), proven end-to-end by
+ * `lira-089-bill-commission-settlement.spec.ts`.
  *
- * Uses the shared Electron instance / fresh DB (same as the other specs).
+ * This spec now validates, per provider:
+ *   1. A BILL is submitted via IPC — service_type = 'BILL'.
+ *   2. NO SUPPLIER_PAYS_US commission credit posts at creation: the
+ *      supplier's ledger balance is unchanged by the action (delta = 0) and
+ *      no NEW "BILL commission from <provider>" entry appears.
+ *   3. The row is born `commission_model = 1`, `settlement_id IS NULL`, and
+ *      has joined the unsettled queue (`bill_count` in
+ *      `suppliers:unsettled-summary` goes up by exactly 1).
+ *   4. (Katsh only) The Bill card still renders in the Recharge/Katsh tab —
+ *      the money-model change doesn't touch the UI.
+ *
+ * Uses the shared Electron instance / accumulating DB (rule 15): every money
+ * assertion is a delta snapshotted immediately before the action, and the
+ * bill's own financial_services row is found by the id `omt.addTransaction`
+ * itself returns — never by list position or "newest row".
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -17,7 +39,6 @@ import type { Page } from "@playwright/test";
 test.describe.configure({ retries: 0 });
 
 const BILL_AMOUNT_LBP = 50_000;
-const BILL_COMMISSION_LBP = -20_000;
 
 type WindowApi = {
   api: {
@@ -35,6 +56,9 @@ type WindowApi = {
       ) => Promise<
         Array<{ id: number; name: string; provider: string | null }>
       >;
+      getBalances: (
+        includeInactive?: boolean,
+      ) => Promise<Array<{ supplier_id: number; total_lbp: number }>>;
       getLedger: (
         supplierId: number,
         limit?: number,
@@ -46,25 +70,64 @@ type WindowApi = {
           note: string;
         }>
       >;
-    };
-    financial: {
-      list: (filters?: Record<string, unknown>) => Promise<{
-        success: boolean;
-        data?: Array<{
+      getUnsettledTransactions: (provider: string) => Promise<
+        Array<{
           id: number;
           service_type: string;
           amount: number;
           currency: string;
-        }>;
-      }>;
+          commission_model: number;
+          settlement_id: number | null;
+        }>
+      >;
+      getUnsettledSummary: () => Promise<
+        Array<{ provider: string; count: number; bill_count: number }>
+      >;
     };
   };
 };
 
 test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
-  test("Katsh BILL: service_type=BILL, SUPPLIER_PAYS_US −20,000 LBP in ledger", async ({
+  test("Katsh BILL: books no commission credit at creation, born commission_model=1 in the unsettled queue", async ({
     appPage,
   }) => {
+    // ── Baselines, immediately before the action (rule 15) ──────────────────
+    const katsh = await appPage.evaluate(async () => {
+      const w = window as unknown as WindowApi;
+      return (await w.api.suppliers.list("", true)).find(
+        (s) => s.provider === "Katsh",
+      );
+    });
+    expect(katsh, "Katsh supplier not found").toBeTruthy();
+    const katshId = katsh!.id;
+
+    const balBefore = await appPage.evaluate(async (id) => {
+      const w = window as unknown as WindowApi;
+      return (
+        (await w.api.suppliers.getBalances(true)).find(
+          (b) => b.supplier_id === id,
+        )?.total_lbp ?? 0
+      );
+    }, katshId);
+
+    const legacyCreditsBefore = await appPage.evaluate(async (id) => {
+      const w = window as unknown as WindowApi;
+      return (await w.api.suppliers.getLedger(id, 500)).filter(
+        (l) =>
+          l.entry_type === "SUPPLIER_PAYS_US" &&
+          (l.note ?? "").includes("BILL commission from Katsh"),
+      ).length;
+    }, katshId);
+
+    const billCountBefore = await appPage.evaluate(async () => {
+      const w = window as unknown as WindowApi;
+      return (
+        (await w.api.suppliers.getUnsettledSummary()).find(
+          (s) => s.provider === "Katsh",
+        )?.bill_count ?? 0
+      );
+    });
+
     // ── 1. Submit a Katsh BILL via IPC ──────────────────────────────────────
     const created = await appPage.evaluate(
       async ({ amount }) => {
@@ -84,43 +147,62 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     );
 
     expect(created.success).toBe(true);
+    expect(created.id, "addTransaction did not return an id").toBeTruthy();
+    const billId = created.id!;
 
-    // ── 2. Verify the Katsh supplier ledger has the commission entry ─────────
-    // Match the BILL entry by IDENTITY (entry_type + note), NEVER by row
-    // position: the shared per-run DB has prior SETTLEMENT entries against Katsh
-    // (lira-056/061) and getSupplierLedger orders by second-granular created_at
-    // with no id tiebreaker, so ledger[0] can tie to a SETTLEMENT (CLAUDE.md rule 15).
-    const ledgerResult = await appPage.evaluate(async () => {
+    // ── 2. NO commission credit posted at creation ──────────────────────────
+    // Supplier ledger balance delta = 0 covers ANY new booking, not just the
+    // old literal −20,000 shape.
+    const balAfter = await appPage.evaluate(async (id) => {
       const w = window as unknown as WindowApi;
-      const suppliers = await w.api.suppliers.list("", true);
-      const katsh = suppliers.find((s) => s.provider === "Katsh");
-      if (!katsh) return { found: false } as const;
+      return (
+        (await w.api.suppliers.getBalances(true)).find(
+          (b) => b.supplier_id === id,
+        )?.total_lbp ?? 0
+      );
+    }, katshId);
+    expect(balAfter - balBefore).toBe(0);
 
-      const ledger = await w.api.suppliers.getLedger(katsh.id, 50);
-      return {
-        found: true,
-        supplierId: katsh.id,
-        entryTypes: ledger.map((l) => l.entry_type),
-        billEntries: ledger.filter(
-          (l) =>
-            l.entry_type === "SUPPLIER_PAYS_US" &&
-            (l.note ?? "").includes("BILL commission from Katsh"),
-        ),
-      } as const;
+    const legacyCreditsAfter = await appPage.evaluate(async (id) => {
+      const w = window as unknown as WindowApi;
+      return (await w.api.suppliers.getLedger(id, 500)).filter(
+        (l) =>
+          l.entry_type === "SUPPLIER_PAYS_US" &&
+          (l.note ?? "").includes("BILL commission from Katsh"),
+      ).length;
+    }, katshId);
+    expect(legacyCreditsAfter - legacyCreditsBefore).toBe(0);
+
+    // ── 3. Born commission_model=1, in the unsettled queue ──────────────────
+    const billRow = await appPage.evaluate(
+      async (args: { provider: string; id: number }) => {
+        const w = window as unknown as WindowApi;
+        const rows = await w.api.suppliers.getUnsettledTransactions(
+          args.provider,
+        );
+        return rows.find((r) => r.id === args.id) ?? null;
+      },
+      { provider: "Katsh", id: billId },
+    );
+    expect(
+      billRow,
+      "new BILL row not found in the unsettled queue",
+    ).toBeTruthy();
+    expect(billRow!.service_type).toBe("BILL");
+    expect(billRow!.commission_model).toBe(1);
+    expect(billRow!.settlement_id).toBeNull();
+
+    const billCountAfter = await appPage.evaluate(async () => {
+      const w = window as unknown as WindowApi;
+      return (
+        (await w.api.suppliers.getUnsettledSummary()).find(
+          (s) => s.provider === "Katsh",
+        )?.bill_count ?? 0
+      );
     });
+    expect(billCountAfter - billCountBefore).toBe(1);
 
-    expect(ledgerResult.found).toBe(true);
-    if (!ledgerResult.found) return;
-
-    // The BILL path must log a SUPPLIER_PAYS_US entry (not SALE_COST/TOP_UP).
-    expect(ledgerResult.entryTypes).toContain("SUPPLIER_PAYS_US");
-    // Exactly one BILL-commission entry from this action.
-    expect(ledgerResult.billEntries).toHaveLength(1);
-    // Negative amount_lbp = supplier owes us (shown green on Suppliers page).
-    expect(ledgerResult.billEntries[0]?.amount_lbp).toBe(BILL_COMMISSION_LBP);
-    expect(ledgerResult.billEntries[0]?.amount_usd).toBe(0);
-
-    // ── 3. Verify the Bill card renders on the Recharge / Katsh tab ─────────
+    // ── 4. Verify the Bill card renders on the Recharge / Katsh tab ─────────
     await navigateTo(appPage, "/recharge");
 
     const katshTab = appPage
@@ -143,9 +225,45 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     await expect(lbpToggle).toBeVisible({ timeout: 5_000 });
   });
 
-  test("iPick BILL: SUPPLIER_PAYS_US −20,000 LBP logged against iPick supplier", async ({
+  test("iPick BILL: books no commission credit at creation, born commission_model=1 in the unsettled queue", async ({
     appPage,
   }) => {
+    const ipick = await appPage.evaluate(async () => {
+      const w = window as unknown as WindowApi;
+      return (await w.api.suppliers.list("", true)).find(
+        (s) => s.provider === "iPick",
+      );
+    });
+    expect(ipick, "iPick supplier not found").toBeTruthy();
+    const ipickId = ipick!.id;
+
+    const balBefore = await appPage.evaluate(async (id) => {
+      const w = window as unknown as WindowApi;
+      return (
+        (await w.api.suppliers.getBalances(true)).find(
+          (b) => b.supplier_id === id,
+        )?.total_lbp ?? 0
+      );
+    }, ipickId);
+
+    const legacyCreditsBefore = await appPage.evaluate(async (id) => {
+      const w = window as unknown as WindowApi;
+      return (await w.api.suppliers.getLedger(id, 500)).filter(
+        (l) =>
+          l.entry_type === "SUPPLIER_PAYS_US" &&
+          (l.note ?? "").includes("BILL commission from iPick"),
+      ).length;
+    }, ipickId);
+
+    const billCountBefore = await appPage.evaluate(async () => {
+      const w = window as unknown as WindowApi;
+      return (
+        (await w.api.suppliers.getUnsettledSummary()).find(
+          (s) => s.provider === "iPick",
+        )?.bill_count ?? 0
+      );
+    });
+
     const created = await appPage.evaluate(
       async ({ amount }) => {
         const w = window as unknown as WindowApi;
@@ -164,31 +282,56 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     );
 
     expect(created.success).toBe(true);
+    expect(created.id, "addTransaction did not return an id").toBeTruthy();
+    const billId = created.id!;
 
-    const ledgerResult = await appPage.evaluate(async () => {
+    const balAfter = await appPage.evaluate(async (id) => {
       const w = window as unknown as WindowApi;
-      const suppliers = await w.api.suppliers.list("", true);
-      const ipick = suppliers.find((s) => s.provider === "iPick");
-      if (!ipick) return { found: false } as const;
+      return (
+        (await w.api.suppliers.getBalances(true)).find(
+          (b) => b.supplier_id === id,
+        )?.total_lbp ?? 0
+      );
+    }, ipickId);
+    expect(balAfter - balBefore).toBe(0);
 
-      const ledger = await w.api.suppliers.getLedger(ipick.id, 50);
-      // Match by identity (type + note), not row position — see test above.
-      return {
-        found: true,
-        billEntries: ledger.filter(
-          (l) =>
-            l.entry_type === "SUPPLIER_PAYS_US" &&
-            (l.note ?? "").includes("BILL commission from iPick"),
-        ),
-      } as const;
+    const legacyCreditsAfter = await appPage.evaluate(async (id) => {
+      const w = window as unknown as WindowApi;
+      return (await w.api.suppliers.getLedger(id, 500)).filter(
+        (l) =>
+          l.entry_type === "SUPPLIER_PAYS_US" &&
+          (l.note ?? "").includes("BILL commission from iPick"),
+      ).length;
+    }, ipickId);
+    expect(legacyCreditsAfter - legacyCreditsBefore).toBe(0);
+
+    const billRow = await appPage.evaluate(
+      async (args: { provider: string; id: number }) => {
+        const w = window as unknown as WindowApi;
+        const rows = await w.api.suppliers.getUnsettledTransactions(
+          args.provider,
+        );
+        return rows.find((r) => r.id === args.id) ?? null;
+      },
+      { provider: "iPick", id: billId },
+    );
+    expect(
+      billRow,
+      "new BILL row not found in the unsettled queue",
+    ).toBeTruthy();
+    expect(billRow!.service_type).toBe("BILL");
+    expect(billRow!.commission_model).toBe(1);
+    expect(billRow!.settlement_id).toBeNull();
+
+    const billCountAfter = await appPage.evaluate(async () => {
+      const w = window as unknown as WindowApi;
+      return (
+        (await w.api.suppliers.getUnsettledSummary()).find(
+          (s) => s.provider === "iPick",
+        )?.bill_count ?? 0
+      );
     });
-
-    expect(ledgerResult.found).toBe(true);
-    if (!ledgerResult.found) return;
-
-    expect(ledgerResult.billEntries).toHaveLength(1);
-    expect(ledgerResult.billEntries[0]?.amount_lbp).toBe(BILL_COMMISSION_LBP);
-    expect(ledgerResult.billEntries[0]?.amount_usd).toBe(0);
+    expect(billCountAfter - billCountBefore).toBe(1);
   });
 });
 

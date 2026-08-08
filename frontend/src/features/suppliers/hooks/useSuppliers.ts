@@ -67,7 +67,9 @@ export function useProductItemsQuery(supplierId: number | null) {
  *  considered "settleable". */
 export interface UnsettledSupplierTransaction {
   id: number;
-  service_type: "SEND" | "RECEIVE";
+  // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 — iPick/Katsh BILL rows now
+  // join this queue (they used to be born-settled and invisible here).
+  service_type: "SEND" | "RECEIVE" | "BILL";
   amount: number;
   currency: string;
   commission: number;
@@ -80,6 +82,13 @@ export interface UnsettledSupplierTransaction {
    * re-derives owed from amount/fee/commission locally.
    */
   supplier_owed: number;
+  /**
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D3 — 0 = LEGACY (EMBEDDED, byte-for-byte
+   * unchanged UI), 1 = NEW-MODEL (AT_SETTLEMENT, commission entered here).
+   * A selection spanning both values is a hard-reject on the backend (D4) —
+   * the Settle tab groups by this field to warn/disable BEFORE submit.
+   */
+  commission_model: number;
   created_at: string;
 }
 
@@ -319,6 +328,12 @@ export function useSettleTransactionsMutation(
       amount_lbp: number;
       commission_usd: number;
       commission_lbp: number;
+      // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — entry mode + audit snapshot of
+      // the rate/count used for a new-model (commission_model=1) batch.
+      // Ignored for a legacy batch.
+      entry_mode?: "LUMP" | "RATE";
+      commission_rate?: number;
+      commission_unit_count?: number;
       /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
       drawer_name?: string;
       note?: string;

@@ -2,10 +2,18 @@
  * LIRA-095 — Multi-bill checkout (Katsh + iPick), normal + session mode.
  *
  * Several bills staged in the BILL card check out through ONE PaymentSheet
- * payment. Each bill books its OWN FINANCIAL_SERVICE BILL transaction
- * (per-bill supplier commission + its own audit row), but the customer inflow
- * books exactly ONCE: the first bill carries the sheet's legs, the rest are
- * sent with deferPayment (cost + commission only).
+ * payment. Each bill books its OWN FINANCIAL_SERVICE BILL transaction (its
+ * own audit row), but the customer inflow books exactly ONCE: the first bill
+ * carries the sheet's legs, the rest are sent with deferPayment (cost only).
+ *
+ * `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 1 removed
+ * the per-bill −20,000 LBP SUPPLIER_PAYS_US commission credit that used to
+ * book here too, at creation: a fresh BILL is now born `commission_model = 1`
+ * and books NO commission until settled — regardless of how many bills check
+ * out in one payment. The commission-credit assertions below (originally
+ * "−40,000 for two bills") now assert the supplier ledger is untouched by
+ * checkout; the real commission enters later, at settlement (see
+ * `lira-089-bill-commission-settlement.spec.ts`).
  *
  * Rule 17 (fails on the pre-change code): with `deferPayment` absent from
  * FinancialServiceSchema, Zod strips it and every bill after the first
@@ -326,11 +334,12 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     expect((await drawerLbp(appPage, "General")) - generalBefore).toBe(TOTAL);
     // Cost outflow books per bill: Katsh drawer down by the full total.
     expect((await drawerLbp(appPage, "Katsh")) - katshBefore).toBe(-TOTAL);
-    // Per-bill supplier commission: two SUPPLIER_PAYS_US entries of −20,000
-    // (a batched single BILL transaction would book only one and fail here).
-    expect((await supplierLbp(appPage, "Katsh")) - supplierBefore).toBe(
-      -40_000,
-    );
+    // COMMISSION_AT_SETTLEMENT_PLAN.md Phase 1 — a bill no longer books a
+    // −20,000 SUPPLIER_PAYS_US credit at creation (born commission_model=1,
+    // real commission entered later at settlement); the supplier ledger
+    // stays untouched by checkout regardless of bill count — still proves NO
+    // per-bill (or batched) booking sneaks in for this 2-bill checkout.
+    expect((await supplierLbp(appPage, "Katsh")) - supplierBefore).toBe(0);
 
     // Two BILL rows, matched by the unique client (rule 11 propagation).
     const rows = await fsRows(appPage, { clientName: CLIENT });
@@ -437,10 +446,11 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     expect((await drawerLbp(appPage, "Katsh")) - katshLbpBefore).toBe(
       -LBP_BILL,
     );
-    // Per-bill supplier commission, fixed in LBP regardless of bill currency.
-    expect((await supplierLbp(appPage, "Katsh")) - supplierBefore).toBe(
-      -40_000,
-    );
+    // COMMISSION_AT_SETTLEMENT_PLAN.md Phase 1 — no per-bill commission
+    // credit books at creation regardless of bill currency; the supplier
+    // ledger stays untouched by checkout (commission is entered later, at
+    // settlement).
+    expect((await supplierLbp(appPage, "Katsh")) - supplierBefore).toBe(0);
 
     const rows = await fsRows(appPage, { clientName: CLIENT });
     expect(rows).toHaveLength(2);
@@ -531,11 +541,12 @@ test.describe("LIRA-095 — multi-bill checkout", () => {
     expect((await drawerLbp(appPage, "Katsh")) - katshBefore).toBe(
       -(item!.cost_lbp + BILLS[0] + BILLS[1]),
     );
-    // Supplier: ONLY the two per-bill commissions — the cost/price item sale
-    // books no per-sale supplier entry (C5 prepaid-units model).
-    expect((await supplierLbp(appPage, "Katsh")) - supplierBefore).toBe(
-      -40_000,
-    );
+    // Supplier: the cost/price item sale books no per-sale supplier entry
+    // (C5 prepaid-units model), AND — post COMMISSION_AT_SETTLEMENT_PLAN.md
+    // Phase 1 — neither do the two bills at creation; the supplier ledger is
+    // fully untouched by this checkout (commission enters later, at
+    // settlement).
+    expect((await supplierLbp(appPage, "Katsh")) - supplierBefore).toBe(0);
 
     // 3 rows (1 SEND + 2 BILL), all carrying the client; legs live on exactly
     // one row — the SEND — and sum to the full checkout total.

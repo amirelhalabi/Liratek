@@ -38,6 +38,12 @@ type Supplier = {
   provider: string | null;
   is_system: number;
   created_at: string;
+  /** COMMISSION_AT_SETTLEMENT_PLAN.md D8 — per-supplier preference,
+   *  pre-selects the Settle modal's LUMP/RATE toggle. Null on schemas
+   *  older than v150. */
+  commission_entry_mode?: "LUMP" | "RATE" | null;
+  /** D8 — pre-fills the RATE-mode per-unit rate. */
+  commission_rate?: number | null;
 };
 
 type SupplierBalance = {
@@ -70,7 +76,9 @@ type LedgerEntry = {
 
 type SupplierTxn = {
   id: number;
-  service_type: "SEND" | "RECEIVE";
+  // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 — iPick/Katsh BILL rows now
+  // flow through this same history projection (getAllByProvider).
+  service_type: "SEND" | "RECEIVE" | "BILL";
   amount: number;
   currency: string;
   commission: number;
@@ -244,6 +252,19 @@ export default function SuppliersPage() {
   const [settleNote, setSettleNote] = useState("");
   const [settleSubmitting, setSettleSubmitting] = useState(false);
   const [settleKey, setSettleKey] = useState(0);
+  // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — entry-mode UI for a NEW-MODEL
+  // (commission_model = 1) batch. Ignored/hidden for a legacy batch, whose
+  // commission stays derived-and-informational exactly as before.
+  const [settleEntryMode, setSettleEntryMode] = useState<"LUMP" | "RATE">(
+    "LUMP",
+  );
+  const [settleCommissionUsdInput, setSettleCommissionUsdInput] = useState("");
+  const [settleCommissionLbpInput, setSettleCommissionLbpInput] = useState("");
+  const [settleRateInput, setSettleRateInput] = useState("");
+  const [settleRateCurrency, setSettleRateCurrency] = useState<"USD" | "LBP">(
+    "USD",
+  );
+  const [settleUnitCountInput, setSettleUnitCountInput] = useState("");
 
   // ── Exchange rate ─────────────────────────────────────────────────────────
   // Payments use the BUY rate (owner decision 2026-07-06): every
@@ -627,14 +648,29 @@ export default function SuppliersPage() {
   // RECEIVE) — the shop's commission is ALREADY excluded from this figure.
   // Net you pay = supplier_owed itself, NOT owed − commission again (that
   // was the old gross-principal model's math and would double-subtract the
-  // shop's cut under the new one). `settleCommissionUsd` below is kept for
-  // DISPLAY/audit only — it has no further effect on the net payment.
-  // LBP rows are excluded from the batch-settle money math (no LBP settle
-  // amount handled here — out of scope).
+  // shop's cut under the new one). LBP rows are excluded from the
+  // batch-settle CASH math (no LBP settle amount handled here — out of
+  // scope) EXCEPT bills (COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1): a
+  // bill's principal never reaches the ledger (SUPPLIER_OWED_EXPR's BILL
+  // branch is always 0), only its settlement commission does, so a BILL row
+  // must stay selectable even though it's LBP-denominated.
   const selectedUnsettled = useMemo(
     () => unsettledTxns.filter((t) => selectedSettleIds.has(t.id)),
     [unsettledTxns, selectedSettleIds],
   );
+  // D2/D4 — group the selection by commission_model. A selection spanning
+  // both 0 (LEGACY) and 1 (NEW-MODEL) is a hard-reject on the backend
+  // (`_resolveSettlementBatchModel`) — surfaced here BEFORE submit so the
+  // operator gets an explanation instead of a generic alert(). Every BILL
+  // row is always commission_model = 1 (a legacy commission_model = 0 bill
+  // is born is_settled = 1 and can never reach this unsettled queue), so a
+  // BILL-only selection is unambiguously a new-model batch.
+  const selectedModels = useMemo(
+    () => new Set(selectedUnsettled.map((t) => t.commission_model ?? 0)),
+    [selectedUnsettled],
+  );
+  const isMixedModelBatch = selectedModels.size > 1;
+  const isNewModelBatch = !isMixedModelBatch && selectedModels.has(1);
   const settleTotalOwedUsd = useMemo(
     () =>
       selectedUnsettled
@@ -642,6 +678,9 @@ export default function SuppliersPage() {
         .reduce((s, t) => s + t.supplier_owed, 0),
     [selectedUnsettled],
   );
+  // Legacy display only — the shop's cut is already embedded in
+  // settleTotalOwedUsd above for a legacy batch, so this never feeds the
+  // net-pay math; it just shows the operator what was baked in.
   const settleCommissionUsd = useMemo(
     () =>
       selectedUnsettled
@@ -649,12 +688,55 @@ export default function SuppliersPage() {
         .reduce((s, t) => s + t.commission, 0),
     [selectedUnsettled],
   );
-  // Fee-only supplier_owed already nets out the shop's commission — pay
-  // exactly that (clamped at 0: a negative total means the supplier owes
-  // the shop, handled via the separate Pay/Receive cashflow instead).
-  const settleNetPayUsd = Math.max(0, settleTotalOwedUsd);
+  // NEW-MODEL entered commission (D8): LUMP = the two currency inputs
+  // directly; RATE = rate × count, placed into whichever currency the
+  // operator picked for the rate (bills are naturally LBP-rated — the
+  // legacy 20,000 LBP/bill this replaces — OMT/WHISH transfers USD-rated).
+  const settleEnteredCommissionUsd = useMemo(() => {
+    if (settleEntryMode === "RATE") {
+      if (settleRateCurrency !== "USD") return 0;
+      return (
+        (parseFloat(settleRateInput.replace(/,/g, "")) || 0) *
+        (parseInt(settleUnitCountInput.replace(/,/g, ""), 10) || 0)
+      );
+    }
+    return parseFloat(settleCommissionUsdInput.replace(/,/g, "")) || 0;
+  }, [
+    settleEntryMode,
+    settleRateCurrency,
+    settleRateInput,
+    settleUnitCountInput,
+    settleCommissionUsdInput,
+  ]);
+  const settleEnteredCommissionLbp = useMemo(() => {
+    if (settleEntryMode === "RATE") {
+      if (settleRateCurrency !== "LBP") return 0;
+      return (
+        (parseFloat(settleRateInput.replace(/,/g, "")) || 0) *
+        (parseInt(settleUnitCountInput.replace(/,/g, ""), 10) || 0)
+      );
+    }
+    return parseFloat(settleCommissionLbpInput.replace(/,/g, "")) || 0;
+  }, [
+    settleEntryMode,
+    settleRateCurrency,
+    settleRateInput,
+    settleUnitCountInput,
+    settleCommissionLbpInput,
+  ]);
+  // Fee-only supplier_owed already nets out the shop's commission for a
+  // LEGACY batch — pay exactly that. For a NEW-MODEL batch the commission is
+  // entered here, so net pay = gross owed − entered commission (clamped at
+  // 0 — a bills-only batch has 0 gross owed and settles for $0 cash, only
+  // the commission credit moves, per the plan's "bills settlement note").
+  const settleNetPayUsd = isNewModelBatch
+    ? Math.max(0, settleTotalOwedUsd - settleEnteredCommissionUsd)
+    : Math.max(0, settleTotalOwedUsd);
   const selectableUnsettled = useMemo(
-    () => unsettledTxns.filter((t) => t.currency !== "LBP"),
+    () =>
+      unsettledTxns.filter(
+        (t) => t.currency !== "LBP" || t.service_type === "BILL",
+      ),
     [unsettledTxns],
   );
 
@@ -662,11 +744,30 @@ export default function SuppliersPage() {
     setSettlePaymentLines([]);
     setSettleNote("");
     setSettleKey((k) => k + 1);
+    // D8 — pre-select the entry mode/rate from the supplier's preference;
+    // prefill RATE's unit count from the selection itself (the real count
+    // being settled, more precise than the per-provider summary total) and
+    // its currency from what the selection actually contains — a bill batch
+    // is LBP-rated (the legacy 20,000 LBP/bill this replaces), a transfer
+    // batch USD-rated.
+    setSettleEntryMode(selectedSupplier?.commission_entry_mode ?? "LUMP");
+    setSettleRateInput(
+      selectedSupplier?.commission_rate != null
+        ? String(selectedSupplier.commission_rate)
+        : "",
+    );
+    setSettleRateCurrency(
+      selectedUnsettled.some((t) => t.service_type === "BILL") ? "LBP" : "USD",
+    );
+    setSettleUnitCountInput(String(selectedSettleIds.size));
+    setSettleCommissionUsdInput("");
+    setSettleCommissionLbpInput("");
     setShowSettleConfirm(true);
   };
 
   const handleBatchSettle = async () => {
     if (!selectedSupplierId || selectedSettleIds.size === 0) return;
+    if (isMixedModelBatch) return;
     const activeLines = settlePaymentLines.filter((p) => p.amount > 0);
     setSettleSubmitting(true);
     try {
@@ -676,13 +777,35 @@ export default function SuppliersPage() {
       // through the payment-method legs the admin picks below (activeLines),
       // matching recordSupplierCashflow's own contract. A $0 net (settleNetPayUsd
       // === 0) needs no legs at all.
+      //
+      // NEW-MODEL batch (D8): commission_usd/commission_lbp become the
+      // MONEY-BEARING entered figures (settleEnteredCommission*), plus the
+      // entry_mode/rate/count audit snapshot the operator actually used.
+      // LEGACY batch: byte-for-byte the pre-existing payload — informational
+      // commission_usd only, no D8 fields at all.
       const result = await settleTransactions.mutateAsync({
         supplier_id: selectedSupplierId,
         financial_service_ids: [...selectedSettleIds],
         amount_usd: settleNetPayUsd,
         amount_lbp: 0,
-        commission_usd: settleCommissionUsd,
-        commission_lbp: 0,
+        ...(isNewModelBatch
+          ? {
+              commission_usd: settleEnteredCommissionUsd,
+              commission_lbp: settleEnteredCommissionLbp,
+              entry_mode: settleEntryMode,
+              ...(settleEntryMode === "RATE"
+                ? {
+                    commission_rate:
+                      parseFloat(settleRateInput.replace(/,/g, "")) || 0,
+                    commission_unit_count:
+                      parseInt(settleUnitCountInput.replace(/,/g, ""), 10) || 0,
+                  }
+                : {}),
+            }
+          : {
+              commission_usd: settleCommissionUsd,
+              commission_lbp: 0,
+            }),
         ...(trimmedNote
           ? { note: trimmedNote }
           : { note: `Settlement: ${selectedSettleIds.size} txns` }),
@@ -1101,7 +1224,14 @@ export default function SuppliersPage() {
                       </label>
                       <button
                         onClick={handleOpenSettleConfirm}
-                        disabled={selectedSettleIds.size === 0}
+                        disabled={
+                          selectedSettleIds.size === 0 || isMixedModelBatch
+                        }
+                        title={
+                          isMixedModelBatch
+                            ? "Selection mixes legacy and new-model commission transactions — settle them in separate batches"
+                            : undefined
+                        }
                         className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium"
                       >
                         Settle
@@ -1110,6 +1240,19 @@ export default function SuppliersPage() {
                           : ""}
                       </button>
                     </div>
+                    {/* D4 — mixed-model selection explanation. The backend
+                        hard-rejects this batch (_resolveSettlementBatchModel)
+                        because entering one commission figure across rows
+                        whose payable was computed two different ways
+                        (embedded vs at-settlement) would double-net the
+                        legacy rows' already-embedded cut. */}
+                    {isMixedModelBatch && (
+                      <div className="px-3 py-2 bg-amber-900/30 border-t border-amber-700/40 text-xs text-amber-300">
+                        This selection mixes legacy and new-model commission
+                        transactions — they can&apos;t be settled in one batch.
+                        Deselect one group and settle it separately.
+                      </div>
+                    )}
                     {unsettledQuery.isLoading ? (
                       <div className="text-slate-400 text-xs py-4 text-center">
                         Loading pending transactions…
@@ -1138,15 +1281,25 @@ export default function SuppliersPage() {
                               className="w-4 h-4 rounded border-slate-600 bg-slate-900 shrink-0"
                             />
                             <span className="flex-1 text-slate-300">
-                              {t.omt_service_type || t.service_type}
+                              {t.service_type === "BILL"
+                                ? "Bill"
+                                : t.omt_service_type || t.service_type}
                             </span>
                             <span className="font-mono text-white">
-                              ${Math.abs(t.amount).toFixed(2)}
+                              {t.currency === "LBP"
+                                ? `${Math.round(Math.abs(t.amount)).toLocaleString()} LBP`
+                                : `$${Math.abs(t.amount).toFixed(2)}`}
                             </span>
                             <span className="font-mono text-emerald-400 w-20 text-right">
-                              {t.commission > 0
-                                ? `+$${t.commission.toFixed(4)}`
-                                : "—"}
+                              {t.service_type === "BILL" ? (
+                                // Commission is entered AT settlement (D8) —
+                                // no per-row commission to show for a bill.
+                                <span className="text-slate-600">—</span>
+                              ) : t.commission > 0 ? (
+                                `+$${t.commission.toFixed(4)}`
+                              ) : (
+                                "—"
+                              )}
                             </span>
                             <span className="text-slate-500 w-36 text-right">
                               {parseDbDate(t.created_at).toLocaleString()}
@@ -1155,11 +1308,20 @@ export default function SuppliersPage() {
                         ))}
                       </div>
                     )}
-                    {selectedSettleIds.size > 0 && (
+                    {selectedSettleIds.size > 0 && !isMixedModelBatch && (
                       <div className="flex items-center justify-between px-3 py-2 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
                         <span>
-                          Owed ${settleTotalOwedUsd.toFixed(2)} − commission $
-                          {settleCommissionUsd.toFixed(4)}
+                          {isNewModelBatch ? (
+                            <>
+                              Owed ${settleTotalOwedUsd.toFixed(2)} − commission
+                              (entered below)
+                            </>
+                          ) : (
+                            <>
+                              Owed ${settleTotalOwedUsd.toFixed(2)} − commission
+                              ${settleCommissionUsd.toFixed(4)}
+                            </>
+                          )}
                         </span>
                         <span className="font-mono font-bold text-white">
                           Net you pay: ${settleNetPayUsd.toFixed(2)}
@@ -1744,19 +1906,157 @@ export default function SuppliersPage() {
           confirmColor="blue"
           isSubmitting={settleSubmitting}
           beforeContent={
-            <div className="bg-slate-800 rounded-xl p-4 space-y-2 text-sm">
+            <div className="bg-slate-800 rounded-xl p-4 space-y-3 text-sm">
               <div className="flex justify-between text-slate-300">
                 <span>Total owed to {selectedSupplier.name} (fee-net):</span>
                 <span className="font-mono font-bold text-white">
                   ${settleTotalOwedUsd.toFixed(2)}
                 </span>
               </div>
-              <div className="flex justify-between text-slate-300">
-                <span>Your commission (already netted out):</span>
-                <span className="font-mono text-emerald-400">
-                  ${settleCommissionUsd.toFixed(4)}
-                </span>
-              </div>
+
+              {isNewModelBatch ? (
+                <>
+                  {/* D8 — NEW-MODEL batch: commission is ENTERED here, not
+                      derived. LUMP = one total per currency; RATE = rate ×
+                      count (the operator's own supplier tariff), pre-selected
+                      from the supplier's saved preference. */}
+                  <div className="flex gap-2">
+                    {(["LUMP", "RATE"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setSettleEntryMode(mode)}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          settleEntryMode === mode
+                            ? "bg-emerald-600 text-white"
+                            : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                        }`}
+                      >
+                        {mode === "LUMP" ? "Lump sum" : "Rate × count"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {settleEntryMode === "LUMP" ? (
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                          Commission (USD)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={settleCommissionUsdInput}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/,/g, "");
+                            if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                              setSettleCommissionUsdInput(raw);
+                            }
+                          }}
+                          placeholder="0.00"
+                          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                          Commission (LBP)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={settleCommissionLbpInput}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/,/g, "");
+                            if (raw === "" || /^\d+$/.test(raw)) {
+                              setSettleCommissionLbpInput(raw);
+                            }
+                          }}
+                          placeholder="0"
+                          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                            Rate per unit
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={settleRateInput}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/,/g, "");
+                              if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                                setSettleRateInput(raw);
+                              }
+                            }}
+                            placeholder="0"
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                            Currency
+                          </label>
+                          <div className="flex gap-1">
+                            {(["USD", "LBP"] as const).map((c) => (
+                              <button
+                                key={c}
+                                type="button"
+                                onClick={() => setSettleRateCurrency(c)}
+                                className={`px-3 py-2 rounded-lg text-sm font-medium border ${
+                                  settleRateCurrency === c
+                                    ? "bg-emerald-900/40 border-emerald-600 text-emerald-200"
+                                    : "bg-slate-900 border-slate-600 text-slate-400 hover:text-white"
+                                }`}
+                              >
+                                {c}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="w-20">
+                          <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                            Count
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={settleUnitCountInput}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/,/g, "");
+                              if (raw === "" || /^\d+$/.test(raw)) {
+                                setSettleUnitCountInput(raw);
+                              }
+                            }}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+                      <div className="text-[11px] text-slate-500 text-right">
+                        {settleRateInput || "0"} {settleRateCurrency} ×{" "}
+                        {settleUnitCountInput || "0"} ={" "}
+                        <span className="text-emerald-400 font-mono">
+                          {settleRateCurrency === "USD"
+                            ? `$${settleEnteredCommissionUsd.toFixed(2)}`
+                            : `${Math.round(settleEnteredCommissionLbp).toLocaleString()} LBP`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex justify-between text-slate-300">
+                  <span>Your commission (already netted out):</span>
+                  <span className="font-mono text-emerald-400">
+                    ${settleCommissionUsd.toFixed(4)}
+                  </span>
+                </div>
+              )}
+
               <div className="h-px bg-slate-600" />
               <div className="flex justify-between font-bold">
                 <span className="text-white">

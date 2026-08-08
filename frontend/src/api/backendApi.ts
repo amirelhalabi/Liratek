@@ -1656,6 +1656,12 @@ export async function settleTransactions(data: {
   amount_lbp: number;
   commission_usd: number;
   commission_lbp: number;
+  // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — entry mode + audit snapshot of the
+  // rate/count used for a new-model (commission_model=1) batch. Ignored for
+  // a legacy batch.
+  entry_mode?: "LUMP" | "RATE";
+  commission_rate?: number;
+  commission_unit_count?: number;
   /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
   drawer_name?: string;
   note?: string;

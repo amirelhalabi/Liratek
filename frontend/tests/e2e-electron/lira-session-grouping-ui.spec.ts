@@ -218,12 +218,7 @@ test.describe("Session grouping UI — per-session border accent (WS8)", () => {
     const startedDark = await isDark();
 
     const [sBefore, lBefore] = startedDark ? [78, 62] : [72, 42];
-    const expectedBefore = await resolvedColor(
-      appPage,
-      hue,
-      sBefore,
-      lBefore,
-    );
+    const expectedBefore = await resolvedColor(appPage, hue, sBefore, lBefore);
     expect(await borderLeftColorOf(rowA)).toBe(expectedBefore);
     expect(await borderLeftColorOf(rowB)).toBe(expectedBefore);
 

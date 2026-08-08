@@ -7956,6 +7956,143 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 150,
+    name: "commission_at_settlement_foundation",
+    description:
+      "COMMISSION_AT_SETTLEMENT_PLAN.md Phase 0 (D2/D3/D5/D6/D8): lays the shared machinery for entering supplier commission AT SETTLEMENT instead of guessing it at transaction time. Adds financial_services.commission_model as the per-row cutover flag (D3, precedent: v115 supplier_debt_booked) — 0 = EMBEDDED (the pre-existing guess-at-creation model; every pre-existing row reads 0 unchanged after this ALTER), 1 = AT_SETTLEMENT (stamped by the insert path only for BILL rows — Phase 1's actual scope; OMT/WHISH stay 0 until Phase 2's gross-payable flip ships, since their supplier_owed is still commission-netted at creation and stamping them 1 early would double-subtract the commission at settlement). A per-row flag beats a date/version cutoff because this is a multi-tenant single DB with backdated rows, and reversal must branch per row. Adds supplier_settlements (D5: real commission storage per settlement batch — gross/commission per currency, entry_mode LUMP/RATE, rate, unit_count, model, uniquely linked to the settlement's own supplier_ledger SETTLEMENT row via ledger_entry_id so a settlement's commission entry is found by ID, never by time proximity — the LIRA-085 lesson) and settlement_commission_allocations (D6: one row per settled financial_services row, per-currency share — chosen over stamp-back, which mutates posted rows and retroactively rewrites closed-period reports, and over pure query-time derivation, which can't give FOR-partner rows a frozen, independently-gated per-row record). Adds suppliers.commission_entry_mode/commission_rate (D8: per-supplier entry-mode preference, pre-selected at settlement time; the settlement itself snapshots the actually-used mode/rate/count onto supplier_settlements rather than relying on shared UI state, which isn't shared across the desktop/web transports per CLAUDE.md rule 19). Fresh installs (create_db.sql) also declare commission_model DEFAULT 0 — the safe/legacy value; only the repository's explicit BILL-gated stamp ever writes 1.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Defensive against a suppliers-less / financial_services-less DB —
+      // same reasoning as v149's `hasRecharges` guard (see this migration's
+      // down() for the full explanation): a synthetic test-harness scenario
+      // marks every OTHER migration applied on a minimal fixture schema and
+      // replays every pending migration through the real runner, this one
+      // included. A real upgrading install always has both tables
+      // (financial_services since v1, suppliers since v11) long before v150,
+      // so this guard never fires there.
+      const hasSuppliers = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'suppliers'`,
+        )
+        .get();
+      const hasFinancialServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'financial_services'`,
+        )
+        .get();
+      if (!hasSuppliers || !hasFinancialServices) {
+        console.log(
+          "Migration v150 skipped: 'suppliers' or 'financial_services' table not present",
+        );
+        return;
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS supplier_settlements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+          ledger_entry_id INTEGER NOT NULL UNIQUE REFERENCES supplier_ledger(id) ON DELETE CASCADE,
+          gross_usd REAL NOT NULL DEFAULT 0,
+          gross_lbp REAL NOT NULL DEFAULT 0,
+          commission_usd REAL NOT NULL DEFAULT 0,
+          commission_lbp REAL NOT NULL DEFAULT 0,
+          entry_mode TEXT NOT NULL DEFAULT 'LUMP' CHECK(entry_mode IN ('LUMP', 'RATE')),
+          rate REAL,
+          unit_count INTEGER,
+          model INTEGER NOT NULL CHECK(model IN (0, 1)),
+          created_by INTEGER REFERENCES users(id),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_settlements_supplier_id
+          ON supplier_settlements(supplier_id);
+        CREATE INDEX IF NOT EXISTS idx_supplier_settlements_tenant_id
+          ON supplier_settlements(tenant_id);
+
+        CREATE TABLE IF NOT EXISTS settlement_commission_allocations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id INTEGER REFERENCES tenants(id),
+          settlement_ledger_id INTEGER NOT NULL REFERENCES supplier_ledger(id) ON DELETE CASCADE,
+          financial_service_id INTEGER NOT NULL REFERENCES financial_services(id) ON DELETE CASCADE,
+          service_type TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          commission_usd REAL NOT NULL DEFAULT 0,
+          commission_lbp REAL NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sca_settlement_ledger_id
+          ON settlement_commission_allocations(settlement_ledger_id);
+        CREATE INDEX IF NOT EXISTS idx_sca_financial_service_id
+          ON settlement_commission_allocations(financial_service_id);
+        CREATE INDEX IF NOT EXISTS idx_sca_tenant_id
+          ON settlement_commission_allocations(tenant_id);
+
+        ALTER TABLE financial_services
+          ADD COLUMN commission_model INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE suppliers
+          ADD COLUMN commission_entry_mode TEXT CHECK(commission_entry_mode IN ('LUMP', 'RATE')) DEFAULT 'LUMP';
+        ALTER TABLE suppliers
+          ADD COLUMN commission_rate REAL;
+      `);
+
+      console.log(
+        "Migration v150: supplier_settlements + settlement_commission_allocations created; " +
+          "financial_services.commission_model (default 0, existing rows unaffected) + " +
+          "suppliers.commission_entry_mode/commission_rate added",
+      );
+    },
+    down(db: Database.Database) {
+      // Defensive against a suppliers-less / financial_services-less DB —
+      // same reasoning as v149's `hasRecharges` guard: a synthetic
+      // test-harness scenario (`telecomDaysCostMigrationsViaRunner.test.ts`'s
+      // `markAppliedExcept`) marks every OTHER migration applied on a minimal
+      // fixture schema and rolls back EVERY migration above its target
+      // through this exact rollbackTo() path, this one included, even though
+      // this migration's own up() never really ran there. A real upgrading
+      // install always has both tables (financial_services since v1,
+      // suppliers since v11) long before v150, so these guards never fire
+      // there.
+      const hasSuppliers = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'suppliers'`,
+        )
+        .get();
+      if (hasSuppliers) {
+        db.exec(`
+          ALTER TABLE suppliers DROP COLUMN commission_rate;
+          ALTER TABLE suppliers DROP COLUMN commission_entry_mode;
+        `);
+      }
+
+      const hasFinancialServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'financial_services'`,
+        )
+        .get();
+      if (hasFinancialServices) {
+        db.exec(`ALTER TABLE financial_services DROP COLUMN commission_model;`);
+      }
+
+      db.exec(`
+        DROP TABLE IF EXISTS settlement_commission_allocations;
+        DROP TABLE IF EXISTS supplier_settlements;
+      `);
+
+      console.log(
+        "Migration v150 rolled back: supplier_settlements + settlement_commission_allocations dropped; " +
+          "commission_model/commission_entry_mode/commission_rate columns dropped" +
+          (hasSuppliers && hasFinancialServices
+            ? ""
+            : " (some columns skipped — parent table absent in this DB)"),
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

@@ -38,6 +38,7 @@ import {
 import { getPaymentMethodRepository } from "./PaymentMethodRepository.js";
 import { getCarrierLineMovementRepository } from "./CarrierLineMovementRepository.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
+import { isPendingSupplierSettlement } from "./FinancialServiceRepository.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -2605,14 +2606,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    *    metadata id list — only `settlement_id` proves a row STILL belongs
    *    to exactly this settlement at reversal time). `settlement_id` always
    *    clears to NULL. `is_settled` only resets to 0 (with `settled_at`
-   *    cleared) for rows where `provider IN ('OMT','WHISH') AND commission >
-   *    0` — the EXACT `isPendingSettlement` condition
-   *    `FinancialServiceRepository.createTransaction` used to decide
-   *    `is_settled = 0` at creation (see that method's "NOTE on is_settled
-   *    vs settlement_id" doc comment). Every other row (cost/price-flow SEND,
-   *    iPick/Katsh, commission = 0) was ALREADY `is_settled = 1` before this
-   *    settlement, independent of `settlement_id` — resetting it would
-   *    un-realize profit this settlement never gated in the first place.
+   *    cleared) for rows where `isPendingSupplierSettlement` (D2, the ONE
+   *    shared predicate — `FinancialServiceRepository.ts`) is true — the
+   *    EXACT condition `FinancialServiceRepository.createTransaction` used
+   *    to decide `is_settled = 0` at creation (see that method's "NOTE on
+   *    is_settled vs settlement_id" doc comment; COMMISSION_AT_SETTLEMENT_
+   *    PLAN.md §3/Phase 0 — this branches on `commission_model` per row
+   *    instead of `commission > 0`, so new-model rows born with
+   *    commission = 0 still reverse correctly). Every other row (legacy
+   *    cost/price-flow SEND, commission_model = 0 rows with commission = 0)
+   *    was ALREADY `is_settled = 1` before this settlement, independent of
+   *    `settlement_id` — resetting it would un-realize profit this
+   *    settlement never gated in the first place.
    *
    * The SETTLEMENT ledger row itself soft-voids for free via the generic
    * `_markSourceRefunded('supplier_ledger', original.source_id)` step that
@@ -2633,6 +2638,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * voided/refunded while `settlement_id` stays stamped — once this method
    * clears it, those rows become correctable again too, by design (no new
    * guard needed for that direction).
+   *
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6 (Phase 0) — a NEW-MODEL
+   * (`commission_model` = 1) settlement DOES fund a real commission credit
+   * again (`SUPPLIER_PAYS_US`, `SupplierRepository._bookCommissionAtSettlement`)
+   * — the fee-only-model paragraph above is about the OLD embedded-commission
+   * float, unrelated to this. That credit row is soft-voided for FREE by
+   * step 5c's existing LIRA-091 sibling cascade (linked via the SAME
+   * `source_ref_table`/`source_ref_id` shape as every other auto supplier
+   * sibling); this method additionally deletes the settlement's
+   * `supplier_settlements` + `settlement_commission_allocations` rows
+   * (`_reverseCommissionAtSettlementRecords` — no soft-void column exists on
+   * either table, so DELETE is the correct reversal, not a compensating row).
    */
   private _reverseSupplierSettlement(
     original: TransactionEntity,
@@ -2651,16 +2668,22 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const settled = this.query<{
       id: number;
       provider: string;
+      service_type: string;
       commission: number;
+      commission_model: number;
     }>(
-      `SELECT id, provider, commission FROM financial_services
+      `SELECT id, provider, service_type, commission, commission_model FROM financial_services
        WHERE settlement_id = ? AND tenant_id = ?`,
       original.source_id,
       tenantId,
     );
     for (const fs of settled) {
-      const wasPendingSettlement =
-        (fs.provider === "OMT" || fs.provider === "WHISH") && fs.commission > 0;
+      // COMMISSION_AT_SETTLEMENT_PLAN.md D2 — branch on the ONE shared
+      // pending-settlement predicate (isPendingSupplierSettlement), not on
+      // `commission > 0` directly. See its doc comment
+      // (FinancialServiceRepository.ts) for why the old inline condition
+      // breaks for new-model rows.
+      const wasPendingSettlement = isPendingSupplierSettlement(fs);
       if (wasPendingSettlement) {
         this.execute(
           `UPDATE financial_services SET settlement_id = NULL, is_settled = 0, settled_at = NULL
@@ -2676,6 +2699,64 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           tenantId,
         );
       }
+    }
+
+    // COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6, rule 20 — the commission
+    // credit ledger row itself (SUPPLIER_PAYS_US) is already soft-voided for
+    // FREE by step 5c's generic LIRA-091 sibling cascade
+    // (`_cascadeSupplierSiblingVoid`, which runs BEFORE this method and is
+    // keyed off THIS exact `source_table`/`source_id` — the shape
+    // `SupplierRepository._bookCommissionAtSettlement` links it with). What
+    // remains: the derived audit/reporting records this settlement wrote for
+    // a new-model batch.
+    this._reverseCommissionAtSettlementRecords(original.source_id, tenantId);
+  }
+
+  /**
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6, rule 20 — `supplier_settlements`
+   * and `settlement_commission_allocations` have no soft-void column of
+   * their own (unlike `supplier_ledger`'s `is_refunded`) — they are pure
+   * derived/reporting records with no independent existence once their
+   * settlement is voided, so the correct reversal is to DELETE them (not a
+   * compensating row, not a flag). The permanent audit trail for "a
+   * settlement happened and was voided" lives entirely on the
+   * `supplier_ledger` rows (the SETTLEMENT row + the commission credit),
+   * which stay forever with `is_refunded = 1` — this method never touches
+   * them.
+   *
+   * Defensive against a pre-v150 connected schema (no such tables at all —
+   * same schema-drift-guard shape as every other one in this file): a
+   * no-op, which is exactly correct — a settlement on such a schema could
+   * never have written to these tables in the first place.
+   */
+  private _reverseCommissionAtSettlementRecords(
+    settlementLedgerId: number,
+    tenantId: number,
+  ): void {
+    const hasAllocationsTable = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settlement_commission_allocations'`,
+      )
+      .get();
+    if (hasAllocationsTable) {
+      this.execute(
+        `DELETE FROM settlement_commission_allocations WHERE settlement_ledger_id = ? AND tenant_id = ?`,
+        settlementLedgerId,
+        tenantId,
+      );
+    }
+
+    const hasSettlementsTable = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplier_settlements'`,
+      )
+      .get();
+    if (hasSettlementsTable) {
+      this.execute(
+        `DELETE FROM supplier_settlements WHERE ledger_entry_id = ? AND tenant_id = ?`,
+        settlementLedgerId,
+        tenantId,
+      );
     }
   }
 

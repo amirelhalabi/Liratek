@@ -1,6 +1,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getFinancialServiceRepository } from "./FinancialServiceRepository.js";
 import {
   TRANSACTION_TYPES,
   type TransactionType,
@@ -18,6 +19,7 @@ import { getSettingsService } from "../services/SettingsService.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { buildCounterpartyMetadata } from "../validators/counterparty.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
+import { allocateProportional } from "../utils/largestRemainder.js";
 import {
   applyDrawerDelta,
   insertPaymentRow,
@@ -35,6 +37,15 @@ export interface SupplierEntity {
   provider: string | null;
   is_system: number;
   created_at: string;
+  /**
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D8 — per-supplier entry-mode
+   * preference for a NEW-MODEL settlement batch: pre-selects the
+   * Settlement UI's LUMP/RATE toggle. Null on schemas older than v150
+   * (COALESCE'd to 'LUMP' in getColumns()).
+   */
+  commission_entry_mode: "LUMP" | "RATE";
+  /** D8 — the per-unit rate used to pre-fill RATE-mode entry. Null until set. */
+  commission_rate: number | null;
 }
 
 export type SupplierLedgerEntryType =
@@ -95,7 +106,10 @@ export interface SettleTransactionsData {
   /** IDs from financial_services to mark as settled */
   financial_service_ids: number[];
   /**
-   * Net amount paid to the supplier. Under the Primary Cash Drawer model
+   * Net amount paid to the supplier.
+   *
+   * LEGACY batches (every selected row's `commission_model` = 0, EMBEDDED —
+   * byte-for-byte unchanged): under the Primary Cash Drawer model
    * (docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md §8.3 — supersedes PR
    * #66's float-model fee-only booking), `financial_services.supplier_owed`
    * / `supplier_ledger` TOP_UP rows are booked GROSS — principal + fee −
@@ -105,27 +119,63 @@ export interface SettleTransactionsData {
    * `commission_usd`/`commission_lbp` below — the shop's cut is already
    * embedded in the gross figure (it nets out to the shop's cut over a
    * SEND+RECEIVE cycle), and subtracting it again double-nets the shop's cut
-   * out of the payment (the caller's own bug this settlement redesign
-   * fixes; see Suppliers/index.tsx).
+   * out of the payment.
+   *
+   * NEW-MODEL batches (every selected row's `commission_model` = 1,
+   * AT_SETTLEMENT — COMMISSION_AT_SETTLEMENT_PLAN.md D1-D9): `supplier_owed`
+   * for these rows is NOT commission-adjusted (the commission is entered
+   * HERE, not guessed at creation) — the caller (settlement UI) is expected
+   * to compute this figure as `gross owed − commission_usd/commission_lbp`
+   * (net pay). The repository trusts this figure for the money that actually
+   * moves (the SETTLEMENT ledger row + `payments[]`) exactly like the legacy
+   * path — what's NEW is that `settleTransactions` additionally books the
+   * entered commission as its own real ledger event (see
+   * `commission_usd`/`commission_lbp` below) and a `supplier_settlements` +
+   * `settlement_commission_allocations` audit/reporting record (D5/D6).
    */
   amount_usd: number;
   amount_lbp: number;
   /**
-   * Total commission this batch represents — INFORMATIONAL ONLY (audit/
-   * display), stamped onto the settlement transaction's metadata. It has NO
-   * drawer or ledger effect: under the GROSS model (plan §8.3) the shop's
-   * cut is already embedded in `amount_usd`/`amount_lbp` (and in the TOP_UP
-   * rows being settled) via `grossOwedDelta`, so there is nothing left to
-   * "fund" or "realize" here — the commission simply stays behind in
-   * whichever drawer took the original transaction's cash (the primary cash
-   * drawer, PCD, for the shop's primary provider) as the difference between
-   * what the customer paid (fee f) and what gets remitted to the provider
-   * (f − c). This field drives NO separate `drawer += commission` pair or
-   * `SUPPLIER_PAYS_US` ledger row — that would double-count money already
+   * Total commission this batch represents.
+   *
+   * LEGACY batches: INFORMATIONAL ONLY (audit/display), stamped onto the
+   * settlement transaction's metadata. It has NO drawer or ledger effect:
+   * under the GROSS model (plan §8.3) the shop's cut is already embedded in
+   * `amount_usd`/`amount_lbp` (and in the TOP_UP rows being settled) via
+   * `grossOwedDelta`, so there is nothing left to "fund" or "realize" here —
+   * the commission simply stays behind in whichever drawer took the
+   * original transaction's cash (the primary cash drawer, PCD, for the
+   * shop's primary provider) as the difference between what the customer
+   * paid (fee f) and what gets remitted to the provider (f − c). This field
+   * drives NO separate `drawer += commission` pair or `SUPPLIER_PAYS_US`
+   * ledger row for a legacy batch — that would double-count money already
    * reflected in the gross TOP_UP/SETTLEMENT pair.
+   *
+   * NEW-MODEL batches: MONEY-BEARING. `settleTransactions` books this exact
+   * total as a `SUPPLIER_PAYS_US` supplier_ledger credit (negative = the
+   * supplier owes the shop; is_auto, linked to this settlement's own ledger
+   * row — never by time proximity, the LIRA-085 lesson), splits it across
+   * the settled rows via largest-remainder proportional allocation
+   * (`settlement_commission_allocations`, D6 — Σ = this figure exactly, per
+   * currency), and snapshots the batch total onto `supplier_settlements`
+   * (D5). See `entry_mode`/`commission_rate`/`commission_unit_count` below
+   * for how the operator arrived at this number (RATE mode) — this field
+   * always carries the FINAL money amount regardless of entry mode.
    */
   commission_usd: number;
   commission_lbp: number;
+  /**
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D8 — how the operator entered
+   * `commission_usd`/`commission_lbp` for a NEW-MODEL batch: 'LUMP' (a
+   * single total for the whole batch) or 'RATE' (`commission_rate` ×
+   * `commission_unit_count`). Snapshotted verbatim onto `supplier_settlements`
+   * for audit — ignored for LEGACY batches. Defaults to 'LUMP' when omitted.
+   */
+  entry_mode?: "LUMP" | "RATE";
+  /** RATE mode only — the per-unit rate the operator entered (audit snapshot; see `entry_mode`). */
+  commission_rate?: number;
+  /** RATE mode only — the unit count (e.g. bill/transaction count) the operator entered (audit snapshot; see `entry_mode`). */
+  commission_unit_count?: number;
   /**
    * @deprecated No longer used to move money. `OMT_System`/`Whish_System` IS
    * the shop's real physical cash drawer at the money-transfer counter (plan
@@ -144,9 +194,27 @@ export interface SettleTransactionsData {
    * General, wallet methods → their own drawer, …) — REQUIRED whenever
    * `amount_usd`/`amount_lbp` is nonzero (mirrors `recordSupplierCashflow`'s
    * own `payments` requirement). A settlement that nets to $0 (commission
-   * alone offsets what's owed) needs no legs.
+   * alone offsets what's owed, or a bills-only batch whose principal never
+   * touched the ledger — COMMISSION_AT_SETTLEMENT_PLAN.md's "bills
+   * settlement note") needs no legs.
    */
   payments?: Array<{ method: string; currency_code: string; amount: number }>;
+}
+
+/**
+ * COMMISSION_AT_SETTLEMENT_PLAN.md D2/D3/D4 — one `financial_services` row
+ * still eligible to be settled (id exists, tenant-scoped, `settlement_id IS
+ * NULL` — the exact predicate `settleTransactions`' own UPDATE applies),
+ * carrying just enough to derive the batch's commission model and, for a
+ * new-model batch, to write its `settlement_commission_allocations` row.
+ */
+interface EligibleSettlementRow {
+  id: number;
+  provider: string;
+  service_type: string;
+  commission: number;
+  commission_model: number;
+  currency: string;
 }
 
 /**
@@ -244,9 +312,43 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     super("suppliers", { softDelete: false });
   }
 
+  /**
+   * True when the connected `suppliers` table already carries the v150 D8
+   * `commission_entry_mode`/`commission_rate` columns. Same schema-drift-
+   * guard shape as `_supplierLedgerHasSourceRefColumns` (checked once per
+   * call — PRAGMA is cheap, this is not a hot path — rather than cached):
+   * dozens of `packages/core` jest fixtures hand-roll a `suppliers` table
+   * that predates this migration, and `getColumns()`'s SELECT would throw
+   * `no such column` on every one of them if it referenced the columns
+   * unconditionally.
+   */
+  private _suppliersHasCommissionPrefColumns(): boolean {
+    const cols = this.db.prepare(`PRAGMA table_info(suppliers)`).all() as {
+      name: string;
+    }[];
+    return (
+      cols.some((c) => c.name === "commission_entry_mode") &&
+      cols.some((c) => c.name === "commission_rate")
+    );
+  }
+
   // Override getColumns() to use explicit columns instead of SELECT *
+  //
+  // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — reviewer finding #1 (FIX_FIRST):
+  // `commission_entry_mode`/`commission_rate` MUST be selected here —
+  // `SupplierEntity` documents them and every caller (Settlement UI's
+  // LUMP/RATE pre-select, both IPC and REST via this same listSuppliers())
+  // reads them off the row this method shapes. Gated on
+  // `_suppliersHasCommissionPrefColumns()` (not selected unconditionally)
+  // so pre-v150 connected schemas keep working. COALESCE matches the
+  // interface doc's contract for pre-v150 ROWS on an upgraded schema (NULL
+  // preference reads as the 'LUMP' default rather than undefined).
   protected getColumns(): string {
-    return "id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at";
+    const base =
+      "id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at";
+    return this._suppliersHasCommissionPrefColumns()
+      ? `${base}, COALESCE(commission_entry_mode, 'LUMP') AS commission_entry_mode, commission_rate`
+      : base;
   }
 
   listSuppliers(search?: string, includeInactive?: boolean): SupplierEntity[] {
@@ -776,17 +878,34 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    * supplier's settlement is unaffected and keeps its existing drawer
    * (General / the method's own wallet drawer).
    *
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D2/D3/D4/D5/D6 — the batch's commission
+   * MODEL is derived server-side from the selected rows' own
+   * `commission_model` (never trusted from the caller): a batch mixing model
+   * 0 (EMBEDDED, legacy) and model 1 (AT_SETTLEMENT) rows is hard-rejected
+   * (D4) — entering one commission figure across rows whose payable was
+   * computed two different ways would double-net the legacy rows' already-
+   * embedded cut. A LEGACY batch (every row model 0, or the connected schema
+   * predates migration v150) runs byte-for-byte the same steps 1-4 below as
+   * before this plan. A NEW-MODEL batch (every eligible row model 1) runs
+   * steps 1-4 unchanged AND an additional step 5: the real commission record
+   * (D5 `supplier_settlements` + D6 `settlement_commission_allocations`,
+   * largest-remainder proportional split) and the commission credit itself
+   * (a `SUPPLIER_PAYS_US` ledger row).
+   *
    * In a single DB transaction:
    * 1. Insert a SETTLEMENT-typed supplier_ledger entry (negative = shop
    *    paying out `amount_usd`/`amount_lbp`, the gross amount already
    *    owed — nets the ledger to 0 against the TOP_UP rows being settled)
    * 2. Mark all specified financial_services rows as is_settled = 1
    * 3. Create unified transactions row for audit trail (commission stamped
-   *    as informational metadata only — no separate drawer effect)
+   *    as informational metadata only — no separate drawer effect for a
+   *    legacy batch)
    * 4. Debit the net payment through real payment-method legs (`payments[]`,
    *    same mechanism as `recordSupplierCashflow`, resolved through
    *    `resolveServiceCashDrawer`) — never a bare named drawer (see
    *    `SettleTransactionsData.drawer_name`'s deprecation)
+   * 5. NEW-MODEL batches only — book the commission (see
+   *    `_bookCommissionAtSettlement`'s own doc comment)
    */
   settleTransactions(data: SettleTransactionsData): { id: number } {
     if (!data.financial_service_ids.length) {
@@ -799,6 +918,28 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         "Settlement requires at least one payment-method leg to pay the net amount owed",
       );
     }
+    // Reviewer finding #3 (harden) — same throw-before-try tier as the
+    // mixed-model-batch guard below: reject BEFORE any write when the
+    // caller's financial_service_ids don't actually belong to
+    // data.supplier_id. See _verifySupplierOwnership's own doc comment.
+    this._verifySupplierOwnership(
+      data.financial_service_ids,
+      data.supplier_id,
+      getCurrentTenantId(),
+    );
+
+    // COMMISSION_AT_SETTLEMENT_PLAN.md D2/D3/D4 — resolve BEFORE the generic
+    // try/catch below (same tier as the two validations above, deliberately
+    // NOT wrapped into "Failed to settle transactions" — the shared contract
+    // names this exact error string, so a caller pattern-matching on it must
+    // see it verbatim): which of the caller's IDs are still eligible (mirrors
+    // the UPDATE's own WHERE clause exactly) and their shared commission
+    // model. Throws before any write if the batch is mixed.
+    const { model: batchModel, rows: eligibleRows } =
+      this._resolveSettlementBatchModel(
+        data.financial_service_ids,
+        getCurrentTenantId(),
+      );
 
     try {
       const tenantId = getCurrentTenantId();
@@ -889,10 +1030,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           metadata_json: {
             supplier_id: data.supplier_id,
             financial_service_ids: data.financial_service_ids,
-            // Informational only (audit/display) — see doc comment above and
-            // on SettleTransactionsData.commission_usd/commission_lbp.
+            // Informational for a LEGACY batch (audit/display only); for a
+            // NEW-MODEL batch these are the real money-bearing totals also
+            // recorded on supplier_settlements (D5) — see doc comment above
+            // and on SettleTransactionsData.commission_usd/commission_lbp.
             commission_usd: data.commission_usd,
             commission_lbp: data.commission_lbp,
+            // COMMISSION_AT_SETTLEMENT_PLAN.md D3 — which model this batch
+            // settled under (0 = legacy EMBEDDED, 1 = AT_SETTLEMENT); D8 —
+            // how commission_usd/commission_lbp were entered for a
+            // new-model batch. Purely informational (the authoritative
+            // record for a new-model batch is `supplier_settlements`).
+            commission_model: batchModel,
+            entry_mode: data.entry_mode ?? "LUMP",
             // CQ-8 counterparty contract: a settlement pays the supplier's
             // net amount OUT of the drawer.
             counterparty: buildCounterpartyMetadata({
@@ -944,12 +1094,339 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           }
         }
 
+        // ── 5. NEW-MODEL batches only — book the real commission ──────────
+        // (D5/D6 audit/allocation record + the SUPPLIER_PAYS_US commission
+        // credit itself). No-op for a legacy batch or an empty eligible set
+        // (e.g. every selected id was already settled) — see the method's
+        // own doc comment.
+        if (batchModel === 1 && eligibleRows.length > 0) {
+          this._bookCommissionAtSettlement({
+            settlementLedgerId: ledgerEntryId,
+            supplierId: data.supplier_id,
+            rows: eligibleRows,
+            data,
+            tenantId,
+          });
+        }
+
         return { id: ledgerEntryId };
       });
 
       return settle();
     } catch (e) {
       throw new DatabaseError("Failed to settle transactions", { cause: e });
+    }
+  }
+
+  /**
+   * True when the connected schema is FULLY v150-upgraded: `financial_services
+   * .commission_model` AND both `supplier_settlements` and
+   * `settlement_commission_allocations` all exist. Migration v150 adds all
+   * three atomically (§3) — a real, fully-migrated database always has every
+   * one of them together, or none. Checking all three (not just the column)
+   * matters because `commission_model` CAN be stamped 1 on a new
+   * `financial_services` row by `FinancialServiceRepository.createTransaction`
+   * (COMMISSION_AT_SETTLEMENT_PLAN.md §3/Phase 0 — currently only BILL rows;
+   * see that stamp's own comment for why OMT/WHISH stay 0 until Phase 2's
+   * gross flip ships) — including on the dozens of pre-existing
+   * `packages/core` jest fixtures that added the bare column (for that
+   * INSERT to succeed) without also adding the two new tables (their own
+   * tests never write to them). Treating "column present, tables absent" as
+   * legacy — rather than attempting the new booking and throwing
+   * `no such table` — mirrors the same schema-drift-guard shape as
+   * `_supplierLedgerHasSourceRefColumns`: an incomplete v150 upgrade on any
+   * ONE connection means "settle exactly as before this plan", never a
+   * half-written commission record.
+   */
+  private _hasCommissionAtSettlementSchema(): boolean {
+    const tableExists = (name: string): boolean =>
+      !!this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+        )
+        .get(name);
+    const cols = this.db
+      .prepare(`PRAGMA table_info(financial_services)`)
+      .all() as { name: string }[];
+    return (
+      cols.some((c) => c.name === "commission_model") &&
+      tableExists("supplier_settlements") &&
+      tableExists("settlement_commission_allocations")
+    );
+  }
+
+  /**
+   * COMMISSION_AT_SETTLEMENT_PLAN.md reviewer finding #3 (harden) —
+   * `settleTransactions` must never book money against a supplier that
+   * doesn't own the rows being settled. A `financial_services` row has NO
+   * `supplier_id` FK — system suppliers are keyed by their `provider`
+   * string instead (`FinancialServiceRepository.getUnsettledBySupplier
+   * (provider)`; the Settlement UI always fetches unsettled rows by
+   * `selectedSupplier.provider`) — so "belongs to `supplierId`" means "its
+   * own `provider` matches that supplier's `provider`".
+   *
+   * Selects only `id, provider` — columns `financial_services` has had
+   * since before v150 — and looks up the supplier's `provider` with a raw
+   * query rather than `findById()`, so this check runs independently of
+   * `_hasCommissionAtSettlementSchema()` and on every connected schema, not
+   * just a fully-upgraded one. Mirrors the eligibility predicate
+   * (`settlement_id IS NULL` + tenant) so it only ever flags rows the write
+   * transaction would actually touch.
+   *
+   * Throws BEFORE any write — same tier as the mixed-model-batch guard in
+   * `_resolveSettlementBatchModel` — so the message surfaces unwrapped over
+   * IPC instead of being swallowed into "Failed to settle transactions".
+   *
+   * A supplier with no `provider` (a product supplier) can never own a
+   * `financial_services` row (every row's `provider` is a non-null system
+   * string), so every id in that case correctly gets rejected as foreign.
+   */
+  private _verifySupplierOwnership(
+    financialServiceIds: number[],
+    supplierId: number,
+    tenantId: number,
+  ): void {
+    const supplierRow = this.db
+      .prepare(`SELECT provider FROM suppliers WHERE id = ? AND tenant_id = ?`)
+      .get(supplierId, tenantId) as { provider: string | null } | undefined;
+    const supplierProvider = supplierRow?.provider ?? null;
+
+    const placeholders = financialServiceIds.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT id, provider FROM financial_services
+         WHERE id IN (${placeholders}) AND settlement_id IS NULL AND tenant_id = ?`,
+      )
+      .all(...financialServiceIds, tenantId) as {
+      id: number;
+      provider: string;
+    }[];
+
+    const foreign = rows.filter((r) => r.provider !== supplierProvider);
+    if (foreign.length > 0) {
+      throw new DatabaseError(
+        `Cannot settle financial_service_ids [${foreign
+          .map((r) => r.id)
+          .join(", ")}] — they belong to a different supplier than ` +
+          `supplier_id ${supplierId} (provider "${supplierProvider ?? "none"}")`,
+      );
+    }
+  }
+
+  /**
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D2/D3/D4 — read-only, called BEFORE the
+   * write transaction in `settleTransactions` (same pattern as its own
+   * `supplier`/`drawerCtx` resolve): finds which of the caller's
+   * `financial_service_ids` are still eligible to be settled — id exists,
+   * tenant-scoped, `settlement_id IS NULL` — the EXACT predicate the UPDATE
+   * inside the write transaction applies, so `rows` here is always exactly
+   * the set that UPDATE will actually touch — and reads their shared
+   * `commission_model`.
+   *
+   * Hard-rejects (D4) a batch whose eligible rows don't share ONE model —
+   * entering a single commission figure across rows whose payable was
+   * computed two different ways (embedded vs at-settlement) would
+   * double-net the legacy rows' already-embedded cut.
+   *
+   * Returns `{ model: 0, rows: [] }` (the legacy no-op shape) when: the
+   * connected schema isn't fully v150-upgraded
+   * (`_hasCommissionAtSettlementSchema`), or no id in the caller's list is
+   * currently eligible (nothing new to book either way — mirrors the
+   * existing "does NOT re-settle already-settled rows" no-op).
+   */
+  private _resolveSettlementBatchModel(
+    financialServiceIds: number[],
+    tenantId: number,
+  ): { model: 0 | 1; rows: EligibleSettlementRow[] } {
+    if (!this._hasCommissionAtSettlementSchema()) {
+      return { model: 0, rows: [] };
+    }
+    const placeholders = financialServiceIds.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT id, provider, service_type, commission, commission_model, currency
+         FROM financial_services
+         WHERE id IN (${placeholders}) AND settlement_id IS NULL AND tenant_id = ?`,
+      )
+      .all(...financialServiceIds, tenantId) as EligibleSettlementRow[];
+
+    if (rows.length === 0) return { model: 0, rows: [] };
+
+    const distinctModels = new Set(rows.map((r) => r.commission_model));
+    if (distinctModels.size > 1) {
+      throw new DatabaseError(
+        "Cannot settle mixed commission-model transactions in one batch",
+      );
+    }
+    const model: 0 | 1 = rows[0].commission_model === 1 ? 1 : 0;
+    return { model, rows: model === 1 ? rows : [] };
+  }
+
+  /**
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6 — called ONLY for a
+   * `commission_model` = 1 (AT_SETTLEMENT) batch, from inside
+   * `settleTransactions`' own `db.transaction()` (step 5). Books the real
+   * commission this settlement represents:
+   *
+   * 1. `supplier_settlements` (D5) — one row per settlement batch: the
+   *    entered commission total, its per-currency gross (each eligible
+   *    row's own `supplier_owed` — FinancialServiceRepository's
+   *    `SUPPLIER_OWED_EXPR`, read via `findById` so this NEVER re-derives
+   *    that expression, rule 14), the entry mode/rate/unit-count snapshot
+   *    (D8), and the model — uniquely linked to THIS settlement's own
+   *    `supplier_ledger` row via `ledger_entry_id` (never by time
+   *    proximity — the LIRA-085 lesson).
+   * 2. `settlement_commission_allocations` (D6) — one row per eligible
+   *    `financial_services` row, per-currency share of the entered
+   *    commission via largest-remainder proportional allocation
+   *    (`utils/largestRemainder.ts`) so Σ = the entered commission exactly,
+   *    per currency. Weighted by each row's own `supplier_owed` magnitude,
+   *    bucketed by that row's OWN currency; falls back to an EQUAL split
+   *    across every eligible row when a currency's total weight is 0 — the
+   *    plan's "bills settlement note": a bill's principal reaches the
+   *    supplier via the provider-drawer cost leg, never the ledger, so
+   *    every bill row's gross weight is 0 and an equal per-bill split is
+   *    the only sane default.
+   * 3. The commission credit itself — a `SUPPLIER_PAYS_US` supplier_ledger
+   *    row (negative = the supplier owes the shop), `is_auto`, linked to
+   *    THIS settlement's own ledger row via `source_ref_table`/
+   *    `source_ref_id` — the EXACT shape `TransactionRepository`'s existing
+   *    LIRA-091 sibling-void cascade already scans for
+   *    (`_cascadeSupplierSiblingVoid`, keyed off the SUPPLIER_SETTLEMENT
+   *    transaction's own `source_table`/`source_id`, which IS this ledger
+   *    row) — so voiding/refunding the settlement finds and soft-voids this
+   *    row for free; no bespoke reversal code is needed for it. Skipped
+   *    when the entered commission is $0/0 LBP (nothing to credit).
+   */
+  private _bookCommissionAtSettlement(args: {
+    settlementLedgerId: number;
+    supplierId: number;
+    rows: EligibleSettlementRow[];
+    data: SettleTransactionsData;
+    tenantId: number;
+  }): void {
+    const { settlementLedgerId, supplierId, rows, data, tenantId } = args;
+
+    // Gross (supplier_owed) per row, reused verbatim via findById() —
+    // getColumns() already embeds SUPPLIER_OWED_EXPR, so this never
+    // re-derives that CASE expression a second time (rule 14).
+    const grossByRow = new Map<number, { gross: number; currency: string }>();
+    let grossUsd = 0;
+    let grossLbp = 0;
+    for (const row of rows) {
+      const fs = getFinancialServiceRepository().findById(row.id);
+      const gross = fs?.supplier_owed ?? 0;
+      const currency = row.currency === "LBP" ? "LBP" : "USD";
+      grossByRow.set(row.id, { gross, currency });
+      if (currency === "LBP") grossLbp += gross;
+      else grossUsd += gross;
+    }
+
+    // Reviewer finding #2 (PLAUSIBLE, fixed defensively) — each currency
+    // bucket's weight array must be built from ONLY the rows actually
+    // denominated in that currency, not from every eligible row mapped to a
+    // 0 weight when foreign. `allocateProportional`'s equal-weight fallback
+    // triggers whenever ITS OWN weight array sums to 0 and then spreads the
+    // total EQUALLY ACROSS EVERY ROW IN THAT ARRAY — so passing the full
+    // `rows` list (with foreign-currency rows pinned to weight 0) meant a
+    // batch mixing e.g. USD OMT rows with $0-gross LBP BILL rows spread the
+    // LBP commission across the USD rows too the moment the LBP bucket's
+    // real weights were all zero. Filtering to same-currency rows FIRST
+    // means the equal-weight fallback (still needed for the bills
+    // settlement note) only ever spreads across that currency's own rows;
+    // `usdShareById`/`lbpShareById` default to 0 via `?? 0` below for any
+    // row absent from its own currency's map (rows of the OTHER currency),
+    // so no behavior changes for a single-currency batch.
+    const usdRows = rows.filter(
+      (r) => grossByRow.get(r.id)!.currency === "USD",
+    );
+    const lbpRows = rows.filter(
+      (r) => grossByRow.get(r.id)!.currency === "LBP",
+    );
+    const usdWeights = usdRows.map((r) => ({
+      id: r.id,
+      weight: Math.abs(grossByRow.get(r.id)!.gross),
+    }));
+    const lbpWeights = lbpRows.map((r) => ({
+      id: r.id,
+      weight: Math.abs(grossByRow.get(r.id)!.gross),
+    }));
+    const usdShareById = new Map(
+      allocateProportional(usdWeights, data.commission_usd, 0.01).map((s) => [
+        s.id,
+        s.amount,
+      ]),
+    );
+    const lbpShareById = new Map(
+      allocateProportional(lbpWeights, data.commission_lbp, 1).map((s) => [
+        s.id,
+        s.amount,
+      ]),
+    );
+
+    // D5 — the real commission storage for this settlement batch.
+    this.db
+      .prepare(
+        `INSERT INTO supplier_settlements
+           (tenant_id, supplier_id, ledger_entry_id, gross_usd, gross_lbp,
+            commission_usd, commission_lbp, entry_mode, rate, unit_count,
+            model, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))`,
+      )
+      .run(
+        tenantId,
+        supplierId,
+        settlementLedgerId,
+        grossUsd,
+        grossLbp,
+        data.commission_usd,
+        data.commission_lbp,
+        data.entry_mode ?? "LUMP",
+        data.commission_rate ?? null,
+        data.commission_unit_count ?? null,
+        data.created_by,
+      );
+
+    // D6 — one allocation row per settled fs row, per-currency share.
+    const insertAllocation = this.db.prepare(
+      `INSERT INTO settlement_commission_allocations
+         (tenant_id, settlement_ledger_id, financial_service_id, service_type,
+          provider, commission_usd, commission_lbp, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    );
+    for (const row of rows) {
+      insertAllocation.run(
+        tenantId,
+        settlementLedgerId,
+        row.id,
+        row.service_type,
+        row.provider,
+        usdShareById.get(row.id) ?? 0,
+        lbpShareById.get(row.id) ?? 0,
+      );
+    }
+
+    // The commission credit itself — cashless SUPPLIER_PAYS_US row. Skipped
+    // for a $0/0-LBP entered commission (nothing to credit); addLedgerEntry
+    // creates its own separate hidden transaction (no drawer_name/
+    // transaction_id) and, via source_ref_table/source_ref_id, is found for
+    // free by TransactionRepository's existing LIRA-091 sibling-void cascade
+    // on this settlement's own void/refund — see the method's doc comment.
+    if (
+      Math.abs(data.commission_usd) > 0.005 ||
+      Math.abs(data.commission_lbp) > 0.005
+    ) {
+      this.addLedgerEntry({
+        supplier_id: supplierId,
+        entry_type: "SUPPLIER_PAYS_US",
+        amount_usd: -Math.abs(data.commission_usd),
+        amount_lbp: -Math.abs(data.commission_lbp),
+        note: `Auto: commission credit from settlement #${settlementLedgerId}`,
+        created_by: data.created_by,
+        is_auto: true,
+        source_ref_table: "supplier_ledger",
+        source_ref_id: settlementLedgerId,
+      });
     }
   }
 

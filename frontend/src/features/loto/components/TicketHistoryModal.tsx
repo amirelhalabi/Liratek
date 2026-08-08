@@ -89,10 +89,7 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
       setLoading(true);
       // Wide range — client-side DateRangeFilter narrows the visible set,
       // same as the sibling CheckpointHistory.tsx.
-      const result = await api.loto.getByDateRange(
-        "2020-01-01",
-        "2099-12-31",
-      );
+      const result = await api.loto.getByDateRange("2020-01-01", "2099-12-31");
       if (result.success) {
         setTickets((result.tickets as LotoTicketRow[]) ?? []);
       }
@@ -168,7 +165,11 @@ export function TicketHistoryModal({ onClose }: TicketHistoryModalProps) {
           ) : (
             <DataTable<LotoTicketRow>
               columns={[
-                { header: "Date", className: "px-5 py-3", sortKey: "sale_date" },
+                {
+                  header: "Date",
+                  className: "px-5 py-3",
+                  sortKey: "sale_date",
+                },
                 {
                   header: "Ticket #",
                   className: "px-5 py-3",

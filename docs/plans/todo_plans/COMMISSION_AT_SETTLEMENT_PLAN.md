@@ -14,6 +14,7 @@ this repo's plan docs go stale fast.
 ## §0 Scope fence — what moves to settlement time, what must NOT
 
 **IN scope** (supplier-granted commission, currently guessed at transaction time):
+
 - OMT/WHISH system transfers (SEND/RECEIVE) — commission embedded in the payable via
   `grossOwedDelta` / `SUPPLIER_OWED_EXPR` (`FinancialServiceRepository.ts:586-623`).
 - iPick/Katsh BILLs — hardcoded −20,000 LBP `SUPPLIER_PAYS_US` per bill
@@ -21,6 +22,7 @@ this repo's plan docs go stale fast.
 
 **OUT of scope — touching these breaks drawer math** (customer-fee profit realized at
 transaction time, never supplier-settled):
+
 - App-wallet/Binance spread fees (`FinancialServiceRepository.ts:2492-2510`).
 - Non-OMT/WHISH immediate commission drawer inflow, e.g. BOB (`:3125-3142`).
 - FOR-partner app-wallet fees (partner-charged, `:1772-1777`, `:1856-1871`).
@@ -53,7 +55,7 @@ transaction time, never supplier-settled):
    `_reverseSupplierSettlement` (`TransactionRepository.ts:2637-2680`) — the last resets
    is_settled only WHERE `commission > 0` (copy #4 of the marker).
 6. **Profit reads two sources**: `getRealizedCommissionTotals` sums fs.commission;
-   `getFinancialSettledByCurrency` sums stamped t.profit_* — LIRA-108 aligned their gates; any
+   `getFinancialSettledByCurrency` sums stamped t.profit\_\* — LIRA-108 aligned their gates; any
    redesign must keep them consistent or the 18-USD divergence class returns.
 7. **Rule-19 gap found**: `validators/financial.ts:26` serviceType enum is `['SEND','RECEIVE']` —
    **REST rejects every BILL**; bills are desktop-only on the write path. No web spec covers bills.
@@ -62,23 +64,24 @@ transaction time, never supplier-settled):
 
 ## §2 Design decisions
 
-| # | Decision | Rationale |
-|---|---|---|
-| D1 | Payable goes **GROSS**: SEND `+(x+f)`, RECEIVE `−(x−f)`; JS + SQL twin change in lockstep | Owner's core ask; rule 14 lockstep or ledger/projection diverge by exactly c per row |
-| D2 | **One named pending-settlement predicate** replaces all four `commission > 0` copies, keyed on provider/direction + `commission_model` | The marker collapse is the #1 kill risk; rule 14 |
-| D3 | Per-row cutover flag `financial_services.commission_model` (0=EMBEDDED legacy, 1=AT_SETTLEMENT), NOT a date/version cutoff | Multi-tenant single DB; backdated rows; reversal must branch per row. Precedent: `supplier_debt_booked` v115 |
-| D4 | **Mixed-model settle batches are hard-rejected** (one settlement per model) | Entering commission across a mixed batch double-nets legacy rows' embedded c — the exact bug `SupplierRepository.ts:104-109` warns about |
-| D5 | New table `supplier_settlements` (real commission storage: gross, commission per currency, entry_mode LUMP/RATE, rate, unit_count, model, `ledger_entry_id` UNIQUE → supplier_ledger) | Today's metadata_json pair is unqueryable and unmaintained on reversal |
-| D6 | New table `settlement_commission_allocations` (one row per settled fs row, per-currency share, largest-remainder rounding at write so Σ = entered amount exactly) | Chosen over stamp-back (mutates posted rows, retroactively rewrites closed-period reports, violates the additive-only reversal convention) and over pure query-time derivation (FOR-partner rows need a per-row record for `notPartnerPending` to suppress — supplier-settled ≠ partner-settled; frozen audit-stable numbers) |
-| D7 | Commission is recognized in the **settlement's period** (allocation created_at), not the transaction's period | Economically correct for commission-at-settlement; avoids closed-period rewrites |
-| D8 | Per-supplier entry-mode preference: `suppliers.commission_entry_mode` ('LUMP'/'RATE') + `suppliers.commission_rate`; the settlement snapshots the actually-used mode/rate/count onto `supplier_settlements` | Owner: "both, per supplier". Settings table is shop-global; UI state isn't shared across transports (rule 19) |
-| D9 | No commission drawer legs, ever, in this redesign | Drawers are already gross (PCD #68); adding one re-creates the Loto 2×-mint |
+| #   | Decision                                                                                                                                                                                                    | Rationale                                                                                                                                                                                                                                                                                                                     |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Payable goes **GROSS**: SEND `+(x+f)`, RECEIVE `−(x−f)`; JS + SQL twin change in lockstep                                                                                                                   | Owner's core ask; rule 14 lockstep or ledger/projection diverge by exactly c per row                                                                                                                                                                                                                                          |
+| D2  | **One named pending-settlement predicate** replaces all four `commission > 0` copies, keyed on provider/direction + `commission_model`                                                                      | The marker collapse is the #1 kill risk; rule 14                                                                                                                                                                                                                                                                              |
+| D3  | Per-row cutover flag `financial_services.commission_model` (0=EMBEDDED legacy, 1=AT_SETTLEMENT), NOT a date/version cutoff                                                                                  | Multi-tenant single DB; backdated rows; reversal must branch per row. Precedent: `supplier_debt_booked` v115                                                                                                                                                                                                                  |
+| D4  | **Mixed-model settle batches are hard-rejected** (one settlement per model)                                                                                                                                 | Entering commission across a mixed batch double-nets legacy rows' embedded c — the exact bug `SupplierRepository.ts:104-109` warns about                                                                                                                                                                                      |
+| D5  | New table `supplier_settlements` (real commission storage: gross, commission per currency, entry_mode LUMP/RATE, rate, unit_count, model, `ledger_entry_id` UNIQUE → supplier_ledger)                       | Today's metadata_json pair is unqueryable and unmaintained on reversal                                                                                                                                                                                                                                                        |
+| D6  | New table `settlement_commission_allocations` (one row per settled fs row, per-currency share, largest-remainder rounding at write so Σ = entered amount exactly)                                           | Chosen over stamp-back (mutates posted rows, retroactively rewrites closed-period reports, violates the additive-only reversal convention) and over pure query-time derivation (FOR-partner rows need a per-row record for `notPartnerPending` to suppress — supplier-settled ≠ partner-settled; frozen audit-stable numbers) |
+| D7  | Commission is recognized in the **settlement's period** (allocation created_at), not the transaction's period                                                                                               | Economically correct for commission-at-settlement; avoids closed-period rewrites                                                                                                                                                                                                                                              |
+| D8  | Per-supplier entry-mode preference: `suppliers.commission_entry_mode` ('LUMP'/'RATE') + `suppliers.commission_rate`; the settlement snapshots the actually-used mode/rate/count onto `supplier_settlements` | Owner: "both, per supplier". Settings table is shop-global; UI state isn't shared across transports (rule 19)                                                                                                                                                                                                                 |
+| D9  | No commission drawer legs, ever, in this redesign                                                                                                                                                           | Drawers are already gross (PCD #68); adding one re-creates the Loto 2×-mint                                                                                                                                                                                                                                                   |
 
 ---
 
 ## §3 Migration **v150** (verify current head is still v149 before building — `migrations/index.ts:7818`)
 
 Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql` (rule 10):
+
 1. `supplier_settlements` per D5 (id/tenant_id/supplier_id/ledger_entry_id UNIQUE/gross_usd/
    gross_lbp/commission_usd/commission_lbp/entry_mode CHECK/rate/unit_count/model CHECK/
    created_by/created_at/updated_at).
@@ -96,6 +99,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 ## §4 Phases
 
 ### Phase 0 — shared machinery (ships WITH Phase 1, one commit train)
+
 - v150 migration (§3).
 - The ONE pending-settlement predicate (D2) — extracted, then swapped into: creation
   (`FSR:923-928`), settle-tab query (`:3561`), pending summary (`:3643`), reversal
@@ -117,6 +121,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
   commission), per-model batch separation surfaced to the operator.
 
 ### Phase 1 — bills slice (LIRA-089)
+
 - DELETE the per-bill −20,000 booking (`FSR:3184-3203`) for `commission_model=1` rows.
 - Bills join the unsettled queue: new BILL branch in `getUnsettledBySupplier`/
   `getUnsettledSummaryByProvider` (`:3554-3648`) — `settlement_id IS NULL` guard + **bill-count
@@ -132,6 +137,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
   nets correctly → void settlement → everything returns, net 0.
 
 ### Phase 2 — OMT/WHISH transfers (LIRA-095 core)
+
 - D1 gross flip: `grossOwedDelta` + `SUPPLIER_OWED_EXPR` in lockstep; the ~10 pinning tests flip
   in the same change, each failing-first both directions (`OmtSystemFeeCharacterization`,
   `supplierLedgerAmount`, `SupplierRepository.settlement`, `supplierSiblingVoidCascade:378`,
@@ -146,6 +152,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
   supplier settled ≠ partner settled) — the allocations table makes this possible (D6).
 
 ### Phase 3 — Profits/reporting repoint
+
 - UNION old-model (fs.commission WHERE commission_model=0) + new-model (allocations) in ONE named
   fragment each for: `getRealizedCommissionTotals`, `getPendingCommissionTotals` (+ByProvider),
   `getFinancialSettledByCurrency`/`PendingByCurrency`, `getUnsettledSummaryByProvider`
@@ -159,6 +166,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 - Extend the profit-recognition guard to the new allocation queries + ClosingRepository.
 
 ### Phase 4 — proof + docs
+
 - Full e2e both transports for the whole flow; FEATURE_GUIDE §7/§13 + COUNTERPARTY_LEDGERS.md
   updated; stale "fee-only"/"informational commission" comments purged
   (`SupplierRepository.ts:104-128`, `FinancialService.ts:262-268`, `useSuppliers.ts:294-306` —

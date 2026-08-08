@@ -23,7 +23,14 @@ export const createFinancialServiceSchema = z
       "OTHER",
       "BINANCE",
     ]),
-    serviceType: z.enum(["SEND", "RECEIVE"]),
+    // COMMISSION_AT_SETTLEMENT_PLAN.md §1.7 / §4 Phase 1 rule-19 gap: the
+    // electron-app LOCAL FinancialServiceSchema (electron-app/schemas/index.ts)
+    // already accepted 'BILL' — this shared core schema (which
+    // backend/src/api/services.ts's REST route validates against directly,
+    // no local copy) did not, so REST hard-rejected every iPick/Katsh bill;
+    // bills were desktop-IPC-only on the write path. 'BILL' added here to
+    // match the electron schema (rule 14 — one definition, both transports).
+    serviceType: z.enum(["SEND", "RECEIVE", "BILL"]),
     amount: positiveDecimalSchema,
     currency: currencyCodeSchema.default("USD"),
     commission: positiveDecimalSchema.default(0),

@@ -120,7 +120,10 @@ function createTestDb(): Database.Database {
       paid_currency         TEXT DEFAULT NULL,
       partner_id            INTEGER,
       partner_mode          TEXT,
-      supplier_debt_booked  INTEGER NOT NULL DEFAULT 0
+      supplier_debt_booked  INTEGER NOT NULL DEFAULT 0,
+      commission_model      INTEGER NOT NULL DEFAULT 0,
+      is_refunded           INTEGER NOT NULL DEFAULT 0,
+      refunded_at           TEXT
     );
 
     CREATE TABLE transactions (
@@ -545,7 +548,7 @@ describe("Supplier debt reconciliation (C5 prepaid-units)", () => {
 // shop, as a SUPPLIER_PAYS_US ledger entry (negative amount = credit to us). It
 // must NOT book the usual SALE_COST/TOP_UP even though cost/price are supplied
 // (the provider-drawer movement already accounts for the bill amount).
-describe("FinancialServiceRepository — BILL books SUPPLIER_PAYS_US commission (LIRA-062)", () => {
+describe("FinancialServiceRepository — BILL commission booking (LIRA-062, cut over by COMMISSION_AT_SETTLEMENT_PLAN.md Phase 1)", () => {
   let db: Database.Database;
   let repo: FinancialServiceRepository;
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -564,7 +567,21 @@ describe("FinancialServiceRepository — BILL books SUPPLIER_PAYS_US commission 
     db.close();
   });
 
-  it("Katsh BILL writes exactly one SUPPLIER_PAYS_US entry of -20,000 LBP (no SALE_COST)", () => {
+  // Pre-Phase-1 (LIRA-062), every BILL booked a hardcoded −20,000 LBP
+  // SUPPLIER_PAYS_US credit at creation. COMMISSION_AT_SETTLEMENT_PLAN.md
+  // §4 Phase 1 cuts this over: every row `createTransaction` creates is born
+  // `commission_model = 1` (D3) — commission is now entered AT settlement
+  // (`SupplierRepository.settleTransactions`), not guessed/hardcoded at
+  // creation, so this booking site now only fires for `commission_model = 0`
+  // rows (pre-migration legacy data — never produced by this method, kept
+  // structurally for any future replay path per the plan's explicit
+  // instruction "the flag decides, not the date"). Booking the legacy
+  // 20,000 here AND the settlement's entered commission would double the
+  // supplier's credit for the exact same bill — see
+  // FinancialServiceRepository.billsSettlement.test.ts for the full
+  // create → settle → void proof.
+
+  it("a new-model (commission_model=1) Katsh BILL books NO ledger entry at creation — commission is entered at settlement instead", () => {
     const supplierId = seedSupplier(db, "Katsh");
 
     repo.createTransaction({
@@ -578,26 +595,22 @@ describe("FinancialServiceRepository — BILL books SUPPLIER_PAYS_US commission 
       paidByMethod: "CASH",
     });
 
-    // financial_services row is stamped BILL
+    // financial_services row is stamped BILL, commission_model = 1
     const fs = db
       .prepare(
-        "SELECT service_type FROM financial_services WHERE provider = 'Katsh' ORDER BY id DESC LIMIT 1",
+        "SELECT service_type, commission_model FROM financial_services WHERE provider = 'Katsh' ORDER BY id DESC LIMIT 1",
       )
-      .get() as { service_type: string };
+      .get() as { service_type: string; commission_model: number };
     expect(fs.service_type).toBe("BILL");
+    expect(fs.commission_model).toBe(1);
 
-    // The BILL books ONE supplier-ledger entry, and it's the fixed commission.
+    // No SUPPLIER_PAYS_US, no SALE_COST, no TOP_UP — bills join the
+    // unsettled queue instead (D2) and settle like any other pending row.
     const rows = ledgerRows(db, supplierId);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].entry_type).toBe("SUPPLIER_PAYS_US");
-    expect(rows[0].amount_lbp).toBe(-20_000);
-    expect(rows[0].amount_usd).toBe(0);
-    // Never the cost/price SALE_COST or a manual TOP_UP.
-    expect(rows.map((r) => r.entry_type)).not.toContain("SALE_COST");
-    expect(rows.map((r) => r.entry_type)).not.toContain("TOP_UP");
+    expect(rows).toHaveLength(0);
   });
 
-  it("iPick BILL books the same -20,000 LBP SUPPLIER_PAYS_US commission", () => {
+  it("a new-model (commission_model=1) iPick BILL also books NO ledger entry at creation", () => {
     const supplierId = seedSupplier(db, "iPick");
 
     repo.createTransaction({
@@ -612,9 +625,6 @@ describe("FinancialServiceRepository — BILL books SUPPLIER_PAYS_US commission 
     });
 
     const rows = ledgerRows(db, supplierId);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].entry_type).toBe("SUPPLIER_PAYS_US");
-    expect(rows[0].amount_lbp).toBe(-20_000);
-    expect(rows[0].amount_usd).toBe(0);
+    expect(rows).toHaveLength(0);
   });
 });

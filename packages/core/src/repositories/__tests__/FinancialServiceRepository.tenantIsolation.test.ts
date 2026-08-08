@@ -84,7 +84,9 @@ function createTestDb(): Database.Database {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP, created_by INTEGER,
       paid_amount REAL DEFAULT NULL, paid_currency TEXT DEFAULT NULL,
       partner_id INTEGER, partner_mode TEXT,
-      edited_by TEXT DEFAULT NULL, edited_at TEXT DEFAULT NULL
+      edited_by TEXT DEFAULT NULL, edited_at TEXT DEFAULT NULL,
+      commission_model INTEGER NOT NULL DEFAULT 0,
+      is_refunded INTEGER NOT NULL DEFAULT 0, refunded_at TEXT
     );
 
     CREATE TABLE transactions (

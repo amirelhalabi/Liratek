@@ -260,7 +260,8 @@ function buildSchema(db: Database.Database): void {
       created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_by            INTEGER,
       edited_by             TEXT,
-      edited_at             TEXT
+      edited_at             TEXT,
+      commission_model      INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS suppliers (
@@ -1242,7 +1243,7 @@ describe("Post-Refactor Verification", () => {
       expect(row!.commission).toBeGreaterThan(0);
     });
 
-    it("OMT SEND is immediately settled (is_settled=1)", () => {
+    it("OMT SEND with commission > 0 is born pending settlement (is_settled=0) — COMMISSION_AT_SETTLEMENT_PLAN.md D2/D3", () => {
       const service = new FinancialService();
 
       // Fund OMT_System first
@@ -1255,17 +1256,35 @@ describe("Post-Refactor Verification", () => {
         serviceType: "SEND",
         amount: 50,
         currency: "USD",
-        commission: 0, // SEND with no commission is settled immediately
+        commission: 0.5, // nonzero — see comment below for why this matters
         paidByMethod: "CASH",
       });
 
       expect(result.success).toBe(true);
 
       const row = db
-        .prepare("SELECT is_settled FROM financial_services WHERE id = ?")
-        .get(result.id) as { is_settled: number } | undefined;
+        .prepare(
+          "SELECT is_settled, commission_model FROM financial_services WHERE id = ?",
+        )
+        .get(result.id) as
+        | { is_settled: number; commission_model: number }
+        | undefined;
 
-      expect(row!.is_settled).toBe(1);
+      // Post-review correction (2-reviewer FIX_FIRST, critical money bug):
+      // `commission_model` is gated to BILL rows ONLY at creation — an OMT
+      // SEND is born `commission_model = 0` (legacy EMBEDDED), NOT 1
+      // (AT_SETTLEMENT), because Phase 2's gross-payable flip (D1) hasn't
+      // shipped: `grossOwedDelta`/`SUPPLIER_OWED_EXPR` still NET this row's
+      // auto-calculated commission out of `supplier_owed` at creation.
+      // `is_settled = 0` here is achieved via the PRESERVED LEGACY marker
+      // (commission_model = 0 AND provider IN OMT/WHISH AND commission > 0)
+      // — exactly the pre-Phase-0 behavior — which is why this transaction
+      // needs a nonzero commission; a commission = 0 legacy OMT SEND is
+      // born is_settled = 1 (see
+      // FinancialServiceRepository.pendingSettlementPredicate.test.ts's
+      // "legacy OMT SEND with commission = 0 is NOT picked up").
+      expect(row!.commission_model).toBe(0);
+      expect(row!.is_settled).toBe(0);
     });
 
     it("OMT RECEIVE creates a payments journal entry for the cash inflow", () => {

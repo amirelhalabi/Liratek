@@ -133,6 +133,16 @@ export interface FinancialServiceEntity {
    * (a signed negative — reduces what the shop owes), bare amount otherwise.
    */
   supplier_owed: number;
+  /**
+   * COMMISSION_AT_SETTLEMENT_PLAN.md D3 — the per-row cutover flag (0 =
+   * EMBEDDED legacy, 1 = AT_SETTLEMENT). Exposed on read so the Settlement
+   * UI (Suppliers page) can group a selected batch by model client-side and
+   * warn/disable BEFORE hitting `_resolveSettlementBatchModel`'s hard-reject
+   * (D4) — the same real column `settleTransactions` itself branches on,
+   * never re-derived from provider/commission (that was the marker collapse
+   * D2 was written to retire).
+   */
+  commission_model: number;
 }
 
 export interface UnsettledSummary {
@@ -142,6 +152,7 @@ export interface UnsettledSummary {
   pending_commission_lbp: number;
   total_owed_usd: number;
   total_owed_lbp: number;
+  bill_count: number;
 }
 
 /**
@@ -612,15 +623,103 @@ function grossOwedDelta(params: {
 // SQL mirror of grossOwedDelta (see its doc comment for the shared shape
 // this must stay structurally identical to — rule 14: same branch order,
 // same terms, generated from the same WALLET_PROVIDERS_SQL_LIST constant).
+//
+// COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 — the `service_type = 'BILL'`
+// branch below is NEW and deliberately has NO twin in grossOwedDelta: BILL
+// rows never call grossOwedDelta (the write path's BILL branch, above, books
+// its own commission entry directly and never reaches the generic
+// `else`/ledgerAmount site grossOwedDelta feeds) — this WHEN only affects the
+// READ-side `supplier_owed` projection getColumns()/getUnsettledSummaryByProvider
+// expose. Before Phase 1, this branch could never be reached either: a bill
+// was always born `is_settled = 1` (never queried by anything
+// SUPPLIER_OWED_EXPR feeds). Now that new-model bills join the unsettled
+// queue (D2), the pre-existing `ELSE ABS(amount)` would surface the bill's
+// FACE AMOUNT as "owed" — wrong, because a bill's principal already left the
+// shop via the provider-drawer cost leg at creation (a prepaid balance, not
+// a ledger receivable); the plan's "Bills settlement note" is explicit that
+// settling a bill books ONLY the commission credit. Not a ±commission term
+// of any existing branch — a new, additive case for a service_type that
+// never hit this expression's business logic before.
 const SUPPLIER_OWED_EXPR = `CASE
   WHEN provider IN (${WALLET_PROVIDERS_SQL_LIST}) AND cost <= 0 THEN 0
   WHEN service_type = 'SEND' AND cost > 0 THEN cost
+  WHEN service_type = 'BILL' THEN 0
   WHEN provider = 'OMT' AND service_type = 'SEND' THEN ABS(amount) + ABS(COALESCE(omt_fee, 0)) - ABS(COALESCE(commission, 0))
   WHEN provider = 'OMT' AND service_type = 'RECEIVE' THEN -(ABS(amount) - ABS(COALESCE(omt_fee, 0)) + ABS(COALESCE(commission, 0)))
   WHEN provider = 'WHISH' AND service_type = 'SEND' THEN ABS(amount) + ABS(COALESCE(whish_fee, 0)) - ABS(COALESCE(commission, 0))
   WHEN provider = 'WHISH' AND service_type = 'RECEIVE' THEN -(ABS(amount) - ABS(COALESCE(whish_fee, 0)) + ABS(COALESCE(commission, 0)))
   ELSE ABS(amount)
 END`;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMMISSION_AT_SETTLEMENT_PLAN.md §3/Phase 0, decision D2 — the ONE
+// pending-supplier-settlement predicate (rule 14). It replaces FOUR
+// independent `commission > 0` copies that doubled as an implicit
+// "pending settlement" marker: creation `is_settled` (this file, below),
+// the settle-tab query (`getUnsettledBySupplier`), the pending summary
+// (`getUnsettledSummaryByProvider`), and the reversal `wasPendingSettlement`
+// branch (`TransactionRepository._reverseSupplierSettlement`). That marker
+// breaks the moment a new-model row is born with `commission = 0` —
+// commission is now ENTERED at settlement, not guessed at creation — so a
+// new-model OMT/WHISH row would silently be born `is_settled = 1`,
+// invisible to the settle tab, and unreversible.
+//
+// A row is pending supplier settlement when:
+//   - `commission_model = 1` (AT_SETTLEMENT, D3) AND it's one of the
+//     in-scope kinds named by the plan's §0 scope fence: OMT/WHISH system
+//     transfers (SEND/RECEIVE), or iPick/Katsh BILLs (Phase 1); OR
+//   - `commission_model = 0` (legacy EMBEDDED) AND it's an OMT/WHISH row
+//     with `commission > 0` — the pre-existing legacy marker, preserved
+//     verbatim so old rows keep their exact historical behavior (cutover,
+//     not restatement — plan header).
+//
+// `isPendingSupplierSettlement` (JS) and `PENDING_SETTLEMENT_SQL` (SQL
+// twin) MUST stay structurally identical — same branch order, same terms —
+// same lockstep discipline as `grossOwedDelta`/`SUPPLIER_OWED_EXPR` above.
+export function isPendingSupplierSettlement(row: {
+  commission_model: number;
+  provider: string;
+  service_type: string;
+  commission: number;
+}): boolean {
+  if (row.commission_model === 1) {
+    if (
+      (row.provider === "OMT" || row.provider === "WHISH") &&
+      (row.service_type === "SEND" || row.service_type === "RECEIVE")
+    ) {
+      return true;
+    }
+    return (
+      row.service_type === "BILL" &&
+      (row.provider === "iPick" || row.provider === "Katsh")
+    );
+  }
+  return (
+    (row.provider === "OMT" || row.provider === "WHISH") && row.commission > 0
+  );
+}
+
+export const PENDING_SETTLEMENT_SQL = `(
+  (commission_model = 1 AND (
+    (provider IN ('OMT', 'WHISH') AND service_type IN ('SEND', 'RECEIVE'))
+    OR (service_type = 'BILL' AND provider IN ('iPick', 'Katsh'))
+  ))
+  OR (commission_model = 0 AND provider IN ('OMT', 'WHISH') AND commission > 0)
+)`;
+
+// COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1, rule 14 — the ONE
+// notRefunded fragment for financial_services rows. A pre-existing leak
+// (not specific to bills — any pending-settlement row): `_markSourceRefunded`
+// (TransactionRepository.ts) stamps `is_refunded = 1` on a voided/refunded
+// row's own `financial_services` record but never touches `is_settled` —
+// that reset is `_reverseSupplierSettlement`'s job, gated on the row still
+// carrying a live `settlement_id`, which a row voided BEFORE ever being
+// settled never had. Neither unsettled query filtered on `is_refunded`
+// before this fix, so a voided/refunded row that was `is_settled = 0` at
+// creation stayed visible (and settleable) in the settle tab forever.
+// `COALESCE(...)` guards rows from before v120 added the column, mirroring
+// `SupplierRepository.ts`'s own `notRefunded` helper style for supplier_ledger.
+const NOT_REFUNDED_SQL = `COALESCE(is_refunded, 0) = 0`;
 
 export class FinancialServiceRepository extends BaseRepository<FinancialServiceEntity> {
   constructor() {
@@ -629,7 +728,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return `id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
+    return `id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
   }
 
   // ---------------------------------------------------------------------------
@@ -919,13 +1018,45 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
       const commission = useCostPriceFlow ? price - cost : calculatedCommission;
 
-      // Determine settlement status at creation time:
-      // OMT/WHISH SEND with commission → is_settled = 0 (OMT owes commission at settlement)
-      // OMT/WHISH RECEIVE with commission → is_settled = 0 (pending OMT settlement)
-      // Any transaction with commission = 0 → is_settled = 1 (nothing to settle)
-      // Other providers (BINANCE, BOB, etc.) SEND → is_settled = 1 (direct profit)
-      const isOmtOrWhish = data.provider === "OMT" || data.provider === "WHISH";
-      const isPendingSettlement = isOmtOrWhish && commission > 0;
+      // COMMISSION_AT_SETTLEMENT_PLAN.md D3 — commission_model is stamped per
+      // row at creation, gated on `service_type` (rule 14 — service_type is
+      // ALSO what identifies a BILL everywhere else in this file: the
+      // isPendingSupplierSettlement BILL branch, SUPPLIER_OWED_EXPR's
+      // `service_type = 'BILL'` WHEN, and the -20,000 legacy gate below all
+      // key off it).
+      //
+      // Only Phase 1 (bills) has actually shipped the AT_SETTLEMENT booking
+      // path (the -20,000 legacy credit is skipped below and the row instead
+      // joins the unsettled queue for a real commission entered at
+      // settlement). Phase 2 (OMT/WHISH gross-payable flip, D1) has NOT
+      // shipped: `grossOwedDelta`/`SUPPLIER_OWED_EXPR` above still NET the
+      // commission auto-calculated a few lines up
+      // (`calculatedCommission`/`commission`) out of the supplier_owed
+      // figure for OMT/WHISH SEND/RECEIVE — i.e. those rows are still
+      // EMBEDDED in every sense that matters to settlement math. Stamping
+      // commission_model = 1 on them here (as an earlier draft of this file
+      // did) would make `isPendingSupplierSettlement` route them into the
+      // new-model settlement path, which subtracts the operator's entered
+      // commission AGAIN on top of the commission already netted out of
+      // supplier_owed — a double subtraction from what's paid to the
+      // provider. So: BILL is born commission_model = 1 (AT_SETTLEMENT);
+      // every other service_type (OMT/WHISH SEND/RECEIVE, BINANCE, BOB, app
+      // wallets, ...) is born commission_model = 0 (legacy EMBEDDED) until
+      // Phase 2 actually ships the gross flip for them.
+      const commissionModel: number = data.serviceType === "BILL" ? 1 : 0;
+
+      // Determine settlement status at creation time via the ONE shared
+      // predicate (D2) — see its doc comment above for why the old
+      // `isOmtOrWhish && commission > 0` marker breaks for new-model rows
+      // (commission is entered AT settlement now, so a new-model row is born
+      // with commission = 0 and must still be flagged pending by kind, not by
+      // a nonzero commission).
+      const isPendingSettlement = isPendingSupplierSettlement({
+        commission_model: commissionModel,
+        provider: data.provider,
+        service_type: data.serviceType,
+        commission,
+      });
       const isSettled = isPendingSettlement ? 0 : 1;
       const settledAt = isSettled ? new Date().toISOString() : null;
 
@@ -1085,8 +1216,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           sender_client_id, receiver_client_id,
           omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee,
           item_key, note, is_settled, settled_at,
-          payment_method_fee, payment_method_fee_rate, tenant_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          payment_method_fee, payment_method_fee_rate, commission_model,
+          tenant_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
@@ -1121,6 +1253,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         settledAt,
         pmFee,
         pmFeeRate,
+        commissionModel,
         tenantId,
         data.transaction_time ?? null,
       );
@@ -3182,9 +3315,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           //     per-sale SALE_COST double-counted the same debt. Loto is the
           //     exception and books its own ledger in LotoTicketRepository.
           if (data.serviceType === "BILL") {
-            // Bill commission: 20,000 LBP fixed, supplier owes shop (negative = credit to us).
-            // No SALE_COST — the provider drawer debit already accounts for the bill amount.
-            if (!skipSecondarySupplierLedger) {
+            // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 — the legacy
+            // hardcoded 20,000 LBP bill commission is booked HERE only for
+            // `commission_model = 0` rows (legacy replay paths — this
+            // branches on the FLAG, not the date, per the plan's explicit
+            // instruction). Every BILL this repository creates today is born
+            // `commission_model = 1` (the stamp above gates on
+            // `service_type === "BILL"` specifically — no OTHER service_type
+            // is born commission_model = 1 yet, since Phase 2's OMT/WHISH
+            // gross flip hasn't shipped; see that stamp's own comment), so in
+            // practice this `=== 0` branch is dead for NEW bills and only
+            // fires when replaying/backfilling legacy rows. New-model bills
+            // book NOTHING at creation: they join the unsettled queue instead
+            // (`isPendingSupplierSettlement` / `PENDING_SETTLEMENT_SQL`) and
+            // the shop enters the real commission at settlement, which books
+            // its own SUPPLIER_PAYS_US credit
+            // (`SupplierRepository.settleTransactions`). Booking the legacy
+            // 20,000 here AND the settlement's entered commission would
+            // double the supplier's credit for the exact same bill.
+            if (commissionModel === 0 && !skipSecondarySupplierLedger) {
+              // Bill commission: 20,000 LBP fixed, supplier owes shop (negative = credit to us).
+              // No SALE_COST — the provider drawer debit already accounts for the bill amount.
               supplierRepo.addLedgerEntry({
                 supplier_id: supplier.id,
                 entry_type: "SUPPLIER_PAYS_US",
@@ -3525,9 +3676,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Settle tab's "total owed − commission = net pay" math nets correctly
    * (owed per row = supplier_owed, the SUPPLIER_OWED_EXPR projection):
    *
-   *  1. OMT/WHISH settlement — rows with commission > 0 and is_settled = 0.
-   *     Owed = the GROSS amount (SUPPLIER_OWED_EXPR / grossOwedDelta, plan
-   *     §8.3): SEND owes +(x+f−c), RECEIVE owes −(x−f+c). OMT_System/
+   *  1. Pending-settlement rows — `PENDING_SETTLEMENT_SQL` (D2) AND
+   *     is_settled = 0: legacy-model (commission_model = 0) OMT/WHISH rows
+   *     with commission > 0, or new-model (commission_model = 1) OMT/WHISH
+   *     SEND/RECEIVE and iPick/Katsh BILL rows regardless of commission
+   *     (COMMISSION_AT_SETTLEMENT_PLAN.md §3/Phase 0 — commission is entered
+   *     AT settlement for these, so it's 0 at creation and can't be the
+   *     marker anymore). Owed = the GROSS amount (SUPPLIER_OWED_EXPR /
+   *     grossOwedDelta, plan §8.3): SEND owes +(x+f−c), RECEIVE owes
+   *     −(x−f+c). OMT_System/
    *     Whish_System is the shop's physical cash drawer (owner verdict
    *     2026-07-30), not a balance tracked inside the provider's own books —
    *     so the provider relationship covers the full transfer, net of the
@@ -3558,7 +3715,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         `SELECT ${this.getColumns()} FROM financial_services
            WHERE provider = ?
              AND is_settled = 0
-             AND commission > 0
+             AND ${PENDING_SETTLEMENT_SQL}
+             AND ${NOT_REFUNDED_SQL}
              AND tenant_id = ?
          UNION ALL
          SELECT ${this.getSaleCostSettleColumns()} FROM financial_services
@@ -3567,6 +3725,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
              AND cost > 0
              AND settlement_id IS NULL
              AND supplier_debt_booked = 1
+             AND ${NOT_REFUNDED_SQL}
              AND tenant_id = ?
          ORDER BY created_at ASC`,
       )
@@ -3583,7 +3742,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * net = cost.
    */
   private getSaleCostSettleColumns(): string {
-    return "id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, cost AS supplier_owed";
+    return "id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, cost AS supplier_owed";
   }
 
   /**
@@ -3631,16 +3790,24 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         `SELECT
            provider,
            COUNT(*) as count,
+           -- COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1 — count of unsettled
+           -- BILL rows only, so RATE-mode settlement (rate × unit_count) has
+           -- a count to read without pulling the full unsettled row array.
+           COALESCE(SUM(CASE WHEN service_type = 'BILL' THEN 1 ELSE 0 END), 0) as bill_count,
            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_usd,
            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) as pending_commission_lbp,
            -- total_owed per row = SUPPLIER_OWED_EXPR = the GROSS amount owed
            -- the provider (plan §8.3): SEND +(x+f−c), RECEIVE −(x−f+c).
            -- Same single definition grossOwedDelta() uses at write time.
+           -- BILL rows contribute 0 (SUPPLIER_OWED_EXPR's BILL branch) — a
+           -- bill's principal never reaches the ledger (plan's "Bills
+           -- settlement note"); only its settlement commission does.
            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN ${SUPPLIER_OWED_EXPR} ELSE 0 END), 0) as total_owed_usd,
            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN ${SUPPLIER_OWED_EXPR} ELSE 0 END), 0) as total_owed_lbp
          FROM financial_services
          WHERE is_settled = 0
-           AND commission > 0
+           AND ${PENDING_SETTLEMENT_SQL}
+           AND ${NOT_REFUNDED_SQL}
            AND tenant_id = ?
          GROUP BY provider`,
       )
