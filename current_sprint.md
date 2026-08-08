@@ -2890,7 +2890,30 @@ branch posts a **cost outflow** (real money leaving for the provider) while the 
 a Payment Method selector that is inert in FOR mode — producing exactly the "I chose Debt but the
 drawer moved" impression.
 
-### ⚑ HANDOFF CONTEXT (owner clarified 2026-08-08 — read this before touching anything)
+### 🔴 CORRECTED 2026-08-09 — the "Services page" is `custom_services`, NOT `omt_whish`
+
+**The module labels and routes are crossed, and it misled two investigations:**
+
+| module key        | UI label      | route              |
+| ----------------- | ------------- | ------------------ |
+| `custom_services` | **"Services"**| `/custom-services` |
+| `omt_whish`       | "OMT/Whish"   | **`/services`**    |
+
+(`electron-app/create_db.sql:1218,1222`.) When the owner said "it's in the **Services** module",
+they meant the tile labeled *Services* — which is **`custom_services`** — not the `/services`
+route. A prior investigation "refuted" this ticket on the reasoning *"Services/index.tsx never sets
+cost/price, so cost 1008 / price 1010 cannot originate there"*. That reasoning was **correct about
+the code and wrong about which page** — `custom_services` DOES have cost/price fields, and the
+numbers fit it exactly.
+
+⇒ **The original hypothesis is back: this is `CustomServiceRepository`'s FOR-partner cost outflow.**
+
+**Owner confirmed 2026-08-09:** the transaction WAS entered with the **"For Partner"** checkbox
+ticked — *"yes confirmed it was for partner but it acts as through"*. That mismatch (labelled FOR,
+behaving like THROUGH) is now the core question of this ticket, not the drawer routing alone.
+Owner also confirmed: **keep the checkbox label "For Partner"** — do not rename it.
+
+### ⚑ EARLIER HANDOFF CONTEXT (superseded in part by the correction above)
 
 **The exact scenario, in the owner's words:**
 > *"7welet souria is the partner name. It's in the **Services** module… I entered **cost 1008** and
@@ -2991,6 +3014,55 @@ this ticket's mechanism.
 **Status: investigation closed for the literal report (correct-accounting, tests lock it in);
 NEEDS INTERVIEW remains open only for (a) the owner's exact click path and (b) the THROUGH-partner
 inconsistency decision.**
+
+---
+
+## LIRA-116: Rename the crossed "Services" module labels/routes (owner approved)
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Naming / DX                           |
+| **Type**              | Refactor (naming only)                |
+| **Priority**          | Medium                                |
+| **Status**            | TODO — **owner approved 2026-08-09**  |
+| **Affected Modules**  | Custom Services, OMT/Whish            |
+| **Source Plan**       | Found while diagnosing LIRA-114       |
+
+### Summary
+
+The two modules have crossed names, which has already cost real debugging time:
+
+| module key        | UI label       | route              | repository                  |
+| ----------------- | -------------- | ------------------ | --------------------------- |
+| `custom_services` | **"Services"** | `/custom-services` | `CustomServiceRepository`   |
+| `omt_whish`       | "OMT/Whish"    | **`/services`**    | `FinancialServiceRepository`|
+
+So "the Services page" means `custom_services`, while the `/services` ROUTE belongs to OMT/Whish.
+This directly caused LIRA-114 to be wrongly refuted: an investigation reasoned *"Services/index.tsx
+never sets cost/price, so the owner's cost 1008 / price 1010 can't come from there"* — true of
+`/services`, irrelevant to the page the owner actually meant. Two separate agent investigations
+were misled by it.
+
+Owner approved the rename 2026-08-09 ("rename yes").
+
+### Acceptance Criteria
+
+- [ ] Decide the target naming (suggest: keep the UI label **"Services"** for `custom_services`
+      since that is what the owner calls it, and move its route to `/services`; rename the
+      `omt_whish` route to `/omt-whish` to match its "OMT/Whish" label). Whatever is chosen, the
+      **label, route, module key, repository name, and feature folder should agree**.
+- [ ] Migration for the `modules` table `route` values (rule 10: BOTH `migrations/index.ts` and
+      `create_db.sql`), plus `ActiveModuleContext.tsx`'s route→key map.
+- [ ] Update `App.tsx` routes, feature folder names if renamed, and every e2e spec that navigates
+      to either route (grep `"/services"` and `"/custom-services"` across `frontend/tests/`).
+- [ ] ⚠ **Old route must not 404 for a user mid-session** — consider a redirect, and check whether
+      any stored state (last-visited route, deep links) references the old paths.
+- [ ] Full suites + desktop/web e2e green.
+
+### Note
+
+**Do NOT rename the "For Partner" checkbox** — owner explicitly wants that label kept as-is
+(2026-08-09).
 
 ---
 
