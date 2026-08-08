@@ -2740,7 +2740,7 @@ to **refuse the per-item reversal and require a group-level one**.
 | **Epic**              | Recharge / Carrier Lines              |
 | **Type**              | Product decision                      |
 | **Priority**          | Medium                                |
-| **Status**            | **NEEDS INTERVIEW**                   |
+| **Status**            | TODO — **owner confirmed 2026-08-08: D12 IS REVERSED** |
 | **Affected Modules**  | Recharge > Telecom, Carrier Lines     |
 | **Assigned To**       | —                                      |
 | **Source Plan**       | Owner report 2026-08-08 vs `done_plans/CARRIER_LINES_VALIDITY_PLAN.md` D12 |
@@ -2763,12 +2763,39 @@ moves"*, recorded from the owner's own words: *"We charge the customer by sendin
 **So this is a reversal of a two-day-old decision, not a regression.** Do not implement without
 explicit confirmation that D12/D9 are superseded.
 
-### Open questions for the owner
+### Owner decision 2026-08-08 — D12 REVERSED, build it
 
-- [ ] Confirm: does sending days consume your line's validity **in addition to** the $0.30/10-days
-      cost, or **instead of** it?
-- [ ] Ratio: 10 customer days = 10 shop days, or some other rate?
-- [ ] What happens when the line runs out mid-sale — block the sale, allow negative, or clamp?
+> *"shop expiry moves. but be aware we can have multiple lines for each carrier in shop, so make
+> sure to decrease the validity from the selected line."*
+
+- **Shop expiry DOES move.** `CARRIER_LINES_VALIDITY_PLAN.md` D12/D9 are superseded — update that
+  doc and `telecomStockLeg`'s doc comment, which currently assert the opposite, or the codebase
+  will read as self-contradicting.
+- The $0.30/10-days drawer cost **stays** (owner didn't retract it) — validity decrements are
+  **in addition to** it. The existing `RechargeRepository.daysStockCost.test.ts` keeps guarding the
+  cost half; only its "validity never moves" comment/assertion needs revising.
+- ⚠ **DECREMENT THE SELECTED LINE, NOT THE PRIMARY.** A shop can hold **multiple lines per
+  carrier**. The diagnosis's proposed `getPrimary(carrier)` is therefore **WRONG** and must not be
+  used. Trace which line the DAYS sale is actually sold from (the Telecom form's line selector →
+  the IPC payload → `processRecharge`) and decrement **that** `carrier_lines` row. If the payload
+  does not currently carry a line id, adding it is part of this ticket.
+
+### Remaining questions (answer during build, don't block on them)
+
+- [ ] Ratio: assume 10 customer days = 10 shop days unless the code says otherwise.
+- [ ] Line runs out mid-sale: block, allow negative, or clamp? Pick the behavior that matches how
+      credits already behave on the same line and state it in the PR.
+
+### Technical traps (from the diagnosis)
+
+- `CarrierLineRepository.computeAppliedState` rebases day-deltas to `max(today, current_expiry)` —
+  right for **adding**, wrong for **subtracting** on an already-expired line (a naive decrement
+  lands *before* today). Needs a subtract-safe path, not the reused rebase.
+- Reversal is free: `_reverseCarrierLineMovements` already reverses any movement tied to a voided
+  transaction generically — just pass `transactionId` to `applyMovement`.
+- Repro test ready (currently failing by design, untracked so main stays green):
+  `packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDecrement.test.ts`
+  — **note it asserts against the primary line; retarget it to the selected line.**
 
 ### Technical note for whoever builds it
 
@@ -2812,19 +2839,58 @@ branch posts a **cost outflow** (real money leaving for the provider) while the 
 a Payment Method selector that is inert in FOR mode — producing exactly the "I chose Debt but the
 drawer moved" impression.
 
-### Open questions for the owner
+### ⚑ HANDOFF CONTEXT (owner clarified 2026-08-08 — read this before touching anything)
 
-- [ ] Was '7welet souria' entered on the **Custom Services** page or the **Services** page?
-- [ ] Did it have a non-zero **Cost**? (If yes, the drawer movement is the cost outflow — correct
-      accounting, confusing UI.)
+**The exact scenario, in the owner's words:**
+> *"7welet souria is the partner name. It's in the **Services** module… I entered **cost 1008** and
+> **price USD 1010** and **payment method customer account**."*
 
-### Likely outcomes
+So: **Services page** (`frontend/src/features/services/`, i.e. `FinancialServiceRepository`) — **not**
+Custom Services (the owner reports that page isn't even visible to them; the earlier diagnosis
+guessed Custom Services and that guess is now **ruled out**). Partner = *7welet souria*.
+Cost $1008, price $1010, payment method **Customer Account**. Observed: **General drawer moved.**
 
-- If Custom Services + non-zero cost → **UX fix**: hide/disable the Payment Method selector when
-  "For Partner" is checked. Do not change the cost posting; it is correct.
-- Separately flagged (needs its own decision): the THROUGH-partner multi-leg loop credits
-  General/PCD for real customer cash, while a stale single-leg path claims it should be skipped —
-  one of the two is wrong and a regression test should lock in whichever the owner confirms.
+**🔴 These are the same numbers as LIRA-115.** The refund report ("customer paid 1010, cost 1008,
+refund returned 1008") uses the identical figures — this is very likely **one transaction producing
+two symptoms**. Investigate them together; a single root cause may explain both, and fixing one
+blind could mask the other.
+
+**What the earlier (pre-clarification) diagnosis established — still valid, don't redo:**
+- The `DEBT` payment code was renamed `CUSTOMER_ACCOUNT` in migration v86. The UI label is
+  "Customer Account (Debt)". No row for a literal `"DEBT"` code exists.
+- **FOR**-partner + a `CUSTOMER_ACCOUNT` leg is **rejected before any drawer write** by
+  `assertNoCustomerAccountLeg` (~`FinancialServiceRepository.ts:1806`) — *"A partner financial
+  service cannot carry a CUSTOMER_ACCOUNT leg"* — and the whole `db.transaction` rolls back.
+- **THROUGH**-partner: `CUSTOMER_ACCOUNT` legs are explicitly skipped by the drawer-crediting loop
+  (`if (p.method === "CUSTOMER_ACCOUNT") continue;`, ~:2769) and booked to `debt_ledger` via
+  `bookClientDebtCharge`. General delta 0.
+- 8 tests documenting all of the above pass:
+  `packages/core/src/repositories/__tests__/FinancialServiceRepository.forPartnerDebtDrawer.test.ts`
+
+**⇒ Leading hypothesis for the next agent: the drawer movement is NOT the payment method — it's the
+COST leg.** With cost $1008 the cost/price flow (`useCostPriceFlow`,
+~`FinancialServiceRepository.ts:2093-2247`) posts a cost outflow to the provider's drawer. If the
+provider/partner has no mapped drawer, `paymentMethodToDrawerName` /
+`FALLBACK_DRAWER_MAP[...] ?? "General"` (`packages/core/src/utils/payments.ts`) **falls back to
+General**. That would put $1008 on General while the operator's chosen payment method (Customer
+Account) correctly moved nothing — matching the report precisely, and explaining why the refund
+also revolves around 1008.
+
+### What the next agent must do
+
+- [ ] Confirm which `partner_mode` the real transaction used (FOR vs THROUGH) — the two paths are
+      completely different and only one can be the subject.
+- [ ] Trace the $1008 cost leg's drawer resolution end-to-end and prove (test) whether it lands in
+      General via the unmapped-provider fallback.
+- [ ] Decide the accounting: for a partner service with a cost, **should** the cost outflow hit
+      General, a partner/provider drawer, or the partner ledger? Owner-facing question.
+- [ ] Investigate **jointly with LIRA-115** — same figures, probably the same transaction.
+
+### Separately flagged (own decision, don't lose it)
+
+The THROUGH-partner multi-leg loop credits General/PCD for real customer cash, while a stale
+single-leg path claims it should be skipped. One of the two is wrong; lock in whichever the owner
+confirms with a regression test.
 
 ---
 
@@ -3270,8 +3336,8 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-110 | Daily closing sums fs commission with zero gates         | Medium   | TODO                                                      | found by LIRA-108's workflow        |
 | LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | TODO                                                      | found shipping commission Phase 0+1 |
 | LIRA-112 | iPick bills must book NO commission (only Katsh pays)    | **High** | TODO                                                      | owner correction (plan §6 D12)      |
-| LIRA-113 | DAYS sale should consume shop-line validity? (reverses D12) | Medium   | **NEEDS INTERVIEW**                                       | owner report 2026-08-08             |
-| LIRA-114 | FOR-partner 'Debt' appears to move General               | Medium   | **NEEDS INTERVIEW**                                       | owner report 2026-08-08             |
+| LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)   | Medium   | TODO (owner confirmed; use SELECTED line)                 | owner report 2026-08-08             |
+| LIRA-114 | Partner service cost leg appears to move General        | Medium   | TODO (handoff ctx written; pair with LIRA-115)            | owner report 2026-08-08             |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | TODO                                                      | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
