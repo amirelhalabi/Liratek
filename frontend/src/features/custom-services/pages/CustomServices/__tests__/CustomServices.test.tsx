@@ -335,17 +335,35 @@ describe("CustomServices Page", () => {
     expect(screen.getByText("History")).toBeInTheDocument();
   });
 
-  it("should validate empty description on submit", async () => {
+  // Description is now OPTIONAL (owner's product decision) — the
+  // `if (!description.trim()) { alert(...) }` guard was removed from
+  // handleSubmit. Do NOT re-add a required-description guard; this test
+  // will fail if that guard is restored.
+  it("submits with an empty description — description is optional", async () => {
     const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
 
     render(<CustomServices />);
 
+    // Fill cost/price only (same as "should validate cost/price on submit"),
+    // leaving the description field untouched/empty, so the still-active
+    // cost/price guard doesn't block the submit.
+    const usdInputs = screen.getAllByPlaceholderText("0.00");
+    fireEvent.change(usdInputs[0], { target: { value: "5" } }); // cost USD
+    fireEvent.change(usdInputs[1], { target: { value: "10" } }); // price USD
+
     fireEvent.click(screen.getByText("Submit Service"));
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      "Please enter a service description.",
-    );
-    expect(mockAddCustomService).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mockAddCustomService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: "",
+          cost_usd: 5,
+          price_usd: 10,
+        }),
+      );
+    });
+
+    expect(alertSpy).not.toHaveBeenCalled();
 
     alertSpy.mockRestore();
   });

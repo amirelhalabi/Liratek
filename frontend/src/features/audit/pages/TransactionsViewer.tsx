@@ -1181,6 +1181,25 @@ export default function TransactionsViewer({
                   Void entire checkout
                   {splitGroup.units ? ` (${splitGroup.units} units)` : ""}
                 </button>
+              ) : sessionId != null ? (
+                // LIRA-115: this row's customer-cash leg (and/or its
+                // CUSTOMER_ACCOUNT charge) is POOLED across every item in the
+                // session basket — a lone void/refund can only ever reverse
+                // this item's OWN legs (e.g. a cost outflow), never the
+                // pooled customer money, so the repository now hard-refuses
+                // it (`TransactionRepository._assertReversible`). Tell the
+                // operator why up front instead of offering a button that
+                // would just surface that guard's error after the fact —
+                // mirrors the split_group treatment above, but there is no
+                // basket-level reversal action wired up here yet (follow-up;
+                // the repository method exists — `voidSessionBasket`/
+                // `refundSessionBasket` — it is not yet exposed via IPC/REST).
+                <span
+                  title="This transaction is part of a session-basket payment — the customer's cash/on-account charge is pooled across every item in the basket, not tied to this one row. Voiding or refunding it alone would lose track of that money, so it's blocked. Ask an admin to reverse it directly until a whole-basket action ships here."
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-amber-900/40 text-amber-300"
+                >
+                  Basket item — see admin to reverse
+                </span>
               ) : (
                 <>
                   <button

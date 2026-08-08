@@ -125,6 +125,16 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         // stamp below can label it, mirroring Recharge/Loto.
         const isForPartner = data.partnerMode === "FOR";
 
+        // Blank/whitespace-only descriptions must not produce a dangling
+        // "Custom Service: " (colon, nothing after it) — degrade to the bare
+        // label instead. Defined ONCE and reused for BOTH the unified
+        // transaction summary below AND the payment/drawer notes further
+        // down (rule 14 — never paste this template twice).
+        const noteText =
+          data.description && data.description.trim()
+            ? `Custom Service: ${data.description}`
+            : "Custom Service";
+
         // 1b. Create unified transaction row
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.CUSTOM_SERVICE,
@@ -154,7 +164,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
               ? `${getPartnerRepository().getById(data.partnerId)?.name ?? `#${data.partnerId}`} [partner]`
               : (data.client_name ?? null),
           client_phone: data.phone_number ?? null,
-          summary: `Custom Service: ${data.description}`,
+          summary: noteText,
           metadata_json: {
             cost_usd: data.cost_usd ?? 0,
             cost_lbp: data.cost_lbp ?? 0,
@@ -168,7 +178,6 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         // 2. Payment & drawer logic
         const paidBy = data.paid_by ?? "CASH";
         const methodDrawerName = paymentMethodToDrawerName(paidBy);
-        const noteText = `Custom Service: ${data.description}`;
 
         // Payment-row + drawer-balance posting via the shared moneyPosting
         // helpers (CQ-3). Kept as `.run(...)`-shaped wrapper objects so every

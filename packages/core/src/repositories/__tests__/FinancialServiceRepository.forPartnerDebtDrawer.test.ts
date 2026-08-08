@@ -561,6 +561,113 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
   // vs unregistered-code fallback discrepancy the task flagged.
   // ═══════════════════════════════════════════════════════════════════════
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // LIRA-114 — owner's exact repro: partner "7welet souria", cost $1008,
+  // price $1010, payment method Customer Account, in the Services module's
+  // cost/price flow (KatchForm-style catalog item — iPick/Katsh/app-wallet).
+  // These are the SAME figures LIRA-115 reproduces (session-basket refund).
+  //
+  // Root-cause conclusion (see current_sprint.md LIRA-114 for the full
+  // trace): the literal scenario — a FOR-partner cost/price sale where the
+  // customer "pays" (an IN-direction leg, any method including
+  // CUSTOMER_ACCOUNT) — is rejected before any drawer write, exactly like
+  // the plain-SEND case above rejects an OUT-direction CUSTOMER_ACCOUNT
+  // disbursement. The rejecting guard here is actually the MORE general
+  // `assertNoCounterPayment` ("a partner financial service takes no counter
+  // payment"), which fires for ANY IN-direction payment leg regardless of
+  // method — there is no walk-in customer on a FOR-partner sale, so the
+  // operator's payment-method choice never even gets evaluated. A
+  // FOR-partner cost/price sale that DOES succeed (no payment legs at all —
+  // "the full selling price goes on the partner's tab") debits the COST
+  // from the PROVIDER'S OWN drawer (iPick), never General. For every
+  // provider actually reachable from the shipped UI, that is correct
+  // accounting (the shop genuinely spent iPick stock), not a routing bug —
+  // `mapDrawerName` only falls back to "General" for provider
+  // "BOB"/"OTHER", which no shipped form ever sends.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  describe("LIRA-114 — FOR-partner cost/price sale (owner's exact cost 1008 / price 1010)", () => {
+    it("cost/price sale with a CUSTOMER_ACCOUNT (customer-paid, IN) leg is REJECTED before any drawer write — General delta is 0", () => {
+      setup(true);
+      const partnerId = seedPartner(db);
+      const generalBefore = drawerBalance(db, "General");
+      const iPickBefore = drawerBalance(db, "iPick");
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "iPick",
+          serviceType: "SEND",
+          amount: 1010,
+          currency: "USD",
+          commission: 0,
+          cost: 1008,
+          price: 1010,
+          partnerId,
+          partnerMode: "FOR",
+          payments: [
+            {
+              method: "CUSTOMER_ACCOUNT",
+              currencyCode: "USD",
+              amount: 1010,
+            },
+          ],
+        }),
+      ).toThrow(/no counter payment/);
+
+      // Neither drawer moved — the transaction never committed.
+      expect(drawerBalance(db, "General")).toBe(generalBefore);
+      expect(drawerBalance(db, "iPick")).toBe(iPickBefore);
+      const rows = db
+        .prepare("SELECT COUNT(*) c FROM financial_services")
+        .get() as { c: number };
+      expect(rows.c).toBe(0);
+    });
+
+    it("cost/price sale with NO payment legs (the only way FOR-partner + cost/price succeeds) debits iPick's OWN drawer for the cost — General is untouched, partner_ledger owes the price", () => {
+      setup(true);
+      const partnerId = seedPartner(db);
+      const generalBefore = drawerBalance(db, "General");
+      const iPickBefore = drawerBalance(db, "iPick");
+
+      const { id } = repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: 1010,
+        currency: "USD",
+        commission: 0,
+        cost: 1008,
+        price: 1010,
+        partnerId,
+        partnerMode: "FOR",
+        payments: [],
+      });
+
+      expect(id).toBeGreaterThan(0);
+      // The cost leaves iPick's own provider drawer — never General.
+      expect(drawerBalance(db, "General")).toBe(generalBefore);
+      expect(drawerBalance(db, "iPick")).toBeCloseTo(iPickBefore - 1008, 2);
+
+      // The partner owes the full selling price on their tab.
+      const ledgerRows = db
+        .prepare(
+          "SELECT transaction_type, amount, currency, direction FROM partner_ledger WHERE partner_id = ?",
+        )
+        .all(partnerId) as Array<{
+        transaction_type: string;
+        amount: number;
+        currency: string;
+        direction: string;
+      }>;
+      expect(ledgerRows).toHaveLength(1);
+      expect(ledgerRows[0]).toMatchObject({
+        transaction_type: "FOR_IPICK",
+        amount: 1010,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+    });
+  });
+
   describe("isDrawerAffectingMethod('DEBT') — the retired code name, resolved directly", () => {
     it("with the real payment_methods table present (current schema — no DEBT row, only CUSTOMER_ACCOUNT): resolves to NOT drawer-affecting", () => {
       setup(true);

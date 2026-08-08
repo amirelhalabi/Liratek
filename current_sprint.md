@@ -2680,7 +2680,7 @@ ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 | **Epic**              | Transactions / Sessions               |
 | **Type**              | Bug (money loss)                      |
 | **Priority**          | **HIGH — live money**                 |
-| **Status**            | TODO                                  |
+| **Status**            | **FIX IMPLEMENTED (option (a)) — pending e2e + orchestrator review/commit** |
 | **Affected Modules**  | Transactions, Customer Sessions, Financial Services |
 | **Assigned To**       | —                                      |
 | **Depends On**        | —                                      |
@@ -2712,24 +2712,75 @@ When one item of a multi-item basket is refunded, which item owns the pooled cas
 own precedent for this class (split-group checkouts, `_assertReversible` + `voidCheckoutGroup`) is
 to **refuse the per-item reversal and require a group-level one**.
 
-- [ ] **Recommended (a)**: gate session-linked rows out of per-item refund/void with a clear
-      message, and route to a basket-level reversal — mirrors the split_group precedent, lowest risk.
+- [x] **Recommended (a) — IMPLEMENTED**: gate session-linked rows out of per-item refund/void with a
+      clear message, and route to a basket-level reversal — mirrors the split_group precedent, lowest
+      risk.
 - [ ] (b): implement true per-item reversal of a pooled payment (proportional reallocation) — a real
-      accounting design, materially more work.
+      accounting design, materially more work. Not built (a) was chosen).
+
+### Fix implemented (2026-08-09)
+
+- `TransactionRepository._assertReversible` gained a session-basket check, shaped exactly like the
+  existing `split_group` check immediately above it (rule 14): any row linked via
+  `customer_session_transactions.unified_transaction_id` now hard-refuses a bare
+  `voidTransaction`/`refundTransaction` with `"This transaction is part of session basket #N;
+  void/refund the whole basket instead."` — before any write (the throw is before
+  `this.transaction()` opens).
+- New repository methods `voidSessionBasket(sessionId, userId)` and
+  `refundSessionBasket(sessionId, userId)` are the basket-level route: they loop every item linked to
+  the session via the EXISTING per-item reversal (`_voidTransactionInternal`/
+  `_refundTransactionInternal` with a new `allowSessionMember: true` bypass) — so every module-specific
+  side effect (cost/provider-drawer leg, profit stamp, carrier-line movements, supplier-ledger
+  siblings, partner ledger) is reversed exactly the way a normal single-item void/refund already
+  does, nothing reimplemented — PLUS two new steps that only run ONCE for the whole basket:
+  `_reverseSessionPooledPayments` (negates the pooled `payments` row(s), `transaction_id IS NULL,
+  session_id = ?`) and `_cancelSessionDebt` (negates the pooled `debt_ledger` `'Session Debt'` row —
+  closes the gap `transactionTypes.ts`'s own doc comment named but never implemented: *"reversed by
+  the session flow, not the generic path"* — that flow now exists). A `_assertSessionBasketReversible`
+  up-front guard refuses a second call on an already-reversed basket (idempotency without
+  double-reversal risk).
+- Regression test file (now tracked — see rule 17/.gitignore note below):
+  `TransactionRepository.refundSessionBasketCostPriceFlow.test.ts` — 8 tests: the original SANITY
+  case: two "refused" tests (void + refund) proving the guard fires and nothing partial persists;
+  a nets-to-zero proof for `refundSessionBasket` (drawer + profit, CASH-paid basket); a
+  CUSTOMER_ACCOUNT variant proving `_cancelSessionDebt` nets the pooled debt to 0 (the owner's
+  literal payment method, General never touched); a `voidSessionBasket` parity test; a double-call
+  idempotency-refusal test; and a 2-item basket test proving the pooled leg is reversed EXACTLY ONCE,
+  not once per item.
+- **Known gap, named on purpose (not silently dropped)**: `voidSessionBasket`/`refundSessionBasket`
+  are NOT yet wired to IPC/REST/a frontend button — building that blind (this pass could not run
+  `yarn dev`/e2e/launch Electron to verify a new UI flow) risked shipping an unverifiable new surface.
+  `TransactionsViewer.tsx` now HIDES the per-item Void/Refund buttons for any session-basket row
+  (mirrors the split_group button-hiding treatment) and shows an explanatory label ("Basket item —
+  see admin to reverse") instead of a button that would just surface the guard's error after a click.
+  Today an admin can still reverse a basket via a REPL/console call to the new repository methods;
+  wiring a real "Void/Refund entire basket" button (IPC handler + REST route + preload/adapter
+  binding + UI) is the explicit follow-up, same shape as `voidCheckoutGroup`'s existing wiring.
+- **Also a known, pre-existing, NOT-newly-introduced gap**: if an item was refunded through the OLD
+  buggy per-item path *before* this fix shipped, its pooled cash is already lost and this fix does
+  not retroactively recover it (no backfill was attempted — out of scope for "stop further loss").
 
 ### Acceptance Criteria
 
-- [ ] Failing-first test (rule 17) reproducing 1010/1008 through the session-basket path.
-- [ ] Rule 20: create + reverse nets to **0 per drawer per currency** for the chosen path.
-- [ ] **`voidTransaction` gets the same treatment as `refundTransaction`** — it is equally exposed.
-- [ ] e2e on both transports.
+- [x] Failing-first test (rule 17) reproducing 1010/1008 through the session-basket path — the
+      pre-existing untracked repro (adapted into the "FIXED" suite above; observed failing against
+      the pre-fix code via `git stash`, both as a TS compile error — the new API doesn't exist yet —
+      and, with only the guard line disabled, as a runtime assertion failure on the two refusal tests).
+- [x] Rule 20: create + reverse nets to **0 per drawer per currency** for the chosen path (drawer +
+      profit + debt_ledger all proven in the test file above).
+- [x] **`voidTransaction` gets the same treatment as `refundTransaction`** — both gated identically,
+      both proven.
+- [ ] e2e on both transports — NOT run this pass (explicitly out of scope per this task's own
+      instructions: no `yarn dev`/`test:e2e`/`test:e2e:web`). The hidden-button frontend change has
+      no e2e coverage yet either.
 
-### Files to Modify
+### Files Modified
 
 | Layer   | File                                                     | Change                          |
 | ------- | ------------------------------------------------------------ | ---------------------------------- |
-| Backend | `packages/core/src/repositories/TransactionRepository.ts` | Session-aware refund/void gating |
-| Frontend| `frontend/src/features/audit/pages/TransactionsViewer.tsx` | Surface the refusal/route        |
+| Backend | `packages/core/src/repositories/TransactionRepository.ts` | Session-aware refund/void gating + `voidSessionBasket`/`refundSessionBasket` |
+| Tests   | `packages/core/src/repositories/__tests__/TransactionRepository.refundSessionBasketCostPriceFlow.test.ts` | Now tracked (removed from `.gitignore`); 8 tests |
+| Frontend| `frontend/src/features/audit/pages/TransactionsViewer.tsx` | Hide per-item Void/Refund buttons on session-basket rows, explain why |
 
 ---
 
@@ -2890,7 +2941,56 @@ also revolves around 1008.
 
 The THROUGH-partner multi-leg loop credits General/PCD for real customer cash, while a stale
 single-leg path claims it should be skipped. One of the two is wrong; lock in whichever the owner
-confirms with a regression test.
+confirms with a regression test. **Not changed this pass — needs the owner's decision, not a guess.**
+
+### ⚑ Joint investigation with LIRA-115, resolved (2026-08-09)
+
+**`same_transaction`: NOT the same transaction.** Traced every shipped UI path that can reach the
+Services cost/price flow (KatchForm, FinancialForm, CryptoForm, OmtWhishAppTransferForm,
+`Services/index.tsx`): every one of them hardcodes `partnerMode: "FOR"` for a partner selection, and
+a FOR-partner cost/price sale **forbids ALL payment legs outright** (`FinancialServiceRepository.ts`
+~1864-1868, *"the full selling price goes on the partner's tab"*) — so a partner-carrying cost/price
+item can never reach the session-basket/`deferPayment` path LIRA-115 actually reproduces (that path
+requires NO partner at all, per its own repro fixture). The owner's two reports share the SAME
+round numbers (cost 1008, price 1010) most likely because they explored the SAME cost/price flow
+twice — once with a partner attached, once inside a session basket — and reported both under one
+mental model ("the same sale"), not because one `createTransaction()` call produced both symptoms.
+
+**The literal LIRA-114 scenario (partner + cost/price + CUSTOMER_ACCOUNT) does not reproduce, and
+the code is behaving as designed — confirmed with a new regression test, no money changed:**
+`FinancialServiceRepository.forPartnerDebtDrawer.test.ts` gained a `"LIRA-114"` describe block
+(2 new tests) with the owner's EXACT figures (iPick, cost 1008, price 1010, partner "7welet souria"):
+
+1. Attaching a CUSTOMER_ACCOUNT leg (any IN-direction payment leg, in fact — see below) to a
+   FOR-partner cost/price sale throws **before any drawer write** — General/iPick delta 0, zero rows
+   written. The rejecting guard is actually `assertNoCounterPayment` (*"a partner financial service
+   takes no counter payment"*), not `assertNoCustomerAccountLeg` — a FOR-partner cost/price sale
+   rejects the customer "paying" via ANY method at all (there is no walk-in customer on a partner
+   sale), so the operator's payment-method choice is never even evaluated. This is a MORE total
+   rejection than the ticket's original hypothesis, not a narrower one.
+2. The only way a FOR-partner cost/price sale succeeds (no payment legs at all) correctly debits the
+   cost from the **provider's own drawer** (iPick, -1008) — never General — and books the full price
+   (1010) as a DEBIT on `partner_ledger` (`FOR_IPICK`). This is the shop's own stock being consumed;
+   General movement would be the ACTUAL bug. `mapDrawerName` only falls back to `"General"` for
+   provider `"BOB"`/`"OTHER"`, which no shipped form ever sends (confirmed by the original diagnosis,
+   not re-verified this pass — grep still shows zero matches in `frontend/src`).
+
+**Conclusion: no money-routing bug found for the literal report; no code change made to drawer
+routing.** Per this ticket's own decision tree ("if $1008 movement IS correct accounting, do NOT
+change the money"), the cost/price flow's behavior for every provider actually reachable from the
+UI is correct, and is now locked in by the two new tests above. The genuinely inconsistent behavior
+that WAS found (the "Separately flagged" THROUGH-partner note above) is real but requires an owner
+decision this pass didn't have — left untouched, as instructed.
+
+**Recommended next step (not done this pass — needs the owner, not more code archaeology):** get the
+owner's exact click path (or a screen recording) for the ORIGINAL "affecting the general drawer"
+report. Every reachable code path was traced and none reproduces it verbatim; without the actual
+click path, any further "fix" would be guessing at a UX explanation for behavior that may not even be
+this ticket's mechanism.
+
+**Status: investigation closed for the literal report (correct-accounting, tests lock it in);
+NEEDS INTERVIEW remains open only for (a) the owner's exact click path and (b) the THROUGH-partner
+inconsistency decision.**
 
 ---
 
@@ -3337,8 +3437,8 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | DONE `6949bc1` (desktop e2e 252/252)                      | found shipping commission Phase 0+1 |
 | LIRA-112 | iPick bills must book NO commission (only Katsh pays)    | **High** | TODO                                                      | owner correction (plan §6 D12)      |
 | LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)   | Medium   | TODO (owner confirmed; use SELECTED line)                 | owner report 2026-08-08             |
-| LIRA-114 | Partner service cost leg appears to move General        | Medium   | TODO (handoff ctx written; pair with LIRA-115)            | owner report 2026-08-08             |
-| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | TODO                                                      | owner report 2026-08-08, reproduced |
+| LIRA-114 | Partner service cost leg appears to move General        | Medium   | Investigation CLOSED (correct accounting, 2 regression tests); NEEDS INTERVIEW for owner's exact click path | owner report 2026-08-08             |
+| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | FIX IMPLEMENTED (option (a), 8 tests, core+backend+frontend green); IPC/REST/UI wiring + e2e are named follow-ups | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as

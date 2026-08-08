@@ -260,10 +260,6 @@ export default function CustomServices() {
 
   // ─── Submit ───
   const handleSubmit = async () => {
-    if (!description.trim()) {
-      alert("Please enter a service description.");
-      return;
-    }
     if (
       costUsdVal <= 0 &&
       costLbpVal <= 0 &&
@@ -666,7 +662,7 @@ export default function CustomServices() {
                     /* No selection yet — show SearchBar */
                     <div ref={productSearchRef}>
                       <SearchBar<ProductSearchResult>
-                        placeholder="Search inventory by name or barcode..."
+                        placeholder="Search by name/barcode, or type your service description..."
                         onSearch={async (query) => {
                           const results =
                             await window.api.inventory.getProducts(query);

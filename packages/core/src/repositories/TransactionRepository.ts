@@ -47,6 +47,12 @@ import { isPendingSupplierSettlement } from "./FinancialServiceRepository.js";
 // by every account-leg reconstruction query (rule 14).
 const ACCOUNT_CHARGE_PREDICATE = "transaction_type <> 'Refund Reversal'";
 
+// LIRA-115: the `payments.note` stamped on a session basket's pooled-leg
+// reversal (`_reverseSessionPooledPayments`) — reused (rule 14) both to write
+// the row and to detect "this basket's pooled cash was already reversed"
+// (`_assertSessionBasketReversible`), so the two never drift out of sync.
+const SESSION_BASKET_REVERSAL_NOTE = "Basket reversal";
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -384,6 +390,24 @@ export interface VoidCheckoutGroupResult {
    *  already VOIDED before the call). */
   voidedTransactionIds: number[];
   /** Reversal transaction ids created, one per entry in voidedTransactionIds. */
+  reversalIds: number[];
+}
+
+/**
+ * Result of `voidSessionBasket` / `refundSessionBasket` (LIRA-115) — the
+ * basket-level reversal option (a) routes to, mirroring
+ * `VoidCheckoutGroupResult`'s shape for the split_group precedent (rule 14).
+ */
+export interface SessionBasketReversalResult {
+  sessionId: number;
+  /** Total items found linked to this session basket (reversed + any
+   *  already-voided/refunded-and-skipped). */
+  itemCount: number;
+  /** Original item transaction ids reversed by THIS call (excludes any
+   *  already VOIDED/refunded before the call). */
+  reversedTransactionIds: number[];
+  /** Reversal (VOID or REFUND) transaction ids created, one per entry in
+   *  reversedTransactionIds. */
   reversalIds: number[];
 }
 
@@ -997,10 +1021,272 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     });
   }
 
+  /**
+   * Void every item in a customer-session basket, PLUS the basket's own
+   * pooled cash leg(s) and pooled 'Session Debt' charge, in ONE db
+   * transaction (LIRA-115, option (a) — the per-item guard in
+   * `_assertReversible` refuses a bare `voidTransaction` on any of these
+   * rows and routes here instead, mirroring `voidCheckoutGroup`'s relationship
+   * to the split_group guard).
+   *
+   * Each item is reversed via `_voidTransactionInternal` with
+   * `allowSessionMember: true` — the EXACT same per-item reversal a standalone
+   * `voidTransaction` would run (cost/provider-drawer legs, profit stamp,
+   * carrier-line movements, supplier-ledger siblings, partner ledger, …), so
+   * nothing module-specific needs reimplementing here (rule 14). This method
+   * adds exactly the TWO things a per-item reversal structurally cannot see:
+   * the pooled `payments` row(s) (`transaction_id IS NULL, session_id = ?`)
+   * and the pooled `debt_ledger` 'Session Debt' row, each reversed exactly
+   * ONCE for the whole basket — never per item, which would multiply the
+   * reversal by the item count.
+   *
+   * Idempotent re-invocation is refused, not silently no-op'd: once the
+   * pooled leg/debt has a reversal marker, a second call throws (see
+   * `_assertSessionBasketReversible`) rather than risk double-reversing money
+   * that was already returned.
+   */
+  voidSessionBasket(sessionId: number, userId: number): SessionBasketReversalResult {
+    const tenantId = getCurrentTenantId();
+    this._assertSessionBasketReversible(sessionId);
+    const items = this.query<{ id: number; status: TransactionStatus }>(
+      `SELECT t.id AS id, t.status AS status
+       FROM customer_session_transactions cst
+       JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = ?
+       WHERE cst.session_id = ? AND cst.tenant_id = ?
+       ORDER BY cst.id ASC`,
+      tenantId,
+      sessionId,
+      tenantId,
+    );
+    if (items.length === 0) {
+      throw new NotFoundError("session basket", sessionId);
+    }
+
+    return this.transaction(() => {
+      const reversedTransactionIds: number[] = [];
+      const reversalIds: number[] = [];
+      for (const item of items) {
+        // Idempotent re-invocation safe, mirroring voidCheckoutGroup's own
+        // already-voided skip — a partial-progress re-run never happens in
+        // practice (the whole loop + pooled reversal below is ONE db
+        // transaction, so a mid-loop failure rolls back everything), but a
+        // deliberate second call after a full success is still handled
+        // gracefully rather than throwing on item #1's "already voided".
+        if (item.status === "VOIDED") continue;
+        const reversalId = this._voidTransactionInternal(item.id, userId, {
+          allowSessionMember: true,
+        });
+        reversedTransactionIds.push(item.id);
+        reversalIds.push(reversalId);
+      }
+      this._reverseSessionPooledPayments(sessionId, userId);
+      this._cancelSessionDebt(sessionId, userId);
+      return {
+        sessionId,
+        itemCount: items.length,
+        reversedTransactionIds,
+        reversalIds,
+      };
+    });
+  }
+
+  /**
+   * Refund every item in a customer-session basket, PLUS the basket's own
+   * pooled cash leg(s) and pooled 'Session Debt' charge, in ONE db
+   * transaction. Same shape as `voidSessionBasket` (rule 14) but keeps every
+   * original item ACTIVE and creates a REFUND row per item, matching
+   * `refundTransaction`'s own accounting (rather than VOIDing the item) —
+   * this is the path the owner's actual LIRA-115 report exercises
+   * ("Refund of a service txn...").
+   */
+  refundSessionBasket(
+    sessionId: number,
+    userId: number,
+  ): SessionBasketReversalResult {
+    const tenantId = getCurrentTenantId();
+    this._assertSessionBasketReversible(sessionId);
+    const items = this.query<{ id: number; status: TransactionStatus }>(
+      `SELECT t.id AS id, t.status AS status
+       FROM customer_session_transactions cst
+       JOIN transactions t ON t.id = cst.unified_transaction_id AND t.tenant_id = ?
+       WHERE cst.session_id = ? AND cst.tenant_id = ?
+       ORDER BY cst.id ASC`,
+      tenantId,
+      sessionId,
+      tenantId,
+    );
+    if (items.length === 0) {
+      throw new NotFoundError("session basket", sessionId);
+    }
+
+    return this.transaction(() => {
+      const reversedTransactionIds: number[] = [];
+      const reversalIds: number[] = [];
+      for (const item of items) {
+        // Skip a member already voided, or already refunded by a prior call
+        // to this same method (idempotent re-invocation — see
+        // voidSessionBasket's identical comment).
+        if (item.status === "VOIDED") continue;
+        const alreadyRefunded = this.queryOne<{ id: number }>(
+          `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND' AND tenant_id = ?`,
+          item.id,
+          tenantId,
+        );
+        if (alreadyRefunded) continue;
+        const refundId = this._refundTransactionInternal(item.id, userId, {
+          allowSessionMember: true,
+        });
+        reversedTransactionIds.push(item.id);
+        reversalIds.push(refundId);
+      }
+      this._reverseSessionPooledPayments(sessionId, userId);
+      this._cancelSessionDebt(sessionId, userId);
+      return {
+        sessionId,
+        itemCount: items.length,
+        reversedTransactionIds,
+        reversalIds,
+      };
+    });
+  }
+
+  /**
+   * Up-front refusal (before any write) if this basket's pooled cash/debt
+   * was already reversed by a prior `voidSessionBasket`/`refundSessionBasket`
+   * call — prevents double-reversing the ONE pooled leg/debt on a repeat
+   * invocation (see both callers' idempotency comment for why the per-item
+   * loop alone can't detect this: every item might already be
+   * voided/refunded from a fully-successful prior call, which would
+   * otherwise look identical to "nothing to do" and let the pooled-reversal
+   * steps run a second time).
+   */
+  private _assertSessionBasketReversible(sessionId: number): void {
+    const tenantId = getCurrentTenantId();
+    const reversedLeg = this.queryOne<{ id: number }>(
+      `SELECT id FROM payments
+       WHERE session_id = ? AND transaction_id IS NULL AND note = ? AND tenant_id = ?
+       LIMIT 1`,
+      sessionId,
+      SESSION_BASKET_REVERSAL_NOTE,
+      tenantId,
+    );
+    if (reversedLeg) {
+      throw new DatabaseError(
+        `Session basket #${sessionId} has already been voided/refunded`,
+        { entityId: sessionId },
+      );
+    }
+    const reversedDebt = this.queryOne<{ id: number }>(
+      `SELECT id FROM debt_ledger
+       WHERE session_id = ? AND transaction_type = 'Refund Reversal' AND tenant_id = ?
+       LIMIT 1`,
+      sessionId,
+      tenantId,
+    );
+    if (reversedDebt) {
+      throw new DatabaseError(
+        `Session basket #${sessionId} has already been voided/refunded`,
+        { entityId: sessionId },
+      );
+    }
+  }
+
+  /**
+   * Reverse the ONE (or two, USD+LBP) pooled `payments` row(s) a session
+   * basket's customer-cash leg was posted as (`SessionPaymentService
+   * .recordBasketPayment` → `insertSessionLeg`, `transaction_id` NULL,
+   * `session_id` set) — exactly once for the whole basket. Mirrors
+   * `_reversePayments`'s mirror-and-negate shape (rule 14) but keyed by
+   * `session_id` instead of `transaction_id`, and posts the reversal leg back
+   * onto the SAME pool (`session_id` set, `transaction_id` NULL) rather than
+   * onto any one item's reversal row — there is no single item that "owns"
+   * pooled cash, so the reversal stays pooled too. `getCashFlowByDate` (D1)
+   * already includes `transaction_id IS NULL AND session_id IS NOT NULL`
+   * rows unconditionally, so this reversal leg surfaces on its own date
+   * exactly like the original leg did on its date — no report changes needed.
+   */
+  private _reverseSessionPooledPayments(sessionId: number, userId: number): void {
+    const tenantId = getCurrentTenantId();
+    const legs = this.query<{
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    }>(
+      `SELECT method, drawer_name, currency_code, amount
+       FROM payments WHERE transaction_id IS NULL AND session_id = ? AND tenant_id = ?`,
+      sessionId,
+      tenantId,
+    );
+
+    for (const p of legs) {
+      const negatedAmount = -p.amount;
+      insertPaymentRow(this.db, {
+        sessionId,
+        method: p.method,
+        drawerName: p.drawer_name,
+        currencyCode: p.currency_code,
+        amount: negatedAmount,
+        note: SESSION_BASKET_REVERSAL_NOTE,
+        createdBy: userId,
+        tenantId,
+      });
+      applyDrawerDelta(this.db, {
+        drawerName: p.drawer_name,
+        currencyCode: p.currency_code,
+        delta: negatedAmount,
+        tenantId,
+      });
+    }
+  }
+
+  /**
+   * Reverse the ONE pooled `debt_ledger` 'Session Debt' row a basket's
+   * CUSTOMER_ACCOUNT (+ GIFT_CARD) portion was booked as
+   * (`SessionPaymentRepository.insertBasketDebt`, `session_id` set,
+   * `transaction_id` NULL) — closes the gap the constant's own doc comment
+   * (`transactionTypes.ts`) named but never implemented: "'Session Debt' ...
+   * is reversed by the session flow, not the generic path." No drawer is
+   * touched here — an on-account charge took no cash, so its reversal is
+   * ledger-only, exactly like `_cancelDebt`'s generic pattern for every other
+   * module-charge debt type (rule 14 — same 'Refund Reversal' insert shape).
+   */
+  private _cancelSessionDebt(sessionId: number, userId: number): void {
+    const tenantId = getCurrentTenantId();
+    const debts = this.query<{
+      id: number;
+      client_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+    }>(
+      `SELECT id, client_id, amount_usd, amount_lbp FROM debt_ledger
+       WHERE session_id = ? AND transaction_type = 'Session Debt' AND tenant_id = ?`,
+      sessionId,
+      tenantId,
+    );
+
+    const insertReversal = this.db.prepare(`
+      INSERT INTO debt_ledger (
+        client_id, transaction_type, amount_usd, amount_lbp, transaction_id, session_id, note, created_by, tenant_id
+      ) VALUES (?, 'Refund Reversal', ?, ?, NULL, ?, 'Debt cancelled by session basket void/refund', ?, ?)
+    `);
+
+    for (const d of debts) {
+      insertReversal.run(
+        d.client_id,
+        -d.amount_usd,
+        -d.amount_lbp,
+        sessionId,
+        userId,
+        tenantId,
+      );
+    }
+  }
+
   private _voidTransactionInternal(
     id: number,
     userId: number,
-    opts: { allowSplitGroupMember?: boolean },
+    opts: { allowSplitGroupMember?: boolean; allowSessionMember?: boolean },
   ): number {
     const original = this.findById(id);
     if (!original) {
@@ -1173,6 +1459,27 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     userId: number,
     opts?: { refundLegs?: RefundLegOverride[] },
   ): number {
+    return this._refundTransactionInternal(id, userId, {
+      refundLegs: opts?.refundLegs,
+    });
+  }
+
+  /**
+   * LIRA-115: internal counterpart to `refundTransaction`, split out the same
+   * way `voidTransaction` delegates to `_voidTransactionInternal` (rule 14 —
+   * one shape, reused) so `refundSessionBasket` can bypass the session-basket
+   * guard (`allowSessionMember: true`) for one item at a time while every
+   * OTHER caller (the public `refundTransaction`, `refundBySaleId`) keeps the
+   * guard enforced.
+   */
+  private _refundTransactionInternal(
+    id: number,
+    userId: number,
+    opts: {
+      refundLegs?: RefundLegOverride[];
+      allowSessionMember?: boolean;
+    },
+  ): number {
     const original = this.findById(id);
     if (!original) {
       throw new NotFoundError("transactions", id);
@@ -1182,7 +1489,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         entityId: id,
       });
     }
-    this._assertReversible(original);
+    this._assertReversible(original, {
+      allowSessionMember: opts.allowSessionMember,
+    });
     // LIRA-091: same up-front settled-sibling guard as voidTransaction — see
     // _assertSupplierSiblingsVoidable's doc.
     this._assertSupplierSiblingsVoidable(original);
@@ -1210,7 +1519,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // behavior, byte-identical to pre-LIRA-078) when opts/refundLegs is
     // omitted — this is what keeps every OTHER refund call site (refundBySaleId,
     // scripted callers, tests) unchanged.
-    const refundLegs = opts?.refundLegs;
+    const refundLegs = opts.refundLegs;
     if (refundLegs && refundLegs.length > 0) {
       this._validateRefundLegOverride(id, refundLegs);
     }
@@ -1319,7 +1628,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    */
   private _assertReversible(
     original: TransactionEntity,
-    opts: { allowSplitGroupMember?: boolean } = {},
+    opts: {
+      allowSplitGroupMember?: boolean;
+      allowSessionMember?: boolean;
+    } = {},
   ): void {
     if (NON_REVERSIBLE_TRANSACTION_TYPES.has(original.type)) {
       throw new DatabaseError(
@@ -1354,6 +1666,57 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         );
       }
     }
+    // LIRA-115: a row linked to a customer-session basket
+    // (customer_session_transactions.unified_transaction_id = this row) was
+    // sold with `deferPayment` — its own customer-cash leg was skipped at
+    // create time; the customer's ONE real payment (and/or the ONE pooled
+    // 'Session Debt' charge) is POOLED across every item in the basket
+    // (`payments`/`debt_ledger` rows keyed by `session_id`, `transaction_id`
+    // NULL). Reversing this single item alone can only ever undo its own
+    // transaction_id-scoped legs (e.g. the cost leg) — the pooled cash/debt
+    // is invisible to a transaction_id-keyed query and is silently never
+    // reversed (the exact money-loss bug this guard closes). Mirrors the
+    // split_group guard immediately above in shape (rule 14): blocked for
+    // BOTH void and refund; `voidSessionBasket`/`refundSessionBasket` are the
+    // only legitimate way to reverse one, and pass `allowSessionMember: true`
+    // to bypass this check per-item while they do so under one shared db
+    // transaction.
+    if (!opts.allowSessionMember) {
+      const sessionId = this._sessionIdForTransaction(original.id);
+      if (sessionId != null) {
+        throw new DatabaseError(
+          `This transaction is part of session basket #${sessionId}; void/refund the whole basket instead.`,
+          { entityId: original.id },
+        );
+      }
+    }
+  }
+
+  /**
+   * Resolve the customer-session basket a transaction belongs to, or null.
+   * `customer_session_transactions` is absent from many minimal/legacy test
+   * fixtures (only ~7 of the ~90 repository test DBs declare it) — guarded
+   * with the same `hasTable` pattern `_reversePartnerLedger` uses for
+   * `partner_ledger`, so this stays safe to call unconditionally from
+   * `_assertReversible` (every void/refund call site) without breaking any
+   * fixture that never seeded session tables.
+   */
+  private _sessionIdForTransaction(transactionId: number): number | null {
+    const hasTable = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'customer_session_transactions'`,
+      )
+      .get();
+    if (!hasTable) return null;
+    const tenantId = getCurrentTenantId();
+    const row = this.queryOne<{ session_id: number }>(
+      `SELECT session_id FROM customer_session_transactions
+       WHERE unified_transaction_id = ? AND tenant_id = ?
+       LIMIT 1`,
+      transactionId,
+      tenantId,
+    );
+    return row ? row.session_id : null;
   }
 
   /**

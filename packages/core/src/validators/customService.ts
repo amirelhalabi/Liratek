@@ -7,7 +7,7 @@ import { transactionTimeSchema } from "./common.js";
 
 export const createCustomServiceSchema = z
   .object({
-    description: z.string().min(1, "Description is required").max(500),
+    description: z.string().min(0).max(500).optional().default(""),
     cost_usd: z.coerce.number().min(0).default(0),
     cost_lbp: z.coerce.number().min(0).default(0),
     price_usd: z.coerce.number().min(0).default(0),

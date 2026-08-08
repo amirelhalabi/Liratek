@@ -142,4 +142,3 @@ graphify-out/
 # how to recreate them. Remove the ignore when the fix lands and the test flips
 # to a passing regression guard.
 packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDecrement.test.ts
-packages/core/src/repositories/__tests__/TransactionRepository.refundSessionBasketCostPriceFlow.test.ts
