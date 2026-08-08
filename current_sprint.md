@@ -1927,7 +1927,7 @@ NEEDS INTERVIEW — confirm which balance the owner meant before building
 | **Epic**             | Suppliers / Recharge               |
 | **Type**             | Feature / Decision                 |
 | **Priority**         | Medium                             |
-| **Status**           | NEEDS INTERVIEW                    |
+| **Status**           | INTERVIEW DONE (2026-08-08) → Phase 1 of `COMMISSION_AT_SETTLEMENT_PLAN.md` |
 | **Affected Modules** | Recharge > iPick, Katsh; Suppliers |
 | **Assigned To**      | —                                  |
 | **Depends On**       | —                                  |
@@ -1940,14 +1940,20 @@ The owner's model instead: count bills only at transaction time (no commission b
 enter the ACTUAL commission amount later, at supplier settlement. Blocked on owner answers before
 implementation.
 
-### Open Questions (owner interview required)
+### Open Questions — ANSWERED (owner interview 2026-08-08)
 
-- [ ] Is the commission entered as ONE amount per settlement batch, or per-bill × count?
-- [ ] What happens to bills already recorded under the old hardcoded-per-bill model — backfill, leave as-is, or migrate?
+- [x] Entry shape: **both, per supplier** — lump per settlement batch OR per-bill × count; the
+      settlement UI offers both modes.
+- [x] Historical bills: **cutover, keep history** — rows booked under the hardcoded-per-bill model
+      stay as-is; no backfill/migration of past data.
+- [x] (From the joint interview) This is **Phase 1 of the unified COMMISSION_AT_SETTLEMENT
+      redesign** with LIRA-095 — the bills slice ships first to validate the settlement-time
+      commission machinery.
 
 ### Acceptance Criteria
 
-- [ ] _(To be defined after interview — implementable using the W5 OMT/Whish settle-netting pattern as a template, per the parallel session's finding)_
+Defined in `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 1. This ticket closes
+when the bills slice ships.
 
 ---
 
@@ -2078,7 +2084,7 @@ undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2
 | LIRA-086 | Dashboard checkpoint freshness coloring                 | Low      | TODO            |
 | LIRA-087 | Product-supplier — debt now, attach products later      | Medium   | TODO            |
 | LIRA-088 | MTC/Alfa provider-balance decrement                     | Medium   | NEEDS INTERVIEW |
-| LIRA-089 | iPick/Katsh bills commission at settlement              | Medium   | NEEDS INTERVIEW |
+| LIRA-089 | iPick/Katsh bills commission at settlement              | Medium   | INTERVIEW DONE → COMMISSION_AT_SETTLEMENT_PLAN Phase 1 |
 | LIRA-090 | Telecom days/credit model                               | High     | NEEDS INTERVIEW |
 | LIRA-091 | Void cascade for auto supplier-ledger siblings          | High     | DONE            |
 | LIRA-094 | Carrier-legs void asymmetry (retroactive — shipped W5)  | High     | DONE            |
@@ -2112,7 +2118,7 @@ correctly not attacked as part of the bug-fix pass; filed here so they aren't lo
 | **Epic**              | Financial Services / Suppliers                             |
 | **Type**              | Feature / Decision                                         |
 | **Priority**          | High (money-flow architecture)                             |
-| **Status**            | NEEDS INTERVIEW                                            |
+| **Status**            | INTERVIEW DONE (2026-08-08) → plan: `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` |
 | **Affected Modules**  | Financial Services (OMT, Whish, Katsh, iPick), Suppliers, Profits |
 | **Assigned To**       | —                                                           |
 | **Depends On**        | —                                                           |
@@ -2134,19 +2140,27 @@ touched (see LIRA-089 above for the closely related, already-filed "iPick/Katsh 
 at settlement" ticket — this note may be the general case LIRA-089 is one instance of; resolve
 LIRA-089's open questions and this one together).
 
-### Open Questions (owner interview required)
+### Open Questions — ANSWERED (owner interview 2026-08-08)
 
-- [ ] If commission moves to settlement time, how does the Profits page still split it per
-      transaction TYPE — a batch total apportioned across the types in that batch, or something else?
-- [ ] Does this apply uniformly to all four providers (OMT, Whish, Katsh, iPick), or only some?
-- [ ] What happens to historical commission already booked under the current (per-transaction)
-      model — backfill, leave as-is, or migrate?
-- [ ] Relationship to LIRA-089 (iPick/Katsh bills commission at settlement) — same redesign, or
-      does LIRA-089 stay scoped to bills only while this covers SEND/RECEIVE too?
+- [x] Per-type split: **allocate the settlement lump proportionally** across the settled
+      transactions by type.
+- [x] Historical commission: **cutover date, keep history** — no restatement, new model applies
+      forward only.
+- [x] Entry shape at settlement: **both modes, per supplier** — a lump sum for the batch OR a
+      per-unit rate × count; the settlement UI offers both.
+- [x] Relationship to LIRA-089: **one unified redesign** (owner reviewed the code-grounded
+      comparison: both tickets change the same recognition point and share all machinery —
+      settlement-time entry, allocation, cutover). LIRA-089's bills flow is Phase 1 (the simplest
+      vertical slice, validates the machinery before the OMT/Whish payable math changes).
+- [ ] Provider set for the Profits "Commission" row (folded in from LIRA-108's residuals): the row
+      still counts iPick/Katsh `commission > 0` rows the per-currency sibling routes to Mobile
+      Services, and sums raw `fs.commission` vs the sibling's stamped `t.profit_usd/lbp` (USDT
+      buckets as USD). Resolve inside the plan's Profits phase.
 
 ### Acceptance Criteria
 
-- [ ] _(To be defined after interview)_
+Defined in `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` (the unified plan for
+LIRA-095 + LIRA-089). This ticket closes when that plan's OMT/Whish phases ship.
 
 ### Files to Modify
 
@@ -2264,7 +2278,7 @@ proven failing-first by temporarily removing the LBP option (rule 17).
 
 | ID       | Title                                                       | Priority | Status          |
 | -------- | ------------------------------------------------------------ | -------- | --------------- |
-| LIRA-095 | OMT/Whish/Katsh — rethink commission flow                   | High     | NEEDS INTERVIEW |
+| LIRA-095 | OMT/Whish/Katsh — rethink commission flow                   | High     | INTERVIEW DONE → COMMISSION_AT_SETTLEMENT_PLAN |
 | LIRA-096 | Partners — remove Record Transaction (redundant)             | Low      | NEEDS INTERVIEW |
 | LIRA-097 | Partners — enable LBP for Add Credit/Debt                    | Low      | CLOSED — already working (guard test `d217221`) |
 
