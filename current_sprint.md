@@ -2300,7 +2300,7 @@ a reminder that the plan docs themselves are not reliable evidence, only the cod
 | **Epic**              | Profits / Counterparty Ledgers        |
 | **Type**              | Test / Guard                          |
 | **Priority**          | Medium                                |
-| **Status**            | TODO                                  |
+| **Status**            | DONE (2026-08-08) — and it found LIRA-108 |
 | **Affected Modules**  | Profits                               |
 | **Assigned To**       | —                                      |
 | **Depends On**        | —                                      |
@@ -2316,17 +2316,79 @@ guard test (the plan's own CQ-1 goal) was never written — only `moduleDebtType
 
 ### Acceptance Criteria
 
-- [ ] New `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts`, mirroring
-      `partnerLedgerTypes.guard.test.ts`'s file-scanning approach: statically scan
-      `ProfitRepository.ts` for any SQL string containing `profit` and assert it also references
-      at least one recognition-gate fragment.
-- [ ] Full core + backend jest green before/after; typecheck/lint.
+- [x] New `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts`, mirroring
+      `partnerLedgerTypes.guard.test.ts`'s file-scanning approach — extended beyond the ticket's
+      sketch: per-`.prepare()` query units, the big `getByDate` CTE split into one unit per CTE
+      (so a new ungated CTE can't hide behind its siblings' gates), `--` comment stripping (proven
+      necessary — a SQL comment containing the word "profit" false-positived on the first clean run),
+      six gate fragments recognized (the ticket's four + `saleNotFullyPaid`/`txnNotPartnerPending`,
+      without which the guard fails on CORRECT code), five documented exclusions each with a verified
+      reason, and two guard-the-guard sanity tests (fragments still exist; scan finds >10 units —
+      actual 27).
+- [x] Rule 17 both ways: passes on clean code; observed FAILING on an injected ungated
+      `SUM(profit_usd)` dummy (then removed, `git diff` confirmed empty).
+- [x] Full core jest green: 154/154 suites, 1658/1658 tests. Typecheck clean.
+
+### Outcome — the guard found a real candidate bug on day one
+
+Building the exclusion list surfaced **LIRA-108** (filed below): `getRealizedCommissionTotals` lacks
+the counterparty gates its sibling settled-commission query carries. That's the guard doing exactly
+what CQ-1 wanted — except the hole predates the guard. With this, `COUNTERPARTY_CONSOLIDATION_PLAN.md`
+has nothing left and can be archived once LIRA-108 is resolved (the plan's own scope is complete;
+108 is a new finding, not a plan residual).
 
 ### Files to Modify
 
 | Layer   | File                                                                              | Change                  |
 | ------- | ------------------------------------------------------------------------------------ | -------------------------- |
 | Backend | `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` (new)     | File-scanning guard test |
+
+---
+
+## LIRA-108: `getRealizedCommissionTotals` missing counterparty gates — "Commission (Settled)" may overstate
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Profits / Counterparty Ledgers        |
+| **Type**              | Bug (candidate — needs money-eyes verification) |
+| **Priority**          | Medium                                |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Profits                               |
+| **Assigned To**       | —                                      |
+| **Depends On**        | —                                      |
+| **Source Plan**       | Found by LIRA-098's guard-building analysis (2026-08-08) |
+
+### Summary
+
+`ProfitRepository.getRealizedCommissionTotals` (~line 1220, feeds `ProfitService.getByPaymentMethod`'s
+"Commission (Settled)" row) sums `financial_services.commission` with only
+`is_settled = 1 AND commission > 0 AND notRefunded AND dateRange AND tenant_id` — **no**
+`notPartnerPending`/`notDebtPending`. Its sibling `getFinancialSettledByCurrency` (~line 529) carries
+BOTH gates (lines 546-547) for the same `is_settled = 1` population. Asymmetry verified directly in
+source, not just reported.
+
+Consequence if real: a commission transaction that is supplier-settled but still partner-pending
+(for-partner flow) or account-charged (debt still open) shows its commission as realized profit in
+the "Commission (Settled)" row while the sibling per-currency view correctly withholds it — the two
+profit views disagree, and the totals row overstates.
+
+### Acceptance Criteria
+
+- [ ] Money-eyes verification: construct the disagreement concretely (a settled, partner-pending
+      commission row) and confirm the two views diverge — failing-first test per rule 17.
+- [ ] If confirmed: add the two gates to `getRealizedCommissionTotals` (reuse the existing fragments —
+      rule 14), and check `getPendingCommissionTotals` for the mirror-image question (should a
+      partner-pending commission appear in "pending" instead?).
+- [ ] Consider widening LIRA-098's guard heuristic to also flag ungated `commission` sums (it
+      currently scans only for the literal `profit`), so this class can't recur.
+- [ ] Full core + backend suites green.
+
+### Files to Modify
+
+| Layer   | File                                                    | Change                        |
+| ------- | ------------------------------------------------------------ | -------------------------------- |
+| Backend | `packages/core/src/repositories/ProfitRepository.ts`        | Add gates if confirmed          |
+| Backend | `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` | Optionally widen heuristic |
 
 ---
 
