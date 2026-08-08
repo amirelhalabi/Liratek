@@ -2718,8 +2718,10 @@ Phase 1 is the right place to fix it since the machinery now exists.
 - [ ] Failing-first test (rule 17): an iPick bill books zero commission rows at creation AND is
       absent from the unsettled commission queue; a Katsh bill does both.
 - [ ] Settle screen prefills Katsh's estimate = 20,000 LBP × bill count, from stored config.
-- [ ] Historical iPick credits: owner decision — leave (cutover, consistent with D3) vs correct.
-      **Recommend leave + report the total so the owner can adjust once manually if desired.**
+- [x] Historical iPick credits: **owner decided 2026-08-08 — LEAVE THEM.** ("Historical ipick leave
+      them i dont care.") No backfill, no correcting migration, no reporting task. Consistent with
+      the D3 cutover principle: history keeps the old model, the fix applies forward only. Do NOT
+      let a future review re-open this as an unfinished data-integrity item.
 - [ ] Full suites + desktop/web e2e green; extend `lira-089` / `lira-web-021` with an iPick case.
 
 ### Files to Modify
