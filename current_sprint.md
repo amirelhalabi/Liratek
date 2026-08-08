@@ -2439,7 +2439,7 @@ browser (`impersonat` has zero hits across all of `frontend/tests/`).
 | **Epic**              | Loto                                          |
 | **Type**              | Feature / Gap                                 |
 | **Priority**          | Low                                            |
-| **Status**            | DONE (2026-08-08) — e2e extension unexecuted, see note |
+| **Status**            | DONE (2026-08-08) — e2e LOTO row executed GREEN same day |
 | **Affected Modules**  | Loto                                          |
 | **Assigned To**       | —                                              |
 | **Depends On**        | LIRA-069 (DONE — receipt-print gating foundation) |
@@ -2465,9 +2465,8 @@ can only be reprinted today via the general `/audit` Transactions viewer.
       `TransactionRepository.getBySourceId`; print via the shared `printServiceReceiptByTransaction`.
 - [x] Component test (3 cases incl. gate-wiring proof; rule 17: bypassing the gate with `|| true`
       made exactly the hide-assertion fail) + lira-069 e2e spec extended with a LOTO row.
-      **The e2e extension is UNEXECUTED** — same `yarn dev` → stop → `test:e2e` run as LIRA-102;
-      the LOTO row reuses the exact selector path already proven for MTC/iPick/Katsh in that spec
-      (`ALWAYS_RECEIPTABLE_TYPES` includes LOTO), so risk is low but unproven.
+      **Executed 2026-08-08: PASSED** — lira-069 ran 3/3 green including the LOTO row, in the same
+      4/4 desktop run that proved LIRA-102's spec.
 - [x] Frontend tests 3/3, typecheck clean, playwright tsc adds zero new errors (re-run independently).
 
 ### Files to Modify
@@ -2575,7 +2574,7 @@ created, not deleted).
 | **Epic**              | Recharge / Web Parity                       |
 | **Type**              | Bug / Dual-Transport                        |
 | **Priority**          | Medium                                       |
-| **Status**            | DONE (2026-08-08) — found residual LIRA-109; web spec unexecuted |
+| **Status**            | DONE (2026-08-08) — web spec executed GREEN same day; found residual LIRA-109 |
 | **Affected Modules**  | Recharge                                     |
 | **Assigned To**       | —                                             |
 | **Depends On**        | —                                             |
@@ -2610,7 +2609,7 @@ but two spots still call raw `window.api.recharge.*` with no REST backing:
       `if (!window.api?.recharge) return;` guard and stale "IPC-only" comment deleted.
 - [x] Web e2e: `lira-web-020-recharge-history-drawer-balances.spec.ts` — seeds via
       `POST /api/recharge/process`, drives the real page, asserts drawer stat + history modal.
-      **UNEXECUTED** (owner runs `yarn test:e2e:web`); selectors verified against source.
+      **Executed 2026-08-08: both tests PASSED** in a full 59/59 `test:e2e:web` run.
 - [x] Rule 17: new component test (adapter-mocked, zero `window.api`) observed failing 2/2 pre-fix,
       passing post-fix. Backend +5 route tests. Full `yarn test` exit 0 on the combined tree:
       backend 38/521, frontend 110/849+1, core 154/1658.
@@ -2889,8 +2888,12 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | Priority  | Total  | Done  | Closed (won't do) | Remaining |
 | --------- | ------ | ----- | ----------------- | --------- |
 | Medium    | 6      | 2     | 0                 | 4         |
-| Low       | 6      | 3     | 1                 | 2         |
-| **Total** | **12** | **5** | **1**             | **6**     |
+| Low       | 6      | 4     | 1                 | 1         |
+| **Total** | **12** | **6** | **1**             | **5**     |
+
+> All e2e proof now EXECUTED (2026-08-08): desktop targeted run 4/4 (LIRA-102 spec + lira-069 with
+> the LIRA-100 LOTO row), full web suite 59/59 (includes LIRA-103's lira-web-020). Remaining open:
+> LIRA-099, 101, 104, 108, 109.
 
 > LIRA-102's spec is **written and committed but never executed** — running it needs the
 > `yarn dev` → stop → `yarn test:e2e` sequence, which the owner runs. It stays TODO until it has
@@ -2902,10 +2905,10 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | -------- | --------------------------------------------------------------------- | -------- | ------ | ------------------------------------------ |
 | LIRA-098 | Profit-recognition guard test                                       | Medium   | DONE `e6e3747` (found LIRA-108) | COUNTERPARTY_CONSOLIDATION_PLAN.md |
 | LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof              | Medium   | TODO   | MULTI_TENANT_IMPLEMENTATION_PLAN.md         |
-| LIRA-100 | Loto — in-module ticket reprint UI                                   | Low      | DONE `a3e24af` (e2e row unexecuted) | PARTIAL_TASKS_COMPLETION_PLAN.md |
+| LIRA-100 | Loto — in-module ticket reprint UI                                   | Low      | DONE `a3e24af` (e2e row green) | PARTIAL_TASKS_COMPLETION_PLAN.md |
 | LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification                | Medium   | TODO   | PRIMARY_CASH_DRAWER_PLAN.md                 |
 | LIRA-102 | Session-grouping UI e2e spec                                          | Low      | DONE — executed green 2026-08-08 (4/4 with lira-069+LOTO) | session-basket-payment-remaining.md |
-| LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | DONE (web spec unexecuted; found LIRA-109) | WEB_PARITY_ROADMAP.md |
+| LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | DONE (web spec green; found LIRA-109) | WEB_PARITY_ROADMAP.md |
 | LIRA-104 | Web-mode REST writes have no audit trail                              | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
 | LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | DONE `c9f2262`+`6f74cfd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md |
 | LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | DONE `0c910cd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
