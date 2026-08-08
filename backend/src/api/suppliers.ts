@@ -17,6 +17,7 @@ import {
   supplierWriteOffSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = Router();
 const supplierService = getSupplierService();
@@ -207,6 +208,13 @@ router.post("/", requireAuth, requireRole(["admin"]), async (req, res) => {
 
     if (result.success) {
       logger.info({ name, id: result.id }, "Supplier created");
+      // Mirrors supplierHandlers.ts's suppliers:create audit (create/supplier).
+      auditRest(req, {
+        action: "create",
+        entity_type: "supplier",
+        summary: `Created supplier "${name}"`,
+        metadata: { name, module_key, provider },
+      });
       res.json(result);
     } else {
       res.status(400).json(result);
@@ -249,6 +257,17 @@ router.post(
           },
           "Supplier ledger entry added",
         );
+        // Mirrors supplierHandlers.ts's suppliers:add-ledger-entry audit
+        // (create/supplier_ledger).
+        auditRest(req, {
+          action: "create",
+          entity_type: "supplier_ledger",
+          summary: `Supplier ledger ${req.body.entry_type}: $${req.body.amount_usd} + ${req.body.amount_lbp} LBP`,
+          metadata: {
+            supplier_id: req.body.supplier_id,
+            entry_type: req.body.entry_type,
+          },
+        });
         res.json(result);
       } else {
         res.status(400).json(result);
@@ -280,6 +299,19 @@ router.post(
         ...req.body,
         created_by: req.user!.userId,
       });
+      if (result.success) {
+        // Mirrors supplierHandlers.ts's suppliers:settle-transactions audit
+        // (settle/supplier_settlement).
+        auditRest(req, {
+          action: "settle",
+          entity_type: "supplier_settlement",
+          summary: `Settled ${req.body.financial_service_ids.length} transactions for supplier #${req.body.supplier_id}`,
+          metadata: {
+            supplier_id: req.body.supplier_id,
+            count: req.body.financial_service_ids.length,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Settle supplier transactions error");
@@ -307,6 +339,19 @@ router.post(
         ...req.body,
         created_by: req.user!.userId,
       });
+      if (result.success) {
+        // Mirrors supplierHandlers.ts's suppliers:record-cashflow audit
+        // (action="pay"|"receive" / supplier_cashflow).
+        auditRest(req, {
+          action: req.body.direction === "PAY" ? "pay" : "receive",
+          entity_type: "supplier_cashflow",
+          summary: `Supplier #${req.body.supplier_id} ${req.body.direction === "PAY" ? "paid" : "paid us"} (${req.body.payments.length} leg${req.body.payments.length === 1 ? "" : "s"})`,
+          metadata: {
+            supplier_id: req.body.supplier_id,
+            direction: req.body.direction,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Record supplier cashflow error");
@@ -336,6 +381,23 @@ router.post(
         ...req.body,
         created_by: req.user!.userId,
       });
+      // createPurchase returns the raw created SupplierPurchase entity on
+      // success (no `success` key at all) or `{ success: false, error }` on
+      // a business-rule failure — "not explicitly false" is therefore the
+      // correct success test here, not `result.success === true`.
+      if (!("success" in result && result.success === false)) {
+        // Mirrors supplierHandlers.ts's suppliers:purchase-create audit
+        // (create/supplier_purchase).
+        auditRest(req, {
+          action: "create",
+          entity_type: "supplier_purchase",
+          summary: `Logged purchase of $${Number(req.body.total_usd).toFixed(2)} for supplier #${req.body.supplier_id}`,
+          metadata: {
+            supplier_id: req.body.supplier_id,
+            total_usd: req.body.total_usd,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Create supplier purchase error");
@@ -365,6 +427,20 @@ router.post(
         ...req.body,
         created_by: req.user!.userId,
       });
+      if (result.success) {
+        // Mirrors supplierHandlers.ts's suppliers:write-off audit
+        // (write_off/supplier_write_off).
+        auditRest(req, {
+          action: "write_off",
+          entity_type: "supplier_write_off",
+          summary: `Supplier write-off for #${req.body.supplier_id}: $${req.body.amount_usd} + ${req.body.amount_lbp} LBP`,
+          metadata: {
+            supplier_id: req.body.supplier_id,
+            amount_usd: req.body.amount_usd,
+            amount_lbp: req.body.amount_lbp,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Write off supplier debt error");

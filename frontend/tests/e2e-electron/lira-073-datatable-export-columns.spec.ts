@@ -44,6 +44,10 @@ test.describe("LIRA-073 — DataTable export customizable columns", () => {
     // ── Ensure the Transactions table has at least one exporting row ────────
     await createOmtAppSend(appPage);
 
+    // Bounce through "/" first (README "Assertion discipline" / LIRA-111) —
+    // a viewer already parked on /audit from an earlier spec does not
+    // remount on a same-route hash nav, so the table can show a stale list.
+    await navigateTo(appPage, "/");
     await navigateTo(appPage, "/audit");
 
     // Wait for the table to render at least one row (export bar is hidden when

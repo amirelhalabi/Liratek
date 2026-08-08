@@ -42,6 +42,7 @@ import {
 } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 if (!JWT_SECRET) {
   throw new Error(
@@ -95,6 +96,30 @@ router.post("/tenants", validateRequest(createTenantSchema), (req, res) => {
         adminPassword: req.body.adminPassword,
       }),
     );
+
+    // No IPC precedent (desktop has no tenant-provisioning channel) — new
+    // vocabulary per the ticket: action=create, entity_type=tenant. The
+    // acting super_admin has tenantId===null (platform realm), so the row
+    // is written under the newly-created tenant's own context, same as the
+    // impersonate audit below.
+    //
+    // Routed through `auditRest` (-> AuditService.log(), never throws)
+    // rather than calling AuditRepository.log() directly: the tenant is
+    // ALREADY committed by this point, so a raw repository call that throws
+    // on a write failure would incorrectly turn an already-successful
+    // provisioning into a false HTTP 500 (LIRA-104 adversarial-review
+    // blocker fix). `runWithTenant` is still required — a super_admin actor
+    // has no ambient tenant context of its own.
+    runWithTenant(tenant.id, () => {
+      auditRest(req, {
+        action: "create",
+        entity_type: "tenant",
+        entity_id: String(tenant.id),
+        summary: `Provisioned tenant "${tenant.name}"`,
+        new_values: { name: tenant.name, slug: tenant.slug },
+      });
+    });
+
     res.status(201).json(createSuccessResponse({ tenant }));
   } catch (error) {
     if (error instanceof AppError) {
@@ -158,6 +183,24 @@ router.patch(
           );
         return;
       }
+
+      // No IPC precedent — new vocabulary per the ticket: action=update,
+      // entity_type=tenant. Written under the target tenant's own context
+      // (same rationale as the create route above).
+      //
+      // Routed through `auditRest` (non-throwing) rather than
+      // AuditRepository.log() directly — same rationale as POST /tenants
+      // above: the update is already committed, so an audit-write failure
+      // must not surface as a false HTTP 500.
+      runWithTenant(id, () => {
+        auditRest(req, {
+          action: "update",
+          entity_type: "tenant",
+          entity_id: String(id),
+          summary: `Updated tenant "${tenant.name}"`,
+          new_values: req.body,
+        });
+      });
 
       res.json(createSuccessResponse({ tenant }));
     } catch (error) {

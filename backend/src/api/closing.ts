@@ -7,6 +7,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, AuthRequest } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
+import { auditRest } from "../middleware/audit.js";
 import {
   getClosingService,
   setOpeningBalancesSchema,
@@ -130,6 +131,13 @@ router.post(
           { closingDate: req.body.closingDate, userId: req.body.userId },
           "Opening balances set",
         );
+        // No IPC precedent (setOpeningBalances is never called from any
+        // electron-app handler) — new vocabulary per the ticket.
+        auditRest(req, {
+          action: "create",
+          entity_type: "opening_balance",
+          summary: `Set opening balances for ${req.body.closingDate}`,
+        });
         res.json(result);
       } else {
         res.status(400).json(result);
@@ -161,6 +169,14 @@ router.post(
           { closingDate: req.body.closingDate, userId: req.body.userId },
           "Daily closing created",
         );
+        // No IPC precedent (createDailyClosing is never called from any
+        // electron-app handler) — new vocabulary per the ticket, distinct
+        // from the create_checkpoint/daily_closings action below.
+        auditRest(req, {
+          action: "create",
+          entity_type: "daily_closings",
+          summary: `Created daily closing for ${req.body.closingDate}`,
+        });
         res.json(result);
       } else {
         res.status(400).json(result);
@@ -211,6 +227,13 @@ router.put("/daily-closing/:id", requireAuth, async (req: AuthRequest, res) => {
 
     if (result.success) {
       logger.info({ id, user_id }, "Daily closing updated");
+      // Mirrors dbHandlers.ts's closing:update-daily-closing audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "daily_closings",
+        entity_id: String(id),
+        summary: `Updated daily closing #${id}`,
+      });
       res.json(result);
     } else {
       res.status(400).json(result);
@@ -241,6 +264,15 @@ router.post(
     try {
       const user_id = req.user!.userId;
       const result = closingService.createCheckpoint({ ...req.body, user_id });
+      if (result.success) {
+        // Mirrors dbHandlers.ts's closing:create-checkpoint audit.
+        auditRest(req, {
+          action: "create_checkpoint",
+          entity_type: "daily_closings",
+          entity_id: String(result.id ?? ""),
+          summary: `Checkpoint created: ${req.body.drawer_name}`,
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Create checkpoint error");
@@ -257,9 +289,17 @@ router.post(
   "/recalculate-drawer-balances",
   requireAuth,
   adminGate,
-  (_req, res) => {
+  (req: AuthRequest, res) => {
     try {
       const result = closingService.recalculateDrawerBalances();
+      if (result.success) {
+        // Mirrors dbHandlers.ts's closing:recalculate-drawer-balances audit.
+        auditRest(req, {
+          action: "update",
+          entity_type: "drawer_balance",
+          summary: "Recalculated drawer balances from payments journal",
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Recalculate drawer balances error");

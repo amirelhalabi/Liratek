@@ -10,6 +10,7 @@ import {
   ErrorCodes,
 } from "@liratek/core";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -80,6 +81,22 @@ router.post(
       return;
     }
 
+    if (result.success) {
+      // Mirrors inventoryHandlers.ts's inventory:create-product audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "product",
+        entity_id: String(result.id ?? ""),
+        summary: `Created product "${b.name}" (${b.barcode})`,
+        new_values: {
+          name: b.name,
+          barcode: b.barcode,
+          cost_price: b.cost_price_usd,
+          retail_price: b.retail_price_usd,
+        },
+      });
+    }
+
     res.status(201).json(createSuccessResponse({ id: result.id }));
   },
 );
@@ -93,7 +110,38 @@ router.put("/products/:id", requireRole(["admin"]), (req, res) => {
   }
 
   const service = getInventoryService();
+  // Best-effort snapshot for the audit's old_values — getProductById throws
+  // NotFoundError for a missing id; updateProduct below is the source of
+  // truth for the actual not-found response, so a throw here must not
+  // change this route's error behavior.
+  let oldProduct: ReturnType<typeof service.getProductById> | undefined;
+  try {
+    oldProduct = service.getProductById(id);
+  } catch {
+    oldProduct = undefined;
+  }
   const result = service.updateProduct(id, req.body);
+  if (result.success) {
+    // Mirrors inventoryHandlers.ts's inventory:update-product audit.
+    auditRest(req, {
+      action: "update",
+      entity_type: "product",
+      entity_id: String(id),
+      summary: `Updated product "${req.body.name}"`,
+      old_values: oldProduct
+        ? {
+            name: oldProduct.name,
+            cost_price: oldProduct.cost_price_usd,
+            retail_price: oldProduct.selling_price_usd,
+          }
+        : undefined,
+      new_values: {
+        name: req.body.name,
+        cost_price: req.body.cost_price,
+        retail_price: req.body.retail_price,
+      },
+    });
+  }
   res.status(result.success ? 200 : 400).json(result);
 });
 
@@ -107,6 +155,15 @@ router.delete("/products/:id", requireRole(["admin"]), (req, res) => {
 
   const service = getInventoryService();
   const result = service.deleteProduct(id);
+  if (result.success) {
+    // Mirrors inventoryHandlers.ts's inventory:delete-product audit.
+    auditRest(req, {
+      action: "delete",
+      entity_type: "product",
+      entity_id: String(id),
+      summary: `Deleted product #${id}`,
+    });
+  }
   res.status(result.success ? 200 : 400).json(result);
 });
 
@@ -143,6 +200,20 @@ router.post(
       delta !== undefined
         ? service.adjustStockDelta(id, delta, reason, userId)
         : service.adjustStock(id, newQuantity as number, reason, userId);
+
+    if (result.success) {
+      // Mirrors inventoryHandlers.ts's inventory:adjust-stock audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "product",
+        entity_id: String(id),
+        summary:
+          delta !== undefined
+            ? `Adjusted stock for product #${id} by ${delta > 0 ? "+" : ""}${delta} (${reason})`
+            : `Adjusted stock for product #${id} to ${newQuantity} (${reason})`,
+        new_values: { newQuantity, delta, reason },
+      });
+    }
 
     res.status(result.success ? 200 : 400).json(result);
   },

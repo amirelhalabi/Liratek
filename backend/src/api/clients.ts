@@ -10,6 +10,7 @@ import {
   ErrorCodes,
 } from "@liratek/core";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -76,6 +77,14 @@ router.post(
       return;
     }
 
+    // Mirrors clientHandlers.ts's clients:create audit (create/client).
+    auditRest(req, {
+      action: "create",
+      entity_type: "client",
+      entity_id: String(result.id ?? ""),
+      summary: `Created client "${req.body.full_name}"`,
+    });
+
     res.status(201).json(createSuccessResponse({ id: result.id }));
   },
 );
@@ -115,6 +124,14 @@ router.put(
       return;
     }
 
+    // Mirrors clientHandlers.ts's clients:update audit (update/client).
+    auditRest(req, {
+      action: "update",
+      entity_type: "client",
+      entity_id: String(id),
+      summary: `Updated client "${req.body.full_name}"`,
+    });
+
     res.json(createSuccessResponse({ success: true }));
   },
 );
@@ -141,6 +158,14 @@ router.delete("/:id", requireRole(["admin"]), (req, res): void => {
       .json(createErrorResponse(ErrorCodes.OPERATION_FAILED, errorMsg));
     return;
   }
+
+  // Mirrors clientHandlers.ts's clients:delete audit (delete/client).
+  auditRest(req, {
+    action: "delete",
+    entity_type: "client",
+    entity_id: String(id),
+    summary: `Deleted client #${id}`,
+  });
 
   res.json(createSuccessResponse({ success: true }));
 });

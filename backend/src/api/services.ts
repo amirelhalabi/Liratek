@@ -9,6 +9,7 @@ import {
 } from "@liratek/core";
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -67,6 +68,22 @@ router.post(
         userId,
       });
 
+      if (result.success) {
+        // Mirrors omtHandlers.ts's omt:add-transaction audit
+        // (create/financial_transaction).
+        auditRest(req, {
+          action: "create",
+          entity_type: "financial_transaction",
+          summary: `${req.body.provider} ${req.body.serviceType}: ${req.body.amount} ${req.body.currency || "USD"}`,
+          metadata: {
+            provider: req.body.provider,
+            serviceType: req.body.serviceType,
+            amount: req.body.amount,
+            currency: req.body.currency || "USD",
+          },
+        });
+      }
+
       // Match the IPC envelope: HTTP 200 with { success: false, error }
       // even on a business-rule failure (rule 19c) — the frontend adapter
       // branches on result.success, not the status code.
@@ -113,6 +130,29 @@ router.post(
         ...parsed.data,
         userId,
       });
+      // NOTE: unlike the IPC twin (electron-app/handlers/omtHandlers.ts),
+      // which calls FinancialServiceRepository.selfChargeTelecomItem
+      // directly and lets a business-rule failure throw, this REST route
+      // calls the FinancialService WRAPPER
+      // (packages/core/src/services/FinancialService.ts's
+      // selfChargeTelecomItem), which catches that throw and returns
+      // { success: false, error } instead of rethrowing. So reaching this
+      // line does NOT mean it committed — gate the audit on result.success,
+      // same as every other route in this file, or a caught business-rule
+      // failure gets recorded as a successful create.
+      if (result.success) {
+        // Mirrors omtHandlers.ts's financial:self-charge-telecom-item audit
+        // (create/financial_transaction).
+        auditRest(req, {
+          action: "create",
+          entity_type: "financial_transaction",
+          summary: `Telecom self-charge: item #${parsed.data.mobileServiceItemId}${parsed.data.carrierLineId ? ` → line #${parsed.data.carrierLineId}` : " (primary)"}`,
+          metadata: {
+            mobileServiceItemId: parsed.data.mobileServiceItemId,
+            carrierLineId: parsed.data.carrierLineId,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Telecom self-charge error");

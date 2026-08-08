@@ -18,6 +18,7 @@
  */
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
+import { auditRest } from "../middleware/audit.js";
 import {
   getLotoService,
   lotoLogger,
@@ -123,6 +124,14 @@ router.put("/settings/:key", (req, res) => {
       return;
     }
     const setting = getLotoService().updateSetting(req.params.key, value);
+    // Mirrors lotoHandlers.ts's loto:settings:update audit.
+    auditRest(req, {
+      action: "update",
+      entity_type: "loto_setting",
+      entity_id: req.params.key,
+      summary: `Updated loto setting "${req.params.key}"`,
+      new_values: { value },
+    });
     res.json({ success: true, setting });
   } catch (error) {
     fail(res, error, "Failed to update setting");
@@ -176,6 +185,14 @@ router.post("/sell", (req, res) => {
       ...v.data,
       userId: req.user!.userId,
     });
+    // Mirrors lotoHandlers.ts's loto:sell audit.
+    auditRest(req, {
+      action: "create",
+      entity_type: "loto_ticket",
+      entity_id: String(ticket?.id ?? ""),
+      summary: "Sold loto ticket",
+      metadata: v.data as Record<string, unknown>,
+    });
     res.json({ success: true, ticket });
   } catch (error) {
     fail(res, error, "Failed to sell ticket");
@@ -217,6 +234,13 @@ router.post("/fees", (req, res) => {
       return;
     }
     const fee = getLotoService().recordMonthlyFee(v.data);
+    // Mirrors lotoHandlers.ts's loto:fees:create audit.
+    auditRest(req, {
+      action: "create",
+      entity_type: "loto_fee",
+      entity_id: String(fee?.id ?? ""),
+      summary: "Recorded loto monthly fee",
+    });
     res.json({ success: true, fee });
   } catch (error) {
     fail(res, error, "Failed to create monthly fee");
@@ -231,6 +255,13 @@ router.post("/fees/:id/pay", (req, res) => {
       return;
     }
     const fee = getLotoService().markFeePaid(id, req.user!.userId);
+    // Mirrors lotoHandlers.ts's loto:fees:pay audit.
+    auditRest(req, {
+      action: "update",
+      entity_type: "loto_fee",
+      entity_id: String(id),
+      summary: `Marked loto fee #${id} as paid`,
+    });
     res.json({ success: true, fee });
   } catch (error) {
     fail(res, error, "Failed to mark fee as paid");
@@ -284,6 +315,13 @@ router.post("/cash-prizes", (req, res) => {
       ...v.data,
       userId: req.user!.userId,
     });
+    // Mirrors lotoHandlers.ts's loto:cash-prize:create audit.
+    auditRest(req, {
+      action: "create",
+      entity_type: "loto_cash_prize",
+      entity_id: String(prize?.id ?? ""),
+      summary: "Recorded loto cash prize",
+    });
     res.json({ success: true, prize });
   } catch (error) {
     fail(res, error, "Failed to record cash prize");
@@ -303,6 +341,13 @@ router.post("/cash-prizes/:id/reimburse", (req, res) => {
       body?.reimbursedDate,
       body?.settlementId,
     );
+    // Mirrors lotoHandlers.ts's loto:cash-prize:mark-reimbursed audit.
+    auditRest(req, {
+      action: "update",
+      entity_type: "loto_cash_prize",
+      entity_id: String(id),
+      summary: `Marked loto cash prize #${id} as reimbursed`,
+    });
     res.json({ success: true, prize });
   } catch (error) {
     fail(res, error, "Failed to mark cash prize as reimbursed");
@@ -397,6 +442,13 @@ router.post("/checkpoints", (req, res) => {
       return;
     }
     const checkpoint = getLotoService().createCheckpoint(v.data);
+    // Mirrors lotoHandlers.ts's loto:checkpoint:create audit.
+    auditRest(req, {
+      action: "create",
+      entity_type: "loto_checkpoint",
+      entity_id: String(checkpoint?.id ?? ""),
+      summary: "Created loto checkpoint",
+    });
     res.json({ success: true, checkpoint });
   } catch (error) {
     fail(res, error, "Failed to create checkpoint");
@@ -418,6 +470,18 @@ router.post("/checkpoints/settle-batch", (req, res) => {
       req.user!.userId,
       v.data.payment,
     );
+    // Mirrors lotoHandlers.ts's loto:checkpoints:settle-batch audit.
+    auditRest(req, {
+      action: "settle",
+      entity_type: "loto_checkpoint",
+      entity_id: v.data.checkpointIds.join(","),
+      summary: `Batch settled ${v.data.checkpointIds.length} loto checkpoint(s)`,
+      metadata: {
+        checkpointIds: v.data.checkpointIds,
+        totalSales: v.data.totalSales,
+        totalCommission: v.data.totalCommission,
+      },
+    });
     res.json({ success: true, checkpoints });
   } catch (error) {
     fail(res, error, "Failed to settle checkpoints");
@@ -443,6 +507,13 @@ router.post("/checkpoints/:id/settle", (req, res) => {
         body.settledAt as string | undefined,
         body.settlementId as number | undefined,
       );
+      // Mirrors lotoHandlers.ts's loto:checkpoint:mark-settled audit.
+      auditRest(req, {
+        action: "settle",
+        entity_type: "loto_checkpoint",
+        entity_id: String(id),
+        summary: `Marked loto checkpoint #${id} as settled`,
+      });
       res.json({ success: true, checkpoint });
       return;
     }
@@ -461,6 +532,17 @@ router.post("/checkpoints/:id/settle", (req, res) => {
       req.user!.userId,
       v.data.payments,
     );
+    // Mirrors lotoHandlers.ts's loto:checkpoint:settle audit.
+    auditRest(req, {
+      action: "settle",
+      entity_type: "loto_checkpoint",
+      entity_id: String(v.data.id),
+      summary: `Settled loto checkpoint #${v.data.id}`,
+      metadata: {
+        totalSales: v.data.totalSales,
+        totalCommission: v.data.totalCommission,
+      },
+    });
     res.json({ success: true, checkpoint });
   } catch (error) {
     fail(res, error, "Failed to settle checkpoint");
@@ -475,6 +557,13 @@ router.put("/checkpoints/:id", (req, res) => {
       return;
     }
     const checkpoint = getLotoService().updateCheckpoint(id, req.body);
+    // Mirrors lotoHandlers.ts's loto:checkpoint:update audit.
+    auditRest(req, {
+      action: "update",
+      entity_type: "loto_checkpoint",
+      entity_id: String(id),
+      summary: `Updated loto checkpoint #${id}`,
+    });
     res.json({ success: true, checkpoint });
   } catch (error) {
     fail(res, error, "Failed to update checkpoint");
@@ -496,6 +585,13 @@ router.delete("/checkpoints/:id", (req, res) => {
       });
       return;
     }
+    // Mirrors lotoHandlers.ts's loto:checkpoint:delete audit.
+    auditRest(req, {
+      action: "delete",
+      entity_type: "loto_checkpoint",
+      entity_id: String(id),
+      summary: `Deleted unsettled loto checkpoint #${id}`,
+    });
     res.json({ success: true });
   } catch (error) {
     fail(res, error, "Failed to delete checkpoint");
@@ -552,6 +648,13 @@ router.put("/:id", (req, res) => {
     // sanctioned correction path for those now. Mirrors the loto:update IPC
     // handler exactly.
     const ticket = getLotoService().updateTicket(id, v.data);
+    // Mirrors lotoHandlers.ts's loto:update audit.
+    auditRest(req, {
+      action: "update",
+      entity_type: "loto_ticket",
+      entity_id: String(id),
+      summary: `Updated loto ticket #${id}`,
+    });
     res.json({ success: true, ticket });
   } catch (error) {
     fail(res, error, "Failed to update ticket");

@@ -2673,6 +2673,161 @@ ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 
 ---
 
+## LIRA-115: Refunding a session-basket item never returns the customer's cash (live money loss)
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Transactions / Sessions               |
+| **Type**              | Bug (money loss)                      |
+| **Priority**          | **HIGH — live money**                 |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Transactions, Customer Sessions, Financial Services |
+| **Assigned To**       | —                                      |
+| **Depends On**        | —                                      |
+| **Source Plan**       | Owner report 2026-08-08, reproduced   |
+
+### Summary
+
+Owner: *"Refund of a service txn where customer paid 1010$, cost 1008$, is adding back into drawer
+1008$ not 1010$."* **Reproduced.** Fires only when the item was sold through a **session basket**
+(customer cart) — the direct single-item sale path is correct
+(`TransactionRepository.refundCostPriceFlow.test.ts` proves it).
+
+Mechanism:
+- At sale time the **cost leg** is written with `transaction_id = <item's own txn id>`.
+- The **customer's cash leg** is deliberately skipped for basket items (`deferPayment`) and written
+  later by `SessionPaymentService.recordBasketPayment` → `insertSessionLeg` with
+  **`transaction_id = NULL`, `session_id = <basket session>`** — pooled across every item in the
+  basket.
+- `_reversePayments` queries **only** `WHERE transaction_id = ?`. It finds the cost leg, reverses
+  $1008 into the provider drawer, and never sees the customer's $1010. **General is untouched.**
+
+**Worse than reported: `voidTransaction` has the identical hole and no warning modal** — the
+frontend at least half-knows (`TransactionsViewer.handleRefund` detects `session_id` and skips part
+of the flow); void has nothing.
+
+### Design decision required (not a patch)
+
+When one item of a multi-item basket is refunded, which item owns the pooled cash? The codebase's
+own precedent for this class (split-group checkouts, `_assertReversible` + `voidCheckoutGroup`) is
+to **refuse the per-item reversal and require a group-level one**.
+
+- [ ] **Recommended (a)**: gate session-linked rows out of per-item refund/void with a clear
+      message, and route to a basket-level reversal — mirrors the split_group precedent, lowest risk.
+- [ ] (b): implement true per-item reversal of a pooled payment (proportional reallocation) — a real
+      accounting design, materially more work.
+
+### Acceptance Criteria
+
+- [ ] Failing-first test (rule 17) reproducing 1010/1008 through the session-basket path.
+- [ ] Rule 20: create + reverse nets to **0 per drawer per currency** for the chosen path.
+- [ ] **`voidTransaction` gets the same treatment as `refundTransaction`** — it is equally exposed.
+- [ ] e2e on both transports.
+
+### Files to Modify
+
+| Layer   | File                                                     | Change                          |
+| ------- | ------------------------------------------------------------ | ---------------------------------- |
+| Backend | `packages/core/src/repositories/TransactionRepository.ts` | Session-aware refund/void gating |
+| Frontend| `frontend/src/features/audit/pages/TransactionsViewer.tsx` | Surface the refusal/route        |
+
+---
+
+## LIRA-113: Should a DAYS sale consume the shop line's validity? (reverses D12) — NEEDS INTERVIEW
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Recharge / Carrier Lines              |
+| **Type**              | Product decision                      |
+| **Priority**          | Medium                                |
+| **Status**            | **NEEDS INTERVIEW**                   |
+| **Affected Modules**  | Recharge > Telecom, Carrier Lines     |
+| **Assigned To**       | —                                      |
+| **Source Plan**       | Owner report 2026-08-08 vs `done_plans/CARRIER_LINES_VALIDITY_PLAN.md` D12 |
+
+### Summary
+
+Owner (2026-08-08): *"Validity is not decreasing when we charge days from a shop line, only credits
+are… if we are charging 10 days to the customer, our shop line validity should decrease by the
+amount of days charged."*
+
+**Confirmed: validity is never decremented, in any flow** (`applyMovement` has exactly 4 production
+call sites; none decrement a shop line for a customer sale). **But that is the shipped, ratified
+design, not a gap** — `CARRIER_LINES_VALIDITY_PLAN.md` **D12** (owner interview **2026-08-06**, two
+days earlier): *"A DAYS sale costs credits only — `(days / 10) × $0.30`; the shop's expiry never
+moves"*, recorded from the owner's own words: *"We charge the customer by sending SMS. Each SMS adds
+10 days to the client's phone number. We lose $0.30 per each ten days sent."* It is documented in
+`telecomStockLeg`'s doc comment and guarded by a passing test
+(`RechargeRepository.daysStockCost.test.ts`).
+
+**So this is a reversal of a two-day-old decision, not a regression.** Do not implement without
+explicit confirmation that D12/D9 are superseded.
+
+### Open questions for the owner
+
+- [ ] Confirm: does sending days consume your line's validity **in addition to** the $0.30/10-days
+      cost, or **instead of** it?
+- [ ] Ratio: 10 customer days = 10 shop days, or some other rate?
+- [ ] What happens when the line runs out mid-sale — block the sale, allow negative, or clamp?
+
+### Technical note for whoever builds it
+
+`CarrierLineRepository.computeAppliedState` rebases day-deltas to `max(today, current_expiry)` —
+correct for **adding** days, wrong for **subtracting** on an already-expired line (a naive
+decrement lands *before* today). Needs a subtract-safe path, not a reused rebase.
+Reversal is free: `_reverseCarrierLineMovements` already reverses any movement tied to a voided
+transaction generically.
+
+Repro test written (currently failing by design):
+`packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDecrement.test.ts`
+
+---
+
+## LIRA-114: FOR-partner service on "Debt" appears to move General — NEEDS INTERVIEW
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Services / Partners                   |
+| **Type**              | Investigation → likely UX fix         |
+| **Priority**          | Medium                                |
+| **Status**            | **NEEDS INTERVIEW**                   |
+| **Affected Modules**  | Financial Services, Custom Services, Partners |
+| **Assigned To**       | —                                      |
+| **Source Plan**       | Owner report 2026-08-08 ('7welet souria') |
+
+### Summary
+
+Owner: *"a service for partner called '7welet souria' and payment method debt; it's affecting the
+general drawer."*
+
+**The literal scenario does NOT reproduce.** In `FinancialServiceRepository`, a FOR-partner service
+carrying a CUSTOMER_ACCOUNT leg is **rejected before any drawer write**
+(`assertNoCustomerAccountLeg` → *"A partner financial service cannot carry a CUSTOMER_ACCOUNT
+leg"*), and the whole transaction rolls back. 8 new tests + 27 existing partner tests + 5
+custom-service partner tests all confirm General delta = 0. (Note: the `DEBT` payment code was
+renamed `CUSTOMER_ACCOUNT` in migration v86; the UI label is still "Customer Account (Debt)".)
+
+**Most likely the report is about a different feature**: `CustomServiceRepository`'s FOR-partner
+branch posts a **cost outflow** (real money leaving for the provider) while the form still *shows*
+a Payment Method selector that is inert in FOR mode — producing exactly the "I chose Debt but the
+drawer moved" impression.
+
+### Open questions for the owner
+
+- [ ] Was '7welet souria' entered on the **Custom Services** page or the **Services** page?
+- [ ] Did it have a non-zero **Cost**? (If yes, the drawer movement is the cost outflow — correct
+      accounting, confusing UI.)
+
+### Likely outcomes
+
+- If Custom Services + non-zero cost → **UX fix**: hide/disable the Payment Method selector when
+  "For Partner" is checked. Do not change the cost posting; it is correct.
+- Separately flagged (needs its own decision): the THROUGH-partner multi-leg loop credits
+  General/PCD for real customer cash, while a stale single-leg path claims it should be skipped —
+  one of the two is wrong and a regression test should lock in whichever the owner confirms.
+
+---
+
 ## LIRA-112: iPick bills must book NO commission (only Katsh pays) — corrects shipped behavior
 
 | Field                | Value                              |
@@ -3115,6 +3270,9 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-110 | Daily closing sums fs commission with zero gates         | Medium   | TODO                                                      | found by LIRA-108's workflow        |
 | LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | TODO                                                      | found shipping commission Phase 0+1 |
 | LIRA-112 | iPick bills must book NO commission (only Katsh pays)    | **High** | TODO                                                      | owner correction (plan §6 D12)      |
+| LIRA-113 | DAYS sale should consume shop-line validity? (reverses D12) | Medium   | **NEEDS INTERVIEW**                                       | owner report 2026-08-08             |
+| LIRA-114 | FOR-partner 'Debt' appears to move General               | Medium   | **NEEDS INTERVIEW**                                       | owner report 2026-08-08             |
+| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | TODO                                                      | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as

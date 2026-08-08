@@ -5,6 +5,7 @@ import {
   getCustomServiceService,
   createCustomServiceSchema,
 } from "@liratek/core";
+import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
@@ -73,6 +74,17 @@ router.post(
         return;
       }
 
+      // Mirrors customServiceHandlers.ts's custom-services:add audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "custom_service",
+        summary: `Custom service: ${req.body.description}`,
+        metadata: {
+          description: req.body.description,
+          paid_by: req.body.paid_by,
+        },
+      });
+
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Create custom service error");
@@ -86,13 +98,22 @@ router.post(
 // DELETE /api/custom-services/:id - Delete service
 router.delete("/:id", (req, res): void => {
   try {
+    const id = Number(req.params.id);
     const service = getCustomServiceService();
-    const result = service.deleteService(Number(req.params.id));
+    const result = service.deleteService(id);
 
     if (!result.success) {
       res.status(400).json(result);
       return;
     }
+
+    // Mirrors customServiceHandlers.ts's custom-services:delete audit.
+    auditRest(req, {
+      action: "delete",
+      entity_type: "custom_service",
+      entity_id: String(id),
+      summary: `Deleted custom service #${id}`,
+    });
 
     res.json(result);
   } catch (error) {

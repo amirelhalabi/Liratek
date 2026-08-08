@@ -100,6 +100,10 @@ test.describe("LIRA-087 (D1) — cash report by date", () => {
     expect(result.lbp!.total_out).toBeCloseTo(0, 2);
 
     // ── UI: open the Cash Report from the Transactions page ─────────────────
+    // Bounce through "/" first (README "Assertion discipline" / LIRA-111) —
+    // a viewer already parked on /audit from an earlier spec does not
+    // remount on a same-route hash nav, so the table can show a stale list.
+    await navigateTo(appPage, "/");
     await navigateTo(appPage, "/audit");
     await appPage.getByTestId("open-cash-report").click();
     const modal = appPage.getByTestId("cash-report-modal");

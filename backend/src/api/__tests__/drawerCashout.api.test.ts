@@ -47,7 +47,7 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getDrawerCashoutService } from "@liratek/core";
+import { getDrawerCashoutService, getAuditService } from "@liratek/core";
 import drawerCashoutRouter from "../drawerCashout.js";
 
 function buildApp(): Express {
@@ -142,6 +142,53 @@ describe("Drawer cash-out REST routes", () => {
         success: false,
         error: "Insufficient funds in General drawer (USD).",
       });
+    });
+  });
+
+  describe("audit trail — POST /api/drawer-cashout", () => {
+    it("a successful cash-out records an audit entry with the JWT's actor, never the body's", async () => {
+      jest
+        .spyOn(drawerCashoutService, "addCashout")
+        .mockReturnValue({ success: true, id: 5 });
+      const auditSpy = jest
+        .spyOn(getAuditService(), "log")
+        .mockImplementation(() => {});
+
+      await request(app)
+        .post("/api/drawer-cashout")
+        .set("x-test-role", "admin")
+        // Spoofed actor fields in the body must be ignored.
+        .send({
+          amount_usd: 50,
+          notes: "Owner withdrawal",
+          user_id: 999,
+          username: "attacker",
+        });
+
+      expect(auditSpy).toHaveBeenCalledTimes(1);
+      const entry = auditSpy.mock.calls[0][0];
+      expect(entry.action).toBe("create");
+      expect(entry.entity_type).toBe("drawer_cashout");
+      expect(entry.user_id).toBe(7); // the mocked JWT actor, not the body
+      expect(entry.username).toBe("tester");
+    });
+
+    it("a business failure (insufficient funds) records NO audit entry", async () => {
+      jest.spyOn(drawerCashoutService, "addCashout").mockReturnValue({
+        success: false,
+        error: "Insufficient funds in General drawer (USD).",
+      });
+      const auditSpy = jest
+        .spyOn(getAuditService(), "log")
+        .mockImplementation(() => {});
+
+      const res = await request(app)
+        .post("/api/drawer-cashout")
+        .set("x-test-role", "admin")
+        .send({ amount_usd: 999999, notes: "Owner withdrawal" });
+
+      expect(res.body.success).toBe(false);
+      expect(auditSpy).not.toHaveBeenCalled();
     });
   });
 

@@ -6,6 +6,7 @@ import {
   saveMaintenanceJobSchema,
   getMaintenanceJobsSchema,
 } from "@liratek/core";
+import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
 
 const maintenanceService = new MaintenanceService();
@@ -45,6 +46,15 @@ router.post(
         return;
       }
 
+      // Mirrors maintenanceHandlers.ts's maintenance:save audit (action
+      // branches on whether an id was supplied — create vs update).
+      auditRest(req, {
+        action: req.body.id ? "update" : "create",
+        entity_type: "maintenance_job",
+        entity_id: String(req.body.id ?? result.id ?? ""),
+        summary: `${req.body.id ? "Updated" : "Created"} maintenance job: ${req.body.device_name}`,
+      });
+
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Save maintenance job error");
@@ -71,6 +81,14 @@ router.delete(
         res.status(400).json(result);
         return;
       }
+
+      // Mirrors maintenanceHandlers.ts's maintenance:delete audit.
+      auditRest(req, {
+        action: "delete",
+        entity_type: "maintenance_job",
+        entity_id: String(id),
+        summary: `Deleted maintenance job #${id}`,
+      });
 
       res.json(result);
     } catch (error) {

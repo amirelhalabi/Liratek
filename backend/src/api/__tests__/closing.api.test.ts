@@ -55,7 +55,7 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getClosingService } from "@liratek/core";
+import { getClosingService, getAuditService } from "@liratek/core";
 import closingRouter from "../closing.js";
 
 function buildApp(): Express {
@@ -192,6 +192,97 @@ describe("Closing REST routes — CQ-9 follow-up", () => {
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ success: false, isSet: true });
+    });
+  });
+
+  // ── Audit trail (LIRA-104) ──────────────────────────────────────────────
+  describe("audit trail — POST /api/closing/checkpoint", () => {
+    it("a successful checkpoint records an audit entry with the JWT's actor, never the body's", async () => {
+      jest
+        .spyOn(closingService, "createCheckpoint")
+        .mockReturnValue({ success: true, id: 7 });
+      const auditSpy = jest
+        .spyOn(getAuditService(), "log")
+        .mockImplementation(() => {});
+
+      const res = await request(app)
+        .post("/api/closing/checkpoint")
+        .set("x-test-role", "admin")
+        .send({
+          drawer_name: "General",
+          amounts: [
+            { drawer_name: "General", currency_code: "USD", expected_amount: 100, physical_amount: 100 },
+          ],
+          user_id: 999, // spoofed — must be ignored
+          username: "attacker",
+        });
+
+      expect(res.body.success).toBe(true);
+      expect(auditSpy).toHaveBeenCalledTimes(1);
+      const entry = auditSpy.mock.calls[0][0];
+      expect(entry.action).toBe("create_checkpoint");
+      expect(entry.entity_type).toBe("daily_closings");
+      expect(entry.entity_id).toBe("7");
+      expect(entry.user_id).toBe(42);
+      expect(entry.username).toBe("tester");
+    });
+
+    it("a business failure records NO audit entry", async () => {
+      jest
+        .spyOn(closingService, "createCheckpoint")
+        .mockReturnValue({ success: false, error: "boom" });
+      const auditSpy = jest
+        .spyOn(getAuditService(), "log")
+        .mockImplementation(() => {});
+
+      const res = await request(app)
+        .post("/api/closing/checkpoint")
+        .set("x-test-role", "admin")
+        .send({
+          drawer_name: "General",
+          amounts: [
+            { drawer_name: "General", currency_code: "USD", expected_amount: 100, physical_amount: 90 },
+          ],
+        });
+
+      expect(res.body.success).toBe(false);
+      expect(auditSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("audit trail — POST /api/closing/recalculate-drawer-balances", () => {
+    it("a successful recalculation records an audit entry", async () => {
+      jest
+        .spyOn(closingService, "recalculateDrawerBalances")
+        .mockReturnValue({ success: true });
+      const auditSpy = jest
+        .spyOn(getAuditService(), "log")
+        .mockImplementation(() => {});
+
+      await request(app)
+        .post("/api/closing/recalculate-drawer-balances")
+        .set("x-test-role", "admin");
+
+      expect(auditSpy).toHaveBeenCalledTimes(1);
+      const entry = auditSpy.mock.calls[0][0];
+      expect(entry.action).toBe("update");
+      expect(entry.entity_type).toBe("drawer_balance");
+    });
+
+    it("a business failure records NO audit entry", async () => {
+      jest
+        .spyOn(closingService, "recalculateDrawerBalances")
+        .mockReturnValue({ success: false, error: "boom" });
+      const auditSpy = jest
+        .spyOn(getAuditService(), "log")
+        .mockImplementation(() => {});
+
+      const res = await request(app)
+        .post("/api/closing/recalculate-drawer-balances")
+        .set("x-test-role", "admin");
+
+      expect(res.body.success).toBe(false);
+      expect(auditSpy).not.toHaveBeenCalled();
     });
   });
 });

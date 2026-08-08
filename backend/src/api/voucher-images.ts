@@ -1,7 +1,8 @@
 import express from "express";
-import { authenticateJWT } from "../middleware/auth.js";
+import { authenticateJWT, type AuthRequest } from "../middleware/auth.js";
 import { getVoucherImageService } from "@liratek/core";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -36,6 +37,14 @@ router.post("/", (req, res): void => {
 
     const voucherImageService = getVoucherImageService();
     voucherImageService.setImage(provider, category, itemKey, imageData);
+    // Mirrors voucherImageHandlers.ts's voucher-images:set audit
+    // (update/voucher_image).
+    auditRest(req as AuthRequest, {
+      action: "update",
+      entity_type: "voucher_image",
+      summary: `Set voucher image for ${provider}/${category}/${itemKey}`,
+      metadata: { provider, category, itemKey },
+    });
     res.json({ success: true });
   } catch (error) {
     logger.error({ error }, "Set voucher image error");
@@ -56,6 +65,14 @@ router.delete("/:id", (req, res): void => {
 
     const voucherImageService = getVoucherImageService();
     voucherImageService.deleteImage(id);
+    // Mirrors voucherImageHandlers.ts's voucher-images:delete audit
+    // (delete/voucher_image).
+    auditRest(req as AuthRequest, {
+      action: "delete",
+      entity_type: "voucher_image",
+      entity_id: String(id),
+      summary: `Deleted voucher image #${id}`,
+    });
     res.json({ success: true });
   } catch (error) {
     logger.error({ error }, "Delete voucher image error");

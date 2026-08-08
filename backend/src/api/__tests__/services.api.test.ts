@@ -72,7 +72,7 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getFinancialService } from "@liratek/core";
+import { getFinancialService, getAuditService } from "@liratek/core";
 import servicesRouter from "../services.js";
 
 function buildApp(): Express {
@@ -151,5 +151,89 @@ describe("Services REST routes — BILL serviceType (COMMISSION_AT_SETTLEMENT_PL
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(false);
     });
+  });
+});
+
+/**
+ * Adversarial-review blocker fix (LIRA-104): POST /api/services/self-charge
+ * called `auditRest(...)` UNCONDITIONALLY after
+ * `financialService.selfChargeTelecomItem(...)`, on the (false) premise that
+ * the service "throws on any business-rule failure ... reaching this line
+ * means it committed." It doesn't — `FinancialService.selfChargeTelecomItem`
+ * (packages/core/src/services/FinancialService.ts:410-434) catches the
+ * repository's throw and returns `{ success: false, error }` instead of
+ * rethrowing. The IPC twin (electron-app/handlers/omtHandlers.ts) calls the
+ * REPOSITORY method directly (which really does throw), so this divergence
+ * is REST-only.
+ *
+ * Rule 17 — first run (pre-fix) with only the audit-gate `if` removed from
+ * services.ts, reproducing the unconditional call, failed exactly as
+ * expected:
+ *   FAIL "records ZERO audit entries when the service returns
+ *         { success: false } (no throw)"
+ *     expect(jest.fn()).not.toHaveBeenCalled()
+ *     Expected number of calls: 0
+ *     Received number of calls: 1
+ *     1: {"action": "create", "entity_type": "financial_transaction",
+ *         "metadata": {"carrierLineId": undefined, "mobileServiceItemId": 1},
+ *         "summary": "Telecom self-charge: item #1 (primary)",
+ *         "role": "staff", "user_id": 42, "username": "tester"}
+ */
+describe("POST /api/services/self-charge — audit gating (LIRA-104 blocker fix)", () => {
+  let app: Express;
+  const financialService = getFinancialService();
+  let logSpy: ReturnType<typeof jest.spyOn>;
+
+  beforeEach(() => {
+    app = buildApp();
+    jest.restoreAllMocks();
+    logSpy = jest.spyOn(getAuditService(), "log").mockImplementation(() => {});
+  });
+
+  it("records ZERO audit entries when the service returns { success: false } (no throw)", async () => {
+    jest.spyOn(financialService, "selfChargeTelecomItem").mockReturnValue({
+      success: false,
+      error: "Mobile service item #1 not found",
+    });
+
+    const res = await request(app)
+      .post("/api/services/self-charge")
+      .set("x-test-role", "staff")
+      .send({ mobileServiceItemId: 1 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it("records exactly one audit entry on a real success", async () => {
+    jest.spyOn(financialService, "selfChargeTelecomItem").mockReturnValue({
+      success: true,
+      data: {
+        transactionId: 10,
+        carrierLineId: 2,
+        costLbp: 100000,
+        creditsAdded: 5,
+        validityDaysAdded: 30,
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/services/self-charge")
+      .set("x-test-role", "staff")
+      .send({ mobileServiceItemId: 1, carrierLineId: 2 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "create",
+        entity_type: "financial_transaction",
+        user_id: 42,
+        username: "tester",
+        role: "staff",
+      }),
+    );
   });
 });

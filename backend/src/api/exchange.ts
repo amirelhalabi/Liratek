@@ -8,6 +8,7 @@ import {
   createExchangeSchema,
   getExchangeHistorySchema,
 } from "@liratek/core";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -44,6 +45,19 @@ router.post(
   (req, res) => {
     const service = getExchangeService();
     const result = service.addTransaction(req.body);
+    if (result.success) {
+      // Mirrors exchangeHandlers.ts's exchange:add-transaction audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "exchange_transaction",
+        summary: `Exchange ${req.body.amountIn} ${req.body.fromCurrency} → ${req.body.toCurrency}`,
+        metadata: {
+          fromCurrency: req.body.fromCurrency,
+          toCurrency: req.body.toCurrency,
+          amountIn: req.body.amountIn,
+        },
+      });
+    }
     res.status(result.success ? 200 : 400).json(result);
   },
 );

@@ -9,6 +9,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
 import { getRateService, setRateSchema } from "@liratek/core";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = Router();
 const rateService = getRateService();
@@ -43,6 +44,19 @@ router.post(
           },
           "Exchange rate set",
         );
+        // Mirrors rateHandlers.ts's rates:set audit (update/exchange_rate).
+        auditRest(req, {
+          action: "update",
+          entity_type: "exchange_rate",
+          entity_id: req.body.to_code,
+          summary: `Set rate USD→${req.body.to_code}: market=${req.body.market_rate}, buy=${req.body.buy_rate}, sell=${req.body.sell_rate}`,
+          new_values: {
+            market_rate: req.body.market_rate,
+            buy_rate: req.body.buy_rate,
+            sell_rate: req.body.sell_rate,
+            is_stronger: req.body.is_stronger,
+          },
+        });
         res.json(result);
       } else {
         res.status(400).json(result);
@@ -66,6 +80,13 @@ router.delete(
 
       if (result.success) {
         logger.info({ fromCurrency, toCurrency }, "Exchange rate deleted");
+        // Mirrors rateHandlers.ts's rates:delete audit (delete/exchange_rate).
+        auditRest(req, {
+          action: "delete",
+          entity_type: "exchange_rate",
+          entity_id: toCurrency,
+          summary: `Deleted rate USD→${toCurrency}`,
+        });
         res.json(result);
       } else {
         res.status(400).json(result);

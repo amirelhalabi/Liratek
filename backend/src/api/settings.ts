@@ -1,7 +1,8 @@
 import express from "express";
 import { getSettingsService } from "@liratek/core";
-import { authenticateJWT } from "../middleware/auth.js";
+import { authenticateJWT, type AuthRequest } from "../middleware/auth.js";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -60,6 +61,16 @@ router.put("/:key", async (req, res): Promise<void> => {
 
     const settingsService = getSettingsService();
     await settingsService.updateSetting(key, value);
+
+    // Mirrors dbHandlers.ts's db:update-setting/settings:update audit
+    // (update/setting).
+    auditRest(req as AuthRequest, {
+      action: "update",
+      entity_type: "setting",
+      entity_id: key,
+      summary: `Updated setting "${key}"`,
+      new_values: { value },
+    });
 
     res.json({ success: true });
   } catch (error) {

@@ -101,6 +101,38 @@ function countRows(table: string, tenantId: number): number {
   return row.c;
 }
 
+interface AuditRow {
+  user_id: number;
+  username: string;
+  role: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+}
+
+function lastAudit(
+  tenantId: number,
+  action: string,
+  entityType: string,
+): AuditRow | undefined {
+  return db
+    .prepare(
+      `SELECT user_id, username, role, action, entity_type, entity_id
+       FROM audit_log WHERE tenant_id = ? AND action = ? AND entity_type = ?
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(tenantId, action, entityType) as AuditRow | undefined;
+}
+
+function countAudit(action: string, entityType: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) as c FROM audit_log WHERE action = ? AND entity_type = ?`,
+    )
+    .get(action, entityType) as { c: number };
+  return row.c;
+}
+
 function seedDatabase(hashPassword: (p: string) => string): void {
   // The REAL fresh-install schema — not a hand-rolled per-file fixture.
   // ts-jest compiles this file to CommonJS, so the native `__dirname` is
@@ -360,10 +392,20 @@ describe("POST /api/admin/tenants (provisioning)", () => {
     ) as Record<string, unknown>;
     expect(decoded.tenantId).toBe(tenant.id);
     expect(decoded.role).toBe("admin");
+
+    // Audit: no IPC precedent for tenant provisioning, so this route invents
+    // action=create/entity_type=tenant. Written under the NEW tenant's own
+    // realm (root has tenantId=null — no ambient tenant to attach it to).
+    const audit = lastAudit(tenant.id, "create", "tenant");
+    expect(audit).toBeDefined();
+    expect(audit!.username).toBe("root"); // the acting super_admin, not the client body
+    expect(audit!.role).toBe("super_admin");
+    expect(audit!.entity_id).toBe(String(tenant.id));
   });
 
-  it("rejects a duplicate slug with 409", async () => {
+  it("rejects a duplicate slug with 409 and records NO audit entry", async () => {
     const token = await loginToken("root");
+    const before = countAudit("create", "tenant");
     const res = await request(app)
       .post("/api/admin/tenants")
       .set("Authorization", `Bearer ${token}`)
@@ -374,6 +416,9 @@ describe("POST /api/admin/tenants (provisioning)", () => {
         adminPassword: "DupPass123!",
       });
     expect(res.status).toBe(409);
+    // Business failure (rule: never audit a rejected mutation) — the total
+    // create/tenant count across ALL tenants must not have grown.
+    expect(countAudit("create", "tenant")).toBe(before);
   });
 
   it("rejects a reserved slug (rule 19c: 200 + plain-string error)", async () => {
@@ -407,6 +452,62 @@ describe("POST /api/admin/tenants (provisioning)", () => {
     expect(res.body.success).toBe(false);
     expect(typeof res.body.error).toBe("string");
   });
+
+  // Adversarial-review blocker fix (LIRA-104): this route used to call
+  // `getAuditRepository().log(...)` DIRECTLY, after `provisionTenant(...)`
+  // had already committed the new tenant + its config seed. That repository
+  // call can throw (e.g. the audit INSERT itself fails), and nothing
+  // downstream caught it — the route's own try/catch would turn an
+  // already-successful provisioning into a false HTTP 500. Fixed by routing
+  // through `auditRest` (-> `AuditService.log()`, which never throws).
+  //
+  // Rule 17: temporarily reverting the route back to the direct
+  // `getAuditRepository().log(...)` call and re-running this exact test
+  // reproduced the failure exactly as expected:
+  //   FAIL "an audit-write failure does not turn an already-committed
+  //         tenant creation into a 500"
+  //     expect(received).toBe(expected) // Object.is equality
+  //     Expected: 201
+  //     Received: 500
+  // Restoring the `auditRest` fix made it pass again.
+  it("an audit-write failure does not turn an already-committed tenant creation into a 500", async () => {
+    const token = await loginToken("root");
+    const logSpy = jest
+      .spyOn(core.getAuditRepository(), "log")
+      .mockImplementationOnce(() => {
+        throw new Error("simulated audit_log INSERT failure");
+      });
+
+    let res: request.Response;
+    try {
+      res = await request(app)
+        .post("/api/admin/tenants")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          name: "Echo Co",
+          slug: "echo-co",
+          adminUsername: "echo_admin",
+          adminPassword: "EchoPass123!",
+        });
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    const tenant = (res.body as ApiBody).data!.tenant as { slug: string };
+    expect(tenant.slug).toBe("echo-co");
+
+    // Really committed, not just a happy-looking response — queryable
+    // through a completely separate request.
+    const listRes = await request(app)
+      .get("/api/admin/tenants")
+      .set("Authorization", `Bearer ${token}`);
+    const tenants = (listRes.body as ApiBody).data!.tenants as Array<{
+      slug: string;
+    }>;
+    expect(tenants.some((t) => t.slug === "echo-co")).toBe(true);
+  });
 });
 
 // =============================================================================
@@ -414,7 +515,7 @@ describe("POST /api/admin/tenants (provisioning)", () => {
 // =============================================================================
 
 describe("PATCH /api/admin/tenants/:id", () => {
-  it("suspending a tenant blocks its admin's login (WP2 gate)", async () => {
+  it("suspending a tenant blocks its admin's login (WP2 gate) and audits the update", async () => {
     const token = await loginToken("root");
     try {
       const res = await request(app)
@@ -428,6 +529,14 @@ describe("PATCH /api/admin/tenants/:id", () => {
       };
       expect(tenant.status).toBe("suspended");
 
+      // No IPC precedent — new vocabulary (action=update/entity_type=tenant),
+      // written under the TARGET tenant's realm, actor from the JWT (root),
+      // never from the request body.
+      const audit = lastAudit(2, "update", "tenant");
+      expect(audit).toBeDefined();
+      expect(audit!.username).toBe("root"); // the acting super_admin, not the client body
+      expect(audit!.entity_id).toBe("2");
+
       const loginRes = await login("beta_admin");
       expect(loginRes.status).toBe(401);
     } finally {
@@ -439,13 +548,70 @@ describe("PATCH /api/admin/tenants/:id", () => {
     }
   });
 
-  it("404s on a non-existent tenant", async () => {
+  it("404s on a non-existent tenant and records NO audit entry", async () => {
     const token = await loginToken("root");
+    const before = countAudit("update", "tenant");
     const res = await request(app)
       .patch("/api/admin/tenants/999999")
       .set("Authorization", `Bearer ${token}`)
       .send({ name: "Nope" });
     expect(res.status).toBe(404);
+    expect(countAudit("update", "tenant")).toBe(before);
+  });
+
+  // Adversarial-review blocker fix (LIRA-104): same issue as the POST route
+  // above — this route used to call `getAuditRepository().log(...)` DIRECTLY
+  // after `TenantRepository.update(...)` had already committed. Fixed by
+  // routing through `auditRest` (non-throwing).
+  //
+  // Rule 17: reverting this route back to the direct repository call and
+  // re-running this exact test reproduced the failure exactly as expected:
+  //   FAIL "an audit-write failure does not turn an already-committed
+  //         update into a 500"
+  //     expect(received).toBe(expected) // Object.is equality
+  //     Expected: 200
+  //     Received: 500
+  // Restoring the `auditRest` fix made it pass again.
+  it("an audit-write failure does not turn an already-committed update into a 500", async () => {
+    const token = await loginToken("root");
+
+    // Scratch tenant — a dedicated create keeps this test from disturbing
+    // tenant 2's active/suspended state, which the impersonation tests
+    // below depend on.
+    const createRes = await request(app)
+      .post("/api/admin/tenants")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        name: "Foxtrot Co",
+        slug: "foxtrot-co",
+        adminUsername: "foxtrot_admin",
+        adminPassword: "FoxtrotPass123!",
+      });
+    expect(createRes.status).toBe(201);
+    const scratchTenant = (createRes.body as ApiBody).data!.tenant as {
+      id: number;
+    };
+
+    const logSpy = jest
+      .spyOn(core.getAuditRepository(), "log")
+      .mockImplementationOnce(() => {
+        throw new Error("simulated audit_log INSERT failure");
+      });
+
+    let res: request.Response;
+    try {
+      res = await request(app)
+        .patch(`/api/admin/tenants/${scratchTenant.id}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: "Foxtrot Co Updated" });
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    const tenant = (res.body as ApiBody).data!.tenant as { name: string };
+    expect(tenant.name).toBe("Foxtrot Co Updated");
   });
 });
 

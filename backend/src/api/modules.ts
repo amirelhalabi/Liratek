@@ -2,6 +2,7 @@ import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { getModuleService } from "@liratek/core";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -65,6 +66,14 @@ router.patch(
         return;
       }
 
+      // Mirrors moduleHandlers.ts's modules:setEnabled audit (toggle/module).
+      auditRest(req, {
+        action: "toggle",
+        entity_type: "module",
+        entity_id: req.params.key,
+        summary: `${req.body.enabled ? "Enabled" : "Disabled"} module "${req.params.key}"`,
+      });
+
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Toggle module error");
@@ -88,6 +97,15 @@ router.put(
         res.status(400).json(result);
         return;
       }
+
+      // Mirrors moduleHandlers.ts's modules:bulkSetEnabled audit
+      // (update/module, bulk — no single entity_id).
+      auditRest(req, {
+        action: "update",
+        entity_type: "module",
+        summary: `Bulk toggled ${req.body.updates.length} modules`,
+        metadata: { updates: req.body.updates },
+      });
 
       res.json(result);
     } catch (error) {

@@ -86,6 +86,39 @@ async function loginToken(username: string): Promise<string> {
   return body.data!.token!;
 }
 
+interface AuditRow {
+  user_id: number;
+  username: string;
+  role: string;
+  action: string;
+  entity_type: string;
+}
+
+function countAudit(tenantId: number | null, action: string): number {
+  const row =
+    tenantId === null
+      ? (db
+          .prepare(
+            `SELECT COUNT(*) as c FROM audit_log WHERE tenant_id IS NULL AND action = ?`,
+          )
+          .get(action) as { c: number })
+      : (db
+          .prepare(
+            `SELECT COUNT(*) as c FROM audit_log WHERE tenant_id = ? AND action = ?`,
+          )
+          .get(tenantId, action) as { c: number });
+  return row.c;
+}
+
+function lastAudit(tenantId: number, action: string): AuditRow | undefined {
+  return db
+    .prepare(
+      `SELECT user_id, username, role, action, entity_type FROM audit_log
+       WHERE tenant_id = ? AND action = ? ORDER BY id DESC LIMIT 1`,
+    )
+    .get(tenantId, action) as AuditRow | undefined;
+}
+
 function seedDatabase(hashPassword: (p: string) => string): void {
   db.exec(`
     CREATE TABLE tenants (
@@ -160,6 +193,29 @@ function seedDatabase(hashPassword: (p: string) => string): void {
       UNIQUE (tenant_id, key_name)
     );
 
+    -- LIRA-104: needed for the login/logout audit assertions below —
+    -- AuditRepository.log() INSERTs here; a missing table would make the
+    -- write fail (swallowed by AuditService's try/catch — the login/logout
+    -- response is unaffected either way, but the assertions below need the
+    -- table to exist to prove the row actually landed).
+    CREATE TABLE audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER REFERENCES tenants(id),
+      user_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      role TEXT NOT NULL,
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      summary TEXT NOT NULL,
+      old_values TEXT,
+      new_values TEXT,
+      metadata TEXT,
+      impersonator_id INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
     INSERT INTO tenants (id, name, slug, status) VALUES
       (1, 'Alpha Shop', 'alpha', 'active'),
       (2, 'Beta Shop',  'beta',  'active'),
@@ -197,6 +253,7 @@ beforeAll(async () => {
   core.resetUserRepository();
   core.resetSessionRepository();
   core.resetAuthService();
+  core.resetAuditRepository();
 
   authMiddleware = await import("../middleware/auth");
   const { authenticateJWT, requireSuperAdmin } = authMiddleware;
@@ -292,6 +349,31 @@ describe("POST /api/auth/login (JWT v2)", () => {
     expect(body.error?.message).toBe("Account suspended — contact support");
   });
 
+  it("a successful login records an audit entry (action=login) under the user's tenant", async () => {
+    const res = await login("alpha_admin");
+    expect(res.status).toBe(200);
+
+    const audit = lastAudit(1, "login");
+    expect(audit).toBeDefined();
+    expect(audit!.username).toBe("alpha_admin");
+    expect(audit!.role).toBe("admin");
+    expect(audit!.entity_type).toBe("session");
+  });
+
+  it("a rejected login (suspended tenant) records NO audit entry", async () => {
+    const before = countAudit(3, "login");
+    const res = await login("gamma_admin");
+    expect(res.status).toBe(401);
+    expect(countAudit(3, "login")).toBe(before);
+  });
+
+  it("a bad password records NO audit entry", async () => {
+    const before = countAudit(1, "login");
+    const res = await login("alpha_admin", "WrongPassword!");
+    expect(res.status).toBe(401);
+    expect(countAudit(1, "login")).toBe(before);
+  });
+
   it("existing sessions of a tenant suspended AFTER login stop working", async () => {
     const token = await loginToken("beta_admin");
     db.prepare(`UPDATE tenants SET status = 'suspended' WHERE id = 2`).run();
@@ -303,6 +385,36 @@ describe("POST /api/auth/login (JWT v2)", () => {
     } finally {
       db.prepare(`UPDATE tenants SET status = 'active' WHERE id = 2`).run();
     }
+  });
+});
+
+describe("POST /api/auth/logout", () => {
+  it("records an audit entry (action=logout) under the session's tenant, actor from the verified JWT", async () => {
+    const token = await loginToken("beta_admin");
+    const before = countAudit(2, "logout");
+
+    const res = await request(app)
+      .post("/api/auth/logout")
+      .set("Authorization", `Bearer ${token}`);
+    expect(res.status).toBe(200);
+
+    const audit = lastAudit(2, "logout");
+    expect(audit).toBeDefined();
+    expect(countAudit(2, "logout")).toBe(before + 1);
+    // Actor resolved from the verified JWT's userId (via a repository
+    // lookup), never anything the caller could pass in the body — this
+    // route accepts no body at all, so there is nothing to spoof from.
+    expect(audit!.username).toBe("beta_admin");
+    expect(audit!.role).toBe("admin");
+  });
+
+  it("a request with no valid session token records NO audit entry", async () => {
+    const before = countAudit(1, "logout");
+    const res = await request(app)
+      .post("/api/auth/logout")
+      .set("Authorization", "Bearer not-a-real-jwt");
+    expect(res.status).toBe(200); // logout always answers 200
+    expect(countAudit(1, "logout")).toBe(before);
   });
 });
 

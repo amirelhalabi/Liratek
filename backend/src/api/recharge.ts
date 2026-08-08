@@ -13,6 +13,7 @@ import {
 } from "@liratek/core";
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -94,6 +95,23 @@ router.post(
         userId,
       });
 
+      if (result.success) {
+        // Mirrors rechargeHandlers.ts's recharge:process audit
+        // (create/recharge). Gated on success (rule 19c non-negotiable) —
+        // the IPC handler itself audits unconditionally, a pre-existing
+        // asymmetry noted in the implementation report.
+        auditRest(req, {
+          action: "create",
+          entity_type: "recharge",
+          summary: `Recharge ${req.body.provider} ${req.body.type}: ${req.body.amount}`,
+          metadata: {
+            provider: req.body.provider,
+            type: req.body.type,
+            amount: req.body.amount,
+          },
+        });
+      }
+
       // Match the IPC envelope: HTTP 200 with { success: false, error }
       // even on a business-rule failure (rule 19c) — the frontend adapter
       // branches on result.success, not the status code.
@@ -148,6 +166,21 @@ router.post(
       const rechargeService = getRechargeService();
       const userId = (req as AuthRequest).user!.userId;
       const result = rechargeService.topUpApp({ ...req.body, userId });
+      if (result.success) {
+        // Mirrors rechargeHandlers.ts's recharge:top-up-app audit
+        // (create/recharge_topup).
+        auditRest(req, {
+          action: "create",
+          entity_type: "recharge_topup",
+          summary: `App top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency} from ${req.body.sourceDrawer}`,
+          metadata: {
+            provider: req.body.provider,
+            amount: req.body.amount,
+            currency: req.body.currency,
+            sourceDrawer: req.body.sourceDrawer,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "App top-up error");
@@ -173,6 +206,20 @@ router.post(
         ...req.body,
         userId,
       });
+      if (result.success) {
+        // Mirrors rechargeHandlers.ts's recharge:top-up-from-supplier audit
+        // (create/recharge_topup).
+        auditRest(req, {
+          action: "create",
+          entity_type: "recharge_topup",
+          summary: `Supplier top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
+          metadata: {
+            provider: req.body.provider,
+            amount: req.body.amount,
+            currency: req.body.currency,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Supplier top-up error");
@@ -198,6 +245,21 @@ router.post(
         ...req.body,
         userId,
       });
+      if (result.success) {
+        // Mirrors rechargeHandlers.ts's recharge:top-up-from-partner audit
+        // (create/recharge_topup).
+        auditRest(req, {
+          action: "create",
+          entity_type: "recharge_topup",
+          summary: `Partner top-up ${req.body.provider}: ${req.body.amount} ${req.body.currency}`,
+          metadata: {
+            provider: req.body.provider,
+            partnerId: req.body.partnerId,
+            amount: req.body.amount,
+            currency: req.body.currency,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Partner top-up error");
@@ -223,6 +285,22 @@ router.post(
         ...req.body,
         userId,
       });
+      if (result.success) {
+        // Mirrors rechargeHandlers.ts's recharge:top-up-from-client audit
+        // (create/recharge_topup).
+        auditRest(req, {
+          action: "create",
+          entity_type: "recharge_topup",
+          summary: `Client top-up: ${req.body.amount} ${req.body.currency}`,
+          metadata: {
+            amount: req.body.amount,
+            cashPaid: req.body.cashPaid,
+            currency: req.body.currency,
+            clientName: req.body.clientName,
+            clientId: req.body.clientId,
+          },
+        });
+      }
       res.json(result);
     } catch (error) {
       logger.error({ error }, "Client top-up error");
@@ -265,6 +343,24 @@ router.post(
         },
         editedBy,
       );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        // Mirrors rechargeHandlers.ts's recharge:update-metadata audit
+        // (edit_metadata/recharge) — only when something actually changed
+        // (a no-op update returns success with no oldValues).
+        auditRest(req, {
+          action: "edit_metadata",
+          entity_type: "recharge",
+          entity_id: String(req.body.id),
+          summary: `Edited recharge #${req.body.id} metadata`,
+          old_values: result.oldValues,
+          new_values: req.body,
+        });
+      }
 
       // Match the IPC handler's envelope reshaping exactly: { success: true,
       // data: entity } / { success: false, error } (rule 19c) — HTTP 200

@@ -3,6 +3,26 @@
  *
  * Handles user management (admin only)
  * Note: This is a simplified version - full user management methods need to be added to AuthService
+ *
+ * LIRA-104 SCOPE NOTE (audit-wiring ticket): every write route below (POST /,
+ * PUT /:id/active, PUT /:id/role, PUT /:id/password) is a NON-FUNCTIONAL
+ * PLACEHOLDER today — none of them call AuthService/UserRepository at all;
+ * they log a "requested" message and return a canned `{ success: true }`
+ * without creating/updating any real row. This predates this ticket (see the
+ * "Placeholder - needs full implementation" comments below).
+ *
+ * Their IPC twins (authHandlers.ts's users:create/set-active/set-role/
+ * set-password) DO perform real mutations and DO audit them
+ * (create|update/user) — but wiring `auditRest(...)` calls onto these REST
+ * stubs would write audit_log rows for user changes that never actually
+ * happened on the web transport, which violates this ticket's own
+ * non-negotiable ("audit only real state changes"). Making these routes
+ * functional is a full user-management REST implementation (password
+ * hashing via AuthService.createUser/resetPassword, a real role-update
+ * repository method, etc.) — out of scope for an audit-wiring ticket and
+ * flagged here for the ticket owner as a separate, larger web-parity gap
+ * (worse than "missing route": these 404-never, they silently lie about
+ * success). Deliberately left unaudited and untouched.
  */
 
 import { Router } from "express";

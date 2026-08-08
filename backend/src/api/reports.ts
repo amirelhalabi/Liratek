@@ -8,6 +8,19 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { logger } from "../server.js";
+// NOTE (LIRA-104 scope note): /backup and /restore below are BOTH
+// non-functional placeholders on this transport today — they unconditionally
+// return `{ success: false, error: "... only available in Electron mode" }`
+// (ReportService/BackupService need Electron APIs not wired into the backend
+// process). There is therefore no real state change to audit yet on either
+// route: `backup:create` DOES audit on IPC (create/backup) and `/backup`
+// mirrors it in name only — wiring an `auditRest(...)` call here would sit
+// behind an unreachable success branch (dead code) since `result.success` is
+// always false. Flagging as a parity gap for whoever implements a real
+// backend-mode backup path, rather than adding audit logic with nothing to
+// gate on. `report:restore-db` has no IPC audit precedent at all (per the
+// LIRA-104 scout) and `/restore` is equally a placeholder — same reasoning,
+// doubly out of scope.
 
 const router = Router();
 // Note: ReportService requires Electron APIs, not available in backend mode

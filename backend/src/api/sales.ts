@@ -8,6 +8,7 @@ import {
   getCurrentTenantId,
 } from "@liratek/core";
 import { emitEvent } from "../websocket/io.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -86,6 +87,17 @@ router.post(
       emitEvent(getCurrentTenantId(), "sales:processed", {
         id: result.id,
         at: new Date().toISOString(),
+      });
+
+      // Mirrors salesHandlers.ts's sales:process audit (create/sale) — only
+      // a sale that actually committed is audited (a guarded/failed sale,
+      // e.g. out of stock, returns { success:false } and is rolled back).
+      auditRest(req, {
+        action: "create",
+        entity_type: "sale",
+        entity_id: String(result.id ?? ""),
+        summary: `Processed sale (status: ${req.body.status})`,
+        metadata: { status: req.body.status, itemCount: req.body.items?.length },
       });
     }
 

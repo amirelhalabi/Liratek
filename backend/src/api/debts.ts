@@ -12,6 +12,7 @@ import {
   debtWriteOffSchema,
 } from "@liratek/core";
 import type { AuthRequest } from "../middleware/auth.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -88,6 +89,19 @@ router.post(
   (req, res) => {
     const service = getDebtService();
     const result = service.addRepayment(req.body);
+    if (result.success) {
+      // Mirrors debtHandlers.ts's debt:add-repayment audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "repayment",
+        summary: `Repayment for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
+        metadata: {
+          clientId: req.body.clientId,
+          amountUSD: req.body.amountUSD,
+          amountLBP: req.body.amountLBP,
+        },
+      });
+    }
     res.status(result.success ? 200 : 400).json(result);
   },
 );
@@ -100,6 +114,19 @@ router.post(
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
     const result = getDebtService().cashOut({ ...req.body, userId });
+    if (result.success) {
+      // Mirrors debtHandlers.ts's debt:cash-out audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "credit_cash_out",
+        summary: `Credit cash out for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
+        metadata: {
+          clientId: req.body.clientId,
+          amountUSD: req.body.amountUSD,
+          amountLBP: req.body.amountLBP,
+        },
+      });
+    }
     res.json(result);
   },
 );
@@ -115,6 +142,21 @@ router.post(
       ...req.body,
       userId,
     });
+    if (result.success) {
+      // Mirrors debtHandlers.ts's debt:add-account-entry audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "account_cash_entry",
+        summary: `Account ${req.body.direction} for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP${req.body.moveCash === false ? " (paper, no cash moved)" : ""}`,
+        metadata: {
+          direction: req.body.direction,
+          clientId: req.body.clientId,
+          amountUSD: req.body.amountUSD,
+          amountLBP: req.body.amountLBP,
+          moveCash: req.body.moveCash !== false,
+        },
+      });
+    }
     res.json(result);
   },
 );
@@ -128,6 +170,19 @@ router.post(
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
     const result = getDebtService().addCredit({ ...req.body, userId });
+    if (result.success) {
+      // Mirrors debtHandlers.ts's debt:add-credit audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "credit",
+        summary: `Credit added for client #${req.body.clientId}: $${req.body.amountUsd} + ${req.body.amountLbp} LBP`,
+        metadata: {
+          clientId: req.body.clientId,
+          amountUsd: req.body.amountUsd,
+          amountLbp: req.body.amountLbp,
+        },
+      });
+    }
     res.json(result);
   },
 );
@@ -143,6 +198,19 @@ router.post(
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
     const result = getDebtService().useCredit({ ...req.body, userId });
+    if (result.success) {
+      // Mirrors debtHandlers.ts's debt:use-credit audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "credit_used",
+        summary: `Credit used for client #${req.body.clientId}: $${req.body.amountUsd} + ${req.body.amountLbp} LBP`,
+        metadata: {
+          clientId: req.body.clientId,
+          amountUsd: req.body.amountUsd,
+          amountLbp: req.body.amountLbp,
+        },
+      });
+    }
     res.json(result);
   },
 );
@@ -163,6 +231,21 @@ router.post(
       { note: req.body.note },
       editedBy,
     );
+    if (
+      result.success &&
+      result.oldValues &&
+      Object.keys(result.oldValues).length > 0
+    ) {
+      // Mirrors debtHandlers.ts's debts:update-metadata audit.
+      auditRest(req, {
+        action: "edit_metadata",
+        entity_type: "debt_ledger",
+        entity_id: String(req.body.id),
+        summary: `Edited debt record #${req.body.id} metadata`,
+        old_values: result.oldValues,
+        new_values: req.body,
+      });
+    }
     res.json(
       result.success
         ? { success: true, data: result.entity }
@@ -181,6 +264,20 @@ router.post(
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
     const result = getDebtService().writeOffDebt({ ...req.body, userId });
+    if (result.success) {
+      // Mirrors debtHandlers.ts's debt:write-off audit.
+      auditRest(req, {
+        action: "write_off",
+        entity_type: "debt_write_off",
+        summary: `Debt write-off for client #${req.body.clientId}: $${req.body.amountUSD} + ${req.body.amountLBP} LBP`,
+        metadata: {
+          clientId: req.body.clientId,
+          amountUSD: req.body.amountUSD,
+          amountLBP: req.body.amountLBP,
+          reason: req.body.reason,
+        },
+      });
+    }
     res.json(result);
   },
 );

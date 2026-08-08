@@ -26,6 +26,7 @@ import {
   requireRole,
   type AuthRequest,
 } from "../middleware/auth.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = Router();
 const sessionService = new CustomerSessionService();
@@ -147,15 +148,23 @@ router.post("/start", writeGate, async (req: Request, res: Response) => {
   try {
     const { customer_name, customer_phone, customer_notes } = req.body;
     const authUser = (req as AuthRequest).user;
-    res.json(
-      await sessionService.startSession({
-        customer_name,
-        customer_phone,
-        customer_notes,
-        started_by: authUser?.username || "unknown",
-        user_id: authUser?.userId,
-      }),
-    );
+    const result = await sessionService.startSession({
+      customer_name,
+      customer_phone,
+      customer_notes,
+      started_by: authUser?.username || "unknown",
+      user_id: authUser?.userId,
+    });
+    if (result.success) {
+      // Mirrors sessionHandlers.ts's session:start audit
+      // (create/customer_session).
+      auditRest(req as AuthRequest, {
+        action: "create",
+        entity_type: "customer_session",
+        summary: `Started customer session${customer_name ? ` for "${customer_name}"` : ""}`,
+      });
+    }
+    res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -184,6 +193,16 @@ router.post("/checkout", writeGate, async (req: Request, res: Response) => {
       },
       { username: authUser?.username || "unknown" },
     );
+    if (result.success) {
+      // Mirrors sessionHandlers.ts's session:checkout audit
+      // (update/customer_session).
+      auditRest(req as AuthRequest, {
+        action: "update",
+        entity_type: "customer_session",
+        entity_id: String(parsed.data.sessionId),
+        summary: `Session checkout: ${result.itemCount} items, USD ${(result.checkoutTotalUsd ?? 0).toFixed(2)}, LBP ${(result.checkoutTotalLbp ?? 0).toFixed(0)}`,
+      });
+    }
     res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
@@ -343,7 +362,18 @@ router.post("/:id/close", writeGate, async (req: Request, res: Response) => {
       return;
     }
     const username = (req as AuthRequest).user?.username || "unknown";
-    res.json(await sessionService.closeSession(id, username));
+    const result = await sessionService.closeSession(id, username);
+    if (result.success) {
+      // Mirrors sessionHandlers.ts's session:close audit
+      // (update/customer_session).
+      auditRest(req as AuthRequest, {
+        action: "update",
+        entity_type: "customer_session",
+        entity_id: String(id),
+        summary: `Closed customer session #${id}`,
+      });
+    }
+    res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -357,7 +387,18 @@ router.delete("/:id", writeGate, async (req: Request, res: Response) => {
       res.json({ success: false, error: "Invalid session ID" });
       return;
     }
-    res.json(await sessionService.deleteSession(id));
+    const result = await sessionService.deleteSession(id);
+    if (result.success) {
+      // Mirrors sessionHandlers.ts's session:delete audit
+      // (delete/customer_session).
+      auditRest(req as AuthRequest, {
+        action: "delete",
+        entity_type: "customer_session",
+        entity_id: String(id),
+        summary: `Deleted customer session #${id}`,
+      });
+    }
+    res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }

@@ -87,6 +87,10 @@ test.describe("Transactions table — timezone", () => {
     // system clock at creation — i.e. the transaction is saved at "now" (in UTC).
     expect(Math.abs(storedMs - ts)).toBeLessThan(2 * 60 * 1000);
 
+    // Bounce through "/" first (README "Assertion discipline" / LIRA-111) —
+    // a viewer already parked on /audit from an earlier spec does not
+    // remount on a same-route hash nav, so the table can show a stale list.
+    await navigateTo(appPage, "/");
     await navigateTo(appPage, "/audit");
 
     // Isolate our row via the server-side summary search, then match by identity.

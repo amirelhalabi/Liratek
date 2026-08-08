@@ -357,6 +357,10 @@ test.describe("LIRA-124 — split-checkout void guard + whole-group void (design
     );
     expect(created.carrierOk).toBe(true);
 
+    // Bounce through "/" first (README "Assertion discipline" / LIRA-111) —
+    // a viewer already parked on /audit from an earlier spec does not
+    // remount on a same-route hash nav, so the table can show a stale list.
+    await navigateTo(appPage, "/");
     await navigateTo(appPage, "/audit");
 
     // Identity match: the Katsh Bill row with this checkout's unique carrier

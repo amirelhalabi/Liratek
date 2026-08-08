@@ -17,6 +17,7 @@ import {
   type HoldMoneyStatus,
 } from "@liratek/core";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -74,7 +75,22 @@ router.post("/", writeGate, (req, res) => {
       return;
     }
     const userId = req.user!.userId;
-    res.json(getHoldMoneyService().createHold(parsed.data, userId));
+    const result = getHoldMoneyService().createHold(parsed.data, userId);
+    if (result.success) {
+      // Mirrors holdMoneyHandlers.ts's hold-money:create audit.
+      auditRest(req, {
+        action: "create",
+        entity_type: "hold_money",
+        entity_id: result.id ? String(result.id) : undefined,
+        summary: `Held money for ${parsed.data.client_name}`,
+        metadata: {
+          client_name: parsed.data.client_name,
+          usd_amount: parsed.data.usd_amount,
+          lbp_amount: parsed.data.lbp_amount,
+        },
+      });
+    }
+    res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }
@@ -88,7 +104,17 @@ router.post("/:id/collect", writeGate, (req, res) => {
       res.json({ success: false, error: "Invalid id" });
       return;
     }
-    res.json(getHoldMoneyService().collectHold(id, req.user!.userId));
+    const result = getHoldMoneyService().collectHold(id, req.user!.userId);
+    if (result.success) {
+      // Mirrors holdMoneyHandlers.ts's hold-money:collect audit.
+      auditRest(req, {
+        action: "collect",
+        entity_type: "hold_money",
+        entity_id: String(id),
+        summary: `Collected hold #${id}`,
+      });
+    }
+    res.json(result);
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });
   }

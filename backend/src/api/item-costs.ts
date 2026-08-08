@@ -1,6 +1,7 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { getItemCostService } from "@liratek/core";
+import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
@@ -36,6 +37,15 @@ router.post("/", requireRole(["admin"]), (req, res): void => {
 
     const itemCostService = getItemCostService();
     itemCostService.setCost(provider, category, itemKey, cost, currency);
+
+    // Mirrors itemCostHandlers.ts's item-costs:set audit.
+    auditRest(req, {
+      action: "update",
+      entity_type: "item_cost",
+      entity_id: `${provider}:${category}:${itemKey}`,
+      summary: `Set cost for ${provider}/${itemKey}: ${cost} ${currency}`,
+    });
+
     res.json({ success: true });
   } catch (error) {
     logger.error({ error }, "Set item cost error");

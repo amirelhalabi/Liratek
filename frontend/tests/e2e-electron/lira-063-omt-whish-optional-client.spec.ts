@@ -84,6 +84,10 @@ test.describe("LIRA-063 — OMT App / Whish App optional client name/phone", () 
       .toBe("FINANCIAL_SERVICE|OMT_APP|SEND|null");
 
     // ── Verify propagation in the Transactions table (first row) ─────────────
+    // Bounce through "/" first (README "Assertion discipline" / LIRA-111) —
+    // a viewer already parked on /audit from an earlier spec does not
+    // remount on a same-route hash nav, so the table can show a stale list.
+    await navigateTo(appPage, "/");
     await navigateTo(appPage, "/audit");
 
     // Target the OMT App Send row by its Type cell — NOT tbody tr.first(): a

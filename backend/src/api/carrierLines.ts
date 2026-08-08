@@ -7,6 +7,7 @@ import {
   carrierLineUpdateBalanceSchema,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
+import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
@@ -88,6 +89,14 @@ router.post(
     try {
       const service = getCarrierLineService();
       const result = service.create(req.body);
+      if (result.success) {
+        // Mirrors carrierLineHandlers.ts's carrier-lines:create audit.
+        auditRest(req, {
+          action: "create",
+          entity_type: "carrier_line",
+          summary: `Added ${req.body.carrier} carrier line ${req.body.phone_number}`,
+        });
+      }
       res.status(result.success ? 201 : 400).json(result);
     } catch (error) {
       logger.error({ error }, "Create carrier line error");
@@ -108,6 +117,15 @@ router.put("/:id/set-primary", requireRole(["admin"]), (req, res): void => {
   try {
     const service = getCarrierLineService();
     const result = service.setPrimary(id);
+    if (result.success) {
+      // Mirrors carrierLineHandlers.ts's carrier-lines:set-primary audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "carrier_line",
+        entity_id: String(id),
+        summary: `Set carrier line #${id} as primary (${result.data?.carrier ?? ""})`,
+      });
+    }
     res.json(result);
   } catch (error) {
     logger.error({ error }, "Set primary carrier line error");
@@ -136,6 +154,15 @@ router.put("/:id", requireRole(["admin"]), (req, res): void => {
     void _id; // stripped from the payload — the URL param is authoritative
     const service = getCarrierLineService();
     const result = service.update(id, data);
+    if (result.success) {
+      // Mirrors carrierLineHandlers.ts's carrier-lines:update audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "carrier_line",
+        entity_id: String(id),
+        summary: `Updated carrier line #${id}`,
+      });
+    }
     res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
     logger.error({ error }, "Update carrier line error");
@@ -171,6 +198,15 @@ router.put(
       void _id; // stripped from the payload — the URL param is authoritative
       const service = getCarrierLineService();
       const result = service.updateBalance(id, data);
+      if (result.success) {
+        // Mirrors carrierLineHandlers.ts's carrier-lines:update-balance audit.
+        auditRest(req, {
+          action: "update",
+          entity_type: "carrier_line",
+          entity_id: String(id),
+          summary: `Updated carrier line #${id} balance`,
+        });
+      }
       res.status(result.success ? 200 : 400).json(result);
     } catch (error) {
       logger.error({ error }, "Update carrier line balance error");
@@ -189,6 +225,15 @@ router.put("/:id/archive", requireRole(["admin"]), (req, res): void => {
   try {
     const service = getCarrierLineService();
     const result = service.archive(id);
+    if (result.success) {
+      // Mirrors carrierLineHandlers.ts's carrier-lines:archive audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "carrier_line",
+        entity_id: String(id),
+        summary: `Archived carrier line #${id}`,
+      });
+    }
     res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
     logger.error({ error }, "Archive carrier line error");
@@ -206,6 +251,15 @@ router.put("/:id/toggle-active", requireRole(["admin"]), (req, res): void => {
   try {
     const service = getCarrierLineService();
     const result = service.toggleActive(id);
+    if (result.success) {
+      // Mirrors carrierLineHandlers.ts's carrier-lines:toggle-active audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "carrier_line",
+        entity_id: String(id),
+        summary: `Toggled carrier line #${id}`,
+      });
+    }
     res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
     logger.error({ error }, "Toggle carrier line error");

@@ -1,6 +1,7 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { getCurrencyService } from "@liratek/core";
+import { auditRest } from "../middleware/audit.js";
 import { logger } from "../server.js";
 
 const router = express.Router();
@@ -33,6 +34,14 @@ router.post("/", requireRole(["admin"]), async (req, res): Promise<void> => {
       return;
     }
 
+    // Mirrors currencyHandlers.ts's currencies:create audit.
+    auditRest(req, {
+      action: "create",
+      entity_type: "currency",
+      entity_id: req.body.code,
+      summary: `Created currency "${req.body.code}" (${req.body.name})`,
+    });
+
     res.json(result);
   } catch (error) {
     logger.error({ error }, "Create currency error");
@@ -58,6 +67,14 @@ router.put("/:id", requireRole(["admin"]), async (req, res): Promise<void> => {
       res.status(400).json(result);
       return;
     }
+
+    // Mirrors currencyHandlers.ts's currencies:update audit.
+    auditRest(req, {
+      action: "update",
+      entity_type: "currency",
+      entity_id: String(id),
+      summary: `Updated currency #${id}`,
+    });
 
     res.json(result);
   } catch (error) {
@@ -87,6 +104,14 @@ router.delete(
         res.status(400).json(result);
         return;
       }
+
+      // Mirrors currencyHandlers.ts's currencies:delete audit.
+      auditRest(req, {
+        action: "delete",
+        entity_type: "currency",
+        entity_id: String(id),
+        summary: `Deleted currency #${id}`,
+      });
 
       res.json(result);
     } catch (error) {
@@ -174,6 +199,15 @@ router.put(
         res.status(400).json(result);
         return;
       }
+
+      // Mirrors currencyHandlers.ts's currencies:setModules audit.
+      auditRest(req, {
+        action: "update",
+        entity_type: "currency_modules",
+        entity_id: req.params.code,
+        summary: `Set modules for currency ${req.params.code}`,
+        new_values: { modules: req.body.modules },
+      });
 
       res.json(result);
     } catch (error) {

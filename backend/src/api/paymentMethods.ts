@@ -2,6 +2,7 @@ import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { getPaymentMethodService } from "@liratek/core";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -46,6 +47,13 @@ router.post("/", requireRole(["admin"]), (req, res): void => {
       res.status(400).json(result);
       return;
     }
+    // Mirrors paymentMethodHandlers.ts's payment-methods:create audit
+    // (create/payment_method).
+    auditRest(req, {
+      action: "create",
+      entity_type: "payment_method",
+      summary: `Created payment method "${req.body.code}"`,
+    });
     res.status(201).json(result);
   } catch (error) {
     logger.error({ error }, "Create payment method error");
@@ -65,6 +73,13 @@ router.put("/reorder", requireRole(["admin"]), (req, res): void => {
       res.status(400).json(result);
       return;
     }
+    // Mirrors paymentMethodHandlers.ts's payment-methods:reorder audit
+    // (update/payment_method, bulk — no single entity_id).
+    auditRest(req, {
+      action: "update",
+      entity_type: "payment_method",
+      summary: `Reordered ${req.body.ids.length} payment methods`,
+    });
     res.json(result);
   } catch (error) {
     logger.error({ error }, "Reorder payment methods error");
@@ -88,6 +103,14 @@ router.put("/:id", requireRole(["admin"]), (req, res): void => {
       res.status(400).json(result);
       return;
     }
+    // Mirrors paymentMethodHandlers.ts's payment-methods:update audit
+    // (update/payment_method).
+    auditRest(req, {
+      action: "update",
+      entity_type: "payment_method",
+      entity_id: String(id),
+      summary: `Updated payment method #${id}`,
+    });
     res.json(result);
   } catch (error) {
     logger.error({ error }, "Update payment method error");
@@ -111,6 +134,14 @@ router.delete("/:id", requireRole(["admin"]), (req, res): void => {
       res.status(400).json(result);
       return;
     }
+    // Mirrors paymentMethodHandlers.ts's payment-methods:delete audit
+    // (delete/payment_method).
+    auditRest(req, {
+      action: "delete",
+      entity_type: "payment_method",
+      entity_id: String(id),
+      summary: `Deleted payment method #${id}`,
+    });
     res.json(result);
   } catch (error) {
     logger.error({ error }, "Delete payment method error");

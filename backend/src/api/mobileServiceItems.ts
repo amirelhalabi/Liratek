@@ -6,6 +6,7 @@ import {
   mobileServiceItemUpdateSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
@@ -60,6 +61,15 @@ router.post("/", requireRole(["admin"]), (req, res): void => {
   try {
     const service = getMobileServiceItemService();
     const result = service.create(parsed.data);
+    if (result.success) {
+      // Mirrors mobileServiceItemHandlers.ts's mobile-service-items:create
+      // audit (create/mobile_service_item).
+      auditRest(req, {
+        action: "create",
+        entity_type: "mobile_service_item",
+        summary: `Created mobile service item: ${parsed.data.label} (${parsed.data.provider})`,
+      });
+    }
     res.status(result.success ? 201 : 400).json(result);
   } catch (error) {
     logger.error({ error }, "Create mobile service item error");
@@ -92,6 +102,16 @@ router.put("/:id", requireRole(["admin"]), (req, res): void => {
     void _id; // stripped from the payload — the URL param is authoritative
     const service = getMobileServiceItemService();
     const result = service.update(id, data);
+    if (result.success) {
+      // Mirrors mobileServiceItemHandlers.ts's mobile-service-items:update
+      // audit (update/mobile_service_item).
+      auditRest(req, {
+        action: "update",
+        entity_type: "mobile_service_item",
+        entity_id: String(id),
+        summary: `Updated mobile service item #${id}`,
+      });
+    }
     res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
     logger.error({ error }, "Update mobile service item error");

@@ -42,7 +42,7 @@ jest.mock("../../middleware/auth.js", () => {
 
 import express, { type Express } from "express";
 import request from "supertest";
-import { getDebtService } from "@liratek/core";
+import { getDebtService, getAuditService } from "@liratek/core";
 import debtsRouter from "../debts.js";
 
 function buildApp(): Express {
@@ -206,6 +206,59 @@ describe("Debts REST routes", () => {
         success: false,
         error: "Debt entry not found",
       });
+    });
+  });
+
+  // ── Audit trail (LIRA-104) ──────────────────────────────────────────────
+  describe("audit trail — POST /api/debts/repayments", () => {
+    it("a successful repayment records an audit entry with the JWT's actor, never the body's", async () => {
+      jest.spyOn(debtService, "addRepayment").mockReturnValue({
+        success: true,
+        id: 1,
+      });
+      const auditSpy = jest
+        .spyOn(getAuditService(), "log")
+        .mockImplementation(() => {});
+
+      await request(app)
+        .post("/api/debts/repayments")
+        .set("x-test-role", "staff")
+        // A spoofed user_id/username in the body must be ignored — the
+        // actor comes ONLY from req.user (the mocked auth middleware sets
+        // userId 42 / "tester" regardless of what's sent here.
+        .send({
+          clientId: 1,
+          amountUSD: 10,
+          amountLBP: 0,
+          user_id: 999,
+          username: "attacker",
+        });
+
+      expect(auditSpy).toHaveBeenCalledTimes(1);
+      const entry = auditSpy.mock.calls[0][0];
+      expect(entry.action).toBe("create");
+      expect(entry.entity_type).toBe("repayment");
+      expect(entry.user_id).toBe(42);
+      expect(entry.username).toBe("tester");
+      expect(entry.role).toBe("staff");
+    });
+
+    it("a business failure (service returns success:false) records NO audit entry", async () => {
+      jest.spyOn(debtService, "addRepayment").mockReturnValue({
+        success: false,
+        error: "Client not found",
+      });
+      const auditSpy = jest
+        .spyOn(getAuditService(), "log")
+        .mockImplementation(() => {});
+
+      const res = await request(app)
+        .post("/api/debts/repayments")
+        .set("x-test-role", "admin")
+        .send({ clientId: 999, amountUSD: 10, amountLBP: 0 });
+
+      expect(res.body.success).toBe(false);
+      expect(auditSpy).not.toHaveBeenCalled();
     });
   });
 });

@@ -280,6 +280,10 @@ test.describe("LIRA-092 — supplier-payment void reversal", () => {
     expect(created.lotoError).toBeNull();
     expect(created.lotoOk).toBe(true);
 
+    // Bounce through "/" first (README "Assertion discipline" / LIRA-111) —
+    // a viewer already parked on /audit from an earlier spec does not
+    // remount on a same-route hash nav, so the table can show a stale list.
+    await navigateTo(appPage, "/");
     await navigateTo(appPage, "/audit");
 
     // The OMT App Send row (matched by identity: label + unique amount)

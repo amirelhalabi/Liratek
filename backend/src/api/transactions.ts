@@ -18,6 +18,7 @@ import {
 } from "@liratek/core";
 import { validateParams } from "../middleware/validation.js";
 import { logger } from "../server.js";
+import { auditRest } from "../middleware/audit.js";
 
 const router = Router();
 
@@ -120,6 +121,17 @@ router.post(
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
       const reversalId = txnService.voidTransaction(id, userId);
+      // Reaching here means the void committed — voidTransaction throws on
+      // any business-rule failure (caught below as a 500), it never returns
+      // a { success: false } result. Mirrors transactionHandlers.ts's
+      // transactions:void audit (void/transaction).
+      auditRest(req, {
+        action: "void",
+        entity_type: "transaction",
+        entity_id: String(id),
+        summary: `Voided transaction #${id}`,
+        metadata: { reversalId },
+      });
       res.json({ success: true, reversalId });
     } catch (error) {
       logger.error({ error }, "Void transaction error");
@@ -163,6 +175,16 @@ router.post(
       const refundId = txnService.refundTransaction(id, userId, {
         refundLegs,
       });
+      // Mirrors transactionHandlers.ts's transactions:refund audit
+      // (refund/transaction) — reaching here means the refund committed
+      // (refundTransaction throws on any business-rule failure).
+      auditRest(req, {
+        action: "refund",
+        entity_type: "transaction",
+        entity_id: String(id),
+        summary: `Refunded transaction #${id}`,
+        metadata: { refundId, refundLegs },
+      });
       res.json({ success: true, refundId });
     } catch (error) {
       logger.error({ error }, "Refund transaction error");
@@ -189,6 +211,20 @@ router.post(
       const userId = req.user?.userId ?? 1;
       const txnService = getTransactionService();
       const result = txnService.voidCheckoutGroup(groupId, userId);
+      // Mirrors transactionHandlers.ts's void-checkout-group audit
+      // (void/transaction_group) — reaching here means it committed
+      // (voidCheckoutGroup throws on any business-rule failure).
+      auditRest(req, {
+        action: "void",
+        entity_type: "transaction_group",
+        entity_id: groupId,
+        summary: `Voided checkout group ${groupId} (${result.memberCount} units)`,
+        metadata: {
+          memberCount: result.memberCount,
+          voidedTransactionIds: result.voidedTransactionIds,
+          reversalIds: result.reversalIds,
+        },
+      });
       res.json({ success: true, ...result });
     } catch (error) {
       logger.error({ error }, "Void checkout group error");

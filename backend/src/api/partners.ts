@@ -1,6 +1,7 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import { validateRequest } from "../middleware/validation.js";
+import { auditRest } from "../middleware/audit.js";
 import {
   getPartnerService,
   partnerCreateSchema,
@@ -125,6 +126,14 @@ router.post(
   (req, res) => {
     try {
       const partner = getPartnerService().createPartner(req.body);
+      // Mirrors partnerHandlers.ts's partners:create audit (create/partner).
+      auditRest(req, {
+        action: "create",
+        entity_type: "partner",
+        entity_id: String(partner.id),
+        summary: `Created partner "${req.body.name}"`,
+        metadata: { name: req.body.name, phone: req.body.phone },
+      });
       res.json({ success: true, data: partner });
     } catch (error) {
       res.json({
@@ -150,6 +159,20 @@ router.post(
         ...req.body,
         userId,
       });
+      // Mirrors partnerHandlers.ts's partners:record-transaction audit
+      // (create/partner_ledger).
+      auditRest(req, {
+        action: "create",
+        entity_type: "partner_ledger",
+        summary: `Partner #${req.body.partnerId} ${req.body.direction}: ${req.body.amount} ${req.body.currency} (${req.body.transactionType ?? "MANUAL"})`,
+        metadata: {
+          partnerId: req.body.partnerId,
+          transactionType: req.body.transactionType,
+          amount: req.body.amount,
+          currency: req.body.currency,
+          direction: req.body.direction,
+        },
+      });
       res.json({ success: true, data: entry });
     } catch (error) {
       res.json({
@@ -172,6 +195,18 @@ router.post(
     const userId = (req as AuthRequest).user!.userId;
     try {
       const entry = getPartnerService().settle({ ...req.body, userId });
+      // Mirrors partnerHandlers.ts's partners:settle audit (settle/partner_ledger).
+      auditRest(req, {
+        action: "settle",
+        entity_type: "partner_ledger",
+        summary: `Settled partner #${req.body.partnerId}: ${req.body.amount} ${req.body.currency} via ${req.body.settlementMethod}`,
+        metadata: {
+          partnerId: req.body.partnerId,
+          amount: req.body.amount,
+          currency: req.body.currency,
+          settlementMethod: req.body.settlementMethod,
+        },
+      });
       res.json({ success: true, data: entry });
     } catch (error) {
       res.json({
@@ -192,6 +227,20 @@ router.post(
   (req, res) => {
     const userId = (req as AuthRequest).user!.userId;
     const result = getPartnerService().writeOff({ ...req.body, userId });
+    if (result.success) {
+      // Mirrors partnerHandlers.ts's partners:write-off audit
+      // (write_off/partner_write_off).
+      auditRest(req, {
+        action: "write_off",
+        entity_type: "partner_write_off",
+        summary: `Partner write-off for #${req.body.partnerId}: $${req.body.amount_usd} + ${req.body.amount_lbp} LBP`,
+        metadata: {
+          partnerId: req.body.partnerId,
+          amount_usd: req.body.amount_usd,
+          amount_lbp: req.body.amount_lbp,
+        },
+      });
+    }
     res.json(result);
   },
 );
@@ -209,6 +258,14 @@ router.put(
     }
     try {
       const partner = getPartnerService().updatePartner(id, req.body);
+      // Mirrors partnerHandlers.ts's partners:update audit (update/partner).
+      auditRest(req, {
+        action: "update",
+        entity_type: "partner",
+        entity_id: String(id),
+        summary: `Updated partner #${id}`,
+        new_values: req.body as Record<string, unknown>,
+      });
       res.json({ success: true, data: partner });
     } catch (error) {
       res.json({
@@ -230,6 +287,15 @@ router.post("/:id/deactivate", writeGate, (req, res) => {
   }
   try {
     getPartnerService().deactivatePartner(id);
+    // Mirrors partnerHandlers.ts's partners:deactivate audit (update/partner).
+    auditRest(req, {
+      action: "update",
+      entity_type: "partner",
+      entity_id: String(id),
+      summary: `Deactivated partner #${id}`,
+      old_values: { is_active: true },
+      new_values: { is_active: false },
+    });
     res.json({ success: true });
   } catch (error) {
     res.json({
@@ -249,6 +315,15 @@ router.post("/:id/activate", writeGate, (req, res) => {
   }
   try {
     getPartnerService().activatePartner(id);
+    // Mirrors partnerHandlers.ts's partners:activate audit (update/partner).
+    auditRest(req, {
+      action: "update",
+      entity_type: "partner",
+      entity_id: String(id),
+      summary: `Activated partner #${id}`,
+      old_values: { is_active: false },
+      new_values: { is_active: true },
+    });
     res.json({ success: true });
   } catch (error) {
     res.json({

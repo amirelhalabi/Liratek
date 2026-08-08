@@ -112,6 +112,10 @@ test("refund from the Transactions table cancels an account-charged recharge deb
     .toBeCloseTo(PRICE_LBP, 2);
   const charged = await balance(appPage);
 
+  // Bounce through "/" first (README "Assertion discipline" / LIRA-111) —
+  // a viewer already parked on /audit from an earlier spec does not
+  // remount on a same-route hash nav, so the table can show a stale list.
+  await navigateTo(appPage, "/");
   await navigateTo(appPage, "/audit");
 
   // Identity match (rule 15): the MTC recharge row with this spec's unique
