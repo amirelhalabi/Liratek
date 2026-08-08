@@ -127,6 +127,12 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.getRechargeHistory(provider);
   getRechargeDrawerBalances = () => api.getRechargeDrawerBalances();
   processRecharge = (payload: any) => api.processRecharge(payload);
+  updateRechargeMetadata = (payload: {
+    id: number;
+    phone_number?: string;
+    client_name?: string;
+    note?: string;
+  }) => api.updateRechargeMetadata(payload);
   topUpApp = (payload: {
     provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
     amount: number;

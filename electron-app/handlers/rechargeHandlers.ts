@@ -20,6 +20,7 @@ import {
   TopUpFromSupplierSchema,
   TopUpFromPartnerSchema,
   TopUpFromClientSchema,
+  UpdateRechargeMetadataSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -276,17 +277,14 @@ export function registerRechargeHandlers(): void {
   // Update recharge metadata (staff and admin)
   ipcMain.handle(
     "recharge:update-metadata",
-    (
-      event: IpcMainInvokeEvent,
-      data: {
-        id: number;
-        phone_number?: string;
-        client_name?: string;
-        note?: string;
-      },
-    ) => {
+    (event: IpcMainInvokeEvent, data: unknown) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
+
+      // LIRA-109: this handler had NO Zod validation before — a raw typed
+      // arg trusted verbatim. Shared with the REST route (rules 14 + 19b).
+      const v = validatePayload(UpdateRechargeMetadataSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
 
       // Resolve username for edited_by display
       let editedBy = `user-${auth.userId}`;
@@ -299,11 +297,11 @@ export function registerRechargeHandlers(): void {
       }
 
       const result = rechargeService.updateRechargeMetadata(
-        data.id,
+        v.data.id,
         {
-          phone_number: data.phone_number,
-          client_name: data.client_name,
-          note: data.note,
+          phone_number: v.data.phone_number,
+          client_name: v.data.client_name,
+          note: v.data.note,
         },
         editedBy,
       );
@@ -316,10 +314,10 @@ export function registerRechargeHandlers(): void {
         audit(event.sender.id, {
           action: "edit_metadata",
           entity_type: "recharge",
-          entity_id: String(data.id),
-          summary: `Edited recharge #${data.id} metadata`,
+          entity_id: String(v.data.id),
+          summary: `Edited recharge #${v.data.id} metadata`,
           old_values: result.oldValues,
-          new_values: data,
+          new_values: v.data,
         });
       }
 

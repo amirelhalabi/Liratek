@@ -1225,6 +1225,30 @@ export async function topUpFromClient(payload: {
   );
 }
 
+// Edit non-financial metadata (phone number / client name / note) on a
+// recharge row — the History modal's inline edit (LIRA-109). Was the last
+// raw, unguarded `window.api.recharge.updateMetadata()` call in the Recharge
+// feature: no REST twin existed, so editing a history row's metadata
+// silently failed in a real browser (the call site threw before
+// `onRefreshHistory` ever ran).
+export async function updateRechargeMetadata(payload: {
+  id: number;
+  phone_number?: string;
+  client_name?: string;
+  note?: string;
+}) {
+  if (isElectron()) {
+    return (window as any).api.recharge.updateMetadata(payload);
+  }
+  return requestJson<{ success: boolean; data?: any; error?: string }>(
+    `/api/recharge/update-metadata`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
 // Services (OMT/Whish/BOB)
 export async function getOMTHistory(provider?: string) {
   if (isElectron()) {

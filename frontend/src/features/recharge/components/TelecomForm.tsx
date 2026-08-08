@@ -1196,7 +1196,7 @@ export function TelecomForm({
               : `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           }
           onUpdateMetadata={async (id, data) => {
-            const result = await window.api.recharge.updateMetadata({
+            const result = await api.updateRechargeMetadata({
               id,
               ...data,
             });

@@ -49,11 +49,13 @@ import {
   topUpFromSupplierSchema,
   topUpFromPartnerSchema,
   topUpFromClientSchema,
+  updateRechargeMetadataSchema,
   type CreateRechargeInput,
   type TopUpAppInput,
   type TopUpFromSupplierInput,
   type TopUpFromPartnerInput,
   type TopUpFromClientInput,
+  type UpdateRechargeMetadataInput,
   type SelfChargeTelecomItemInput,
   type StockAdjustInput,
   type VoidCheckoutGroupInput,
@@ -295,6 +297,13 @@ export const TopUpFromPartnerSchema =
 
 export const TopUpFromClientSchema =
   topUpFromClientSchema as unknown as z.ZodSchema<TopUpFromClientInput>;
+
+// LIRA-109: `recharge:update-metadata` had NO Zod validation at all before
+// this ticket (a raw typed arg) — closing that gap on both transports at
+// once, same pattern TopUpAppSchema used. Shared with the REST route
+// (`PATCH /api/recharge/:id/metadata`, backend/src/api/recharge.ts).
+export const UpdateRechargeMetadataSchema =
+  updateRechargeMetadataSchema as unknown as z.ZodSchema<UpdateRechargeMetadataInput>;
 
 // =============================================================================
 // Financial Services (OMT / WHISH / BOB / iPick / Katsh / Binance)

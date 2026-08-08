@@ -625,6 +625,16 @@ export type ApiAdapter = {
     clientName?: string;
     clientId?: number;
   }) => Promise<ApiResult>;
+  /** Edit non-financial metadata (phone number / client name / note) on a
+   *  recharge row — the History modal's inline edit (LIRA-109; IPC:
+   *  recharge.updateMetadata). Was the last raw `window.api.recharge.*` call
+   *  in the Recharge feature. */
+  updateRechargeMetadata: (payload: {
+    id: number;
+    phone_number?: string;
+    client_name?: string;
+    note?: string;
+  }) => Promise<{ success: boolean; data?: any; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)

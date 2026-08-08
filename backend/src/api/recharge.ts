@@ -9,6 +9,7 @@ import {
   topUpFromSupplierSchema,
   topUpFromPartnerSchema,
   topUpFromClientSchema,
+  updateRechargeMetadataSchema,
 } from "@liratek/core";
 import { logger } from "../server.js";
 import type { AuthRequest } from "../middleware/auth.js";
@@ -228,6 +229,56 @@ router.post(
       res
         .status(500)
         .json({ success: false, error: "Failed to process client top-up" });
+    }
+  },
+);
+
+// POST /api/recharge/update-metadata - Edit non-financial metadata (phone
+// number / client name / note) on a recharge row, driven from the History
+// modal's inline edit (LIRA-109). Role-parity with the desktop IPC handler
+// (`recharge:update-metadata` requires requireRole(["admin", "staff"]) —
+// rechargeHandlers.ts). `updateRechargeMetadataSchema` is THE shared contract
+// (rules 14 + 19b) — the IPC handler had NO Zod validation at all before this
+// ticket, so this closes that gap on both transports at once (same pattern
+// `topUpAppSchema` used in Phase 8.4). `id` is carried IN the body (not a
+// `:id` path param) to match this file's existing POST-with-body convention
+// (every other write route here does the same) and the IPC payload shape.
+//
+// `editedBy` is derived from the JWT (`req.user.username`), never trusted
+// from the client body — mirrors the IPC handler's server-side username
+// resolution (which looks the user up by `auth.userId`; the JWT already
+// carries the resolved username, so no repository round-trip is needed here).
+router.post(
+  "/update-metadata",
+  requireRole(["admin", "staff"]),
+  validateRequest(updateRechargeMetadataSchema),
+  (req, res): void => {
+    try {
+      const rechargeService = getRechargeService();
+      const editedBy = (req as AuthRequest).user!.username;
+      const result = rechargeService.updateRechargeMetadata(
+        req.body.id,
+        {
+          phone_number: req.body.phone_number,
+          client_name: req.body.client_name,
+          note: req.body.note,
+        },
+        editedBy,
+      );
+
+      // Match the IPC handler's envelope reshaping exactly: { success: true,
+      // data: entity } / { success: false, error } (rule 19c) — HTTP 200
+      // even on a business-rule failure (e.g. "Recharge not found").
+      res.json(
+        result.success
+          ? { success: true, data: result.entity }
+          : { success: false, error: result.error },
+      );
+    } catch (error) {
+      logger.error({ error }, "Update recharge metadata error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update recharge metadata" });
     }
   },
 );

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { positiveDecimalSchema, transactionTimeSchema } from "./common.js";
+import {
+  idSchema,
+  positiveDecimalSchema,
+  transactionTimeSchema,
+} from "./common.js";
 import { TOP_UP_PROVIDERS } from "../constants/rechargeProviders.js";
 
 /**
@@ -168,6 +172,30 @@ export const topUpFromClientSchema = z.object({
   clientId: z.number().int().positive().optional(),
 });
 
+/**
+ * LIRA-109 — the shared contract for editing non-financial metadata on a
+ * recharge row (`recharge:update-metadata` IPC / `PATCH /api/recharge/:id/metadata`
+ * REST), lifted here so BOTH transports validate against ONE schema (rules 14
+ * + 19b). The IPC handler (`rechargeHandlers.ts`) had NO Zod validation at
+ * all before this ticket — a raw typed arg, closing that gap on both
+ * transports at once, same shape as `topUpAppSchema`'s history.
+ *
+ * Field set matches, byte for byte, what `RechargeService.updateRechargeMetadata`
+ * actually reads (`phone_number`, `client_name`, `note`) — NOT the
+ * `client_phone` naming used by the sales/financial modules' own metadata
+ * schemas; recharges have always used `phone_number` on every layer (preload,
+ * IPC handler, service). `id` is NOT part of the request body on the REST
+ * route (it's the `:id` path param — the route merges it in before calling
+ * this schema against the body-only fields); the IPC handler keeps `id`
+ * inside the single payload object, so it stays here too.
+ */
+export const updateRechargeMetadataSchema = z.object({
+  id: idSchema,
+  phone_number: z.string().max(50).optional(),
+  client_name: z.string().max(200).optional(),
+  note: z.string().max(500).optional(),
+});
+
 export type CreateRechargeInput = z.infer<typeof createRechargeSchema>;
 export type GetRechargeStockInput = z.infer<typeof getRechargeStockSchema>;
 export type GetRechargeHistoryInput = z.infer<typeof getRechargeHistorySchema>;
@@ -175,3 +203,6 @@ export type TopUpAppInput = z.infer<typeof topUpAppSchema>;
 export type TopUpFromSupplierInput = z.infer<typeof topUpFromSupplierSchema>;
 export type TopUpFromPartnerInput = z.infer<typeof topUpFromPartnerSchema>;
 export type TopUpFromClientInput = z.infer<typeof topUpFromClientSchema>;
+export type UpdateRechargeMetadataInput = z.infer<
+  typeof updateRechargeMetadataSchema
+>;

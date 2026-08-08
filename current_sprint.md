@@ -2637,7 +2637,7 @@ ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 | **Epic**              | Recharge / Web Parity                       |
 | **Type**              | Bug / Dual-Transport                        |
 | **Priority**          | Low                                          |
-| **Status**            | TODO                                         |
+| **Status**            | DONE (2026-08-08) — web e2e executed green (60/60) |
 | **Affected Modules**  | Recharge                                     |
 | **Assigned To**       | —                                             |
 | **Depends On**        | —                                             |
@@ -2653,11 +2653,24 @@ roles!), dual-mode wrapper, adapter type, switch the call site (rule 19).
 
 ### Acceptance Criteria
 
-- [ ] REST route mirroring `recharge:update-metadata`'s service call and roles; shared Zod schema
-      (lift from the IPC side if one exists — unlike get-history, a WRITE path should already have
-      `validatePayload`; if it doesn't, that's a second finding to flag).
-- [ ] Dual-mode wrapper + adapter + `ApiAdapter` type; `TelecomForm.tsx` call site switched.
-- [ ] Rule 17 component test; web e2e coverage of the edit path.
+- [x] REST route `POST /api/recharge/update-metadata`: `requireRole(["admin","staff"])` matching
+      the IPC handler verbatim; `editedBy` derived from the JWT username, never the body (a test
+      sends a spoofed `editedBy` and asserts it's ignored); IPC-identical envelope.
+- [x] **Second finding confirmed and fixed on BOTH transports**: the IPC handler had NO Zod
+      validation (raw typed arg trusted verbatim). One shared `updateRechargeMetadataSchema`
+      (`validators/recharge.ts`) now feeds `validatePayload` (IPC) and `validateRequest` (REST) —
+      rules 14 + 19b, closed in one move rather than validating only the new route.
+- [x] Dual-mode wrapper + adapter + `ApiAdapter` type; `TelecomForm.tsx` call site switched
+      (one-line swap — the adapter was already in scope).
+- [x] Rule 17 component test (2 tests, observed failing pre-fix); lira-web-020 extended with the
+      edit path — **executed 2026-08-08: 60/60 web suite green** (59 + the new case).
+- [x] The ticket's predicted `phone_number`/`client_phone` mismatch was a false alarm — the
+      `client_phone` naming belongs to the SALES module's own updateMetadata; the recharge chain
+      agrees on `phone_number` at all four layers (checked, not assumed).
+
+> Note: `electron-app/` source changed (handler + schemas) — the next DESKTOP e2e session needs its
+> usual `yarn dev` rebuild first or the old dist runs. No existing desktop spec exercises this path
+> (grep-verified), so nothing needed re-running today.
 
 ### Files to Modify
 
@@ -2888,12 +2901,12 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | Priority  | Total  | Done  | Closed (won't do) | Remaining |
 | --------- | ------ | ----- | ----------------- | --------- |
 | Medium    | 6      | 2     | 0                 | 4         |
-| Low       | 6      | 4     | 1                 | 1         |
-| **Total** | **12** | **6** | **1**             | **5**     |
+| Low       | 6      | 5     | 1                 | 0         |
+| **Total** | **12** | **7** | **1**             | **4**     |
 
-> All e2e proof now EXECUTED (2026-08-08): desktop targeted run 4/4 (LIRA-102 spec + lira-069 with
-> the LIRA-100 LOTO row), full web suite 59/59 (includes LIRA-103's lira-web-020). Remaining open:
-> LIRA-099, 101, 104, 108, 109.
+> All e2e proof EXECUTED (2026-08-08): desktop targeted run 4/4 (LIRA-102 spec + lira-069 with the
+> LIRA-100 LOTO row), web suite 59/59 then 60/60 after LIRA-109's edit case. Every Low ticket in
+> Sprint 6 is now resolved. Remaining open (all Medium): LIRA-099, 101, 104, 108.
 
 > LIRA-102's spec is **written and committed but never executed** — running it needs the
 > `yarn dev` → stop → `yarn test:e2e` sequence, which the owner runs. It stays TODO until it has
@@ -2914,7 +2927,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | DONE `0c910cd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
 | LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing                           | Low      | CLOSED — WON'T DO (owner) | found reviewing LIRA-106  |
 | LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates              | Medium   | TODO (needs money-eyes verify) | found by LIRA-098's guard |
-| LIRA-109 | Recharge `updateMetadata` still raw `window.api`                      | Low      | TODO   | found during LIRA-103                       |
+| LIRA-109 | Recharge `updateMetadata` still raw `window.api`                      | Low      | DONE — web e2e green 60/60 | found during LIRA-103         |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
 > LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully

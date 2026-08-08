@@ -413,4 +413,157 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
       expect(spy).not.toHaveBeenCalled();
     });
   });
+
+  // ── POST /update-metadata (LIRA-109) ─────────────────────────────────────
+  //
+  // `recharge:update-metadata` (rechargeHandlers.ts) requires
+  // requireRole(["admin", "staff"]) — same gate as the four top-up arms
+  // above. Before this ticket the IPC handler had NO Zod validation at all
+  // (a raw typed arg); `updateRechargeMetadataSchema` closes that gap on
+  // BOTH transports (rules 14 + 19b), so the validation-rejection case below
+  // is new for this endpoint specifically, not just a REST-vs-IPC parity
+  // check.
+  describe("POST /api/recharge/update-metadata", () => {
+    it("staff reaches RechargeService.updateRechargeMetadata with the body + JWT-derived editedBy (never a client-supplied one)", async () => {
+      const spy = jest
+        .spyOn(rechargeService, "updateRechargeMetadata")
+        .mockReturnValue({
+          success: true,
+          entity: { id: 7, phone_number: "70123456" } as any,
+        });
+
+      const res = await request(app)
+        .post("/api/recharge/update-metadata")
+        .set("x-test-role", "staff")
+        .send({
+          id: 7,
+          phone_number: "70123456",
+          client_name: "Walk-in",
+          note: "corrected number",
+          // Not part of the schema — must be stripped before the service is
+          // called, and must NEVER be used as editedBy even if a client
+          // tried to smuggle one in.
+          editedBy: "someone-else",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        data: { id: 7, phone_number: "70123456" },
+      });
+      // "tester" is the mocked JWT's username (see the auth.js mock above,
+      // req.user.username) — proves the actor comes from the token, not the
+      // request body, mirroring the IPC handler's server-side username
+      // resolution (rechargeHandlers.ts: userRepo.findById(auth.userId)).
+      expect(spy).toHaveBeenCalledWith(
+        7,
+        {
+          phone_number: "70123456",
+          client_name: "Walk-in",
+          note: "corrected number",
+        },
+        "tester",
+      );
+    });
+
+    it("admin reaches the service too (role parity: both admin and staff, matching the IPC handler)", async () => {
+      const spy = jest
+        .spyOn(rechargeService, "updateRechargeMetadata")
+        .mockReturnValue({ success: true, entity: { id: 9 } as any });
+
+      const res = await request(app)
+        .post("/api/recharge/update-metadata")
+        .set("x-test-role", "admin")
+        .send({ id: 9, note: "admin edit" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(spy).toHaveBeenCalledWith(9, { note: "admin edit" }, "tester");
+    });
+
+    it("an unauthenticated caller is refused with 401 and never reaches the service", async () => {
+      const spy = jest.spyOn(rechargeService, "updateRechargeMetadata");
+
+      const res = await request(app)
+        .post("/api/recharge/update-metadata")
+        .send({ id: 7, note: "x" });
+
+      expect(res.status).toBe(401);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("a role outside admin/staff is refused with 403 and never reaches the service", async () => {
+      const spy = jest.spyOn(rechargeService, "updateRechargeMetadata");
+
+      const res = await request(app)
+        .post("/api/recharge/update-metadata")
+        .set("x-test-role", "viewer")
+        .send({ id: 7, note: "x" });
+
+      expect(res.status).toBe(403);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing id (Zod, before the service is ever reached) — rule 19c: 200 + string error, never a 4xx", async () => {
+      const spy = jest.spyOn(rechargeService, "updateRechargeMetadata");
+
+      const res = await request(app)
+        .post("/api/recharge/update-metadata")
+        .set("x-test-role", "admin")
+        .send({ note: "no id" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a non-positive id (Zod) — rule 19c: 200 + string error, never a 4xx", async () => {
+      const spy = jest.spyOn(rechargeService, "updateRechargeMetadata");
+
+      const res = await request(app)
+        .post("/api/recharge/update-metadata")
+        .set("x-test-role", "admin")
+        .send({ id: -1, note: "bad id" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("maps a business-rule failure (e.g. row not found) to the IPC-identical envelope — HTTP 200, success: false", async () => {
+      const spy = jest
+        .spyOn(rechargeService, "updateRechargeMetadata")
+        .mockReturnValue({ success: false, error: "Recharge not found" });
+
+      const res = await request(app)
+        .post("/api/recharge/update-metadata")
+        .set("x-test-role", "admin")
+        .send({ id: 999, note: "ghost row" });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: false,
+        error: "Recharge not found",
+      });
+      expect(spy).toHaveBeenCalledWith(999, { note: "ghost row" }, "tester");
+    });
+
+    it("surfaces a service exception as { success: false, error } instead of an unhandled 500", async () => {
+      jest
+        .spyOn(rechargeService, "updateRechargeMetadata")
+        .mockImplementation(() => {
+          throw new Error("db exploded");
+        });
+
+      const res = await request(app)
+        .post("/api/recharge/update-metadata")
+        .set("x-test-role", "admin")
+        .send({ id: 7, note: "x" });
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+    });
+  });
 });
