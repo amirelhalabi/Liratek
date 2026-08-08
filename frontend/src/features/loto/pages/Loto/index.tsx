@@ -16,9 +16,11 @@ import {
   ClipboardCheck,
   Trophy,
   Phone,
+  Receipt,
 } from "lucide-react";
 import { StatsCards } from "../../components/StatsCards";
 import { CheckpointHistory } from "../../components/CheckpointHistory";
+import { TicketHistoryModal } from "../../components/TicketHistoryModal";
 import { CheckpointScheduler } from "../../components/CheckpointScheduler";
 import { SettlementVerification } from "../../components/SettlementVerification";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -100,6 +102,9 @@ export function LotoPage() {
 
   // Modal states
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  // LIRA-100 — ticket-level History/reprint UI (checkpoint history above is
+  // aggregate-only: total_tickets, settlement_id, no per-ticket reprint).
+  const [showTicketHistoryModal, setShowTicketHistoryModal] = useState(false);
   const [isCreatingCheckpoint, setIsCreatingCheckpoint] = useState(false);
 
   const commissionRate = settings
@@ -472,6 +477,13 @@ export function LotoPage() {
               <History size={16} />
               <span className="font-medium">History</span>
             </button>
+            <button
+              onClick={() => setShowTicketHistoryModal(true)}
+              className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
+            >
+              <Receipt size={16} />
+              <span className="font-medium">Ticket History</span>
+            </button>
             <SettlementVerification />
           </div>
         }
@@ -710,6 +722,13 @@ export function LotoPage() {
       {/* Checkpoint History Modal */}
       {showHistoryModal && (
         <CheckpointHistory onClose={() => setShowHistoryModal(false)} />
+      )}
+
+      {/* Ticket History Modal (LIRA-100) */}
+      {showTicketHistoryModal && (
+        <TicketHistoryModal
+          onClose={() => setShowTicketHistoryModal(false)}
+        />
       )}
     </div>
   );

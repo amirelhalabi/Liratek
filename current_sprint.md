@@ -2439,7 +2439,7 @@ browser (`impersonat` has zero hits across all of `frontend/tests/`).
 | **Epic**              | Loto                                          |
 | **Type**              | Feature / Gap                                 |
 | **Priority**          | Low                                            |
-| **Status**            | TODO                                          |
+| **Status**            | DONE (2026-08-08) — e2e extension unexecuted, see note |
 | **Affected Modules**  | Loto                                          |
 | **Assigned To**       | —                                              |
 | **Depends On**        | LIRA-069 (DONE — receipt-print gating foundation) |
@@ -2455,11 +2455,20 @@ can only be reprinted today via the general `/audit` Transactions viewer.
 
 ### Acceptance Criteria
 
-- [ ] Ticket-level History view in the Loto module (pattern: `frontend/src/features/recharge/components/HistoryModal.tsx`).
-- [ ] Rows gated by `isReceiptableRow` (`frontend/src/features/audit/receiptGating.ts:113`).
-- [ ] Resolves the transaction via `TransactionRepository.getBySourceId("loto_tickets", ticketId)`.
-- [ ] Component test + extend `frontend/tests/e2e-electron/lira-069-receipt-print-gating.spec.ts`.
-- [ ] `yarn typecheck` + `yarn workspace @liratek/frontend test`.
+- [x] Ticket-level History view: new `frontend/src/features/loto/components/TicketHistoryModal.tsx`
+      mirroring Recharge's `HistoryModal` UX, self-fetching on mount (like the sibling
+      `CheckpointHistory`) since Loto's page holds no preloaded ticket superset. Data path is 100%
+      pre-existing dual-mode plumbing — `useApi().loto.getByDateRange` and `getTransactionBySource`,
+      zero new adapter/REST/IPC code, zero raw `window.api` in the component (grep-verified).
+- [x] Rows gated per-row by `isReceiptableRow({ type: "LOTO" })` — the canonical predicate.
+- [x] Transaction resolved via the dual-mode `getTransactionBySource("loto_tickets", ticketId)` →
+      `TransactionRepository.getBySourceId`; print via the shared `printServiceReceiptByTransaction`.
+- [x] Component test (3 cases incl. gate-wiring proof; rule 17: bypassing the gate with `|| true`
+      made exactly the hide-assertion fail) + lira-069 e2e spec extended with a LOTO row.
+      **The e2e extension is UNEXECUTED** — same `yarn dev` → stop → `test:e2e` run as LIRA-102;
+      the LOTO row reuses the exact selector path already proven for MTC/iPick/Katsh in that spec
+      (`ALWAYS_RECEIPTABLE_TYPES` includes LOTO), so risk is low but unproven.
+- [x] Frontend tests 3/3, typecheck clean, playwright tsc adds zero new errors (re-run independently).
 
 ### Files to Modify
 

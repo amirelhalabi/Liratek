@@ -206,7 +206,7 @@ test.describe("LIRA-069 — receipt print gating", () => {
     }
   });
 
-  test("included rows show a Print button (iPick, Katsh, Whish App Bill, MTC recharge)", async ({
+  test("included rows show a Print button (iPick, Katsh, Whish App Bill, MTC recharge, LOTO ticket sale)", async ({
     appPage,
   }) => {
     const ts = Date.now();
@@ -218,11 +218,18 @@ test.describe("LIRA-069 — receipt print gating", () => {
     // first run searched for a clientName marker these rows never carry.
     const ipickAmount = 700_000 + (ts % 89_999);
     const katshAmount = 900_000 + (ts % 89_999);
+    // LOTO (LIRA-100): a ticket sale row — one of the always-receiptable
+    // types (receiptGating.ts ALWAYS_RECEIPTABLE_TYPES), same as MAINTENANCE/
+    // CUSTOM_SERVICE, but never previously exercised end-to-end by this spec
+    // despite being pinned in the unit-test matrix
+    // (receiptGating.test.ts: `{ type: "LOTO" } -> true`).
+    const lotoSaleAmount = 500_000 + (ts % 89_999);
     const markers = {
       ipick: `iPick Bill: ${ipickAmount} LBP`,
       katsh: `Katsh Bill: ${katshAmount} LBP`,
       whishBill: `LIRA069 WHISHBILL ${ts}`,
       mtc: `LIRA069 MTC ${ts}`,
+      loto: `LIRA069 LOTO ${ts}`,
     };
 
     const financialResults = await Promise.all([
@@ -292,6 +299,33 @@ test.describe("LIRA-069 — receipt print gating", () => {
       markers.mtc,
     );
     expect(rechargeResult.success, JSON.stringify(rechargeResult)).toBe(true);
+
+    const lotoResult = await appPage.evaluate(
+      ({ clientName, saleAmount }) =>
+        (
+          window as unknown as {
+            api: {
+              loto: {
+                sell: (d: Record<string, unknown>) => Promise<{
+                  success?: boolean;
+                  error?: string;
+                  ticket?: { id?: number };
+                }>;
+              };
+            };
+          }
+        ).api.loto.sell({
+          sale_amount: saleAmount,
+          currency: "LBP",
+          payment_method: "CASH",
+          payments: [
+            { method: "CASH", currencyCode: "LBP", amount: saleAmount },
+          ],
+          clientName,
+        }),
+      { clientName: markers.loto, saleAmount: lotoSaleAmount },
+    );
+    expect(lotoResult.success, JSON.stringify(lotoResult)).toBe(true);
 
     await navigateTo(appPage, "/");
     await navigateTo(appPage, "/audit");
