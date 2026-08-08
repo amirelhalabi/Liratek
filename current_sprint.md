@@ -1927,7 +1927,7 @@ NEEDS INTERVIEW — confirm which balance the owner meant before building
 | **Epic**             | Suppliers / Recharge                                                        |
 | **Type**             | Feature / Decision                                                          |
 | **Priority**         | Medium                                                                      |
-| **Status**           | INTERVIEW DONE (2026-08-08) → Phase 1 of `COMMISSION_AT_SETTLEMENT_PLAN.md` |
+| **Status**           | DONE (2026-08-08, `1d498ff`) — Phase 1 of `COMMISSION_AT_SETTLEMENT_PLAN.md` shipped |
 | **Affected Modules** | Recharge > iPick, Katsh; Suppliers                                          |
 | **Assigned To**      | —                                                                           |
 | **Depends On**       | —                                                                           |
@@ -2084,7 +2084,7 @@ undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2
 | LIRA-086 | Dashboard checkpoint freshness coloring                 | Low      | TODO                                                   |
 | LIRA-087 | Product-supplier — debt now, attach products later      | Medium   | TODO                                                   |
 | LIRA-088 | MTC/Alfa provider-balance decrement                     | Medium   | NEEDS INTERVIEW                                        |
-| LIRA-089 | iPick/Katsh bills commission at settlement              | Medium   | INTERVIEW DONE → COMMISSION_AT_SETTLEMENT_PLAN Phase 1 |
+| LIRA-089 | iPick/Katsh bills commission at settlement              | Medium   | DONE `1d498ff` (Phase 0+1 shipped) |
 | LIRA-090 | Telecom days/credit model                               | High     | NEEDS INTERVIEW                                        |
 | LIRA-091 | Void cascade for auto supplier-ledger siblings          | High     | DONE                                                   |
 | LIRA-094 | Carrier-legs void asymmetry (retroactive — shipped W5)  | High     | DONE                                                   |
@@ -2673,6 +2673,48 @@ ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 
 ---
 
+## LIRA-111: 8 e2e specs navigate to `/audit` without the documented remount bounce
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Test infrastructure                   |
+| **Type**              | Latent flake / hygiene                |
+| **Priority**          | Low                                   |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | e2e suite                             |
+| **Assigned To**       | —                                      |
+| **Depends On**        | —                                      |
+| **Source Plan**       | Found while shipping Phase 0+1 (2026-08-08) |
+
+### Summary
+
+The app uses **hash routing**: `navigateTo("/audit")` while the app is ALREADY parked on `/audit`
+fires no `hashchange`, so `AuditPage`/`TransactionsViewer` never remounts and the table keeps
+showing whatever it fetched on its first visit. `frontend/tests/e2e-electron/README.md:26-27`
+documents the fix — bounce `navigateTo("/")` → `navigateTo("/audit")`.
+
+These 8 specs navigate to `/audit` WITHOUT the bounce and pass today only because nothing currently
+running before them leaves the app parked there:
+
+`lira-063-omt-whish-optional-client`, `lira-064-payment-legs-summary`,
+`lira-073-datatable-export-columns`, `lira-087-currency-by-date`, `lira-092-supplier-payment-void`,
+`lira-104-refund-account-debt`, `lira-124-split-void-group`, `lira-transactions-timezone`
+
+**Risk is now higher than before**: `lira-session-grouping-ui.spec.ts` (added 2026-08-08 for
+LIRA-102) ends its test still parked on `/audit`, which is exactly what exposed this in
+`lira-transactions-hidden-types` and cost three agent rounds to root-cause (it presents as
+"the row exists in the DB but isn't rendered" — no error, just an absent row).
+
+### Acceptance Criteria
+
+- [ ] Add the documented `/` bounce to all 8 specs (one line each).
+- [ ] Consider the systemic fix instead/additionally: either have `navigateTo` detect a same-route
+      call and force a remount, or add an `afterEach` that parks the app on `/` so no spec can leave
+      a stale viewer for its neighbour.
+- [ ] Full desktop e2e still 252/252.
+
+---
+
 ## LIRA-110: Daily closing sums financial-services commission with ZERO gates
 
 | Field                | Value                                                                  |
@@ -3010,6 +3052,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing              | Low      | CLOSED — WON'T DO (owner)                                 | found reviewing LIRA-106            |
 | LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates | Medium   | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP | found by LIRA-098's guard           |
 | LIRA-110 | Daily closing sums fs commission with zero gates         | Medium   | TODO                                                      | found by LIRA-108's workflow        |
+| LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | TODO                                                      | found shipping commission Phase 0+1 |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as

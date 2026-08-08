@@ -1,6 +1,19 @@
 # COMMISSION AT SETTLEMENT — unified redesign (LIRA-095 + LIRA-089)
 
-**Status:** PLANNED — Phase 0+1 in progress (2026-08-08). Phases 2-4 not started.
+**Status:** **Phase 0+1 SHIPPED 2026-08-08 (`1d498ff`)** — migration v150, shared machinery, bills
+slice, dual-transport, green on every gate (full `yarn test` exit 0; desktop e2e 252/252; web e2e
+61/61). **Phases 2-4 NOT started.**
+
+> ### ⚠ Read this before starting Phase 2
+> Phase 0 shipped with `commission_model = 1` scoped to **BILL rows only**. OMT/WHISH SEND/RECEIVE
+> are deliberately still born `commission_model = 0` (legacy embedded), because their payable is
+> STILL netted by `−commission` in `grossOwedDelta`/`SUPPLIER_OWED_EXPR`. Routing them into the new
+> money-bearing settlement path before that flip **double-subtracts commission** — an adversarial
+> reviewer caught exactly this pre-commit. Phase 2's gross flip and widening the
+> `commission_model` stamp to OMT/WHISH must therefore land in the **same change**, with a
+> realistic OMT SEND (real `omtServiceType`/`omtFee` so the auto-calc fires — fixtures using
+> `commission: 0` cannot catch this class) proving no double deduction.
+> Guard already in place: `FinancialServiceRepository.omtCommissionModelGate.test.ts`.
 **Owner decisions (interview 2026-08-08):** one unified redesign; commission entered at supplier
 settlement in one of two modes per supplier (LUMP for the batch, or RATE × unit count); per-type
 reporting via PROPORTIONAL allocation of the settlement amount; CUTOVER — history keeps the old
@@ -98,7 +111,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 
 ## §4 Phases
 
-### Phase 0 — shared machinery (ships WITH Phase 1, one commit train)
+### Phase 0 — shared machinery ✅ SHIPPED `1d498ff`
 
 - v150 migration (§3).
 - The ONE pending-settlement predicate (D2) — extracted, then swapped into: creation
@@ -120,7 +133,7 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
   modes (pre-selected from the supplier preference), net pay = max(0, Σ gross owed − entered
   commission), per-model batch separation surfaced to the operator.
 
-### Phase 1 — bills slice (LIRA-089)
+### Phase 1 — bills slice (LIRA-089) ✅ SHIPPED `1d498ff`
 
 - DELETE the per-bill −20,000 booking (`FSR:3184-3203`) for `commission_model=1` rows.
 - Bills join the unsettled queue: new BILL branch in `getUnsettledBySupplier`/
