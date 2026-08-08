@@ -3328,13 +3328,13 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification   | Medium   | TODO                                                      | PRIMARY_CASH_DRAWER_PLAN.md         |
 | LIRA-102 | Session-grouping UI e2e spec                             | Low      | DONE — executed green 2026-08-08 (4/4 with lira-069+LOTO) | session-basket-payment-remaining.md |
 | LIRA-103 | Recharge — remaining REST-parity gaps                    | Medium   | DONE (web spec green; found LIRA-109)                     | WEB_PARITY_ROADMAP.md               |
-| LIRA-104 | Web-mode REST writes have no audit trail                 | Medium   | TODO                                                      | WEB_PARITY_ROADMAP.md               |
+| LIRA-104 | Web-mode REST writes have no audit trail                 | Medium   | DONE `6949bc1` (124 routes, 2 blockers fixed)             | WEB_PARITY_ROADMAP.md               |
 | LIRA-105 | Payment-method unknown-code semantics mismatch           | Low      | DONE `c9f2262`+`6f74cfd`                                  | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md  |
 | LIRA-106 | Recharge — crypto fields not reset on tab switch         | Low      | DONE `0c910cd`                                            | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md  |
 | LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing              | Low      | CLOSED — WON'T DO (owner)                                 | found reviewing LIRA-106            |
 | LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates | Medium   | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP | found by LIRA-098's guard           |
 | LIRA-110 | Daily closing sums fs commission with zero gates         | Medium   | TODO                                                      | found by LIRA-108's workflow        |
-| LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | TODO                                                      | found shipping commission Phase 0+1 |
+| LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | DONE `6949bc1` (desktop e2e 252/252)                      | found shipping commission Phase 0+1 |
 | LIRA-112 | iPick bills must book NO commission (only Katsh pays)    | **High** | TODO                                                      | owner correction (plan §6 D12)      |
 | LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)   | Medium   | TODO (owner confirmed; use SELECTED line)                 | owner report 2026-08-08             |
 | LIRA-114 | Partner service cost leg appears to move General        | Medium   | TODO (handoff ctx written; pair with LIRA-115)            | owner report 2026-08-08             |
