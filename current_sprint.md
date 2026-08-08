@@ -2266,7 +2266,7 @@ proven failing-first by temporarily removing the LBP option (rule 17).
 | -------- | ------------------------------------------------------------ | -------- | --------------- |
 | LIRA-095 | OMT/Whish/Katsh — rethink commission flow                   | High     | NEEDS INTERVIEW |
 | LIRA-096 | Partners — remove Record Transaction (redundant)             | Low      | NEEDS INTERVIEW |
-| LIRA-097 | Partners — enable LBP for Add Credit/Debt                    | Low      | TODO            |
+| LIRA-097 | Partners — enable LBP for Add Credit/Debt                    | Low      | CLOSED — already working (guard test `d217221`) |
 
 > The other 8 notes from this same batch were bugs — all fixed and independently verified
 > 2026-08-07/08 (commits `dd6cbb6`, `a65ce03`). One further note (OMT receive fee override) was
@@ -2572,7 +2572,7 @@ created, not deleted).
 | **Epic**              | Recharge / Web Parity                       |
 | **Type**              | Bug / Dual-Transport                        |
 | **Priority**          | Medium                                       |
-| **Status**            | TODO                                         |
+| **Status**            | DONE (2026-08-08) — found residual LIRA-109; web spec unexecuted |
 | **Affected Modules**  | Recharge                                     |
 | **Assigned To**       | —                                             |
 | **Depends On**        | —                                             |
@@ -2596,12 +2596,27 @@ but two spots still call raw `window.api.recharge.*` with no REST backing:
 
 ### Acceptance Criteria
 
-- [ ] `GET /api/recharge/history` route + `getRechargeHistory` wrapper in `backendApi.ts`/`ElectronApiAdapter.ts`,
-      same envelope/auth pattern as the other recharge routes.
-- [ ] `Recharge/index.tsx:391-400` switched to the existing `api.getRechargeDrawerBalances()`; stale
-      comment removed.
-- [ ] Web e2e coverage for the history tab and drawer-balance readout in browser mode.
-- [ ] Typecheck and lint pass.
+- [x] `GET /api/recharge/history` route (validated via new `getRechargeHistorySchema`, required
+      `provider: z.enum(["MTC","Alfa"])` — first schema for this endpoint, the IPC handler has none
+      to lift) + `getRechargeHistory` wrapper in `backendApi.ts`/`ElectronApiAdapter.ts`/`ApiAdapter`
+      types. **Auth parity verified in source**: `recharge:get-history` has NO `requireRole`
+      (rechargeHandlers.ts:36-40), so the REST route is likewise not role-gated (router-level
+      `authenticateJWT` only) — same documented rationale as the sibling `/stock` route; gating web
+      would make it stricter than desktop.
+- [x] `loadDrawerBalances` switched to the existing `api.getRechargeDrawerBalances()`; the
+      `if (!window.api?.recharge) return;` guard and stale "IPC-only" comment deleted.
+- [x] Web e2e: `lira-web-020-recharge-history-drawer-balances.spec.ts` — seeds via
+      `POST /api/recharge/process`, drives the real page, asserts drawer stat + history modal.
+      **UNEXECUTED** (owner runs `yarn test:e2e:web`); selectors verified against source.
+- [x] Rule 17: new component test (adapter-mocked, zero `window.api`) observed failing 2/2 pre-fix,
+      passing post-fix. Backend +5 route tests. Full `yarn test` exit 0 on the combined tree:
+      backend 38/521, frontend 110/849+1, core 154/1658.
+
+### Outcome note
+
+A THIRD unmigrated raw call was found in the same feature during the sweep —
+`TelecomForm.tsx:~1198` `window.api.recharge.updateMetadata` (history-edit path). Out of this
+ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 
 ### Files to Modify
 
@@ -2610,6 +2625,45 @@ but two spots still call raw `window.api.recharge.*` with no REST backing:
 | Backend  | `backend/src/api/recharge.ts`                                | Add `/history` route                    |
 | Frontend | `frontend/src/api/backendApi.ts`, `.../ElectronApiAdapter.ts` | `getRechargeHistory` wrapper            |
 | Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`    | Both call sites switched to dual-mode   |
+
+---
+
+## LIRA-109: Recharge — `updateMetadata` still raw `window.api` (history-edit path)
+
+| Field                | Value                                 |
+| --------------------- | ------------------------------------------ |
+| **Epic**              | Recharge / Web Parity                       |
+| **Type**              | Bug / Dual-Transport                        |
+| **Priority**          | Low                                          |
+| **Status**            | TODO                                         |
+| **Affected Modules**  | Recharge                                     |
+| **Assigned To**       | —                                             |
+| **Depends On**        | —                                             |
+| **Source Plan**       | Found during LIRA-103 (2026-08-08)           |
+
+### Summary
+
+`TelecomForm.tsx` (~line 1198, `onUpdateMetadata` handler for the history modal's edit feature)
+still calls raw `window.api.recharge.updateMetadata` — the third and last unmigrated recharge call
+site after LIRA-103 fixed history + drawer-balances. In a browser, editing a history row's metadata
+silently fails. Same fix shape as LIRA-103: mirror the IPC handler as a REST route (check its
+roles!), dual-mode wrapper, adapter type, switch the call site (rule 19).
+
+### Acceptance Criteria
+
+- [ ] REST route mirroring `recharge:update-metadata`'s service call and roles; shared Zod schema
+      (lift from the IPC side if one exists — unlike get-history, a WRITE path should already have
+      `validatePayload`; if it doesn't, that's a second finding to flag).
+- [ ] Dual-mode wrapper + adapter + `ApiAdapter` type; `TelecomForm.tsx` call site switched.
+- [ ] Rule 17 component test; web e2e coverage of the edit path.
+
+### Files to Modify
+
+| Layer    | File                                                      | Change                    |
+| -------- | ------------------------------------------------------------- | ---------------------------- |
+| Backend  | `backend/src/api/recharge.ts`                              | Add update-metadata route   |
+| Frontend | `frontend/src/api/backendApi.ts`, `ElectronApiAdapter.ts`   | Dual-mode wrapper           |
+| Frontend | `frontend/src/features/recharge/components/TelecomForm.tsx` | Switch call site            |
 
 ---
 
@@ -2831,9 +2885,9 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 
 | Priority  | Total  | Done  | Closed (won't do) | Remaining |
 | --------- | ------ | ----- | ----------------- | --------- |
-| Medium    | 5      | 0     | 0                 | 5         |
-| Low       | 5      | 2     | 1                 | 2         |
-| **Total** | **10** | **2** | **1**             | **7**     |
+| Medium    | 6      | 2     | 0                 | 4         |
+| Low       | 6      | 3     | 1                 | 2         |
+| **Total** | **12** | **5** | **1**             | **6**     |
 
 > LIRA-102's spec is **written and committed but never executed** — running it needs the
 > `yarn dev` → stop → `yarn test:e2e` sequence, which the owner runs. It stays TODO until it has
@@ -2843,16 +2897,18 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 
 | ID       | Title                                                              | Priority | Status | Source Plan                             |
 | -------- | --------------------------------------------------------------------- | -------- | ------ | ------------------------------------------ |
-| LIRA-098 | Profit-recognition guard test                                       | Medium   | TODO   | COUNTERPARTY_CONSOLIDATION_PLAN.md          |
+| LIRA-098 | Profit-recognition guard test                                       | Medium   | DONE `e6e3747` (found LIRA-108) | COUNTERPARTY_CONSOLIDATION_PLAN.md |
 | LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof              | Medium   | TODO   | MULTI_TENANT_IMPLEMENTATION_PLAN.md         |
-| LIRA-100 | Loto — in-module ticket reprint UI                                   | Low      | TODO   | PARTIAL_TASKS_COMPLETION_PLAN.md            |
+| LIRA-100 | Loto — in-module ticket reprint UI                                   | Low      | DONE `a3e24af` (e2e row unexecuted) | PARTIAL_TASKS_COMPLETION_PLAN.md |
 | LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification                | Medium   | TODO   | PRIMARY_CASH_DRAWER_PLAN.md                 |
 | LIRA-102 | Session-grouping UI e2e spec                                          | Low      | TODO (spec written `0579942`, never executed) | session-basket-payment-remaining.md |
-| LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
+| LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | DONE (web spec unexecuted; found LIRA-109) | WEB_PARITY_ROADMAP.md |
 | LIRA-104 | Web-mode REST writes have no audit trail                              | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
 | LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | DONE `c9f2262`+`6f74cfd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md |
 | LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | DONE `0c910cd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
 | LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing                           | Low      | CLOSED — WON'T DO (owner) | found reviewing LIRA-106  |
+| LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates              | Medium   | TODO (needs money-eyes verify) | found by LIRA-098's guard |
+| LIRA-109 | Recharge `updateMetadata` still raw `window.api`                      | Low      | TODO   | found during LIRA-103                       |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
 > LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully

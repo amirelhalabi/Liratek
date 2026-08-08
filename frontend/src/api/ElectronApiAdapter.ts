@@ -123,6 +123,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Recharge
   // ---------------------------------------------------------------------------
   getRechargeStock = () => api.getRechargeStock();
+  getRechargeHistory = (provider: "MTC" | "Alfa") =>
+    api.getRechargeHistory(provider);
   getRechargeDrawerBalances = () => api.getRechargeDrawerBalances();
   processRecharge = (payload: any) => api.processRecharge(payload);
   topUpApp = (payload: {

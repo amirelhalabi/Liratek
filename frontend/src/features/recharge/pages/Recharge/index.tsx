@@ -411,15 +411,13 @@ export default function MobileRecharge() {
   }, [api]);
 
   const loadDrawerBalances = useCallback(async () => {
-    // Drawer balances are IPC-only (no REST route yet) — skip in web mode
-    if (!window.api?.recharge) return;
     try {
-      const drawers = await window.api.recharge.getDrawerBalances();
+      const drawers = await api.getRechargeDrawerBalances();
       setDrawerBalances(drawers ?? []);
     } catch (error) {
       logger.error("Failed to load drawer balances:", error);
     }
-  }, []);
+  }, [api]);
 
   const activeDrawerBalance = useMemo(() => {
     if (!activeConfig) return undefined;
@@ -692,7 +690,7 @@ export default function MobileRecharge() {
   const loadRechargeHistory = useCallback(async () => {
     if (!activeProvider || !["MTC", "Alfa"].includes(activeProvider)) return;
     try {
-      const history = await window.api.recharge.getHistory(
+      const history = await api.getRechargeHistory(
         activeProvider as "MTC" | "Alfa",
       );
       setRechargeHistory(
@@ -721,7 +719,7 @@ export default function MobileRecharge() {
       logger.error("Failed to load recharge history:", error);
       setRechargeHistory([]);
     }
-  }, [activeProvider]);
+  }, [activeProvider, api]);
 
   const handleTopUpClick = useCallback(async () => {
     if (!activeProvider) return;

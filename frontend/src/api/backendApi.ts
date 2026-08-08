@@ -1071,6 +1071,44 @@ export async function getRechargeStock() {
   return res.stock;
 }
 
+export type RechargeHistoryEntry = {
+  id: number;
+  carrier: string;
+  recharge_type: string;
+  amount: number;
+  cost: number;
+  price: number;
+  default_price_to_client: number | null;
+  currency_code: string;
+  paid_by: string;
+  phone_number: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  note: string | null;
+  created_at: string;
+  created_by: number;
+  edited_by: string | null;
+  edited_at: string | null;
+};
+
+// MTC/Alfa recharge history for the history tab (Recharge/index.tsx's
+// `loadRechargeHistory`). LIRA-103: was a raw, unguarded
+// `window.api.recharge.getHistory()` call with no REST twin, so in the
+// browser it threw before `setRechargeHistory` ever ran, silently yielding
+// an empty history list (wrapped in try/catch, so no crash — just no data).
+export async function getRechargeHistory(
+  provider: "MTC" | "Alfa",
+): Promise<RechargeHistoryEntry[]> {
+  if (isElectron()) {
+    return (window as any).api.recharge.getHistory(provider);
+  }
+  const res = await requestJson<{
+    success: boolean;
+    history: RechargeHistoryEntry[];
+  }>(`/api/recharge/history?provider=${encodeURIComponent(provider)}`);
+  return res.history;
+}
+
 export async function processRecharge(payload: any) {
   if (isElectron()) {
     return (window as any).api.recharge.process(payload);

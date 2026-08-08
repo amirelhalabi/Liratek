@@ -1,9 +1,10 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { validateRequest } from "../middleware/validation.js";
+import { validateRequest, validateQuery } from "../middleware/validation.js";
 import {
   getRechargeService,
   createRechargeSchema,
+  getRechargeHistorySchema,
   topUpAppSchema,
   topUpFromSupplierSchema,
   topUpFromPartnerSchema,
@@ -36,6 +37,34 @@ router.get("/stock", (_req, res): void => {
       .json({ success: false, error: "Failed to fetch recharge stock" });
   }
 });
+
+// GET /api/recharge/history - MTC/Alfa recharge history for the history tab
+// (Recharge/index.tsx's `loadRechargeHistory`). LIRA-103: this route did not
+// exist at all before — the page called raw `window.api.recharge.getHistory`
+// with no REST twin, silently yielding an empty history list in the browser.
+// Deliberately NOT role-gated: `recharge:get-history` (rechargeHandlers.ts)
+// has no requireRole either — same rule-19c rationale as `/stock` above.
+// `provider` is validated via `getRechargeHistorySchema` (query, required
+// enum) — the IPC handler has no Zod validation to mirror, so this is the
+// FIRST schema for it (rules 14 + 19b: the one to reuse if that ever
+// changes).
+router.get(
+  "/history",
+  validateQuery(getRechargeHistorySchema),
+  (req, res): void => {
+    try {
+      const provider = req.query.provider as "MTC" | "Alfa";
+      const rechargeService = getRechargeService();
+      const history = rechargeService.getHistory(provider);
+      res.json({ success: true, history });
+    } catch (error) {
+      logger.error({ error }, "Get recharge history error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to fetch recharge history" });
+    }
+  },
+);
 
 // POST /api/recharge/process - Process recharge transaction
 // Role-parity with the desktop IPC handler (recharge:process requires

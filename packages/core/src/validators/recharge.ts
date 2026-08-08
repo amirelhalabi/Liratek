@@ -112,6 +112,19 @@ export const getRechargeStockSchema = z.object({
 });
 
 /**
+ * GET /api/recharge/history query contract (LIRA-103). REST-only for now —
+ * the desktop IPC handler (`recharge:get-history`, rechargeHandlers.ts) takes
+ * `provider` as a raw arg with no Zod validation at all, so there is no
+ * existing IPC-side schema to lift (rules 14 + 19b note: nothing to share
+ * yet, but this is THE schema if that ever changes). `provider` is required —
+ * `RechargeRepository.getHistory` filters `WHERE carrier = ?`, so an absent
+ * value cannot resolve to a meaningful history list.
+ */
+export const getRechargeHistorySchema = z.object({
+  provider: z.enum(["MTC", "Alfa"]),
+});
+
+/**
  * CARRIER_LINES_VALIDITY_PLAN.md Phase 8.4 — the four remaining top-up arms
  * (`topUpApp`, `topUpFromSupplier`, `topUpFromPartner`, `topUpFromClient`)
  * lift their contracts here so the desktop IPC handler
@@ -157,6 +170,7 @@ export const topUpFromClientSchema = z.object({
 
 export type CreateRechargeInput = z.infer<typeof createRechargeSchema>;
 export type GetRechargeStockInput = z.infer<typeof getRechargeStockSchema>;
+export type GetRechargeHistoryInput = z.infer<typeof getRechargeHistorySchema>;
 export type TopUpAppInput = z.infer<typeof topUpAppSchema>;
 export type TopUpFromSupplierInput = z.infer<typeof topUpFromSupplierSchema>;
 export type TopUpFromPartnerInput = z.infer<typeof topUpFromPartnerSchema>;

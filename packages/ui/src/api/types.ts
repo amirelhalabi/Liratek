@@ -109,6 +109,28 @@ export type RechargeDrawerBalance = {
   usdtBalance: number;
 };
 
+/** One row of `RechargeRepository.getHistory()` — MTC/Alfa recharge history
+ *  tab (LIRA-103). Mirrors `RechargeEntity` (packages/core) field-for-field. */
+export type RechargeHistoryEntry = {
+  id: number;
+  carrier: string;
+  recharge_type: string;
+  amount: number;
+  cost: number;
+  price: number;
+  default_price_to_client: number | null;
+  currency_code: string;
+  paid_by: string;
+  phone_number: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  note: string | null;
+  created_at: string;
+  created_by: number;
+  edited_by: string | null;
+  edited_at: string | null;
+};
+
 export type MonthlyPL = {
   month: string;
   salesProfitUSD: number;
@@ -562,6 +584,12 @@ export type ApiAdapter = {
   // Recharge
   // ---------------------------------------------------------------------------
   getRechargeStock: () => Promise<VirtualStock>;
+  /** MTC/Alfa recharge history for the history tab (LIRA-103). Previously a
+   *  raw, unguarded `window.api.recharge.getHistory()` call with no REST
+   *  twin, so it silently yielded an empty history list in web mode. */
+  getRechargeHistory: (
+    provider: "MTC" | "Alfa",
+  ) => Promise<RechargeHistoryEntry[]>;
   processRecharge: (payload: any) => Promise<ApiResult>;
   /** Funding-source drawer balances for the top-up modal opened by
    *  `handleTopUpClick` — feeds all four top-up arms below. Previously a

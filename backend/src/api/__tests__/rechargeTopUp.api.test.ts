@@ -144,6 +144,96 @@ describe("Recharge top-up-arm REST routes (Phase 8.4)", () => {
     });
   });
 
+  // ── GET /history (LIRA-103) ──────────────────────────────────────────────
+  describe("GET /api/recharge/history", () => {
+    it("any authenticated role reaches the service with the query provider (no requireRole, matching the IPC handler)", async () => {
+      const spy = jest.spyOn(rechargeService, "getHistory").mockReturnValue([
+        {
+          id: 1,
+          carrier: "MTC",
+          recharge_type: "CREDIT_TRANSFER",
+          amount: 5,
+          cost: 4,
+          price: 5,
+          default_price_to_client: null,
+          currency_code: "USD",
+          paid_by: "CASH",
+          phone_number: "03000091",
+          client_id: null,
+          client_name: null,
+          note: null,
+          created_at: "2026-08-08T00:00:00.000Z",
+          created_by: 42,
+          edited_by: null,
+          edited_at: null,
+        },
+      ]);
+
+      const res = await request(app)
+        .get("/api/recharge/history?provider=MTC")
+        .set("x-test-role", "staff");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.history).toHaveLength(1);
+      expect(res.body.history[0]).toMatchObject({
+        id: 1,
+        carrier: "MTC",
+      });
+      expect(spy).toHaveBeenCalledWith("MTC");
+    });
+
+    it("an unauthenticated caller is refused with 401 and never reaches the service", async () => {
+      const spy = jest.spyOn(rechargeService, "getHistory");
+
+      const res = await request(app).get(
+        "/api/recharge/history?provider=MTC",
+      );
+
+      expect(res.status).toBe(401);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing provider — rule 19c: 200 + string error, never a 4xx", async () => {
+      const spy = jest.spyOn(rechargeService, "getHistory");
+
+      const res = await request(app)
+        .get("/api/recharge/history")
+        .set("x-test-role", "admin");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a provider outside MTC/Alfa — rule 19c: 200 + string error, never a 4xx", async () => {
+      const spy = jest.spyOn(rechargeService, "getHistory");
+
+      const res = await request(app)
+        .get("/api/recharge/history?provider=OMT")
+        .set("x-test-role", "admin");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a service exception as { success: false, error } instead of an unhandled 500", async () => {
+      jest.spyOn(rechargeService, "getHistory").mockImplementation(() => {
+        throw new Error("db exploded");
+      });
+
+      const res = await request(app)
+        .get("/api/recharge/history?provider=Alfa")
+        .set("x-test-role", "admin");
+
+      expect(res.status).toBe(500);
+      expect(res.body.success).toBe(false);
+    });
+  });
+
   // ── POST /top-up-app ─────────────────────────────────────────────────────
   describe("POST /api/recharge/top-up-app", () => {
     it("reaches RechargeService.topUpApp with the body + JWT-derived userId", async () => {
