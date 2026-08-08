@@ -2205,7 +2205,7 @@ exists, it needs to move into Add Credit/Debt first, or the owner needs to accep
 | **Epic**              | Partner System    |
 | **Type**              | Enhancement       |
 | **Priority**          | Low               |
-| **Status**            | TODO              |
+| **Status**            | CLOSED — ALREADY WORKING (2026-08-08; guard test added) |
 | **Affected Modules**  | Partners          |
 | **Assigned To**       | —                 |
 | **Depends On**        | —                 |
@@ -2219,11 +2219,29 @@ selectable there, unlike the equivalent actions on Debts/Suppliers).
 
 ### Acceptance Criteria
 
-- [ ] Confirm current currency options on the Partners page's Add Credit/Debt action.
-- [ ] Add LBP as a selectable currency, mirroring the equivalent Debts/Suppliers pattern
-      (USD + LBP already selectable there).
-- [ ] Partner ledger correctly books the amount in the selected currency.
-- [ ] Typecheck and lint pass.
+- [x] Confirm current currency options on the Partners page's Add Credit/Debt action.
+- [x] ~~Add LBP~~ **Premise false — LBP was already selectable and fully wired.** The Add Credit/Debt
+      modal's Currency `Select` has offered USD + LBP since 2026-06-22 (commit `b3f96649`, predating
+      the owner's note by over a month), and the full chain already propagates it on BOTH transports:
+      UI (`Partners/index.tsx:808-814`) → shared Zod validator (`validators/partner.ts`, free string)
+      → IPC handler AND `POST /api/partners/transactions` → `PartnerService.recordPartnerTransaction`
+      → `PartnerRepository.addLedgerEntry` → `partner_ledger.currency` (no CHECK constraint).
+- [x] Partner ledger correctly books the amount in the selected currency (verified through the chain
+      above, parameterized insert).
+- [x] Typecheck and lint pass.
+
+### Outcome — no code change; regression guard added
+
+Like the earlier "OMT receive fee override" note from the same batch, this owner note described
+something that already works. Possible the owner hit a stale build, or expected the dual-field
+USD+LBP-simultaneous pattern Debts uses (partner_ledger is single-currency-per-row like Suppliers,
+so the single-amount + currency-toggle UI is the correct analogue). **If the owner still sees no LBP
+option in the running app, that's a build/deployment question, not a code gap — re-open with a
+screenshot.**
+
+No test previously exercised the LBP path (existing partner specs only send USD), so a guard was
+added: `Partners.addCreditLbp.test.tsx` drives the real modal to submit `currency: "LBP"` and was
+proven failing-first by temporarily removing the LBP option (rule 17).
 
 ### Files to Modify
 
