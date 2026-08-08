@@ -3509,8 +3509,9 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | DONE `6949bc1` (desktop e2e 252/252)                      | found shipping commission Phase 0+1 |
 | LIRA-112 | iPick bills must book NO commission (only Katsh pays)    | **High** | TODO                                                      | owner correction (plan §6 D12)      |
 | LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)   | Medium   | TODO (owner confirmed; use SELECTED line)                 | owner report 2026-08-08             |
-| LIRA-114 | Partner service cost leg appears to move General        | Medium   | Investigation CLOSED (correct accounting, 2 regression tests); NEEDS INTERVIEW for owner's exact click path | owner report 2026-08-08             |
-| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | FIX IMPLEMENTED (option (a), 8 tests, core+backend+frontend green); IPC/REST/UI wiring + e2e are named follow-ups | owner report 2026-08-08, reproduced |
+| LIRA-114 | 'For Partner' custom service acts as THROUGH; cost hits General | **High** | RE-OPENED 2026-08-09 — it IS custom_services, not omt_whish (crossed labels); owner confirmed For-Partner ticked | owner report 2026-08-08 |
+| LIRA-116 | Rename crossed 'Services' module labels/routes          | Medium   | TODO (owner approved 2026-08-09)                          | found via LIRA-114                  |
+| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — guard at repository layer so IPC+REST both enforce; basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
