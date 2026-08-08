@@ -2535,7 +2535,7 @@ attention:
 | **Epic**              | Customer Sessions / Transactions           |
 | **Type**              | Test                                        |
 | **Priority**          | Low                                          |
-| **Status**            | TODO                                        |
+| **Status**            | DONE (2026-08-08) — spec `0579942`, executed GREEN same day |
 | **Affected Modules**  | Transactions (Audit)                        |
 | **Assigned To**       | —                                            |
 | **Depends On**        | —                                            |
@@ -2550,12 +2550,15 @@ created, not deleted).
 
 ### Acceptance Criteria
 
-- [ ] `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts`: checkout 2 custom-service
+- [x] `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts`: checkout 2 custom-service
       items in one session → assert both rows expose `data-session=""` and share the same
       `--session-hue` (`round(abs(id * 137.508)) % 360`) → toggle dark mode → assert
       `border-left-color` changes (62% dark / 42% light) while hue holds. Match rows by unique
       label (rule 15), never `tbody tr.first()`.
-- [ ] Once green, `session-basket-payment-remaining.md` has nothing left — move to `done_plans/`.
+      **Executed 2026-08-08: PASSED (2.4s), in a 4/4 run alongside lira-069 + its new LOTO row.**
+      All three first-run risks flagged in the spec header (numeric CSS custom-property
+      pass-through, HSL→RGB probe comparison, theme-toggle localStorage leakage) held.
+- [ ] `session-basket-payment-remaining.md` has nothing left — move to `done_plans/` (pending).
 
 ### Files to Modify
 
@@ -2901,7 +2904,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof              | Medium   | TODO   | MULTI_TENANT_IMPLEMENTATION_PLAN.md         |
 | LIRA-100 | Loto — in-module ticket reprint UI                                   | Low      | DONE `a3e24af` (e2e row unexecuted) | PARTIAL_TASKS_COMPLETION_PLAN.md |
 | LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification                | Medium   | TODO   | PRIMARY_CASH_DRAWER_PLAN.md                 |
-| LIRA-102 | Session-grouping UI e2e spec                                          | Low      | TODO (spec written `0579942`, never executed) | session-basket-payment-remaining.md |
+| LIRA-102 | Session-grouping UI e2e spec                                          | Low      | DONE — executed green 2026-08-08 (4/4 with lira-069+LOTO) | session-basket-payment-remaining.md |
 | LIRA-103 | Recharge — remaining REST-parity gaps                                 | Medium   | DONE (web spec unexecuted; found LIRA-109) | WEB_PARITY_ROADMAP.md |
 | LIRA-104 | Web-mode REST writes have no audit trail                              | Medium   | TODO   | WEB_PARITY_ROADMAP.md                       |
 | LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | DONE `c9f2262`+`6f74cfd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md |
