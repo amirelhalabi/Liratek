@@ -203,11 +203,43 @@ Both `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 7. **Guard interplay**: `profitRecognition.guard.test.ts` scans `profit|commission` in
    ProfitRepository — every new query ships gated or with a documented exclusion.
 
-## §6 Owner check-ins queued (do NOT block Phase 0+1)
+## §6 Owner check-ins — ANSWERED 2026-08-08
 
-- Closing-screen daily semantics under cash-basis commission (Phase 3).
-- Negative-net RECEIVE-heavy batch flow (Phase 2).
-- Provider set of the Profits "Commission" row (Phase 3; LIRA-108 residual).
+**D10 — Closing screen: CASH BASIS.** The daily closing shows commission on the day it is
+*settled*, not the day the transactions happened. No estimate line, no true-up. Phase 3 implements
+this and it supersedes LIRA-110's "decide the semantics" item (LIRA-110's ungated-sum fix still
+stands on its own).
+
+**D11 — "Commission" means supplier-paid only.** Owner: *"commission is a word named after what
+supplier pays the shop based on transactions he did or sales. The card sell−cost is a profit and
+not commission."* So: the Profits "Commission" row = money a supplier grants the shop
+(OMT/Whish/wallets + bill commission from settlement). iPick/Katsh **card margin (price − cost) is
+PROFIT** and belongs under Mobile Services only. Each figure gets exactly one home; the two can
+then be summed safely. The existing pending → settled split ("to be paid" vs "paid") is unchanged
+and orthogonal to this.
+
+**D12 — iPick pays NO commission; Katsh does. ← CORRECTS SHIPPED BEHAVIOR.** Owner: *"i said ipick
+bills gives us no comission, but katsh does. So in katsh we should count the bills we sold. And at
+settlement in suppliers page we should showcase an estimated commission amount for the customer
+20,000 LBP per bill sold. Whereas in ipick its not the case."*
+
+> Both the pre-plan code AND shipped Phase 1 treat the two providers identically — the legacy
+> booking was `Auto: BILL commission from ${provider}` for ANY bill provider
+> (`FinancialServiceRepository.ts:~3337`), and Phase 1 stamps `serviceType === "BILL"` with no
+> provider check (`:1046`). So **iPick has been receiving a 20,000 LBP credit it never earned** —
+> a pre-existing bug carried forward. Tracked as **LIRA-112**.
+
+**D13 — Negative-net settlement: model commission as a DIRECTIONAL leg.** Owner: *"Can we have a
+field for the commission amount? And in the payment, if the payment was already in my favor we can
+see the amount increase? Or should we have a separate row for the commission payment with a
+direction (in/out)? I think we already have this bidirectional payment implemented."*
+→ Reuse the existing bidirectional payment-leg machinery
+(`docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md`, `partitionLegs` in
+`packages/core/src/utils/payments.ts`, `direction: "OUT"`) rather than inventing a clamp/branch:
+one settle screen, a commission field, and the settlement's net expressed as legs whose direction
+flips naturally when the provider owes the shop. **Rule 16 applies** — flow-specific branches
+consume IN legs only; the shared end-of-transaction loop handles OUT legs, or the drawer is
+double-debited. Phase 2 designs this against the existing plan rather than from scratch.
 
 ## §7 Blast radius quick-index
 

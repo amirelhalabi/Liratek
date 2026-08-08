@@ -2673,6 +2673,65 @@ ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 
 ---
 
+## LIRA-112: iPick bills must book NO commission (only Katsh pays) — corrects shipped behavior
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Suppliers / Recharge                  |
+| **Type**              | Bug (pre-existing, carried forward)   |
+| **Priority**          | **High** (wrong money on the supplier ledger) |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Recharge > iPick/Katsh, Suppliers     |
+| **Assigned To**       | —                                      |
+| **Depends On**        | LIRA-089 (DONE)                       |
+| **Source Plan**       | Owner correction 2026-08-08 (COMMISSION_AT_SETTLEMENT_PLAN §6 D12) |
+
+### Summary
+
+Owner: **iPick bills earn the shop NO commission. Katsh bills earn 20,000 LBP per bill.**
+
+Both the pre-plan code and shipped Phase 1 treat the two providers identically:
+- Legacy booking: `Auto: BILL commission from ${data.provider}` fired for ANY bill provider
+  (`FinancialServiceRepository.ts:~3337`) — so **iPick has been credited 20,000 LBP per bill it
+  never earned**, inflating the iPick supplier balance in the shop's favour.
+- Phase 1: `commission_model = data.serviceType === "BILL" ? 1 : 0` (`:1046`) — no provider check,
+  so iPick bills now also join the commission settlement queue.
+
+Neither is correct. This is a pre-existing bug we carried forward, not a Phase 1 regression — but
+Phase 1 is the right place to fix it since the machinery now exists.
+
+### Target behavior
+
+- **Katsh**: bills join the settlement queue; the Suppliers settle screen shows an **estimated
+  commission of 20,000 LBP × bills sold** (this is exactly the RATE × count mode Phase 0 built —
+  drive it from the supplier's stored preference rather than a hardcode).
+- **iPick**: bills book **no commission at all**, at creation or settlement, and do not appear in
+  the commission settlement queue.
+- Make it **data-driven**, not a provider name hardcoded in a repository: use the v150
+  `suppliers.commission_entry_mode` / `commission_rate` columns (Katsh → RATE @ 20,000; iPick →
+  none). Note `commission_rate` was specced as USD — bills are LBP, so a rate **currency** is
+  needed (extra column or a documented convention). Rule 14: one definition of "does this supplier
+  pay commission".
+
+### Acceptance Criteria
+
+- [ ] Failing-first test (rule 17): an iPick bill books zero commission rows at creation AND is
+      absent from the unsettled commission queue; a Katsh bill does both.
+- [ ] Settle screen prefills Katsh's estimate = 20,000 LBP × bill count, from stored config.
+- [ ] Historical iPick credits: owner decision — leave (cutover, consistent with D3) vs correct.
+      **Recommend leave + report the total so the owner can adjust once manually if desired.**
+- [ ] Full suites + desktop/web e2e green; extend `lira-089` / `lira-web-021` with an iPick case.
+
+### Files to Modify
+
+| Layer    | File                                                          | Change                        |
+| -------- | ---------------------------------------------------------------- | -------------------------------- |
+| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts` | Provider-aware commission gating |
+| Backend  | `packages/core/src/db/migrations/index.ts` + `create_db.sql`   | Rate currency + Katsh/iPick seed |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Estimated-commission prefill     |
+
+---
+
 ## LIRA-111: 8 e2e specs navigate to `/audit` without the documented remount bounce
 
 | Field                | Value                              |
@@ -3053,6 +3112,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates | Medium   | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP | found by LIRA-098's guard           |
 | LIRA-110 | Daily closing sums fs commission with zero gates         | Medium   | TODO                                                      | found by LIRA-108's workflow        |
 | LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | TODO                                                      | found shipping commission Phase 0+1 |
+| LIRA-112 | iPick bills must book NO commission (only Katsh pays)    | **High** | TODO                                                      | owner correction (plan §6 D12)      |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
