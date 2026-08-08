@@ -2352,7 +2352,7 @@ has nothing left and can be archived once LIRA-108 is resolved (the plan's own s
 | **Epic**              | Profits / Counterparty Ledgers        |
 | **Type**              | Bug (candidate — needs money-eyes verification) |
 | **Priority**          | Medium                                |
-| **Status**            | TODO                                  |
+| **Status**            | DONE (2026-08-08) — CONFIRMED REAL, fixed, double-SHIP verdict |
 | **Affected Modules**  | Profits                               |
 | **Assigned To**       | —                                      |
 | **Depends On**        | —                                      |
@@ -2374,14 +2374,43 @@ profit views disagree, and the totals row overstates.
 
 ### Acceptance Criteria
 
-- [ ] Money-eyes verification: construct the disagreement concretely (a settled, partner-pending
-      commission row) and confirm the two views diverge — failing-first test per rule 17.
-- [ ] If confirmed: add the two gates to `getRealizedCommissionTotals` (reuse the existing fragments —
-      rule 14), and check `getPendingCommissionTotals` for the mirror-image question (should a
-      partner-pending commission appear in "pending" instead?).
-- [ ] Consider widening LIRA-098's guard heuristic to also flag ungated `commission` sums (it
-      currently scans only for the literal `profit`), so this class can't recur.
-- [ ] Full core + backend suites green.
+- [x] Money-eyes verification: **CONFIRMED REAL** — constructed concretely (in-memory DB, same
+      window/tenant): realized totals returned 23 USD/3 rows (control 5 + partner-pending 7 +
+      debt-pending 11) while the gated sibling returned 5 USD/1 row. Divergence 18 USD, asserted
+      directly. Domain-intent review of FEATURE_GUIDE/COUNTERPARTY_LEDGERS + git history: omission,
+      not a decision.
+- [x] Gates added by adopting the sibling's exact JOIN shape (`t.type='FINANCIAL_SERVICE'`,
+      `t.status='ACTIVE'`, `notPartnerPending` + `notDebtPending`, dual tenant binds) — rule 14
+      fragments reused verbatim. Rule 17: regression test observed failing pre-fix
+      (Expected 10/Received 28; divergence Expected 0/Received 18), independently re-confirmed by a
+      second reviewer who reverted and re-ran himself.
+- [x] `getPendingCommissionTotals` deliberately UNCHANGED — investigation answer: a
+      settled-but-counterparty-pending row belongs in NEITHER by-payment row (it lives in
+      deferred/counterparty views until the counterparty pays); documented in the method comment
+      and `docs/COUNTERPARTY_LEDGERS.md` §6.
+- [x] LIRA-098 guard widened: token scan now `profit|commission`, 4 new verified exclusions, proven
+      to fail on an injected ungated commission dummy (both by implementer and independently by the
+      completeness reviewer).
+- [x] Suites: core 155/1662, backend 38/529, frontend 111/851+1 — full `yarn test` exit 0.
+
+### Adversarial review (2 lenses, both SHIP)
+
+JOIN fan-out **refuted** (exactly one `FINANCIAL_SERVICE`-type transaction writer per fs row; auto
+SUPPLIER_PAYMENT sibling and REFUND rows excluded by the `t.type` filter — no double-count possible).
+Dropped-rows risk **refuted** (`_markSourceRefunded` sets `is_refunded=1` on both void and refund, so
+every row the ACTIVE-join excludes was already excluded by the old `notRefunded` gate).
+
+### Residuals discovered (filed, not silently fixed)
+
+1. → folded into **LIRA-095**'s open questions: the Commission row still counts iPick/Katsh
+   `commission > 0` rows that the per-currency sibling routes to Mobile Services (possible
+   double-display), and it sums raw `fs.commission` while the sibling sums stamped
+   `t.profit_usd/lbp` (USDT currently buckets as USD in the totals row). Provider-set narrowing is
+   an owner semantics call, same discussion as the commission-flow redesign.
+2. → **LIRA-110** (new): `ClosingRepository.ts:689-696` computes daily fs commission with a THIRD,
+   fully ungated sum — not even `is_settled`/`notRefunded`. Same bug class on the closing screen.
+3. Flake note for CI: one core run failed 2 suites/3 tests then passed twice on identical code —
+   pre-existing parallel-worker flakiness (unrelated modules), a red core run may need one retry.
 
 ### Files to Modify
 
@@ -2627,6 +2656,45 @@ ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
 | Backend  | `backend/src/api/recharge.ts`                                | Add `/history` route                    |
 | Frontend | `frontend/src/api/backendApi.ts`, `.../ElectronApiAdapter.ts` | `getRechargeHistory` wrapper            |
 | Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`    | Both call sites switched to dual-mode   |
+
+---
+
+## LIRA-110: Daily closing sums financial-services commission with ZERO gates
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Closing / Profits                     |
+| **Type**              | Bug (candidate — same class as LIRA-108) |
+| **Priority**          | Medium                                |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Closing                               |
+| **Assigned To**       | —                                      |
+| **Depends On**        | —                                      |
+| **Source Plan**       | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers) |
+
+### Summary
+
+`ClosingRepository.ts:689-696` computes the daily financial-services commission figure with a
+third, fully ungated `SUM(commission)` — missing not just the LIRA-108 counterparty gates but even
+`is_settled` and `notRefunded`. A refunded or unsettled or partner-pending commission row inflates
+the closing screen's daily commission number. Also rule-14 debt: a third hand-rolled copy of the
+"realized commission" concept instead of reusing one definition.
+
+### Acceptance Criteria
+
+- [ ] Money-eyes pass on what the closing figure is MEANT to show (day's earned commission?
+      cash-collected commission?) — the closing screen may intentionally differ from Profits
+      (e.g. cash-basis vs recognition-basis). Decide against docs, not taste.
+- [ ] Failing-first repro (rule 17), then either reuse the gated definition (rule 14) or document
+      the intentional difference in the method comment + COUNTERPARTY_LEDGERS.md.
+- [ ] LIRA-098's guard only scans ProfitRepository — consider extending its file list to
+      ClosingRepository or adding a sibling guard.
+
+### Files to Modify
+
+| Layer   | File                                                  | Change              |
+| ------- | ---------------------------------------------------------- | ---------------------- |
+| Backend | `packages/core/src/repositories/ClosingRepository.ts`   | Gate or document    |
 
 ---
 
@@ -2900,9 +2968,9 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 
 | Priority  | Total  | Done  | Closed (won't do) | Remaining |
 | --------- | ------ | ----- | ----------------- | --------- |
-| Medium    | 6      | 2     | 0                 | 4         |
+| Medium    | 7      | 3     | 0                 | 4         |
 | Low       | 6      | 5     | 1                 | 0         |
-| **Total** | **12** | **7** | **1**             | **4**     |
+| **Total** | **13** | **8** | **1**             | **4**     |
 
 > All e2e proof EXECUTED (2026-08-08): desktop targeted run 4/4 (LIRA-102 spec + lira-069 with the
 > LIRA-100 LOTO row), web suite 59/59 then 60/60 after LIRA-109's edit case. Every Low ticket in
@@ -2926,7 +2994,8 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-105 | Payment-method unknown-code semantics mismatch                        | Low      | DONE `c9f2262`+`6f74cfd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md |
 | LIRA-106 | Recharge — crypto fields not reset on tab switch                      | Low      | DONE `0c910cd` | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md   |
 | LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing                           | Low      | CLOSED — WON'T DO (owner) | found reviewing LIRA-106  |
-| LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates              | Medium   | TODO (needs money-eyes verify) | found by LIRA-098's guard |
+| LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates              | Medium   | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP | found by LIRA-098's guard |
+| LIRA-110 | Daily closing sums fs commission with zero gates                      | Medium   | TODO   | found by LIRA-108's workflow                |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`                      | Low      | DONE — web e2e green 60/60 | found during LIRA-103         |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as

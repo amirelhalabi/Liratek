@@ -35,19 +35,17 @@
  * alongside the nine existing ones would hide behind the gate fragments the
  * OTHER nine CTEs already reference in the same template literal.
  *
- * Known, deliberate scope boundary: this only catches queries that spell
- * "profit" literally. `getRealizedCommissionTotals` / `getPendingCommissionTotals` /
- * `getPendingCommissionByProvider` / `getUnsettledCommissions` sum
- * `financial_services.commission` directly (never `profit_usd`/`profit_lbp`)
- * and fall outside this text scan by construction. LIRA-098's build found
+ * Scope (widened by LIRA-108): the scan matches units that spell "profit"
+ * OR "commission". The original profit-only heuristic is exactly how
  * `getRealizedCommissionTotals` — which feeds
  * `ProfitService.getByPaymentMethod`'s "Commission (Settled)" row, documented
- * there as "shown as positive profit" — missing the `notPartnerPending` /
- * `notDebtPending` gates its sibling `getFinancialSettledByCurrency` carries
- * for the exact same commission-provider set. Filed as a finding in the
- * LIRA-098 report, deliberately NOT fixed here (out of this ticket's scope,
- * and fixing it would mean editing ProfitRepository.ts, which this ticket
- * does not touch).
+ * there as "shown as positive profit" — escaped LIRA-098's scan while missing
+ * the `notPartnerPending`/`notDebtPending` gates its sibling
+ * `getFinancialSettledByCurrency` carries. That hole was fixed under
+ * LIRA-108 (the query now carries both gates via the same transactions JOIN
+ * shape), and the token widening here makes the class unrepresentable:
+ * a commission-summing query is profit reporting whether or not it spells
+ * "profit", so it gets the same gate-or-documented-exclusion discipline.
  */
 
 import * as fs from "node:fs";
@@ -68,8 +66,14 @@ const GATE_FRAGMENTS = [
 
 const GATE_CALL_REGEX = new RegExp(`\\b(?:${GATE_FRAGMENTS.join("|")})\\(`);
 
-/** SQL column aliases are lowercase (`profit_usd`, `potential_profit_usd`, ...). */
-const PROFIT_TOKEN_REGEX = /profit/i;
+/**
+ * SQL column aliases are lowercase (`profit_usd`, `potential_profit_usd`,
+ * `commission`, ...). "commission" added by LIRA-108: commission sums ARE
+ * profit reporting (the "Commission (Settled)" row), and the profit-only
+ * token is exactly how the ungated `getRealizedCommissionTotals` escaped
+ * this guard's first version.
+ */
+const PROFIT_TOKEN_REGEX = /profit|commission/i;
 
 interface QueryUnit {
   /** Enclosing repository method, resolved from the nearest preceding `  name(` boundary. */
@@ -228,6 +232,35 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "dr.profit_usd, ...) that were each already gated inside their own CTE " +
     "(checked as independent units by this guard) — the gate lives in the " +
     "CTE, not in the COALESCE(...) + that recombines already-gated numbers.",
+  // --- commission-token exclusions (LIRA-108 scan widening) ---
+  "getPendingCommissionTotals:(query)":
+    "LIRA-108 deliberate: the PRE-recognition bucket keyed purely on " +
+    "is_settled = 0, mirroring getFinancialPendingByCurrency's exclusion " +
+    "above — a supplier-unsettled row awaits settlement regardless of " +
+    "counterparty state; the partner/debt gates apply when the row moves to " +
+    "the settled bucket (getRealizedCommissionTotals, which DOES carry them " +
+    "since LIRA-108). Gating this too would double-hide a settled-but-" +
+    "pending row (already withheld from realized AND from pending's " +
+    "is_settled = 0), breaking the realized/pending/deferred partition.",
+  "getPendingCommissionByProvider:(query)":
+    "Same predicate as getPendingCommissionTotals by design — it only " +
+    "breaks that row's total down per provider for the pending-row label " +
+    "(ProfitService.getByPaymentMethod). Must stay predicate-identical to " +
+    "it or the label total diverges from the row total; same PRE-" +
+    "recognition-bucket reasoning.",
+  "getUnsettledCommissions:(query)":
+    "Not an aggregation at all — a row LIST of unsettled (is_settled = 0) " +
+    "commission rows for the supplier-settlement work queue. Pre-" +
+    "recognition by construction (same bucket as the two pending entries " +
+    "above); a partner/debt gate here would hide rows the operator still " +
+    "needs to settle with the supplier.",
+  "getPaymentMethodRows:(query)":
+    "Trips the commission token only via its literal '0 AS " +
+    "pending_commission_usd' padding column (payments-table view; sums " +
+    "p.amount, never commission or profit). Its ungated state is the " +
+    "documented v1 gap (COUNTERPARTY_LEDGERS.md §6 'Documented v1 gaps') — " +
+    "explicitly out of LIRA-108's scope, which closed the commission ROWS " +
+    "of the same view, not the per-payment-method rows.",
 };
 
 describe("ProfitRepository — profit-recognition-gate drift guard (CQ-1, LIRA-098)", () => {
@@ -259,7 +292,7 @@ describe("ProfitRepository — profit-recognition-gate drift guard (CQ-1, LIRA-0
         .map(
           (v) =>
             `'${v.methodName}:${v.unitLabel}' (line ${v.line}) — SQL references ` +
-            `'profit' but calls none of ${GATE_FRAGMENTS.join(", ")}. If this ` +
+            `'profit'/'commission' but calls none of ${GATE_FRAGMENTS.join(", ")}. If this ` +
             `query genuinely doesn't need a recognition gate, add ` +
             `'${v.methodName}:${v.unitLabel}' to EXCLUDED_UNITS here with a ` +
             `verified reason; otherwise wire in the correct gate fragment ` +

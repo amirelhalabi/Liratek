@@ -499,6 +499,11 @@ describe("ProfitRepository — cross-tenant isolation (exact sums)", () => {
       expect(exp.total_usd).toBe(10);
       expect(exp.count).toBe(1);
 
+      // Expected values unchanged by LIRA-108 (realized now JOINs an ACTIVE
+      // FINANCIAL_SERVICE txn + counterparty gates): every fs row here has a
+      // matching ACTIVE txn and both ledger tables are empty, so the gates
+      // pass every row — but a mis-scoped tenant bind in the new JOIN would
+      // break these exact sums first.
       const realized = repo.getRealizedCommissionTotals(FROM, TO);
       expect(realized.total_usd).toBe(5);
       expect(realized.count).toBe(1);

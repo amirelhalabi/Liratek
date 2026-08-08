@@ -255,9 +255,9 @@ needs it — never copy-pasted.
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `saleFullyPaid(alias)`                | Sales revenue/cost/profit (`getSalesRevCost`, `getSalesProfit`) via `salePaidOrPartnerSettled`                                                 | `paid_usd + paid_lbp / exchange_rate_snapshot >= final_amount_usd − 0.05`                                                                                                                                                                                   |
 | `salePaidOrPartnerSettled(alias)`     | All SALE-sourced profit queries                                                                                                                | `saleFullyPaid` **OR** (the sale has a `FOR_%` partner row **AND** `notPartnerPending` says it's fully settled) — a for-partner sale carries `paid_usd = 0` (no counter cash), so without this OR-arm it would never realize                                |
-| `notPartnerPending(refTable, idExpr)` | FS (`getFinancialSettledByCurrency`), recharge, loto — module-level queries keyed by the source row                                            | `NOT EXISTS` an uncovered `FOR_%` row for this source — **all providers, no carve-out** (iPick/Katsh defer like the rest)                                                                                                                                   |
+| `notPartnerPending(refTable, idExpr)` | FS (`getFinancialSettledByCurrency`, `getRealizedCommissionTotals` — LIRA-108), recharge, loto — module-level queries keyed by the source row  | `NOT EXISTS` an uncovered `FOR_%` row for this source — **all providers, no carve-out** (iPick/Katsh defer like the rest)                                                                                                                                   |
 | `txnNotPartnerPending(alias)`         | `getByUser`, `getByClient`, `getDeferredProfit`                                                                                                | Same as `notPartnerPending` but keyed by the **transaction's own** `source_table`/`source_id` (these views iterate unified transactions, not module rows)                                                                                                   |
-| `notDebtPending(txnIdExpr)`           | FS (all providers, including iPick/Katsh), recharge, custom service, loto, maintenance, `getByUser`/`getByClient`                              | `NOT EXISTS` an uncovered `'Recharge Debt'`/`'Service Debt'`/`'Custom Service Debt'`/`'Loto Debt'`/`'Maintenance Debt'` row for this transaction. **`'Sale Debt'` is deliberately excluded** — sales recognize via `saleFullyPaid`/`sales.paid_usd` instead |
+| `notDebtPending(txnIdExpr)`           | FS (all providers, including iPick/Katsh; incl. `getRealizedCommissionTotals` — LIRA-108), recharge, custom service, loto, maintenance, `getByUser`/`getByClient` | `NOT EXISTS` an uncovered `'Recharge Debt'`/`'Service Debt'`/`'Custom Service Debt'`/`'Loto Debt'`/`'Maintenance Debt'` row for this transaction. **`'Sale Debt'` is deliberately excluded** — sales recognize via `saleFullyPaid`/`sales.paid_usd` instead |
 | `fs.is_settled`                       | FS commission (`getFinancialSettledByCurrency` / `getFinancialPendingByCurrency`, `getRealizedCommissionTotals`, `getPendingCommissionTotals`) | The OMT/WHISH-style commission is realized only once the supplier settlement batch (`SupplierRepository.settleTransactions`) stamps `is_settled = 1`                                                                                                        |
 
 **iPick/Katsh — one rule, no carve-out (former exception removed 2026-07-14):**
@@ -284,9 +284,16 @@ partner exception is superseded by this — there is no exception anywhere.
 **Documented v1 gaps** (profit views that do **not** apply the partner/debt
 gates, as of this writing):
 
-- `getPaymentMethodRows` (Profits → by-payment-method view) — no
-  `notPartnerPending`/`notDebtPending` gate at all; a for-partner or
-  account-charged transaction's payment-method total is not deferred.
+- `getPaymentMethodRows` (Profits → by-payment-method view, the per-method
+  payment rows) — no `notPartnerPending`/`notDebtPending` gate at all; a
+  for-partner or account-charged transaction's payment-method total is not
+  deferred. The same view's **"Commission (Settled)" row is no longer part
+  of this gap** — `getRealizedCommissionTotals` gained both gates (+ the
+  ACTIVE-transaction join) under LIRA-108, 2026-08-08; its pending sibling
+  `getPendingCommissionTotals` deliberately stays ungated (pre-recognition
+  bucket keyed on `is_settled = 0`, mirroring
+  `getFinancialPendingByCurrency` — a settled but partner-/debt-pending
+  commission appears in neither row and surfaces in `getDeferredProfit`).
 - `getByUser` and `getByClient` (by-employee / top-clients) **are** gated
   (`txnNotPartnerPending` + `notDebtPending`, added in DBT-2, 2026-07-14) —
   this was a genuine gap until that date; it is closed now. Don't assume any

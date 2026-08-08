@@ -1216,7 +1216,25 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .all(tenantId, fromDt, toDt, tenantId) as PaymentMethodRow[];
   }
 
-  /** Realized (settled) financial-service commission totals by currency. */
+  /**
+   * Realized (settled) financial-service commission totals by currency —
+   * feeds ProfitService.getByPaymentMethod's "Commission (Settled)" row.
+   *
+   * LIRA-108: realized means real on EVERY axis, so beyond `is_settled = 1`
+   * this carries the same counterparty gates as its per-currency sibling
+   * `getFinancialSettledByCurrency`: `notPartnerPending` (PFT-6 — a
+   * for-partner row defers until partner settlement FIFO covers its FOR_%
+   * row) and `notDebtPending` (DBT-1 — a CUSTOMER_ACCOUNT-charged service
+   * defers until the client repays), via the same transactions JOIN shape
+   * (`t.status = 'ACTIVE'`). A settled-but-pending row is withheld here AND
+   * from the pending row (which keys on is_settled = 0) — it surfaces in
+   * getDeferredProfit until settlement/repayment, matching the per-currency
+   * pair. Deliberately NOT adopted from the sibling: the
+   * `provider IN (COMMISSION_PROVIDERS)` filter — this row has always
+   * counted every commission > 0 row regardless of provider; narrowing it
+   * is a separate owner-facing semantics question, not part of the LIRA-108
+   * gate closure.
+   */
   getRealizedCommissionTotals(
     fromDt: string,
     toDt: string,
@@ -1224,20 +1242,39 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
     return this.db
       .prepare(
         `SELECT
-          COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) AS total_usd,
-          COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) AS total_lbp,
+          COALESCE(SUM(CASE WHEN fs.currency != 'LBP' THEN fs.commission ELSE 0 END), 0) AS total_usd,
+          COALESCE(SUM(CASE WHEN fs.currency  = 'LBP' THEN fs.commission ELSE 0 END), 0) AS total_lbp,
           COUNT(*) AS count
-        FROM financial_services
-        WHERE is_settled = 1
-          AND commission > 0
-          AND ${notRefunded("financial_services")}
-          AND ${dateRange("created_at")}
-          AND tenant_id = ?`,
+        FROM financial_services fs
+        JOIN transactions t ON t.source_table = 'financial_services' AND t.source_id = fs.id AND t.type = 'FINANCIAL_SERVICE'
+        WHERE fs.is_settled = 1
+          AND fs.commission > 0
+          AND t.status = 'ACTIVE'
+          AND ${notRefunded("fs")}
+          AND ${notPartnerPending("financial_services", "fs.id")}
+          AND ${notDebtPending("t.id")}
+          AND ${dateRange("fs.created_at")}
+          AND fs.tenant_id = ? AND t.tenant_id = ?`,
       )
-      .get(fromDt, toDt, getCurrentTenantId()) as CommissionTotalsRow;
+      .get(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+        getCurrentTenantId(),
+      ) as CommissionTotalsRow;
   }
 
-  /** Pending (unsettled) financial-service commission totals by currency. */
+  /**
+   * Pending (unsettled) financial-service commission totals by currency.
+   *
+   * LIRA-108 (deliberate): NO notPartnerPending/notDebtPending gates here —
+   * this is the PRE-recognition bucket keyed purely on `is_settled = 0`,
+   * mirroring getFinancialPendingByCurrency. A supplier-UNsettled row
+   * genuinely awaits settlement regardless of counterparty state; a
+   * supplier-SETTLED but partner-/debt-pending row is excluded from realized
+   * by the gates and from here by `is_settled = 0`, and lives in
+   * getDeferredProfit instead. Adding the gates here would double-hide it.
+   */
   getPendingCommissionTotals(
     fromDt: string,
     toDt: string,

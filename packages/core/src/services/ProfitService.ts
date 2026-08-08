@@ -638,8 +638,13 @@ export class ProfitService {
    * Excludes internal system flows: OMT, WHISH, RESERVE, COMMISSION drawer entries.
    *
    * Financial service commissions are shown as a separate "Commission" row:
-   *   - Realized commission (is_settled = 1) → shown as positive profit
-   *   - Pending commission (is_settled = 0) → shown separately with status
+   *   - Realized commission (is_settled = 1 AND not partner-pending AND not
+   *     debt-pending — LIRA-108, same gates as the Summary per-currency view)
+   *     → shown as positive profit
+   *   - Pending commission (is_settled = 0, pre-recognition — no counterparty
+   *     gates by design) → shown separately with status. A settled but
+   *     partner-/debt-pending commission appears in NEITHER row here; it
+   *     surfaces in the deferred-profit bucket until settlement/repayment.
    */
   getByPaymentMethod(from: string, to: string): ProfitByPaymentMethod[] {
     try {
