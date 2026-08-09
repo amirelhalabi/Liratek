@@ -66,7 +66,41 @@ implements.** Custom Services is the anomaly that forces "cash now" on every ent
   prerequisite for this change, not an optional extra. It is also why an inventory-consuming
   custom service currently **does not decrement stock** — the backend never learns a product was
   involved.
-- Still to interview: preset costs, and free-text/labour costs.
+- **Presets**: cost is *"just a number i compute for my profit"* → Model C.
+- **Free-text**: same treatment as presets — *"since we will be paid cost+profit"* (the customer
+  reimburses the cost) → Model C.
+- **No supplier link.** Owner reviewed a worked example and declined: *"the items that I select from
+  the customer services page are already bought, and I don't owe Ali anything. So no we don't need
+  this."* → costs are never an unpaid payable; nothing to attach a supplier to.
+
+### ✅ §2 FINAL SPEC (interview complete, 2026-08-09)
+
+**Cost never moves cash, on any of the three paths.** It is a profit input only — which is what the
+schema already says: `custom_services.profit_usd` is a GENERATED column
+`price_usd - cost_usd` (`create_db.sql:726-727`). Today's repository posts a cash outflow *on top
+of* that, contradicting its own schema. Remove it.
+
+| Path | Cost behaviour | Extra |
+| --- | --- | --- |
+| Preset | profit math only | — |
+| Free-text | profit math only | — |
+| Inventory item | profit math only | **decrement stock**, like a POS sale |
+
+**Prerequisite (not optional):** the backend currently cannot tell the three paths apart — no
+`product_id`, no `preset_id` is stored, which is exactly why stock never decrements. Recording the
+product for the inventory path is required before the stock rule can be implemented.
+
+⚠ **Visible consequence to expect, by design:** with the cost outflow removed, a $8-cost/$10-price
+job increases the till by the full **$10** instead of a net **$8**. That is correct under this model
+(the customer reimburses the cost), but it is a real change to the daily cash position and should be
+called out in the release note so it isn't mistaken for a bug.
+
+**Reversal (rule 20):** removing the cost leg also removes what its refund reversed — confirm
+create+refund still nets to 0 across every scenario (the characterization matrix
+`CustomServiceRepository.scenarioMatrix.test.ts` already asserts this and must stay green).
+
+**Cutover:** historical rows keep their posted cost outflows (consistent with D3 and the owner's
+iPick decision) — do NOT retro-reverse. New rows only.
 
 ---
 
