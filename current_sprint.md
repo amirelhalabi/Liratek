@@ -3017,6 +3017,51 @@ inconsistency decision.**
 
 ---
 
+## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Custom Services / Inventory           |
+| **Type**              | Test coverage gap                     |
+| **Priority**          | Medium                                |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Custom Services, Inventory            |
+| **Source Plan**       | Found while shipping §2b (2026-08-09) |
+
+### Summary
+
+§2b (`69c29e8`) made an inventory-backed custom service consume stock, driven by a new
+`custom_services.product_id`. The backend is well covered (`CustomServiceRepository.stock.test.ts`,
+plus the scenarioMatrix's A1/A2/A3 divergence), but **no e2e spec ever picks a product from the
+inventory SearchBar.**
+
+All four specs that touch `custom-service-item-search` — `lira-088`, `lira-093`, `lira-094`,
+`lira-135` — use `.fill(text) + press("Enter")`, i.e. the **free-text commit path**, which sends no
+`product_id`. So a UI-side regression (the page failing to send `product_id`, or sending the wrong
+one) would pass every test we have.
+
+This is exactly the layer-seam problem this suite has been bitten by before: specs that hand-build
+IPC payloads bypass the frontend entirely and cannot catch a frontend↔repository mismatch.
+
+### Acceptance Criteria
+
+- [ ] New desktop e2e spec: seed a product with known stock → open Custom Services → **pick it from
+      the SearchBar dropdown** (not fill+Enter) → submit → assert the product's `stock_quantity`
+      dropped by exactly 1 → void/refund the transaction → assert it returns to the original value.
+- [ ] Assert by identity and delta (rule 15) — snapshot stock immediately before, never absolute.
+- [ ] Also assert the negative case in the same spec: a **free-text** service leaves stock
+      untouched. That is the regression that matters most, since all three input paths share one
+      backend code path.
+- [ ] Consider a web e2e twin (rule 19) if the pick flow differs in browser mode.
+
+### Files to Modify
+
+| Layer | File                                                    | Change   |
+| ----- | ----------------------------------------------------------- | ------------ |
+| E2E   | `frontend/tests/e2e-electron/lira-117-custom-service-stock.spec.ts` (new) | New spec |
+
+---
+
 ## LIRA-116: Rename the crossed "Services" module labels/routes (owner approved)
 
 | Field                | Value                              |
@@ -3511,6 +3556,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)   | Medium   | TODO (owner confirmed; use SELECTED line)                 | owner report 2026-08-08             |
 | LIRA-114 | 'For Partner' custom service acts as THROUGH; cost hits General | **High** | RE-OPENED 2026-08-09 — it IS custom_services, not omt_whish (crossed labels); owner confirmed For-Partner ticked | owner report 2026-08-08 |
 | LIRA-116 | Rename crossed 'Services' module labels/routes          | Medium   | TODO (owner approved 2026-08-09)                          | found via LIRA-114                  |
+| LIRA-117 | No e2e drives inventory-pick -> stock decrement          | Medium   | TODO                                                      | found shipping §2b                  |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 

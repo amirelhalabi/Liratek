@@ -1,6 +1,9 @@
 # FOR-PARTNER & COST SEMANTICS — app-wide unification plan
 
-**Status:** PLANNED — awaiting ONE owner decision (§2). Everything else is decided.
+**Status:** **§2 SHIPPED** (`d1a0ad2` + `69c29e8`) · **§3 slice 1 + §5 SHIPPED** (`cc45227`).
+Remaining: §3 slice 2 (wire the legacy field in the other 4 modules), §4 (UI gating), §5b
+(provider taxonomy / the 'syria' request). **No owner decisions outstanding** — every question in
+this plan has been answered; see §2's answer list, §5b, and §6.
 **Origin:** owner report 2026-08-08 (LIRA-114) → owner escalated 2026-08-09: *"We should write a
 plan to unify this flow in the whole app… if the customer account payment method is disabled in the
 OMT/Whish page when the For Partner checkbox is true, I think we should apply this in all pages
@@ -25,7 +28,10 @@ The survey confirms the objection is right, and that **Custom Services is the ou
 
 ---
 
-## §2 ⚠ THE OWNER DECISION — what does "cost" mean?
+## §2 ✅ ANSWERED AND SHIPPED — what does "cost" mean?
+
+> The question below is kept for the record; it is **settled**. Jump to "§2 SHIPPED" for the
+> outcome and "§2 FINAL SPEC" for the rules that now apply.
 
 The app currently runs **three mutually inconsistent cost models at once**:
 
@@ -73,7 +79,19 @@ implements.** Custom Services is the anomaly that forces "cash now" on every ent
   the customer services page are already bought, and I don't owe Ali anything. So no we don't need
   this."* → costs are never an unpaid payable; nothing to attach a supplier to.
 
-### ✅ §2 FINAL SPEC (interview complete, 2026-08-09)
+### ✅ §2 SHIPPED (2026-08-09) — `d1a0ad2` (§2a) + `69c29e8` (§2b)
+
+- **§2a** removed the cost cash movement from all six branches (911→703 lines). Desktop e2e 252/252.
+- **§2b** added `custom_services.product_id` (migration v152) and stock decrement/restore on the
+  inventory path, mirroring POS's guarded conditional write. Restoration wired into BOTH
+  `_voidTransactionInternal` and `_refundTransactionInternal` — `deleteService()` is not the
+  reversal owner. v152 verified against the real accumulated e2e database (existing rows NULL).
+- A1/A2/A3 now diverge for the first time: preset and free-text remain byte-identical with no stock
+  effect; inventory drops 1 on create and restores on refund.
+- Coverage gap filed as **LIRA-117**: no e2e spec picks a product from the SearchBar, so a UI-side
+  `product_id` regression would go uncaught.
+
+### §2 FINAL SPEC (interview complete, 2026-08-09)
 
 **Cost never moves cash, on any of the three paths.** It is a profit input only — which is what the
 schema already says: `custom_services.profit_usd` is a GENERATED column
