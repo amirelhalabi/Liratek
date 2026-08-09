@@ -52,6 +52,22 @@ implements.** Custom Services is the anomaly that forces "cash now" on every ent
 
 **Nothing in §3-§5 depends on this answer** — those can ship first.
 
+### §2 answers so far (owner, 2026-08-09)
+
+- **Cost must NOT leave the drawer at submit time.** *"money should not leave the drawer at that
+  moment."* Custom Services stops being Model A.
+- **Inventory-backed custom service behaves like a POS sale**: *"yes"* — **stock decrements, no cash
+  row**, because the cost was already accounted for when the stock was bought (Model C).
+- ⚠ **Blocker discovered by the characterization matrix:** the three input paths (preset /
+  inventory item / free-text) are **byte-identical by the time they reach the backend** — no
+  `preset_id`, no `product_id`, nothing distinguishing them (`CustomServiceRepository.scenarioMatrix`
+  scenarios A1/A2/A3 produced identical rows). So **the repository cannot apply a per-path rule
+  today.** Recording which path was used (at minimum a `product_id` for the inventory case) is a
+  prerequisite for this change, not an optional extra. It is also why an inventory-consuming
+  custom service currently **does not decrement stock** — the backend never learns a product was
+  involved.
+- Still to interview: preset costs, and free-text/labour costs.
+
 ---
 
 ## §3 DECIDED — unify the For-Partner / payment-method rule
@@ -203,6 +219,45 @@ So a partner associated with a *'syria'* system must settle against a **Syria** 
 
 ⇒ Generalising to N systems is primarily a **provider-taxonomy** change, not a
 `system_association` change. Any design must start there.
+
+### PROPOSAL — do to `provider` exactly what was already done to `payment_methods`
+
+**The precedent is in this repo.** `payment_methods` used to be hardcoded; it is now a
+tenant-scoped table the operator manages (`create_db.sql:1295-1307`):
+
+```
+payment_methods(code, label, drawer_name, affects_drawer, sort_order, is_active, is_system)
+```
+
+`paymentMethodToDrawerName()` reads it, with a hardcoded map only as an offline fallback. That is
+precisely the shape `provider` needs — it is still
+`CHECK(provider IN ('OMT','WHISH','BOB','OTHER','iPick','Katsh','WHISH_APP','OMT_APP','BINANCE'))`
+(`create_db.sql:618`).
+
+**Phased, each phase independently shippable and behaviour-neutral until the last:**
+
+1. **Introduce `service_providers`** (mirroring `payment_methods`): `code`, `label`,
+   `drawer_name`, `is_system_provider`, `is_active`, `is_system`, tenant-scoped. **Seed with the
+   existing 9 values, drawer names matching today's hardcoded `mapDrawerName`
+   (`FinancialServiceRepository.ts:741-764`).** Nothing reads it yet → zero behaviour change.
+2. **Point the code at the table**: `mapDrawerName` reads `service_providers.drawer_name` with the
+   current switch as the offline fallback — same pattern as `paymentMethodToDrawerName`. Prove
+   byte-identical drawer resolution for all 9 providers (characterization test).
+3. **Relax the constraint**: rebuild `financial_services` replacing the CHECK with an FK to
+   `service_providers(code)`; make the Zod enum validate against the table instead of a literal
+   union. (SQLite needs a table rebuild — the v150 migration is a recent template.)
+4. **Partner association becomes an FK** to `service_providers` instead of the hardcoded
+   `{None, non-owned system}` dropdown, and the Partners UI offers the real list.
+5. **Then "Syria" is a data entry, not a migration** — the owner adds a provider, chooses whether
+   it gets its own drawer, and associates the partner with it.
+
+**Alternative considered — add `'SYRIA'` as a 10th CHECK value.** Faster (one migration), but
+hardcodes the next system too, and every future partner system repeats the work. Reasonable ONLY as
+a stopgap if the owner needs Syria working before the phased change lands; it does not remove the
+need for the above.
+
+**Open sub-question for the owner (phase 5):** does each system need its **own drawer**, or can
+several share one? A new drawer affects the closing/checkpoint flow, which enumerates drawers.
 
 ### What this implies (to be designed — not yet decided)
 
