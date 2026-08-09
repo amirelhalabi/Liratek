@@ -256,8 +256,19 @@ hardcodes the next system too, and every future partner system repeats the work.
 a stopgap if the owner needs Syria working before the phased change lands; it does not remove the
 need for the above.
 
-**Open sub-question for the owner (phase 5):** does each system need its **own drawer**, or can
-several share one? A new drawer affects the closing/checkpoint flow, which enumerates drawers.
+**ANSWERED (owner, 2026-08-09): no new drawers.** *"all of them if paid cash will affect general
+drawer. only the whish system association is linked to whish system drawer."*
+
+⇒ A new system (Syria, etc.) resolves cash to **General**. Only the existing system associations
+keep their dedicated drawers (`Whish_System`, and `OMT_System` as the shop's own base/PCD).
+
+**This makes the phased plan materially cheaper and safer:**
+- `service_providers.drawer_name` is seeded `'General'` for every NEW provider, and only
+  OMT/WHISH carry `OMT_System`/`Whish_System` — i.e. exactly today's `mapDrawerName` behaviour,
+  which already routes unknown providers to `"General"` (its `default:` case).
+- **No new drawer means no closing/checkpoint impact** — the drawer enumeration is unchanged, which
+  removes the biggest risk from phase 5.
+- The existing PCD model (plan #68: `OMT_System` is the primary cash drawer) is untouched.
 
 ### What this implies (to be designed — not yet decided)
 
