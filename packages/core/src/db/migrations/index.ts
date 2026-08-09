@@ -8093,6 +8093,85 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 151,
+    name: "commission_at_settlement_provider_eligibility",
+    description:
+      "COMMISSION_AT_SETTLEMENT_PLAN.md §6 D12 / LIRA-112 — 'iPick bills give us no commission, but Katsh does.' Both the pre-plan code and Phase 0/1 (v150) treated the two providers identically: the legacy per-bill booking fired for ANY bill provider, and the new PENDING_SETTLEMENT_SQL/isPendingSupplierSettlement BILL branch hardcoded `provider IN ('iPick','Katsh')` with no distinction between them — so iPick has been credited (and, post-v150, queued for settlement on) a commission it never earned. This migration replaces that provider-name hardcode with a per-supplier config bit: adds suppliers.commission_eligible (INTEGER, default 1 — every existing supplier keeps today's 'can enter commission at settlement' behavior unchanged) and suppliers.commission_rate_currency (TEXT 'USD'|'LBP', default 'USD' — commission_rate (v150) was specced in USD, but Katsh's real-world rate is 20,000 LBP per bill, so a currency companion is required to interpret it correctly; USD default preserves the original spec assumption for every supplier except Katsh). Data backfill for EVERY existing tenant's iPick/Katsh rows (matched by `provider`, not `tenant_id`, forward-only per the owner's 2026-08-08 'historical ipick leave them i dont care' decision — this does not touch any already-posted commission, only the config that gates FUTURE bills): iPick -> commission_eligible = 0 (no commission, ever); Katsh -> commission_eligible = 1, commission_entry_mode = 'RATE', commission_rate = 20000, commission_rate_currency = 'LBP'. The repository-level fix (FinancialServiceRepository's PENDING_SETTLEMENT_SQL/isPendingSupplierSettlement) reads commission_eligible instead of a provider-name list, so a HYPOTHETICAL future bill provider is correct by default (eligible, LUMP) without another repository edit — only its own suppliers row needs configuring, exactly like this migration does for Katsh.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Same defensive guard as v150 (see that migration's comment) — a
+      // synthetic test-harness scenario replays every pending migration
+      // against a minimal fixture schema that never created `suppliers`.
+      const hasSuppliers = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'suppliers'`,
+        )
+        .get();
+      if (!hasSuppliers) {
+        console.log("Migration v151 skipped: 'suppliers' table not present");
+        return;
+      }
+
+      db.exec(`
+        ALTER TABLE suppliers
+          ADD COLUMN commission_eligible INTEGER NOT NULL DEFAULT 1 CHECK(commission_eligible IN (0, 1));
+        ALTER TABLE suppliers
+          ADD COLUMN commission_rate_currency TEXT CHECK(commission_rate_currency IN ('USD', 'LBP')) DEFAULT 'USD';
+      `);
+
+      // Forward-only data-driven fix (rule 14 — this is the ONLY place a
+      // provider name appears; every read path from here on branches on
+      // commission_eligible, never on 'iPick'/'Katsh' literals). Matched by
+      // `provider` across ALL tenants — every existing tenant's iPick/Katsh
+      // supplier row gets corrected, not just tenant 1.
+      db.exec(`
+        UPDATE suppliers SET commission_eligible = 0 WHERE provider = 'iPick';
+        UPDATE suppliers SET commission_eligible = 1,
+                              commission_entry_mode = 'RATE',
+                              commission_rate = 20000,
+                              commission_rate_currency = 'LBP'
+          WHERE provider = 'Katsh';
+      `);
+
+      console.log(
+        "Migration v151: suppliers.commission_eligible/commission_rate_currency added " +
+          "(default eligible/USD, every OTHER existing supplier unaffected); " +
+          "iPick backfilled commission_eligible = 0 (no commission), " +
+          "Katsh backfilled commission_eligible = 1 / RATE / 20000 / LBP",
+      );
+    },
+    down(db: Database.Database) {
+      const hasSuppliers = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'suppliers'`,
+        )
+        .get();
+      if (!hasSuppliers) {
+        console.log(
+          "Migration v151 rollback skipped: 'suppliers' table not present",
+        );
+        return;
+      }
+
+      // Revert Katsh's v150-column data (commission_entry_mode/commission_rate
+      // are NOT dropped by this migration — they're v150's — so this migration's
+      // own writes to them must be undone explicitly for a clean round-trip).
+      // iPick's v150 columns were never touched by up(), nothing to revert there.
+      db.exec(`
+        UPDATE suppliers SET commission_entry_mode = 'LUMP', commission_rate = NULL
+          WHERE provider = 'Katsh';
+
+        ALTER TABLE suppliers DROP COLUMN commission_rate_currency;
+        ALTER TABLE suppliers DROP COLUMN commission_eligible;
+      `);
+
+      console.log(
+        "Migration v151 rolled back: commission_eligible/commission_rate_currency dropped; " +
+          "Katsh's commission_entry_mode/commission_rate reverted to the v150 default",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

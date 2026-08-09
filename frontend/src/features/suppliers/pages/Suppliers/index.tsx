@@ -44,6 +44,14 @@ type Supplier = {
   commission_entry_mode?: "LUMP" | "RATE" | null;
   /** D8 — pre-fills the RATE-mode per-unit rate. */
   commission_rate?: number | null;
+  /** LIRA-112 (D12, v151) — does this supplier earn commission at all
+   *  (0 = never, e.g. iPick; 1 = yes, e.g. Katsh/every other supplier).
+   *  Undefined on schemas older than v151. */
+  commission_eligible?: number | null;
+  /** LIRA-112 (v151) — the currency `commission_rate` is denominated in
+   *  ('USD' by default; Katsh is 'LBP' — 20,000 LBP/bill, not USD).
+   *  Undefined on schemas older than v151. */
+  commission_rate_currency?: "USD" | "LBP" | null;
 };
 
 type SupplierBalance = {
@@ -746,18 +754,23 @@ export default function SuppliersPage() {
     setSettleKey((k) => k + 1);
     // D8 — pre-select the entry mode/rate from the supplier's preference;
     // prefill RATE's unit count from the selection itself (the real count
-    // being settled, more precise than the per-provider summary total) and
-    // its currency from what the selection actually contains — a bill batch
-    // is LBP-rated (the legacy 20,000 LBP/bill this replaces), a transfer
-    // batch USD-rated.
+    // being settled, more precise than the per-provider summary total).
     setSettleEntryMode(selectedSupplier?.commission_entry_mode ?? "LUMP");
     setSettleRateInput(
       selectedSupplier?.commission_rate != null
         ? String(selectedSupplier.commission_rate)
         : "",
     );
+    // LIRA-112 — the rate's currency is the supplier's OWN stored config
+    // (`commission_rate_currency`, v151: Katsh -> LBP, everyone else ->
+    // USD), never silently assumed. Falls back to the pre-v151 heuristic
+    // (LBP for a bill-containing batch, USD otherwise) only when a
+    // supplier's row predates that column (undefined, not a real "USD").
     setSettleRateCurrency(
-      selectedUnsettled.some((t) => t.service_type === "BILL") ? "LBP" : "USD",
+      selectedSupplier?.commission_rate_currency ??
+        (selectedUnsettled.some((t) => t.service_type === "BILL")
+          ? "LBP"
+          : "USD"),
     );
     setSettleUnitCountInput(String(selectedSettleIds.size));
     setSettleCommissionUsdInput("");

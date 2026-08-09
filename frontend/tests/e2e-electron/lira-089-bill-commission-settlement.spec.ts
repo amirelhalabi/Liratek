@@ -46,12 +46,13 @@
  * `supplier_settlements`), asserted below alongside the ledger credit.
  *
  * Rule 15: shared accumulating DB, ordered before lira-095 alphabetically —
- * lira-062/lira-078 already left their own pending (never-settled) Katsh/
- * iPick BILL rows in the unsettled queue by the time this file runs, so
- * every assertion here is a DELTA around this run's own action, and every
- * row is matched by IDENTITY (unique bill amount, this settlement's own
- * ledger-entry id embedded in the credit's note) — never absolute totals or
- * `[0]`.
+ * lira-062/lira-078 already left their own pending (never-settled) Katsh
+ * BILL rows in the unsettled queue by the time this file runs (LIRA-112:
+ * iPick BILLs are commission-ineligible and never join the queue at all, so
+ * only Katsh contributes stale rows here), so every assertion here is a
+ * DELTA around this run's own action, and every row is matched by IDENTITY
+ * (unique bill amount, this settlement's own ledger-entry id embedded in the
+ * credit's note) — never absolute totals or `[0]`.
  */
 
 import { test, expect, navigateTo } from "./fixtures";

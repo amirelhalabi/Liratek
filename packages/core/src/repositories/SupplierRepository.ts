@@ -46,6 +46,82 @@ export interface SupplierEntity {
   commission_entry_mode: "LUMP" | "RATE";
   /** D8 — the per-unit rate used to pre-fill RATE-mode entry. Null until set. */
   commission_rate: number | null;
+  /**
+   * LIRA-112 (COMMISSION_AT_SETTLEMENT_PLAN.md D12, v151) — does this
+   * supplier currently earn commission from the shop AT ALL? The ONE
+   * data-driven gate `FinancialServiceRepository.isPendingSupplierSettlement`
+   * / `pendingSettlementSql()` reads for BILL rows (rule 14) — replaces the
+   * provider-name hardcode (`provider IN ('iPick', 'Katsh')`) that credited
+   * iPick a commission it never earned. 1 (eligible) is the default for
+   * every supplier, unchanged from v150's shipped behavior; iPick is seeded
+   * to 0 by the v151 migration and `defaultCommissionConfigForProvider`.
+   * COALESCE'd to 1 in getColumns() for schemas older than v151.
+   */
+  commission_eligible: number;
+  /**
+   * LIRA-112 (v151) — the currency `commission_rate` is denominated in.
+   * `commission_rate` (v150) was specced in USD, but Katsh's real-world
+   * rate is 20,000 LBP per bill — this column makes that explicit instead
+   * of the settle screen silently assuming USD. Defaults to 'USD' (the
+   * original spec assumption) for every supplier except Katsh. COALESCE'd
+   * to 'USD' in getColumns() for schemas older than v151.
+   */
+  commission_rate_currency: "USD" | "LBP";
+}
+
+/**
+ * LIRA-112 (COMMISSION_AT_SETTLEMENT_PLAN.md D12) — the ONE provider-keyed
+ * default for a BRAND-NEW supplier row's commission configuration
+ * (rule 14: not a provider-name `if` sprinkled across the codebase, a
+ * single function every creation path calls). Owner: "i said ipick bills
+ * gives us no comission, but katsh does... 20,000 LBP per bill sold...
+ * ipick its not the case." iPick earns nothing, ever; Katsh earns 20,000
+ * LBP/bill via RATE mode; every other provider keeps v150's shipped default
+ * (eligible, LUMP, no preset rate).
+ *
+ * Applied at creation time only (`SupplierRepository.createSupplier`) — this
+ * is what makes a BRAND-NEW tenant's iPick/Katsh suppliers correct from the
+ * moment they're added (checked: `TenantRepository.seedConfig` deliberately
+ * excludes the sample suppliers rows as "sample data, not config", so a
+ * fresh tenant only gets a correct iPick/Katsh supplier if whatever creates
+ * it — this method, today's only path — defaults it correctly). The v151
+ * migration's data backfill and `create_db.sql`'s desktop fixture seed carry
+ * the same literal values for existing tenants / the desktop fresh install,
+ * necessarily as raw SQL (migrations/seed data can't call back into
+ * application code) — kept in sync with this function by hand; this is the
+ * one function every *application-code* creation path (present and future)
+ * calls, so no repository ever re-derives eligibility from a provider name.
+ */
+export function defaultCommissionConfigForProvider(
+  provider: string | null | undefined,
+): {
+  commission_eligible: 0 | 1;
+  commission_entry_mode: "LUMP" | "RATE";
+  commission_rate: number | null;
+  commission_rate_currency: "USD" | "LBP";
+} {
+  if (provider === "iPick") {
+    return {
+      commission_eligible: 0,
+      commission_entry_mode: "LUMP",
+      commission_rate: null,
+      commission_rate_currency: "USD",
+    };
+  }
+  if (provider === "Katsh") {
+    return {
+      commission_eligible: 1,
+      commission_entry_mode: "RATE",
+      commission_rate: 20000,
+      commission_rate_currency: "LBP",
+    };
+  }
+  return {
+    commission_eligible: 1,
+    commission_entry_mode: "LUMP",
+    commission_rate: null,
+    commission_rate_currency: "USD",
+  };
 }
 
 export type SupplierLedgerEntryType =
@@ -332,6 +408,25 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     );
   }
 
+  /**
+   * LIRA-112 (v151) — same schema-drift-guard shape as
+   * `_suppliersHasCommissionPrefColumns()` above, for the two columns THAT
+   * migration adds (`commission_eligible`, `commission_rate_currency`).
+   * Checked independently of the v150 guard: a hand-rolled jest fixture
+   * could in principle carry the v150 columns without the v151 ones (they
+   * were added in separate migrations), so this must not assume one implies
+   * the other.
+   */
+  private _suppliersHasCommissionEligibilityColumns(): boolean {
+    const cols = this.db.prepare(`PRAGMA table_info(suppliers)`).all() as {
+      name: string;
+    }[];
+    return (
+      cols.some((c) => c.name === "commission_eligible") &&
+      cols.some((c) => c.name === "commission_rate_currency")
+    );
+  }
+
   // Override getColumns() to use explicit columns instead of SELECT *
   //
   // COMMISSION_AT_SETTLEMENT_PLAN.md D8 — reviewer finding #1 (FIX_FIRST):
@@ -343,12 +438,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   // so pre-v150 connected schemas keep working. COALESCE matches the
   // interface doc's contract for pre-v150 ROWS on an upgraded schema (NULL
   // preference reads as the 'LUMP' default rather than undefined).
+  //
+  // LIRA-112 (v151) — `commission_eligible`/`commission_rate_currency`
+  // follow the exact same pattern, gated on their own guard.
   protected getColumns(): string {
     const base =
       "id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at";
-    return this._suppliersHasCommissionPrefColumns()
-      ? `${base}, COALESCE(commission_entry_mode, 'LUMP') AS commission_entry_mode, commission_rate`
-      : base;
+    const prefCols = this._suppliersHasCommissionPrefColumns()
+      ? ", COALESCE(commission_entry_mode, 'LUMP') AS commission_entry_mode, commission_rate"
+      : "";
+    const eligibilityCols = this._suppliersHasCommissionEligibilityColumns()
+      ? ", COALESCE(commission_eligible, 1) AS commission_eligible, COALESCE(commission_rate_currency, 'USD') AS commission_rate_currency"
+      : "";
+    return `${base}${prefCols}${eligibilityCols}`;
   }
 
   listSuppliers(search?: string, includeInactive?: boolean): SupplierEntity[] {
@@ -378,11 +480,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   createSupplier(data: CreateSupplierData): { id: number } {
     try {
-      const stmt = this.db.prepare(`
-        INSERT INTO suppliers (name, contact_name, phone, note, module_key, provider, is_active, tenant_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
-      `);
-      const res = stmt.run(
+      const baseParams = [
         data.name.trim(),
         data.contact_name ?? null,
         data.phone ?? null,
@@ -390,7 +488,40 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         data.module_key ?? null,
         data.provider ?? null,
         getCurrentTenantId(),
-      );
+      ];
+
+      // LIRA-112 (D12) — a BRAND-NEW supplier row's commission config
+      // defaults per its provider (`defaultCommissionConfigForProvider`,
+      // this file), not a hardcoded 'LUMP'/eligible=1 for every provider.
+      // This is what makes a fresh tenant's iPick/Katsh suppliers correct
+      // from the moment they're added (see that function's doc comment).
+      // Gated on the same schema-drift guard as getColumns() — no test
+      // fixture currently exercises createSupplier() against a minimal
+      // schema, but staying consistent costs nothing.
+      if (this._suppliersHasCommissionEligibilityColumns()) {
+        const defaults = defaultCommissionConfigForProvider(data.provider);
+        const stmt = this.db.prepare(`
+          INSERT INTO suppliers (
+            name, contact_name, phone, note, module_key, provider, is_active, tenant_id, created_at,
+            commission_eligible, commission_entry_mode, commission_rate, commission_rate_currency
+          )
+          VALUES (?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+        `);
+        const res = stmt.run(
+          ...baseParams,
+          defaults.commission_eligible,
+          defaults.commission_entry_mode,
+          defaults.commission_rate,
+          defaults.commission_rate_currency,
+        );
+        return { id: Number(res.lastInsertRowid) };
+      }
+
+      const stmt = this.db.prepare(`
+        INSERT INTO suppliers (name, contact_name, phone, note, module_key, provider, is_active, tenant_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+      `);
+      const res = stmt.run(...baseParams);
       return { id: Number(res.lastInsertRowid) };
     } catch (e) {
       throw new DatabaseError("Failed to create supplier", { cause: e });

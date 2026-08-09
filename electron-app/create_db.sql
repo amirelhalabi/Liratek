@@ -219,6 +219,16 @@ CREATE TABLE IF NOT EXISTS suppliers (
   -- entry-mode preference, pre-selected at settlement time.
   commission_entry_mode TEXT CHECK(commission_entry_mode IN ('LUMP', 'RATE')) DEFAULT 'LUMP',
   commission_rate REAL,
+  -- v151 (LIRA-112 / D12): does this supplier earn commission at all? The
+  -- ONE data-driven gate FinancialServiceRepository's pending-settlement
+  -- predicate reads for BILL rows — no provider name hardcoded in the
+  -- repository. Every supplier defaults to eligible (unchanged v150
+  -- behavior); iPick is the one seeded exception below.
+  commission_eligible INTEGER NOT NULL DEFAULT 1 CHECK(commission_eligible IN (0, 1)),
+  -- v151: the currency commission_rate is denominated in. commission_rate
+  -- was specced in USD; Katsh's real rate is 20,000 LBP/bill, so this
+  -- currency companion is required to interpret it correctly.
+  commission_rate_currency TEXT CHECK(commission_rate_currency IN ('USD', 'LBP')) DEFAULT 'USD',
   UNIQUE (tenant_id, name),
   FOREIGN KEY (tenant_id, module_key) REFERENCES modules(tenant_id, key) ON DELETE SET NULL
 );
@@ -1315,14 +1325,18 @@ INSERT OR IGNORE INTO payment_methods (tenant_id, code, label, drawer_name, affe
   (1, 'CUSTOMER_ACCOUNT', 'Customer Account',    'General',   0, 4, 1, 1),
   (1, 'GIFT_CARD',        'Gift Card / Voucher', 'General',   0, 5, 1, 1);
 
--- Seed system suppliers (linked to modules)
-INSERT OR IGNORE INTO suppliers (tenant_id, name, module_key, provider, is_system) VALUES
-  (1, 'iPick',         'ipec_katch', 'iPick',         1),
-  (1, 'Katsh',        'ipec_katch', 'Katsh',        1),
-  (1, 'OMT',          'omt_whish',  'OMT',          1),
-  (1, 'Whish',        'omt_whish',  'WHISH',        0),
-  (1, 'OMT App',      'ipec_katch', 'OMT_APP',      1),
-  (1, 'Whish App',    'ipec_katch', 'WHISH_APP',    1);
+-- Seed system suppliers (linked to modules).
+-- LIRA-112 (D12): iPick earns the shop no commission at all
+-- (commission_eligible = 0); Katsh earns 20,000 LBP per bill, entered via
+-- RATE mode at settlement. OMT/Whish/app wallets keep v150's default
+-- (eligible, LUMP) — unaffected by this ticket.
+INSERT OR IGNORE INTO suppliers (tenant_id, name, module_key, provider, is_system, commission_eligible, commission_entry_mode, commission_rate, commission_rate_currency) VALUES
+  (1, 'iPick',         'ipec_katch', 'iPick',         1, 0, 'LUMP', NULL,  'USD'),
+  (1, 'Katsh',        'ipec_katch', 'Katsh',        1, 1, 'RATE', 20000, 'LBP'),
+  (1, 'OMT',          'omt_whish',  'OMT',          1, 1, 'LUMP', NULL,  'USD'),
+  (1, 'Whish',        'omt_whish',  'WHISH',        0, 1, 'LUMP', NULL,  'USD'),
+  (1, 'OMT App',      'ipec_katch', 'OMT_APP',      1, 1, 'LUMP', NULL,  'USD'),
+  (1, 'Whish App',    'ipec_katch', 'WHISH_APP',    1, 1, 'LUMP', NULL,  'USD');
 
 -- =============================================================================
 -- 9a. Vouchers (Gift Cards)
@@ -1738,4 +1752,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (147, 'seed_sell_days_lbp_from_validity_days'),
     (148, 'add_daily_closing_carrier_lines'),
     (149, 'allow_credit_buyback_recharge_type'),
-    (150, 'commission_at_settlement_foundation');
+    (150, 'commission_at_settlement_foundation'),
+    (151, 'commission_at_settlement_provider_eligibility');

@@ -3046,7 +3046,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // `commission > 0` directly. See its doc comment
       // (FinancialServiceRepository.ts) for why the old inline condition
       // breaks for new-model rows.
-      const wasPendingSettlement = isPendingSupplierSettlement(fs);
+      //
+      // LIRA-112 (D12) — `supplierCommissionEligible: true` here is a proven
+      // invariant, not a re-derivation: this row has settlement_id SET,
+      // meaning it was actually selected out of `getUnsettledBySupplier`'s
+      // queue and successfully settled — a commission-ineligible supplier's
+      // BILL (e.g. iPick) never enters that queue post-LIRA-112, so it can
+      // never reach this loop. No new supplier lookup needed.
+      const wasPendingSettlement = isPendingSupplierSettlement({
+        ...fs,
+        supplierCommissionEligible: true,
+      });
       if (wasPendingSettlement) {
         this.execute(
           `UPDATE financial_services SET settlement_id = NULL, is_settled = 0, settled_at = NULL

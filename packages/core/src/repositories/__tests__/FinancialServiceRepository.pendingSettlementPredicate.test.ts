@@ -45,6 +45,20 @@
  * kind's CORRECT behavior under that gate: BILL is the only kind actually
  * born commission_model = 1 today; OMT/WHISH/BINANCE all stay 0 and follow
  * the preserved legacy marker.
+ *
+ * LIRA-112 (2026-08-09, D12) update: `isPendingSupplierSettlement` gained a
+ * required `supplierCommissionEligible` field and the BILL branch dropped
+ * its `provider IN ('iPick', 'Katsh')` hardcode. Rule 17 for THIS fix: the
+ * BILL branch was temporarily reverted to
+ * `row.service_type === "BILL" && (row.provider === "iPick" || row.provider
+ * === "Katsh")` (the exact pre-fix condition, ignoring
+ * supplierCommissionEligible) — the new
+ * "new-model iPick BILL, supplier commission_eligible = 0 → NOT pending"
+ * truth-table case and the "is born is_settled = 1" creation-time test
+ * FAILED (received `true`/`0` where `false`/`1` was expected), proving both
+ * providers were still being treated identically. Reverted back to the real
+ * fix and re-run green before this file was finalized — see the task report
+ * for the exact failure output.
  */
 
 import Database from "better-sqlite3";
@@ -219,12 +233,16 @@ function createTestDb(): Database.Database {
       is_active INTEGER DEFAULT 1,
       is_system INTEGER DEFAULT 0,
       module_key TEXT,
+      commission_eligible INTEGER NOT NULL DEFAULT 1 CHECK(commission_eligible IN (0, 1)),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT',   'OMT',   1);
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('Whish', 'WHISH', 0);
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('iPick', 'iPick', 0);
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('Katsh', 'Katsh', 0);
+    -- LIRA-112 (D12): iPick earns no commission at all; Katsh earns
+    -- 20,000 LBP/bill. This is the data-driven config PENDING_SETTLEMENT_SQL's
+    -- BILL branch now reads instead of a provider-name hardcode.
+    INSERT INTO suppliers (name, provider, is_system, commission_eligible) VALUES ('OMT',   'OMT',   1, 1);
+    INSERT INTO suppliers (name, provider, is_system, commission_eligible) VALUES ('Whish', 'WHISH', 0, 1);
+    INSERT INTO suppliers (name, provider, is_system, commission_eligible) VALUES ('iPick', 'iPick', 0, 0);
+    INSERT INTO suppliers (name, provider, is_system, commission_eligible) VALUES ('Katsh', 'Katsh', 0, 1);
 
     CREATE TABLE supplier_ledger (
       tenant_id INTEGER DEFAULT 1,
@@ -307,6 +325,80 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md D2 — is_settled at creation", () =>
       expect(row.commission).toBe(0);
       expect(row.commission_model).toBe(1);
       expect(row.is_settled).toBe(0);
+    },
+  );
+
+  // ── LIRA-112 (D12) ────────────────────────────────────────────────────────
+  //
+  // Owner: "i said ipick bills gives us no comission, but katsh does...
+  // Whereas in ipick its not the case. No comission in ipick." Both the
+  // pre-plan code AND Phase 0/1 (the test above, pre-this-fix) treated
+  // iPick and Katsh identically — this is the exact bug.
+  it(
+    "a NEW-model iPick BILL row is born is_settled = 1 (iPick earns NO " +
+      "commission — LIRA-112 — never pending, unlike Katsh above)",
+    () => {
+      const { id } = repo.createTransaction({
+        provider: "iPick",
+        serviceType: "BILL",
+        amount: 20,
+        cost: 20,
+        price: 20,
+        currency: "USD",
+        commission: 0,
+        deferPayment: true,
+        exchangeRate: 90000,
+        userId: 1,
+      });
+
+      const row = db
+        .prepare(
+          `SELECT is_settled, commission, commission_model FROM financial_services WHERE id = ?`,
+        )
+        .get(id) as {
+        is_settled: number;
+        commission: number;
+        commission_model: number;
+      };
+
+      expect(row.commission).toBe(0);
+      // Still stamped commission_model = 1 (still structurally a BILL, per
+      // D3's service_type-only gate) — but never pending, because iPick's
+      // OWN supplier row says commission_eligible = 0.
+      expect(row.commission_model).toBe(1);
+      expect(row.is_settled).toBe(1);
+    },
+  );
+
+  it("a NEW-model iPick BILL never appears in getUnsettledBySupplier('iPick') — absent from the commission settlement queue", () => {
+    repo.createTransaction({
+      provider: "iPick",
+      serviceType: "BILL",
+      amount: 20,
+      cost: 20,
+      price: 20,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    expect(repo.getUnsettledBySupplier("iPick")).toHaveLength(0);
+  });
+
+  it(
+    "the PENDING_SETTLEMENT_SQL fragment itself excludes an iPick BILL even " +
+      "if is_settled/commission_model were forced to look pending (defensive: " +
+      "proves the query-level gate, not just the creation-time short-circuit)",
+    () => {
+      db.prepare(
+        `INSERT INTO financial_services
+           (provider, service_type, amount, currency, commission, is_settled, commission_model)
+         VALUES ('iPick', 'BILL', 20, 'USD', 0, 0, 1)`,
+      ).run();
+
+      expect(repo.getUnsettledBySupplier("iPick")).toHaveLength(0);
     },
   );
 
@@ -496,6 +588,7 @@ describe("isPendingSupplierSettlement — the ONE shared predicate (truth table)
           provider: "OMT",
           service_type: "SEND",
           commission: 0,
+          supplierCommissionEligible: false, // irrelevant to this branch
         },
         true,
       ],
@@ -506,26 +599,35 @@ describe("isPendingSupplierSettlement — the ONE shared predicate (truth table)
           provider: "WHISH",
           service_type: "RECEIVE",
           commission: 0,
+          supplierCommissionEligible: false, // irrelevant to this branch
         },
         true,
       ],
       [
-        "new-model iPick BILL → pending (Phase 1 scope fence)",
+        // LIRA-112 (D12) — CORRECTS the pre-fix assumption this exact case
+        // used to assert (both providers treated identically, expected
+        // `true`). Owner: "ipick bills gives us no comission... Whereas in
+        // ipick its not the case." iPick's supplier row is
+        // commission_eligible = 0, so it's never pending, regardless of it
+        // being a structurally-BILL, commission_model = 1 row.
+        "new-model iPick BILL, supplier commission_eligible = 0 → NOT pending (LIRA-112 fix)",
         {
           commission_model: 1,
           provider: "iPick",
           service_type: "BILL",
           commission: 0,
+          supplierCommissionEligible: false,
         },
-        true,
+        false,
       ],
       [
-        "new-model Katsh BILL → pending (Phase 1 scope fence)",
+        "new-model Katsh BILL, supplier commission_eligible = 1 → pending (Phase 1 scope fence)",
         {
           commission_model: 1,
           provider: "Katsh",
           service_type: "BILL",
           commission: 0,
+          supplierCommissionEligible: true,
         },
         true,
       ],
@@ -536,18 +638,37 @@ describe("isPendingSupplierSettlement — the ONE shared predicate (truth table)
           provider: "BINANCE",
           service_type: "SEND",
           commission: 0,
+          supplierCommissionEligible: false, // irrelevant to this branch
         },
         false,
       ],
       [
-        "new-model OMT BILL → NOT pending (BILL scope is iPick/Katsh only, not OMT)",
+        // LIRA-112 — proves the gate is data-driven (rule 14), not a
+        // provider-name list: an entirely made-up provider's BILL is
+        // pending or not purely from its OWN supplier's
+        // commission_eligible bit, exactly like iPick/Katsh above. No
+        // hardcoded provider name appears in isPendingSupplierSettlement's
+        // BILL branch anymore.
+        "new-model BILL from an unlisted provider, commission_eligible = 0 → NOT pending (data-driven, no provider allowlist)",
         {
           commission_model: 1,
-          provider: "OMT",
+          provider: "SomeFutureBillProvider",
           service_type: "BILL",
           commission: 0,
+          supplierCommissionEligible: false,
         },
         false,
+      ],
+      [
+        "new-model BILL from an unlisted provider, commission_eligible = 1 → pending (data-driven, no provider allowlist)",
+        {
+          commission_model: 1,
+          provider: "SomeFutureBillProvider",
+          service_type: "BILL",
+          commission: 0,
+          supplierCommissionEligible: true,
+        },
+        true,
       ],
       [
         "legacy OMT SEND, commission > 0 → pending (the preserved historical marker)",
@@ -556,6 +677,7 @@ describe("isPendingSupplierSettlement — the ONE shared predicate (truth table)
           provider: "OMT",
           service_type: "SEND",
           commission: 5,
+          supplierCommissionEligible: false, // irrelevant to this branch
         },
         true,
       ],
@@ -566,6 +688,7 @@ describe("isPendingSupplierSettlement — the ONE shared predicate (truth table)
           provider: "OMT",
           service_type: "SEND",
           commission: 0,
+          supplierCommissionEligible: false, // irrelevant to this branch
         },
         false,
       ],
@@ -576,6 +699,7 @@ describe("isPendingSupplierSettlement — the ONE shared predicate (truth table)
           provider: "iPick",
           service_type: "BILL",
           commission: 0,
+          supplierCommissionEligible: false, // irrelevant to this branch
         },
         false,
       ],

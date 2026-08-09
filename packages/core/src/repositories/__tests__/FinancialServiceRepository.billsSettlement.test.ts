@@ -257,11 +257,14 @@ function createTestDb(): Database.Database {
       is_active INTEGER NOT NULL DEFAULT 1,
       is_system INTEGER NOT NULL DEFAULT 0,
       module_key TEXT,
+      commission_eligible INTEGER NOT NULL DEFAULT 1 CHECK(commission_eligible IN (0, 1)),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('OMT', 'OMT', 1);
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('Katsh', 'Katsh', 1);
-    INSERT INTO suppliers (name, provider, is_system) VALUES ('iPick', 'iPick', 1);
+    -- LIRA-112 (D12): Katsh earns 20,000 LBP/bill (commission_eligible = 1);
+    -- iPick earns nothing (commission_eligible = 0).
+    INSERT INTO suppliers (name, provider, is_system, commission_eligible) VALUES ('OMT', 'OMT', 1, 1);
+    INSERT INTO suppliers (name, provider, is_system, commission_eligible) VALUES ('Katsh', 'Katsh', 1, 1);
+    INSERT INTO suppliers (name, provider, is_system, commission_eligible) VALUES ('iPick', 'iPick', 1, 0);
 
     -- v136 schema: is_refunded/refunded_at (v120) + source_ref_table/id (v136).
     CREATE TABLE supplier_ledger (
@@ -280,6 +283,41 @@ function createTestDb(): Database.Database {
       source_ref_table TEXT DEFAULT NULL,
       source_ref_id INTEGER DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- v150 (COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6) — real commission
+    -- storage, needed here so the rule-20 create→settle→void test below
+    -- exercises the REAL new-model settlement path (not the "no v150
+    -- tables, falls back to legacy" branch).
+    CREATE TABLE supplier_settlements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      supplier_id INTEGER NOT NULL,
+      ledger_entry_id INTEGER NOT NULL UNIQUE,
+      gross_usd REAL NOT NULL DEFAULT 0,
+      gross_lbp REAL NOT NULL DEFAULT 0,
+      commission_usd REAL NOT NULL DEFAULT 0,
+      commission_lbp REAL NOT NULL DEFAULT 0,
+      entry_mode TEXT NOT NULL DEFAULT 'LUMP' CHECK(entry_mode IN ('LUMP', 'RATE')),
+      rate REAL,
+      unit_count INTEGER,
+      model INTEGER NOT NULL CHECK(model IN (0, 1)),
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE settlement_commission_allocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id INTEGER DEFAULT 1,
+      settlement_ledger_id INTEGER NOT NULL,
+      financial_service_id INTEGER NOT NULL,
+      service_type TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      commission_usd REAL NOT NULL DEFAULT 0,
+      commission_lbp REAL NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE system_settings (
@@ -543,5 +581,289 @@ describe("COMMISSION_AT_SETTLEMENT_PLAN.md Phase 1 — bills slice", () => {
 
     const summary = fsRepo.getUnsettledSummaryByProvider();
     expect(summary.find((s) => s.provider === "Katsh")).toBeUndefined();
+  });
+});
+
+// ── LIRA-112 (D12) — iPick bills book NO commission; only Katsh pays ───────
+//
+// Owner: "i said ipick bills gives us no comission, but katsh does. So in
+// katsh we should count the bills we sold. And at settlement in suppliers
+// page we should showcase an estimated commission amount for the customer
+// 20,000 LBP per bill sold. Whereas in ipick its not the case. No comission
+// in ipick."
+//
+// Both the pre-plan code and this file's OWN Phase 1 tests above (before
+// this fix) treated iPick and Katsh identically — the BILL branch of
+// isPendingSupplierSettlement/PENDING_SETTLEMENT_SQL hardcoded
+// `provider IN ('iPick', 'Katsh')` with no distinction between them.
+//
+// Rule 17 — observed failing pre-fix: the BILL branch was temporarily
+// reverted to that exact hardcode (ignoring `supplierCommissionEligible`) —
+// re-ran this describe block, watched "an iPick BILL is absent from
+// getUnsettledBySupplier('iPick')" fail with `Received length: 1` (the
+// iPick bill WAS in the queue) and "...absent from getUnsettledSummaryByProvider"
+// fail with the iPick row present in the summary — then restored the real
+// fix and re-ran green. See the task report for the exact failure output.
+describe("LIRA-112 (D12) — iPick books zero commission; Katsh does", () => {
+  let db: Database.Database;
+  let fsRepo: FinancialServiceRepository;
+  let txnRepo: TransactionRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    initFixedTenantContext(1);
+    resetSupplierRepository();
+    resetTransactionRepository();
+    fsRepo = new FinancialServiceRepository();
+    txnRepo = new TransactionRepository();
+  });
+
+  afterEach(() => {
+    resetTenantContext();
+    db.close();
+    resetSupplierRepository();
+    resetTransactionRepository();
+  });
+
+  it("an iPick BILL books zero supplier_ledger rows at creation (same as Katsh — this part was never the bug)", () => {
+    const ipickId = supplierIdByProvider(db, "iPick");
+
+    fsRepo.createTransaction({
+      provider: "iPick",
+      serviceType: "BILL",
+      amount: 20,
+      cost: 20,
+      price: 20,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    expect(ledgerRowsForSupplier(db, ipickId)).toHaveLength(0);
+  });
+
+  it("an iPick BILL is born is_settled = 1 and is absent from getUnsettledBySupplier('iPick') — the LIRA-112 fix", () => {
+    const { id } = fsRepo.createTransaction({
+      provider: "iPick",
+      serviceType: "BILL",
+      amount: 20,
+      cost: 20,
+      price: 20,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    const row = db
+      .prepare(`SELECT is_settled FROM financial_services WHERE id = ?`)
+      .get(id) as { is_settled: number };
+    expect(row.is_settled).toBe(1);
+
+    expect(fsRepo.getUnsettledBySupplier("iPick")).toHaveLength(0);
+  });
+
+  it("an iPick BILL is absent from getUnsettledSummaryByProvider — no estimated commission surfaced for it", () => {
+    fsRepo.createTransaction({
+      provider: "iPick",
+      serviceType: "BILL",
+      amount: 20,
+      cost: 20,
+      price: 20,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    const summary = fsRepo.getUnsettledSummaryByProvider();
+    expect(summary.find((s) => s.provider === "iPick")).toBeUndefined();
+  });
+
+  it("a Katsh BILL DOES join both the unsettled queue and the summary (contrast case, same DB/run as the iPick assertions above)", () => {
+    fsRepo.createTransaction({
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 20,
+      cost: 20,
+      price: 20,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+    fsRepo.createTransaction({
+      provider: "iPick",
+      serviceType: "BILL",
+      amount: 15,
+      cost: 15,
+      price: 15,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    expect(fsRepo.getUnsettledBySupplier("Katsh")).toHaveLength(1);
+    expect(fsRepo.getUnsettledBySupplier("iPick")).toHaveLength(0);
+
+    const summary = fsRepo.getUnsettledSummaryByProvider();
+    expect(summary.find((s) => s.provider === "Katsh")?.bill_count).toBe(1);
+    expect(summary.find((s) => s.provider === "iPick")).toBeUndefined();
+  });
+
+  it("the settle estimate (rate × bill count) is driven by the supplier's stored config: Katsh's commission_entry_mode/commission_rate/commission_rate_currency read RATE/20000/LBP", () => {
+    // v151 columns are only selected by getColumns() when present — this
+    // fixture's `suppliers` table (createTestDb, top of file) predates v151,
+    // so ALTER it in here to prove the real (migrated) shape end-to-end.
+    db.exec(`
+      ALTER TABLE suppliers ADD COLUMN commission_entry_mode TEXT DEFAULT 'LUMP';
+      ALTER TABLE suppliers ADD COLUMN commission_rate REAL;
+      ALTER TABLE suppliers ADD COLUMN commission_rate_currency TEXT DEFAULT 'USD';
+      UPDATE suppliers SET commission_entry_mode = 'RATE', commission_rate = 20000, commission_rate_currency = 'LBP'
+        WHERE provider = 'Katsh';
+    `);
+    resetSupplierRepository();
+    const freshSupplierRepo = getSupplierRepository();
+
+    fsRepo.createTransaction({
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 20,
+      cost: 20,
+      price: 20,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+    fsRepo.createTransaction({
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 10,
+      cost: 10,
+      price: 10,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    const katsh = freshSupplierRepo.getByProvider("Katsh")!;
+    expect(katsh.commission_entry_mode).toBe("RATE");
+    expect(katsh.commission_rate).toBe(20000);
+    expect(katsh.commission_rate_currency).toBe("LBP");
+
+    const summary = fsRepo.getUnsettledSummaryByProvider();
+    const katshSummary = summary.find((s) => s.provider === "Katsh")!;
+    expect(katshSummary.bill_count).toBe(2);
+    // The settle screen's estimate = rate × bill count, from stored config.
+    expect(katsh.commission_rate! * katshSummary.bill_count).toBe(40000);
+  });
+
+  // ── Rule 20 — create → settle → void nets to 0, per currency ────────────
+  it("Katsh BILL: create → settle (RATE × count, 20,000 LBP) → void nets supplier_ledger back to 0", () => {
+    const katshId = supplierIdByProvider(db, "Katsh");
+    const supplierRepo = getSupplierRepository();
+
+    const { id: fsId } = fsRepo.createTransaction({
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 20,
+      cost: 20,
+      price: 20,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    // Pending, real queue read (not a synthetic insert) — proves the whole
+    // pipeline this fix touches, end to end.
+    const unsettled = fsRepo.getUnsettledBySupplier("Katsh");
+    expect(unsettled.map((r) => r.id)).toContain(fsId);
+
+    const settlement = supplierRepo.settleTransactions({
+      supplier_id: katshId,
+      financial_service_ids: [fsId],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 20000,
+      entry_mode: "RATE",
+      commission_rate: 20000,
+      commission_unit_count: 1,
+      created_by: 1,
+    });
+
+    // Settled: commission credit posted, row cleared from the queue.
+    const postSettleLedger = ledgerRowsForSupplier(db, katshId);
+    expect(postSettleLedger).toHaveLength(2);
+    expect(postSettleLedger).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entry_type: "SUPPLIER_PAYS_US",
+          amount_lbp: -20000,
+        }),
+        expect.objectContaining({ entry_type: "SETTLEMENT" }),
+      ]),
+    );
+    expect(
+      fsRepo.getUnsettledBySupplier("Katsh").map((r) => r.id),
+    ).not.toContain(fsId);
+
+    const settlementTxn = txnRepo.getBySourceId(
+      "supplier_ledger",
+      settlement.id,
+    )!;
+    txnRepo.voidTransaction(settlementTxn.id, 1);
+
+    // Net to 0 per currency across supplier_ledger: the SUPPLIER_PAYS_US
+    // credit and the SETTLEMENT row both soft-void, leaving nothing live.
+    const ledgerSumLbp = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_lbp), 0) as total FROM supplier_ledger
+           WHERE supplier_id = ? AND is_refunded = 0`,
+      )
+      .get(katshId) as { total: number };
+    expect(ledgerSumLbp.total).toBe(0);
+    const ledgerSumUsd = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_usd), 0) as total FROM supplier_ledger
+           WHERE supplier_id = ? AND is_refunded = 0`,
+      )
+      .get(katshId) as { total: number };
+    expect(ledgerSumUsd.total).toBe(0);
+
+    // Reversal symmetry (rule 20): the bill row re-joins the unsettled
+    // queue, exactly as if it had never been settled.
+    expect(
+      fsRepo.getUnsettledBySupplier("Katsh").map((r) => r.id),
+    ).toContain(fsId);
+
+    const allocations = db
+      .prepare(
+        `SELECT * FROM settlement_commission_allocations WHERE financial_service_id = ?`,
+      )
+      .all(fsId);
+    // supplier_settlements/settlement_commission_allocations have no
+    // soft-void column (DELETE is their reversal — TransactionRepository's
+    // _reverseCommissionAtSettlementRecords) — if this fixture's minimal
+    // schema doesn't carry those v150 tables, the reversal skips them
+    // gracefully (see FinancialServiceRepository.omtCommissionModelGate.test.ts's
+    // "falls back to legacy behavior" precedent); either way none survive.
+    expect(allocations).toHaveLength(0);
   });
 });

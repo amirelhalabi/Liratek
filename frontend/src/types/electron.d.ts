@@ -1150,6 +1150,14 @@ export interface ElectronAPI {
         provider: string | null;
         is_system: number;
         created_at: string;
+        /** COMMISSION_AT_SETTLEMENT_PLAN.md D8 — Settlement UI's LUMP/RATE pre-select. */
+        commission_entry_mode?: "LUMP" | "RATE";
+        commission_rate?: number | null;
+        /** LIRA-112 (D12, v151) — does this supplier earn commission at all
+         *  (0 = never, e.g. iPick; 1 = yes, e.g. Katsh/every other supplier). */
+        commission_eligible?: number;
+        /** LIRA-112 (v151) — the currency `commission_rate` is denominated in. */
+        commission_rate_currency?: "USD" | "LBP";
       }>
     >;
     getBalances: (

@@ -21,9 +21,18 @@
  *   2. NO SUPPLIER_PAYS_US commission credit posts at creation: the
  *      supplier's ledger balance is unchanged by the action (delta = 0) and
  *      no NEW "BILL commission from <provider>" entry appears.
- *   3. The row is born `commission_model = 1`, `settlement_id IS NULL`, and
- *      has joined the unsettled queue (`bill_count` in
- *      `suppliers:unsettled-summary` goes up by exactly 1).
+ *   3. Katsh: the row is born `commission_model = 1`, `settlement_id IS
+ *      NULL`, and has joined the unsettled queue (`bill_count` in
+ *      `suppliers:unsettled-summary` goes up by exactly 1) — Katsh earns
+ *      20,000 LBP/bill, entered at settlement (Phase 1).
+ *      iPick: the row does NOT join the unsettled queue at all — `bill_count`
+ *      is unchanged and the row is absent from `getUnsettledTransactions`
+ *      (LIRA-112 / COMMISSION_AT_SETTLEMENT_PLAN.md §6 D12 — "i said ipick
+ *      bills gives us no comission, but katsh does"; `suppliers.
+ *      commission_eligible` (v151) is the data-driven gate,
+ *      `FinancialServiceRepository.isPendingSupplierSettlement`'s BILL
+ *      branch). iPick is born `is_settled = 1` — same "nothing to settle,
+ *      ever" shape a zero-commission legacy row had pre-Phase-0.
  *   4. (Katsh only) The Bill card still renders in the Recharge/Katsh tab —
  *      the money-model change doesn't touch the UI.
  *
@@ -31,6 +40,13 @@
  * assertion is a delta snapshotted immediately before the action, and the
  * bill's own financial_services row is found by the id `omt.addTransaction`
  * itself returns — never by list position or "newest row".
+ *
+ * LIRA-112 update (2026-08-09): the iPick case below was rewritten to assert
+ * NO-queue-membership instead of the (buggy, pre-LIRA-112) "joined the
+ * unsettled queue" expectation this spec originally shared with the Katsh
+ * case. Edited by code inspection against the corrected repository logic —
+ * NOT re-run through `test:e2e` (this task's instructions excluded it);
+ * verify on the next real desktop e2e pass.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -225,7 +241,7 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     await expect(lbpToggle).toBeVisible({ timeout: 5_000 });
   });
 
-  test("iPick BILL: books no commission credit at creation, born commission_model=1 in the unsettled queue", async ({
+  test("iPick BILL: books no commission credit at creation, and NEVER joins the unsettled queue (LIRA-112 — iPick earns no commission)", async ({
     appPage,
   }) => {
     const ipick = await appPage.evaluate(async () => {
@@ -305,6 +321,10 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     }, ipickId);
     expect(legacyCreditsAfter - legacyCreditsBefore).toBe(0);
 
+    // LIRA-112 (D12) — iPick earns NO commission, ever: unlike Katsh above,
+    // the row must be ABSENT from the unsettled queue (never settleable),
+    // and the provider's bill_count in the pending summary must be
+    // unchanged — no estimated commission is ever surfaced for iPick.
     const billRow = await appPage.evaluate(
       async (args: { provider: string; id: number }) => {
         const w = window as unknown as WindowApi;
@@ -317,11 +337,8 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     );
     expect(
       billRow,
-      "new BILL row not found in the unsettled queue",
-    ).toBeTruthy();
-    expect(billRow!.service_type).toBe("BILL");
-    expect(billRow!.commission_model).toBe(1);
-    expect(billRow!.settlement_id).toBeNull();
+      "iPick BILL row must NOT appear in the unsettled/commission-settlement queue (LIRA-112)",
+    ).toBeNull();
 
     const billCountAfter = await appPage.evaluate(async () => {
       const w = window as unknown as WindowApi;
@@ -331,7 +348,7 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
         )?.bill_count ?? 0
       );
     });
-    expect(billCountAfter - billCountBefore).toBe(1);
+    expect(billCountAfter - billCountBefore).toBe(0);
   });
 });
 

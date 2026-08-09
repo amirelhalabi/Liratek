@@ -673,14 +673,26 @@ END`;
 //     verbatim so old rows keep their exact historical behavior (cutover,
 //     not restatement — plan header).
 //
-// `isPendingSupplierSettlement` (JS) and `PENDING_SETTLEMENT_SQL` (SQL
+// `isPendingSupplierSettlement` (JS) and `pendingSettlementSql()` (SQL
 // twin) MUST stay structurally identical — same branch order, same terms —
 // same lockstep discipline as `grossOwedDelta`/`SUPPLIER_OWED_EXPR` above.
+//
+// LIRA-112 (COMMISSION_AT_SETTLEMENT_PLAN.md D12) — the BILL branch used to
+// hardcode `provider IN ('iPick', 'Katsh')`, treating both identically. That
+// is the exact bug: owner: "i said ipick bills gives us no comission, but
+// katsh does." Replaced by `supplierCommissionEligible` — the caller's own
+// lookup of `suppliers.commission_eligible` (v151) for THIS row's provider —
+// so eligibility is a per-supplier config bit (rule 14's "ONE definition"),
+// never a provider name inside this function. iPick's supplier row is
+// commission_eligible = 0, Katsh's is 1; a hypothetical future bill
+// provider inherits whatever ITS OWN supplier row says, correct by default,
+// no repository edit required.
 export function isPendingSupplierSettlement(row: {
   commission_model: number;
   provider: string;
   service_type: string;
   commission: number;
+  supplierCommissionEligible: boolean;
 }): boolean {
   if (row.commission_model === 1) {
     if (
@@ -689,23 +701,45 @@ export function isPendingSupplierSettlement(row: {
     ) {
       return true;
     }
-    return (
-      row.service_type === "BILL" &&
-      (row.provider === "iPick" || row.provider === "Katsh")
-    );
+    return row.service_type === "BILL" && row.supplierCommissionEligible;
   }
   return (
     (row.provider === "OMT" || row.provider === "WHISH") && row.commission > 0
   );
 }
 
-export const PENDING_SETTLEMENT_SQL = `(
+/**
+ * SQL twin of `isPendingSupplierSettlement` — see that function's doc
+ * comment for the LIRA-112 rationale. `supportsCommissionEligibility` gates
+ * the BILL branch's `suppliers.commission_eligible` (v151) lookup: `true`
+ * on any real/fully-migrated schema; `false` only for the handful of
+ * hand-rolled jest fixtures (pre-dating v151) that construct a minimal
+ * `suppliers` table without that column — a bare `1 = 1` there reproduces
+ * the exact PRE-fix behavior (any BILL provider pending) for those fixtures'
+ * unrelated assertions, mirroring `SupplierRepository`'s own
+ * `_suppliersHasCommissionPrefColumns()` schema-drift guard. Callers get
+ * the boolean cheaply via `FinancialServiceRepository`'s own PRAGMA check —
+ * never assume `true` from application code.
+ */
+export function pendingSettlementSql(
+  supportsCommissionEligibility: boolean,
+): string {
+  const billEligibilityClause = supportsCommissionEligibility
+    ? `NOT EXISTS (
+         SELECT 1 FROM suppliers s
+         WHERE s.provider = financial_services.provider
+           AND s.tenant_id = financial_services.tenant_id
+           AND s.commission_eligible = 0
+       )`
+    : "1 = 1";
+  return `(
   (commission_model = 1 AND (
     (provider IN ('OMT', 'WHISH') AND service_type IN ('SEND', 'RECEIVE'))
-    OR (service_type = 'BILL' AND provider IN ('iPick', 'Katsh'))
+    OR (service_type = 'BILL' AND ${billEligibilityClause})
   ))
   OR (commission_model = 0 AND provider IN ('OMT', 'WHISH') AND commission > 0)
 )`;
+}
 
 // COMMISSION_AT_SETTLEMENT_PLAN.md §4 Phase 1, rule 14 — the ONE
 // notRefunded fragment for financial_services rows. A pre-existing leak
@@ -1045,6 +1079,28 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // Phase 2 actually ships the gross flip for them.
       const commissionModel: number = data.serviceType === "BILL" ? 1 : 0;
 
+      // LIRA-112 (D12) — the row's OWN supplier's commission_eligible bit
+      // (v151), looked up ONLY for BILL rows (the one kind the predicate's
+      // eligibility branch actually consults — OMT/WHISH SEND/RECEIVE and
+      // the legacy commission_model=0 branch never read this field, so
+      // skipping the lookup for them is correct, not just an optimization).
+      // Gated on the same schema-drift guard as the read queries below —
+      // defaults to eligible (today's pre-fix behavior) on a hand-rolled
+      // test fixture that pre-dates v151.
+      const supplierCommissionEligible =
+        data.serviceType === "BILL" &&
+        this._suppliersHasCommissionEligibleColumn()
+          ? ((
+              this.db
+                .prepare(
+                  `SELECT commission_eligible FROM suppliers WHERE provider = ? AND tenant_id = ? LIMIT 1`,
+                )
+                .get(data.provider, tenantId) as
+                | { commission_eligible: number }
+                | undefined
+            )?.commission_eligible ?? 1) === 1
+          : true;
+
       // Determine settlement status at creation time via the ONE shared
       // predicate (D2) — see its doc comment above for why the old
       // `isOmtOrWhish && commission > 0` marker breaks for new-model rows
@@ -1056,6 +1112,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         provider: data.provider,
         service_type: data.serviceType,
         commission,
+        supplierCommissionEligible,
       });
       const isSettled = isPendingSettlement ? 0 : 1;
       const settledAt = isSettled ? new Date().toISOString() : null;
@@ -3335,7 +3392,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // practice this `=== 0` branch is dead for NEW bills and only
             // fires when replaying/backfilling legacy rows. New-model bills
             // book NOTHING at creation: they join the unsettled queue instead
-            // (`isPendingSupplierSettlement` / `PENDING_SETTLEMENT_SQL`) and
+            // (`isPendingSupplierSettlement` / `pendingSettlementSql()`) and
             // the shop enters the real commission at settlement, which books
             // its own SUPPLIER_PAYS_US credit
             // (`SupplierRepository.settleTransactions`). Booking the legacy
@@ -3684,11 +3741,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Settle tab's "total owed − commission = net pay" math nets correctly
    * (owed per row = supplier_owed, the SUPPLIER_OWED_EXPR projection):
    *
-   *  1. Pending-settlement rows — `PENDING_SETTLEMENT_SQL` (D2) AND
-   *     is_settled = 0: legacy-model (commission_model = 0) OMT/WHISH rows
+   *  1. Pending-settlement rows — `pendingSettlementSql()` (D2, LIRA-112 D12)
+   *     AND is_settled = 0: legacy-model (commission_model = 0) OMT/WHISH rows
    *     with commission > 0, or new-model (commission_model = 1) OMT/WHISH
-   *     SEND/RECEIVE and iPick/Katsh BILL rows regardless of commission
-   *     (COMMISSION_AT_SETTLEMENT_PLAN.md §3/Phase 0 — commission is entered
+   *     SEND/RECEIVE and commission-eligible BILL rows (per the row's OWN
+   *     supplier's `commission_eligible`, e.g. Katsh — never iPick) regardless
+   *     of commission (COMMISSION_AT_SETTLEMENT_PLAN.md §3/Phase 0 — commission is entered
    *     AT settlement for these, so it's 0 at creation and can't be the
    *     marker anymore). Owed = the GROSS amount (SUPPLIER_OWED_EXPR /
    *     grossOwedDelta, plan §8.3): SEND owes +(x+f−c), RECEIVE owes
@@ -3716,14 +3774,32 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Cost-flow sale costs can also be reconciled in bulk via a cumulative-balance
    * pay-down (Manual Entry → PAYMENT), which nets the SALE_COST entries directly.
    */
+  /**
+   * LIRA-112 (v151) — cheap PRAGMA check (not a hot path) for whether the
+   * connected `suppliers` table carries `commission_eligible` yet. Feeds
+   * `pendingSettlementSql()`'s guard — see that function's doc comment.
+   * Mirrors `SupplierRepository._suppliersHasCommissionEligibilityColumns()`
+   * (duplicated rather than shared: the two repositories don't otherwise
+   * depend on each other's private schema-introspection helpers).
+   */
+  private _suppliersHasCommissionEligibleColumn(): boolean {
+    const cols = this.db.prepare(`PRAGMA table_info(suppliers)`).all() as {
+      name: string;
+    }[];
+    return cols.some((c) => c.name === "commission_eligible");
+  }
+
   getUnsettledBySupplier(provider: string): FinancialServiceEntity[] {
     const tenantId = getCurrentTenantId();
+    const pendingSql = pendingSettlementSql(
+      this._suppliersHasCommissionEligibleColumn(),
+    );
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM financial_services
            WHERE provider = ?
              AND is_settled = 0
-             AND ${PENDING_SETTLEMENT_SQL}
+             AND ${pendingSql}
              AND ${NOT_REFUNDED_SQL}
              AND tenant_id = ?
          UNION ALL
@@ -3793,6 +3869,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Used by the Dashboard pending note and Profits pending tab.
    */
   getUnsettledSummaryByProvider(): UnsettledSummary[] {
+    const pendingSql = pendingSettlementSql(
+      this._suppliersHasCommissionEligibleColumn(),
+    );
     return this.db
       .prepare(
         `SELECT
@@ -3814,7 +3893,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN ${SUPPLIER_OWED_EXPR} ELSE 0 END), 0) as total_owed_lbp
          FROM financial_services
          WHERE is_settled = 0
-           AND ${PENDING_SETTLEMENT_SQL}
+           AND ${pendingSql}
            AND ${NOT_REFUNDED_SQL}
            AND tenant_id = ?
          GROUP BY provider`,

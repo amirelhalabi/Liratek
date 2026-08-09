@@ -6,7 +6,7 @@
  * `settleTransactions` payload for the two batch kinds the backend
  * distinguishes by `commission_model` (D2/D3/D4):
  *
- *   - NEW-MODEL batch (commission_model = 1, e.g. an iPick BILL row): the
+ *   - NEW-MODEL batch (commission_model = 1, e.g. a Katsh BILL row): the
  *     commission is ENTERED in the Settle modal (D8) — the payload must carry
  *     the money-bearing `commission_usd`/`commission_lbp` PLUS the
  *     `entry_mode`/`commission_rate`/`commission_unit_count` audit snapshot.
@@ -127,20 +127,29 @@ jest.mock("@/hooks/useShopBase", () => ({
   }),
 }));
 
+// LIRA-112 (D12): Katsh is the ONE bill provider that actually earns
+// commission (20,000 LBP/bill, RATE mode) — iPick's supplier row is
+// commission_eligible = 0 and never reaches the unsettled queue at all, so
+// it can't be this fixture (this file mocks getUnsettledTransactions
+// directly and never exercises the real eligibility gate — see
+// FinancialServiceRepository.billsSettlement.test.ts's "LIRA-112" describe
+// block for that backend-level proof).
 const NEW_MODEL_SUPPLIER = {
   id: 1,
-  name: "iPick",
+  name: "Katsh",
   contact_name: null,
   phone: null,
   note: null,
   is_active: 1,
   module_key: null,
-  provider: "iPick",
+  provider: "Katsh",
   is_system: 1,
   created_at: "2026-08-01T00:00:00Z",
   // D8 — pre-selects RATE mode with the supplier's saved per-bill rate.
   commission_entry_mode: "RATE" as const,
   commission_rate: 20000,
+  // LIRA-112 (v151) — Katsh's rate is denominated in LBP, not USD.
+  commission_rate_currency: "LBP" as const,
 };
 
 const LEGACY_SUPPLIER = {
@@ -214,14 +223,14 @@ describe("Suppliers page — commission-at-settlement Settle modal (Phase 0+1)",
 
   it("NEW-MODEL batch (BILL row): sends money-bearing commission + the D8 entry_mode/rate/count snapshot", async () => {
     mockGetUnsettledTransactions.mockImplementation((provider: string) =>
-      Promise.resolve(provider === "iPick" ? [BILL_ROW] : []),
+      Promise.resolve(provider === "Katsh" ? [BILL_ROW] : []),
     );
 
     renderPage();
 
-    // "iPick" also appears as the drawer badge next to the name — target
+    // "Katsh" also appears as the drawer badge next to the name — target
     // the supplier-list button specifically via getAllByText.
-    fireEvent.click((await screen.findAllByText("iPick"))[0]);
+    fireEvent.click((await screen.findAllByText("Katsh"))[0]);
 
     // Wait for the pending-row list itself to render (not just the "select
     // all" checkbox, which is present from the first render, before
@@ -246,13 +255,67 @@ describe("Suppliers page — commission-at-settlement Settle modal (Phase 0+1)",
     // branch is 0) — a bill-only batch settles for $0 cash.
     expect(payload.amount_usd).toBe(0);
     expect(payload.amount_lbp).toBe(0);
-    // Money-bearing: 20000 (rate) × 1 (count), booked as LBP (the bill's
-    // selection defaults the rate currency to LBP).
+    // Money-bearing: 20000 (rate) × 1 (count), booked as LBP — LIRA-112:
+    // sourced from the supplier's OWN stored commission_rate_currency, not
+    // inferred from the batch containing a BILL row (see the dedicated
+    // currency-source test below, which proves the two would disagree).
     expect(payload.commission_lbp).toBe(20000);
     expect(payload.commission_usd).toBe(0);
     expect(payload.entry_mode).toBe("RATE");
     expect(payload.commission_rate).toBe(20000);
     expect(payload.commission_unit_count).toBe(1);
+  });
+
+  // LIRA-112 — "commission_rate was specced in USD but Katsh's rate is
+  // 20,000 LBP" (the ticket's own currency concern). Before this fix, the
+  // RATE-mode currency toggle was pre-selected by INFERRING from the batch's
+  // contents (`selectedUnsettled.some(t => t.service_type === "BILL") ?
+  // "LBP" : "USD"`) rather than reading the supplier's own stored
+  // `commission_rate_currency`. This test uses a RATE-mode supplier whose
+  // stored currency is USD despite the batch being bill-only — the old
+  // heuristic and the new stored-config read DISAGREE here, so this proves
+  // which one actually wins.
+  //
+  // Rule 17 (failing-first): reverting `handleOpenSettleConfirm`'s
+  // `setSettleRateCurrency` call to the old heuristic (dropping
+  // `selectedSupplier?.commission_rate_currency ??`) makes this test fail —
+  // `payload.commission_usd` comes back `0` and `payload.commission_lbp`
+  // comes back `20000` (the OLD "any bill batch is LBP" behavior) instead of
+  // the supplier's actual USD config. Confirmed against that reverted code,
+  // then restored — see the task report for the exact failure output.
+  it("RATE-mode currency comes from the supplier's OWN commission_rate_currency, not inferred from the batch containing a BILL row", async () => {
+    const usdRateSupplier = {
+      ...NEW_MODEL_SUPPLIER,
+      id: 3,
+      name: "SomeBillProvider",
+      provider: "SomeBillProvider",
+      commission_rate: 500,
+      commission_rate_currency: "USD" as const,
+    };
+    mockGetSuppliers.mockResolvedValue([usdRateSupplier, LEGACY_SUPPLIER]);
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "SomeBillProvider" ? [BILL_ROW] : []),
+    );
+
+    renderPage();
+
+    fireEvent.click((await screen.findAllByText("SomeBillProvider"))[0]);
+
+    const billRow = (await screen.findByText("Bill")).closest("label")!;
+    fireEvent.click(within(billRow).getByRole("checkbox"));
+
+    fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
+
+    expect(await screen.findByDisplayValue("500")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Confirm Settlement"));
+
+    await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
+    const payload = mockSettleTransactions.mock.calls[0][0];
+    // 500 (rate) × 1 (count), booked as USD — the supplier's OWN config,
+    // even though the batch is bill-only (which the old heuristic would
+    // have read as LBP).
+    expect(payload.commission_usd).toBe(500);
+    expect(payload.commission_lbp).toBe(0);
   });
 
   it("LEGACY batch (OMT SEND row, commission_model=0): payload stays informational-commission-only, no D8 fields", async () => {
