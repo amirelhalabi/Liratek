@@ -148,6 +148,42 @@ BOTH sides. Services/OMT-Whish has no notice at all.
 
 ---
 
+## §5b ⚑ NEW REQUIREMENT — partners need their own system association (owner, 2026-08-09)
+
+Owner confirmed two things:
+
+1. **The partner's linked system DOES determine which drawer moves.** (Confirmed by the owner
+   directly; the parallel investigation is establishing the exact code path.)
+2. **Today you can only associate a partner with the Whish system** — so '7welet souria', a Syria
+   remittance partner with nothing to do with Whish, is linked to Whish and therefore
+   **moves the Whish_System drawer**. Owner: *"7welet syria should not affect the whish system
+   drawer, but it would be normal because currently we are only able to create a whish system
+   association for any partner created."*
+
+### The rule to build to (owner's words)
+
+> **"The partner settlement should affect the drawer of the system associated to it."**
+
+So a partner associated with a *'syria'* system must settle against a **Syria** drawer, not Whish.
+
+### What this implies (to be designed — not yet decided)
+
+- The system association becomes **user-creatable**, not a fixed OMT/Whish choice.
+- Each system association needs a **drawer** of its own (generalising the existing
+  `OMT_System` / `Whish_System` pattern to N systems).
+- ⚠ This collides with existing assumptions: `shop_base_system` / Primary Cash Drawer (PCD, plan
+  #68) treats OMT_System as *the* primary cash drawer, and money paths contain hardcoded `'OMT'` /
+  `'WHISH'` literals. Any generalisation must enumerate and handle those.
+- **Data already in the field is wrong**, not just the schema: existing partners linked to Whish
+  purely for lack of an alternative have been moving Whish_System. A cutover/repair decision is
+  needed — likely "leave history, apply forward" per D3 precedent, but that is the owner's call.
+
+**Sequencing note:** this is independent of §2 (cost model) and §3-§5 (guard/copy unification), and
+larger than both. It should get its own ticket + plan once the investigation reports; do not fold it
+into the §3 work in flight.
+
+---
+
 ## §6 Sequencing
 
 1. **§3 + §4 + §5** — the For-Partner unification. No owner decision needed, no historical data
