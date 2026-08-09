@@ -150,10 +150,30 @@ BOTH sides. Services/OMT-Whish has no notice at all.
 
 ## §5b ⚑ NEW REQUIREMENT — partners need their own system association (owner, 2026-08-09)
 
+> 🔴 **CORRECTION (2026-08-09, after investigation).** The owner stated — and this plan initially
+> recorded as spec — that the partner's linked system determines which drawer moves. **The code
+> refutes that.** `partners.system_association` is **never read by any money code**: grep across
+> `packages/core/src` finds it only in `PartnerRepository`'s own CRUD. It is a **UI filter** that
+> decides which partners appear in a selector and whether a provider tab is enabled
+> (`Services/index.tsx:514-519, 1329-1339, 1422-1430`; `Checkpoint/index.tsx:57-76`). Every other
+> partner-aware module (Custom Services, Recharge, Exchange, Loto, Sales) ignores it entirely.
+>
+> **The owner's conclusion is still right, by a different mechanism:** a partner is only offered
+> when its provider tab is open, which forces `provider: "WHISH"` onto the transaction; the drawer
+> is then chosen by `resolveServiceCashDrawer` from `provider === shop_base_system`
+> (`utils/payments.ts:190-203`), whose doc comment states outright *"Partner involvement is NOT part
+> of this predicate — route by the system the transaction runs on, not the counterparty"*. So if the
+> shop's base system IS Whish, that cash lands in `Whish_System`; if the base is OMT, it falls to
+> General instead. **The contamination is real but conditional on the shop's own base-system
+> setting**, and it pollutes provider-keyed analytics either way.
+>
+> Lesson recorded: an owner's statement about *mechanism* is a hypothesis to verify, not a spec —
+> their statement about *intent* ("Syria must not touch Whish") is the requirement.
+
 Owner confirmed two things:
 
-1. **The partner's linked system DOES determine which drawer moves.** (Confirmed by the owner
-   directly; the parallel investigation is establishing the exact code path.)
+1. ~~The partner's linked system DOES determine which drawer moves.~~ **See the correction above** —
+   the intent stands, the mechanism was wrong.
 2. **Today you can only associate a partner with the Whish system** — so '7welet souria', a Syria
    remittance partner with nothing to do with Whish, is linked to Whish and therefore
    **moves the Whish_System drawer**. Owner: *"7welet syria should not affect the whish system
@@ -165,6 +185,24 @@ Owner confirmed two things:
 > **"The partner settlement should affect the drawer of the system associated to it."**
 
 So a partner associated with a *'syria'* system must settle against a **Syria** drawer, not Whish.
+
+### The REAL blocker for a 'syria' system (from the investigation)
+
+- `financial_services.provider` is a **closed CHECK constraint** of 9 values
+  (`create_db.sql:618`) mirrored by a closed Zod enum (`validators/financial.ts:15-25`). There is no
+  provider slot for Syria, so a Syria remittance must currently be booked as OMT/WHISH
+  (contaminating those buckets and their analytics) or pushed through an unrelated module.
+- `partners.system_association` is by contrast **unconstrained TEXT** with no FK, no enum, no CHECK
+  (`create_db.sql:691`, migration v79) — "SYRIA" would store fine and mean nothing downstream.
+- The Partners UI dropdown is hardcoded to `{None, <the shop's non-owned system>}`
+  (`Partners/index.tsx:294-306`), derived from `useShopBase()` whose `BaseSystem` is a two-value TS
+  union — **no free-text entry exists**.
+- Latent bug found in passing: the secondary-system partner selector hardcodes `provider === "WHISH"`
+  (`Services/index.tsx:1422-1430`) instead of `provider === partnerSystem`, so a shop whose base
+  system is WHISH (making OMT secondary) has no equivalent partner requirement on the OMT tab.
+
+⇒ Generalising to N systems is primarily a **provider-taxonomy** change, not a
+`system_association` change. Any design must start there.
 
 ### What this implies (to be designed — not yet decided)
 
