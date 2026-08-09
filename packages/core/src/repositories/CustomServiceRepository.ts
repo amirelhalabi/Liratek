@@ -220,12 +220,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         };
 
         if (isForPartner) {
-          // LIRA-081 (PFT-R, mirrors FOR_RECHARGE/FOR_IPICK/FOR_KATSH): the
-          // shop's own cost still posts for real (a genuine resource the shop
-          // spends regardless of who the counterparty is); only the PRICE
-          // collection from a walk-in customer is diverted to the partner's
-          // tab. No counter payment at all — reject any leaked leg (defense
-          // in depth; the frontend never sends one in this mode).
+          // LIRA-081 (PFT-R): the FULL price is diverted to the partner's
+          // tab. The shop's cost is a profit input only — it must NOT move
+          // cash (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL SPEC;
+          // owner: "money should not leave the drawer at that moment"). No
+          // counter payment at all — reject any leaked leg (defense in
+          // depth; the frontend never sends one in this mode).
           assertPartnerIdRequired(data.partnerId);
           // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 (owner report
           // LIRA-114): this call used to compute `hasCounterPayment` from
@@ -245,42 +245,10 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             "custom service",
           );
 
-          if ((data.cost_usd ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-            );
-          }
-          if ((data.cost_lbp ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-            );
-          }
+          // §2 FINAL SPEC: cost is a profit input only — already captured in
+          // the unified transaction's profit_usd/profit_lbp above — and must
+          // NOT post a drawer movement. (Was: a hardcoded CASH/General cost
+          // outflow here; removed 2026-08-09.)
 
           // The FULL price books to partner_ledger (FOR_CUSTOM_SERVICE DEBIT)
           // against data.partnerId — per currency component, never a converted
@@ -315,45 +283,12 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             });
           }
         } else if (data.deferPayment) {
-          // Session-basket deferred mode: the basket owns the customer-cash price
-          // inflow + any on-account debt. The shop's own cost is still spent
-          // out-of-pocket from the General drawer, so book ONLY the cost outflow.
-          if ((data.cost_usd ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-            );
-          }
-          if ((data.cost_lbp ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-            );
-          }
+          // Session-basket deferred mode: the basket owns the customer-cash
+          // price inflow + any on-account debt elsewhere. The shop's cost is
+          // a profit input only (§2 FINAL SPEC) — nothing to book here at
+          // all. This branch is kept (instead of falling through) purely so
+          // the payments[]/drawer-affecting branches below don't try to
+          // collect the price a second time.
         } else if (data.payments && data.payments.length > 0) {
           // Structured payment legs (rule 16): book what the customer ACTUALLY
           // handed over — split payments, pay-in-another-currency, and change.
@@ -436,88 +371,15 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             });
           }
 
-          // Cost outflow — shop pays the cost out-of-pocket, same as all paths.
-          if ((data.cost_usd ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-            );
-          }
-          if ((data.cost_lbp ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-            );
-          }
+          // §2 FINAL SPEC: cost is a profit input only — it must NOT post a
+          // drawer movement. (Was: a hardcoded CASH/General cost outflow
+          // here, same as every other branch; removed 2026-08-09.)
         } else if (paidBy === "CUSTOMER_ACCOUNT") {
-          // CUSTOMER_ACCOUNT: customer pays from their credit balance
-          // But the shop still spent the cost out-of-pocket (from CASH/General drawer)
+          // CUSTOMER_ACCOUNT: customer pays from their credit balance. The
+          // cost is a profit input only (§2 FINAL SPEC) — it does not post a
+          // drawer movement.
           if (!data.client_id) {
             throw new Error("Cannot create debt without a client");
-          }
-
-          // Cost outflow from General drawer (USD)
-          if ((data.cost_usd ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-            );
-          }
-
-          // Cost outflow from General drawer (LBP)
-          if ((data.cost_lbp ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-            );
           }
 
           // Debt ledger entry: customer owes the price
@@ -534,51 +396,14 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         } else if (paidBy === "GIFT_CARD") {
           // Voucher payment: deposit the voucher's full value to the owner's
           // account, then charge the service price as a debt against that same
-          // account (so any leftover stays as credit). The shop still spends the
-          // cost out-of-pocket (General drawer).
+          // account (so any leftover stays as credit). The cost is a profit
+          // input only (§2 FINAL SPEC) — it does not post a drawer movement.
           const voucher = getVoucherRepository().redeemByCode({
             code: (data.voucher_code ?? "").trim().toUpperCase(),
             context: "custom_service",
             transactionId: txnId,
             userId: createdBy,
           });
-
-          if ((data.cost_usd ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-            );
-          }
-          if ((data.cost_lbp ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-            );
-          }
 
           // Charge the price to the voucher owner's account
           bookClientDebtCharge(this.db, {
@@ -633,45 +458,9 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             );
           }
 
-          // Cost outflow (USD) — always from General
-          if ((data.cost_usd ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "USD",
-              -Math.abs(data.cost_usd!),
-            );
-          }
-
-          // Cost outflow (LBP) — always from General
-          if ((data.cost_lbp ?? 0) > 0) {
-            insertPayment.run(
-              tenantId,
-              txnId,
-              "CASH",
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-              `${noteText} (cost outflow)`,
-              createdBy,
-            );
-            upsertBalance.run(
-              tenantId,
-              "General",
-              "LBP",
-              -Math.abs(data.cost_lbp!),
-            );
-          }
+          // §2 FINAL SPEC: cost is a profit input only — it must NOT post a
+          // drawer movement. (Was: a hardcoded CASH/General cost outflow
+          // here, always from General; removed 2026-08-09.)
         }
 
         return serviceId;

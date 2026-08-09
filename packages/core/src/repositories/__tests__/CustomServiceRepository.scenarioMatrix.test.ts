@@ -715,6 +715,13 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
   // SECTION C — For Partner = TRUE
   //
   // C1/C2: the intended flow (no legacy paid_by leak) — cost>0 and cost=0.
+  //        Both are now IDENTICAL in drawer effect: FOR_PARTNER_AND_COST_
+  //        UNIFICATION_PLAN.md §2 FINAL SPEC ("cost never moves cash, on any
+  //        of the three paths") removed the cost outflow entirely, so a
+  //        for-partner service touches NO drawer regardless of cost — RULE-17
+  //        PROVEN: pre-fix, C1 asserted `{ "General/USD": -2 }` and FAILED
+  //        when changed to `{}` (captured 2026-08-09, before the production
+  //        fix landed).
   // C3/C4: reproduce the OWNER'S EXACT BUG (LIRA-114) — an explicit legacy
   //        `paid_by` set alongside `partnerMode: "FOR"` with NO payment legs.
   //        `assertNoCounterPayment` only inspects `data.payments` (plan
@@ -724,7 +731,7 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
   // C6:    a missing partnerId IS caught (assertPartnerIdRequired).
   // ═══════════════════════════════════════════════════════════════════════
   describe("Section C — For Partner = true", () => {
-    it("C1: for-partner, default paid_by, cost>0 — cost posts for real, full price to partner tab", () => {
+    it("C1: for-partner, default paid_by, cost>0 — cost is profit-only (no drawer movement), full price to partner tab", () => {
       const partnerId = seedPartner(db, "Partner C1");
       const row = runScenario(db, repo, {
         id: "C1",
@@ -745,7 +752,10 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
       });
 
       expect(row.result).toBe("OK");
-      expect(row.createDelta).toEqual({ "General/USD": -2 });
+      // §2 FINAL SPEC: cost never moves cash — no General movement even
+      // though cost_usd=2. Pre-fix this was `{ "General/USD": -2 }`.
+      expect(row.createDelta).toEqual({});
+      expect(row.paymentRowCountAtCreate).toBe(0);
       expect(row.partnerRows).toHaveLength(1);
       expect(row.partnerRows[0].transaction_type).toBe("FOR_CUSTOM_SERVICE");
       expect(row.debtRows).toHaveLength(0);
@@ -777,10 +787,12 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
       });
 
       expect(row.result).toBe("OK");
-      // cost=0 => the cost-outflow `if ((data.cost_usd ?? 0) > 0)` guard
-      // never fires => literally ZERO payments rows for this transaction,
-      // yet metadata_json.paid_by still reads "CASH" (see the assertion
-      // below) — the field claims a method that has ZERO backing rows.
+      // cost=0 was ALREADY zero payment rows pre-fix (the cost-outflow guard
+      // never fired for a zero cost); post-fix this is true for EVERY cost
+      // value, not just zero (see C1) — cost never posts, period. Meanwhile
+      // metadata_json.paid_by still reads "CASH": the field claims a method
+      // that has ZERO backing rows (the pre-existing §3 audit-trail gap this
+      // repository doesn't reject for the neutral-default "CASH" value).
       expect(row.createDelta).toEqual({});
       expect(row.partnerRows).toHaveLength(1);
       expect(row.metaPaidBy).toBe("CASH");

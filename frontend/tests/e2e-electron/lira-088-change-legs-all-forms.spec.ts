@@ -140,9 +140,12 @@ test.describe("LIRA-088 — change legs in all forms", () => {
 
     expect(res.error ?? null).toBeNull();
     expect(res.success).toBe(true);
-    // +$20 in; −900,000 LBP change; −500,000 LBP cost outflow.
+    // +$20 in; −900,000 LBP change. Per FOR_PARTNER_AND_COST_UNIFICATION_PLAN
+    // §2 FINAL SPEC: the 500,000 LBP cost is a profit input only — it never
+    // posts a drawer movement (pre-§2 this leg would have carried an extra
+    // -500,000 LBP cost outflow on top of the change leg).
     expect(after.usd - before.usd).toBeCloseTo(20, 2);
-    expect(after.lbp - before.lbp).toBeCloseTo(-1_400_000, 2);
+    expect(after.lbp - before.lbp).toBeCloseTo(-900_000, 2);
   });
 
   // A5 canary (owner-reported, Windows-only so far, unreproducible on macOS):

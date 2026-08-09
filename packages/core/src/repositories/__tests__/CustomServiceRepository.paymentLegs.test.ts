@@ -203,15 +203,16 @@ describe("CustomServiceRepository — structured payment legs", () => {
     expect(res.success).toBe(true);
 
     // Pre-fix: General +900,000 LBP price inflow (phantom), the $20 never
-    // booked, no change. Now: +$20 in, −900,000 LBP change, −500,000 LBP cost.
+    // booked, no change. Now: +$20 in, −900,000 LBP change. §2 FINAL SPEC:
+    // the 500,000 LBP cost is a profit input only — it never posts a drawer
+    // movement (pre-§2 this leg would have carried an extra -500,000 LBP).
     expect(balance(db, "USD")).toBeCloseTo(usdBefore + 20, 2);
-    expect(balance(db, "LBP")).toBeCloseTo(lbpBefore - 900_000 - 500_000, 2);
+    expect(balance(db, "LBP")).toBeCloseTo(lbpBefore - 900_000, 2);
 
     const all = legs(db);
-    expect(all).toHaveLength(3);
+    expect(all).toHaveLength(2);
     expect(all[0]).toMatchObject({ currency_code: "USD", amount: 20 });
     expect(all[1]).toMatchObject({ currency_code: "LBP", amount: -900_000 });
-    expect(all[2]).toMatchObject({ currency_code: "LBP", amount: -500_000 }); // cost
   });
 
   it("split CASH + CUSTOMER_ACCOUNT legs book cash and the on-account share as debt", () => {

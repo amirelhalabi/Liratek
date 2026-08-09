@@ -11,12 +11,20 @@
  * empty-summary guard because `"Custom Service: ".trim()` is
  * `"Custom Service:"`, non-empty. The same template doubles up as the
  * payment/drawer note, producing a doubled space
- * (`"Custom Service:  (cost outflow)"`).
+ * (`"Custom Service:  (price inflow)"`).
  *
  * Fix: the label degrades to the bare `"Custom Service"` (no colon, no
  * trailing space) whenever the (trimmed) description is empty, and a
  * non-empty description still produces the byte-identical
  * `"Custom Service: <description>"` as before.
+ *
+ * NOTE (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2, 2026-08-09): this test
+ * used to read the "(cost outflow)" payment note as its proof point. §2
+ * FINAL SPEC removed that leg entirely (cost never moves cash) — the same
+ * `noteText` template is still exercised via the "(price inflow)" leg that
+ * the CASH/drawer-affecting branch posts for the price, so the helper below
+ * now reads that note instead. The underlying bug/fix (dangling colon,
+ * doubled space) is about `noteText` itself, not about which leg carries it.
  */
 
 import Database from "better-sqlite3";
@@ -146,11 +154,11 @@ function summaryOf(db: Database.Database): string | null {
   ).summary;
 }
 
-function costOutflowNote(db: Database.Database): string {
+function priceInflowNote(db: Database.Database): string {
   return (
     db
       .prepare(
-        `SELECT note FROM payments WHERE note LIKE '%(cost outflow)%' ORDER BY id DESC LIMIT 1`,
+        `SELECT note FROM payments WHERE note LIKE '%(price inflow)%' ORDER BY id DESC LIMIT 1`,
       )
       .get() as { note: string }
   ).note;
@@ -191,10 +199,10 @@ describe("CustomServiceRepository — blank description summary/notes", () => {
 
     expect(summaryOf(db)).toBe("Custom Service");
 
-    // Derived payment/drawer note (cost outflow) must not double the space
+    // Derived payment/drawer note (price inflow) must not double the space
     // that the dangling colon used to leave behind.
-    const note = costOutflowNote(db);
-    expect(note).toBe("Custom Service (cost outflow)");
+    const note = priceInflowNote(db);
+    expect(note).toBe("Custom Service (price inflow)");
     expect(note).not.toContain("  ");
     expect(note).not.toContain(":");
   });
@@ -216,8 +224,8 @@ describe("CustomServiceRepository — blank description summary/notes", () => {
 
     expect(summaryOf(db)).toBe("Custom Service");
 
-    const note = costOutflowNote(db);
-    expect(note).toBe("Custom Service (cost outflow)");
+    const note = priceInflowNote(db);
+    expect(note).toBe("Custom Service (price inflow)");
     expect(note).not.toContain("  ");
     expect(note).not.toContain(":");
   });
@@ -239,7 +247,7 @@ describe("CustomServiceRepository — blank description summary/notes", () => {
 
     expect(summaryOf(db)).toBe("Custom Service: Phone repair");
 
-    const note = costOutflowNote(db);
-    expect(note).toBe("Custom Service: Phone repair (cost outflow)");
+    const note = priceInflowNote(db);
+    expect(note).toBe("Custom Service: Phone repair (price inflow)");
   });
 });

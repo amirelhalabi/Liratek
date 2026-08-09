@@ -412,10 +412,11 @@ describe("ModuleStoreCreditReversal — RechargeRepository / CustomServiceReposi
     expect(result.success).toBe(true);
     const txnId = txnIdFor(db, "custom_services", result.id as number);
 
-    // General nets +25 (CASH IN) - $10 (cost outflow, booked from the same
-    // drawer) = +15; the $5 change never touches a drawer at all.
+    // General nets +25 (CASH IN); §2 FINAL SPEC means cost_usd=10 never posts
+    // a drawer movement, so the full $25 lands; the $5 change never touches
+    // a drawer at all.
     expect(clientBalance(db, CLIENT_ID)).toEqual({ usd: -5, lbp: 0 });
-    expect(drawer(db, "General", "USD")).toBeCloseTo(generalBefore + 15, 2);
+    expect(drawer(db, "General", "USD")).toBeCloseTo(generalBefore + 25, 2);
 
     txnRepo.voidTransaction(txnId, 1);
 

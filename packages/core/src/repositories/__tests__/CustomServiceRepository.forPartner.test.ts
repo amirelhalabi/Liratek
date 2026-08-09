@@ -1,12 +1,14 @@
 /**
  * CustomServiceRepository — LIRA-081 "For Partner" tests
  *
- * Mirrors FOR_RECHARGE/FOR_IPICK/FOR_KATSH (RechargeRepository /
- * FinancialServiceRepository): the shop's own cost still posts for real (a
- * genuine resource spent regardless of the counterparty); only the PRICE
- * collection from a walk-in customer is diverted to the partner's tab —
- * booked per currency component (custom services can carry BOTH a USD and an
- * LBP price simultaneously, unlike a single-currency recharge).
+ * The FULL price collection from a walk-in customer is diverted to the
+ * partner's tab — booked per currency component (custom services can carry
+ * BOTH a USD and an LBP price simultaneously, unlike a single-currency
+ * recharge). The shop's own cost is a profit input only — it must NOT move
+ * cash (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL SPEC, 2026-08-09):
+ * unlike FOR_RECHARGE/FOR_IPICK/FOR_KATSH, which still post a real cost
+ * outflow, Custom Services stopped doing that — it was the outlier the plan
+ * exists to fix.
  */
 
 import Database from "better-sqlite3";
@@ -206,7 +208,7 @@ describe("CustomServiceRepository.createService() — for-partner (LIRA-081)", (
     db.close();
   });
 
-  it("posts the cost outflow for real and books the FULL price to the partner's tab (USD only)", () => {
+  it("does NOT post the cost outflow — cost is profit-only — and books the FULL price to the partner's tab (USD only)", () => {
     const partnerId = seedPartner(db);
 
     const result = repo.createService(
@@ -222,8 +224,8 @@ describe("CustomServiceRepository.createService() — for-partner (LIRA-081)", (
 
     expect(result.success).toBe(true);
 
-    // Cost still posts for real.
-    expect(balance(db, "General", "USD")).toBeCloseTo(-2, 2);
+    // §2 FINAL SPEC: cost never moves cash, even though cost_usd=2.
+    expect(balance(db, "General", "USD")).toBeCloseTo(0, 2);
     // No price collected from a walk-in customer.
     expect(balance(db, "General", "LBP")).toBeCloseTo(0, 2);
 
@@ -244,10 +246,9 @@ describe("CustomServiceRepository.createService() — for-partner (LIRA-081)", (
     expect(txn.profit_usd).toBeCloseTo(8, 2); // price - cost, same as normal
     expect(txn.client_name).toBe("Service Partner [partner]");
 
-    // Only the cost outflow payment row was written — no price inflow.
+    // No payment row was written at all — no cost outflow, no price inflow.
     const payments = db.prepare("SELECT * FROM payments").all() as any[];
-    expect(payments).toHaveLength(1);
-    expect(payments[0].amount).toBeCloseTo(-2, 2);
+    expect(payments).toHaveLength(0);
   });
 
   it("books BOTH currency components separately when the service has a mixed USD+LBP price", () => {
@@ -266,8 +267,10 @@ describe("CustomServiceRepository.createService() — for-partner (LIRA-081)", (
       1,
     );
 
-    expect(balance(db, "General", "USD")).toBeCloseTo(-1, 2);
-    expect(balance(db, "General", "LBP")).toBeCloseTo(-50_000, 0);
+    // §2 FINAL SPEC: cost never moves cash — General is untouched despite
+    // cost_usd=1 / cost_lbp=50_000.
+    expect(balance(db, "General", "USD")).toBeCloseTo(0, 2);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(0, 0);
 
     const entries = db
       .prepare(
@@ -319,7 +322,7 @@ describe("CustomServiceRepository.createService() — for-partner (LIRA-081)", (
     expect(balance(db, "General", "USD")).toBeCloseTo(0, 2);
   });
 
-  it("voiding a for-partner service restores the cost drawer and nets the partner ledger to 0", () => {
+  it("voiding a for-partner service leaves General untouched (no cost outflow to reverse) and nets the partner ledger to 0", () => {
     const partnerId = seedPartner(db);
 
     repo.createService(
@@ -333,7 +336,8 @@ describe("CustomServiceRepository.createService() — for-partner (LIRA-081)", (
       1,
     );
 
-    expect(balance(db, "General", "USD")).toBeCloseTo(-2, 2);
+    // §2 FINAL SPEC: nothing was ever posted to General for the cost.
+    expect(balance(db, "General", "USD")).toBeCloseTo(0, 2);
 
     const serviceId = (
       db.prepare("SELECT id FROM custom_services").get() as any
@@ -342,7 +346,7 @@ describe("CustomServiceRepository.createService() — for-partner (LIRA-081)", (
     const result = repo.deleteService(serviceId);
     expect(result.success).toBe(true);
 
-    // Cost outflow reversed — net effect of create + void is 0.
+    // Nothing to reverse — General stays at 0 (trivially net-to-0).
     expect(balance(db, "General", "USD")).toBeCloseTo(0, 2);
 
     // Partner ledger nets to 0 for this service (DEBIT 10 + CREDIT 10).
