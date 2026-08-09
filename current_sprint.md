@@ -3511,7 +3511,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)   | Medium   | TODO (owner confirmed; use SELECTED line)                 | owner report 2026-08-08             |
 | LIRA-114 | 'For Partner' custom service acts as THROUGH; cost hits General | **High** | RE-OPENED 2026-08-09 — it IS custom_services, not omt_whish (crossed labels); owner confirmed For-Partner ticked | owner report 2026-08-08 |
 | LIRA-116 | Rename crossed 'Services' module labels/routes          | Medium   | TODO (owner approved 2026-08-09)                          | found via LIRA-114                  |
-| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — guard at repository layer so IPC+REST both enforce; basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
+| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
