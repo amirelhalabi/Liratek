@@ -965,18 +965,40 @@ export default function CustomServices() {
                   />
                 </div>
 
-                {/* Payment Method — replaced by a notice in for-partner mode */}
+                {/* Payment Method — replaced by a notice in for-partner mode.
+                    FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5: the old copy
+                    only described the PRICE side ("no payment is collected")
+                    and stayed silent about the COST — which still posts as a
+                    real cash outflow from General at submit today (§2's
+                    "cost never moves cash" change is a separate, not-yet-built
+                    change; do not promise it here). That silence on the cost
+                    side is what actually misled the owner (LIRA-114): they
+                    saw General drop and didn't understand why, since the
+                    notice implied nothing left the till. */}
                 {forPartner ? (
                   <ForPartnerNotice
                     testId="custom-service-partner-no-payment-notice"
                     className="text-sm text-teal-200 bg-teal-500/10 border border-teal-500/30 rounded-xl px-4 py-4"
                   >
-                    No payment is collected for a partner service. The full{" "}
+                    No price is collected from a customer for a partner
+                    service. The full{" "}
                     <span className="font-bold">
                       {formatCurrency(priceUsdVal, priceLbpVal)}
                     </span>{" "}
                     goes on the selected partner&apos;s account, settled later
                     on the Partners page.
+                    {(costUsdVal > 0 || costLbpVal > 0) && (
+                      <>
+                        {" "}
+                        The service&apos;s cost,{" "}
+                        <span className="font-bold">
+                          {formatCurrency(costUsdVal, costLbpVal)}
+                        </span>
+                        , still leaves the General drawer right now, the same
+                        as a walk-in job — the partner isn&apos;t billed for
+                        it.
+                      </>
+                    )}
                   </ForPartnerNotice>
                 ) : (
                   <div>

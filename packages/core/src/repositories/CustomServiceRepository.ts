@@ -227,8 +227,21 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           // tab. No counter payment at all — reject any leaked leg (defense
           // in depth; the frontend never sends one in this mode).
           assertPartnerIdRequired(data.partnerId);
+          // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 (owner report
+          // LIRA-114): this call used to compute `hasCounterPayment` from
+          // `data.payments` ONLY, so a for-partner submission carrying a
+          // stale legacy `data.paid_by` (e.g. "CUSTOMER_ACCOUNT" left over
+          // from before the operator ticked "For Partner", or any other
+          // single-payment-method leftover) was accepted with no money
+          // moved, yet `metadata_json.paid_by` below still stamped that
+          // method as if it had executed. Passing `data.paid_by` as the
+          // guard's now-required `legacyPaidBy` parameter closes that hole —
+          // see moneyPosting.ts's `assertNoCounterPayment` doc for the
+          // CASH-is-neutral-default / CUSTOMER_ACCOUNT-is-never-valid
+          // reasoning.
           assertNoCounterPayment(
             (data.payments?.length ?? 0) > 0,
+            data.paid_by,
             "custom service",
           );
 

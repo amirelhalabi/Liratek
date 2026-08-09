@@ -765,7 +765,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           data.payments,
         );
         if (isForPartner) {
-          assertNoCounterPayment(inPayments.length > 0, "recharge");
+          // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 is scoped to Custom
+          // Services this slice — `legacyPaidBy` stays `undefined` here
+          // (no behavior change); wiring in `data.paid_by_method` is a
+          // later slice's fix, not this one's.
+          assertNoCounterPayment(inPayments.length > 0, undefined, "recharge");
         }
         const deferPayment = data.deferPayment === true;
 

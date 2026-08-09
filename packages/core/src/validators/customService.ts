@@ -71,6 +71,23 @@ export const createCustomServiceSchema = z
     {
       message: "A voucher code is required when paying by Gift Card",
     },
+  )
+  .refine(
+    (data) =>
+      data.partnerMode !== "FOR" || data.paid_by !== "CUSTOMER_ACCOUNT",
+    {
+      // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3: explicit rule, not a
+      // side effect of the CUSTOMER_ACCOUNT-requires-client_id refine above
+      // (which would only fire when client_id is ALSO absent). Under
+      // partnerMode "FOR" there is no customer owing — the PARTNER owes —
+      // so CUSTOMER_ACCOUNT is never a valid paid_by here, with or without
+      // a client_id. Mirrors the repository-layer rejection in
+      // `assertNoCounterPayment` (moneyPosting.ts); this is the edge (Zod)
+      // half of rule 19 — reject before the write, not just inside it.
+      message:
+        "paid_by cannot be Customer Account on a for-partner custom service — there is no customer owing, the partner owes",
+      path: ["paid_by"],
+    },
   );
 
 export type CreateCustomServiceInput = z.infer<

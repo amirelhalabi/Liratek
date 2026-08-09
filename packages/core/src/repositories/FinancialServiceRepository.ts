@@ -1801,7 +1801,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         // No walk-in customer: any customer-paid IN leg is a modeling error —
         // reject rather than book a phantom cash-in (mirrors SalesRepository /
         // RechargeRepository / LotoTicketRepository, PFT-R).
-        assertNoCounterPayment(inPayments.length > 0, "financial service");
+        // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 is scoped to Custom
+        // Services this slice — `legacyPaidBy` stays `undefined` here
+        // (no behavior change); wiring in `data.paidByMethod`/`cashoutMethod`
+        // is a later slice's fix, not this one's.
+        assertNoCounterPayment(
+          inPayments.length > 0,
+          undefined,
+          "financial service",
+        );
         // CUSTOMER_ACCOUNT has no meaning without a customer.
         assertNoCustomerAccountLeg(
           returnLegs.some((r) => r.method === "CUSTOMER_ACCOUNT"),

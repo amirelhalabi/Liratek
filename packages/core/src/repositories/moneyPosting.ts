@@ -537,13 +537,13 @@ export function assertPartnerIdRequired(
  * Guard 2 — counter-payment rejection: a FOR-partner flow takes the FULL
  * amount, unconditionally — no counter cash/wallet/account leg from a
  * walk-in customer (PFT-R, "validated flow catalog"). `context` reproduces
- * each of the 4 existing per-module messages BYTE-IDENTICAL:
+ * each of the 5 existing per-module messages BYTE-IDENTICAL:
  *   "sale" (SalesRepository), "recharge" (RechargeRepository),
  *   "loto ticket" (LotoTicketRepository), "financial service"
- *   (FinancialServiceRepository).
+ *   (FinancialServiceRepository), "custom service" (CustomServiceRepository).
  * e2e specs lira-113/115/116/118/119 assert `.toContain("no counter
  * payment")` / `.toMatch(/no counter payment/i)` — the substring survives
- * untouched for every context, and for all 4 existing call sites the WHOLE
+ * untouched for every context, and for all existing call sites the WHOLE
  * message is reproduced verbatim, not just the asserted substring.
  *
  * RechargeRepository's and LotoTicketRepository's "mutual exclusivity"
@@ -555,12 +555,61 @@ export function assertPartnerIdRequired(
  * "no counter payment" message, never a distinct one. Only SalesRepository
  * and FinancialServiceRepository have a genuinely separate, differently-worded
  * guard for it (see `assertNoCustomerAccountLeg`).
+ *
+ * `legacyPaidBy` (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 — closing the
+ * owner's LIRA-114 report): the caller's OWN legacy single-payment-method
+ * field (`data.paid_by`, `paidByMethod`/`cashoutMethod`, `paid_by_method`,
+ * …), taken as an EXPLICIT, REQUIRED parameter rather than folded into the
+ * caller's own hand-computed `hasCounterPayment` boolean. That was the exact
+ * gap: `CustomServiceRepository` computed `hasCounterPayment` from
+ * `data.payments` only, so a for-partner submission carrying a stale
+ * `paid_by: "CUSTOMER_ACCOUNT"` (or any other single-method leftover from
+ * before the operator ticked the partner checkbox) sailed through — accepted,
+ * no money moved, yet `metadata_json.paid_by` recorded a payment method that
+ * never executed. Requiring this parameter means a future call site cannot
+ * silently repeat that mistake by omission — TypeScript forces every caller
+ * to make the legacy field an explicit decision. A call site with no such
+ * field, or one that already folds its own equivalent check into
+ * `hasCounterPayment` (LotoTicketRepository), passes `undefined` — this
+ * function's own check on it then no-ops, so behavior there is unchanged.
+ *
+ * Any value OTHER than `"CASH"` — the app-wide neutral default every
+ * `paid_by`-shaped field falls back to when the operator never explicitly
+ * chose one (`data.paid_by ?? "CASH"`) — throws: `"CUSTOMER_ACCOUNT"` gets
+ * its own clearly-worded rejection (the governing business rule: under
+ * For-Partner there is no customer owing, the PARTNER owes, so
+ * CUSTOMER_ACCOUNT can never be valid here, independent of whether it "had
+ * an effect"); every other non-CASH value (e.g. a wallet method like "OMT")
+ * falls through to the same generic "no counter payment" throw as a leaked
+ * leg — a FOR-partner branch that calls this guard is, by construction, a
+ * branch that posts NO counter payment through this field, so ANY other
+ * explicit value is a dead claim that must not reach `metadata_json`.
+ * Rejecting (rather than silently nulling the value before it's stamped) was
+ * chosen deliberately: nulling would still let the submission succeed with a
+ * DIFFERENT, quieter loss of information (the operator's now-meaningless
+ * legacy selection just vanishes with no feedback), where rejecting surfaces
+ * the stale value to the operator immediately, before anything is written —
+ * consistent with every other PFT-R guard in this file, all of which reject
+ * rather than silently coerce. This is intentionally NOT "ban every payment
+ * method under FOR everywhere": a module whose FOR-partner branch
+ * legitimately still disburses through a method field (a real payout, not a
+ * counter-payment claim) simply should not route that field through THIS
+ * parameter — only pass a value here when it represents "how the walk-in
+ * counter customer paid", the concept this guard exists to reject entirely.
  */
 export function assertNoCounterPayment(
   hasCounterPayment: boolean,
+  legacyPaidBy: string | null | undefined,
   context: string,
 ): void {
-  if (hasCounterPayment) {
+  if (legacyPaidBy === "CUSTOMER_ACCOUNT") {
+    throw new Error(
+      `A partner ${context} cannot be paid by Customer Account — there is no customer owing, the partner owes`,
+    );
+  }
+  const hasLegacyCounterPayment =
+    legacyPaidBy != null && legacyPaidBy !== "CASH";
+  if (hasCounterPayment || hasLegacyCounterPayment) {
     throw new Error(
       `A partner ${context} takes no counter payment — the full amount goes on the partner's tab`,
     );

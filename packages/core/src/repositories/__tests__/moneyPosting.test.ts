@@ -545,18 +545,27 @@ describe("assertPartnerIdRequired (CQ-4 guard 1 — counterparty-required)", () 
 });
 
 describe("assertNoCounterPayment (CQ-4 guard 2 — counter-payment rejection)", () => {
-  it("reproduces each of the 4 existing per-module messages byte-identical", () => {
-    expect(() => assertNoCounterPayment(true, "sale")).toThrow(
+  it("reproduces each of the 5 existing per-module messages byte-identical", () => {
+    expect(() => assertNoCounterPayment(true, undefined, "sale")).toThrow(
       "A partner sale takes no counter payment — the full amount goes on the partner's tab",
     );
-    expect(() => assertNoCounterPayment(true, "recharge")).toThrow(
+    expect(() => assertNoCounterPayment(true, undefined, "recharge")).toThrow(
       "A partner recharge takes no counter payment — the full amount goes on the partner's tab",
     );
-    expect(() => assertNoCounterPayment(true, "loto ticket")).toThrow(
+    expect(() =>
+      assertNoCounterPayment(true, undefined, "loto ticket"),
+    ).toThrow(
       "A partner loto ticket takes no counter payment — the full amount goes on the partner's tab",
     );
-    expect(() => assertNoCounterPayment(true, "financial service")).toThrow(
+    expect(() =>
+      assertNoCounterPayment(true, undefined, "financial service"),
+    ).toThrow(
       "A partner financial service takes no counter payment — the full amount goes on the partner's tab",
+    );
+    expect(() =>
+      assertNoCounterPayment(true, undefined, "custom service"),
+    ).toThrow(
+      "A partner custom service takes no counter payment — the full amount goes on the partner's tab",
     );
   });
 
@@ -566,10 +575,11 @@ describe("assertNoCounterPayment (CQ-4 guard 2 — counter-payment rejection)", 
       "recharge",
       "loto ticket",
       "financial service",
+      "custom service",
     ]) {
       let message = "";
       try {
-        assertNoCounterPayment(true, context);
+        assertNoCounterPayment(true, undefined, context);
       } catch (e) {
         message = (e as Error).message;
       }
@@ -578,8 +588,53 @@ describe("assertNoCounterPayment (CQ-4 guard 2 — counter-payment rejection)", 
     }
   });
 
-  it("does not throw when there is no counter payment", () => {
-    expect(() => assertNoCounterPayment(false, "sale")).not.toThrow();
+  it("does not throw when there is no counter payment and no legacy leak", () => {
+    expect(() =>
+      assertNoCounterPayment(false, undefined, "sale"),
+    ).not.toThrow();
+  });
+
+  // ── legacyPaidBy (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 —
+  //    LIRA-114 fix): the required 2nd parameter this guard gained so a
+  //    caller cannot forget to check the legacy single-payment-method
+  //    field the way CustomServiceRepository did. ──────────────────────
+  describe("legacyPaidBy — closing the LIRA-114 audit-trail gap", () => {
+    it("does not throw for an absent legacy field (undefined/null)", () => {
+      expect(() =>
+        assertNoCounterPayment(false, undefined, "custom service"),
+      ).not.toThrow();
+      expect(() =>
+        assertNoCounterPayment(false, null, "custom service"),
+      ).not.toThrow();
+    });
+
+    it('does not throw for the neutral default "CASH"', () => {
+      expect(() =>
+        assertNoCounterPayment(false, "CASH", "custom service"),
+      ).not.toThrow();
+    });
+
+    it("throws a dedicated message for CUSTOMER_ACCOUNT — never valid under For-Partner", () => {
+      expect(() =>
+        assertNoCounterPayment(false, "CUSTOMER_ACCOUNT", "custom service"),
+      ).toThrow(
+        "A partner custom service cannot be paid by Customer Account — there is no customer owing, the partner owes",
+      );
+    });
+
+    it("throws the generic no-counter-payment message for any other stale non-CASH value (e.g. a wallet method)", () => {
+      expect(() =>
+        assertNoCounterPayment(false, "OMT", "custom service"),
+      ).toThrow(
+        "A partner custom service takes no counter payment — the full amount goes on the partner's tab",
+      );
+    });
+
+    it("throws even when hasCounterPayment is already false, purely from the legacy field", () => {
+      expect(() =>
+        assertNoCounterPayment(false, "WHISH", "custom service"),
+      ).toThrow();
+    });
   });
 });
 

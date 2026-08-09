@@ -802,7 +802,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             // customer-paid IN leg (cash, wallet, gift card, ...) means a
             // walk-in customer is in the loop, which contradicts the
             // validated FOR-partner model (full amount, no counter cash).
-            assertNoCounterPayment(inLegs.length > 0, "sale");
+            // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 is scoped to
+            // Custom Services this slice — `legacyPaidBy` stays `undefined`
+            // here (no behavior change); wiring in `payment_usd`/
+            // `payment_lbp` is a later slice's fix, not this one's.
+            assertNoCounterPayment(inLegs.length > 0, undefined, "sale");
             assertPartnerIdRequired(sale.partnerId);
 
             // PFT-R: the partner owes the FULL sale amount unconditionally —

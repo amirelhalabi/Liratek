@@ -349,13 +349,19 @@ export class LotoTicketRepository {
         // into this SAME "no counter payment" guard, not a separate
         // mutual-exclusivity guard — it already threw this exact message,
         // never a distinct one (see moneyPosting.ts's assertNoCounterPayment
-        // doc).
+        // doc). `legacyPaidBy` (the guard's now-required 2nd param) stays
+        // `undefined` here — this repo already folds its OWN legacy
+        // `data.payment_method` check into `hasLegacyCounterPayment`/
+        // `hasLegacyCustomerAccount` above (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md
+        // §3 is scoped to Custom Services this slice; Loto is the ONE module
+        // that already got this right, so its existing logic is left as-is).
         assertNoCounterPayment(
           hasCounterPaymentLeg ||
             hasLegacyCounterPayment ||
             hasLegacyCustomerAccount ||
             debtUsd > 0 ||
             debtLbp > 0,
+          undefined,
           "loto ticket",
         );
 
