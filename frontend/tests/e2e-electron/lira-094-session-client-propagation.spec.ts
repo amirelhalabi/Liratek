@@ -275,7 +275,8 @@ test.describe("LIRA-094 — session client propagation (full matrix)", () => {
   }) => {
     // 1. Custom service $15.
     await navigateTo(appPage, "/custom-services");
-    const search = appPage.getByPlaceholder(/Search inventory/i);
+    // Hooked by data-testid (not placeholder copy — the owner rewords that text).
+    const search = appPage.getByTestId("custom-service-item-search");
     await search.fill("L094 session service");
     await search.press("Enter");
     await expect(appPage.locator("#svc-description")).toHaveValue(

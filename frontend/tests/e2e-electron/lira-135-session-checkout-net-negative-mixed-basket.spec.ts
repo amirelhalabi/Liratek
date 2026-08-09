@@ -106,7 +106,8 @@ test.describe("LIRA-135 — session checkout, net-negative mixed basket, driven 
         .first(),
     ).toBeVisible({ timeout: 20_000 });
 
-    const search = appPage.getByPlaceholder(/Search inventory/i);
+    // Hooked by data-testid (not placeholder copy — the owner rewords that text).
+    const search = appPage.getByTestId("custom-service-item-search");
     await expect(search).toBeVisible({ timeout: 15_000 });
     await search.fill(SERVICE_DESC);
     await search.press("Enter");

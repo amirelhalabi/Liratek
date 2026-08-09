@@ -128,8 +128,9 @@ test.describe("LIRA-093 — customer account everywhere", () => {
 
     // Description (SearchBar free text → Enter commits it). Pressing Enter
     // fast used to silently drop the text (the A5 bug, fixed in SearchBar);
-    // assert the committed description input actually appears.
-    const search = appPage.getByPlaceholder(/Search inventory/i);
+    // assert the committed description input actually appears. Hooked by
+    // data-testid (not placeholder copy — the owner rewords that text).
+    const search = appPage.getByTestId("custom-service-item-search");
     await search.fill("CA sweep service");
     await search.press("Enter");
     await expect(appPage.locator("#svc-description")).toHaveValue(

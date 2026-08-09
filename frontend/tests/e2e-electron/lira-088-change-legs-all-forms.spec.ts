@@ -155,8 +155,9 @@ test.describe("LIRA-088 — change legs in all forms", () => {
     const { navigateTo } = await import("./fixtures");
     await navigateTo(appPage, "/custom-services");
 
-    // Description field is a SearchBar until text is committed.
-    const search = appPage.getByPlaceholder(/Search inventory/i);
+    // Description field is a SearchBar until text is committed. Hooked by
+    // data-testid (not placeholder copy — the owner rewords that text).
+    const search = appPage.getByTestId("custom-service-item-search");
     await expect(search).toBeVisible({ timeout: 10_000 });
     await search.click();
     await search.pressSequentially("A5 canary service");
@@ -177,5 +178,23 @@ test.describe("LIRA-088 — change legs in all forms", () => {
     await note.click();
     await note.pressSequentially("canary note");
     await expect(note).toHaveValue("canary note");
+
+    // Cleanup: this canary deliberately never submits, so the form is left
+    // holding "A5 Canary Customer" / "03123456" / etc. Clear every field it
+    // typed into, then bounce off /custom-services so the next spec that
+    // navigates here (e.g. lira-093's pickClient) doesn't inherit stale
+    // autocomplete/input state. navigateTo now force-remounts on a same-route
+    // call too (fixtures.ts), but clearing here is cheap belt-and-braces and
+    // keeps this test self-contained regardless of that fixture behavior.
+    await search.fill("");
+    await expect(search).toHaveValue("");
+    await name.fill("");
+    await expect(name).toHaveValue("");
+    await phone.fill("");
+    await expect(phone).toHaveValue("");
+    await note.fill("");
+    await expect(note).toHaveValue("");
+
+    await navigateTo(appPage, "/");
   });
 });

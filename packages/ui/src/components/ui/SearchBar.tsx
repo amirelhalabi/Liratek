@@ -30,6 +30,12 @@ export interface SearchBarProps<T> {
   disabled?: boolean;
   /** Show "no results" message and allow free text entry */
   noResultsMessage?: string;
+  /**
+   * data-testid for the underlying <input> — lets callers give e2e specs a
+   * stable hook instead of matching on placeholder copy (which product
+   * changes reword). Not required; omit for callers with no e2e target.
+   */
+  "data-testid"?: string;
 }
 
 export function SearchBar<T>({
@@ -44,6 +50,7 @@ export function SearchBar<T>({
   ringColor = "ring-teal-500/50",
   disabled = false,
   noResultsMessage = "No results found. Press Enter to use as description.",
+  "data-testid": dataTestId,
 }: SearchBarProps<T>) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<T[]>([]);
@@ -145,6 +152,7 @@ export function SearchBar<T>({
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}
+        data-testid={dataTestId}
         className={`w-full px-4 py-2.5 pl-10 bg-slate-900/80 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:border-transparent ${ringColor} transition-all`}
       />
       {/* Search icon */}

@@ -301,7 +301,14 @@ test.describe("CARRIER_LINES_VALIDITY_PLAN.md Phase 6 — telecom credit buy-bac
     await expect(row).toBeVisible({ timeout: 10_000 });
     const voidBtn = row.getByRole("button", { name: /^Void$/ });
     await expect(voidBtn).toBeVisible();
-    // Dialogs auto-accept globally per fixtures.ts.
+    // Register an explicit one-shot accept: the fixtures' global dialog
+    // handler is only a backup that can lose the race to this click, and
+    // losing it leaves the native confirm() open, freezing the shared
+    // renderer for every later spec (workers: 1 / one shared page for all
+    // specs).
+    appPage.once("dialog", (d) => {
+      d.accept().catch(() => {});
+    });
     await voidBtn.click();
     await expect(row).toContainText("VOIDED", { timeout: 10_000 });
 

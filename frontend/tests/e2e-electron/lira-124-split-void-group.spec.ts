@@ -381,13 +381,20 @@ test.describe("LIRA-124 — split-checkout void guard + whole-group void (design
     await expect(row.getByRole("button", { name: /^Void$/ })).toHaveCount(0);
     await expect(row.getByRole("button", { name: /^Refund$/ })).toHaveCount(0);
 
-    // Click through (dialogs auto-accept globally per fixtures.ts) and
-    // confirm the checkout flips to VOIDED. NOTE: after the group void the
-    // reloaded table ALSO contains the reversal rows, whose summaries carry
-    // the same "Katsh Bill"/amount text but whose status is ACTIVE — so
-    // "first row matching the amount" is ambiguous post-void (this exact
-    // trap failed the spec's first run). Assert instead that a row with this
-    // checkout's unique amount now displays VOIDED.
+    // Register an explicit one-shot accept: the fixtures' global dialog
+    // handler is only a backup that can lose the race to this click, and
+    // losing it leaves the native confirm() open, freezing the shared
+    // renderer for every later spec (workers: 1 / one shared page for all
+    // specs). Click through and confirm the checkout flips to VOIDED. NOTE:
+    // after the group void the reloaded table ALSO contains the reversal
+    // rows, whose summaries carry the same "Katsh Bill"/amount text but
+    // whose status is ACTIVE — so "first row matching the amount" is
+    // ambiguous post-void (this exact trap failed the spec's first run).
+    // Assert instead that a row with this checkout's unique amount now
+    // displays VOIDED.
+    appPage.once("dialog", (d) => {
+      d.accept().catch(() => {});
+    });
     await groupVoidBtn.click();
     await expect(
       appPage

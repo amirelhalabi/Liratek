@@ -377,6 +377,32 @@ export { expect } from "@playwright/test";
 export async function navigateTo(page: Page, route: string) {
   const path = route.startsWith("/") ? route : `/${route}`;
 
+  // Hash routing fires no `hashchange` (and therefore no remount) when the
+  // target hash already equals the current one. A caller landing back on
+  // the exact route the previous step/test left it on then sees whatever
+  // stale DOM/state that page instance was already holding — this bit
+  // lira-transactions-hidden-types (stale /audit list), LIRA-111 (8 specs
+  // needed a manual "/" bounce), and lira-093 (timed out on a client
+  // dropdown left over from lira-088's canary). Detect the same-route case
+  // and force a genuine remount by bouncing through a different route
+  // first. This only does extra work when the route is unchanged — normal
+  // (different-route) calls fall straight through to the existing logic
+  // below, unaffected.
+  const currentHash = await page.evaluate(() => window.location.hash);
+  const currentPath = currentHash.replace(/^#/, "") || "/";
+  if (currentPath === path) {
+    const bouncePath = path === "/" ? "/pos" : "/";
+    await page.evaluate((p) => {
+      window.location.hash = `#${p}`;
+    }, bouncePath);
+    // Give the browser/router a moment to actually dispatch and process the
+    // bounce's hashchange before we write `path` back below — otherwise the
+    // two same-tick hash writes could collapse into one and the router
+    // would never see the bounce as a distinct navigation.
+    // eslint-disable-next-line no-restricted-syntax
+    await page.waitForTimeout(100);
+  }
+
   // Helper: is any fixed overlay currently visible?
   const overlayVisible = () =>
     page

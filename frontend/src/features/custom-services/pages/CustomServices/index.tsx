@@ -662,6 +662,7 @@ export default function CustomServices() {
                     /* No selection yet — show SearchBar */
                     <div ref={productSearchRef}>
                       <SearchBar<ProductSearchResult>
+                        data-testid="custom-service-item-search"
                         placeholder="Search by name/barcode, or type your service description..."
                         onSearch={async (query) => {
                           const results =
