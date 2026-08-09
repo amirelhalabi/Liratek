@@ -50,6 +50,14 @@ export const createCustomServiceSchema = z
     partnerId: z.number().int().positive().optional(),
     /** Only "FOR" is valid for custom services — the partner analog of CUSTOMER_ACCOUNT. */
     partnerMode: z.enum(["FOR"]).optional(),
+    // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL SPEC: the inventory
+    // path is the only one of the three (preset/inventory/free-text) that
+    // must decrement stock, like a POS sale. Sent ONLY when the operator
+    // picked a product from the inventory SearchBar — preset/free-text never
+    // send this, so they stay NULL -> no stock movement (unchanged
+    // behaviour). Always consumes exactly 1 unit; no `quantity` field — the
+    // form has no quantity control for a single ad-hoc service.
+    product_id: z.coerce.number().int().positive().optional(),
   })
   .refine(
     (data) =>

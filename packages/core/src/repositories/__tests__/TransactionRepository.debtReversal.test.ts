@@ -185,7 +185,8 @@ function createTestDb(): Database.Database {
       created_by   INTEGER,
       edited_by    TEXT,
       edited_at    TEXT,
-      created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      product_id   INTEGER
     );
   `);
   return db;

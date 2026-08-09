@@ -8172,6 +8172,75 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 152,
+    name: "custom_services_product_id_stock_link",
+    description:
+      "FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL SPEC — 'an inventory-backed custom " +
+      "service behaves like a POS sale: stock decrements, no cash row' (§2a already removed the " +
+      "cash row, commit d1a0ad2 — this is the missing stock half). Blocker the characterization " +
+      "matrix proved (CustomServiceRepository.scenarioMatrix.test.ts, scenarios A1/A2/A3): the " +
+      "preset / inventory-item / free-text input paths are byte-identical by the time they reach " +
+      "the repository — no column records which product (if any) was involved, so stock never " +
+      "moved for the inventory path. Adds custom_services.product_id (nullable, FK to products) " +
+      "so CustomServiceRepository can decrement it on create and restore it on void/refund. " +
+      "Existing rows get NULL -> unchanged behaviour (no stock movement), which is the correct " +
+      "cutover: historical rows are not retro-adjusted (same D3 precedent as every other §2 " +
+      "cutover in this plan). No `quantity` column: the Custom Services form never lets the " +
+      "operator choose a quantity for a single ad-hoc service (unlike a POS sale_items row) — " +
+      "exactly 1 unit is consumed whenever product_id is set, and exactly 1 unit is restored on " +
+      "reversal. This is a deliberate scope decision, not an oversight — add a quantity column " +
+      "explicitly in a future migration if the form ever grows a quantity control.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasCustomServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'custom_services'`,
+        )
+        .get();
+      if (!hasCustomServices) {
+        console.log(
+          "Migration v152 skipped: 'custom_services' table not present",
+        );
+        return;
+      }
+
+      const cols = db.prepare("PRAGMA table_info(custom_services)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "product_id")) {
+        db.exec(
+          `ALTER TABLE custom_services ADD COLUMN product_id INTEGER REFERENCES products(id);`,
+        );
+      }
+
+      console.log(
+        "Migration v152: custom_services.product_id added (nullable, existing rows NULL -> no stock movement)",
+      );
+    },
+    down(db: Database.Database) {
+      const hasCustomServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'custom_services'`,
+        )
+        .get();
+      if (!hasCustomServices) {
+        console.log(
+          "Migration v152 rollback skipped: 'custom_services' table not present",
+        );
+        return;
+      }
+
+      const cols = db.prepare("PRAGMA table_info(custom_services)").all() as {
+        name: string;
+      }[];
+      if (cols.some((c) => c.name === "product_id")) {
+        db.exec(`ALTER TABLE custom_services DROP COLUMN product_id;`);
+      }
+
+      console.log("Migration v152 rolled back: custom_services.product_id dropped");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

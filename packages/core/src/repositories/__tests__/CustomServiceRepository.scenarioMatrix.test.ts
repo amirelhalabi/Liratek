@@ -29,17 +29,25 @@
  * expected outcome — not a broken test — and will show up as
  * `result: "REJECTED BY GUARD"` in the printed table instead of "OK".
  *
- * FINDING — input type is NOT visible at the repository layer (owner's
- * "preset / item from inventory / custom service" axis): the frontend
- * (CustomServices/index.tsx) resolves a preset-click or an inventory
- * SearchBar `onSelect` to the SAME five plain fields
+ * FINDING (pre-fix, 2026-08-09) — input type was NOT visible at the
+ * repository layer (owner's "preset / item from inventory / custom service"
+ * axis): the frontend (CustomServices/index.tsx) resolved a preset-click or
+ * an inventory SearchBar `onSelect` to the SAME five plain fields
  * (`description/cost_usd/cost_lbp/price_usd/price_lbp`) before the IPC call
- * — no `preset_id`/`product_id`/`item_id` is ever sent (confirmed against
- * `create_db.sql`'s `custom_services` table, which has no such column
- * either). `createCustomServiceSchema` and `CustomServiceRepository.
- * createService` have no way to tell the three apart. Section A below
- * proves this with a byte-identical-postings demonstration instead of
- * asserting it from prose.
+ * — no `preset_id`/`product_id`/`item_id` was ever sent (`create_db.sql`'s
+ * `custom_services` table had no such column). `createCustomServiceSchema`
+ * and `CustomServiceRepository.createService` had no way to tell the three
+ * apart. Section A used to prove this with a byte-identical-postings
+ * demonstration across ALL THREE paths.
+ *
+ * POST-FIX (migration v152, this file's own update): `product_id` now
+ * exists and the frontend sends it for the inventory-item path only.
+ * Section A now proves TWO things instead of one: preset/free-text (A1/A3)
+ * still post byte-identically to each other (no product_id, `preset_id`
+ * still doesn't exist), while inventory (A2) — now that it CAN carry
+ * product_id — diverges from them, but ONLY on stock; its money postings
+ * stay byte-identical too, since §2 already made cost profit-only
+ * everywhere regardless of product_id.
  */
 
 import Database from "better-sqlite3";
@@ -142,6 +150,18 @@ function createTestDb(): Database.Database {
       edited_at DATETIME,
       is_refunded INTEGER DEFAULT 0,
       refunded_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      product_id INTEGER
+    );
+
+    -- §2 FINAL SPEC: the inventory-item path (unlike preset/free-text) must
+    -- decrement stock, like a POS sale. Minimal shape — only what
+    -- CustomServiceRepository's stock guard reads/writes.
+    CREATE TABLE products (
+      tenant_id INTEGER DEFAULT 1,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      stock_quantity INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -252,6 +272,27 @@ function seedPartner(db: Database.Database, name: string): number {
     .prepare("INSERT INTO partners (name, is_active) VALUES (?, 1)")
     .run(name);
   return Number(res.lastInsertRowid);
+}
+
+function seedProduct(
+  db: Database.Database,
+  name: string,
+  stockQuantity: number,
+): number {
+  const res = db
+    .prepare(
+      "INSERT INTO products (tenant_id, name, stock_quantity) VALUES (1, ?, ?)",
+    )
+    .run(name, stockQuantity);
+  return Number(res.lastInsertRowid);
+}
+
+function productStock(db: Database.Database, productId: number): number {
+  return (
+    db
+      .prepare(`SELECT stock_quantity FROM products WHERE id = ?`)
+      .get(productId) as { stock_quantity: number }
+  ).stock_quantity;
 }
 
 type DrawerSnapshot = Record<string, number>;
@@ -402,6 +443,14 @@ interface Row {
   drawerNetsToZero: boolean | "N/A";
   partnerLedgerNetsToZero: boolean | "N/A";
   debtLedgerNetsToZero: boolean | "N/A";
+  /** §2 FINAL SPEC — only set when the scenario passed a `productId`
+   * (the inventory-item path). Lets Section A prove A2 now DIVERGES from
+   * A1/A3 on stock, even though drawer/partner/debt postings stay identical
+   * (cost is profit-only on every path — only the inventory path also moves
+   * stock). Null for every scenario that never linked a product. */
+  productStockBefore: number | null;
+  productStockAfterCreate: number | null;
+  productStockAfterRefund: number | null;
   note: string;
 }
 
@@ -435,6 +484,11 @@ function formatTable(allRows: Row[]): string {
       lines.push(
         `  After refund — nets to 0?  drawers=${r.drawerNetsToZero}  partner_ledger=${r.partnerLedgerNetsToZero}  debt_ledger=${r.debtLedgerNetsToZero}`,
       );
+      if (r.productStockBefore != null) {
+        lines.push(
+          `  Product stock: before=${r.productStockBefore} afterCreate=${r.productStockAfterCreate} afterRefund=${r.productStockAfterRefund}`,
+        );
+      }
     }
     if (r.note) lines.push(`  NOTE: ${r.note}`);
   }
@@ -452,6 +506,11 @@ interface RunOpts {
   payload: CreateCustomServiceInput;
   note?: string;
   skipRefund?: boolean;
+  /** §2 FINAL SPEC — the inventory-item path's product, if this scenario is
+   * exercising it. When set, the scenario's OWN `payload.product_id` must
+   * match (the harness doesn't set it for you — the caller decides whether
+   * this scenario IS the inventory path). */
+  productId?: number;
 }
 
 function runScenario(
@@ -461,9 +520,13 @@ function runScenario(
 ): Row {
   const zodOk = createCustomServiceSchema.safeParse(opts.payload).success;
   const before = snapshotDrawers(db);
+  const productStockBefore =
+    opts.productId != null ? productStock(db, opts.productId) : null;
   const result = repo.createService(opts.payload, 1);
   const afterCreate = snapshotDrawers(db);
   const createDelta = diffSnapshots(before, afterCreate);
+  const productStockAfterCreate =
+    opts.productId != null ? productStock(db, opts.productId) : null;
 
   const row: Row = {
     id: opts.id,
@@ -485,6 +548,9 @@ function runScenario(
     drawerNetsToZero: "N/A",
     partnerLedgerNetsToZero: "N/A",
     debtLedgerNetsToZero: "N/A",
+    productStockBefore,
+    productStockAfterCreate,
+    productStockAfterRefund: null,
     note: opts.note ?? "",
   };
 
@@ -543,6 +609,10 @@ function runScenario(
       );
       row.debtLedgerNetsToZero =
         Math.abs(debtNetUsd) < 0.01 && Math.abs(debtNetLbp) < 0.01;
+
+      if (opts.productId != null) {
+        row.productStockAfterRefund = productStock(db, opts.productId);
+      }
     }
   }
 
@@ -598,16 +668,27 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
   // ═══════════════════════════════════════════════════════════════════════
   // SECTION A — input type: preset vs inventory item vs free-text description
   //
-  // FINDING: all three collapse to the same repository payload shape
-  // (description/cost_usd/cost_lbp/price_usd/price_lbp) before the IPC call
-  // is even made. Proven here by feeding the SAME numbers through 3
-  // descriptions meant to represent each origin, and asserting the postings
-  // are byte-identical. There is no `preset_id`/`product_id` column on
-  // `custom_services` or `transactions` for the repository to have received
-  // in the first place (checked against electron-app/create_db.sql).
+  // FINDING (pre-fix, 2026-08-09): all three used to collapse to the same
+  // repository payload shape (description/cost_usd/cost_lbp/price_usd/
+  // price_lbp) before the IPC call was even made — no `product_id` column
+  // existed on `custom_services`, so the repository could never learn a
+  // product was involved. FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL
+  // SPEC named this the prerequisite blocker for the inventory path's stock
+  // rule ("stock decrements, no cash row").
+  //
+  // POST-FIX: migration v152 added `custom_services.product_id`; the
+  // frontend sends it ONLY when the operator picks a product from the
+  // inventory SearchBar. A2 (below) is the FIRST scenario in this file to
+  // set it, and is the first time these three paths diverge — but ONLY on
+  // stock. The money side (drawer/partner/debt postings, profit) stays
+  // byte-identical across all three, because §2 already made cost
+  // profit-only on every path regardless of product_id. `preset_id` still
+  // does not exist (the owner never asked presets to diverge from
+  // free-text — both stay Model C with no stock effect), so A1/A3 stay
+  // byte-identical to EACH OTHER, exactly as before this fix.
   // ═══════════════════════════════════════════════════════════════════════
-  describe("Section A — input type is indistinguishable at the repository layer", () => {
-    it("A1/A2/A3: preset-derived, inventory-derived, and free-text payloads post identically", () => {
+  describe("Section A — input type is indistinguishable at the repository layer (except the inventory path's stock effect)", () => {
+    it("A1/A3: preset-derived and free-text payloads still post identically (no product_id, no stock effect)", () => {
       const basePayload = (
         description: string,
       ): CreateCustomServiceInput => ({
@@ -626,15 +707,7 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
         forPartner: false,
         method: "CASH",
         payload: basePayload("Preset: Screen Repair (from Presets manager)"),
-        note: "Same shape as A2/A3 — repo cannot tell this came from a preset.",
-      });
-      const a2 = runScenario(db, repo, {
-        id: "A2-inventory",
-        inputType: "inventory item",
-        forPartner: false,
-        method: "CASH",
-        payload: basePayload("iPhone 12 Screen (SKU-1042)"),
-        note: "Same shape as A1/A3 — no product_id ever reaches the repo.",
+        note: "Same shape as A3 — no product_id, and no preset_id column exists either.",
       });
       const a3 = runScenario(db, repo, {
         id: "A3-freetext",
@@ -642,15 +715,66 @@ describe("CustomServiceRepository — owner-facing characterization matrix", () 
         forPartner: false,
         method: "CASH",
         payload: basePayload("quick screen fix, walk-in"),
-        note: "Same shape as A1/A2 — plain typed description.",
+        note: "Same shape as A1 — plain typed description.",
       });
 
       // The only thing that can differ is `description` — every money
-      // effect must be byte-identical.
-      expect(a2.createDelta).toEqual(a1.createDelta);
+      // effect must be byte-identical, and NEITHER touches stock (neither
+      // path ever sends product_id).
       expect(a3.createDelta).toEqual(a1.createDelta);
-      expect(a2.profitUsd).toEqual(a1.profitUsd);
       expect(a3.profitUsd).toEqual(a1.profitUsd);
+    });
+
+    it("A2: the inventory-item path now DIVERGES from A1/A3 — identical money postings, but decrements stock", () => {
+      const productId = seedProduct(db, "iPhone 12 Screen (SKU-1042)", 5);
+
+      const basePayload = (
+        description: string,
+      ): CreateCustomServiceInput => ({
+        description,
+        cost_usd: 2,
+        cost_lbp: 0,
+        price_usd: 10,
+        price_lbp: 0,
+        paid_by: "CASH",
+        status: "completed",
+      });
+
+      const a1 = runScenario(db, repo, {
+        id: "A1-preset-vs-A2",
+        inputType: "preset",
+        forPartner: false,
+        method: "CASH",
+        payload: basePayload("Preset: Screen Repair (from Presets manager)"),
+      });
+
+      const a2 = runScenario(db, repo, {
+        id: "A2-inventory",
+        inputType: "inventory item",
+        forPartner: false,
+        method: "CASH",
+        payload: {
+          ...basePayload("iPhone 12 Screen (SKU-1042)"),
+          product_id: productId,
+        },
+        productId,
+        note: "The FIRST scenario in this file to set product_id.",
+      });
+
+      // Money side: still byte-identical to A1 — product_id changes stock,
+      // never cash (§2 already made cost profit-only on every path).
+      expect(a2.createDelta).toEqual(a1.createDelta);
+      expect(a2.profitUsd).toEqual(a1.profitUsd);
+
+      // Stock side: THIS is the divergence this test exists to prove. A1
+      // (preset, no product_id) never touches this product at all; A2
+      // decrements it by exactly 1 on create, and the harness's own
+      // auto-refund (deleteService -> voidTransaction ->
+      // _restoreCustomServiceStock) restores it exactly once.
+      expect(a2.productStockBefore).toBe(5);
+      expect(a2.productStockAfterCreate).toBe(4);
+      expect(a2.productStockAfterRefund).toBe(5);
+      expect(a2.drawerNetsToZero).toBe(true);
     });
   });
 

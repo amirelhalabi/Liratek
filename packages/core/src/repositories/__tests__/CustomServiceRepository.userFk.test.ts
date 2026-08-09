@@ -90,6 +90,7 @@ function createTestDb(): Database.Database {
       category TEXT,
       created_by INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      product_id INTEGER,
       FOREIGN KEY (client_id) REFERENCES clients(id),
       FOREIGN KEY (created_by) REFERENCES users(id)
     );

@@ -9,6 +9,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { customServiceLogger } from "../utils/logger.js";
+import { BusinessRuleError } from "../utils/errors.js";
 import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
@@ -51,6 +52,9 @@ export interface CustomServiceEntity {
   created_at: string;
   edited_by: string | null;
   edited_at: string | null;
+  /** §2 FINAL SPEC — the inventory item this service consumed, if any (NULL
+   * for preset/free-text paths). Exactly 1 unit decremented/restored. */
+  product_id: number | null;
 }
 
 export interface CustomServiceSummary {
@@ -73,7 +77,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
   }
 
   protected getColumns(): string {
-    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at";
+    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id";
   }
 
   /**
@@ -83,9 +87,11 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
   createService(
     data: CreateCustomServiceInput,
     createdByParam?: number,
+    opts?: { allowOutOfStock?: boolean },
   ): { success: boolean; id?: number; error?: string } {
     try {
       const tenantId = getCurrentTenantId();
+      const allowOutOfStock = opts?.allowOutOfStock ?? false;
       const result = this.db.transaction(() => {
         // Resolve inside the transaction so it reads a consistent snapshot;
         // falls back to a real (admin) user id instead of the hardcoded `1`
@@ -97,8 +103,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         const insertService = this.db.prepare(`
           INSERT INTO custom_services (
             tenant_id, description, cost_usd, cost_lbp, price_usd, price_lbp,
-            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, product_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)
         `);
         const serviceResult = insertService.run(
           tenantId,
@@ -116,8 +122,48 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           data.category ?? null,
           createdBy,
           data.transaction_time ?? null,
+          data.product_id ?? null,
         );
         const serviceId = Number(serviceResult.lastInsertRowid);
+
+        // 1a. §2 FINAL SPEC — an inventory-backed service behaves like a POS
+        // sale: the cost was already paid when the stock was bought, so this
+        // decrements the linked product's stock exactly once. Mirrors
+        // SalesRepository.processSale's guarded conditional write (including
+        // its allowOutOfStock escape hatch) verbatim — same WHERE-clause
+        // guard, same rows-affected check, same error shape. Preset/free-text
+        // paths never send product_id, so this is a no-op for them (Section
+        // A of the characterization matrix proved those three paths were
+        // byte-identical at this layer; product_id is what makes them
+        // diverge). Gated on status === "completed" — a "pending" custom
+        // service reserves nothing, same as POS ("Update Stock: ONLY IF
+        // COMPLETED."). Always exactly 1 unit — see the migration's doc
+        // comment for why no `quantity` column exists.
+        if (
+          data.product_id != null &&
+          (data.status ?? "completed") === "completed"
+        ) {
+          const stockStmt = this.db.prepare(
+            allowOutOfStock
+              ? `UPDATE products SET stock_quantity = stock_quantity - 1
+                 WHERE id = ? AND tenant_id = ?`
+              : `UPDATE products SET stock_quantity = stock_quantity - 1
+                 WHERE id = ? AND tenant_id = ? AND stock_quantity >= 1`,
+          );
+          const stockRes = stockStmt.run(data.product_id, tenantId);
+          if (!allowOutOfStock && stockRes.changes === 0) {
+            const p = this.db
+              .prepare(
+                `SELECT name, stock_quantity FROM products WHERE id = ? AND tenant_id = ?`,
+              )
+              .get(data.product_id, tenantId) as
+              | { name?: string; stock_quantity?: number }
+              | undefined;
+            throw new BusinessRuleError(
+              `Not enough stock for "${p?.name ?? `product #${data.product_id}`}" (${p?.stock_quantity ?? 0} available)`,
+            );
+          }
+        }
 
         // LIRA-081 (PFT-R): a "for partner" custom service takes no counter
         // payment at all — the FULL price books to the partner's tab.

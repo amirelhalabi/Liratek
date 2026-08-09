@@ -455,7 +455,8 @@ function buildSchema(db: Database.Database): void {
       created_by  INTEGER,
       created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
       edited_by   TEXT,
-      edited_at   TEXT
+      edited_at   TEXT,
+      product_id  INTEGER
     );
 
     -- ══════════════════════════════════════════

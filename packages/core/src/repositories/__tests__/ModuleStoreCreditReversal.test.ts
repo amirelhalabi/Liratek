@@ -197,7 +197,8 @@ function createTestDb(): Database.Database {
       edited_by    TEXT DEFAULT NULL,
       edited_at    TEXT DEFAULT NULL,
       is_refunded  INTEGER DEFAULT 0,
-      refunded_at  TEXT DEFAULT NULL
+      refunded_at  TEXT DEFAULT NULL,
+      product_id   INTEGER
     );
   `);
   return db;

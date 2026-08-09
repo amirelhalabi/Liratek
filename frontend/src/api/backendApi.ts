@@ -3538,6 +3538,10 @@ export async function addCustomService(data: {
   exchange_rate?: number;
   partnerId?: number;
   partnerMode?: "FOR";
+  /** FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — set only when the
+   *  operator picked a product from the inventory SearchBar; decrements 1
+   *  unit of stock. Omitted (preset/free-text) -> NULL -> no stock movement. */
+  product_id?: number;
 }): Promise<{ success: boolean; id?: number; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.add(data),

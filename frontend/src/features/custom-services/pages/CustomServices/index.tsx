@@ -353,6 +353,12 @@ export default function CustomServices() {
       if (note.trim()) payload.note = note.trim();
       if (category) payload.category = category;
       if (transactionTime) payload.transaction_time = transactionTime;
+      // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL SPEC: only the
+      // inventory-item path decrements stock — send product_id ONLY when the
+      // operator actually picked a product from the SearchBar. Preset/
+      // free-text never set selectedProduct, so this stays omitted -> NULL
+      // -> unchanged (no stock movement).
+      if (selectedProduct) payload.product_id = selectedProduct.id;
 
       // If session is active, add to cart instead of submitting — never for a
       // for-partner service (no walk-in customer, mirrors every other FOR_%

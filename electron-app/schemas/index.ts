@@ -721,6 +721,12 @@ export const CustomServiceCreateSchema = z.object({
   // exist in BOTH or the desktop path silently strips them.
   partnerId: z.number().int().positive().optional(),
   partnerMode: z.enum(["FOR"]).optional(),
+  // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 — LOCAL duplicate of the
+  // core createCustomServiceSchema field (same rule-14 trap): an
+  // inventory-backed service must decrement stock like a POS sale; omitting
+  // this here would silently strip product_id on the desktop path and the
+  // repository would never learn a product was involved.
+  product_id: z.coerce.number().int().positive().optional(),
 });
 
 // =============================================================================

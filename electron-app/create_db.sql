@@ -750,6 +750,10 @@ CREATE TABLE IF NOT EXISTS custom_services (
     edited_at TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
     refunded_at TEXT DEFAULT NULL,
+    -- v152: nullable link to the inventory item this service consumed (NULL
+    -- for preset/free-text paths). Exactly 1 unit is decremented/restored —
+    -- no `quantity` column; the form never lets the operator choose one.
+    product_id INTEGER DEFAULT NULL REFERENCES products(id),
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -1753,4 +1757,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (148, 'add_daily_closing_carrier_lines'),
     (149, 'allow_credit_buyback_recharge_type'),
     (150, 'commission_at_settlement_foundation'),
-    (151, 'commission_at_settlement_provider_eligibility');
+    (151, 'commission_at_settlement_provider_eligibility'),
+    (152, 'custom_services_product_id_stock_link');

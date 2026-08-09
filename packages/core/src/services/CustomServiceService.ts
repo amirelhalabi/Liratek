@@ -12,6 +12,7 @@ import {
 } from "../repositories/CustomServiceRepository.js";
 import type { CreateCustomServiceInput } from "../validators/customService.js";
 import { customServiceLogger } from "../utils/logger.js";
+import { getSettingsService } from "./SettingsService.js";
 
 // =============================================================================
 // Types
@@ -50,7 +51,14 @@ export class CustomServiceService {
         };
       }
     }
-    return this.repo.createService(data);
+    // §2 FINAL SPEC — the same per-shop "allow out-of-stock sales" setting
+    // POS reads (SalesService.processSale) gates whether an inventory-backed
+    // service's stock decrement is a hard guard or an unguarded (may go
+    // negative) write; mirrors that call site exactly.
+    const allowOutOfStock =
+      getSettingsService().getSettingValue("allow_out_of_stock_sales")
+        ?.value === "1";
+    return this.repo.createService(data, undefined, { allowOutOfStock });
   }
 
   /**

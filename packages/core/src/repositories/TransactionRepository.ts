@@ -1416,6 +1416,18 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         this._restoreStock(original.source_id);
       }
 
+      // 6a. FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §2 FINAL SPEC, rule 20 —
+      // if this transaction IS a custom service that consumed inventory,
+      // restore the 1 unit it decremented. Runs here (not duplicated in
+      // CustomServiceRepository.deleteService) so a custom service voided
+      // directly from the Transactions page — bypassing deleteService
+      // entirely — still gets its stock back exactly once; deleteService
+      // itself reaches this same code by calling voidTransaction. No-op for
+      // every other source_table/a service with no linked product.
+      if (original.source_table === "custom_services" && original.source_id) {
+        this._restoreCustomServiceStock(original.source_id);
+      }
+
       // 7. Supplier payment: un-apply the FIFO purchase coverage the payment
       // consumed (the ledger row itself is soft-voided by step 4).
       this._unapplySupplierPurchaseCoverage(original);
@@ -1612,6 +1624,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
           tenantId,
         );
         this._restoreStock(original.source_id);
+      }
+
+      // 5a. Rule 20 — same custom-service stock restore as voidTransaction's
+      // identical step. See that step's doc for why this lives here rather
+      // than in CustomServiceRepository.
+      if (original.source_table === "custom_services" && original.source_id) {
+        this._restoreCustomServiceStock(original.source_id);
       }
 
       // 6. Supplier payment: un-apply the FIFO purchase coverage
@@ -2579,6 +2598,31 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     for (const item of items) {
       restoreStmt.run(item.quantity, item.product_id, tenantId);
     }
+  }
+
+  /**
+   * Restore the stock a custom service consumed (FOR_PARTNER_AND_COST_
+   * UNIFICATION_PLAN.md §2 FINAL SPEC, rule 20). Unlike `_restoreStock`
+   * (sales), a custom service is a single row, not a `sale_items` table, and
+   * always consumed exactly 1 unit — CustomServiceRepository.createService
+   * never lets the operator choose a quantity, so there is no `quantity`
+   * column to read here either. No-op when the service never linked a
+   * product (product_id NULL — preset/free-text, or any pre-v152 row).
+   */
+  private _restoreCustomServiceStock(customServiceId: number): void {
+    const tenantId = getCurrentTenantId();
+    const row = this.queryOne<{ product_id: number | null }>(
+      `SELECT product_id FROM custom_services WHERE id = ? AND tenant_id = ?`,
+      customServiceId,
+      tenantId,
+    );
+    if (!row?.product_id) return;
+
+    this.execute(
+      `UPDATE products SET stock_quantity = stock_quantity + 1 WHERE id = ? AND tenant_id = ?`,
+      row.product_id,
+      tenantId,
+    );
   }
 
   /**

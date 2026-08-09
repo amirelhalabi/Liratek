@@ -66,7 +66,8 @@ function createTestDb(): Database.Database {
       note TEXT,
       category TEXT,
       created_by INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      product_id INTEGER
     );
 
     CREATE TABLE transactions (
