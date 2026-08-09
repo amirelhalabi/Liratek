@@ -247,6 +247,37 @@ export const createFinancialServiceSchema = z
     path: ["partnerId"],
   })
   .refine(
+    (data) =>
+      data.partnerMode !== "FOR" || data.paidByMethod !== "CUSTOMER_ACCOUNT",
+    {
+      // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2: mirrors
+      // validators/customService.ts's identical refine (added in slice 1)
+      // and the new one in validators/recharge.ts (this slice). Under
+      // partnerMode "FOR" there is no customer owing — the PARTNER owes —
+      // so CUSTOMER_ACCOUNT is never a valid paidByMethod here. This is the
+      // edge (Zod) half of rule 19; the repository-layer rejection
+      // (`assertNoCounterPayment` in moneyPosting.ts, wired via
+      // FinancialServiceRepository.ts's `paidBy` local) is the real,
+      // transport-agnostic enforcement point and holds regardless of
+      // whether a caller reaches this schema.
+      message:
+        "paidByMethod cannot be Customer Account on a for-partner financial service — there is no customer owing, the partner owes",
+      path: ["paidByMethod"],
+    },
+  )
+  .refine(
+    (data) =>
+      data.partnerMode !== "FOR" || data.cashoutMethod !== "CUSTOMER_ACCOUNT",
+    {
+      // Same rule, RECEIVE's own legacy field (`cashoutMethod`, not
+      // `paidByMethod`) — see the `paidByMethod` refine above for the full
+      // rationale.
+      message:
+        "cashoutMethod cannot be Customer Account on a for-partner financial service — there is no customer owing, the partner owes",
+      path: ["cashoutMethod"],
+    },
+  )
+  .refine(
     (data) => {
       // For OMT services (except OMT_WALLET and ONLINE_BROKERAGE), omtFee is optional
       // when the service type has a fee lookup table (INTRA, WESTERN_UNION).

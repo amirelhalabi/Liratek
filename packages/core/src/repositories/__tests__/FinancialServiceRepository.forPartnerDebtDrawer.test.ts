@@ -390,7 +390,19 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
       expect(rows.c).toBe(0);
     });
 
-    it("RECEIVE with a CUSTOMER_ACCOUNT cashout hint never reaches General — the server ignores cashoutMethod entirely for FOR-partner RECEIVE", () => {
+    // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2: this test used to
+    // pin the exact gap the plan names for this repo — "the server ignores
+    // cashoutMethod entirely for FOR-partner RECEIVE" — as a `.not.toThrow()`
+    // characterization. "Ignored" was the bug, not a feature: the stale value
+    // still reached `financial_services.paid_by`/`metadata_json.paid_by` as
+    // if it had executed, exactly LIRA-114's audit-trail complaint applied to
+    // this repo's RECEIVE branch. Flipped to "rejected before any row is
+    // written" below.
+    // rule 17: observed FAILING against the pre-slice-2 code (`paidBy` was
+    // computed but never passed to `assertNoCounterPayment`, which received
+    // `undefined` instead) — the call did NOT throw, confirming this was a
+    // live gap, not just a stale comment/title.
+    it("REJECTS a CUSTOMER_ACCOUNT cashout hint for a FOR-partner RECEIVE — the stale value must not reach the audit trail", () => {
       setup(true);
       const partnerId = seedPartner(db);
       const generalBefore = drawerBalance(db, "General");
@@ -411,12 +423,15 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
           partnerMode: "FOR",
           payments: [],
         }),
-      ).not.toThrow();
+      ).toThrow(/Customer Account/i);
 
+      // Nothing committed — this.db.transaction(...) rolled the whole thing back.
       expect(drawerBalance(db, "General")).toBe(generalBefore);
-      // Decision #6 (Primary Cash Drawer plan): a FOR-partner RECEIVE on the
-      // primary system moves NO drawer at all — obligations only.
       expect(drawerBalance(db, "OMT_System")).toBe(omtSystemBefore);
+      const rows = db
+        .prepare("SELECT COUNT(*) c FROM financial_services")
+        .get() as { c: number };
+      expect(rows.c).toBe(0);
     });
   });
 

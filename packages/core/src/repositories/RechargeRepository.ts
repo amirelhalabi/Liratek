@@ -765,11 +765,27 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           data.payments,
         );
         if (isForPartner) {
-          // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 is scoped to Custom
-          // Services this slice — `legacyPaidBy` stays `undefined` here
-          // (no behavior change); wiring in `data.paid_by_method` is a
-          // later slice's fix, not this one's.
-          assertNoCounterPayment(inPayments.length > 0, undefined, "recharge");
+          // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2: wire the
+          // REAL legacy field. `data.paid_by_method` is read independently
+          // by the walk-in single-payment fallback (the `paidBy` local,
+          // line ~597) — nothing folds it into `inPayments`, so a stale
+          // non-CASH value (e.g. a leftover "CUSTOMER_ACCOUNT" from before
+          // the operator ticked the partner checkbox) used to sail through
+          // and still get stamped into `metadata_json.paid_by`/
+          // `recharges.paid_by` (line ~702) even though nothing executed —
+          // the same audit-trail gap LIRA-114 reported for Custom Services.
+          // Safe to pass unconditionally: no FOR-partner recharge caller
+          // (TelecomForm.tsx's `handleForPartnerSubmit`) ever sends
+          // `paid_by_method` at all — this branch takes the full price
+          // straight to `partner_ledger` with no drawer leg of any kind, so
+          // there is no legitimate disbursement-source concept here (unlike
+          // Financial Services' transfer SEND); any non-CASH value reaching
+          // this point is dead data.
+          assertNoCounterPayment(
+            inPayments.length > 0,
+            data.paid_by_method,
+            "recharge",
+          );
         }
         const deferPayment = data.deferPayment === true;
 

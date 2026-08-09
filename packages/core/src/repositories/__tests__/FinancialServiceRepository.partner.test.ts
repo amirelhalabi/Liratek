@@ -1004,35 +1004,45 @@ describe("FinancialServiceRepository — partner mode", () => {
 
     // Primary Cash Drawer plan §2#6 / decision #6 (2026-07-30): a FOR-partner
     // financial service has no walk-in customer, so `cashoutMethod`/
-    // `clientId` are meaningless for FOR-mode RECEIVE and are simply
-    // ignored — but under the current model the outcome they're ignored
-    // INTO is "no drawer moves at all" (see the "does NOT move the PCD"
-    // case above), not a credit. This case proves that passing a
-    // CUSTOMER_ACCOUNT cashout hint does not change that outcome either way.
-    // rule 17: this file's PRE-existing assertion (`toBeGreaterThan`) was run
-    // against the implemented production code and observed to FAIL —
-    // `Expected: > 500, Received: 500`. Flipped to "unchanged" below,
-    // verified green by running the suite.
-    it("does NOT move OMT_System for FOR RECEIVE even with a CUSTOMER_ACCOUNT cashout hint (no walk-in customer in FOR mode, no drawer movement at all)", () => {
+    // `clientId` are meaningless for FOR-mode RECEIVE — under decision #6 the
+    // RECEIVE branch never reads `cashoutMethod` at all (no drawer moves at
+    // transaction time either way). This test used to pin THAT as "ignored,
+    // no drawer movement" (`.not.toThrow()`, implicitly, by calling
+    // `createTransaction` unwrapped). FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md
+    // §3 slice 2 wires `cashoutMethod` into the shared guard specifically
+    // because "ignored" is the bug, not a feature: the value still reached
+    // `financial_services.paid_by`/`metadata_json.paid_by` as if it had
+    // executed (LIRA-114's audit-trail complaint, this repo's own flavor of
+    // it). Flipped to "rejected before any row is written" below.
+    // rule 17: observed FAILING against the pre-slice-2 code (temporarily
+    // reverted `paidBy` back to `undefined` in the `assertNoCounterPayment`
+    // call) — the call did NOT throw, confirming this was a live gap, not
+    // just a stale comment.
+    it("REJECTS a CUSTOMER_ACCOUNT cashout hint for FOR RECEIVE instead of silently ignoring it (no walk-in customer in FOR mode — the stale value must not reach the audit trail)", () => {
       const partnerId = seedPartner(db);
       const clientId = seedClient(db);
       const before = drawerBalance(db, "OMT_System");
 
-      repo.createTransaction({
-        provider: "OMT",
-        serviceType: "RECEIVE",
-        amount: 100,
-        currency: "USD",
-        commission: 1,
-        cashoutMethod: "CUSTOMER_ACCOUNT",
-        clientId,
-        partnerId,
-        partnerMode: "FOR",
-      });
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "RECEIVE",
+          amount: 100,
+          currency: "USD",
+          commission: 1,
+          cashoutMethod: "CUSTOMER_ACCOUNT",
+          clientId,
+          partnerId,
+          partnerMode: "FOR",
+        }),
+      ).toThrow(/Customer Account/i);
 
-      // FOR mode: cashoutMethod is ignored either way — decision #6 means
-      // NO drawer moves at transaction time, regardless of the hint.
+      // Nothing committed — the whole db.transaction rolled back.
       expect(drawerBalance(db, "OMT_System")).toBe(before);
+      const rows = db
+        .prepare("SELECT COUNT(*) c FROM financial_services")
+        .get() as { c: number };
+      expect(rows.c).toBe(0);
     });
   });
 
@@ -1233,6 +1243,148 @@ describe("FinancialServiceRepository — partner mode", () => {
 
       // Cross-contamination guard
       expect(p1Entries[0].reference_id).not.toBe(p2Entries[0].reference_id);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2 — wire the REAL
+  // legacy field (`paidByMethod` / `cashoutMethod`) into the shared guard.
+  // Slice 1 (cc45227) left this repo passing `undefined` as a mechanical,
+  // zero-behavior-change placeholder — these tests prove the wiring closes
+  // the gap without over-blocking the ONE branch (OMT/WHISH-family SEND
+  // transfers) that has a genuine disbursement-source concept.
+  //
+  // `paidBy` (line ~897 of FinancialServiceRepository.ts) already unifies
+  // `data.cashoutMethod` (RECEIVE) and `data.paidByMethod` (SEND/BILL) — the
+  // fix passes THAT variable instead of `undefined`. Every OTHER FOR-partner
+  // branch (cost/price catalog, BINANCE SEND, RECEIVE) already hard-requires
+  // `returnLegs.length === 0` — no legitimate disbursement concept exists
+  // there — so a non-CASH legacy value reaching any of those branches is,
+  // by construction, dead/stale data, never a real instruction. Verified
+  // against every live caller (FinancialForm.tsx, OmtWhishAppTransferForm.tsx,
+  // Services/index.tsx): none of them sends a non-CASH `paidByMethod`/
+  // `cashoutMethod` top-level field on a FOR-partner submission — the
+  // disbursement selection travels through the OUT leg's own `method`
+  // instead (Services/index.tsx's state management guarantees the two never
+  // diverge: `paidByMethod` only leaves "CASH" when `paymentLines` is
+  // populated, which is exactly when the top-level field is superseded by
+  // `payments[]` and never sent at all).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("§3 slice 2 — legacy paidByMethod/cashoutMethod wiring", () => {
+    // rule 17: observed FAILING against the pre-slice-2 code (`undefined` in
+    // place of `paidBy`) — `createTransaction` returned successfully instead
+    // of throwing, and `financial_services.paid_by`/`metadata_json.paid_by`
+    // both recorded "CUSTOMER_ACCOUNT" despite the RECEIVE branch never
+    // crediting any customer account (decision #6: no drawer, no debt — the
+    // partner is credited, nothing else).
+    it("rejects a stale CUSTOMER_ACCOUNT cashoutMethod on a FOR-partner RECEIVE (dead legacy field — no walk-in customer to credit)", () => {
+      const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "RECEIVE",
+          amount: 100,
+          currency: "USD",
+          commission: 1,
+          cashoutMethod: "CUSTOMER_ACCOUNT",
+          partnerId,
+          partnerMode: "FOR",
+        }),
+      ).toThrow(/Customer Account/i);
+    });
+
+    it("rejects a stale non-CASH paidByMethod on a FOR-partner cost/price catalog sale (iPick) — that branch forbids ALL legs, so any non-CASH value here is dead data", () => {
+      const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "iPick",
+          serviceType: "SEND",
+          amount: 100.66,
+          currency: "USD",
+          commission: 0,
+          cost: 90,
+          price: 100.66,
+          paidByMethod: "CUSTOMER_ACCOUNT",
+          partnerId,
+          partnerMode: "FOR",
+        }),
+      ).toThrow(/Customer Account/i);
+    });
+
+    it("rejects a stale drawer-affecting paidByMethod (e.g. OMT) on a FOR-partner BINANCE SEND — that branch forbids ALL legs too (USDT leaves the drawer directly, no counter payment concept)", () => {
+      const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "BINANCE",
+          serviceType: "SEND",
+          amount: 60.55,
+          currency: "USDT",
+          commission: 2,
+          paidByMethod: "OMT",
+          partnerId,
+          partnerMode: "FOR",
+        }),
+      ).toThrow(/no counter payment/i);
+    });
+
+    // Over-blocking proof: the ONE branch with a genuine disbursement-source
+    // concept (OMT/WHISH-family SEND transfers) must keep working when
+    // `paidByMethod` carries the neutral "CASH" value every live form
+    // sends/defaults to, alongside the required OUT disbursement leg.
+    it("does NOT over-block a legitimate FOR-partner SEND disbursement — paidByMethod='CASH' alongside the required OUT leg still succeeds", () => {
+      const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          omtFee: 5,
+          paidByMethod: "CASH",
+          partnerId,
+          partnerMode: "FOR",
+          payments: [
+            {
+              method: "CASH",
+              currencyCode: "USD",
+              amount: 105,
+              direction: "OUT",
+            },
+          ],
+        }),
+      ).not.toThrow();
+    });
+
+    // "Also" fix — moneyPosting.ts's assertPartnerIdRequired doc used to
+    // document this as a permanent, un-fixed asymmetry: FinancialService's
+    // OWN `isForPartner` is `!!(partnerId && mode === "FOR")`, so a bare
+    // `mode: "FOR"` with no partnerId silently fell through to the walk-in
+    // dispatch and ran as an ordinary, non-partner transaction.
+    // rule 17: observed FAILING against the pre-fix code — the call
+    // returned successfully (walk-in dispatch), `financial_services.partner_id`
+    // was NULL, and no partner_ledger row was ever created for this payload.
+    it("throws for a bare partnerMode 'FOR' with no partnerId, instead of silently falling through to the walk-in dispatch", () => {
+      expect(() =>
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          omtFee: 5,
+          partnerMode: "FOR",
+          paidByMethod: "CASH",
+          // no partnerId
+        }),
+      ).toThrow(/partnerId is required/i);
     });
   });
 });

@@ -38,6 +38,7 @@ import {
   applyDrawerDelta,
   insertPaymentRow,
   bookClientDebtCharge,
+  assertPartnerIdRequired,
   assertNoCounterPayment,
   assertNoCustomerAccountLeg,
   postPayoutLegs,
@@ -906,6 +907,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const isForPartner = !!(data.partnerId && data.partnerMode === "FOR");
       const skipGeneralDrawer = isForPartner;
       const skipSystemDrawer = isThroughPartner;
+
+      // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 "Also" — close the
+      // asymmetry moneyPosting.ts's `assertPartnerIdRequired` doc documents:
+      // `isForPartner` above is deliberately gated on `partnerId` (it drives
+      // `skipGeneralDrawer`/every dispatch branch below, so widening ITS
+      // definition would ripple through the whole method) — meaning a bare
+      // `partnerMode: "FOR"` with no `partnerId` used to silently fall
+      // through to the walk-in dispatch below and run as an ordinary,
+      // non-partner transaction. Checked here, gated on `partnerMode` alone
+      // (not `isForPartner`), before any row is written — mirrors how
+      // Sales/Recharge/Loto already call this same guard.
+      if (data.partnerMode === "FOR") {
+        assertPartnerIdRequired(data.partnerId);
+      }
 
       // Only the shop's PRIMARY (base) system owes its provider directly. The
       // secondary OMT/WHISH system runs via a partner, whose obligation is
@@ -1858,13 +1873,31 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         // No walk-in customer: any customer-paid IN leg is a modeling error —
         // reject rather than book a phantom cash-in (mirrors SalesRepository /
         // RechargeRepository / LotoTicketRepository, PFT-R).
-        // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 is scoped to Custom
-        // Services this slice — `legacyPaidBy` stays `undefined` here
-        // (no behavior change); wiring in `data.paidByMethod`/`cashoutMethod`
-        // is a later slice's fix, not this one's.
+        // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2: `paidBy`
+        // (line ~897) already unifies `data.cashoutMethod` (RECEIVE) and
+        // `data.paidByMethod` (SEND/BILL) — passing it here closes the exact
+        // gap the plan named for this repo ("misses paidByMethod /
+        // cashoutMethod"). Safe against every branch below: the cost/price
+        // catalog branch, the BINANCE SEND branch, and the RECEIVE branch
+        // all hard-require `returnLegs.length === 0` (no legs of any kind) —
+        // none of them has a legitimate use for `paidBy`, so a non-CASH
+        // value reaching this point is always dead/stale data (the owner's
+        // RECEIVE-shaped repro: a "Cashout" method left on
+        // CUSTOMER_ACCOUNT from before the operator ticked "For Partner").
+        // The ONE branch with a genuine disbursement-source concept —
+        // OMT/WHISH-family SEND transfers — carries that selection through
+        // `returnLegs` (its own `returnLegs.length === 0` check, below),
+        // never through this field: every live caller (FinancialForm.tsx,
+        // OmtWhishAppTransferForm.tsx, Services/index.tsx) sends the chosen
+        // disbursement method as the OUT leg's own `method`, not as a
+        // top-level `paidByMethod`/`cashoutMethod` — verified against
+        // Services/index.tsx's state management, which guarantees
+        // `paidByMethod` only leaves "CASH" when a payment line exists,
+        // which is exactly when `payments[]` supersedes the top-level field
+        // and it is never sent at all.
         assertNoCounterPayment(
           inPayments.length > 0,
-          undefined,
+          paidBy,
           "financial service",
         );
         // CUSTOMER_ACCOUNT has no meaning without a customer.

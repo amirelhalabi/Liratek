@@ -518,12 +518,17 @@ export function bookClientDebtCharge(
  * SalesRepository, RechargeRepository, LotoTicketRepository — 3 previously
  * hand-rolled copies that were already byte-identical.
  *
- * FinancialServiceRepository does NOT call this: its own `isForPartner` is
- * computed as `!!(data.partnerId && data.partnerMode === "FOR")`, so a bare
- * `partnerMode: "FOR"` with no `partnerId` there silently falls through to
- * the normal walk-in dispatch instead of throwing. That's a pre-existing
- * asymmetry across the 4 repos, not introduced here — making FS throw too
- * would be a behavior change, out of scope for a behavior-identical refactor.
+ * FinancialServiceRepository's OWN `isForPartner` local is still computed as
+ * `!!(data.partnerId && data.partnerMode === "FOR")` — that definition can't
+ * change here without rippling through every dispatch branch that reads it
+ * (`skipGeneralDrawer`/`skipSystemDrawer`/the whole PFT-3b block). Instead,
+ * FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 "Also" closes the resulting
+ * asymmetry a different way: FinancialServiceRepository now calls THIS SAME
+ * function directly, gated on `data.partnerMode === "FOR"` alone (NOT its
+ * own `isForPartner`), immediately after `isForPartner` is computed and
+ * before any row is written — so a bare `partnerMode: "FOR"` with no
+ * `partnerId` throws instead of silently falling through to the walk-in
+ * dispatch as an ordinary, non-partner transaction.
  */
 export function assertPartnerIdRequired(
   partnerId: number | null | undefined,

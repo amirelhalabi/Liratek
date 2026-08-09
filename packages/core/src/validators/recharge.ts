@@ -109,7 +109,24 @@ export const createRechargeSchema = z.object({
   // server-side by `SessionCheckoutService` after validation. Exposing it
   // here would let any caller book a recharge that consumes provider credit
   // and collects nothing.
-});
+})
+  .refine(
+    (data) =>
+      data.partnerMode !== "FOR" || data.paid_by_method !== "CUSTOMER_ACCOUNT",
+    {
+      // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2: mirrors
+      // validators/customService.ts's identical refine (added in slice 1).
+      // Under partnerMode "FOR" there is no customer owing — the PARTNER
+      // owes — so CUSTOMER_ACCOUNT is never a valid paid_by_method here.
+      // This is the edge (Zod) half of rule 19; the repository-layer
+      // rejection (`assertNoCounterPayment` in moneyPosting.ts, wired via
+      // RechargeRepository.ts) is the real, transport-agnostic enforcement
+      // point and holds regardless of whether a caller reaches this schema.
+      message:
+        "paid_by_method cannot be Customer Account on a for-partner recharge — there is no customer owing, the partner owes",
+      path: ["paid_by_method"],
+    },
+  );
 
 export const getRechargeStockSchema = z.object({
   // No parameters needed - empty schema for consistency

@@ -802,10 +802,29 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             // customer-paid IN leg (cash, wallet, gift card, ...) means a
             // walk-in customer is in the loop, which contradicts the
             // validated FOR-partner model (full amount, no counter cash).
-            // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 is scoped to
-            // Custom Services this slice — `legacyPaidBy` stays `undefined`
-            // here (no behavior change); wiring in `payment_usd`/
-            // `payment_lbp` is a later slice's fix, not this one's.
+            // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 slice 2 decision:
+            // `legacyPaidBy` deliberately STAYS `undefined` here — unlike
+            // Financial Services/Recharge/Custom Services, Sales has no
+            // separate legacy METHOD field to wire in. `sale.payment_usd`/
+            // `sale.payment_lbp` are legacy AMOUNTS, not a method code
+            // ("CUSTOMER_ACCOUNT" cannot appear there), and — the part that
+            // matters — they are already structurally absorbed into `inLegs`
+            // above (this method's `paymentLines` synthesizes a `"CASH"` leg
+            // from them whenever `sale.payments` is empty/absent — see
+            // `paymentLines`'s own comment), which is EVERY case that
+            // reaches this branch (a non-empty `sale.payments` array takes
+            // precedence and makes the legacy amounts inert everywhere in
+            // this repo, not just under FOR — that is pre-existing,
+            // partner-mode-independent behavior, not a hole this plan
+            // opened). So `inLegs.length > 0` above ALREADY reflects a
+            // non-zero legacy `payment_usd`/`payment_lbp` and this guard
+            // already rejects it — proven by
+            // `SalesRepository.forPartnerLegacyAmounts.test.ts`, which pins
+            // exactly that combination (no `payments`, non-zero
+            // `payment_usd`) as REJECTED on the CURRENT, unmodified code.
+            // There is nothing to wire: passing `undefined` here is not a
+            // placeholder, it's the correct value — Sales has no legacy
+            // field this guard's second parameter is FOR.
             assertNoCounterPayment(inLegs.length > 0, undefined, "sale");
             assertPartnerIdRequired(sale.partnerId);
 
