@@ -1419,19 +1419,22 @@ export default function Services() {
                 </div>
               )}
 
-              {/* Partner Selector — required for WHISH System (THROUGH mode) */}
-              {provider === "WHISH" && (
+              {/* Partner Selector — required for the shop's SECONDARY
+                  system (THROUGH mode). Derived from useShopBase(), not a
+                  literal: for a WHISH-base shop, OMT is the secondary
+                  system and must gate here instead (LIRA-127). */}
+              {provider === partnerSystem && (
                 <div>
                   <PartnerSelector
                     selectedPartnerId={selectedPartnerId}
                     onSelect={setSelectedPartnerId}
                     required
                     autoSelectSingle
-                    systemFilter="WHISH"
+                    systemFilter={partnerSystem}
                   />
                   {selectedPartnerId === null && (
                     <p className="mt-1.5 text-xs text-amber-400 font-medium">
-                      ⚠ Partner required for Whish System transactions
+                      ⚠ Partner required for {partnerSystem} System transactions
                     </p>
                   )}
                 </div>
