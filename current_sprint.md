@@ -3193,7 +3193,7 @@ Misleading copy is what triggered this whole line of work (section 5), so it sho
 | **Epic**              | Suppliers / Reporting                 |
 | **Type**              | Bug - misleading info (no money impact) |
 | **Priority**          | Low                                   |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (pending commit) |
 | **Affected Modules**  | Suppliers                             |
 | **Source Plan**       | Owner manual test 2026-08-10          |
 
@@ -3217,6 +3217,159 @@ debt where none exists.
 - [ ] Audit the same table for other rows implying an obligation that does not exist (prepaid /
       paid-from-own-balance flows).
 - [ ] No money-flow change - presentation only. Confirm balances are untouched.
+
+---
+
+## LIRA-123: `yarn test:e2e` silently no-ops - exit 0, zero output, nothing run
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Tooling / Verification integrity      |
+| **Type**              | Bug - false-green verification        |
+| **Priority**          | **High**                              |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | e2e harness (all)                     |
+| **Source Plan**       | Found 2026-08-10 while verifying LIRA-118..121 |
+
+### Summary
+
+`yarn test:e2e` **produces zero bytes of output and exits 0 within seconds**, running nothing.
+Reproduced three times: twice backgrounded, once in the foreground with a 90s leash.
+
+The suite itself is healthy. Invoking playwright directly works:
+
+```
+cd frontend && npx playwright test --config playwright.electron.config.ts --reporter=list
+# -> 252 passed (7.2m)
+```
+
+`--list` also works through the wrapper, enumerating all 252 specs. Only *execution* via the
+yarn script is silent. The script is
+`"test:e2e": "cd frontend && npx playwright test --config playwright.electron.config.ts"`.
+
+**Why this is High and not tooling trivia:** a command that exits 0 without running is
+indistinguishable from a pass to any caller that checks the exit code - including CI, agents, and
+`| tail` pipelines (a pipe returns *tail's* status, so even the empty output is masked). Every
+"e2e green" in this project that rested on `yarn test:e2e` is therefore **unproven**, not proven.
+This ticket was itself only caught because the log was inspected rather than the exit code trusted.
+
+### Acceptance Criteria
+
+- [ ] Root-cause the silence (yarn 4 script wrapper? `cd` inside the script? stdio not inherited?).
+- [ ] `yarn test:e2e` either runs the suite with visible output, or fails loudly and non-zero.
+- [ ] Audit `test:e2e:web` and every other `yarn` wrapper around a long-running binary for the
+      same silent-success mode.
+- [ ] CI must fail (not pass) when the harness runs nothing - add a floor assertion on the
+      reported spec count.
+- [ ] Document the working direct-playwright invocation in the e2e README until fixed.
+
+---
+
+## LIRA-124: THROUGH-partner OMT/Whish RECEIVE pays the customer from no drawer
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Partners / Money posting              |
+| **Type**              | Bug - untracked cash outflow          |
+| **Priority**          | **High** (latent today, realizes on first use) |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | omt_whish, partners                   |
+| **Source Plan**       | `docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md` (22be723), VIOLATES #1 |
+
+### Summary
+
+On a THROUGH-partner OMT/Whish **RECEIVE**, the shop physically hands the customer cash but **no
+drawer is debited**. The payout postings at `FinancialServiceRepository.ts:3137-3142`,
+`:3253-3257` and `:3270-3276` are all gated on `!skipSystemDrawer`, and
+`skipSystemDrawer = isThroughPartner` (`:909`).
+
+This is the owner's own stated scenario (2026-08-10): *"whish system receive [for partner checked
+- through partner] i physically give money to the customer ... yes its from our drawers."*
+
+**Latent but structurally mandatory.** Zero `THROUGH_%` rows exist in the live DB today, so there
+is no historical drift. It cannot be avoided going forward, though: a walk-in transaction on the
+shop's secondary system is hard-rejected without a partner (`:966-973`), and the only UI path that
+attaches a partner without ticking "For Partner" (`Services/index.tsx:1081`) hardcodes
+`partnerMode: "THROUGH"`. It realizes on the shop's first secondary-system RECEIVE.
+
+**Note the correction this ticket embeds:** this was originally diagnosed as a *FOR*-partner gap,
+citing the comment at `:3277-3279` ("partner handles the payout, not our cash"). That comment sits
+on **unreachable code** - `isForPartner` takes a dedicated early-return branch (`:1867-2188`) that
+posts the shop's disbursement via `processReturnLegs("Partner disbursement")` at `:2185` and
+returns at `:2188`, so `skipGeneralDrawer` is dead at those gates. FOR-partner is correct; THROUGH
+is the broken mirror image. Do not "fix" the FOR path.
+
+Also in scope (VIOLATES #2, same gate): the RECEIVE **fee-on-top collection leg** is dropped -
+foregone revenue rather than untracked cash.
+
+### Acceptance Criteria
+
+- [ ] A THROUGH-partner RECEIVE debits the drawer the operator actually paid from, per currency.
+- [ ] The system drawer stays untouched (the funds landed in the partner's account, not ours) -
+      i.e. fix ONLY the cash/payout side, do not remove `skipSystemDrawer` wholesale.
+- [ ] The fee-on-top collection leg posts.
+- [ ] Rule 20: create + reverse nets to 0 across every ledger touched, per currency.
+- [ ] Rule 17 failing-first, and rule 15 delta+identity assertions (not row position).
+- [ ] The stale `:3277-3279` comment is corrected or deleted so the next reader is not misled.
+
+---
+
+## LIRA-125: THROUGH-partner legacy single-method SEND skips the drawer credit
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Partners / Money posting              |
+| **Type**              | Bug - two code paths disagree         |
+| **Priority**          | Medium (latent)                       |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | omt_whish, partners                   |
+| **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` VIOLATES #3 |
+
+### Summary
+
+For a THROUGH-partner SEND, the **legacy single-`paidByMethod` path** skips the drawer credit
+(`FinancialServiceRepository.ts:3033`, `&& !data.partnerId`) while the **modern multi-leg loop**
+(`:2866-2904`, no such check) correctly credits it. Same business event, two answers.
+
+Latent: every shipped UI path sends the modern multi-leg shape, so the legacy branch is not
+exercised today. It is a trap for any future caller (or an older payload shape) that does.
+
+### Acceptance Criteria
+
+- [ ] Both paths agree, ideally by deleting the legacy branch if nothing can still reach it -
+      prove that before deleting.
+- [ ] Rule 14: one definition of "does this credit our drawer", not a per-path copy.
+- [ ] Rule 17 failing-first.
+
+---
+
+## LIRA-126: THROUGH partner_ledger rows mislabeled WHISH for Binance/iPick/Katsh
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Partners / Reporting                  |
+| **Type**              | Bug - wrong label, no money impact    |
+| **Priority**          | Low                                   |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | partners, reporting                   |
+| **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` VIOLATES #4 |
+
+### Summary
+
+`FinancialServiceRepository.ts:3507-3510`'s `providerKey` ternary defaults **anything** that is not
+OMT/OMT_APP/WHISH/WHISH_APP to `"WHISH"`, so THROUGH-partner BINANCE / iPick / Katsh rows are
+written to `partner_ledger.transaction_type` as `THROUGH_WHISH`. No cash is misrouted - the drawers
+are correct - but partner reporting attributes the activity to the wrong system.
+
+Interacts with the provider-taxonomy work: a closed provider list is what makes a silent default
+tempting. Fix the mapping to be exhaustive and fail loudly on an unmapped provider rather than
+defaulting.
+
+### Acceptance Criteria
+
+- [ ] Exhaustive provider -> `THROUGH_*` mapping; an unmapped provider throws rather than defaults.
+- [ ] Existing mislabeled rows: decide migrate vs leave (state which, and why).
+- [ ] Rule 17 failing-first.
 
 ---
 
@@ -3764,7 +3917,11 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-119 | Settle modal: LBP commission shows Net payment $0.00     | **High** | **PARTIAL** cccd4ca - display fixed; "supplier owes you X" line still open (owner: revisit) | owner manual test 2026-08-10        |
 | LIRA-120 | Partners currency dropdown will not open (re-opens 097)  | **High** | **DONE** 714837d, owner-tested; check-icon removal in flight | owner manual test 2026-08-10        |
 | LIRA-121 | For-Partner notice now states the opposite of the truth  | Medium   | **DONE** e586de9                                          | owner manual test 2026-08-10        |
-| LIRA-122 | Supplier table shows 'Unpaid' where nothing is owed      | Low      | TODO                                                      | owner manual test 2026-08-10        |
+| LIRA-122 | Supplier table shows 'Unpaid' where nothing is owed      | Low      | **DONE** - rule-14 unification on supplier_debt_booked    | owner manual test 2026-08-10        |
+| LIRA-123 | `yarn test:e2e` silently no-ops (exit 0, zero output)     | **High** | TODO - invalidates past 'e2e green' claims                | found verifying LIRA-118..121       |
+| LIRA-124 | THROUGH-partner RECEIVE pays customer from no drawer     | **High** | TODO - latent but realizes on first secondary-system RECEIVE | PARTNER_DISBURSEMENT_MATRIX.md   |
+| LIRA-125 | THROUGH legacy single-method SEND skips drawer credit    | Medium   | TODO                                                      | PARTNER_DISBURSEMENT_MATRIX.md      |
+| LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh) | Low    | TODO                                                      | PARTNER_DISBURSEMENT_MATRIX.md      |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
