@@ -3539,6 +3539,75 @@ signed-amount presentation rule rather than a fourth point fix.
 
 ---
 
+## LIRA-130: Custom Services history shows a refunded service as live
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Custom Services / Reporting           |
+| **Type**              | Bug - misleading display (money is correct) |
+| **Priority**          | **High** (owner-reported; operator cannot tell a refund happened) |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | custom_services                       |
+| **Source Plan**       | Owner report 2026-08-10               |
+
+### Summary
+
+Owner created a for-partner custom service ("7welet syria 100$", cost $100 / price $110) and then
+refunded it. The **transactions** table is correct - both rows present, original marked `REFUNDED`,
+plus a `REFUND ... $-110` row. The **Custom Services history** still shows it as a normal live row:
+
+```
+08:58 PM   up $110.00   7welet syria 100$   -   $100.00   $110.00   $10.00   CASH
+```
+
+No refund indication at all. Owner: *"Shouldn't we see a refund transaction in the Services.history?"*
+
+**The money is right; the screen is not told.** The refund DOES set the flag - `custom_services` is in
+`TransactionRepository._markSourceRefunded`'s whitelist (~:1843-1855), so `is_refunded = 1` and
+`refunded_at` are written. The failure is in the read path:
+
+1. `CustomServiceRepository.getColumns()` (:79-81) projects 20 columns and **omits `is_refunded` and
+   `refunded_at`** - the frontend cannot see them even if it wanted to.
+2. The history query (:541) filters `status != 'voided'` but says nothing about `is_refunded`, so a
+   refunded service returns as an ordinary row.
+3. `CustomServices/index.tsx` has **zero** references to `is_refunded`.
+
+Second symptom on the same row: the **profit column still shows $10** for a refunded service.
+`custom_services.profit_usd` is a GENERATED column (`price - cost`), so it cannot reflect a reversal.
+Real profit reporting reads transactions and handles refunds correctly, so the aggregate is right -
+only this column lies.
+
+### Design decision (recommended, owner to confirm)
+
+**Mark the existing row; do NOT add a synthetic refund row, and do NOT hide it.**
+`custom_services` holds one row per service - the refund lives in `transactions`. Inventing a second
+row would fabricate a record that does not exist, and hiding refunded rows would destroy the audit
+trail (the service DID happen). A `REFUNDED` badge plus a struck-through/neutralised amount preserves
+both truths.
+
+### Acceptance Criteria
+
+- [ ] `is_refunded`/`refunded_at` projected by `getColumns()` and surfaced through the IPC + REST read
+      paths identically (rule 19).
+- [ ] History marks a refunded service unmistakably; the row is NOT removed.
+- [ ] The profit column does not present a live profit for a refunded service.
+- [ ] **Presentation only** - prove no ledger, drawer, profit-aggregate or transaction value changes.
+- [ ] Rule 17 failing-first at the **interaction layer** (render the real history row). Every prior
+      bug of this class was invisible to backend tests.
+- [ ] Audit the sibling histories for the same omission: does Recharge / OMT-Whish / Loto /
+      Maintenance / Expenses history project and display `is_refunded`? `_markSourceRefunded`'s
+      whitelist names 11 tables that carry the flag - report which of their read paths drop it.
+
+### Note - FIFTH instance of one pattern today
+
+LIRA-119 ($0.00 for a 20,000 LBP commission), LIRA-121 (notice stating the opposite of the truth),
+LIRA-122 ("Unpaid" where nothing was owed), LIRA-129 (TOP_UP badge contradicting its own sign), and
+now this. All money-correct, all screen-wrong, all invisible to 1,900+ backend tests and 252 e2e
+specs; every one found by the owner clicking. Treat the audit item above as the real deliverable -
+fixing one history while four others silently drop the same flag repeats the pattern.
+
+---
+
 ## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
 
 | Field                | Value                              |
@@ -4091,6 +4160,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-127 | Secondary-system partner guard hardcodes provider==='WHISH' | Medium | **DONE** 5980180 - was an UNSUBMITTABLE OMT tab, not just a missing guard | section 5b, owner-approved 2026-08-10 |
 | LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet) | Medium | **RESOLVED** - owner confirmed no cash moves; documented FEATURE_GUIDE 8.1.0 | PARTNER_DISBURSEMENT_MATRIX.md |
 | LIRA-129 | TOP_UP badge (red) contradicts negative amount (green)    | Medium | TODO - 4th money-correct/screen-wrong bug today; affects walk-in RECEIVE too | found closing LIRA-128 |
+| LIRA-130 | Custom Services history shows a REFUNDED service as live | **High** | TODO - flag IS set in db; getColumns() drops it. 5th of the pattern | owner report 2026-08-10 |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
