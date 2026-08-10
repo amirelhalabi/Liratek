@@ -901,6 +901,22 @@ function main() {
     : scanMultipleRoots(DEFAULT_SCAN_ROOTS);
   const runWithoutTenantHits = scanRunWithoutTenant();
 
+  // LIRA-123: "0 violations" and "scanned 0 files because DEFAULT_SCAN_ROOTS
+  // stopped resolving" print identically unless the file count is checked.
+  // Floor sits well under the current baseline (147 files as of 2026-08) so
+  // routine file churn never trips it, but a renamed/moved root (0 or a
+  // handful of files) fails loudly instead of reporting a false-clean pass.
+  const MIN_FILES_SCANNED = 80;
+  if (!opts.dir && result.totals.files < MIN_FILES_SCANNED) {
+    console.error(
+      `check-tenant-scoping: only scanned ${result.totals.files} file(s) (expected at ` +
+        `least ${MIN_FILES_SCANNED}) — DEFAULT_SCAN_ROOTS is probably wrong: ` +
+        `${DEFAULT_SCAN_ROOTS.join(", ")}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   if (opts.json) {
     const json = {
       files: result.perFile.map((f) => ({

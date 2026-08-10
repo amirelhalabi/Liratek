@@ -159,9 +159,27 @@ function countPlaceholders(sql) {
   return n;
 }
 
+const scannedFiles = walk(ROOTS[0]).concat(walk(ROOTS[1]));
+
+// LIRA-123: a linter that reports "OK, 0 findings" is indistinguishable from
+// a linter whose ROOTS silently stopped resolving (renamed directory, moved
+// package, etc.) and scanned nothing. Fail loudly rather than rubber-stamp a
+// run that checked zero files. Floor is well below the current baseline
+// (96 files as of 2026-08) so normal file churn never trips it, but a wiped
+// ROOTS array (0 files) or a badly broken glob (a handful of files) does.
+const MIN_FILES_SCANNED = 50;
+if (scannedFiles.length < MIN_FILES_SCANNED) {
+  console.error(
+    `check-bind-arity: only scanned ${scannedFiles.length} file(s) (expected at least ` +
+      `${MIN_FILES_SCANNED}) — ROOTS is probably wrong: ${ROOTS.join(", ")}`,
+  );
+  process.exitCode = 1;
+  process.exit(1);
+}
+
 const findings = [],
   unhandled = [];
-for (const file of walk(ROOTS[0]).concat(walk(ROOTS[1]))) {
+for (const file of scannedFiles) {
   const src = readFileSync(file, "utf8");
   const rel = file.replace(REPO + "/", "");
   let idx = 0;

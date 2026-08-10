@@ -11,15 +11,15 @@
     "lint": "eslint . --max-warnings=9999",
     "test": "node ../node_modules/jest/bin/jest.js --config jest.config.ts",
     "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.ts --coverage --coverageDirectory ../coverage/frontend --coverageReporters=lcov",
-    "test:e2e": "playwright test --config playwright.electron.config.ts",
-    "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
+    "test:e2e": "node ../scripts/run-e2e.mjs electron",
+    "test:e2e:electron": "node ../scripts/run-e2e.mjs electron",
     "test:e2e:ci": "playwright test --workers=2",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:local": "concurrently -k -s first -n backend,frontend \"yarn --cwd ../backend dev\" \"yarn dev --host 0.0.0.0 --port 5173\" --success first && wait-on http://localhost:3000/health http://localhost:5173 && playwright test",
     "env:setup": "[ -f .env ] || cp .env.dev .env",
     "env:dev": "cp .env.dev .env",
     "env:prod": "cp .env.prod .env",
-    "test:e2e:web": "playwright test --config playwright.web.config.ts"
+    "test:e2e:web": "node ../scripts/run-e2e.mjs web"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",

@@ -1,7 +1,17 @@
 # E2E suite index (Electron + Playwright)
 
-Run procedure: see CLAUDE.md → "Running E2E tests" (`yarn dev` → stop → `yarn test:e2e`).
+Run procedure: see CLAUDE.md → "Running E2E tests" (`yarn dev` → stop → `node scripts/run-e2e.mjs electron`).
 Business rules these specs guard are documented in [docs/FEATURE_GUIDE.md](../../../docs/FEATURE_GUIDE.md).
+
+**LIRA-123 (verification integrity):** `yarn test:e2e` / `yarn workspace @liratek/frontend
+test:e2e` can silently exit 0 with ZERO output on Windows dev machines, in well under a
+second, instead of running (or correctly erroring on) anything — reproduced repeatedly from
+a fresh shell with a `-g` pattern matching no spec, which Playwright itself always fails
+loudly on. Always invoke `node scripts/run-e2e.mjs electron` directly from the repo root —
+never through a `yarn` wrapper — for a run you can trust locally. It also enforces a floor
+on the reported test count so a run that silently did nothing can't report success. CI is unaffected (Linux
+runners; confirmed against real run logs showing genuine spec counts) but was switched to
+the same direct invocation anyway, per `.github/workflows/ci.yml`'s comment on that step.
 
 ## Execution model
 

@@ -182,8 +182,21 @@ jobs:
           yarn workspace @liratek/core build
           yarn workspace @liratek/electron-app build
 
+      # LIRA-123: this step used to be
+      #   `yarn workspace @liratek/frontend test:e2e`
+      # which is provably unreliable on Windows dev machines — `yarn`'s own
+      # script-dispatch layer can silently exit 0 with ZERO output instead of
+      # ever launching Playwright (reproduced with a -g pattern matching no
+      # spec, which Playwright itself always fails loudly on with "Error: No
+      # tests found" when invoked directly). CI on Linux has NOT been
+      # observed to hit this — real run logs show genuine spec counts and
+      # multi-minute durations — but the fix bypasses `yarn` for this
+      # specific step everywhere anyway ("a working harness beats a tidy
+      # one"), and scripts/run-e2e.mjs adds the safety net that was missing:
+      # it fails the step if the run reports fewer than --min completed
+      # tests, even if the underlying process's own exit code was 0.
       - name: Run Electron E2E tests
-        run: xvfb-run --auto-servernum -- yarn workspace @liratek/frontend test:e2e
+        run: xvfb-run --auto-servernum -- node scripts/run-e2e.mjs electron --min=150
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

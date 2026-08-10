@@ -15,15 +15,19 @@ LiraTek is a **desktop POS system for retail management** built as an Electron a
 
 - Always use the **Bash tool** with `cmd /c "..."` for yarn, npm, and any CLI commands — never the PowerShell tool. PowerShell output is unreliable for yarn on this Windows setup.
 
-## Running E2E tests (`yarn test:e2e`)
+## Running E2E tests (`node scripts/run-e2e.mjs electron`)
 
 **Required procedure — always run E2E this way:**
 
 1. Run `yarn dev` first and wait for it to finish starting (it rebuilds `better-sqlite3` to the Electron ABI and builds `electron-app/dist`).
 2. **Stop `yarn dev`** (frees port 5173 and the Electron instance).
-3. Then run `yarn test:e2e`.
+3. Then run `node scripts/run-e2e.mjs electron` from the repo root (or `node ../scripts/run-e2e.mjs electron` from `frontend/`). **Never `yarn test:e2e` / `yarn workspace @liratek/frontend test:e2e`** — see the LIRA-123 note below. Pass extra Playwright args after the target, e.g. `node scripts/run-e2e.mjs electron -g "some test title"`. `node scripts/run-e2e.mjs web` runs the web suite the same way.
 
-Do NOT try to launch the app directly (`npx electron .`) to validate — it fails with an ESM `cjsPreparseModuleExports` error outside this flow. The Playwright harness only launches correctly after the `yarn dev` → stop → `test:e2e` sequence. E2E specs live in `frontend/tests/e2e-electron/lira-*.spec.ts`.
+**LIRA-123 — do not invoke E2E through `yarn` on this Windows dev setup.** `yarn test:e2e` and `yarn workspace @liratek/frontend test:e2e` can silently exit 0 with **ZERO output in well under a second**, instead of running (or correctly erroring on) anything — proven with a `-g` pattern matching no spec, which Playwright itself always fails loudly on ("Error: No tests found") when invoked directly; reproduced this way repeatedly, from a fresh shell, every time. A direct invocation with no `yarn run`/`yarn workspace` hop in the chain does not exhibit it. `scripts/run-e2e.mjs` is that direct invocation, plus a floor assertion: it fails the run if the reported test count is suspiciously low, even when the underlying process's own exit code was 0. CI is NOT affected (Linux runners; verified against real run logs showing genuine spec counts like "240 passed (6.0m)"), but the CI step was switched to the same direct invocation anyway.
+
+The exact mechanism inside Yarn's script-dispatch layer is not pinned down (its script/exec spawn path never reached a `child_process`-level require-hook in the failing case, so the failure is somewhere above that, not inside Node's own subprocess plumbing). Scope note: the identical symptom (exit 0, 0 output, sub-second) was also seen intermittently on `yarn workspace @liratek/frontend typecheck`/`test`/`lint` during this investigation, but — unlike the e2e case — not reliably; a separate clean-session measurement of the same typecheck/test commands completed correctly with real multi-second/minute runtimes and real output. The likely explanation is session/resource-state dependent (this investigation's shell had accumulated dozens of spawned processes), not a permanent property of every yarn invocation on this box. Do **not** read this as "distrust all yarn output" — `yarn typecheck`/`yarn lint` are not shown to be unreliable in normal use; only the e2e/Playwright invocation is proven broken and is the one to always bypass.
+
+Do NOT try to launch the app directly (`npx electron .`) to validate — it fails with an ESM `cjsPreparseModuleExports` error outside this flow. The Playwright harness only launches correctly after the `yarn dev` → stop → e2e-run sequence. E2E specs live in `frontend/tests/e2e-electron/lira-*.spec.ts`.
 
 **Stale build = old code at runtime.** The harness loads compiled output, not source. After editing `electron-app/` source (handlers, `preload.ts`, `schemas/index.ts`) you MUST re-run step 1 (`yarn dev` rebuilds `electron-app/dist`) before `test:e2e` — otherwise the old `dist` runs and your change is silently ignored (a stale `schemas/dist` rejecting a renamed enum once surfaced as a confusing Zod-validation failure on a value the new source clearly allows). After editing `packages/core/` source, rebuild + sync core (see **Core Build & Sync**) — `node_modules/@liratek/core/dist` is a real copy, not a symlink.
 

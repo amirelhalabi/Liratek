@@ -1,6 +1,7 @@
 # Playwright
 frontend/test-results/
 frontend/playwright-report/
+frontend/.e2e-report-*.json
 
 # Logs
 logs
