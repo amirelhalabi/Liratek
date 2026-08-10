@@ -187,6 +187,24 @@ export interface Partner {
 }
 
 /**
+ * A `service_providers` config row (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md
+ * §5b phase 4a) — powers the Partners "System Association" dropdown with
+ * the real, tenant-scoped provider list instead of a hardcoded pair.
+ */
+export interface ServiceProviderEntity {
+  id: number;
+  code: string;
+  label: string;
+  drawer_name: string;
+  /** 1 = OMT/WHISH — eligible for Primary-Cash-Drawer routing; 0 otherwise. */
+  is_system_provider: number;
+  sort_order: number;
+  is_active: number;
+  is_system: number;
+  created_at: string;
+}
+
+/**
  * All `partner_ledger.transaction_type` values that may be returned for display.
  *
  * Plain types + SETTLEMENT/ADJUSTMENT/CUSTOM_SERVICE are recordable manually
@@ -2907,6 +2925,11 @@ export interface ElectronAPI {
       amount_lbp: number;
       reason?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
+  };
+
+  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a)
+  serviceProviders: {
+    listActive: () => Promise<ServiceProviderEntity[]>;
   };
 }
 

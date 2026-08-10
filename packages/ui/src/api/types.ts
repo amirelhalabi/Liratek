@@ -192,6 +192,24 @@ export type PaymentMethodEntity = {
   created_at: string;
 };
 
+/**
+ * A `service_providers` config row (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md
+ * §5b phase 4a) — powers the Partners "System Association" dropdown with
+ * the real, tenant-scoped provider list instead of a hardcoded pair.
+ */
+export type ServiceProviderEntity = {
+  id: number;
+  code: string;
+  label: string;
+  drawer_name: string;
+  /** 1 = OMT/WHISH — eligible for Primary-Cash-Drawer routing; 0 otherwise. */
+  is_system_provider: number;
+  sort_order: number;
+  is_active: number;
+  is_system: number;
+  created_at: string;
+};
+
 /** LIRA W6.a — a shop-owned alfa/mtc SIM line. Informational only. */
 export type CarrierLineEntity = {
   id: number;
@@ -913,6 +931,13 @@ export type ApiAdapter = {
   ) => Promise<ApiResult>;
   deletePaymentMethod: (id: number) => Promise<ApiResult>;
   reorderPaymentMethods: (ids: number[]) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a)
+  // ---------------------------------------------------------------------------
+  /** Active `service_providers`, ordered by `sort_order` — powers the
+   *  Partners "System Association" dropdown with the real provider list. */
+  getActiveServiceProviders: () => Promise<ServiceProviderEntity[]>;
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)

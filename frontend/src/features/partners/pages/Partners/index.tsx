@@ -46,6 +46,7 @@ import {
   useApi,
   type PaymentLine,
   type PaymentMethod,
+  type ServiceProviderEntity,
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -209,8 +210,21 @@ function PartnerFormModal({
   const [systemAssociation, setSystemAssociation] = useState<string>(
     partner?.system_association ?? partnerSystem,
   );
+  // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a — the real,
+  // tenant-scoped provider list from `service_providers`, replacing the
+  // hardcoded `{None, <shop's non-owned system>}` pair. `partnerSystem`
+  // (OMT/WHISH) is still a valid provider `code` in this list, so the
+  // default selection above keeps working unchanged once it loads.
+  const [providers, setProviders] = useState<ServiceProviderEntity[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const api = useApi();
+
+  useEffect(() => {
+    api
+      .getActiveServiceProviders()
+      .then(setProviders)
+      .catch(() => setProviders([]));
+  }, [api]);
 
   async function handleSubmit() {
     if (!name.trim()) {
@@ -296,17 +310,14 @@ function PartnerFormModal({
             onChange={(v) => setSystemAssociation(v)}
             options={[
               { value: "", label: "None" },
-              {
-                value: partnerSystem,
-                label:
-                  partnerSystem === "WHISH" ? "Whish System" : "OMT System",
-              },
+              ...providers.map((p) => ({ value: p.code, label: p.label })),
             ]}
             buttonClassName="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
           />
           <p className="text-xs text-slate-500 mt-1">
-            Associate this partner with a system to access transactions on that
-            system's page.
+            Associate this partner with a provider system. Only OMT and Whish
+            currently gate transactions on their own page — other systems are
+            for record-keeping only.
           </p>
         </div>
         <div>

@@ -150,6 +150,13 @@ export {
 } from "./PaymentMethodService.js";
 export type { PaymentMethodResult } from "./PaymentMethodService.js";
 
+// Service Provider Service (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a)
+export {
+  ServiceProviderService,
+  getServiceProviderService,
+  resetServiceProviderService,
+} from "./ServiceProviderService.js";
+
 // Expense Service
 export {
   ExpenseService,

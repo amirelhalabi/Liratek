@@ -2582,6 +2582,38 @@ export async function reorderPaymentMethods(ids: number[]) {
   );
 }
 
+// ==================== Service Provider API ====================
+// FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a — the real provider
+// list behind the Partners "System Association" dropdown (previously
+// hardcoded to `{None, <shop's non-owned system>}`).
+
+export type ServiceProviderEntity = {
+  id: number;
+  code: string;
+  label: string;
+  drawer_name: string;
+  is_system_provider: number;
+  sort_order: number;
+  is_active: number;
+  is_system: number;
+  created_at: string;
+};
+
+export async function getActiveServiceProviders(): Promise<
+  ServiceProviderEntity[]
+> {
+  return ipcOrHttp(
+    async () => getElectronApi().serviceProviders.listActive(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        providers: ServiceProviderEntity[];
+      }>(`/api/service-providers/active`);
+      return res.providers;
+    },
+  );
+}
+
 // ==================== Currency–Module API ====================
 
 export async function getModulesForCurrency(code: string) {

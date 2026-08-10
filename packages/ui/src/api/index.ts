@@ -6,6 +6,7 @@ export type {
   ProductWriteResult,
   ProcessSaleResult,
   PaymentMethodEntity,
+  ServiceProviderEntity,
   ClientEntity,
   DebtorSummary,
   DebtLedgerEntity,
