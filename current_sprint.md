@@ -3017,6 +3017,209 @@ inconsistency decision.**
 
 ---
 
+## LIRA-118: BLOCKER — "Submit to partner" disabled on Custom Services even with a partner selected
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Custom Services / Partners            |
+| **Type**              | Bug - blocker (flow unusable)         |
+| **Priority**          | **BLOCKER**                           |
+| **Status**            | **DONE** (e586de9) - owner-tested |
+| **Affected Modules**  | Custom Services                       |
+| **Source Plan**       | Owner manual test 2026-08-10          |
+
+### Summary
+
+Owner test: Services page (`/custom-services`), free-text description, cost 8, price 10, **For
+Partner ticked** - the only partner in the DB ("test") **was auto-selected** ("Partner: test was
+directly selected") - and the **Submit-to-partner button is DISABLED**. So a For-Partner custom
+service **cannot be created at all**.
+
+WARNING: **possible regression from today's work.** `cc45227` (plan section 3 slice 1) and `d1a0ad2`
+(section 2a) both edited `frontend/src/features/custom-services/pages/CustomServices/index.tsx` and
+`CustomServiceRepository`. Establish FIRST whether this is new or pre-existing (check out the commit
+before `cc45227` and try the same flow) - that decides fix vs revert.
+
+Candidate causes: the submit-enabled predicate may require a payment method / payment line that the
+For-Partner toggle deliberately clears (`setPaymentLines([])`, ~:952-960); or the cost/price
+validation; or a guard added in slice 1.
+
+### Acceptance Criteria
+
+- [ ] Determine whether this is a regression from `cc45227`/`d1a0ad2` - state which.
+- [ ] For-Partner custom service submits successfully with a partner selected.
+- [ ] Rule 17 failing-first test at the layer that would have caught it (a component test asserting
+      submit is ENABLED for a valid For-Partner form - note every backend test passed while this
+      was broken).
+
+---
+
+## LIRA-119: Settle modal shows "Net payment $0.00" for an LBP commission
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Suppliers / Commission                |
+| **Type**              | Bug - money risk                      |
+| **Priority**          | **High**                              |
+| **Status**            | **PARTIAL** (cccd4ca) - see Open below |
+| **Affected Modules**  | Suppliers (settle), Commission        |
+| **Source Plan**       | Owner manual test 2026-08-10          |
+
+### Summary
+
+Owner settled a Katsh bill in RATE mode. The modal computed the commission correctly in LBP:
+
+```
+RATE PER UNIT 20000 | CURRENCY [USD|LBP] | COUNT 1
+20000 LBP x 1 = 20,000 LBP
+Net payment to Katsh:  $0.00
+Total Amount:          $0.00
+```
+
+Owner's read, consistent with the symptom: the **net payment / total are computed in USD**, so a
+20,000 LBP commission lands as $0. Owner: *"the net payment and currency selected by default in
+payment should be in LBP."*
+
+**Why this is a money risk rather than cosmetic:** the operator sees $0.00 net and may submit,
+potentially settling the wrong amount. Establish what actually posts.
+
+Related to LIRA-112 (`be4143c`), which added `suppliers.commission_rate_currency` and taught the
+settle screen to read it for the **commission entry**. The **net-pay/total** side evidently still
+assumes USD. Batch settle math is USD-only today by design (`Suppliers/index.tsx` excludes LBP rows)
+- likely the root.
+
+### Acceptance Criteria
+
+- [x] Establish what actually POSTS when net shows $0.00 - **ANSWERED: nothing is
+      mis-posted.** A bills-only batch genuinely settles 0 cash (`SUPPLIER_OWED_EXPR`'s
+      BILL branch is hardcoded 0 - a bill's principal already left via the provider-drawer
+      cost leg at creation, never through the settlement ledger). The 20,000 LBP commission
+      posts correctly and in full, in LBP, as a cashless `SUPPLIER_PAYS_US` ledger credit.
+      **It was a pure display bug** (hardcoded `$` + `currency: "USD"`). Fixed in cccd4ca.
+
+### NOTE - revisit later (owner, 2026-08-10)
+
+The ticket as filed asked for "Net payment: 20,000 LBP". That was **wrong to implement**
+literally and was deliberately NOT done: the commission is money the SUPPLIER OWES US (a
+credit), never cash we disburse. Rendering it as "Net payment" would invite an operator to
+add a matching 20,000 LBP CASH leg and pay the same commission out a second time. Shipped
+value is **"0 LBP"** - still zero, but currency-honest instead of a false `$`.
+
+**Still OPEN:** the modal now says "Net payment: 0 LBP" and says NOTHING about the 20,000
+the operator just entered - misleading by omission, the same class that started this whole
+line of work (LIRA-121 / plan section 5). Proposed: an explicit "Katsh owes you 20,000 LBP"
+line in the settle modal. Owner deferred: "we will get back to it later."
+
+- [ ] Net payment + total respect the commission/rate currency; payment currency defaults to it.
+- [ ] Rule 17 failing-first; rule 20 net-to-0 preserved.
+
+---
+
+## LIRA-120: Currency dropdown does not open on Partners Add Credit/Debt (re-opens LIRA-097)
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Partners / UI                         |
+| **Type**              | Bug - feature unusable                |
+| **Priority**          | **High**                              |
+| **Status**            | **DONE** (714837d) - owner-tested OK |
+| **Affected Modules**  | Partners (possibly every Select in a modal) |
+| **Source Plan**       | Owner manual test 2026-08-10          |
+
+### Summary
+
+Owner: *"clicking on the currency drop down only changes the arrow direction, no dropdown is opening
+to be able to select lbp."*
+
+**This supersedes the wrong closure of LIRA-097.** That ticket was closed as "already working"
+because the options exist in code - verified present as `{USD, LBP}` at
+`frontend/src/features/partners/pages/Partners/index.tsx:549-552` and `:811-814`. They do exist;
+they are simply **unreachable**, so the feature is unusable and the closure was wrong in effect.
+Lesson recorded: reading an options array is not testing a control.
+
+### Acceptance Criteria
+
+- [x] **ROOT CAUSE (714837d):** `<ListboxOptions anchor="bottom end">` forces headlessui to
+      portal the panel to a body-level div where floating-ui positions it `absolute`, so only
+      the panel's OWN `z-50` ranked it - and Partners' local `Modal` backdrop is `z-[60]`.
+      The click DID toggle open state (hence the chevron flipping); the list rendered BEHIND
+      the backdrop. Fixed by raising the panel to `z-[500]` in the shared component.
+      **Owner tested 2026-08-10: working.** Also un-broke the System Association and
+      Write-Off currency pickers on the same page (same defect).
+- [ ] FOLLOW-UP (owner, 2026-08-10): remove the check/tick icon from the option list in the
+      USD/LBP dropdown.
+- [ ] ~~Root-cause why the `Select` list does not render/open here~~ (portal? z-index inside the modal?
+      an overlay swallowing the click? controlled-state bug?).
+- [ ] **Check whether the same `Select` fails in other modals** - if it is the shared component,
+      this is far wider than Partners.
+- [ ] LBP selectable, and an LBP credit/debt books `partner_ledger.currency = 'LBP'`.
+- [ ] A test at the layer that would have caught it (interaction, not props).
+
+---
+
+## LIRA-121: For-Partner notice on Custom Services states the opposite of the truth
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Custom Services / Copy                |
+| **Type**              | Bug - misleading copy                 |
+| **Priority**          | Medium                                |
+| **Status**            | **DONE** (e586de9) |
+| **Affected Modules**  | Custom Services                       |
+| **Source Plan**       | Owner manual test 2026-08-10          |
+
+### Summary
+
+The notice currently reads: *"The service's cost, $8.00, **still leaves the General drawer right
+now**, the same as a walk-in job."* **Section 2a (`d1a0ad2`) removed exactly that behaviour** - the
+cost no longer moves any drawer.
+
+Sequencing error: the copy was written in `cc45227` under an explicit instruction to describe
+*current* behaviour, and `d1a0ad2` invalidated it one commit later without the copy being revisited.
+Misleading copy is what triggered this whole line of work (section 5), so it should not be left.
+
+### Acceptance Criteria
+
+- [ ] Notice states the truth: full price to the partner's tab; **cost affects profit only and moves
+      no drawer**.
+- [ ] Sweep every other partner/cost notice for the same staleness after section 2a.
+
+---
+
+## LIRA-122: Supplier table shows "Unpaid" on rows where nothing is owed
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Suppliers / Reporting                 |
+| **Type**              | Bug - misleading info (no money impact) |
+| **Priority**          | Low                                   |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Suppliers                             |
+| **Source Plan**       | Owner manual test 2026-08-10          |
+
+### Summary
+
+Owner sold a Katsh **item** (not a bill) and saw it in the Katsh supplier table as
+`SEND | 462,075 LBP | Unpaid`, while the supplier balance correctly read **Settled**.
+
+Owner's reasoning, which is correct: *"in katsh we pay from our own shop balance, nothing is owed.
+basically only topping up the katsh balance is what we owe to katsh... if item other than bill, we
+dont need to see it in the katsh supplier table. the unpaid is misleading but... not critical, not
+affecting the money flow, just misleading info."*
+
+Owner asked to cover **the class**, not just this row: any supplier-table row whose status implies a
+debt where none exists.
+
+### Acceptance Criteria
+
+- [ ] Non-bill Katsh/iPick rows either leave the supplier table or stop showing a debt-implying
+      status.
+- [ ] Audit the same table for other rows implying an obligation that does not exist (prepaid /
+      paid-from-own-balance flows).
+- [ ] No money-flow change - presentation only. Confirm balances are untouched.
+
+---
+
 ## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
 
 | Field                | Value                              |
@@ -3557,6 +3760,11 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-114 | 'For Partner' custom service acts as THROUGH; cost hits General | **High** | RE-OPENED 2026-08-09 — it IS custom_services, not omt_whish (crossed labels); owner confirmed For-Partner ticked | owner report 2026-08-08 |
 | LIRA-116 | Rename crossed 'Services' module labels/routes          | Medium   | TODO (owner approved 2026-08-09)                          | found via LIRA-114                  |
 | LIRA-117 | No e2e drives inventory-pick -> stock decrement          | Medium   | TODO                                                      | found shipping §2b                  |
+| LIRA-118 | BLOCKER: submit-to-partner disabled on Custom Services   | **BLOCKER** | **DONE** e586de9 (pre-existing from 62e43ea, NOT a regression) | owner manual test 2026-08-10        |
+| LIRA-119 | Settle modal: LBP commission shows Net payment $0.00     | **High** | **PARTIAL** cccd4ca - display fixed; "supplier owes you X" line still open (owner: revisit) | owner manual test 2026-08-10        |
+| LIRA-120 | Partners currency dropdown will not open (re-opens 097)  | **High** | **DONE** 714837d, owner-tested; check-icon removal in flight | owner manual test 2026-08-10        |
+| LIRA-121 | For-Partner notice now states the opposite of the truth  | Medium   | **DONE** e586de9                                          | owner manual test 2026-08-10        |
+| LIRA-122 | Supplier table shows 'Unpaid' where nothing is owed      | Low      | TODO                                                      | owner manual test 2026-08-10        |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
