@@ -3399,6 +3399,103 @@ defaulting.
 
 ---
 
+## LIRA-127: Secondary-system partner selector hardcodes `provider === "WHISH"`
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Partners / OMT-Whish                  |
+| **Type**              | Bug - asymmetric guard                |
+| **Priority**          | Medium                                |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | omt_whish, partners                   |
+| **Source Plan**       | `FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md` section 5b (lines ~268-270) |
+
+### Summary
+
+`frontend/src/features/services/pages/Services/index.tsx` (~:1422-1430) gates the
+secondary-system partner requirement on a hardcoded `provider === "WHISH"` instead of
+`provider === <the shop's secondary system>`.
+
+The intent is "a transaction on the system the shop does NOT own requires a partner". Written as a
+WHISH literal, it only holds for a shop whose base system is OMT. **A shop whose base system is
+WHISH has OMT as its secondary system and gets no partner requirement on the OMT tab at all** - the
+guard silently does not apply to the tab it should.
+
+Found while investigating the provider taxonomy (section 5b); filed on the owner's instruction
+2026-08-10 ("Yea for the provider=whish thing i think its worth a ticket").
+
+Related: the same class of hardcoded-system assumption is what forces "hwelet souria" onto WHISH -
+see the taxonomy phases. The correct comparison is against `useShopBase()`'s resolved secondary
+system, and after taxonomy phase 4 against the partner's own `system_association`.
+
+### Acceptance Criteria
+
+- [ ] The requirement is derived from the shop's actual base/secondary system, not a WHISH literal.
+- [ ] Verified BOTH ways round: base OMT (secondary WHISH) and base WHISH (secondary OMT) - the
+      second is the currently-broken direction and must be the one proven.
+- [ ] Grep for sibling hardcodes of the same shape (`=== "WHISH"` / `=== "OMT"` in guards or tab
+      gating) and report them; `Services/index.tsx:514-519, 1329-1339` and
+      `Checkpoint/index.tsx:57-76` are named in section 5b as other `system_association` readers.
+- [ ] Rule 17 failing-first at the interaction layer (a props-level assertion will not catch a
+      wrong-branch bug - see LIRA-120's wrongly-closed predecessor LIRA-097).
+
+---
+
+## LIRA-128: Confirm on-behalf (FOR) RECEIVE drawer semantics - OMT/Whish vs app-wallet/Binance differ
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Partners / Money posting              |
+| **Type**              | Question - blocked on shop owner      |
+| **Priority**          | Medium (no known loss; consistency)   |
+| **Status**            | BLOCKED - awaiting shop-owner confirmation |
+| **Affected Modules**  | omt_whish, partners                   |
+| **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` open item |
+
+### Summary
+
+A FOR-partner ("on behalf of") RECEIVE posts **differently depending on provider**:
+
+| Provider family | What posts at transaction time |
+| --- | --- |
+| **OMT / WHISH** (primary system) | supplier-ledger TOP_UP + partner CREDIT - **no drawer moves** |
+| **App wallet / Binance** | the wallet drawer is **CREDITED** the full amount |
+
+Owner's description of the flow (2026-08-10): *"OMT received: he calls us and tells us to receive
+this OMT transaction and hold on to the money. Not physically hold on to the money, but we will
+settle at the end. This receiver of the OMT amount, the amount is what we owe to the partner."*
+
+Owner's provisional answer (2026-08-10), pending confirmation with the shop owner:
+> *"im not sure, im asking the shop owner but yes i think drawers doesnt change"*
+
+⇒ **Provisional conclusion: the OMT/Whish behaviour is CORRECT and needs no change.**
+
+**The two behaviours may BOTH be right, for different physical reasons** - this is the hypothesis to
+confirm, not an assumed bug:
+
+- An **app wallet / Binance** balance is an asset the shop actually holds. Receiving into it really
+  does increase the shop's balance, so crediting that drawer is honest.
+- An **OMT/Whish** cash receive is an agent-network operation: nothing lands in a wallet the shop
+  holds. The transfer is marked collected, which reduces what the shop owes the provider (the
+  TOP_UP entry), and the shop owes the partner instead. No till movement, because no cash moved.
+
+If that holds, there is no bug and this ticket closes as documentation. `FEATURE_GUIDE.md` section
+8.1 already documents the OMT/Whish half deliberately ("obligations only ... the partner's later
+collection pays out of the PCD").
+
+### Acceptance Criteria
+
+- [ ] Shop owner confirms whether ANY cash physically moves at the moment an on-behalf OMT receive
+      is recorded.
+- [ ] If no: close as documented-correct; add the app-wallet/Binance rationale to FEATURE_GUIDE
+      section 8.1 so the difference reads as deliberate rather than as drift.
+- [ ] If yes: this is a second money bug alongside LIRA-124 - the payout must debit the drawer the
+      operator paid from, with rule 17 + rule 20 proof.
+- [ ] Either way, record the reasoning; the asymmetry currently looks like an inconsistency to any
+      reader and will be "fixed" wrongly by someone eventually.
+
+---
+
 ## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
 
 | Field                | Value                              |
@@ -3948,6 +4045,8 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-124 | THROUGH-partner RECEIVE pays customer from no drawer     | **High** | **DONE** 2e9e822 - payout + fee leg post; FOR path untouched (correct) | PARTNER_DISBURSEMENT_MATRIX.md |
 | LIRA-125 | THROUGH legacy single-method SEND skips drawer credit    | Medium   | TODO                                                      | PARTNER_DISBURSEMENT_MATRIX.md      |
 | LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh) | Low    | TODO                                                      | PARTNER_DISBURSEMENT_MATRIX.md      |
+| LIRA-127 | Secondary-system partner guard hardcodes provider==='WHISH' | Medium | TODO - breaks for a WHISH-base shop's OMT tab            | section 5b, owner-approved 2026-08-10 |
+| LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet) | Medium | **BLOCKED** - owner asking shop owner; provisional "drawers don't change" | PARTNER_DISBURSEMENT_MATRIX.md |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
