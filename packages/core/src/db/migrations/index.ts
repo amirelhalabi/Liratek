@@ -8584,6 +8584,207 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 155,
+    name: "partners_system_association_to_fk",
+    description:
+      "FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4b — referential integrity for " +
+      "partners.system_association. The column was unconstrained TEXT (create_db.sql pre-v155, " +
+      "migration v79/v78) with no FK, no enum, no CHECK — a custom provider (e.g. the owner's live " +
+      "'SYRIA' entry, created via the phase-5 Settings UI) could be deleted out from under an " +
+      "associated partner, since ServiceProviderRepository.deleteProvider only blocked is_system=1 " +
+      "rows, leaving a dangling system_association that silently matched no provider anywhere " +
+      "downstream. Adds a composite FOREIGN KEY (tenant_id, system_association) REFERENCES " +
+      "service_providers(tenant_id, code) — the SAME composite shape v154 used for " +
+      "financial_services.provider, and for the SAME reason: service_providers only carries " +
+      "UNIQUE(tenant_id, code) (v153), not a unique index on code alone (multi-tenant seeds the SAME " +
+      "9 built-in codes per tenant by design), so a bare `REFERENCES service_providers(code)` would " +
+      "throw 'foreign key mismatch' on EVERY statement against partners. system_association stays " +
+      "NULLABLE — a partner legitimately has no system ('None' in the dropdown) — which is safe " +
+      "because SQLite's standard composite-FK NULL semantics exempt a row from enforcement entirely " +
+      "when ANY column of the composite key is NULL: this covers both a NULL system_association AND " +
+      "the one pre-multi-tenant legacy partner row found on the live database during this migration's " +
+      "pre-flight check (tenant_id NULL, system_association 'WHISH') the same way v154 exempted " +
+      "financial_services' own NULL-tenant_id legacy rows — proved with an explicit test (a NULL " +
+      "system_association insert/update succeeds untouched by the FK). Verified against a copy of " +
+      "the real accumulated production database: every tenant-scoped partner's system_association " +
+      "already matches a real service_providers(tenant_id, code) row, including the owner's own " +
+      "'SYRIA' provider/partner pair — zero rows needed nulling out, zero data lost. " +
+      "SQLite can't ALTER a column into a table-level FK, so like v105/v106/v123/v154 this is a full " +
+      "table rebuild: read partners' OWN live CREATE-TABLE text from sqlite_master (never retyped " +
+      "from memory), append the new table-level composite FK, copy every row with INSERT...SELECT * " +
+      "(column count/order never hand-retyped), drop, rename. partners carries no named indexes " +
+      "beyond its own UNIQUE(tenant_id, name) constraint's autoindex (sqlite_autoindex_partners_1, " +
+      "verified against both create_db.sql and the real DB — SQLite recreates this automatically from " +
+      "the UNIQUE clause in the rebuilt table, nothing to replay) and no triggers, both verified empty; " +
+      "the code stays defensive and would recreate any named index/trigger it found, mirroring v154. " +
+      "The concrete bug this closes is guarded on BOTH sides per the plan: " +
+      "ServiceProviderRepository.deleteProvider (this same change) now refuses to delete a provider " +
+      "still named in any partner's system_association, naming the referencing partner(s) in a clear " +
+      "error BEFORE the DELETE statement runs — this migration's FK is the backstop for any path that " +
+      "skips the repository method (e.g. a future raw script), turning what would otherwise be a " +
+      "silent dangling reference into a loud SQLITE_CONSTRAINT instead. Self-guards with an explicit " +
+      "PRAGMA foreign_key_check after the rebuild (mirrors v123 §4 / v154) since FK enforcement is OFF " +
+      "for the whole migration batch. A gotcha inherited from v154: after `ALTER TABLE … RENAME TO`, " +
+      "SQLite re-serializes the stored CREATE TABLE text with the table name double-quoted " +
+      "(`CREATE TABLE \"partners\" (`) — the table-name swap regex below matches both the quoted and " +
+      "unquoted forms, or down() would silently fail to rename its rebuild target and collide with " +
+      "the live table. Unlike v154's own down(), this down() is data-lossless: reverting " +
+      "system_association to unconstrained TEXT can represent every value already stored (including " +
+      "a post-migration 'SYRIA'-style association added after this shipped) — there is no CHECK to " +
+      "fail to satisfy on rollback, so nothing needs deleting.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasPartners = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partners'`,
+        )
+        .get();
+      const hasServiceProviders = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'service_providers'`,
+        )
+        .get();
+      if (!hasPartners || !hasServiceProviders) {
+        console.log(
+          "Migration v155 skipped: 'partners' or 'service_providers' table not present",
+        );
+        return;
+      }
+
+      const tbl = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='partners'`)
+        .get() as { sql: string };
+
+      const FK_MARKER =
+        "FOREIGN KEY (tenant_id, system_association) REFERENCES service_providers";
+      if (tbl.sql.includes(FK_MARKER)) {
+        console.log(
+          "Migration v155 skipped: partners.system_association FK already present",
+        );
+        return;
+      }
+
+      if (!tbl.sql.includes("system_association")) {
+        throw new Error(
+          "Migration v155: expected 'system_association' column not found verbatim in the live " +
+            "partners DDL — schema drift from what this migration was written against. Aborting " +
+            "rather than guessing at the column list (this is partner data).",
+        );
+      }
+
+      // Capture index + trigger DDL before the table is dropped. partners has
+      // no named indexes beyond its own UNIQUE(tenant_id, name) autoindex
+      // (recreated automatically by the UNIQUE clause in the rebuilt table)
+      // and no triggers today (verified) — this stays defensive for
+      // future-proofing, mirroring v154.
+      const idx = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='partners' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+      const triggers = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='partners' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+
+      // Table-name swap handles BOTH the unquoted form (first time this table
+      // is rebuilt) and the double-quoted form SQLite re-serializes into
+      // sqlite_master after any prior `ALTER TABLE … RENAME TO` — see the
+      // description above.
+      let newSql = tbl.sql.replace(
+        /^CREATE TABLE (IF NOT EXISTS )?"?partners"?\s*\(/,
+        "CREATE TABLE partners_new (",
+      );
+      newSql = newSql.replace(
+        /\)\s*$/,
+        ",\n    FOREIGN KEY (tenant_id, system_association) REFERENCES service_providers(tenant_id, code)\n)",
+      );
+
+      db.exec(newSql);
+      db.exec(`INSERT INTO partners_new SELECT * FROM partners;`);
+      db.exec(`DROP TABLE partners;`);
+      db.exec(`ALTER TABLE partners_new RENAME TO partners;`);
+      for (const r of idx) db.exec(r.sql);
+      for (const r of triggers) db.exec(r.sql);
+
+      // Self-guard: fail loudly if the rebuild left any FK dangling (mirrors
+      // v123 §4 / v154) — foreign_keys enforcement is OFF for the whole
+      // migration batch, so this is the only thing that would catch a broken
+      // FK here.
+      const fkViolations = db.pragma("foreign_key_check") as unknown[];
+      if (fkViolations.length > 0) {
+        throw new Error(
+          `Migration v155: foreign_key_check found ${fkViolations.length} violation(s) after rebuild: ${JSON.stringify(fkViolations)}`,
+        );
+      }
+
+      console.log(
+        "Migration v155: partners.system_association relaxed to a composite FK (tenant_id, " +
+          "system_association) -> service_providers(tenant_id, code); all rows copied, " +
+          "foreign_key_check clean",
+      );
+    },
+    down(db: Database.Database) {
+      const hasPartners = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'partners'`,
+        )
+        .get();
+      if (!hasPartners) {
+        console.log("Migration v155 rollback skipped: 'partners' table not present");
+        return;
+      }
+
+      const tbl = db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='partners'`)
+        .get() as { sql: string };
+
+      const FK_SUFFIX =
+        ",\n    FOREIGN KEY (tenant_id, system_association) REFERENCES service_providers(tenant_id, code)\n)";
+      if (!tbl.sql.includes(FK_SUFFIX)) {
+        console.log(
+          "Migration v155 rollback skipped: partners.system_association FK not present " +
+            "(migration was never applied, or already rolled back)",
+        );
+        return;
+      }
+
+      const idx = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='partners' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+      const triggers = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='partners' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+
+      // Unlike v154's down(), no rows are ever deleted here: reverting to
+      // unconstrained TEXT can represent every value already stored (see the
+      // description above) — there is no CHECK to fail to satisfy.
+      let revertedSql = tbl.sql
+        .replace(
+          /^CREATE TABLE (IF NOT EXISTS )?"?partners"?\s*\(/,
+          "CREATE TABLE partners_old (",
+        )
+        .replace(FK_SUFFIX, ")");
+
+      db.exec(revertedSql);
+      db.exec(`INSERT INTO partners_old SELECT * FROM partners;`);
+      db.exec(`DROP TABLE partners;`);
+      db.exec(`ALTER TABLE partners_old RENAME TO partners;`);
+      for (const r of idx) db.exec(r.sql);
+      for (const r of triggers) db.exec(r.sql);
+
+      console.log(
+        "Migration v155 rolled back: partners.system_association FK removed, column reverted to " +
+          "unconstrained TEXT",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
@@ -8756,18 +8957,39 @@ export function rollbackTo(db: Database.Database, targetVersion: number): void {
 
   console.log(`[MIGRATIONS] Rolling back ${toRollback.length} migration(s)...`);
 
-  for (const migration of toRollback) {
-    console.log(
-      `[MIGRATIONS] ← Rolling back ${migration.version}: ${migration.name}`,
-    );
+  // Disable FK constraints during rollback — mirrors runMigrations' own
+  // bracket (line ~8899 above) and for the identical reason: a down() that
+  // rebuilds a table (DROP + RENAME) which OTHER tables reference via FK —
+  // discovered by migration v155's down() rebuilding `partners`, which
+  // `financial_services.partner_id`/`partner_ledger.partner_id` reference —
+  // otherwise fails with "FOREIGN KEY constraint failed" on the DROP
+  // TABLE step whenever any such referencing row exists (verified against a
+  // copy of the real accumulated production database, which has both).
+  // v154's own down() never exposed this gap because financial_services
+  // itself is not the FK target of any other table. PRAGMA foreign_keys
+  // cannot be changed inside a transaction, so — exactly like
+  // runMigrations — this is set here, outside the per-migration
+  // transactions below.
+  db.pragma("foreign_keys = OFF");
 
-    db.transaction(() => {
-      migration.down!(db);
-      db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(
-        migration.version,
+  try {
+    for (const migration of toRollback) {
+      console.log(
+        `[MIGRATIONS] ← Rolling back ${migration.version}: ${migration.name}`,
       );
-      console.log(`[MIGRATIONS] ✅ ${migration.name} rolled back`);
-    })();
+
+      db.transaction(() => {
+        migration.down!(db);
+        db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(
+          migration.version,
+        );
+        console.log(`[MIGRATIONS] ✅ ${migration.name} rolled back`);
+      })();
+    }
+  } finally {
+    // Always re-enable FK constraints, even if a rollback fails — mirrors
+    // runMigrations' own finally block.
+    db.pragma("foreign_keys = ON");
   }
 
   console.log(

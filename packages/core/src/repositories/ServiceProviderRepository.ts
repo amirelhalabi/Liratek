@@ -23,8 +23,10 @@
  * to the literal map). See that method's own doc comment.
  *
  * Phase 3 (relax the `financial_services.provider` CHECK to an FK against
- * this table) and phase 4 (Partners UI + partner FK) are explicitly OUT of
- * scope here — see the plan.
+ * this table, v154) and phase 4a (Partners UI lists real providers) shipped
+ * separately. Phase 4b (this file's `deleteProvider` referencing-partner
+ * guard + migration v155's `partners.system_association` composite FK) is
+ * the referential-integrity close-out — see the plan.
  */
 
 import { BaseRepository } from "./BaseRepository.js";
@@ -226,7 +228,21 @@ export class ServiceProviderRepository extends BaseRepository<ServiceProviderEnt
     return { success: true };
   }
 
-  /** Delete a service provider, only if non-system (named `deleteProvider` — see `createProvider`'s doc comment on the override-collision reason). */
+  /**
+   * Delete a service provider, only if non-system AND not referenced by any
+   * partner's `system_association` (named `deleteProvider` — see
+   * `createProvider`'s doc comment on the override-collision reason).
+   *
+   * FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4b — before this
+   * check, ONLY `is_system` rows were protected: a custom provider (e.g. the
+   * owner's live 'SYRIA' entry) could be deleted while a partner
+   * ('hwelet souria') still carried it in `system_association`, leaving a
+   * dangling value that silently matched no provider anywhere downstream.
+   * This check is the primary guard, giving the operator a clear, named
+   * error; migration v155's composite FK (tenant_id, system_association) ->
+   * service_providers(tenant_id, code) is the backstop for any path that
+   * skips this method (a raw SQLITE_CONSTRAINT if that ever happens).
+   */
   deleteProvider(id: number): { success: boolean; error?: string } {
     const provider = this.getById(id);
     if (!provider) {
@@ -234,6 +250,19 @@ export class ServiceProviderRepository extends BaseRepository<ServiceProviderEnt
     }
     if (provider.is_system === 1) {
       return { success: false, error: "Cannot delete system service provider" };
+    }
+
+    const referencing = this.db
+      .prepare(
+        `SELECT name FROM partners WHERE tenant_id = ? AND system_association = ? ORDER BY name`,
+      )
+      .all(provider.tenant_id, provider.code) as { name: string }[];
+    if (referencing.length > 0) {
+      const names = referencing.map((r) => r.name).join(", ");
+      return {
+        success: false,
+        error: `Cannot delete service provider '${provider.code}': still associated with partner(s): ${names}`,
+      };
     }
 
     this.db

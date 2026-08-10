@@ -702,6 +702,15 @@ CREATE INDEX IF NOT EXISTS idx_financial_services_tenant_id
   ON financial_services(tenant_id);
 
 -- Partners (agents/counterparties for financial service transactions)
+-- v155 (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4b): `system_association`
+-- used to be unconstrained TEXT; it is now a composite FK (tenant_id, system_association)
+-- -> service_providers(tenant_id, code) — NOT a bare `REFERENCES service_providers(code)`,
+-- for the same "foreign key mismatch" reason documented on financial_services.provider
+-- above (service_providers only carries UNIQUE(tenant_id, code)). Stays NULLABLE — a
+-- partner legitimately has no system ("None" in the dropdown) — and SQLite's composite-FK
+-- NULL semantics exempt any such row from the check entirely. Deleting a provider still
+-- named in a partner's system_association is refused by ServiceProviderRepository
+-- .deleteProvider with a clear error; this FK is the backstop for any path that skips it.
 CREATE TABLE IF NOT EXISTS partners (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER REFERENCES tenants(id),
@@ -712,7 +721,8 @@ CREATE TABLE IF NOT EXISTS partners (
     system_association TEXT DEFAULT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (tenant_id, name)
+    UNIQUE (tenant_id, name),
+    FOREIGN KEY (tenant_id, system_association) REFERENCES service_providers(tenant_id, code)
 );
 
 -- Partner Ledger (tracks debits/credits per partner)
@@ -1809,4 +1819,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (151, 'commission_at_settlement_provider_eligibility'),
     (152, 'custom_services_product_id_stock_link'),
     (153, 'add_service_providers_table'),
-    (154, 'financial_services_provider_check_to_fk');
+    (154, 'financial_services_provider_check_to_fk'),
+    (155, 'partners_system_association_to_fk');
