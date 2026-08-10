@@ -218,6 +218,55 @@ BOTH sides. Services/OMT-Whish has no notice at all.
 
 ## §5b ⚑ NEW REQUIREMENT — partners need their own system association (owner, 2026-08-09)
 
+> ## ✅ §5b IS COMPLETE (2026-08-10) — and its final phase was correctly CANCELLED
+>
+> | Phase | Status |
+> | --- | --- |
+> | 1 — `service_providers` table, seeded with the 9 existing codes | **SHIPPED** `180bccf` (v153) |
+> | 2 — `mapDrawerName` reads the table, switch as fallback | **SHIPPED** `180bccf` |
+> | 3 — `financial_services.provider` CHECK → composite FK | **SHIPPED** `9a8bd4a` (v154) |
+> | 4a — Partners dropdown lists real providers (dual-transport) | **SHIPPED** `7850657` |
+> | 4b — `partners.system_association` → composite FK + delete guard | **SHIPPED** `ac97df9` (v155) |
+> | enabler — provider CRUD in Settings (the plan never specified this, but phase 5 was impossible without it) | **SHIPPED** `fc319c8` |
+> | 5 — "Syria is a data entry, not a migration" | **DONE BY THE OWNER** — provider created, partner associated, real transaction routed |
+>
+> ### ⛔ "Derive THROUGH vs FOR from `system_association`" — DESIGNED, THEN REJECTED. Do not build it.
+>
+> It looked like the payoff of this whole plan. It is unnecessary, and building it would be a pure
+> regression risk. **The mismatch case it fixes cannot occur.**
+>
+> On the OMT/Whish services page the partner selector only renders on the matching tab AND is filtered
+> by system:
+> `Services/index.tsx` ~:1426 `{provider === partnerSystem && (<PartnerSelector systemFilter={partnerSystem} …`
+> → `PartnerSelector.tsx:47` `allPartners.filter((p) => p.system_association === systemFilter)`
+>
+> So a partner whose association differs from the tab's provider is **unselectable there**, and the
+> hardcoded `partnerMode: "THROUGH"` is correct **by construction**. Deriving it would add a DB lookup
+> and a new failure path to compute an answer that is already right.
+>
+> Owner, 2026-08-10 (correcting the orchestrator mid-build): *"you cannot select a serial partner for a
+> wish transaction ... These partners that appear in the wish system service should have the partner
+> association wish system ... For example, for Syria and the service we are giving, it's from within
+> the services page, the custom services."*
+>
+> **Where Syria partners are actually served: Custom Services** — which is typed
+> `partnerMode?: "FOR"` and is therefore structurally on-behalf already. THROUGH exists in exactly ONE
+> repository (`FinancialServiceRepository`); every other partner-aware module
+> (CustomService, Exchange, LotoTicket, Sales, Recharge) types the field `"FOR"`-only and cannot
+> represent THROUGH at all. So the owner's rule — same system ⇒ through, different ⇒ on-behalf — is
+> ALREADY what the code produces everywhere, without a derivation.
+>
+> **The invariant this rests on is guarded**, because it was previously invisible: the hardcode is only
+> safe while that selector stays system-filtered. A comment at both the send and consume sites plus an
+> interaction test now pin it. That thread was thinner than it looked — until LIRA-127 (`5980180`,
+> the same day) a WHISH-base shop's OMT tab rendered **no selector at all**, so this exact invariant
+> was already broken in one direction.
+>
+> **Lesson for the next reader:** the orchestrator reasoned about the rule abstractly and never checked
+> whether the wrong input was reachable through the UI. A rule that cannot receive bad input needs no
+> enforcement — check reachability before building a guard.
+
+
 > ✅ **Phases 1-2 SHIPPED** (migration v153 / `ServiceProviderRepository` / `FinancialServiceRepository.mapDrawerName`).
 > `service_providers` exists, tenant-scoped, seeded with the 9 existing provider codes (drawer names
 > matching `mapDrawerName`'s hardcoded switch byte-for-byte); `mapDrawerName` now reads it with that

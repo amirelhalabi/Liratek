@@ -3608,6 +3608,32 @@ fixing one history while four others silently drop the same flag repeats the pat
 
 ---
 
+## DECISION LOG: partner-mode derivation — designed, then cancelled (2026-08-10)
+
+**Not a ticket. Recorded so it is not rebuilt.**
+
+A change to derive THROUGH-vs-FOR partner mode from `partners.system_association` (instead of the
+hardcoded `partnerMode: "THROUGH"` on the OMT/Whish services page) was scoped, dispatched, and then
+**stopped by the owner mid-build and reverted**. Nothing shipped.
+
+**Why it was wrong:** the mismatch it fixes is unreachable. That page's partner selector only renders
+on the matching tab and passes `systemFilter={partnerSystem}`, and `PartnerSelector` filters
+`p.system_association === systemFilter` — so a Syria-associated partner is **unselectable** on a Whish
+transaction. The hardcode is correct by construction.
+
+Syria partners are served through **Custom Services**, which is typed `partnerMode?: "FOR"` and is
+already on-behalf. THROUGH is representable in exactly ONE repository; every other partner-aware module
+is FOR-only. The owner's rule is therefore already satisfied everywhere with no derivation.
+
+**What was done instead:** the invariant is now documented at the send + consume sites and guarded by an
+interaction test, because the coupling was invisible — the hardcode is only safe while that selector
+stays system-filtered, and LIRA-127 (`5980180`) had just fixed a case where it wasn't.
+
+**Process lesson:** the rule was reasoned about abstractly without checking whether bad input was
+reachable through the UI. Check reachability before building enforcement.
+
+---
+
 ## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
 
 | Field                | Value                              |
