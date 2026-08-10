@@ -109,6 +109,19 @@ export interface UpdatePartnerData {
  *   FOR_RECHARGE: the shop's own cost still posts for real, the FULL price
  *   (per currency component) books to the partner's tab instead of a walk-in
  *   payment. See CustomServiceRepository.createService.
+ *
+ * LIRA-126 additions — "THROUGH_BINANCE_SEND" / "THROUGH_BINANCE_RECEIVE" /
+ * "THROUGH_IPICK_SEND" / "THROUGH_KATSH_SEND": the THROUGH_% siblings for
+ * the providers `providerKey`'s old two-armed ternary silently defaulted to
+ * "WHISH" (BINANCE has both directions; iPick/Katsh are SEND-only —
+ * cost/price catalog sales, never RECEIVE, verified against every shipped
+ * form). Template-composed by FinancialServiceRepository.ts's
+ * THROUGH_PROVIDER_LEDGER_KEY map — never a literal at that call site, but
+ * this doc comment names all four by literal string, which is what satisfies
+ * partnerLedgerTypes.guard.test.ts's "used somewhere" scan (a plain text
+ * match, not an AST) without needing an UNUSED_ALLOWLIST entry. (The union's
+ * own regex parser requires the `| "LITERAL"` lines below to stay
+ * contiguous, so this explanation lives here, not inline in the union.)
  */
 export interface CreateLedgerEntryData {
   partner_id: number;
@@ -121,6 +134,10 @@ export interface CreateLedgerEntryData {
     | "THROUGH_OMT_RECEIVE"
     | "THROUGH_WHISH_SEND"
     | "THROUGH_WHISH_RECEIVE"
+    | "THROUGH_BINANCE_SEND"
+    | "THROUGH_BINANCE_RECEIVE"
+    | "THROUGH_IPICK_SEND"
+    | "THROUGH_KATSH_SEND"
     | "FOR_OMT_SEND"
     | "FOR_OMT_RECEIVE"
     | "FOR_WHISH_SEND"

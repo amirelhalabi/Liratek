@@ -73,6 +73,34 @@ type ForPartnerLedgerType = NonNullable<
   CreateLedgerEntryData["transaction_type"]
 >;
 
+/**
+ * LIRA-126 — exhaustive `provider` → THROUGH_% ledger-key mapping (rule 14:
+ * ONE definition, reused everywhere `THROUGH_${key}_${serviceType}` is
+ * composed). Every provider this repository actually books a THROUGH-mode
+ * ledger row for MUST have an entry here — anything else throws rather than
+ * silently defaulting. The old two-armed ternary
+ * (`provider === "OMT" || "OMT_APP" ? "OMT" : "WHISH"`) defaulted EVERY
+ * other provider (BINANCE, iPick, Katsh, BOB, OTHER) to "WHISH", so a
+ * THROUGH-partner BINANCE/iPick/Katsh row was mislabeled
+ * `THROUGH_WHISH_SEND`/`THROUGH_WHISH_RECEIVE` in `partner_ledger.
+ * transaction_type` — no cash was misrouted (drawers are correct), only the
+ * reporting label `PartnerRepository.getBalanceBreakdown` buckets by.
+ * `BOB`/`OTHER` are deliberately NOT in this map: no shipped caller ever
+ * attaches a partner to those providers (grep-verified), and there is no
+ * `THROUGH_BOB_%`/`THROUGH_OTHER_%` member in
+ * `CreateLedgerEntryData["transaction_type"]` for a mapped value to satisfy
+ * — better to throw loudly than invent an unproven mapping.
+ */
+const THROUGH_PROVIDER_LEDGER_KEY: Readonly<Record<string, string>> = {
+  OMT: "OMT",
+  OMT_APP: "OMT",
+  WHISH: "WHISH",
+  WHISH_APP: "WHISH",
+  BINANCE: "BINANCE",
+  iPick: "IPICK",
+  Katsh: "KATSH",
+};
+
 export interface FinancialServiceEntity {
   id: number;
   provider:
@@ -3110,15 +3138,35 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 tenantId,
               });
             } else {
-              // Non-debt single payment: credit to drawer
-              // Skip for partner transactions: the partner handles their customer directly,
-              // no cash flows through the shop's General drawer.
+              // Non-debt single payment: credit to drawer.
               // Primary Cash Drawer plan §2#2: primary-system cash → PCD.
+              //
+              // LIRA-125 (2026-08-10, fixed): this used to ALSO require
+              // `!data.partnerId`, skipping the credit entirely for a
+              // THROUGH-partner SEND sent via this legacy single-
+              // `paidByMethod` shape — while the multi-leg `payments[]` loop
+              // above (same SEND branch, no such gate) credited correctly
+              // for the identical business event. PARTNER_DISBURSEMENT_
+              // MATRIX.md rows 2 vs 3: same money movement, two different
+              // answers depending only on which payload shape the caller
+              // happened to send. `isForPartner` already took its own
+              // early-return dispatch before this code is ever reached (see
+              // the top of `createTransaction`), so `data.partnerId` being
+              // set here can only mean THROUGH mode — and the owner's rule
+              // (2026-08-10) is explicit: "in all cases ... we are paying,"
+              // a THROUGH-partner SEND hands the customer real cash/money,
+              // so a real drawer must move regardless of partner
+              // attachment. Rule 14: ONE predicate for "does this leg
+              // credit the drawer" — `isDrawerAffectingMethod` alone, now
+              // shared unchanged by both this fallback and the multi-leg
+              // loop; no more per-path special case for a partner being
+              // attached. Guarded by the "LIRA-125" describe block in
+              // FinancialServiceRepository.partner.test.ts.
               const paidByDrawer = resolveServiceCashDrawer(
                 paidBy,
                 cashDrawerCtx,
               );
-              if (isDrawerAffectingMethod(paidBy) && !data.partnerId) {
+              if (isDrawerAffectingMethod(paidBy)) {
                 insertPayment.run(
                   txnId,
                   paidBy,
@@ -3622,16 +3670,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // — its per-provider transaction_type map replaced the old collapsed
       // OMT/WHISH mapping that mis-typed OMT_APP/WHISH_APP/BINANCE rows.
       if (isThroughPartner) {
-        const providerKey =
-          data.provider === "OMT" || data.provider === "OMT_APP"
-            ? "OMT"
-            : "WHISH";
+        // LIRA-126: exhaustive lookup (THROUGH_PROVIDER_LEDGER_KEY, rule 14)
+        // instead of the old two-armed ternary that defaulted every
+        // non-OMT/OMT_APP provider to "WHISH". Fail loudly on an unmapped
+        // provider — before any partner_ledger row is written, and inside
+        // `this.db.transaction(...)`, so the whole call (drawer credits
+        // included) rolls back rather than leaving a mislabeled row behind.
+        const providerKey = THROUGH_PROVIDER_LEDGER_KEY[data.provider];
+        if (!providerKey) {
+          throw new Error(
+            `THROUGH-partner ledger: no partner_ledger transaction_type mapping for provider "${data.provider}" — add one to THROUGH_PROVIDER_LEDGER_KEY (FinancialServiceRepository.ts) instead of defaulting`,
+          );
+        }
         // Template-composed, not a literal (see partnerLedgerTypes.guard.test.ts) —
-        // only OMT/OMT_APP→OMT and WHISH/WHISH_APP→WHISH map, so in practice
-        // the result is always one of the four THROUGH_* union members; typed
-        // as plain `string` here (not inferred as a template-literal type)
-        // because a hypothetical BILL serviceType would widen beyond the
-        // union, and this must stay a narrowing (not same-widening) cast.
+        // every mapped key is one of OMT/WHISH/BINANCE/IPICK/KATSH, so in
+        // practice the result is always one of the corresponding THROUGH_*
+        // union members; typed as plain `string` here (not inferred as a
+        // template-literal type) because a hypothetical BILL serviceType
+        // would widen beyond the union, and this must stay a narrowing (not
+        // same-widening) cast.
         const ledgerType: string = `THROUGH_${providerKey}_${data.serviceType}`;
         const direction = data.serviceType === "SEND" ? "CREDIT" : "DEBIT";
         const ledgerAmount = Math.abs(data.amount);

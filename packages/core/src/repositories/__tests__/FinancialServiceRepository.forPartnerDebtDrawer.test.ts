@@ -474,24 +474,26 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Adjacent finding surfaced while tracing the guard chain: THROUGH mode +
-  // a REAL drawer-affecting leg sent via the modern payments[] array format
-  // (what the live frontend always sends — MultiPaymentInput never leaves
-  // paymentLines empty) credits General/PCD even though the legacy
-  // single-`paidByMethod` fallback path explicitly skips crediting ANY
-  // drawer "for partner transactions" (its own comment, ~line 2928 of
-  // FinancialServiceRepository.ts). Reported for completeness per the
-  // task's request to "try THROUGH mode too" — NOT the owner's literal
-  // "payment method debt" scenario (this leg is CASH, a real
-  // drawer-affecting method), so it is surfaced as a separate observation,
-  // not folded into the DEBT-leg verdict above.
+  // LIRA-125 (fixed 2026-08-10) — this block used to document a real split:
+  // THROUGH mode + a REAL drawer-affecting leg sent via the modern
+  // payments[] array format (what the live frontend always sends —
+  // MultiPaymentInput never leaves paymentLines empty) credited General/PCD
+  // while the legacy single-`paidByMethod` fallback path explicitly skipped
+  // crediting ANY drawer "for partner transactions" — same business event,
+  // two different answers depending only on payload shape
+  // (PARTNER_DISBURSEMENT_MATRIX.md rows 2 vs 3). Fixed by dropping the
+  // legacy path's extra `&& !data.partnerId` clause, so it now shares the
+  // exact same predicate (`isDrawerAffectingMethod` alone) the multi-leg
+  // loop already used. All three tests below now assert the AGREED
+  // (correct, real-money-moves) behavior for both payload shapes.
   // ═══════════════════════════════════════════════════════════════════════
 
-  describe("Adjacent finding — THROUGH mode + CASH leg via payments[] vs paidByMethod", () => {
-    it("single-leg legacy paidByMethod path explicitly SKIPS crediting General for a THROUGH-partner SEND (its own documented behavior)", () => {
+  describe("LIRA-125 — THROUGH mode: legacy paidByMethod and modern payments[] now agree", () => {
+    it("single-leg legacy paidByMethod path CREDITS the Primary Cash Drawer for a THROUGH-partner SEND (matches the multi-leg loop below)", () => {
       setup(true);
       const partnerId = seedPartner(db);
       const generalBefore = drawerBalance(db, "General");
+      const omtSystemBefore = drawerBalance(db, "OMT_System");
 
       repo.createTransaction({
         provider: "OMT",
@@ -506,13 +508,17 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
         paidByMethod: "CASH", // no `payments` array at all
       });
 
-      // FinancialServiceRepository.ts ~line 2935:
-      //   if (isDrawerAffectingMethod(paidBy) && !data.partnerId) { ... }
-      // `!data.partnerId` is false here, so the credit is skipped.
+      // OMT is the base system, so CASH routes to the Primary Cash Drawer
+      // (OMT_System), never General — the SAME drawer/amount the multi-leg
+      // sibling test below observes for the identical logical transaction.
+      expect(drawerBalance(db, "OMT_System")).toBeCloseTo(
+        omtSystemBefore + 105,
+        2,
+      );
       expect(drawerBalance(db, "General")).toBe(generalBefore);
     });
 
-    it("BUG: the SAME logical transaction sent as payments:[{CASH}] (the shape the real UI actually sends) DOES credit General for a THROUGH-partner SEND — no partnerId guard in this loop", () => {
+    it("multi-leg payments:[{CASH}] path (the shape the real UI actually sends) credits the SAME drawer, by the SAME amount, for the identical logical transaction (parity proof)", () => {
       setup(true);
       const partnerId = seedPartner(db);
       const generalBefore = drawerBalance(db, "General");
@@ -530,8 +536,6 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
         payments: [{ method: "CASH", currencyCode: "USD", amount: 105 }],
       });
 
-      // FinancialServiceRepository.ts ~line 2768-2792 (the multi-leg loop)
-      // has no `!data.partnerId` check, unlike its single-leg sibling above.
       // OMT is the (default, no system_settings row) base system, so the
       // cash leg routes to the Primary Cash Drawer (OMT_System), not
       // General directly — asserting the ACTUAL observed drawer below.
@@ -539,7 +543,7 @@ describe("BUG 2 repro — FOR/THROUGH-partner financial service paid by DEBT (CU
       expect(drawerBalance(db, "OMT_System")).toBeCloseTo(605, 2); // 500 + 105
     });
 
-    it("BUG (General specifically): the same gap lands on General when the provider is the SECONDARY system (WHISH, not primary here)", () => {
+    it("General specifically: both shapes land the credit on General when the provider is the SECONDARY system (WHISH, not primary here)", () => {
       setup(true);
       const partnerId = seedPartner(db);
       const generalBefore = drawerBalance(db, "General");

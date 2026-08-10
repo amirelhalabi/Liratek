@@ -41,6 +41,16 @@ const PARTNER_REPOSITORY_PATH = path.join(
  * declaration (verified by grep before landing this test). If you add a new
  * union member that isn't wired up yet, list it here; don't leave it
  * unclassified.
+ *
+ * LIRA-126 note: THROUGH_BINANCE_SEND/RECEIVE and THROUGH_IPICK_SEND/
+ * THROUGH_KATSH_SEND are template-composed at runtime by
+ * FinancialServiceRepository.ts's THROUGH_PROVIDER_LEDGER_KEY map (never a
+ * literal double-quoted string in that call site) — they do NOT need an
+ * entry here because PartnerRepository.ts's own doc comment above the union
+ * names all four by literal string (documenting what each one is for),
+ * which this scanner's plain text match picks up as a real "used somewhere"
+ * occurrence. If that comment is ever reworded away from the literal
+ * strings, these four will need an UNUSED_ALLOWLIST entry instead.
  */
 const UNUSED_ALLOWLIST: Record<string, string> = {};
 

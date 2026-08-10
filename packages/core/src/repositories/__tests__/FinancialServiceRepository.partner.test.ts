@@ -692,6 +692,47 @@ describe("FinancialServiceRepository — partner mode", () => {
         expect(entries[0].is_refunded).toBe(0);
       });
 
+      // LIRA-128 (owner-requested double-check, 2026-08-10): the owner
+      // confirmed no cash physically moves on an on-behalf OMT RECEIVE — the
+      // "obligations only" behaviour above is CORRECT and must not change.
+      // What the owner asked to verify is that the transaction IS recorded
+      // and DOES show up on the OMT supplier page. `ledgerRowsForSupplier`
+      // queries `supplier_ledger WHERE supplier_id = ?` — the exact same
+      // predicate `SupplierRepository`'s read path (and the Suppliers page's
+      // ledger tab) uses — so finding the row here by `omtId` IS the proof
+      // it shows on the OMT supplier page; there is no separate visibility
+      // gate to also check. The test above already proves this for a
+      // USD-denominated RECEIVE (amount_usd negative, amount_lbp 0); this
+      // test proves the OTHER currency-column branch — an LBP-denominated
+      // RECEIVE must land in amount_lbp, not amount_usd.
+      it("books the gross TOP_UP entry in amount_lbp (not amount_usd) for an LBP-denominated FOR-partner OMT RECEIVE", () => {
+        const partnerId = seedPartner(db);
+        const omtId = supplierIdByProvider(db, "OMT");
+
+        repo.createTransaction({
+          provider: "OMT",
+          serviceType: "RECEIVE",
+          amount: 1_000_000, // x (LBP)
+          currency: "LBP",
+          commission: 5_000, // c
+          omtFee: 50_000, // f
+          cashoutMethod: "CASH",
+          partnerId,
+          partnerMode: "FOR",
+        });
+
+        // grossOwedDelta(RECEIVE) = -(x - f + c)
+        //                         = -(1,000,000 - 50,000 + 5,000) = -955,000.
+        const entries = ledgerRowsForSupplier(db, omtId);
+        expect(entries).toHaveLength(1);
+        expect(entries[0].entry_type).toBe("TOP_UP");
+        expect(entries[0].amount_lbp).toBeCloseTo(-955_000, 2);
+        // Currency-column routing: an LBP transaction must not also post to
+        // amount_usd (the two columns are mutually exclusive per row, never
+        // "the same figure twice").
+        expect(entries[0].amount_usd).toBe(0);
+      });
+
       it("reverses the gross supplier-ledger entry to net exactly 0 on void (rule 20)", () => {
         const partnerId = seedPartner(db);
         const omtId = supplierIdByProvider(db, "OMT");
@@ -974,6 +1015,272 @@ describe("FinancialServiceRepository — partner mode", () => {
       const entries = partnerLedger(db, partnerId);
       expect(entries).toHaveLength(1);
       expect(entries[0].transaction_type).toMatch(/^THROUGH_/);
+    });
+
+    // ═════════════════════════════════════════════════════════════════════
+    // LIRA-125 — legacy single-`paidByMethod` SEND must agree with the
+    // modern multi-leg `payments[]` loop for a THROUGH-partner transaction.
+    //
+    // PARTNER_DISBURSEMENT_MATRIX.md rows 2 vs 3: the modern loop
+    // (no `data.payments` gate at all) already credits the real drawer for
+    // a THROUGH SEND — correct under the owner's 2026-08-10 rule ("in all
+    // cases ... we are paying", a drawer must move for real cash handed to
+    // the customer). The legacy single-payment fallback had an EXTRA
+    // `&& !data.partnerId` clause that skipped the SAME credit whenever a
+    // partner was attached — same business event, two different answers
+    // depending only on which payload shape the caller happened to send.
+    // Latent in the shipped UI (MultiPaymentInput always sends
+    // `payments[]`) but live for any REST/scripted caller that uses the
+    // legacy `paidByMethod` field — `createFinancialServiceSchema` has no
+    // refine requiring `payments` when `partnerId`/`partnerMode` is set, so
+    // this shape passes validation on both transports.
+    //
+    // Fix: drop the `&& !data.partnerId` clause so both call sites share
+    // the SAME predicate (`isDrawerAffectingMethod` alone, rule 14) — no
+    // per-path special case for a partner being attached.
+    // ═════════════════════════════════════════════════════════════════════
+
+    describe("LIRA-125 — legacy paidByMethod SEND now matches the modern payments[] loop", () => {
+      it("credits General for a THROUGH-partner WHISH SEND sent via the legacy paidByMethod field (no payments[] array at all)", () => {
+        const partnerId = seedPartner(db);
+        const generalBefore = drawerBalance(db, "General");
+
+        repo.createTransaction({
+          provider: "WHISH", // secondary system — CASH routes to General, never Whish_System
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          whishFee: 3,
+          partnerId,
+          partnerMode: "THROUGH",
+          paidByMethod: "CASH", // legacy shape: no `payments` array
+        });
+
+        // Same total (100 + 3 fee = 103) the modern-loop sibling test above
+        // ("creates a CREDIT ledger entry ...") exercises via payments[] —
+        // both shapes must land the SAME amount in the SAME drawer.
+        expect(drawerBalance(db, "General")).toBeCloseTo(
+          generalBefore + 103,
+          2,
+        );
+        // Whish_System still must not move — WHISH is the secondary system
+        // here, unaffected either way (regression guard, unchanged by this fix).
+        expect(drawerBalance(db, "Whish_System")).toBe(500);
+      });
+
+      it("credits the Primary Cash Drawer (OMT_System) for a THROUGH-partner OMT SEND sent via the legacy paidByMethod field", () => {
+        const partnerId = seedPartner(db);
+        const omtSystemBefore = drawerBalance(db, "OMT_System");
+        const generalBefore = drawerBalance(db, "General");
+
+        repo.createTransaction({
+          provider: "OMT", // the shop's base system — CASH routes to the PCD
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          omtServiceType: "INTRA",
+          omtFee: 5,
+          partnerId,
+          partnerMode: "THROUGH",
+          paidByMethod: "CASH",
+        });
+
+        expect(drawerBalance(db, "OMT_System")).toBeCloseTo(
+          omtSystemBefore + 105,
+          2,
+        );
+        expect(drawerBalance(db, "General")).toBe(generalBefore);
+      });
+
+      it("rule 20 — voiding the legacy-shape THROUGH SEND reverses the drawer credit back to exactly the pre-transaction balance", () => {
+        const partnerId = seedPartner(db);
+        const generalBefore = drawerBalance(db, "General");
+
+        const { id: fsId } = repo.createTransaction({
+          provider: "WHISH",
+          serviceType: "SEND",
+          amount: 100,
+          currency: "USD",
+          commission: 0,
+          whishFee: 3,
+          partnerId,
+          partnerMode: "THROUGH",
+          paidByMethod: "CASH",
+        });
+
+        expect(drawerBalance(db, "General")).toBeCloseTo(
+          generalBefore + 103,
+          2,
+        );
+
+        const parentTxn = getTransactionRepository().getBySourceId(
+          "financial_services",
+          fsId,
+        );
+        expect(parentTxn).not.toBeNull();
+        getTransactionRepository().voidTransaction(parentTxn!.id, 1);
+
+        // Nets to exactly 0 vs the pre-transaction baseline (rule 20) — the
+        // generic payments/drawer_balances reversal already covers this
+        // `insertPayment`/`upsertBalanceDelta` pair (the same pair the
+        // multi-leg loop uses, already reversal-tested elsewhere); this
+        // proves the newly-un-gated legacy call site reverses too.
+        expect(drawerBalance(db, "General")).toBeCloseTo(generalBefore, 2);
+      });
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIRA-126 — `providerKey`'s ternary defaulted EVERY provider that isn't
+  // OMT/OMT_APP to "WHISH", so THROUGH-partner BINANCE/iPick/Katsh rows were
+  // written to partner_ledger.transaction_type as THROUGH_WHISH_SEND/RECEIVE.
+  // No cash was misrouted (drawers are correct — this block only touches the
+  // partner_ledger label), but partner-balance reporting/settlement-FIFO
+  // categorization (PartnerRepository.getBalanceBreakdown buckets by the
+  // FOR_%/THROUGH_% prefix) would attribute the activity to the wrong
+  // system. Fixed: an exhaustive map, throwing loudly for anything not in
+  // it, instead of defaulting.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("LIRA-126 — exhaustive provider → THROUGH_* partner_ledger mapping", () => {
+    it("THROUGH-partner BINANCE SEND books THROUGH_BINANCE_SEND, not THROUGH_WHISH_SEND", () => {
+      const partnerId = seedPartner(db);
+
+      repo.createTransaction({
+        provider: "BINANCE",
+        serviceType: "SEND",
+        amount: 100,
+        currency: "USDT",
+        commission: 2,
+        partnerId,
+        partnerMode: "THROUGH",
+        paidByMethod: "CASH",
+      });
+
+      const entries = partnerLedger(db, partnerId);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].transaction_type).toBe("THROUGH_BINANCE_SEND");
+    });
+
+    it("THROUGH-partner BINANCE RECEIVE books THROUGH_BINANCE_RECEIVE, not THROUGH_WHISH_RECEIVE", () => {
+      const partnerId = seedPartner(db);
+
+      repo.createTransaction({
+        provider: "BINANCE",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USDT",
+        commission: 2,
+        partnerId,
+        partnerMode: "THROUGH",
+        cashoutMethod: "CASH",
+      });
+
+      const entries = partnerLedger(db, partnerId);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].transaction_type).toBe("THROUGH_BINANCE_RECEIVE");
+    });
+
+    it("THROUGH-partner iPick SEND (cost/price catalog) books THROUGH_IPICK_SEND, not THROUGH_WHISH_SEND", () => {
+      const partnerId = seedPartner(db);
+
+      repo.createTransaction({
+        provider: "iPick",
+        serviceType: "SEND",
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        cost: 90,
+        price: 100,
+        partnerId,
+        partnerMode: "THROUGH",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      });
+
+      const entries = partnerLedger(db, partnerId);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].transaction_type).toBe("THROUGH_IPICK_SEND");
+    });
+
+    it("THROUGH-partner Katsh SEND (cost/price catalog) books THROUGH_KATSH_SEND, not THROUGH_WHISH_SEND", () => {
+      const partnerId = seedPartner(db);
+
+      repo.createTransaction({
+        provider: "Katsh",
+        serviceType: "SEND",
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        cost: 90,
+        price: 100,
+        partnerId,
+        partnerMode: "THROUGH",
+        payments: [{ method: "CASH", currencyCode: "USD", amount: 100 }],
+      });
+
+      const entries = partnerLedger(db, partnerId);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].transaction_type).toBe("THROUGH_KATSH_SEND");
+    });
+
+    it("regression guard — THROUGH-partner OMT_APP/WHISH_APP SEND still map to OMT/WHISH (unchanged by this fix)", () => {
+      const omtAppPartnerId = seedPartner(db, "OMT_APP partner");
+      const whishAppPartnerId = seedPartner(db, "WHISH_APP partner");
+
+      repo.createTransaction({
+        provider: "OMT_APP",
+        serviceType: "SEND",
+        amount: 20,
+        currency: "USD",
+        commission: 0,
+        partnerId: omtAppPartnerId,
+        partnerMode: "THROUGH",
+        paidByMethod: "CASH",
+      });
+      repo.createTransaction({
+        provider: "WHISH_APP",
+        serviceType: "SEND",
+        amount: 20,
+        currency: "USD",
+        commission: 0,
+        partnerId: whishAppPartnerId,
+        partnerMode: "THROUGH",
+        paidByMethod: "CASH",
+      });
+
+      expect(partnerLedger(db, omtAppPartnerId)[0].transaction_type).toBe(
+        "THROUGH_OMT_SEND",
+      );
+      expect(partnerLedger(db, whishAppPartnerId)[0].transaction_type).toBe(
+        "THROUGH_WHISH_SEND",
+      );
+    });
+
+    it("throws loudly for an unmapped provider instead of silently defaulting to WHISH", () => {
+      const partnerId = seedPartner(db);
+
+      expect(() =>
+        repo.createTransaction({
+          provider: "BOB",
+          serviceType: "SEND",
+          amount: 50,
+          currency: "USD",
+          commission: 1,
+          partnerId,
+          partnerMode: "THROUGH",
+          paidByMethod: "CASH",
+        }),
+      ).toThrow(/no partner_ledger transaction_type mapping/i);
+
+      // Nothing committed — this.db.transaction(...) rolled back every
+      // statement (drawer credit included) executed before the throw.
+      const rows = db
+        .prepare("SELECT COUNT(*) c FROM financial_services")
+        .get() as { c: number };
+      expect(rows.c).toBe(0);
+      expect(partnerLedger(db, partnerId)).toHaveLength(0);
     });
   });
 
