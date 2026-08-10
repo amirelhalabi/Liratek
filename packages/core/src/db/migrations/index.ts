@@ -8333,6 +8333,257 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v153 rolled back: service_providers table dropped");
     },
   },
+  {
+    version: 154,
+    name: "financial_services_provider_check_to_fk",
+    description:
+      "FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 3 — relax financial_services.provider " +
+      "from the closed 9-value CHECK (OMT/WHISH/BOB/OTHER/iPick/Katsh/WHISH_APP/OMT_APP/BINANCE, " +
+      "create_db.sql pre-v154) to a composite FOREIGN KEY (tenant_id, provider) REFERENCES " +
+      "service_providers(tenant_id, code) — deliberately NOT a bare `REFERENCES " +
+      "service_providers(code)` as the plan's own §5b phase-3 wording suggested. Verified with a " +
+      "throwaway better-sqlite3 script (PRAGMA foreign_keys=ON, matching electron-app/main.ts:327 " +
+      "and backend/src/database/connection.ts:68, both of which enable FK enforcement at every real " +
+      "connection open — this is NOT a dead/decorative FK in this codebase): a bare single-column FK " +
+      "against `code` throws 'foreign key mismatch' on EVERY prepared statement touching " +
+      "financial_services, not just violating rows, because service_providers only carries " +
+      "UNIQUE(tenant_id, code) (v153) — no unique index on `code` alone (multi-tenant backend seeds " +
+      "the SAME 9 codes per tenant by design, so `code` genuinely repeats across tenants). The " +
+      "literal plan wording would have broken every financial_services read/write in production the " +
+      "moment this shipped. The composite form matches the ACTUAL unique index and was verified " +
+      "working end-to-end (valid provider accepted, bogus provider rejected, foreign_key_check clean) " +
+      "against both a synthetic DB and a copy of the real accumulated production database. " +
+      "SQLite can't ALTER a CHECK, so this is a full table rebuild in the shape of v105/v106/v123: " +
+      "read financial_services' OWN live CREATE-TABLE text from sqlite_master (never retyped from " +
+      "memory — this migration was written by diffing the actual runtime schema, not create_db.sql, " +
+      "and the transform matches whether the live text is ALTER-appended production formatting or " +
+      "create_db.sql's hand-written formatting), swap the provider CHECK clause for a plain NOT NULL " +
+      "column plus the new table-level composite FK, copy every row with INSERT...SELECT * (so column " +
+      "count/order is never hand-retyped), drop, rename, recreate all 7 pre-existing indexes captured " +
+      "from live sqlite_master before the drop (idx_financial_services_is_settled/" +
+      "provider_settled/tenant_id/provider_type_created_at/created_at/paid_by/client_id — no triggers " +
+      "exist on this table, verified against both create_db.sql and the real DB, so none need " +
+      "recreating, though the code stays defensive and would recreate any it found). " +
+      "financial_services carries NO generated columns (verified — profit_usd/profit_lbp are " +
+      "GENERATED only on custom_services, a different table) so that hazard does not apply here. " +
+      "tenant_id is nullable on financial_services (pre-multi-tenant legacy rows, predating v123 — " +
+      "financial_services was never in v123's tenant-scoped-rebuild list); SQLite's standard " +
+      "composite-FK NULL semantics exempt any such row from the new check entirely — the correct " +
+      "'leave history alone, apply forward' behavior (rule 20 / D3 precedent), not a loophole opened " +
+      "by this migration. A gotcha the round-trip test on the real DB copy caught: after " +
+      "`ALTER TABLE … RENAME TO financial_services`, SQLite re-serializes the stored CREATE TABLE " +
+      "text with the table name double-quoted (`CREATE TABLE \"financial_services\" (`) — the " +
+      "table-name swap regex below matches both the quoted and unquoted forms, or down() would silently " +
+      "fail to rename its rebuild target and collide with the live table. Self-guards with an explicit " +
+      "PRAGMA foreign_key_check after the rebuild (mirrors v123 §4) since FK enforcement is OFF for " +
+      "the whole migration batch (runMigrations' own wrapper) and would not otherwise catch a broken " +
+      "FK before it reached production. " +
+      "Zod's createFinancialServiceSchema.provider / getFinancialServicesSchema.provider " +
+      "(packages/core/src/validators/financial.ts, shared by electron-app + backend per rule 19) are " +
+      "relaxed from a closed z.enum(9) to a constrained non-empty string in the same change — a Zod " +
+      "schema is a pure function with no DB handle, so it cannot check service_providers membership " +
+      "itself (that would couple a shared validator to a live connection); the membership check " +
+      "instead lives at the service boundary (FinancialService.addTransaction, before the repository " +
+      "write), mirroring mapDrawerName's existing try/catch-missing-table fallback so the ~55 " +
+      "repository test files that hand-build a financial_services-only schema (no service_providers " +
+      "table) keep passing unchanged — a typo'd provider now surfaces as a clear service-layer error " +
+      "instead of either a Zod rejection (no longer possible, the whole point of this phase) or a raw " +
+      "SQLITE_CONSTRAINT bubbling out of the INSERT.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const hasFinancialServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'financial_services'`,
+        )
+        .get();
+      const hasServiceProviders = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'service_providers'`,
+        )
+        .get();
+      if (!hasFinancialServices || !hasServiceProviders) {
+        console.log(
+          "Migration v154 skipped: 'financial_services' or 'service_providers' table not present",
+        );
+        return;
+      }
+
+      const tbl = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='table' AND name='financial_services'`,
+        )
+        .get() as { sql: string };
+
+      const FK_MARKER =
+        "FOREIGN KEY (tenant_id, provider) REFERENCES service_providers";
+      if (tbl.sql.includes(FK_MARKER)) {
+        console.log(
+          "Migration v154 skipped: financial_services.provider FK already present",
+        );
+        return;
+      }
+
+      const CHECK_CLAUSE =
+        "provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,";
+      if (!tbl.sql.includes(CHECK_CLAUSE)) {
+        throw new Error(
+          "Migration v154: expected provider CHECK clause not found verbatim in the live " +
+            "financial_services DDL — schema drift from what this migration was written against. " +
+            "Aborting rather than guessing at the column list (this is a money table).",
+        );
+      }
+
+      // Capture index + trigger DDL before the table is dropped. financial_services
+      // has no triggers today (verified) — this stays defensive for future-proofing.
+      const idx = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='financial_services' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+      const triggers = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='financial_services' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+
+      // Table-name swap handles BOTH the unquoted form (first time this table is
+      // rebuilt) and the double-quoted form SQLite re-serializes into
+      // sqlite_master after any prior `ALTER TABLE … RENAME TO` — see the
+      // description above.
+      let newSql = tbl.sql
+        .replace(
+          /^CREATE TABLE (IF NOT EXISTS )?"?financial_services"?\s*\(/,
+          "CREATE TABLE financial_services_new (",
+        )
+        .replace(CHECK_CLAUSE, "provider TEXT NOT NULL,");
+      newSql = newSql.replace(
+        /\)\s*$/,
+        ",\n    FOREIGN KEY (tenant_id, provider) REFERENCES service_providers(tenant_id, code)\n)",
+      );
+
+      db.exec(newSql);
+      db.exec(
+        `INSERT INTO financial_services_new SELECT * FROM financial_services;`,
+      );
+      db.exec(`DROP TABLE financial_services;`);
+      db.exec(`ALTER TABLE financial_services_new RENAME TO financial_services;`);
+      for (const r of idx) db.exec(r.sql);
+      for (const r of triggers) db.exec(r.sql);
+
+      // Self-guard: fail loudly if the rebuild left any FK dangling (mirrors
+      // v123 §4) — foreign_keys enforcement is OFF for the whole migration
+      // batch, so this is the only thing that would catch a broken FK here.
+      const fkViolations = db.pragma("foreign_key_check") as unknown[];
+      if (fkViolations.length > 0) {
+        throw new Error(
+          `Migration v154: foreign_key_check found ${fkViolations.length} violation(s) after rebuild: ${JSON.stringify(fkViolations)}`,
+        );
+      }
+
+      console.log(
+        "Migration v154: financial_services.provider CHECK relaxed to a composite FK " +
+          "(tenant_id, provider) -> service_providers(tenant_id, code); all rows copied, " +
+          "all 7 indexes recreated, foreign_key_check clean",
+      );
+    },
+    down(db: Database.Database) {
+      const hasFinancialServices = db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'financial_services'`,
+        )
+        .get();
+      if (!hasFinancialServices) {
+        console.log(
+          "Migration v154 rollback skipped: 'financial_services' table not present",
+        );
+        return;
+      }
+
+      const tbl = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='table' AND name='financial_services'`,
+        )
+        .get() as { sql: string };
+
+      const FK_SUFFIX =
+        ",\n    FOREIGN KEY (tenant_id, provider) REFERENCES service_providers(tenant_id, code)\n)";
+      if (!tbl.sql.includes(FK_SUFFIX)) {
+        console.log(
+          "Migration v154 rollback skipped: financial_services.provider FK not present " +
+            "(migration was never applied, or already rolled back)",
+        );
+        return;
+      }
+
+      // A provider added via service_providers after this migration shipped
+      // (phase 4/5: a new operator-created code, e.g. a future 'SYRIA') cannot
+      // satisfy the ORIGINAL closed CHECK being restored — the same "data the
+      // older constraint can't represent" situation v106's down() hit with BILL
+      // rows. Removing those rows (not silently keeping an unenforceable value,
+      // and not failing the whole rollback) is the only way this round-trip can
+      // succeed; mirrors v106's precedent.
+      const KNOWN_PROVIDERS = [
+        "OMT",
+        "WHISH",
+        "BOB",
+        "OTHER",
+        "iPick",
+        "Katsh",
+        "WHISH_APP",
+        "OMT_APP",
+        "BINANCE",
+      ];
+      const placeholders = KNOWN_PROVIDERS.map(() => "?").join(", ");
+      const deleted = db
+        .prepare(
+          `DELETE FROM financial_services WHERE provider NOT IN (${placeholders})`,
+        )
+        .run(...KNOWN_PROVIDERS);
+      if (deleted.changes > 0) {
+        console.warn(
+          `Migration v154 rollback: removed ${deleted.changes} financial_services row(s) whose ` +
+            "provider is outside the original 9-value CHECK set (cannot be represented once the " +
+            "CHECK is restored)",
+        );
+      }
+
+      const idx = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='financial_services' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+      const triggers = db
+        .prepare(
+          `SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='financial_services' AND sql IS NOT NULL`,
+        )
+        .all() as { sql: string }[];
+
+      const CHECK_CLAUSE =
+        "provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,";
+
+      let revertedSql = tbl.sql
+        .replace(
+          /^CREATE TABLE (IF NOT EXISTS )?"?financial_services"?\s*\(/,
+          "CREATE TABLE financial_services_old (",
+        )
+        .replace(FK_SUFFIX, ")")
+        .replace("provider TEXT NOT NULL,", CHECK_CLAUSE);
+
+      db.exec(revertedSql);
+      db.exec(
+        `INSERT INTO financial_services_old SELECT * FROM financial_services;`,
+      );
+      db.exec(`DROP TABLE financial_services;`);
+      db.exec(`ALTER TABLE financial_services_old RENAME TO financial_services;`);
+      for (const r of idx) db.exec(r.sql);
+      for (const r of triggers) db.exec(r.sql);
+
+      console.log(
+        "Migration v154 rolled back: financial_services.provider FK replaced with the original " +
+          "9-value CHECK constraint",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

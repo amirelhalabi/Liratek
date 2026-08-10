@@ -317,19 +317,35 @@ const FinancialPaymentLegSchema = z.object({
   direction: z.enum(["IN", "OUT"]).optional(),
 });
 
+// FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 3 (migration v154):
+// `provider` stopped being a closed 9-value enum at the DB layer (the CHECK
+// is now a composite FK against the tenant-scoped `service_providers` config
+// table) and at the shared core schema
+// (`packages/core/src/validators/financial.ts`'s `providerCodeSchema`) — this
+// LOCAL field mirrors that same shape/rationale rather than importing the
+// core schema directly: `packages/core` validators are zod v4
+// (packages/core/package.json), this file's workspace is zod v3
+// (root package.json), and embedding a v4 field schema inside a v3
+// `z.object()` does not type-check the way the whole-schema
+// `as unknown as z.ZodSchema<T>` cast (used elsewhere in this file, e.g.
+// `SaleProcessSchema`) bridges — that trick works at the top level of an
+// exported schema, not for splicing one version's field schema into
+// another's object shape. Keep this regex/length pair in sync with
+// `providerCodeSchema` if either changes (same pre-existing rule-14 debt as
+// every other field this schema already duplicates from the core one — see
+// the comments throughout this schema).
+const localProviderCodeSchema = z
+  .string()
+  .min(1, "Provider is required")
+  .max(50, "Provider code must be 50 characters or fewer")
+  .regex(
+    /^[A-Za-z0-9_]+$/,
+    "Provider code may only contain letters, numbers, and underscores",
+  );
+
 export const FinancialServiceSchema = z
   .object({
-    provider: z.enum([
-      "OMT",
-      "WHISH",
-      "BOB",
-      "OTHER",
-      "iPick",
-      "Katsh",
-      "WHISH_APP",
-      "OMT_APP",
-      "BINANCE",
-    ]),
+    provider: localProviderCodeSchema,
     serviceType: z.enum(["SEND", "RECEIVE", "BILL"]),
     amount: z.number().nonnegative(),
     currency: z.string().optional(),

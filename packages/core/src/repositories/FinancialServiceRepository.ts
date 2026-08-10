@@ -918,6 +918,61 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   }
 
   /**
+   * FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 3 (migration v154):
+   * `provider` is no longer a closed Zod enum (packages/core/src/validators/
+   * financial.ts's `providerCodeSchema` now only checks shape — non-empty,
+   * bounded length, safe charset) — a pure schema has no DB handle, so it
+   * cannot confirm the code actually names a configured `service_providers`
+   * row for the caller's tenant. This is that membership check, run as the
+   * very first thing `createTransaction` does, so a typo surfaces as a
+   * clear error instead of either silently resolving to the "General"
+   * drawer (`mapDrawerName`'s own fallback, a DIFFERENT and deliberately
+   * permissive concern — see that method's doc comment) or a raw
+   * SQLITE_CONSTRAINT bubbling out of the INSERT once the new
+   * `(tenant_id, provider)` FK (also v154) rejects it.
+   *
+   * Checks "does this tenant have ANY configured service_providers rows at
+   * all" (`getAll()`) rather than "does getByCode(provider) throw" — an
+   * earlier version tried the latter and broke every backend test that
+   * mocks the whole better-sqlite3 driver generically (e.g.
+   * backend/src/services/__tests__/FinancialService.test.ts's
+   * `createTrackingMock()`, `.get()`/`.all()` stubbed to always return
+   * undefined/[] regardless of the query): that mock is structurally
+   * indistinguishable, from a single `getByCode()` call, from "table exists
+   * but this tenant genuinely has zero rows" — both return undefined
+   * without throwing. `getAll()` resolves the ambiguity: an EMPTY result
+   * (no rows for this tenant at all, table missing entirely, or a generic
+   * mock stub) means "nothing to validate against yet" — unchecked, same
+   * spirit as `mapDrawerName`'s missing/empty fallback — while a
+   * NON-EMPTY result that doesn't contain this specific code is a genuine
+   * gap worth rejecting. In real production this distinction is moot
+   * either way once a tenant is provisioned (migration v153 seeds all 9
+   * codes for every existing tenant; `TenantRepository.seedServiceProviders`
+   * does the same for every new one), so the residual risk — a
+   * hypothetically mis-provisioned tenant with zero rows getting a raw
+   * SQLITE_CONSTRAINT from the new FK instead of this clean message — is
+   * acceptable; the FK is still the real backstop regardless (rule per the
+   * ticket: "the real guard must live in the service layer" applies when FK
+   * enforcement is OFF, which it is NOT here — verified `PRAGMA
+   * foreign_keys = ON` at both electron-app/main.ts:327 and
+   * backend/src/database/connection.ts:68).
+   */
+  private assertValidProvider(provider: string): void {
+    let rows: { code: string }[];
+    try {
+      rows = getServiceProviderRepository().getAll();
+    } catch {
+      return; // table missing entirely — not migrated yet, unchecked
+    }
+    if (rows.length === 0) return; // nothing configured for this tenant — unchecked
+    if (!rows.some((r) => r.code === provider)) {
+      throw new Error(
+        `Invalid provider '${provider}' — no matching Service Provider is configured for this shop. Add it under Settings → Service Providers first.`,
+      );
+    }
+  }
+
+  /**
    * Create a new financial service transaction.
    *
    * Two modes:
@@ -929,6 +984,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     id: number;
     drawer: string;
   } {
+    this.assertValidProvider(data.provider);
     const legacyDrawerLabel = this.mapDrawerName(data.provider);
     const useCostPriceFlow = data.cost !== undefined && data.cost > 0;
     const tenantId = getCurrentTenantId();

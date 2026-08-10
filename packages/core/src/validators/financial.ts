@@ -9,20 +9,43 @@ import {
  * Financial services validation schemas (OMT, WHISH, iPick, Katsh, Binance, etc.)
  */
 
+/**
+ * A `financial_services.provider` value.
+ *
+ * FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 3 (migration v154):
+ * `provider` used to be a closed 9-value enum, mirrored by a DB-level CHECK
+ * constraint. The CHECK is now a composite FK against the tenant-scoped
+ * `service_providers` config table (phases 1-2), so this schema stops
+ * closing over a fixed literal union — same open-ended shape already used
+ * for `currencyCodeSchema` above ("Runtime validation against DB happens at
+ * the service layer"). Unlike `currencyCodeSchema`, this does NOT uppercase
+ * the value: the 9 pre-existing codes are a genuine case mix (`iPick`,
+ * `Katsh` vs `OMT_APP`, `WHISH_APP`) — forcing case would silently break the
+ * FK lookup for any of them.
+ *
+ * This is shape validation ONLY (non-empty, bounded length, safe charset) —
+ * a Zod schema has no DB handle, so it cannot confirm the code actually
+ * exists as a configured `service_providers` row for the caller's tenant.
+ * That membership check happens at the repository boundary
+ * (`FinancialServiceRepository.createTransaction`, via
+ * `ServiceProviderRepository.getByCode()`) and raises a clear "Invalid
+ * provider" error there instead of either a silent pass-through or a raw
+ * SQLITE_CONSTRAINT bubbling out of the INSERT — see that method's own
+ * comment for the full rationale.
+ */
+const providerCodeSchema = z
+  .string()
+  .min(1, "Provider is required")
+  .max(50, "Provider code must be 50 characters or fewer")
+  .regex(
+    /^[A-Za-z0-9_]+$/,
+    "Provider code may only contain letters, numbers, and underscores",
+  );
+
 // OMT/WHISH Money Transfer & iPick/Katsh/WishApp/Binance services
 export const createFinancialServiceSchema = z
   .object({
-    provider: z.enum([
-      "OMT",
-      "WHISH",
-      "iPick",
-      "Katsh",
-      "WHISH_APP",
-      "OMT_APP",
-      "BOB",
-      "OTHER",
-      "BINANCE",
-    ]),
+    provider: providerCodeSchema,
     // COMMISSION_AT_SETTLEMENT_PLAN.md §1.7 / §4 Phase 1 rule-19 gap: the
     // electron-app LOCAL FinancialServiceSchema (electron-app/schemas/index.ts)
     // already accepted 'BILL' — this shared core schema (which
@@ -404,19 +427,7 @@ export const createFinancialServiceSchema = z
 
 // Query financial services history
 export const getFinancialServicesSchema = z.object({
-  provider: z
-    .enum([
-      "OMT",
-      "WHISH",
-      "iPick",
-      "Katsh",
-      "WHISH_APP",
-      "OMT_APP",
-      "BOB",
-      "OTHER",
-      "BINANCE",
-    ])
-    .optional(),
+  provider: providerCodeSchema.optional(),
   limit: z.coerce.number().int().positive().max(1000).default(50),
 });
 

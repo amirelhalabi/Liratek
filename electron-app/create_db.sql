@@ -622,10 +622,20 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
 CREATE INDEX IF NOT EXISTS idx_exchange_transactions_tenant_id ON exchange_transactions(tenant_id);
 
 -- Financial Services (OMT, Whish, iPick, Katsh, Wish App, Binance, etc.)
+-- v154 (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 3): `provider` used to be
+-- a closed 9-value CHECK; it is now a composite FK (tenant_id, provider) ->
+-- service_providers(tenant_id, code) — NOT a bare `REFERENCES service_providers(code)`,
+-- which would throw "foreign key mismatch" on every statement against this table (code
+-- alone has no UNIQUE index — only (tenant_id, code) does, since multi-tenant seeds the
+-- same 9 codes per tenant by design). See migration v154's description for the full
+-- rationale and the empirical proof. Membership (does this code actually exist for this
+-- tenant?) is validated at the service layer (FinancialService.addTransaction), not by
+-- Zod (a pure schema can't check a live table) and not by this FK alone (a typo should
+-- surface as a clear error, not a raw SQLITE_CONSTRAINT).
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tenant_id INTEGER REFERENCES tenants(id),
-    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+    provider TEXT NOT NULL,
     service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL')) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     currency TEXT DEFAULT 'USD' NOT NULL,
@@ -680,7 +690,8 @@ CREATE TABLE IF NOT EXISTS financial_services (
     -- specifying the column) mirrors the migration's own
     -- `ALTER ... DEFAULT 0` — 0 (legacy/safe) matches "no BILL gate matched",
     -- never AT_SETTLEMENT by default.
-    commission_model INTEGER NOT NULL DEFAULT 0
+    commission_model INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (tenant_id, provider) REFERENCES service_providers(tenant_id, code)
 );
 
 CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
@@ -1797,4 +1808,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (150, 'commission_at_settlement_foundation'),
     (151, 'commission_at_settlement_provider_eligibility'),
     (152, 'custom_services_product_id_stock_link'),
-    (153, 'add_service_providers_table');
+    (153, 'add_service_providers_table'),
+    (154, 'financial_services_provider_check_to_fk');
