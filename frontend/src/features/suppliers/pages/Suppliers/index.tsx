@@ -162,15 +162,25 @@ function EntryTypeBadge({ type }: { type: string }) {
  *   = 0  → settled
  */
 const BALANCE_EPS = 0.005;
+
+/** `$1.23` or `1,234 LBP` — the one place the USD/LBP money-string ternary
+ *  lives (rule 14). Reused by `describeBalance` below and by the batch-settle
+ *  confirm modal's "Net payment" line + success notification (LIRA-119) —
+ *  before that fix, the settle modal pasted its own `$${...toFixed(2)}`
+ *  unconditionally, which is exactly what showed "$0.00" for an LBP-only
+ *  commission settlement. */
+function formatMoney(amount: number, currency: "USD" | "LBP"): string {
+  return currency === "USD"
+    ? `$${amount.toFixed(2)}`
+    : `${Math.round(amount).toLocaleString()} LBP`;
+}
+
 function describeBalance(
   amount: number,
   currency: "USD" | "LBP",
 ): { text: string; cls: string } {
   const abs = Math.abs(amount);
-  const money =
-    currency === "USD"
-      ? `$${abs.toFixed(2)}`
-      : `${Math.round(abs).toLocaleString()} LBP`;
+  const money = formatMoney(abs, currency);
   if (amount > BALANCE_EPS)
     return { text: `You owe ${money}`, cls: "text-red-400" };
   if (amount < -BALANCE_EPS)
@@ -686,6 +696,22 @@ export default function SuppliersPage() {
         .reduce((s, t) => s + t.supplier_owed, 0),
     [selectedUnsettled],
   );
+  // LIRA-119 — the LBP mirror of settleTotalOwedUsd above. Always sums to 0
+  // TODAY: the only LBP-denominated rows `selectableUnsettled` (below) lets
+  // into this batch are BILLs, and SUPPLIER_OWED_EXPR's BILL branch is
+  // hardcoded 0 — a bill's principal already left via a provider-drawer cost
+  // leg when the bill was created, never through this ledger (the plan's
+  // "bills settlement note"). Computed symmetrically with the USD side
+  // anyway so `settleNetPayLbp` below is real per-currency math, not a
+  // hardcoded 0 — and so a future LBP-eligible non-bill row type nets
+  // correctly for free instead of silently reintroducing this exact bug.
+  const settleTotalOwedLbp = useMemo(
+    () =>
+      selectedUnsettled
+        .filter((t) => t.currency === "LBP")
+        .reduce((s, t) => s + t.supplier_owed, 0),
+    [selectedUnsettled],
+  );
   // Legacy display only — the shop's cut is already embedded in
   // settleTotalOwedUsd above for a legacy batch, so this never feeds the
   // net-pay math; it just shows the operator what was baked in.
@@ -740,6 +766,53 @@ export default function SuppliersPage() {
   const settleNetPayUsd = isNewModelBatch
     ? Math.max(0, settleTotalOwedUsd - settleEnteredCommissionUsd)
     : Math.max(0, settleTotalOwedUsd);
+  // LIRA-119 — LBP mirror of settleNetPayUsd. Legacy batches never carry an
+  // LBP gross-owed figure (settleTotalOwedLbp is structurally 0 — see its
+  // own comment), so this is 0 for a legacy batch by the same math, not a
+  // separate special case.
+  const settleNetPayLbp = isNewModelBatch
+    ? Math.max(0, settleTotalOwedLbp - settleEnteredCommissionLbp)
+    : 0;
+  // LIRA-119 — which currency the settlement's cash figures ("Net payment"
+  // line, MultiPaymentInput's "Total Amount", the payment sheet's default
+  // leg currency) are shown/denominated in. USD whenever there is real USD
+  // cash owed (settleNetPayUsd > 0) — genuine cash, never relabeled just
+  // because the operator happened to enter the commission in LBP. Otherwise
+  // — the batch's only money-bearing figure is an LBP-entered commission
+  // (Katsh's RATE mode default, LIRA-112) — follow that currency, so a
+  // bills-only batch shows "0 LBP" instead of a misleading "$0.00".
+  //
+  // IMPORTANT: this does NOT inflate the displayed net payment to the
+  // entered commission amount (e.g. 20,000 LBP). The commission is booked
+  // via `_bookCommissionAtSettlement` as a cashless SUPPLIER_PAYS_US ledger
+  // credit — it is money the supplier now owes the shop, never money the
+  // shop pays out through a payment leg. Showing "20,000 LBP" here would
+  // invite the operator to add a matching 20,000 LBP CASH leg, which would
+  // double-count that same commission as a real cash outflow. "0 LBP" is
+  // the correct, currency-honest figure for what this settlement actually
+  // pays in cash — see the task report for the full trace.
+  const settleNetPayCurrency: "USD" | "LBP" =
+    isNewModelBatch && settleNetPayUsd === 0 && settleEnteredCommissionLbp > 0
+      ? "LBP"
+      : "USD";
+  const settleNetPayAmount =
+    settleNetPayCurrency === "LBP" ? settleNetPayLbp : settleNetPayUsd;
+  // LIRA-119 — same USD-hardcoding bug, second location: the "Owed … − Net
+  // you pay" strip UNDER the row list (shown before the operator has even
+  // opened the confirm modal, so no entered-commission signal exists yet —
+  // this uses the SELECTION's own currency instead). All-LBP selection (a
+  // Katsh bill batch) + nothing owed in USD ⇒ show the (also-0)
+  // settleTotalOwedLbp/settleNetPayLbp figures as LBP rather than "$0.00".
+  const preSettleCurrency: "USD" | "LBP" =
+    isNewModelBatch &&
+    settleTotalOwedUsd === 0 &&
+    selectedUnsettled.some((t) => t.currency === "LBP")
+      ? "LBP"
+      : "USD";
+  const preSettleOwed =
+    preSettleCurrency === "LBP" ? settleTotalOwedLbp : settleTotalOwedUsd;
+  const preSettleNetPay =
+    preSettleCurrency === "LBP" ? settleNetPayLbp : settleNetPayUsd;
   const selectableUnsettled = useMemo(
     () =>
       unsettledTxns.filter(
@@ -788,19 +861,24 @@ export default function SuppliersPage() {
       // No drawer_name: OMT_System/Whish_System is the provider FLOAT, never
       // a real cash drawer — settlement pays the net amount EXCLUSIVELY
       // through the payment-method legs the admin picks below (activeLines),
-      // matching recordSupplierCashflow's own contract. A $0 net (settleNetPayUsd
-      // === 0) needs no legs at all.
+      // matching recordSupplierCashflow's own contract. A $0/0 LBP net (both
+      // settleNetPayUsd and settleNetPayLbp === 0) needs no legs at all.
       //
       // NEW-MODEL batch (D8): commission_usd/commission_lbp become the
       // MONEY-BEARING entered figures (settleEnteredCommission*), plus the
       // entry_mode/rate/count audit snapshot the operator actually used.
       // LEGACY batch: byte-for-byte the pre-existing payload — informational
       // commission_usd only, no D8 fields at all.
+      //
+      // LIRA-119 — amount_lbp was hardcoded 0 here regardless of
+      // settleNetPayLbp (itself always 0 today, see its own comment) —
+      // sending the real computed value instead so a future LBP-eligible
+      // non-bill row nets correctly without silently reintroducing this bug.
       const result = await settleTransactions.mutateAsync({
         supplier_id: selectedSupplierId,
         financial_service_ids: [...selectedSettleIds],
         amount_usd: settleNetPayUsd,
-        amount_lbp: 0,
+        amount_lbp: settleNetPayLbp,
         ...(isNewModelBatch
           ? {
               commission_usd: settleEnteredCommissionUsd,
@@ -838,7 +916,7 @@ export default function SuppliersPage() {
       }
       appEvents.emit(
         "notification:show",
-        `Settled ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} — net $${settleNetPayUsd.toFixed(2)}`,
+        `Settled ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} — net ${formatMoney(settleNetPayAmount, settleNetPayCurrency)}`,
         "success",
       );
       setShowSettleConfirm(false);
@@ -1326,8 +1404,9 @@ export default function SuppliersPage() {
                         <span>
                           {isNewModelBatch ? (
                             <>
-                              Owed ${settleTotalOwedUsd.toFixed(2)} − commission
-                              (entered below)
+                              Owed{" "}
+                              {formatMoney(preSettleOwed, preSettleCurrency)} −
+                              commission (entered below)
                             </>
                           ) : (
                             <>
@@ -1337,7 +1416,8 @@ export default function SuppliersPage() {
                           )}
                         </span>
                         <span className="font-mono font-bold text-white">
-                          Net you pay: ${settleNetPayUsd.toFixed(2)}
+                          Net you pay:{" "}
+                          {formatMoney(preSettleNetPay, preSettleCurrency)}
                         </span>
                       </div>
                     )}
@@ -2075,16 +2155,27 @@ export default function SuppliersPage() {
                 <span className="text-white">
                   Net payment to {selectedSupplier.name}:
                 </span>
+                {/* LIRA-119 — respects settleNetPayCurrency instead of a
+                    hardcoded "$" prefix; see settleNetPayCurrency's own
+                    comment for why this shows "0 LBP" (not "20,000 LBP")
+                    for a bills-only Katsh batch. */}
                 <span className="font-mono text-blue-400 text-base">
-                  ${settleNetPayUsd.toFixed(2)}
+                  {formatMoney(settleNetPayAmount, settleNetPayCurrency)}
                 </span>
               </div>
             </div>
           }
           multiPaymentInputKey={settleKey}
           multiPaymentInput={{
-            totals: [{ amount: settleNetPayUsd, currency: "USD" }],
-            currency: "USD",
+            // LIRA-119 — both the total and the payment sheet's default leg
+            // currency now follow settleNetPayCurrency instead of being
+            // hardcoded to USD, so a Katsh-style LBP commission settlement
+            // defaults to LBP the way the owner expects.
+            totals: [
+              { amount: settleNetPayAmount, currency: settleNetPayCurrency },
+            ],
+            totalAmountCurrency: settleNetPayCurrency,
+            currency: settleNetPayCurrency,
             onChange: setSettlePaymentLines,
             showPmFee: false,
             showDiscount: false,
