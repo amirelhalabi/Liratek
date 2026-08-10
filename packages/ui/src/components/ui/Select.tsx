@@ -72,8 +72,39 @@ export default function Select({
 
         <ListboxOptions
           anchor="bottom end"
+          // LIRA-120: `anchor` forces @headlessui/react to portal this panel
+          // into ONE shared <div id="headlessui-portal-root"> appended to
+          // <body> (dist/components/portal/portal.js) — the SAME div every
+          // other open Select in the app uses. Only THIS element's own
+          // z-index ranks it against whatever else is on screen; a z-50
+          // panel rendered BEHIND any modal backdrop declared with a higher
+          // z-index elsewhere in the app (Partners' local "Add Credit /
+          // Debt" Modal: z-[60]; SaleDetailModal's confirm step and
+          // Maintenance's panel: z-[60]; ConfirmModal / AddTenantModal /
+          // DrawerCard: z-[100]; SessionCheckoutModal: z-[200]) — open in
+          // React state (the trigger's chevron correctly flips) but
+          // invisible and unreachable on screen.
+          //
+          // z-[500] clears every modal in the app today with headroom in
+          // both directions: above the highest (SessionCheckoutModal,
+          // z-[200]) and below NotificationCenter's toasts (z-[1000], which
+          // should stay visible even over an open dropdown). This changes
+          // ONLY this element's own z-index — @headlessui/react already
+          // sets `position: absolute` on it directly (floating-ui strategy
+          // "absolute"; @floating-ui/dom always recomputes the anchor rect
+          // relative to this element's actual offsetParent, so nothing here
+          // introduces a new positioned ancestor that could hijack that
+          // math — the earlier draft of this fix tried lifting the shared
+          // portal root itself via an ancestor `position: relative`, which
+          // would have done exactly that, silently, for every Select in the
+          // app; reverted before shipping). If a future modal ever needs
+          // z-index > 500, bump this value — there is no way to make a
+          // fixed-position dropdown outrank truly EVERY future z-index
+          // without ALSO risking outranking things that should stay on top
+          // (toasts), so this is a deliberate, revisitable ceiling rather
+          // than the CSS max.
           className={`
-            z-50 min-w-[var(--button-width)] max-h-60 overflow-auto
+            z-[500] min-w-[var(--button-width)] max-h-60 overflow-auto
             rounded-lg bg-slate-900 border border-slate-700
             py-1 shadow-lg ring-1 ring-black ring-opacity-5
             focus:outline-none text-sm

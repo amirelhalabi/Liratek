@@ -1,32 +1,28 @@
 /** @jest-environment jsdom */
 /**
- * LIRA-097 — Partners page "Add Credit / Debt" and LBP currency.
+ * LIRA-120 (re-opens LIRA-097) — Partners page "Add Credit / Debt" currency
+ * picker.
  *
- * Investigation finding (task LIRA-097): the Currency <Select> inside
- * RecordTxModal (shared by "Record Transaction" AND the `adjustmentOnly`
- * "Add Credit / Debt" mode) has offered USD AND LBP since 2026-06-22 (git
- * blame b3f96649) — well before the owner's 2026-08-07 note that it "only
- * offers USD". PartnerService.recordPartnerTransaction /
- * PartnerRepository.addLedgerEntry pass `currency` straight through into
- * `partner_ledger.currency`, a free TEXT column with NO CHECK constraint
- * (electron-app/create_db.sql) — unlike `settlement_method`, which IS
- * CHECK-constrained. Both the IPC handler (electron-app) and the REST route
- * (backend/src/api/partners.ts `POST /transactions`) validate through the
- * SAME shared `partnerRecordTransactionSchema`
- * (packages/core/src/validators/partner.ts), which accepts any non-empty
- * currency string. So the ticket's premise — "LBP isn't selectable" — does
- * not hold against the current code; no source change was needed. This test
- * locks the existing behavior in as a regression guard, since no test
- * previously covered the LBP path (only USD is exercised in
- * lira-121-partner-payment-debt-profit.spec.ts /
- * lira-126-owner-notes-money-flows.spec.ts).
- *
- * Rule 17 (failing-first): temporarily changing the Currency <Select>'s
- * `options` in RecordTxModal (frontend/src/features/partners/pages/Partners/index.tsx)
- * to drop the LBP entry (`[{ value: "USD", label: "USD" }]` only) makes this
- * test fail — `select-USD-LBP` (the testid the mocked Select below derives
- * from `options`) is never found. Confirmed red against that reverted code,
- * then restored — see the task report.
+ * LIRA-097 was closed as "already working" purely because the `options`
+ * array on the Currency `<Select>` in `RecordTxModal` contains `{USD, LBP}`
+ * (frontend/src/features/partners/pages/Partners/index.tsx:811-814). That
+ * options array was never wrong — the earlier version of THIS test proved
+ * it by fully mocking `<Select>` as a native `<select>` element, which
+ * bypasses the real control entirely. Reading an options array is not
+ * testing a control: the owner reported the real dropdown never opens (the
+ * trigger's arrow flips; no list appears), so LBP was in practice
+ * unreachable. Root cause (LIRA-120, see
+ * frontend/src/shared/components/__tests__/Select.modalStacking.test.tsx
+ * and packages/ui/src/components/ui/Select.tsx): the shared `<Select>`
+ * portals its option list into ONE div shared by every Select in the app,
+ * and that div had no z-index of its own — so a Select opened inside a
+ * modal backdrop with a HIGHER explicit z-index (this page's local `Modal`,
+ * used by `RecordTxModal`, is `z-[60]`; Select's own panel is `z-50`)
+ * rendered its list behind that backdrop. Fixed in Select.tsx; this test
+ * now exercises the REAL `<Select>` (not mocked) end-to-end: open the
+ * modal, click the real currency trigger, select the real "LBP" option
+ * from the real rendered list, and confirm the booked entry carries
+ * `currency: "LBP"`.
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import Partners from "../index";
@@ -34,85 +30,30 @@ import Partners from "../index";
 const mockGetAllBalances = jest.fn();
 const mockGetLedger = jest.fn();
 const mockRecordTransaction = jest.fn();
-const mockAppEventsEmit = jest.fn();
 
-jest.mock("@liratek/ui", () => ({
-  useApi: () => ({
-    partners: {
-      getAllBalances: mockGetAllBalances,
-      getLedger: mockGetLedger,
-      recordTransaction: mockRecordTransaction,
-      settle: jest.fn(),
-      writeOff: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      deactivate: jest.fn(),
-      activate: jest.fn(),
-      getBalance: jest.fn(),
-    },
-  }),
-  // Wrapped in a closure — a direct `{ emit: mockAppEventsEmit }` property
-  // would be evaluated at jest.mock() factory time (hoisted above this
-  // file's `const mockAppEventsEmit = jest.fn()`), throwing a TDZ error.
-  appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
-  // Not exercised by this test (SettleModal isn't opened) — a stub is enough
-  // so the module-level import in Partners/index.tsx resolves.
-  CounterpartySettleModal: () => null,
-  PageHeader: ({
-    title,
-    actions,
-  }: {
-    title: string;
-    actions?: React.ReactNode;
-  }) => (
-    <div data-testid="page-header">
-      <h1>{title}</h1>
-      {actions}
-    </div>
-  ),
-  DecimalInput: ({
-    value,
-    onChange,
-    placeholder,
-    autoFocus,
-  }: {
-    value: number;
-    onChange: (n: number) => void;
-    placeholder?: string;
-    autoFocus?: boolean;
-  }) => (
-    <input
-      placeholder={placeholder}
-      autoFocus={autoFocus}
-      value={value === 0 ? "" : String(value)}
-      onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-    />
-  ),
-  // testid is DERIVED from `options` so the Currency select (options exactly
-  // ["USD","LBP"]) can be targeted unambiguously even though the page also
-  // renders other <Select>s (ledger filters) with different option sets.
-  Select: ({
-    value,
-    onChange,
-    options,
-  }: {
-    value: string;
-    onChange: (v: string) => void;
-    options: { value: string; label: string }[];
-  }) => (
-    <select
-      data-testid={`select-${options.map((o) => o.value).join("-")}`}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  ),
-}));
+jest.mock("@liratek/ui", () => {
+  // Keep the REAL Select/Modal/DecimalInput/etc. — only `useApi` needs a
+  // stub (no ApiProvider is mounted in this test), and CounterpartySettleModal
+  // is left real too since it's cheap to import and never actually opened here.
+  const actual = jest.requireActual("@liratek/ui");
+  return {
+    ...actual,
+    useApi: () => ({
+      partners: {
+        getAllBalances: mockGetAllBalances,
+        getLedger: mockGetLedger,
+        recordTransaction: mockRecordTransaction,
+        settle: jest.fn(),
+        writeOff: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        deactivate: jest.fn(),
+        activate: jest.fn(),
+        getBalance: jest.fn(),
+      },
+    }),
+  };
+});
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),
@@ -136,7 +77,7 @@ const PARTNER = {
   usdt: 0,
 };
 
-describe("Partners page — Add Credit/Debt LBP currency (LIRA-097)", () => {
+describe("Partners page — Add Credit/Debt LBP currency (LIRA-097 / LIRA-120)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetAllBalances.mockResolvedValue([PARTNER]);
@@ -151,7 +92,7 @@ describe("Partners page — Add Credit/Debt LBP currency (LIRA-097)", () => {
     });
   });
 
-  it("offers LBP as a selectable currency on Add Credit/Debt and books the entry in LBP", async () => {
+  it("opens the REAL currency dropdown, selects LBP from the REAL rendered list, and books the entry in LBP", async () => {
     render(<Partners />);
 
     fireEvent.click(await screen.findByText("Acme Partner"));
@@ -163,9 +104,23 @@ describe("Partners page — Add Credit/Debt LBP currency (LIRA-097)", () => {
     });
     fireEvent.click(openButton);
 
-    const currencySelect = await screen.findByTestId("select-USD-LBP");
-    expect(currencySelect).toBeInTheDocument();
-    fireEvent.change(currencySelect, { target: { value: "LBP" } });
+    await screen.findByText(/Add Credit \/ Debt – Acme Partner/);
+
+    // The REAL headlessui trigger — accessible name is the currently
+    // selected option's label ("USD" by default). Not a mocked <select>.
+    const currencyTrigger = screen.getByRole("button", { name: "USD" });
+    fireEvent.click(currencyTrigger);
+
+    // The REAL option list must actually render as a queryable listbox with
+    // an "LBP" option — not just exist as a prop on a mocked component.
+    const listbox = await screen.findByRole("listbox");
+    expect(listbox).toBeInTheDocument();
+    const lbpOption = screen.getByRole("option", { name: "LBP" });
+
+    fireEvent.click(lbpOption);
+
+    // The trigger's accessible name now reflects the real selection.
+    await screen.findByRole("button", { name: "LBP" });
 
     const amountInput = screen.getByPlaceholderText("0.00");
     fireEvent.change(amountInput, { target: { value: "50000" } });
