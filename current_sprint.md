@@ -3347,7 +3347,7 @@ foregone revenue rather than untracked cash.
 | **Epic**              | Partners / Money posting              |
 | **Type**              | Bug - two code paths disagree         |
 | **Priority**          | Medium (latent)                       |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (43c7450) |
 | **Affected Modules**  | omt_whish, partners                   |
 | **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` VIOLATES #3 |
 
@@ -3376,7 +3376,7 @@ exercised today. It is a trap for any future caller (or an older payload shape) 
 | **Epic**              | Partners / Reporting                  |
 | **Type**              | Bug - wrong label, no money impact    |
 | **Priority**          | Low                                   |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (43c7450) - no migration needed, zero rows existed |
 | **Affected Modules**  | partners, reporting                   |
 | **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` VIOLATES #4 |
 
@@ -3406,7 +3406,7 @@ defaulting.
 | **Epic**              | Partners / OMT-Whish                  |
 | **Type**              | Bug - asymmetric guard                |
 | **Priority**          | Medium                                |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (5980180) |
 | **Affected Modules**  | omt_whish, partners                   |
 | **Source Plan**       | `FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md` section 5b (lines ~268-270) |
 
@@ -3448,7 +3448,7 @@ system, and after taxonomy phase 4 against the partner's own `system_association
 | **Epic**              | Partners / Money posting              |
 | **Type**              | Question - blocked on shop owner      |
 | **Priority**          | Medium (no known loss; consistency)   |
-| **Status**            | BLOCKED - awaiting shop-owner confirmation |
+| **Status**            | **RESOLVED** - no change needed; documented in FEATURE_GUIDE 8.1.0 |
 | **Affected Modules**  | omt_whish, partners                   |
 | **Source Plan**       | `PARTNER_DISBURSEMENT_MATRIX.md` open item |
 
@@ -3493,6 +3493,49 @@ collection pays out of the PCD").
       operator paid from, with rule 17 + rule 20 proof.
 - [ ] Either way, record the reasoning; the asymmetry currently looks like an inconsistency to any
       reader and will be "fixed" wrongly by someone eventually.
+
+---
+
+## LIRA-129: `TOP_UP` badge and a negative amount contradict each other on screen
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Suppliers / Reporting                 |
+| **Type**              | Bug - misleading display (money is correct) |
+| **Priority**          | Medium                                |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Suppliers (ledger tab), omt_whish     |
+| **Source Plan**       | Found closing LIRA-128, 2026-08-10    |
+
+### Summary
+
+On a `supplier_ledger` row with `entry_type = 'TOP_UP'` and a **negative** amount, the two
+things the operator reads say opposite things:
+
+- `EntryTypeBadge` renders `TOP_UP` in **red** (`Suppliers/index.tsx:135-153`) - reads as
+  "debt going UP"
+- the amount renders in **green** when negative (`Suppliers/index.tsx:1702`) - reads as
+  "debt going DOWN"
+
+Reading it correctly requires already knowing the C5 signed-`TOP_UP` convention, where a RECEIVE
+books a negative TOP_UP because it *reduces* what the shop owes the provider (`grossOwedDelta`).
+
+**NOT partner-specific.** A plain walk-in OMT/WHISH RECEIVE produces the identical row, so this
+is on the OMT supplier page during ordinary daily trading - not an edge case.
+
+**Fourth instance of the same class today**, all money-correct and screen-wrong: LIRA-119
+($0.00 for a 20,000 LBP commission), LIRA-121 (notice stating the opposite of the truth),
+LIRA-122 ("Unpaid" where nothing was owed). Worth asking whether the ledger display needs one
+signed-amount presentation rule rather than a fourth point fix.
+
+### Acceptance Criteria
+
+- [ ] Badge and amount agree for a signed `TOP_UP` (e.g. label the direction from the SIGN, not
+      the entry type alone - a negative TOP_UP is a reduction).
+- [ ] Sweep every `entry_type` that can carry either sign, not just TOP_UP; state which can.
+- [ ] **Presentation only** - prove no ledger, drawer or balance value changes.
+- [ ] Rule 17 failing-first at the interaction layer (render the real row) - the three prior
+      instances of this class were all invisible to backend tests.
 
 ---
 
@@ -4043,10 +4086,11 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-122 | Supplier table shows 'Unpaid' where nothing is owed      | Low      | **DONE** - rule-14 unification on supplier_debt_booked    | owner manual test 2026-08-10        |
 | LIRA-123 | `yarn test:e2e` silently no-ops (exit 0, zero output)     | **High** | **DONE** db149e6 - direct invocation + spec-count floor; CI was NOT affected (Ubuntu) | found verifying LIRA-118..121 |
 | LIRA-124 | THROUGH-partner RECEIVE pays customer from no drawer     | **High** | **DONE** 2e9e822 - payout + fee leg post; FOR path untouched (correct) | PARTNER_DISBURSEMENT_MATRIX.md |
-| LIRA-125 | THROUGH legacy single-method SEND skips drawer credit    | Medium   | TODO                                                      | PARTNER_DISBURSEMENT_MATRIX.md      |
-| LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh) | Low    | TODO                                                      | PARTNER_DISBURSEMENT_MATRIX.md      |
-| LIRA-127 | Secondary-system partner guard hardcodes provider==='WHISH' | Medium | TODO - breaks for a WHISH-base shop's OMT tab            | section 5b, owner-approved 2026-08-10 |
-| LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet) | Medium | **BLOCKED** - owner asking shop owner; provisional "drawers don't change" | PARTNER_DISBURSEMENT_MATRIX.md |
+| LIRA-125 | THROUGH legacy single-method SEND skips drawer credit    | Medium   | **DONE** 43c7450 - legacy path was LIVE, unified not deleted | PARTNER_DISBURSEMENT_MATRIX.md   |
+| LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh) | Low    | **DONE** 43c7450 - throws on unmapped; 0 rows to migrate  | PARTNER_DISBURSEMENT_MATRIX.md      |
+| LIRA-127 | Secondary-system partner guard hardcodes provider==='WHISH' | Medium | **DONE** 5980180 - was an UNSUBMITTABLE OMT tab, not just a missing guard | section 5b, owner-approved 2026-08-10 |
+| LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet) | Medium | **RESOLVED** - owner confirmed no cash moves; documented FEATURE_GUIDE 8.1.0 | PARTNER_DISBURSEMENT_MATRIX.md |
+| LIRA-129 | TOP_UP badge (red) contradicts negative amount (green)    | Medium | TODO - 4th money-correct/screen-wrong bug today; affects walk-in RECEIVE too | found closing LIRA-128 |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 

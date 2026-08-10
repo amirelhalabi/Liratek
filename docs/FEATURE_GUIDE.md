@@ -309,6 +309,41 @@ by cashPaid with no partner row (the margin exists only as a drawer delta) — l
 
 ### 8.1 THE invariant — quote this whenever you touch OMT/WHISH money
 
+#### 8.1.0 On-behalf (FOR-partner) RECEIVE moves no drawer — and that is CORRECT
+
+**Owner-confirmed 2026-08-10** (LIRA-128). The partner phones in: *"receive this OMT
+transaction and hold the money."* Asked whether any cash physically moves at that moment, the
+owner's answer was **no** — *"cash doesn't move ... but an OMT transaction should be recorded,
+and this should appear in the OMT supplier page."*
+
+So a FOR-partner OMT/WHISH RECEIVE books **obligations only**:
+
+| What | Where |
+| --- | --- |
+| the provider side | a `supplier_ledger` `TOP_UP` entry, amount from `grossOwedDelta` (**signed NEGATIVE** for a RECEIVE — it *reduces* what the shop owes the provider) |
+| the partner side | a `partner_ledger` **CREDIT** (the shop owes the partner) |
+| any drawer | **nothing** — no cash moved, so no till movement. The partner's later collection pays out of the PCD. |
+
+The books balance without a drawer leg: the provider obligation falls by `x`, the partner
+obligation rises by `x`, the till is untouched.
+
+**Why app-wallet/Binance FOR-partner RECEIVE differs, and is ALSO correct.** Those branches DO
+credit their wallet drawer (`+amountAbs`). This asymmetry is deliberate, not drift: an
+app-wallet or Binance balance is an asset the shop actually **holds**, so receiving into it
+genuinely increases it. An OMT/WHISH cash receive is an agent-network operation — nothing lands
+in a wallet the shop holds; the transfer is merely marked collected. **Do not "unify" these two
+branches.** They model two different physical realities, and a previous investigation already
+wasted effort by reading the difference as a bug.
+
+Guarded by `FinancialServiceRepository.partner.test.ts` (USD and LBP currency-column variants,
+asserting the row's existence, `entry_type`, sign and reversal-to-zero).
+
+⚠ **Known display defect on this row — see LIRA-129.** `EntryTypeBadge` renders `TOP_UP` in RED
+(reads as "debt going up") while a negative amount renders GREEN (reads as "debt going down"),
+so the badge and the number contradict each other. The money is right; the screen is
+misleading. Not partner-specific — a walk-in OMT/WHISH RECEIVE produces the identical row.
+
+
 Four distinct quantities, never conflate them — conflating the first three is exactly
 what made the original (pre-#66) gross-reserve bug hard to see:
 
