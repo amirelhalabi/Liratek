@@ -39,3 +39,4 @@ export * from "./walletExchange.js";
 // route are both re-pointed at createDrawerTransferSchema in this same
 // slice).
 export * from "./drawerTransfer.js";
+export * from "./serviceProvider.js";

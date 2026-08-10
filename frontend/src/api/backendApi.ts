@@ -2614,6 +2614,74 @@ export async function getActiveServiceProviders(): Promise<
   );
 }
 
+// §5b phase 5 — the write path: ServiceProviderRepository's create/update/
+// delete existed since phase 1 but nothing exposed them. See
+// ServiceProviderService's own doc comment for the two money-safety
+// invariants (new providers always settle to `General`; `code` is never
+// editable) enforced at the service layer on BOTH transports.
+
+/** ALL service providers (including inactive/system) — the Settings
+ *  management UI. */
+export async function getServiceProviders(): Promise<ServiceProviderEntity[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().serviceProviders.list(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        providers: ServiceProviderEntity[];
+      }>(`/api/service-providers`);
+      return res.providers;
+    },
+  );
+}
+
+export async function createServiceProvider(data: {
+  code: string;
+  label: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().serviceProviders.create(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/service-providers`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function updateServiceProvider(
+  id: number,
+  data: { label?: string; is_active?: number },
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().serviceProviders.update(id, data),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/service-providers/${id}`,
+        {
+          method: "PUT",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function deleteServiceProvider(id: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().serviceProviders.delete(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/service-providers/${id}`,
+        {
+          method: "DELETE",
+        },
+      ),
+  );
+}
+
 // ==================== Currency–Module API ====================
 
 export async function getModulesForCurrency(code: string) {

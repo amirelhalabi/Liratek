@@ -2927,9 +2927,19 @@ export interface ElectronAPI {
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
-  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a)
+  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phases 4a + 5)
   serviceProviders: {
+    list: () => Promise<ServiceProviderEntity[]>;
     listActive: () => Promise<ServiceProviderEntity[]>;
+    create: (data: {
+      code: string;
+      label: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    update: (
+      id: number,
+      data: { label?: string; is_active?: number },
+    ) => Promise<{ success: boolean; error?: string }>;
+    delete: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
 }
 

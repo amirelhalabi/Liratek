@@ -43,6 +43,8 @@ import {
   createDrawerCashoutSchema,
   createWalletExchangeSchema,
   createDrawerTransferSchema,
+  createServiceProviderSchema,
+  updateServiceProviderSchema,
   selfChargeTelecomItemSchema,
   createRechargeSchema,
   topUpAppSchema,
@@ -92,6 +94,8 @@ import {
   type CreateDrawerCashoutInput,
   type CreateWalletExchangeInput,
   type CreateDrawerTransferInput,
+  type CreateServiceProviderInput,
+  type UpdateServiceProviderInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -990,6 +994,23 @@ export const PartnerSettleSchema =
 // validate against ONE schema (rule 14). Cast bridges the zod-major mismatch.
 export const PartnerWriteOffSchema =
   partnerWriteOffSchema as unknown as z.ZodSchema<PartnerWriteOffInput>;
+
+// =============================================================================
+// Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 5)
+// =============================================================================
+
+// The service-provider write-path contract lives in
+// packages/core/src/validators/serviceProvider.ts so the Electron IPC
+// handlers (serviceProviderHandlers.ts) and the REST routes
+// (backend/src/api/serviceProviders.ts) validate against ONE schema (rule
+// 14). Cast bridges the zod-major mismatch (core=zod4, this workspace=zod3);
+// runtime API used is identical. Note what's absent: neither schema accepts
+// `drawer_name`/`is_system_provider` — see the core schema's own doc comment
+// for the money-safety reason (a new provider always settles to `General`).
+export const CreateServiceProviderSchema =
+  createServiceProviderSchema as unknown as z.ZodSchema<CreateServiceProviderInput>;
+export const UpdateServiceProviderSchema =
+  updateServiceProviderSchema as unknown as z.ZodSchema<UpdateServiceProviderInput>;
 
 // =============================================================================
 // Helpers

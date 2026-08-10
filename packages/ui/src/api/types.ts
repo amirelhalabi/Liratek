@@ -933,11 +933,28 @@ export type ApiAdapter = {
   reorderPaymentMethods: (ids: number[]) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
-  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a)
+  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phases 4a + 5)
   // ---------------------------------------------------------------------------
   /** Active `service_providers`, ordered by `sort_order` — powers the
    *  Partners "System Association" dropdown with the real provider list. */
   getActiveServiceProviders: () => Promise<ServiceProviderEntity[]>;
+  /** ALL `service_providers` (including inactive/system) — the Settings
+   *  management UI. */
+  getServiceProviders: () => Promise<ServiceProviderEntity[]>;
+  /** Always settles the new provider's cash to `General` server-side —
+   *  there is no `drawer_name` field to set here (owner decision, §5b). */
+  createServiceProvider: (data: {
+    code: string;
+    label: string;
+  }) => Promise<ApiResult & { id?: number }>;
+  /** `code` is not an updatable field — see `ServiceProviderService`'s doc
+   *  comment for why. */
+  updateServiceProvider: (
+    id: number,
+    data: { label?: string; is_active?: number },
+  ) => Promise<ApiResult>;
+  /** Rejects with a clear error for one of the 9 seeded system providers. */
+  deleteServiceProvider: (id: number) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking; informational only)

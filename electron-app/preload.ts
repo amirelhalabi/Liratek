@@ -1190,9 +1190,15 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("payment-methods:reorder", ids),
   },
 
-  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a)
+  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phases 4a + 5)
   serviceProviders: {
+    list: () => ipcRenderer.invoke("service-providers:list"),
     listActive: () => ipcRenderer.invoke("service-providers:list-active"),
+    create: (data: { code: string; label: string }) =>
+      ipcRenderer.invoke("service-providers:create", data),
+    update: (id: number, data: { label?: string; is_active?: number }) =>
+      ipcRenderer.invoke("service-providers:update", id, data),
+    delete: (id: number) => ipcRenderer.invoke("service-providers:delete", id),
   },
 
   // Customer Sessions

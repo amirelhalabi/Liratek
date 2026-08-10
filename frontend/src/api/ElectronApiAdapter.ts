@@ -401,9 +401,17 @@ export class ElectronApiAdapter implements ApiAdapter {
   reorderPaymentMethods = (ids: number[]) => api.reorderPaymentMethods(ids);
 
   // ---------------------------------------------------------------------------
-  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 4a)
+  // Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phases 4a + 5)
   // ---------------------------------------------------------------------------
   getActiveServiceProviders = () => api.getActiveServiceProviders();
+  getServiceProviders = () => api.getServiceProviders();
+  createServiceProvider = (data: { code: string; label: string }) =>
+    api.createServiceProvider(data);
+  updateServiceProvider = (
+    id: number,
+    data: { label?: string; is_active?: number },
+  ) => api.updateServiceProvider(id, data);
+  deleteServiceProvider = (id: number) => api.deleteServiceProvider(id);
 
   // ---------------------------------------------------------------------------
   // Carrier Lines (LIRA W6.a — shop SIM-line tracking)

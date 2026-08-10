@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "@/utils/logger";
 import { appEvents, useApi, DecimalInput } from "@liratek/ui";
 import PaymentMethodsManager from "./PaymentMethodsManager";
+import ServiceProvidersManager from "./ServiceProvidersManager";
 import { ExportBar } from "@liratek/ui";
 
 interface ModuleRow {
@@ -686,6 +687,12 @@ export default function ModulesManager() {
       {/* Payment Methods Section */}
       <div className="mt-8 pt-6 border-t border-slate-700">
         <PaymentMethodsManager />
+      </div>
+
+      {/* Service Providers Section (§5b phase 5 — the "add a Syria
+          provider" enabler) */}
+      <div className="mt-8 pt-6 border-t border-slate-700">
+        <ServiceProvidersManager />
       </div>
 
       {/* Drawer Limits Section */}
