@@ -3503,7 +3503,7 @@ collection pays out of the PCD").
 | **Epic**              | Suppliers / Reporting                 |
 | **Type**              | Bug - misleading display (money is correct) |
 | **Priority**          | Medium                                |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (9082d6c) - one sign rule; 4 of 7 entry_types were affected |
 | **Affected Modules**  | Suppliers (ledger tab), omt_whish     |
 | **Source Plan**       | Found closing LIRA-128, 2026-08-10    |
 
@@ -3546,7 +3546,7 @@ signed-amount presentation rule rather than a fourth point fix.
 | **Epic**              | Custom Services / Reporting           |
 | **Type**              | Bug - misleading display (money is correct) |
 | **Priority**          | **High** (owner-reported; operator cannot tell a refund happened) |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (e47dfa2) - projection fix; the audit spawned LIRA-131 |
 | **Affected Modules**  | custom_services                       |
 | **Source Plan**       | Owner report 2026-08-10               |
 
@@ -3631,6 +3631,69 @@ stays system-filtered, and LIRA-127 (`5980180`) had just fixed a case where it w
 
 **Process lesson:** the rule was reasoned about abstractly without checking whether bad input was
 reachable through the UI. Check reachability before building enforcement.
+
+---
+
+## LIRA-131: `is_refunded` dropped from FIVE more module read paths (the audit result)
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Reporting / cross-module              |
+| **Type**              | Bug - misleading display (money correct) |
+| **Priority**          | **High** (5 modules; same defect the owner hit) |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | recharge, omt_whish, exchange, expenses, debts |
+| **Source Plan**       | The 11-table audit demanded by LIRA-130, run 2026-08-10 |
+
+### Summary
+
+LIRA-130 fixed Custom Services. The audit it required then found the **same defect in five more
+modules**: the refund correctly writes `is_refunded` (all 11 tables in
+`TransactionRepository._markSourceRefunded`'s whitelist), but the module's read path drops it, so the
+history shows a refunded record as live.
+
+**This is not five bugs to discover - it is one bug in five places, and four of them are a ONE-LINE
+fix.** The frontend badge code is already written and dead in four of them, starved by the SQL
+projection.
+
+| Table | Projected? | Frontend ready? | Verdict |
+| --- | --- | --- | --- |
+| `custom_services` | fixed (e47dfa2) | badge existed; profit neutralised | **DONE** |
+| `recharges` | **No** - `RechargeRepository.ts:366-368` | **Yes, dead** - `recharge/components/HistoryModal.tsx:301,332,336-338` | one-line fix |
+| `financial_services` | **No** - `FinancialServiceRepository.ts:816-818` (via `getHistory()`:4001-4013 -> `omtHandlers.ts:72`) | **Split**: `services/pages/Services/index.tsx` inline table has NO badge code at all; the shared `recharge/HistoryModal.tsx` (iPick/Katsh/Whish-App/Crypto) has dead badge code | **TWO surfaces** - one needs UI built |
+| `exchange_transactions` | **No** - `ExchangeRepository.ts:127-152` | **Yes, dead** - `exchange/.../HistoryModal.tsx:26-27,174,198-200` | one-line fix |
+| `expenses` | **No** - `ExpenseRepository.ts:43-45` | **Yes, dead** - `expenses/.../HistoryModal.tsx:17,162,179-181` | one-line fix |
+| `debt_ledger` | **No** - `DebtRepository.ts:147-150` (`findClientHistory`:228-235) | **Yes, dead** - `debts/pages/Debts/index.tsx:104,1572,1826` | one-line fix (softer: a visible "Refund Reversal" row also appears) |
+| `maintenance` | Yes - `MaintenanceRepository.ts:181-183` | Yes, list + modal, **with tests** | already correct |
+| `loto_tickets` | Yes - `LotoTicketRepository.ts:458-464` | Yes, `TicketHistoryModal.tsx:55,209,238-240`, **with tests** | already correct |
+| `supplier_ledger` | Yes - `SupplierRepository.ts:875-876` | Yes | already correct |
+| `wallet_exchanges` | Yes, IPC+REST wired | **No UI consumes it** - `walletExchangeHistory()` has zero callers | dead plumbing, not a wrong display |
+| `drawer_transfers` | N/A - no module read method | Visible only via the unified log, which reads `transactions.status` correctly | flag is for reversal idempotency only |
+
+**Why it looked isolated:** `maintenance`, `loto_tickets` and `supplier_ledger` do it correctly, WITH
+tests. So the pattern was invisible - someone built refund display across the app and five read paths
+never fed it.
+
+### Acceptance Criteria
+
+- [ ] `recharges` - project `is_refunded`/`refunded_at`; the existing dead badge lights up.
+- [ ] `exchange_transactions` - same.
+- [ ] `expenses` - same.
+- [ ] `debt_ledger` - same.
+- [ ] `financial_services` - project it, AND build the missing badge on the OMT/Whish inline table in
+      `Services/index.tsx` (the only one of the five needing real UI work).
+- [ ] Each with a rule-17 failing-first test at the **interaction layer** - every bug of this class
+      this session (LIRA-119, 121, 122, 129, 130) was invisible to backend tests.
+- [ ] **Presentation only** - prove no ledger, drawer, profit-aggregate or posting value changes.
+- [ ] Where a module's history shows profit, neutralise it on refunded rows as `e47dfa2` did, rather
+      than presenting reversed income as live.
+- [ ] Steal `maintenance`/`loto_tickets`' existing tests as the pattern - they already got this right.
+
+### Note on scope discipline
+
+Filed as ONE ticket, not five, deliberately. The failure mode here is fixing one module and then
+rediscovering the same defect across four more owner reports. The table above is the whole surface;
+nothing else in the whitelist is affected.
 
 ---
 
@@ -4185,8 +4248,9 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh) | Low    | **DONE** 43c7450 - throws on unmapped; 0 rows to migrate  | PARTNER_DISBURSEMENT_MATRIX.md      |
 | LIRA-127 | Secondary-system partner guard hardcodes provider==='WHISH' | Medium | **DONE** 5980180 - was an UNSUBMITTABLE OMT tab, not just a missing guard | section 5b, owner-approved 2026-08-10 |
 | LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet) | Medium | **RESOLVED** - owner confirmed no cash moves; documented FEATURE_GUIDE 8.1.0 | PARTNER_DISBURSEMENT_MATRIX.md |
-| LIRA-129 | TOP_UP badge (red) contradicts negative amount (green)    | Medium | TODO - 4th money-correct/screen-wrong bug today; affects walk-in RECEIVE too | found closing LIRA-128 |
-| LIRA-130 | Custom Services history shows a REFUNDED service as live | **High** | TODO - flag IS set in db; getColumns() drops it. 5th of the pattern | owner report 2026-08-10 |
+| LIRA-129 | Ledger badge contradicts the amount's sign                | Medium | **DONE** 9082d6c - one sign rule; 4 of 7 entry_types affected, incl. an unreported LOTO SETTLEMENT case | found closing LIRA-128 |
+| LIRA-130 | Custom Services history shows a REFUNDED service as live | **High** | **DONE** e47dfa2 - frontend was starved, not unbuilt; audit -> LIRA-131 | owner report 2026-08-10 |
+| LIRA-131 | is_refunded dropped from 5 MORE module read paths        | **High** | TODO - 4 are one-line fixes, badge code already dead and waiting | LIRA-130's 11-table audit |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
