@@ -55,6 +55,14 @@ export interface CustomServiceEntity {
   /** §2 FINAL SPEC — the inventory item this service consumed, if any (NULL
    * for preset/free-text paths). Exactly 1 unit decremented/restored. */
   product_id: number | null;
+  /** LIRA-130: set by `TransactionRepository._markSourceRefunded` when the
+   * unified transaction sourced from this row is voided/refunded —
+   * `custom_services` is in its supported-tables whitelist. Was written by
+   * the reversal path but never projected here, so the History modal (which
+   * already has the "Refunded" badge + neutralized-profit rendering wired
+   * to these two fields) never received them. */
+  is_refunded: number;
+  refunded_at: string | null;
 }
 
 export interface CustomServiceSummary {
@@ -77,7 +85,14 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
   }
 
   protected getColumns(): string {
-    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id";
+    // LIRA-130: is_refunded/refunded_at are written by
+    // TransactionRepository._markSourceRefunded on void/refund but were
+    // never projected here, so a refunded service silently read back as an
+    // ordinary live row (money was correct in `transactions`; the screen
+    // was never told). Both transports (IPC + REST) share this method via
+    // CustomServiceService.getServices -> repo.getAll(), so this one change
+    // fixes the read path identically for desktop and web (rule 19).
+    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at, product_id, is_refunded, refunded_at";
   }
 
   /**

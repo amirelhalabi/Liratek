@@ -310,11 +310,27 @@ export function HistoryModal({
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span
+                          // LIRA-130: profit_usd/profit_lbp are a GENERATED
+                          // column (price - cost) — a refund can never
+                          // reverse it, so the raw number still reads "$10
+                          // profit" on a service whose price was refunded.
+                          // The badge above already tells the truth about
+                          // the row; this only stops the profit figure from
+                          // presenting itself as still-live income (same
+                          // struck-through/neutral treatment the Suppliers
+                          // ledger uses for a refunded amount).
                           className={`text-sm font-bold font-mono ${
-                            tx.profit_usd >= 0 && tx.profit_lbp >= 0
-                              ? "text-emerald-400"
-                              : "text-red-400"
+                            isRefunded
+                              ? "text-slate-500 line-through"
+                              : tx.profit_usd >= 0 && tx.profit_lbp >= 0
+                                ? "text-emerald-400"
+                                : "text-red-400"
                           }`}
+                          title={
+                            isRefunded
+                              ? "Refunded — profit not realized"
+                              : undefined
+                          }
                         >
                           {formatCurrency(tx.profit_usd, tx.profit_lbp)}
                         </span>
