@@ -13,6 +13,10 @@ import CustomServices from "../index";
 const mockAddCustomService = jest.fn();
 const mockDeleteCustomService = jest.fn();
 const mockGetClients = jest.fn();
+// Shared/overridable so individual tests can seed a specific partner list
+// (e.g. LIRA-118's exactly-one-partner scenario) — a fresh jest.fn() per
+// useApi() call would not be reachable from a test's mockResolvedValueOnce.
+const mockPartnersGetAll = jest.fn().mockResolvedValue([]);
 
 jest.mock("@liratek/ui", () => ({
   appEvents: { emit: jest.fn(), on: jest.fn(() => () => {}) },
@@ -26,7 +30,7 @@ jest.mock("@liratek/ui", () => ({
     getAllSettings: jest.fn().mockResolvedValue([]),
     // PartnerSelector (rendered by ForPartnerToggle once checked) fetches
     // the partner list on mount — LIRA-081.
-    partners: { getAll: jest.fn().mockResolvedValue([]) },
+    partners: { getAll: mockPartnersGetAll },
   }),
   DecimalInput: ({
     id,
@@ -592,6 +596,110 @@ describe("CustomServices Page", () => {
     // never a silent submit with a missing partnerId.
     expect(submitButton).toBeDisabled();
     expect(mockAddCustomService).not.toHaveBeenCalled();
+  });
+
+  // LIRA-118 (BLOCKER): a shop with exactly ONE partner could not create a
+  // For-Partner custom service at all. PartnerSelector always renders a
+  // non-interactive "Partner: {name}" line when there's exactly one
+  // partner, but (pre-fix) only committed that as a real selection when
+  // the caller passed `autoSelectSingle` — CustomServices didn't, so
+  // `selectedPartnerId` stayed null forever and the submit-disabled
+  // predicate (`forPartner && !selectedPartnerId`) never cleared.
+  // Rule 17: reverting the PartnerSelector fix (re-adding the
+  // `autoSelectSingle &&` gate to its auto-select effect) makes this test
+  // fail with the button still disabled — confirmed before writing this
+  // comment, then reverted.
+  it("auto-selects the sole partner and ENABLES submit for a valid For-Partner service with exactly one partner in the DB (LIRA-118)", async () => {
+    mockPartnersGetAll.mockResolvedValueOnce([
+      { id: 7, name: "test", phone: null, notes: null, is_active: 1, system_association: null, created_at: "", updated_at: "" },
+    ]);
+
+    render(<CustomServices />);
+
+    fireEvent.change(screen.getByPlaceholderText(/Phone screen repair/), {
+      target: { value: "Partner paperwork" },
+    });
+    const usdInputs = screen.getAllByPlaceholderText("0.00");
+    fireEvent.change(usdInputs[0], { target: { value: "8" } }); // cost USD
+    fireEvent.change(usdInputs[1], { target: { value: "10" } }); // price USD
+
+    fireEvent.click(screen.getByTestId("custom-service-for-partner-toggle"));
+
+    // The single partner is displayed inline...
+    await screen.findByText("Partner: test");
+
+    // ...and that display must be a REAL selection: submit is enabled.
+    const submitButton = screen
+      .getByText("Submit to Partner")
+      .closest("button");
+    await waitFor(() => expect(submitButton).not.toBeDisabled());
+
+    fireEvent.click(submitButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(mockAddCustomService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: "Partner paperwork",
+          cost_usd: 8,
+          price_usd: 10,
+          partnerId: 7,
+          partnerMode: "FOR",
+        }),
+      );
+    });
+  });
+
+  // LIRA-118: the single-partner selection must reach the submitted
+  // payload as `partnerId`, not just flip a visual "selected" state.
+  it("carries the auto-selected sole partner through to the submitted payload as partnerId (LIRA-118)", async () => {
+    mockPartnersGetAll.mockResolvedValueOnce([
+      { id: 13, name: "Solo Partner Co", phone: null, notes: null, is_active: 1, system_association: null, created_at: "", updated_at: "" },
+    ]);
+
+    render(<CustomServices />);
+
+    const usdInputs = screen.getAllByPlaceholderText("0.00");
+    fireEvent.change(usdInputs[0], { target: { value: "1" } }); // cost USD
+    fireEvent.change(usdInputs[1], { target: { value: "4" } }); // price USD
+
+    fireEvent.click(screen.getByTestId("custom-service-for-partner-toggle"));
+    await screen.findByText("Partner: Solo Partner Co");
+
+    const submitButton = screen
+      .getByText("Submit to Partner")
+      .closest("button");
+    await waitFor(() => expect(submitButton).not.toBeDisabled());
+    fireEvent.click(submitButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(mockAddCustomService).toHaveBeenCalledWith(
+        expect.objectContaining({ partnerId: 13 }),
+      );
+    });
+  });
+
+  // LIRA-121: the for-partner notice must state the CURRENT truth — §2a
+  // (d1a0ad2) made cost a profit-only input that never posts a payment row
+  // or drawer delta, on every branch including for-partner. The notice
+  // used to say the cost "still leaves the General drawer right now,
+  // the same as a walk-in job" — that became false the moment §2a shipped.
+  it("states that the service's cost affects profit only and never moves the General drawer, in for-partner mode (LIRA-121)", () => {
+    render(<CustomServices />);
+
+    const usdInputs = screen.getAllByPlaceholderText("0.00");
+    fireEvent.change(usdInputs[0], { target: { value: "8" } }); // cost USD
+    fireEvent.change(usdInputs[1], { target: { value: "10" } }); // price USD
+
+    fireEvent.click(screen.getByTestId("custom-service-for-partner-toggle"));
+
+    const notice = screen.getByTestId(
+      "custom-service-partner-no-payment-notice",
+    );
+    expect(notice).toHaveTextContent(
+      "affects profit only — it does not leave the General drawer or any other drawer",
+    );
+    // The old, now-false claim must be gone.
+    expect(notice).not.toHaveTextContent("still leaves the General drawer");
   });
 
   it("should handle API error on submit", async () => {

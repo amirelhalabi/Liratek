@@ -47,8 +47,14 @@ export interface ForPartnerToggleProps {
   testId: string;
   /** Label text next to the checkbox. Default "For Partner". */
   label?: ReactNode;
-  /** Forwarded to PartnerSelector — auto-selects when exactly one partner
-   *  exists. Used by all 5 recharge forms, not by CheckoutModal/Loto. */
+  /** @deprecated LIRA-118: forwarded to PartnerSelector, which now no-ops
+   *  on it — the single-partner branch there always self-selects
+   *  unconditionally (a displayed "Partner: {name}" with no dropdown must
+   *  be a real selection). Previously only the 5 recharge forms passed
+   *  this; CheckoutModal/Loto/Exchange/CustomServices omitted it and were
+   *  each left permanently unsubmittable for a shop with exactly one
+   *  partner until the PartnerSelector fix. Kept accepted here purely so
+   *  the 5 forms that still pass it don't need edits. */
   autoSelectSingle?: boolean;
   /** Forwarded to PartnerSelector — restrict to a system association. */
   systemFilter?: string;

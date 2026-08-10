@@ -9,6 +9,16 @@ interface PartnerSelectorProps {
   onSelect: (partnerId: number | null) => void;
   className?: string;
   required?: boolean;
+  /**
+   * @deprecated LIRA-118: no longer changes behavior. The single-partner
+   * branch below always renders a non-interactive "Partner: {name}" line
+   * (no dropdown — there is nothing else for the user to click), so it must
+   * ALSO commit that selection; a displayed selection that isn't a real
+   * selection is the bug this ticket fixed (it left every "For Partner"
+   * flow permanently unsubmittable for a shop with exactly one partner).
+   * The prop is kept, and still accepted from existing call sites, purely
+   * so none of them need edits — it is otherwise a no-op.
+   */
   autoSelectSingle?: boolean;
   /** Only show partners with this system_association */
   systemFilter?: string;
@@ -37,16 +47,25 @@ export function PartnerSelector({
     ? allPartners.filter((p) => p.system_association === systemFilter)
     : allPartners;
 
-  // Auto-select when there's exactly one partner and autoSelectSingle is enabled
+  // `autoSelectSingle` is a deprecated no-op (see prop doc above) — kept
+  // referenced only so existing call sites that still pass it don't trip
+  // strict unused-parameter checks.
+  void autoSelectSingle;
+
+  // LIRA-118: whenever there's exactly one partner, the render below shows
+  // a non-interactive "Partner: {name}" line unconditionally (no dropdown
+  // for any other choice). That display must always be backed by a real
+  // selection, so this fires regardless of `autoSelectSingle` — every
+  // caller that reaches the single-partner branch already opted into a
+  // partner-taking flow (the "For Partner" checkbox, or an explicit
+  // THROUGH-partner selector), so committing the only available partner
+  // here never contradicts an intended "require explicit choice" UX: there
+  // is no dropdown for the user to choose differently from in this branch.
   useEffect(() => {
-    if (
-      autoSelectSingle &&
-      partners.length === 1 &&
-      selectedPartnerId === null
-    ) {
+    if (partners.length === 1 && selectedPartnerId === null) {
       onSelect(partners[0].id);
     }
-  }, [autoSelectSingle, partners, selectedPartnerId, onSelect]);
+  }, [partners, selectedPartnerId, onSelect]);
 
   if (!required && partners.length === 0) return null;
 

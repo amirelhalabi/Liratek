@@ -972,15 +972,16 @@ export default function CustomServices() {
                 </div>
 
                 {/* Payment Method — replaced by a notice in for-partner mode.
-                    FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5: the old copy
-                    only described the PRICE side ("no payment is collected")
-                    and stayed silent about the COST — which still posts as a
-                    real cash outflow from General at submit today (§2's
-                    "cost never moves cash" change is a separate, not-yet-built
-                    change; do not promise it here). That silence on the cost
-                    side is what actually misled the owner (LIRA-114): they
-                    saw General drop and didn't understand why, since the
-                    notice implied nothing left the till. */}
+                    FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5 originally
+                    added a cost sentence here describing the PRE-§2a
+                    behaviour (cost posted a real General-drawer cash
+                    outflow at submit). §2a (d1a0ad2) removed that: cost is
+                    now a profit input only (profit_usd = price_usd -
+                    cost_usd) and NEVER posts a payment row or a drawer
+                    delta on any branch, including for-partner. The old
+                    "still leaves the General drawer" sentence became false
+                    the moment §2a shipped and was left un-updated
+                    (LIRA-121) — this now states the current truth. */}
                 {forPartner ? (
                   <ForPartnerNotice
                     testId="custom-service-partner-no-payment-notice"
@@ -1000,9 +1001,8 @@ export default function CustomServices() {
                         <span className="font-bold">
                           {formatCurrency(costUsdVal, costLbpVal)}
                         </span>
-                        , still leaves the General drawer right now, the same
-                        as a walk-in job — the partner isn&apos;t billed for
-                        it.
+                        , affects profit only — it does not leave the General
+                        drawer or any other drawer.
                       </>
                     )}
                   </ForPartnerNotice>
