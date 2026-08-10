@@ -927,13 +927,51 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         (!data.partnerMode || data.partnerMode === "THROUGH")
       );
       const isForPartner = !!(data.partnerId && data.partnerMode === "FOR");
-      const skipGeneralDrawer = isForPartner;
-      const skipSystemDrawer = isThroughPartner;
+
+      // LIRA-124 (2026-08-10): `skipGeneralDrawer`/`skipSystemDrawer` — the
+      // old isForPartner/isThroughPartner drawer-suppression flags — are
+      // RETIRED. They used to gate the RECEIVE payout + fee-collection
+      // postings further down this method (the fee leg, the wallet-cashout
+      // debit, the CASH-cashout `postPayoutLegs` call) under a mental model
+      // that stopped being true on 2026-07-30: back when OMT_System/
+      // Whish_System was a spendable float held INSIDE the provider's own
+      // books (PR #66), "skip the system drawer for THROUGH" meant "don't
+      // credit/debit that float — the partner's float moved instead," which
+      // was correct. That float was deleted by the Primary Cash Drawer plan;
+      // OMT_System/Whish_System is now just the PHYSICAL cash drawer, and the
+      // postings these flags gated are the shop's REAL payout to the
+      // customer (cash handed over the counter, or a wallet debit) — money
+      // that leaves a real drawer regardless of partner mode. The owner's
+      // 2026-08-10 rule is explicit: "in all cases yes we hand the customer
+      // the cash/or money via other payment methods — we are paying." A
+      // THROUGH-partner RECEIVE is, in fact, the ONLY way to RECEIVE on the
+      // shop's secondary system at all (walk-in is rejected without a
+      // partner, see the guard a few lines below) — so this was not a rare
+      // edge case, it was the mandatory path silently understating cash
+      // outflow every time it ran.
+      //
+      // `isForPartner` never reaches those gates in the first place — its own
+      // early-return dispatch a few dozen lines down handles disbursement via
+      // `processReturnLegs("Partner disbursement")` and returns before this
+      // code is reached — so removing these flags changes THROUGH-partner
+      // RECEIVE behavior only; FOR-partner and walk-in are byte-for-byte
+      // unchanged (proven by the regression guard in
+      // FinancialServiceRepository.partner.test.ts).
+      //
+      // What is NOT retired, and does NOT need a new flag: the actual "our
+      // balance with the provider" entity — the auto supplier-ledger TOP_UP
+      // booking further down ("Auto-record supplier debt") — was never gated
+      // by `skipSystemDrawer` to begin with. It is (and remains) gated by
+      // `skipSecondarySupplierLedger` (below, provider !== baseSystem), which
+      // already keeps the provider relationship untouched for every
+      // secondary-system THROUGH transaction — the two concerns (real payout
+      // drawer vs. provider-obligation ledger) were always separate
+      // mechanisms; only the payout side was wrongly gated.
 
       // FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §3 "Also" — close the
       // asymmetry moneyPosting.ts's `assertPartnerIdRequired` doc documents:
       // `isForPartner` above is deliberately gated on `partnerId` (it drives
-      // `skipGeneralDrawer`/every dispatch branch below, so widening ITS
+      // the early FOR-partner dispatch return below, so widening ITS
       // definition would ripple through the whole method) — meaning a bare
       // `partnerMode: "FOR"` with no `partnerId` used to silently fall
       // through to the walk-in dispatch below and run as an ordinary,
@@ -1197,12 +1235,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // compound condition was false silently discarded `feePayments` —
       // success returned, no booking, no reconcile — which is exactly the
       // adversarial-review defect class. That inner gate stays (belt and
-      // braces); this is the one that actually rejects instead of dropping.
+      // braces — LIRA-124 dropped its `!skipSystemDrawer` clause, see that
+      // site, but `!deferPayment && !receiveFeeIncluded && receiveFeeAmt > 0`
+      // remains); this is the one that actually rejects instead of dropping.
       if (data.feePayments && data.feePayments.length > 0) {
         if (data.partnerId) {
           // Covers BOTH partner modes: FOR (PFT-3b dispatch never reads
-          // feePayments at all) and THROUGH (skipSystemDrawer suppresses
-          // the fee leg but returned success either way).
+          // feePayments at all) and THROUGH. LIRA-124 removed the
+          // `skipSystemDrawer` gate from the fee leg further down — THROUGH
+          // now DOES collect a single synthesized fee leg on the cashout
+          // method — but the SPLIT shape (`feePayments[]`, multiple legs
+          // across different methods) stays rejected for every partner
+          // transaction: a THROUGH RECEIVE's fee still only ever posts via
+          // the single-leg legacy fallback below, never `bookFeeCollectionLegs`.
+          // Widening that is a separate, un-asked-for feature, not this fix.
           throw new Error(
             "feePayments cannot be used on a partner transaction — the partner handles the fee",
           );
@@ -3149,19 +3195,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // RECEIVE's fee lands in the PCD (plan §2#2 — this site was
           // previously HARDCODED to "General"). Skipped under deferPayment —
           // no session-basket caller sends a RECEIVE fee today (new
-          // capability, not yet wired into the basket path). BIDIRECTIONAL_
-          // PAYMENT_LEGS_PLAN.md §2 bug 5: also skipped for a THROUGH-partner
-          // transaction (`skipSystemDrawer`) — the partner handles the
-          // payout, not our cash, so crediting a drawer for the fee with no
-          // offsetting payout leg would be a phantom credit (mirrors the
-          // identical `!skipSystemDrawer` gate the payout branches below
-          // already carry).
-          if (
-            !deferPayment &&
-            !receiveFeeIncluded &&
-            receiveFeeAmt > 0 &&
-            !skipSystemDrawer
-          ) {
+          // capability, not yet wired into the basket path).
+          //
+          // LIRA-124 (2026-08-10): USED to also skip this leg for a
+          // THROUGH-partner transaction (`!skipSystemDrawer`,
+          // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §2 bug 5) on the theory that
+          // "the partner handles the payout, not our cash." That theory is
+          // wrong under the owner's rule: the customer is standing at THIS
+          // shop's counter, paying THIS shop's fee, regardless of which
+          // system rail the transfer rides on — skipping the fee leg while
+          // still handing the customer their (full, un-netted) payout below
+          // was foregone revenue, not a phantom-credit guard. The
+          // fee-on-top leg now posts unconditionally (same as walk-in);
+          // `!skipSystemDrawer` removed.
+          if (!deferPayment && !receiveFeeIncluded && receiveFeeAmt > 0) {
             if (data.feePayments && data.feePayments.length > 0) {
               // Phase A (owner decision #1, 2026-08-06): operator-chosen fee
               // legs — split allowed, any real tender method including
@@ -3275,10 +3322,21 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             if (
               !deferPayment &&
               cashoutMethod !== "CASH" &&
-              useSystemDrawerFlow &&
-              !skipSystemDrawer
+              useSystemDrawerFlow
             ) {
-              // Wallet cashouts (OMT/WHISH/BINANCE): debit the wallet drawer
+              // Wallet cashouts (OMT/WHISH/BINANCE): debit the wallet drawer.
+              // LIRA-124: used to also require `!skipSystemDrawer`, skipping
+              // this for THROUGH-partner mode. Removed — `isForPartner` never
+              // reaches this branch (its own early return handles the payout
+              // via `processReturnLegs` and exits before this code runs), so
+              // the only mode that used to hit this gate was THROUGH, and the
+              // owner's rule is that a THROUGH-partner RECEIVE's payout is
+              // real money the shop hands the customer, from the operator's
+              // chosen drawer, exactly like a walk-in. This is the wallet the
+              // shop OWNS (OMT_App/Whish_App/Binance) — distinct from
+              // OMT_System/Whish_System (the PCD) and from the supplier
+              // ledger (the provider-obligation tracking, gated separately by
+              // `skipSecondarySupplierLedger` and untouched by this change).
               insertPayment.run(
                 txnId,
                 cashoutMethod,
@@ -3292,13 +3350,31 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             } else if (
               !deferPayment &&
               cashoutMethod === "CASH" &&
-              useSystemDrawerFlow &&
-              !skipSystemDrawer &&
-              !skipGeneralDrawer
+              useSystemDrawerFlow
             ) {
               // CASH cashout: shop physically pays the customer from the PCD
-              // (or General, off the primary system). Skipped for FOR-partner
-              // mode (partner handles the payout, not our cash).
+              // (or General, off the primary system).
+              //
+              // LIRA-124 (2026-08-10): used to ALSO require `!skipSystemDrawer
+              // && !skipGeneralDrawer`, with this comment claiming the branch
+              // was "skipped for FOR-partner mode (partner handles the
+              // payout, not our cash)." That was stale/mislabeled on two
+              // counts: (1) `skipGeneralDrawer` (`= isForPartner`) can never
+              // be false here — `isForPartner` takes its own early-return
+              // dispatch above and never reaches this code, so
+              // `!skipGeneralDrawer` was always true, a no-op; (2) the live
+              // half of the old condition, `!skipSystemDrawer`
+              // (`= isThroughPartner`), was blocking THROUGH-partner RECEIVEs
+              // instead — and a THROUGH-partner RECEIVE on the shop's
+              // secondary system is the ONLY way to RECEIVE there at all (see
+              // the walk-in-secondary-system rejection above), so this
+              // "skip" fired on the mandatory path, not an edge case. The
+              // owner's rule: the operator-chosen payout method decides which
+              // of OUR drawers is debited, and it must be debited, in every
+              // partner mode a walk-in customer is being paid in cash. Both
+              // conditions removed; this branch now runs exactly like a
+              // walk-in RECEIVE's CASH cashout, whether or not a partner is
+              // attached.
               //
               // A split payout (e.g. 190 USD + 540,000 LBP for one transfer) arrives
               // as multi-currency IN legs (the "Cashout" payment lines). Deduct EACH

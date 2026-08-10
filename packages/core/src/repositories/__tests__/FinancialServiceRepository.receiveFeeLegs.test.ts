@@ -946,10 +946,71 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
   });
 
   // ═══════════════════════════════════════════════════════════════════════
-  // (g) THROUGH-partner RECEIVE with a fee — bug 5 guard
+  // (g) THROUGH-partner RECEIVE with a fee — LIRA-124 (bug 5 CLOSED)
+  //
+  // This case USED TO pin "books NO fee leg" as the expected behavior — its
+  // own title called it "bug 5": a THROUGH-partner RECEIVE physically hands
+  // the customer cash but the fee-on-top collection leg was silently
+  // skipped (`!skipSystemDrawer`), foregone revenue on top of the untracked
+  // payout (LIRA-124's primary finding, same gate). That old test WAS the
+  // rule-17 proof against the pre-fix code — it asserted `toHaveLength(0)`
+  // and `after.drawers === before.drawers`, and passed, because that is
+  // exactly what the pre-fix repository did. Fixed 2026-08-10:
+  // `!skipSystemDrawer` removed from the fee-leg gate and both payout gates.
+  // Running the OLD (unmodified) test against the FIXED repository now
+  // observably FAILS — exact captured output:
+  //   Expected length: 0
+  //   Received length: 1
+  //   Received array: [{"amount": 5, "currency_code": "USD",
+  //     "drawer_name": "General", "method": "CASH",
+  //     "note": "WHISH RECEIVE fee (customer-paid)"}]
+  // — proving the fix changed precisely the behavior this case exists to
+  // pin. This rewrite replaces the stale assertions with the correct
+  // post-fix behavior: the fee leg posts AND the payout debits General (the
+  // real payout drawer for a secondary-system CASH cashout — WHISH is
+  // secondary here, base system is OMT per this fixture).
   // ═══════════════════════════════════════════════════════════════════════
-  it("(g) THROUGH-partner WHISH RECEIVE with a fee books NO fee leg (bug 5)", () => {
+  it("(g) THROUGH-partner WHISH RECEIVE with a fee books the fee leg AND debits the payout drawer (bug 5 closed)", () => {
     db.prepare(`INSERT INTO partners (name) VALUES ('Test Partner')`).run();
+    const before = snapshot(db);
+
+    const { id: fsId } = repo.createTransaction({
+      provider: "WHISH",
+      serviceType: "RECEIVE",
+      amount: 100,
+      currency: "USD",
+      commission: 0,
+      whishFee: 5,
+      cashoutMethod: "CASH",
+      partnerId: 1,
+      // partnerMode omitted → defaults to THROUGH.
+      exchangeRate: 90000,
+    });
+
+    const after = snapshot(db);
+
+    // The fee-on-top leg now posts — real cash the customer hands over,
+    // landing in General (WHISH is the secondary system in this fixture,
+    // so resolveServiceCashDrawer falls through past the PCD).
+    const legs = feeLegRows(db, fsId);
+    expect(legs).toHaveLength(1);
+    expect(legs[0].method).toBe("CASH");
+    expect(legs[0].drawer_name).toBe("General");
+    expect(legs[0].amount).toBeCloseTo(5, 5);
+    expect(legs[0].note).toBe("WHISH RECEIVE fee (customer-paid)");
+
+    // General nets +5 (fee) - 100 (payout) = -95 — the shop really did hand
+    // the customer cash, and really did collect the fee on top of it.
+    expect(drawerDelta(before, after, "General_USD")).toBeCloseTo(-95, 5);
+    // No OTHER drawer this file tracks moves (no OMT_System/App leg at all —
+    // WHISH is secondary, not app-wallet).
+    expect(drawerDelta(before, after, "OMT_System_USD")).toBeCloseTo(0, 5);
+    expect(drawerDelta(before, after, "OMT_App_USD")).toBeCloseTo(0, 5);
+    expect(drawerDelta(before, after, "Whish_App_USD")).toBeCloseTo(0, 5);
+  });
+
+  it("(g2) THROUGH-partner WHISH RECEIVE payout+fee nets to 0 across every tracked drawer on void (rule 20)", () => {
+    db.prepare(`INSERT INTO partners (name) VALUES ('Test Partner 2')`).run();
     const before = snapshot(db);
 
     const { id: fsId } = repo.createTransaction({
@@ -964,15 +1025,23 @@ describe("FinancialServiceRepository — RECEIVE fee legs (BIDIRECTIONAL_PAYMENT
       exchangeRate: 90000,
     });
 
-    const after = snapshot(db);
+    const afterCreate = snapshot(db);
+    // Sanity — money actually moved (General -95), so the void proof below
+    // is a real reversal, not a no-op on an already-untouched drawer.
+    expect(drawerDelta(before, afterCreate, "General_USD")).toBeCloseTo(
+      -95,
+      5,
+    );
 
-    // No fee leg at all — the partner handles the fee/payout, not our cash.
-    expect(feeLegRows(db, fsId)).toHaveLength(0);
-    // No drawer this file tracks moves — the payout is also skipped
-    // (skipSystemDrawer), and WHISH is the secondary provider here so the fee
-    // wouldn't route to the PCD anyway (it would have landed in General
-    // pre-fix — the bug this case guards).
-    expect(after.drawers).toEqual(before.drawers);
+    const txnId = txnIdForFsRow(db, fsId);
+    txnRepo.voidTransaction(txnId, 1);
+
+    const afterVoid = snapshot(db);
+    for (const [name, currency] of DRAWERS) {
+      expect(
+        drawerDelta(before, afterVoid, `${name}_${currency}`),
+      ).toBeCloseTo(0, 5);
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════════════

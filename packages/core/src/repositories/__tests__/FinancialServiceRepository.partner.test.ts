@@ -1388,4 +1388,280 @@ describe("FinancialServiceRepository — partner mode", () => {
       ).toThrow(/partnerId is required/i);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LIRA-124 (2026-08-10) — THROUGH-partner RECEIVE must debit the real
+  // payout drawer. Owner's rule, verbatim: "whish system receive [for
+  // partner checked - through partner] i physically give money to the
+  // customer [depends on our payment method but yes its from our drawers]"
+  // and "in all cases yes we hand the customer the cash/or money via other
+  // payment methods — we are paying."
+  //
+  // Fixed at FinancialServiceRepository.ts: the RECEIVE fee-collection leg
+  // and both payout branches (wallet cashout, CASH cashout/`postPayoutLegs`)
+  // no longer require `!skipSystemDrawer`. `skipSystemDrawer` (`=
+  // isThroughPartner`) is retired entirely — it never protected the
+  // provider-relationship entity (that is `skipSecondarySupplierLedger`,
+  // untouched by this fix and asserted below); it only ever gated these
+  // three real-cash postings, and gated them backwards.
+  //
+  // rule 17 (failing-first): every behavioral assertion below (payout debit,
+  // split-currency, fee leg) was run against the pre-fix repository —
+  // temporarily restoring `&& !skipSystemDrawer` / `&& !skipGeneralDrawer`
+  // to all three gates — and observed FAILING with the drawer stuck at its
+  // `before` value (delta 0) instead of moving. Reverted after observing the
+  // failure; the fix is back in place for the assertions below.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("LIRA-124 — THROUGH-partner RECEIVE payout must debit the real payout drawer", () => {
+    function sumPartnerLedgerNet(db: Database.Database, partnerId: number) {
+      const entries = partnerLedger(db, partnerId);
+      let net = 0;
+      for (const e of entries) {
+        net += e.direction === "CREDIT" ? e.amount : -e.amount;
+      }
+      return net;
+    }
+
+    it("CASH cashout debits General (the real payout drawer) in USD — Whish_System (system drawer) and the WHISH supplier ledger stay untouched", () => {
+      const partnerId = seedPartner(db);
+      const whishId = supplierIdByProvider(db, "WHISH");
+      const generalBefore = drawerBalance(db, "General", "USD");
+      const whishSystemBefore = drawerBalance(db, "Whish_System", "USD");
+
+      repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 1,
+        whishFee: 0, // explicit — omitting this falls back to lookupWhishFee's
+        // table ($1 for a $100 transfer, whishFees.ts), which this test isn't
+        // about; the fee-leg case below covers that separately.
+        cashoutMethod: "CASH",
+        partnerId,
+        partnerMode: "THROUGH",
+      });
+
+      // receiveFeeAmt = 0 (explicit whishFee: 0), payoutAmount = 100 (bare
+      // principal). WHISH is the secondary system in this fixture (base is
+      // OMT), so resolveServiceCashDrawer falls through to General, not the
+      // PCD (Whish_System) — the operator's chosen method (CASH) decides the
+      // drawer, and General is what a real till hands over.
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(
+        generalBefore - 100,
+        2,
+      );
+      // System drawer (Whish_System) — the shop's balance WITH the
+      // provider — stays untouched: the funds sat in the partner's WHISH
+      // account, not ours.
+      expect(drawerBalance(db, "Whish_System", "USD")).toBe(whishSystemBefore);
+      // The provider-obligation ledger (supplier_ledger) is the actual
+      // "system drawer" entity per the ticket's framing — also untouched,
+      // via the pre-existing, unrelated `skipSecondarySupplierLedger` gate
+      // (provider !== baseSystem), which this fix does not touch.
+      expect(ledgerRowsForSupplier(db, whishId)).toHaveLength(0);
+    });
+
+    it("a split multi-currency CASH payout deducts each currency from its OWN General balance", () => {
+      const partnerId = seedPartner(db);
+      const generalUsdBefore = drawerBalance(db, "General", "USD");
+      const generalLbpBefore = drawerBalance(db, "General", "LBP");
+
+      // 100 USD total, paid out as 60 USD + 3,600,000 LBP at rate 90,000
+      // (60 + 3,600,000/90,000 = 60 + 40 = 100).
+      repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 1,
+        whishFee: 0, // explicit — see the CASH-cashout test above for why.
+        cashoutMethod: "CASH",
+        partnerId,
+        partnerMode: "THROUGH",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 60 },
+          { method: "CASH", currencyCode: "LBP", amount: 3600000 },
+        ],
+        exchangeRate: 90000,
+      });
+
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(
+        generalUsdBefore - 60,
+        2,
+      );
+      expect(drawerBalance(db, "General", "LBP")).toBeCloseTo(
+        generalLbpBefore - 3600000,
+        2,
+      );
+    });
+
+    it("the fee-on-top collection leg posts — customer pays the fee into the payout drawer, on top of the payout itself", () => {
+      const partnerId = seedPartner(db);
+      const generalBefore = drawerBalance(db, "General", "USD");
+
+      const { id: fsId } = repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        whishFee: 3,
+        cashoutMethod: "CASH",
+        partnerId,
+        partnerMode: "THROUGH",
+      });
+
+      const txnRow = db
+        .prepare(
+          "SELECT id FROM transactions WHERE source_table = 'financial_services' AND source_id = ?",
+        )
+        .get(fsId) as { id: number };
+      const feeLeg = db
+        .prepare(
+          "SELECT method, drawer_name, currency_code, amount FROM payments WHERE transaction_id = ? AND note LIKE '%RECEIVE fee (customer-paid)%'",
+        )
+        .get(txnRow.id) as
+        | {
+            method: string;
+            drawer_name: string;
+            currency_code: string;
+            amount: number;
+          }
+        | undefined;
+
+      expect(feeLeg).toBeDefined();
+      expect(feeLeg?.drawer_name).toBe("General");
+      expect(feeLeg?.amount).toBeCloseTo(3, 2);
+
+      // Net General delta = +3 (fee collected) - 100 (payout) = -97.
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(
+        generalBefore - 97,
+        2,
+      );
+    });
+
+    it("a wallet cashout (operator chose the WHISH wallet, not CASH) debits Whish_App — the shop's OWN wallet, distinct from Whish_System and from General", () => {
+      const partnerId = seedPartner(db);
+      const whishAppBefore = drawerBalance(db, "Whish_App", "USD");
+      const whishSystemBefore = drawerBalance(db, "Whish_System", "USD");
+      const generalBefore = drawerBalance(db, "General", "USD");
+
+      repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 1,
+        whishFee: 0, // explicit — see the CASH-cashout test above for why.
+        cashoutMethod: "WHISH",
+        partnerId,
+        partnerMode: "THROUGH",
+      });
+
+      expect(drawerBalance(db, "Whish_App", "USD")).toBeCloseTo(
+        whishAppBefore - 100,
+        2,
+      );
+      expect(drawerBalance(db, "Whish_System", "USD")).toBe(whishSystemBefore);
+      expect(drawerBalance(db, "General", "USD")).toBe(generalBefore);
+    });
+
+    it("void nets every touched ledger to 0, per currency — General, Whish_System, supplier ledger, and partner ledger all return to their pre-transaction values (rule 20)", () => {
+      const partnerId = seedPartner(db);
+      const whishId = supplierIdByProvider(db, "WHISH");
+      const generalUsdBefore = drawerBalance(db, "General", "USD");
+      const generalLbpBefore = drawerBalance(db, "General", "LBP");
+      const whishSystemBefore = drawerBalance(db, "Whish_System", "USD");
+
+      const { id: fsId } = repo.createTransaction({
+        provider: "WHISH",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 0,
+        whishFee: 3,
+        cashoutMethod: "CASH",
+        partnerId,
+        partnerMode: "THROUGH",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 60 },
+          { method: "CASH", currencyCode: "LBP", amount: 3600000 },
+        ],
+        exchangeRate: 90000,
+      });
+
+      // Sanity: money and ledger rows actually moved before we prove they
+      // reverse — a void of a no-op transaction would trivially "net to 0".
+      expect(drawerBalance(db, "General", "USD")).not.toBeCloseTo(
+        generalUsdBefore,
+        2,
+      );
+      expect(drawerBalance(db, "General", "LBP")).not.toBeCloseTo(
+        generalLbpBefore,
+        2,
+      );
+      expect(partnerLedger(db, partnerId)).toHaveLength(1);
+
+      const parentTxn = getTransactionRepository().getBySourceId(
+        "financial_services",
+        fsId,
+      );
+      expect(parentTxn).not.toBeNull();
+      getTransactionRepository().voidTransaction(parentTxn!.id, 1);
+
+      // Every drawer this transaction touched (or was required to leave
+      // untouched) is back to its pre-transaction value, per currency.
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(
+        generalUsdBefore,
+        2,
+      );
+      expect(drawerBalance(db, "General", "LBP")).toBeCloseTo(
+        generalLbpBefore,
+        2,
+      );
+      expect(drawerBalance(db, "Whish_System", "USD")).toBe(
+        whishSystemBefore,
+      );
+      // Supplier ledger (the provider-obligation entity): empty before AND
+      // after — never touched by either the original transaction or the void.
+      expect(ledgerRowsForSupplier(db, whishId)).toHaveLength(0);
+      // Partner ledger: the original THROUGH_WHISH_RECEIVE DEBIT plus its
+      // generic reversal (_reversePartnerLedger, TransactionRepository) nets
+      // to exactly 0 for this partner.
+      expect(partnerLedger(db, partnerId)).toHaveLength(2);
+      expect(sumPartnerLedgerNet(db, partnerId)).toBeCloseTo(0, 2);
+    });
+
+    // ── Regression guard — FOR-partner RECEIVE is untouched by this fix ──────
+    // (LIRA-124 explicitly warns against "fixing" the working FOR branch:
+    // `isForPartner` takes its own early-return dispatch before any of the
+    // three gates this fix touches are ever reached, so FOR-partner RECEIVE
+    // drawer behavior must be byte-for-byte identical to before.)
+    it("REGRESSION GUARD: FOR-partner RECEIVE still moves NO drawer at transaction time (decision #6, unchanged by this fix)", () => {
+      const partnerId = seedPartner(db);
+      const generalBefore = drawerBalance(db, "General", "USD");
+      const omtSystemBefore = drawerBalance(db, "OMT_System", "USD");
+
+      repo.createTransaction({
+        provider: "OMT",
+        serviceType: "RECEIVE",
+        amount: 100,
+        currency: "USD",
+        commission: 1,
+        cashoutMethod: "CASH",
+        partnerId,
+        partnerMode: "FOR",
+      });
+
+      // Still nothing — the partner's own customer dealt with the partner's
+      // till, not ours. Obligations only (supplier ledger / partner ledger),
+      // exactly as FinancialServiceRepository.partner.test.ts's pre-existing
+      // "OMT RECEIVE for partner" block already asserts elsewhere in this
+      // file — pinned again here, explicitly, as this fix's own guard.
+      expect(drawerBalance(db, "General", "USD")).toBe(generalBefore);
+      expect(drawerBalance(db, "OMT_System", "USD")).toBe(omtSystemBefore);
+    });
+  });
 });
