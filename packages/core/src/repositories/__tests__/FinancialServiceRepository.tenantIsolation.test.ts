@@ -86,7 +86,8 @@ function createTestDb(): Database.Database {
       partner_id INTEGER, partner_mode TEXT,
       edited_by TEXT DEFAULT NULL, edited_at TEXT DEFAULT NULL,
       commission_model INTEGER NOT NULL DEFAULT 0,
-      is_refunded INTEGER NOT NULL DEFAULT 0, refunded_at TEXT
+      is_refunded INTEGER NOT NULL DEFAULT 0, refunded_at TEXT,
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE transactions (

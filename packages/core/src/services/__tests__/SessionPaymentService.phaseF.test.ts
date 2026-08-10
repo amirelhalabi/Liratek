@@ -190,6 +190,7 @@ function createTestDb(): Database.Database {
     INSERT INTO system_settings (tenant_id, key_name, value) VALUES (1, 'shop_base_system', 'OMT');
 
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id    INTEGER NOT NULL DEFAULT 1,
       provider     TEXT NOT NULL,

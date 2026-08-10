@@ -129,9 +129,13 @@ export interface FinancialServiceEntity {
   /**
    * Computed (SUPPLIER_OWED_EXPR / grossOwedDelta, Primary Cash Drawer plan
    * §8.3): what this row adds to the supplier payable — 0 for wallet-provider
-   * transfers, sale cost for cost-flow rows, `+(amount + fee − commission)`
-   * for OMT/WHISH SEND, `−(amount − fee + commission)` for OMT/WHISH RECEIVE
-   * (a signed negative — reduces what the shop owes), bare amount otherwise.
+   * transfers, sale cost for a LEGACY cost-flow row (`supplier_debt_booked =
+   * 1`) and 0 for a post-C5 one (LIRA-122 — `supplier_debt_booked = 0`, the
+   * default since migration v115: the debt already lives in the TOP_UP entry
+   * booked at top-up time, so a per-sale row owes nothing on its own),
+   * `+(amount + fee − commission)` for OMT/WHISH SEND, `−(amount − fee +
+   * commission)` for OMT/WHISH RECEIVE (a signed negative — reduces what the
+   * shop owes), bare amount otherwise.
    */
   supplier_owed: number;
   /**
@@ -641,9 +645,27 @@ function grossOwedDelta(params: {
 // settling a bill books ONLY the commission credit. Not a ±commission term
 // of any existing branch — a new, additive case for a service_type that
 // never hit this expression's business logic before.
+//
+// LIRA-122 — the cost-flow SEND branch used to return bare `cost`
+// unconditionally, which is only actually owed for LEGACY rows (migration
+// v115, `supplier_debt_booked = 1` — the pre-C5 model where every cost/price
+// sale through Katsh/iPick/Whish App/OMT App booked its own SALE_COST ledger
+// entry). Every sale since v115 is born `supplier_debt_booked = 0` (C5
+// prepaid-units: the debt is booked once at top-up time via
+// `topUpFromSupplier`'s TOP_UP entry; the sale itself only draws down the
+// provider drawer) — `getUnsettledBySupplier`'s own cost-flow UNION branch
+// already requires `supplier_debt_booked = 1` before offering a row for
+// settlement. Reporting `supplier_owed = cost` regardless told the Suppliers
+// page's Transactions tab a post-C5 sale was still "Unpaid" even though
+// nothing is owed for it — the supplier's aggregate balance
+// (`SupplierRepository.getSupplierBalances`, a plain `supplier_ledger` SUM,
+// never touches this expression) correctly showed "Settled" the whole time.
+// Gating on the SAME flag `getUnsettledBySupplier` already uses keeps this
+// ONE "is this owed" definition (rule 14) instead of two disagreeing ones.
 const SUPPLIER_OWED_EXPR = `CASE
   WHEN provider IN (${WALLET_PROVIDERS_SQL_LIST}) AND cost <= 0 THEN 0
-  WHEN service_type = 'SEND' AND cost > 0 THEN cost
+  WHEN service_type = 'SEND' AND cost > 0 AND supplier_debt_booked = 1 THEN cost
+  WHEN service_type = 'SEND' AND cost > 0 THEN 0
   WHEN service_type = 'BILL' THEN 0
   WHEN provider = 'OMT' AND service_type = 'SEND' THEN ABS(amount) + ABS(COALESCE(omt_fee, 0)) - ABS(COALESCE(commission, 0))
   WHEN provider = 'OMT' AND service_type = 'RECEIVE' THEN -(ABS(amount) - ABS(COALESCE(omt_fee, 0)) + ABS(COALESCE(commission, 0)))
@@ -3850,16 +3872,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   }
 
   /**
-   * Column projection for cost/price-flow SEND rows in the Settle tab.
-   * Identical to getColumns() except `amount` is replaced by the sale `cost`
-   * (the amount actually owed to the supplier) and `commission` is forced to 0
-   * (cost-flow sales carry no supplier commission — the price−cost margin is the
-   * shop's own profit, not deducted from the supplier payment). This makes the
-   * frontend's `owed = amount + commission`, `net = owed − commission` resolve to
+   * Column projection for cost/price-flow SEND rows in the Settle tab AND
+   * the read-only Transactions history (getAllByProvider). Identical to
+   * getColumns() except `amount` is replaced by the sale `cost` (the amount
+   * actually owed to the supplier, when it's owed at all — see below) and
+   * `commission` is forced to 0 (cost-flow sales carry no supplier
+   * commission — the price−cost margin is the shop's own profit, not
+   * deducted from the supplier payment). This makes the frontend's
+   * `owed = amount + commission`, `net = owed − commission` resolve to
    * net = cost.
+   *
+   * `supplier_owed` reuses `SUPPLIER_OWED_EXPR` (rule 14 — the SAME "is this
+   * owed" definition getColumns() uses, not a second copy that hardcoded
+   * `cost` unconditionally): 0 for a post-C5 sale (`supplier_debt_booked = 0`,
+   * the default since migration v115 — the debt already lives in the TOP_UP
+   * entry booked at top-up time), `cost` only for a LEGACY row
+   * (`supplier_debt_booked = 1`) that still carries its own per-sale
+   * SALE_COST ledger entry. LIRA-122: the old unconditional `cost` made the
+   * Transactions tab show "Unpaid" on a prepaid, nothing-owed sale.
    */
   private getSaleCostSettleColumns(): string {
-    return "id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, cost AS supplier_owed";
+    return `id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
   }
 
   /**

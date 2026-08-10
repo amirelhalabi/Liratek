@@ -105,6 +105,7 @@ function createTestDb(): Database.Database {
 
     -- Financial services (main table under test)
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       tenant_id INTEGER DEFAULT 1,
       id                    INTEGER PRIMARY KEY AUTOINCREMENT,
       provider              TEXT NOT NULL,

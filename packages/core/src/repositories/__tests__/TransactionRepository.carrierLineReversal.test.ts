@@ -113,6 +113,7 @@ function createTestDb(): Database.Database {
     );
 
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       is_refunded  INTEGER DEFAULT 0,
       refunded_at  TEXT,

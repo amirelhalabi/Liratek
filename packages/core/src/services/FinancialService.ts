@@ -261,11 +261,17 @@ export class FinancialService {
 
         // supplier_owed is the repository's ONE owed-per-row definition
         // (SUPPLIER_OWED_EXPR): 0 for wallet-provider transfers (prepaid
-        // balance — nothing to pay the supplier, Fix B), cost for cost-flow
-        // rows, and for OMT/WHISH the FEE SPLIT ONLY (|fee| − |commission|),
-        // same for SEND and RECEIVE. The principal is NOT owed — it moved
-        // through the system float at transaction time (float model,
-        // owner-confirmed 2026-07-29).
+        // balance — nothing to pay the supplier, Fix B), cost for a LEGACY
+        // cost-flow row (`supplier_debt_booked = 1`) and 0 for a post-C5 one
+        // (LIRA-122 — the debt already lives in the TOP_UP entry booked at
+        // top-up time, so nothing is owed on the sale row itself), and for
+        // OMT/WHISH the FEE SPLIT ONLY (|fee| − |commission|), same for SEND
+        // and RECEIVE. The principal is NOT owed — it moved through the
+        // system float at transaction time (float model, owner-confirmed
+        // 2026-07-29). When `owed === 0` below, the row is treated as
+        // already "paid" (nothing outstanding) — the Suppliers page then
+        // renders it as "—" (see the `settlement_id == null` guard there),
+        // the same "nothing owed" treatment wallet-provider rows already get.
         const isReceive = txn.service_type === "RECEIVE";
         const owed = txn.supplier_owed;
 

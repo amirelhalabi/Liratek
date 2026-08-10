@@ -130,6 +130,7 @@ function createTestDb(): Database.Database {
     INSERT INTO clients (id, full_name, phone_number) VALUES (${CLIENT_ID}, 'Split Checkout Client', '76000000');
 
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,

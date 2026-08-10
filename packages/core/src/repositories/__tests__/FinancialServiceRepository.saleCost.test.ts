@@ -418,6 +418,61 @@ describe("FinancialServiceRepository — cost/price SEND books NO supplier debt 
 
     expect(repo.getUnsettledBySupplier("Katsh")).toHaveLength(0);
   });
+
+  // ── LIRA-122: Transactions tab must not show "Unpaid" on a row that ───────
+  //    owes nothing (rule 14 — getAllByProvider's supplier_owed must agree
+  //    with getUnsettledBySupplier's own "is this owed" gate above).
+
+  it("LIRA-122: getAllByProvider projects supplier_owed = 0 for a post-C5 sale — nothing is owed on the row itself", () => {
+    seedSupplier(db, "Katsh");
+
+    repo.createTransaction({
+      provider: "Katsh",
+      serviceType: "SEND",
+      amount: 100,
+      currency: "LBP",
+      commission: 0,
+      cost: 462_075,
+      price: 500_000,
+      paidByMethod: "CASH",
+    });
+
+    const rows = repo.getAllByProvider("Katsh");
+    expect(rows).toHaveLength(1);
+    // Before the fix this returned the bare sale cost (462_075), which the
+    // Suppliers page's Transactions tab read as "Unpaid" even though the
+    // supplier extends no per-sale credit post-C5 (the debt already lives in
+    // the top-up TOP_UP entry) — the owner's exact LIRA-122 report.
+    expect(rows[0].supplier_owed).toBe(0);
+    expect(rows[0].settlement_id).toBeNull();
+  });
+
+  it("LIRA-122: getAllByProvider STILL projects supplier_owed = cost for a LEGACY sale (supplier_debt_booked = 1) — genuinely owed rows keep their status", () => {
+    seedSupplier(db, "Katsh");
+
+    repo.createTransaction({
+      provider: "Katsh",
+      serviceType: "SEND",
+      amount: 100,
+      currency: "USD",
+      commission: 0,
+      cost: 90,
+      price: 100,
+      paidByMethod: "CASH",
+    });
+    // Simulate a pre-C5 row exactly like the sibling "STILL surfaces…" test
+    // above: the migration backfills supplier_debt_booked=1 for a row that
+    // DID book its own SALE_COST entry — this one is genuinely still owed
+    // and must not be swept into the same "nothing owed" bucket.
+    db.prepare(
+      "UPDATE financial_services SET supplier_debt_booked = 1 WHERE provider = 'Katsh'",
+    ).run();
+
+    const rows = repo.getAllByProvider("Katsh");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].supplier_owed).toBeCloseTo(90, 2);
+    expect(rows[0].settlement_id).toBeNull();
+  });
 });
 
 // ─── Reconciliation paths under the C5 model ─────────────────────────────────

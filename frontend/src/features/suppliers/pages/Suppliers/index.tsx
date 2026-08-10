@@ -97,8 +97,11 @@ type SupplierTxn = {
   is_settled: number;
   /**
    * Computed by the repository (SUPPLIER_OWED_EXPR — the ONE owed-per-row
-   * definition): 0 for wallet-provider transfers, cost for cost-flow rows,
-   * and for OMT/WHISH the FEE SPLIT ONLY (|fee| − |commission|), same for SEND
+   * definition): 0 for wallet-provider transfers, cost for a LEGACY
+   * cost-flow row (`supplier_debt_booked = 1`) and 0 for a post-C5 one
+   * (LIRA-122 — the debt already lives in a TOP_UP ledger entry booked at
+   * top-up time, so a prepaid sale owes nothing on its own row), and for
+   * OMT/WHISH the FEE SPLIT ONLY (|fee| − |commission|), same for SEND
    * and RECEIVE — the principal moved through the system float at transaction
    * time and is not owed. All owed math on this page sums this — never
    * re-derive it.

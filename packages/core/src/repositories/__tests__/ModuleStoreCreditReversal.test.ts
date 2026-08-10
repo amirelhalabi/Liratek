@@ -133,6 +133,7 @@ function createTestDb(): Database.Database {
     -- Service-Debt routing query (JOIN financial_services) doesn't fail with
     -- "no such table: financial_services".
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER DEFAULT 1,
       provider  TEXT

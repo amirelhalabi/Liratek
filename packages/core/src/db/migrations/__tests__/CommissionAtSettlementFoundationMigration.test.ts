@@ -36,6 +36,7 @@ function createTestDb(): Database.Database {
   db.pragma("foreign_keys = OFF");
   db.exec(`
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER DEFAULT 1,
       provider TEXT NOT NULL,

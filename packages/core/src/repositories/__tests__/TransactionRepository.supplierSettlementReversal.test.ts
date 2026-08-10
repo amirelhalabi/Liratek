@@ -110,6 +110,7 @@ function createTestDb(): Database.Database {
     -- of these columns must exist here too, even though most are unused by
     -- this file's own scenarios).
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       tenant_id INTEGER DEFAULT 1,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
@@ -564,10 +565,17 @@ describe("LIRA-085 — SUPPLIER_SETTLEMENT reversal (void/refund)", () => {
   describe("cost/price-flow settlement (commission = 0, is_settled already 1 pre-settlement)", () => {
     it("VOID clears settlement_id but leaves is_settled = 1 (profit was already realized independent of this settlement)", () => {
       const katshId = supplierIdByProvider(db, "Katsh");
+      // LIRA-122: this row IS the LEGACY cost-flow shape this describe block
+      // is named for — `is_settled = 1` at creation, individually settled
+      // below — so it must carry `supplier_debt_booked = 1` (migration v115)
+      // to genuinely be owed/settleable; the column defaults to 0 (post-C5)
+      // otherwise, which would misrepresent this fixture's own stated intent
+      // even though this particular test's assertions don't currently read
+      // `supplier_owed` for a legacy (commission_model=0) batch.
       const res = db
         .prepare(
-          `INSERT INTO financial_services (provider, service_type, amount, currency, commission, cost, is_settled)
-           VALUES ('Katsh', 'SEND', 20, 'USD', 0, 15, 1)`,
+          `INSERT INTO financial_services (provider, service_type, amount, currency, commission, cost, is_settled, supplier_debt_booked)
+           VALUES ('Katsh', 'SEND', 20, 'USD', 0, 15, 1, 1)`,
         )
         .run();
       const fsId = Number(res.lastInsertRowid);

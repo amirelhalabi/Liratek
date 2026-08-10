@@ -48,6 +48,7 @@ function createSchema(d: Database.Database): void {
       amount_usd REAL, amount_lbp REAL, expense_date TEXT
     );
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       currency TEXT, commission REAL, created_at TEXT
     );

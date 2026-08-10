@@ -228,6 +228,7 @@ function createTestDb(): Database.Database {
     -- NEW vs. the sibling fixture: the FS rows getSessionCashSplitContext joins
     -- on to derive the primary-system subtotal (only 'provider' is read).
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id    INTEGER NOT NULL DEFAULT 1,
       provider     TEXT NOT NULL,

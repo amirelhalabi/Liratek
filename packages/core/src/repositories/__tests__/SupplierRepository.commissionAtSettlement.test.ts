@@ -77,6 +77,7 @@ function createTestDb(): Database.Database {
     -- of these columns must exist on this fixture, even though most are
     -- unused by this file's own scenarios).
     CREATE TABLE financial_services (
+      supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL,
       service_type TEXT NOT NULL,
