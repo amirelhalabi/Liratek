@@ -132,32 +132,6 @@ function drawerDisplayLabel(drawerName: string): string {
   return drawerName;
 }
 
-function EntryTypeBadge({ type }: { type: string }) {
-  const color =
-    type === "TOP_UP"
-      ? "bg-red-900/50 text-red-300"
-      : type === "SALE_COST"
-        ? "bg-orange-900/50 text-orange-300"
-        : type === "PAYMENT"
-          ? "bg-green-900/50 text-green-300"
-          : type === "SUPPLIER_PAYS_US"
-            ? "bg-emerald-900/50 text-emerald-300"
-            : type === "SETTLEMENT"
-              ? "bg-blue-900/50 text-blue-300"
-              : "bg-amber-900/50 text-amber-300";
-  const label =
-    type === "SALE_COST"
-      ? "SALE COST"
-      : type === "SUPPLIER_PAYS_US"
-        ? "PAID US"
-        : type;
-  return (
-    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}>
-      {label}
-    </span>
-  );
-}
-
 /**
  * Supplier balance is the signed sum of the ledger:
  *   > 0  → WE owe the supplier   ("You owe …", red)
@@ -165,6 +139,89 @@ function EntryTypeBadge({ type }: { type: string }) {
  *   = 0  → settled
  */
 const BALANCE_EPS = 0.005;
+
+/**
+ * LIRA-129, rule 14 — the ONE place "which way does this signed money value
+ * move the we-owe-the-supplier balance" is decided. Every signed-amount
+ * decision on this page (the aggregate balance via `balanceColor`/
+ * `describeBalance`, a single ledger row's badge, a single ledger row's own
+ * amount cell) reuses this bucket instead of re-deriving its own threshold.
+ */
+type LedgerDirection = "UP" | "DOWN" | "FLAT";
+
+function signBucket(amount: number): LedgerDirection {
+  if (amount > BALANCE_EPS) return "UP";
+  if (amount < -BALANCE_EPS) return "DOWN";
+  return "FLAT";
+}
+
+/**
+ * LIRA-129 — a ledger row's overall direction, for the badge. Every write
+ * path (`SupplierRepository.addLedgerEntry`/`recordSupplierCashflow`/
+ * `settleTransactions`/`_bookCommissionAtSettlement`, and the LOTO/Recharge/
+ * FinancialService callers that book TOP_UP) puts a nonzero amount in
+ * EXACTLY ONE of amount_usd/amount_lbp — and on the rows where both ARE
+ * populated (a mixed-currency settlement/cashflow), both share the caller's
+ * one `sign`. So "whichever is nonzero" is safe and matches either currency.
+ */
+function ledgerRowDirection(amountUsd: number, amountLbp: number): LedgerDirection {
+  return signBucket(amountUsd !== 0 ? amountUsd : amountLbp);
+}
+
+const LEDGER_DIRECTION_HINT: Record<LedgerDirection, string> = {
+  UP: "Increases what we owe this supplier",
+  DOWN: "Decreases what we owe this supplier (or increases what they owe us)",
+  FLAT: "No effect on the balance",
+};
+
+/**
+ * LIRA-129 — the badge USED to color itself purely from `entry_type`
+ * (TOP_UP always red = "debt up"). That's wrong for a SIGNED TOP_UP: an
+ * OMT/WHISH RECEIVE books a NEGATIVE TOP_UP (`grossOwedDelta`,
+ * FinancialServiceRepository.ts) because it *reduces* what the shop owes
+ * the provider — a red badge next to a green (down) amount told the
+ * operator two different things about the same row. Not TOP_UP-specific:
+ * the sweep for this ticket found ADJUSTMENT (CREDIT +/DEBIT −, by design)
+ * and SUPPLIER_PAYS_US (positive via a RECEIVE cashflow, negative via the
+ * at-settlement commission credit) are ALSO written with either sign
+ * depending on the call site — same defect, same fix.
+ *
+ * Direction now comes from the row's own SIGN (`ledgerRowDirection` below —
+ * rule 14, the ONE place this decision is made), the same signed-amount
+ * convention `balanceColor`/`describeBalance` already use for the
+ * aggregate balance above: the whole supplier balance is a straight SUM of
+ * every ledger row, so the same "+ increases what we owe, − decreases it"
+ * rule applies uniformly to every entry_type, not just TOP_UP. `type` now
+ * drives ONLY the label text (which event this was) — never the color.
+ */
+function EntryTypeBadge({
+  type,
+  direction,
+}: {
+  type: string;
+  direction: LedgerDirection;
+}) {
+  const color =
+    direction === "UP"
+      ? "bg-red-900/50 text-red-300"
+      : direction === "DOWN"
+        ? "bg-green-900/50 text-green-300"
+        : "bg-slate-700/50 text-slate-300";
+  const label =
+    type === "SALE_COST"
+      ? "SALE COST"
+      : type === "SUPPLIER_PAYS_US"
+        ? "PAID US"
+        : type;
+  return (
+    <span
+      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}
+      title={LEDGER_DIRECTION_HINT[direction]}
+    >
+      {label}
+    </span>
+  );
+}
 
 /** `$1.23` or `1,234 LBP` — the one place the USD/LBP money-string ternary
  *  lives (rule 14). Reused by `describeBalance` below and by the batch-settle
@@ -184,17 +241,20 @@ function describeBalance(
 ): { text: string; cls: string } {
   const abs = Math.abs(amount);
   const money = formatMoney(abs, currency);
-  if (amount > BALANCE_EPS)
-    return { text: `You owe ${money}`, cls: "text-red-400" };
-  if (amount < -BALANCE_EPS)
+  const bucket = signBucket(amount);
+  if (bucket === "UP") return { text: `You owe ${money}`, cls: "text-red-400" };
+  if (bucket === "DOWN")
     return { text: `They owe you ${money}`, cls: "text-green-400" };
   return { text: "Settled", cls: "text-slate-400" };
 }
 
-/** Compact directional color for a single signed amount (list rows). */
+/** Compact directional color for a single signed amount (list rows AND,
+ *  LIRA-129, a ledger row's own amount cell — same `signBucket` the badge
+ *  now uses, rule 14: one threshold, never re-derived). */
 function balanceColor(amount: number): string {
-  if (amount > BALANCE_EPS) return "text-red-400";
-  if (amount < -BALANCE_EPS) return "text-green-400";
+  const bucket = signBucket(amount);
+  if (bucket === "UP") return "text-red-400";
+  if (bucket === "DOWN") return "text-green-400";
   return "text-slate-500";
 }
 
@@ -1691,7 +1751,13 @@ export default function SuppliersPage() {
                         className={`grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center ${row.is_refunded ? "opacity-60" : ""}`}
                       >
                         <div className="col-span-2 flex items-center gap-1">
-                          <EntryTypeBadge type={row.entry_type} />
+                          <EntryTypeBadge
+                            type={row.entry_type}
+                            direction={ledgerRowDirection(
+                              row.amount_usd,
+                              row.amount_lbp,
+                            )}
+                          />
                           {!!row.is_refunded && (
                             <span className="text-[9px] px-1 py-0.5 rounded bg-slate-600/50 text-slate-300 font-semibold">
                               VOIDED
@@ -1699,14 +1765,14 @@ export default function SuppliersPage() {
                           )}
                         </div>
                         <div
-                          className={`col-span-2 text-right font-mono ${row.is_refunded ? "line-through text-slate-500" : row.amount_usd < 0 ? "text-green-400" : row.amount_usd > 0 ? "text-red-400" : "text-slate-500"}`}
+                          className={`col-span-2 text-right font-mono ${row.is_refunded ? "line-through text-slate-500" : balanceColor(row.amount_usd)}`}
                         >
                           {row.amount_usd !== 0
                             ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
                             : "—"}
                         </div>
                         <div
-                          className={`col-span-2 text-right font-mono ${row.is_refunded ? "line-through text-slate-500" : row.amount_lbp < 0 ? "text-green-400" : row.amount_lbp > 0 ? "text-red-400" : "text-slate-500"}`}
+                          className={`col-span-2 text-right font-mono ${row.is_refunded ? "line-through text-slate-500" : balanceColor(row.amount_lbp)}`}
                         >
                           {row.amount_lbp !== 0
                             ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
