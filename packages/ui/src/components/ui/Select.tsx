@@ -4,7 +4,7 @@ import {
   ListboxOptions,
   ListboxOption,
 } from "@headlessui/react";
-import { Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 export interface SelectOption {
   value: string;
@@ -119,7 +119,7 @@ export default function Select({
               className={({ focus, selected }) =>
                 option.disabled
                   ? "px-3 pt-2 pb-0.5 text-xs uppercase tracking-wide text-slate-500 cursor-default select-none"
-                  : `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
+                  : `relative cursor-pointer select-none py-2 pl-4 pr-4 ${
                       focus
                         ? "bg-violet-500/20 text-white"
                         : selected
@@ -129,22 +129,13 @@ export default function Select({
               }
             >
               {({ selected }) => (
-                <>
-                  <span
-                    className={`block truncate ${
-                      selected && !option.disabled
-                        ? "font-medium"
-                        : "font-normal"
-                    }`}
-                  >
-                    {option.label}
-                  </span>
-                  {selected && !option.disabled ? (
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-violet-400">
-                      <Check className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                  ) : null}
-                </>
+                <span
+                  className={`block truncate ${
+                    selected && !option.disabled ? "font-medium" : "font-normal"
+                  }`}
+                >
+                  {option.label}
+                </span>
               )}
             </ListboxOption>
           ))}
