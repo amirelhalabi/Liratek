@@ -1026,6 +1026,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           ? data.cashoutMethod
           : data.paidByMethod || "CASH";
 
+      // Trusting the client-sent `data.partnerMode` here — instead of
+      // re-deriving THROUGH-vs-FOR from
+      // `data.provider === partner.system_association` — is acceptable
+      // ONLY because the sole UI surface that ever sends "THROUGH"
+      // (Services/index.tsx's `selectedPartnerId` branch) can only obtain
+      // `partnerId` from a `<PartnerSelector systemFilter={partnerSystem} />`
+      // that hard-filters its options to
+      // `partner.system_association === systemFilter`
+      // (PartnerSelector.tsx:47) and only mounts on the matching tab
+      // (`provider === partnerSystem`, Services/index.tsx ~1426). The UI
+      // structurally cannot produce a (provider, partnerId) pair whose
+      // partner.system_association disagrees with provider, so there is no
+      // mismatched case here to catch by re-deriving the mode server-side.
+      // This is a client-input-trust decision that holds only as long as
+      // that selector stays filtered — see
+      // docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md and the
+      // frontend guard test Services.throughPartnerInvariant.test.tsx. No
+      // logic change belongs here if that invariant ever breaks — the fix
+      // is to derive `partnerMode` before it reaches this repository.
       const isThroughPartner = !!(
         data.partnerId &&
         (!data.partnerMode || data.partnerMode === "THROUGH")

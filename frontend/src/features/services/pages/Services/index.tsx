@@ -1077,6 +1077,30 @@ export default function Services() {
             : { payments: [], paymentMethodFee: 0 }
           : {}),
         note: note || `${provider} - ${serviceType}`,
+        // THROUGH is hardcoded (not derived from
+        // `provider === partner.system_association`) — this is safe ONLY
+        // because `selectedPartnerId` can only be set by the
+        // `<PartnerSelector systemFilter={partnerSystem} .../>` block above
+        // (~line 1428), which itself only mounts when
+        // `provider === partnerSystem` (~line 1426) and hard-filters its
+        // options to `p.system_association === systemFilter`
+        // (PartnerSelector.tsx:47, `allPartners.filter(...)`). A partner
+        // whose system_association differs from this tab's provider is
+        // UNSELECTABLE here, so the mismatch case THROUGH mode would need
+        // to worry about cannot occur BY CONSTRUCTION — deriving the mode
+        // would just recompute an answer the filtered UI already
+        // guarantees. Every other partner-aware module (Exchange, Custom
+        // Services, POS/CheckoutModal, Recharge forms, Loto — see the
+        // `partnerMode?: "FOR"`-only types in electron.d.ts) is
+        // structurally on-behalf-of-a-partner; THROUGH exists ONLY on this
+        // page, and ONLY because of the filtered selector above. If that
+        // filter is ever widened (e.g. to show every partner on this tab
+        // instead of same-system ones only), this hardcode becomes wrong
+        // and partnerMode must become derived from
+        // `provider === partner.system_association`. See
+        // docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md and the
+        // guard test Services.throughPartnerInvariant.test.tsx, which fails
+        // the moment the filter is removed.
         ...(selectedPartnerId
           ? { partnerId: selectedPartnerId, partnerMode: "THROUGH" as const }
           : {}),
