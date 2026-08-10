@@ -218,6 +218,14 @@ BOTH sides. Services/OMT-Whish has no notice at all.
 
 ## §5b ⚑ NEW REQUIREMENT — partners need their own system association (owner, 2026-08-09)
 
+> ✅ **Phases 1-2 SHIPPED** (migration v153 / `ServiceProviderRepository` / `FinancialServiceRepository.mapDrawerName`).
+> `service_providers` exists, tenant-scoped, seeded with the 9 existing provider codes (drawer names
+> matching `mapDrawerName`'s hardcoded switch byte-for-byte); `mapDrawerName` now reads it with that
+> same switch kept as the offline/missing-row fallback. Characterized before/after
+> (`FinancialServiceRepository.mapDrawerName.characterization.test.ts`) — zero behaviour change, as
+> required. **Remaining: phase 3** (relax the `financial_services.provider` CHECK to an FK / Zod-from-table),
+> **phase 4** (Partners UI + partner FK), **phase 5** (Syria as a data entry). Not started.
+
 > 🔴 **CORRECTION (2026-08-09, after investigation).** The owner stated — and this plan initially
 > recorded as spec — that the partner's linked system determines which drawer moves. **The code
 > refutes that.** `partners.system_association` is **never read by any money code**: grep across
@@ -325,8 +333,12 @@ keep their dedicated drawers (`Whish_System`, and `OMT_System` as the shop's own
 ### What this implies (to be designed — not yet decided)
 
 - The system association becomes **user-creatable**, not a fixed OMT/Whish choice.
-- Each system association needs a **drawer** of its own (generalising the existing
-  `OMT_System` / `Whish_System` pattern to N systems).
+- ~~Each system association needs a **drawer** of its own (generalising the existing
+  `OMT_System` / `Whish_System` pattern to N systems).~~ **SUPERSEDED — see the ANSWERED
+  block above (owner, 2026-08-09, line 311): "no new drawers."** A new system association
+  resolves cash to **General**; only OMT/WHISH keep their dedicated `OMT_System`/
+  `Whish_System` drawers. This bullet was stale — it predated the owner's answer and
+  contradicted it; corrected during §5b phases 1-2 implementation.
 - ⚠ This collides with existing assumptions: `shop_base_system` / Primary Cash Drawer (PCD, plan
   #68) treats OMT_System as *the* primary cash drawer, and money paths contain hardcoded `'OMT'` /
   `'WHISH'` literals. Any generalisation must enumerate and handle those.

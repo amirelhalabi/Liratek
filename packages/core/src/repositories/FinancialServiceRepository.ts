@@ -15,6 +15,7 @@ import {
   type BaseSystem,
 } from "../utils/payments.js";
 import { primaryCashDrawerName } from "../constants/systemFloatDrawers.js";
+import { getServiceProviderRepository } from "./ServiceProviderRepository.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import {
   getPartnerRepository,
@@ -795,9 +796,28 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   // resolveFallbackUserId() now lives on BaseRepository (rule 14 — shared by
   // ExchangeRepository, CustomServiceRepository, MaintenanceRepository too).
 
+  /**
+   * FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 2 — reads
+   * `service_providers` (via `ServiceProviderRepository.getByCode()`) first;
+   * the switch below is kept as the offline/missing-row fallback, same shape
+   * as `paymentMethodToDrawerName()` (`utils/payments.ts`): try the repo, and
+   * on either a thrown error (DB/table unavailable) or a falsy result (no
+   * row for this code — deleted, unseeded, or a code the table has never
+   * heard of) fall through to the literal map. Characterized byte-for-byte
+   * against the pre-phase-2 hardcoded switch by
+   * `FinancialServiceRepository.mapDrawerName.characterization.test.ts` —
+   * do NOT edit this fallback's return values without re-running that file
+   * and confirming it still needs no changes.
+   */
   private mapDrawerName(
     provider: CreateFinancialServiceData["provider"],
   ): string {
+    try {
+      const sp = getServiceProviderRepository().getByCode(provider);
+      if (sp) return sp.drawer_name;
+    } catch {
+      // service_providers not migrated yet / DB unavailable — hardcoded map.
+    }
     switch (provider) {
       case "OMT":
         return "OMT_System";

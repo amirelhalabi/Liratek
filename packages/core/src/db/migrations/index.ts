@@ -8241,6 +8241,98 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v152 rolled back: custom_services.product_id dropped");
     },
   },
+  {
+    version: 153,
+    name: "add_service_providers_table",
+    description:
+      "FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 1 — introduce " +
+      "`service_providers`, the provider-taxonomy config table, mirroring " +
+      "the existing `payment_methods` precedent (create_db.sql:1309-1330) " +
+      "exactly: code/label/drawer_name/is_system_provider/is_active/" +
+      "is_system/sort_order, tenant-scoped. Seeded with the 9 existing " +
+      "financial_services.provider CHECK-constraint values (OMT, WHISH, " +
+      "BOB, OTHER, iPick, Katsh, WHISH_APP, OMT_APP, BINANCE); drawer names " +
+      "match FinancialServiceRepository.mapDrawerName's hardcoded switch " +
+      "byte-for-byte (OMT->OMT_System, WHISH->Whish_System, " +
+      "iPick->iPick, Katsh->Katsh, WHISH_APP->Whish_App, OMT_APP->OMT_App, " +
+      "BINANCE->Binance, BOB/OTHER->General). is_system_provider=1 only for " +
+      "OMT/WHISH — the two providers eligible for partners.system_association " +
+      "/ Primary-Cash-Drawer routing today; every other provider is 0. " +
+      "Nothing reads this table yet (phase 2, a follow-up change, points " +
+      "FinancialServiceRepository.mapDrawerName at it with the current " +
+      "switch kept as the offline fallback) — this migration alone is " +
+      "zero behaviour change. Applied to every existing tenant, same " +
+      "pattern as migration v125.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS service_providers (
+          id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id          INTEGER REFERENCES tenants(id),
+          code               TEXT NOT NULL,
+          label              TEXT NOT NULL,
+          drawer_name        TEXT NOT NULL,
+          is_system_provider INTEGER NOT NULL DEFAULT 0,
+          is_active          INTEGER NOT NULL DEFAULT 1,
+          is_system          INTEGER NOT NULL DEFAULT 0,
+          sort_order         INTEGER NOT NULL DEFAULT 0,
+          created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (tenant_id, code)
+        );
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_service_providers_tenant_id ON service_providers(tenant_id);`,
+      );
+
+      // Seed the 9 existing provider codes for every existing tenant.
+      // Mirrors migration v125's `SELECT id, ... FROM tenants` pattern so
+      // every tenant (not just tenant 1) gets the seed, and re-running is
+      // idempotent via INSERT OR IGNORE + the (tenant_id, code) UNIQUE.
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO service_providers
+           (tenant_id, code, label, drawer_name, is_system_provider, is_active, is_system, sort_order)
+         SELECT id, ?, ?, ?, ?, 1, 1, ? FROM tenants`,
+      );
+      const seeds: {
+        code: string;
+        label: string;
+        drawerName: string;
+        isSystemProvider: number;
+        sortOrder: number;
+      }[] = [
+        { code: "OMT", label: "OMT", drawerName: "OMT_System", isSystemProvider: 1, sortOrder: 0 },
+        { code: "WHISH", label: "Whish", drawerName: "Whish_System", isSystemProvider: 1, sortOrder: 1 },
+        { code: "BOB", label: "BOB", drawerName: "General", isSystemProvider: 0, sortOrder: 2 },
+        { code: "OTHER", label: "Other", drawerName: "General", isSystemProvider: 0, sortOrder: 3 },
+        { code: "iPick", label: "iPick", drawerName: "iPick", isSystemProvider: 0, sortOrder: 4 },
+        { code: "Katsh", label: "Katsh", drawerName: "Katsh", isSystemProvider: 0, sortOrder: 5 },
+        { code: "WHISH_APP", label: "Whish App", drawerName: "Whish_App", isSystemProvider: 0, sortOrder: 6 },
+        { code: "OMT_APP", label: "OMT App", drawerName: "OMT_App", isSystemProvider: 0, sortOrder: 7 },
+        { code: "BINANCE", label: "Binance", drawerName: "Binance", isSystemProvider: 0, sortOrder: 8 },
+      ];
+
+      let totalSeeded = 0;
+      for (const s of seeds) {
+        const res = insert.run(
+          s.code,
+          s.label,
+          s.drawerName,
+          s.isSystemProvider,
+          s.sortOrder,
+        );
+        totalSeeded += res.changes;
+      }
+
+      console.log(
+        `Migration v153: service_providers table created; ${totalSeeded} row(s) seeded across all tenants (9 provider codes each)`,
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS service_providers;`);
+      console.log("Migration v153 rolled back: service_providers table dropped");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

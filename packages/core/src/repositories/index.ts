@@ -163,6 +163,18 @@ export type {
   UpdatePaymentMethodData,
 } from "./PaymentMethodRepository.js";
 
+// Service Provider Repository (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phases 1-2)
+export {
+  ServiceProviderRepository,
+  getServiceProviderRepository,
+  resetServiceProviderRepository,
+} from "./ServiceProviderRepository.js";
+export type {
+  ServiceProviderEntity,
+  CreateServiceProviderData,
+  UpdateServiceProviderData,
+} from "./ServiceProviderRepository.js";
+
 // Rate Repository
 export {
   RateRepository,

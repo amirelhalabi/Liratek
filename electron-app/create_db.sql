@@ -1329,6 +1329,44 @@ INSERT OR IGNORE INTO payment_methods (tenant_id, code, label, drawer_name, affe
   (1, 'CUSTOMER_ACCOUNT', 'Customer Account',    'General',   0, 4, 1, 1),
   (1, 'GIFT_CARD',        'Gift Card / Voucher', 'General',   0, 5, 1, 1);
 
+-- =============================================================================
+-- 9b. Service Providers (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 1)
+-- =============================================================================
+-- Provider-taxonomy config table, mirroring `payment_methods` above exactly.
+-- Nothing reads this table yet (see migration v153 / ServiceProviderRepository)
+-- — phase 2 points FinancialServiceRepository.mapDrawerName at it, keeping the
+-- current hardcoded switch as the offline fallback.
+
+CREATE TABLE IF NOT EXISTS service_providers (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id          INTEGER REFERENCES tenants(id),
+    code               TEXT NOT NULL,                   -- e.g. 'OMT', 'WHISH', 'iPick'
+    label              TEXT NOT NULL,                   -- Display name: 'OMT', 'iPick'
+    drawer_name        TEXT NOT NULL,                   -- Which drawer this provider's cash lands in
+    is_system_provider INTEGER NOT NULL DEFAULT 0,      -- 1 = OMT/WHISH (system-association eligible, PCD routing)
+    is_active          INTEGER NOT NULL DEFAULT 1,
+    is_system          INTEGER NOT NULL DEFAULT 0,      -- 1 = cannot be deleted (the 9 built-in codes)
+    sort_order         INTEGER NOT NULL DEFAULT 0,
+    created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tenant_id, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_service_providers_tenant_id ON service_providers(tenant_id);
+
+-- Seed default service providers — drawer names match
+-- FinancialServiceRepository.mapDrawerName's hardcoded switch byte-for-byte.
+INSERT OR IGNORE INTO service_providers (tenant_id, code, label, drawer_name, is_system_provider, is_active, is_system, sort_order) VALUES
+  (1, 'OMT',       'OMT',       'OMT_System',   1, 1, 1, 0),
+  (1, 'WHISH',     'Whish',     'Whish_System', 1, 1, 1, 1),
+  (1, 'BOB',       'BOB',       'General',      0, 1, 1, 2),
+  (1, 'OTHER',     'Other',     'General',      0, 1, 1, 3),
+  (1, 'iPick',     'iPick',     'iPick',        0, 1, 1, 4),
+  (1, 'Katsh',     'Katsh',     'Katsh',        0, 1, 1, 5),
+  (1, 'WHISH_APP', 'Whish App', 'Whish_App',    0, 1, 1, 6),
+  (1, 'OMT_APP',   'OMT App',   'OMT_App',      0, 1, 1, 7),
+  (1, 'BINANCE',   'Binance',   'Binance',      0, 1, 1, 8);
+
 -- Seed system suppliers (linked to modules).
 -- LIRA-112 (D12): iPick earns the shop no commission at all
 -- (commission_eligible = 0); Katsh earns 20,000 LBP per bill, entered via
@@ -1758,4 +1796,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (149, 'allow_credit_buyback_recharge_type'),
     (150, 'commission_at_settlement_foundation'),
     (151, 'commission_at_settlement_provider_eligibility'),
-    (152, 'custom_services_product_id_stock_link');
+    (152, 'custom_services_product_id_stock_link'),
+    (153, 'add_service_providers_table');

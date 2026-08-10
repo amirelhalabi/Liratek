@@ -253,6 +253,7 @@ export class TenantRepository {
       this.seedCurrencyModules(tenantId);
       this.seedCurrencyDrawers(tenantId);
       this.seedPaymentMethods(tenantId);
+      this.seedServiceProviders(tenantId);
       this.seedSystemSettings(tenantId, shopName);
       this.seedLotoSettings(tenantId);
     } catch (error) {
@@ -540,6 +541,52 @@ export class TenantRepository {
         sortOrder,
         isSystem,
         isActive,
+      );
+    }
+  }
+
+  /**
+   * FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 1 — seed the 9
+   * built-in `service_providers` rows for a freshly-provisioned (web) tenant.
+   * Mirrors `seedPaymentMethods` above and migration v153 / create_db.sql's
+   * tenant-1 seed exactly: same codes, same drawer names (matching
+   * `FinancialServiceRepository.mapDrawerName`'s hardcoded switch), same
+   * is_system_provider flag (1 only for OMT/WHISH).
+   */
+  private seedServiceProviders(tenantId: number): void {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO service_providers (tenant_id, code, label, drawer_name, is_system_provider, is_active, is_system, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const rows: [string, string, string, number, number, number, number][] = [
+      ["OMT", "OMT", "OMT_System", 1, 1, 1, 0],
+      ["WHISH", "Whish", "Whish_System", 1, 1, 1, 1],
+      ["BOB", "BOB", "General", 0, 1, 1, 2],
+      ["OTHER", "Other", "General", 0, 1, 1, 3],
+      ["iPick", "iPick", "iPick", 0, 1, 1, 4],
+      ["Katsh", "Katsh", "Katsh", 0, 1, 1, 5],
+      ["WHISH_APP", "Whish App", "Whish_App", 0, 1, 1, 6],
+      ["OMT_APP", "OMT App", "OMT_App", 0, 1, 1, 7],
+      ["BINANCE", "Binance", "Binance", 0, 1, 1, 8],
+    ];
+    for (const [
+      code,
+      label,
+      drawerName,
+      isSystemProvider,
+      isActive,
+      isSystem,
+      sortOrder,
+    ] of rows) {
+      stmt.run(
+        tenantId,
+        code,
+        label,
+        drawerName,
+        isSystemProvider,
+        isActive,
+        isSystem,
+        sortOrder,
       );
     }
   }
