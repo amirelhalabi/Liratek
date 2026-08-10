@@ -209,7 +209,7 @@ yarn rebuild:node
 - `console.log` → use the module logger
 - String SQL concatenation → use `?` parameterized queries
 - Skipping `create_db.sql` after a migration → always update both
-- Forgetting to rebuild core → `cd packages/core && npm run build` after any core change, then `xcopy /e /y /q "packages\core\dist" "node_modules\@liratek\core\dist\"` to sync (node_modules is a real copy, not a symlink)
+- Forgetting to rebuild core → `cd packages/core && npm run build` after any core change, then sync it (`node_modules/@liratek/core` is a real copy, not a symlink — unlike `@liratek/ui`, which IS a symlink and needs no sync). **In Bash use `cp -r packages/core/dist/. node_modules/@liratek/core/dist/`.** The `xcopy /e /y /q "packages\core\dist" "node_modules\@liratek\core\dist\"` form is cmd-only and **silently breaks in Git Bash**: its trailing backslash escapes the closing quote, so the rest of the command line is swallowed as part of the string — the build prints success, the sync never runs, and the Electron main process keeps executing the OLD compiled core while you debug the wrong layer.
 - Skipping `down()` in migrations → always implement rollback
 - `any` TypeScript type → define a proper interface
 - Write-path IPC handler missing Zod validation → add `validatePayload()` call
