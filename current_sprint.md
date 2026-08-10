@@ -3227,7 +3227,7 @@ debt where none exists.
 | **Epic**              | Tooling / Verification integrity      |
 | **Type**              | Bug - false-green verification        |
 | **Priority**          | **High**                              |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (db149e6) - see CI correction below |
 | **Affected Modules**  | e2e harness (all)                     |
 | **Source Plan**       | Found 2026-08-10 while verifying LIRA-118..121 |
 
@@ -3255,7 +3255,33 @@ This ticket was itself only caught because the log was inspected rather than the
 
 ### Acceptance Criteria
 
-- [ ] Root-cause the silence (yarn 4 script wrapper? `cd` inside the script? stdio not inherited?).
+- [x] **ROOT CAUSE (db149e6):** the failure is above Node's own `child_process` layer (a
+      `--require` spawn hook never fired), i.e. inside yarn's script-dispatch/spawn path when
+      the script would spawn Playwright. A direct invocation with no `yarn run`/`yarn
+      workspace` hop never exhibits it. **Windows dev-machine only.**
+
+### CORRECTION - CI was NOT affected (verified 2026-08-10)
+
+This ticket was filed warning that every past "e2e green" resting on `yarn test:e2e` was
+unproven, **including CI's**. That is **half wrong and the wrong half matters**: CI runs on
+Ubuntu and was never affected. Verified against real run logs via `gh run view --log` - a
+passing run shows `Running 242 tests using 1 worker` / `2 skipped, 240 passed (6.0m)`, and a
+failing run shows `6 failed, 225 passed (6.3m)`. Real durations, real counts, real failures.
+So the project's CI history of e2e green is intact; only LOCAL Windows runs were vacuous.
+The CI step was switched to the direct invocation anyway, as defence in depth.
+
+Also corrected: an intermediate claim that the same defect broke `yarn typecheck`/`yarn lint`
+generally. It does not. That conclusion came from reading byte-count instead of ELAPSED TIME -
+a clean `tsc` prints zero bytes and exits 0, which is shape-identical to a no-op. Measured:
+`yarn workspace @liratek/frontend typecheck` runs 41s, root `yarn typecheck` 120s. The docs
+were narrowed before shipping so nobody inherits a warning to distrust reliable commands.
+
+**The durable deliverable is the floor assertion, not the script swap:** `scripts/run-e2e.mjs`
+fails when the reported test count is below a floor EVEN IF the exit code was 0. The same
+verification-integrity hole was found and closed in `check-tenant-scoping` and
+`check-bind-arity`, neither of which asserted it had scanned anything (bind-arity did not even
+report a file count - an empty glob passed silently).
+
 - [ ] `yarn test:e2e` either runs the suite with visible output, or fails loudly and non-zero.
 - [ ] Audit `test:e2e:web` and every other `yarn` wrapper around a long-running binary for the
       same silent-success mode.
@@ -3272,7 +3298,7 @@ This ticket was itself only caught because the log was inspected rather than the
 | **Epic**              | Partners / Money posting              |
 | **Type**              | Bug - untracked cash outflow          |
 | **Priority**          | **High** (latent today, realizes on first use) |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (2e9e822) |
 | **Affected Modules**  | omt_whish, partners                   |
 | **Source Plan**       | `docs/plans/todo_plans/PARTNER_DISBURSEMENT_MATRIX.md` (22be723), VIOLATES #1 |
 
@@ -3918,8 +3944,8 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-120 | Partners currency dropdown will not open (re-opens 097)  | **High** | **DONE** 714837d, owner-tested; check-icon removal in flight | owner manual test 2026-08-10        |
 | LIRA-121 | For-Partner notice now states the opposite of the truth  | Medium   | **DONE** e586de9                                          | owner manual test 2026-08-10        |
 | LIRA-122 | Supplier table shows 'Unpaid' where nothing is owed      | Low      | **DONE** - rule-14 unification on supplier_debt_booked    | owner manual test 2026-08-10        |
-| LIRA-123 | `yarn test:e2e` silently no-ops (exit 0, zero output)     | **High** | TODO - invalidates past 'e2e green' claims                | found verifying LIRA-118..121       |
-| LIRA-124 | THROUGH-partner RECEIVE pays customer from no drawer     | **High** | TODO - latent but realizes on first secondary-system RECEIVE | PARTNER_DISBURSEMENT_MATRIX.md   |
+| LIRA-123 | `yarn test:e2e` silently no-ops (exit 0, zero output)     | **High** | **DONE** db149e6 - direct invocation + spec-count floor; CI was NOT affected (Ubuntu) | found verifying LIRA-118..121 |
+| LIRA-124 | THROUGH-partner RECEIVE pays customer from no drawer     | **High** | **DONE** 2e9e822 - payout + fee leg post; FOR path untouched (correct) | PARTNER_DISBURSEMENT_MATRIX.md |
 | LIRA-125 | THROUGH legacy single-method SEND skips drawer credit    | Medium   | TODO                                                      | PARTNER_DISBURSEMENT_MATRIX.md      |
 | LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh) | Low    | TODO                                                      | PARTNER_DISBURSEMENT_MATRIX.md      |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
