@@ -55,6 +55,7 @@ import {
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { formatCurrency } from "@/utils/currency";
 import {
   capSettlementDiscount,
   discountRoomAfterSettlement,
@@ -77,6 +78,36 @@ function fmtLBP(n: number) {
     currency: "LBP",
     maximumFractionDigits: 0,
   }).format(n);
+}
+
+/**
+ * USDT — `partner_ledger.currency` and `financial_services.currency` both
+ * carry USDT as a real third currency (neither column has a CHECK
+ * constraint; the Binance flow writes it explicitly, e.g. `CryptoForm.tsx`'s
+ * `currency: "USDT"` on `addOMTTransaction`). Reuses the existing generic
+ * `formatCurrency` (rule 14) — the SAME "N.NN USDT" suffix convention
+ * already displayed inline for USDT elsewhere in the app (`CryptoForm.tsx`,
+ * `CompactStats.tsx`) — rather than inventing a new one.
+ */
+function fmtUSDT(n: number) {
+  return formatCurrency(n, "USDT");
+}
+
+/**
+ * Single named dispatcher (rule 14) for a ledger amount's USD/LBP/USDT
+ * formatter choice. Before this fix, `LedgerRow` had TWO copies of a
+ * two-way `currency === "USD" ? fmtUSD(...) : fmtLBP(...)` ternary (its own
+ * amount cell, and the expanded financial-service detail row's amount) —
+ * both silently ran a USDT amount through `fmtLBP`, which is not just the
+ * wrong symbol but also the wrong rounding (`fmtLBP` has
+ * `maximumFractionDigits: 0`): a 45.50 USDT entry rendered "LBP 46".
+ * Unrecognized/null currency falls through to `fmtLBP`, matching the prior
+ * ternaries' behaviour for anything that wasn't literally "USD".
+ */
+function fmtByCurrency(amount: number, currency: string | null): string {
+  if (currency === "USD") return fmtUSD(amount);
+  if (currency === "USDT") return fmtUSDT(amount);
+  return fmtLBP(amount);
 }
 
 function fmtDate(iso: string) {
@@ -1253,9 +1284,7 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
         </td>
         <td className="px-4 py-3 text-right font-mono font-semibold whitespace-nowrap">
           <span className={amountColor}>
-            {entry.currency === "USD"
-              ? fmtUSD(entry.amount)
-              : fmtLBP(entry.amount)}
+            {fmtByCurrency(entry.amount, entry.currency)}
           </span>
         </td>
         <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px] truncate">
@@ -1311,9 +1340,7 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
                 <div className="flex gap-2">
                   <span className="text-slate-500 w-20 shrink-0">Amount</span>
                   <span className="text-slate-200">
-                    {entry.fs_currency === "USD"
-                      ? fmtUSD(entry.fs_amount)
-                      : fmtLBP(entry.fs_amount)}
+                    {fmtByCurrency(entry.fs_amount, entry.fs_currency)}
                     {entry.fs_fee != null && entry.fs_fee > 0 && (
                       <span className="text-slate-400 ml-1">
                         + {fmtUSD(entry.fs_fee)} fee

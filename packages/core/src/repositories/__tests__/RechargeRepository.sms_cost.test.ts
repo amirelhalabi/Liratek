@@ -18,6 +18,9 @@ import {
   resetTenantContext,
 } from "../../db/tenantContext";
 import { resetTransactionRepository } from "../TransactionRepository";
+import { resetCarrierLineRepository } from "../CarrierLineRepository";
+import { resetCarrierLineMovementRepository } from "../CarrierLineMovementRepository";
+import { resetCarrierLineService } from "../../services/CarrierLineService";
 
 // ─── Mock DB connection (shared by all sub-repositories) ─────────────────────
 
@@ -125,6 +128,49 @@ function createTestDb(): Database.Database {
       updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- carrier_lines/carrier_line_movements (v140, LIRA-090) — matching
+    -- create_db.sql's definition exactly. Needed because a DAYS sale now
+    -- looks up the shop's primary carrier line (LIRA-113); no row is
+    -- inserted here on purpose, so getPrimary() returns null and the
+    -- "no primary carrier line configured" warn+skip branch runs (this
+    -- file only asserts SMS-cost/drawer behaviour, not validity).
+    CREATE TABLE carrier_lines (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id           INTEGER DEFAULT 1,
+      carrier             TEXT NOT NULL CHECK(carrier IN ('alfa', 'mtc')),
+      phone_number        TEXT NOT NULL,
+      label               TEXT,
+      credits             REAL NOT NULL DEFAULT 0,
+      validity_expires_at TEXT,
+      notes               TEXT,
+      is_active           INTEGER NOT NULL DEFAULT 1,
+      is_primary          INTEGER NOT NULL DEFAULT 0,
+      created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX idx_carrier_lines_carrier ON carrier_lines(carrier);
+    CREATE INDEX idx_carrier_lines_tenant_id ON carrier_lines(tenant_id);
+    CREATE UNIQUE INDEX idx_carrier_lines_one_primary_per_carrier
+      ON carrier_lines(tenant_id, carrier)
+      WHERE is_primary = 1;
+
+    CREATE TABLE carrier_line_movements (
+      id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id                    INTEGER DEFAULT 1,
+      carrier_line_id              INTEGER NOT NULL,
+      transaction_id               INTEGER,
+      credits_delta                REAL NOT NULL DEFAULT 0,
+      validity_days_delta          INTEGER NOT NULL DEFAULT 0,
+      previous_validity_expires_at TEXT,
+      reason                       TEXT NOT NULL,
+      is_reversed                  INTEGER NOT NULL DEFAULT 0,
+      created_at                   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at                   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX idx_carrier_line_movements_tenant_id ON carrier_line_movements(tenant_id);
+    CREATE INDEX idx_carrier_line_movements_carrier_line_id ON carrier_line_movements(carrier_line_id);
+    CREATE INDEX idx_carrier_line_movements_transaction_id ON carrier_line_movements(transaction_id);
+
     INSERT INTO drawer_balances VALUES (1, 'MTC',     'USD', 1000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'Alfa',    'USD', 1000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'General', 'USD', 5000, CURRENT_TIMESTAMP);
@@ -182,11 +228,17 @@ describe("RechargeRepository — SMS cost deduction for CREDIT_TRANSFER", () => 
     setDb(db);
     initFixedTenantContext(1);
     resetTransactionRepository();
+    resetCarrierLineRepository();
+    resetCarrierLineMovementRepository();
+    resetCarrierLineService();
     repo = new RechargeRepository();
   });
 
   afterEach(() => {
     resetTenantContext();
+    resetCarrierLineRepository();
+    resetCarrierLineMovementRepository();
+    resetCarrierLineService();
     db.close();
   });
 

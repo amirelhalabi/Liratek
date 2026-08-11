@@ -985,44 +985,33 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // skips the informational side effect rather than failing the sale
         // (the credits leg above has already posted).
         //
-        // Defensive `carrier_lines` existence check: several hand-rolled
-        // test DBs for THIS repository predate LIRA-090 and never create
-        // `carrier_lines`/`carrier_line_movements` at all (they test only
-        // the drawer-leg half of a DAYS sale — see
-        // `RechargeRepository.daysStockCost.test.ts` /
-        // `RechargeRepository.sms_cost.test.ts`), same rationale as
-        // `TransactionRepository._reverseCarrierLineMovements`'s own
-        // `sqlite_master` guard. Every REAL schema (create_db.sql, every
-        // migrated app db) creates both tables together, so this one check
-        // covers the pair.
+        // Every real schema (create_db.sql, every migrated app db) has
+        // `carrier_lines`/`carrier_line_movements` — LIRA-090 (v140) creates
+        // them together, unconditionally. The missing-PRIMARY-LINE case
+        // below is the only legitimate runtime skip (mirrors
+        // `FinancialServiceRepository.processTelecomCreditReturn`'s
+        // established convention): a shop that hasn't configured a primary
+        // line for this carrier yet, not a missing table.
         if (data.type === "DAYS") {
-          const hasCarrierLinesTable = this.db
-            .prepare(
-              `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'carrier_lines'`,
-            )
-            .get();
-          if (hasCarrierLinesTable) {
-            const carrier: CarrierKey =
-              data.provider === "MTC" ? "mtc" : "alfa";
-            const primaryLine = getCarrierLineRepository().getPrimary(carrier);
-            if (primaryLine) {
-              const validityMovement = getCarrierLineService().applyMovement({
-                carrierLineId: primaryLine.id,
-                validityDaysDelta: -Math.abs(data.amount),
-                reason: "DAYS_SALE",
-                transactionId: txnId,
-              });
-              if (!validityMovement.success) {
-                throw new Error(
-                  `Failed to apply carrier line movement: ${validityMovement.error}`,
-                );
-              }
-            } else {
-              rechargeLogger.warn(
-                { carrier },
-                "processRecharge(DAYS): no primary carrier line configured — validity decrement skipped",
+          const carrier: CarrierKey = data.provider === "MTC" ? "mtc" : "alfa";
+          const primaryLine = getCarrierLineRepository().getPrimary(carrier);
+          if (primaryLine) {
+            const validityMovement = getCarrierLineService().applyMovement({
+              carrierLineId: primaryLine.id,
+              validityDaysDelta: -Math.abs(data.amount),
+              reason: "DAYS_SALE",
+              transactionId: txnId,
+            });
+            if (!validityMovement.success) {
+              throw new Error(
+                `Failed to apply carrier line movement: ${validityMovement.error}`,
               );
             }
+          } else {
+            rechargeLogger.warn(
+              { carrier },
+              "processRecharge(DAYS): no primary carrier line configured — validity decrement skipped",
+            );
           }
         }
 
@@ -1182,16 +1171,18 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    *     buy-back never touches validity; that only happens via an iPick/
    *     Katsh self-charge).
    *
-   *     RE-VERIFIED 2026-08-11 (LIRA-113): the owner revoked D9's *general*
-   *     premise on 2026-08-10 ("that rule was written before adding a
-   *     validity and a shop line to the shop... credits and validity days
-   *     should be reduced" when charging a client phone days) — but that
-   *     revocation lands on the DAYS-sale gap (`processRecharge`'s `DAYS`
-   *     arm, fixed by this same ticket, see the block above the SMS-cost
-   *     deduction below), NOT on this method. Confirmed genuinely separate
-   *     flows, not two arms of one transaction: (1) this method is reachable
-   *     ONLY when `rechargeType === "CREDIT_TRANSFER"` and the typed phone
-   *     matches the shop's own line (`Recharge/index.tsx`'s `isBuyback`,
+   *     OWNER-CONFIRMED 2026-08-11 (LIRA-113): D9 stands for credit buy-back
+   *     — permanently, and by the owner's OWN decision, not merely an
+   *     agent's inference. The owner's 2026-08-10 LIRA-113 note ("that rule
+   *     was written before adding a validity and a shop line to the shop...
+   *     credits and validity days should be reduced" when charging a client
+   *     phone days) read, on first pass, as a possible revocation of D9's
+   *     *general* premise. An agent's investigation narrowed that to the
+   *     DAYS-sale gap only (`processRecharge`'s `DAYS` arm, fixed by this
+   *     same ticket, see the block above the SMS-cost deduction below), on
+   *     four independent grounds: (1) this method is reachable ONLY when
+   *     `rechargeType === "CREDIT_TRANSFER"` and the typed phone matches the
+   *     shop's own line (`Recharge/index.tsx`'s `isBuyback`,
    *     `TelecomForm.tsx`'s `isCreditBuyback`) — the Days tab's OWN
    *     shop-line match instead renders a block-and-redirect notice
    *     (`ShopLineRedirectNotice`) and refuses to submit at all, proven by
@@ -1200,9 +1191,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    *     there is no "days sold" figure in this flow's input to subtract at
    *     all; (3) `RechargeRepository.creditBuyback.test.ts` already asserts
    *     `validityDaysDelta === 0` and validity untouched as a passing,
-   *     unmodified test — changing this zero would break it, and this
-   *     ticket's brief authorizes editing only the 3 LIRA-113 red tests.
-   *     D9 stands, unchanged, for this method.
+   *     unmodified test — changing this zero would break it, and that
+   *     ticket's brief authorized editing only the 3 LIRA-113 red tests.
+   *     The owner was then asked directly, and confirmed explicitly:
+   *     "days sale only" — only the DAYS-tab sale reduces the shop line's
+   *     credits AND validity; credit buy-back reduces credits only, exactly
+   *     as D9 always said. D9 is settled for this method by the owner's own
+   *     ruling — this is not an open question for the next reader to
+   *     re-derive or revisit.
    *   - The provider drawer is then set to `getCarrierCreditsSum(carrier)`
    *     (§0.1) — posted as the DIFFERENCE from its current balance, as an
    *     ordinary auditable `payments` row, so §0.6's "a NEW path does not
@@ -1403,10 +1399,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // moves. Established call convention (mirrors
         // FinancialServiceRepository.selfChargeTelecomItem): repository for
         // reads (getPrimary, above), service for the paired write. D9
-        // re-verified 2026-08-11 against the owner's 2026-08-10 LIRA-113
-        // note and confirmed to still apply to THIS method — see the
-        // "RE-VERIFIED 2026-08-11" paragraph on this method's own doc
-        // comment above for why the DAYS-sale fix does not extend here.
+        // stands here, permanently, by the owner's OWN 2026-08-11 decision:
+        // asked directly whether LIRA-113's "credits and validity days
+        // should be reduced" note extended to credit buy-back too, the
+        // owner answered "days sale only" — see the "OWNER-CONFIRMED
+        // 2026-08-11" paragraph on this method's own doc comment above for
+        // the full evidence trail.
         const movement = getCarrierLineService().applyMovement({
           carrierLineId: primaryLine.id,
           creditsDelta: credits,
