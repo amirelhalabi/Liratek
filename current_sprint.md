@@ -3641,7 +3641,7 @@ reachable through the UI. Check reachability before building enforcement.
 | **Epic**              | Reporting / cross-module              |
 | **Type**              | Bug - misleading display (money correct) |
 | **Priority**          | **High** (5 modules; same defect the owner hit) |
-| **Status**            | TODO                                  |
+| **Status**            | **DONE** (4710cb8) - all 5 fixed; found a 6th and 7th drop site |
 | **Affected Modules**  | recharge, omt_whish, exchange, expenses, debts |
 | **Source Plan**       | The 11-table audit demanded by LIRA-130, run 2026-08-10 |
 
@@ -4250,7 +4250,7 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet) | Medium | **RESOLVED** - owner confirmed no cash moves; documented FEATURE_GUIDE 8.1.0 | PARTNER_DISBURSEMENT_MATRIX.md |
 | LIRA-129 | Ledger badge contradicts the amount's sign                | Medium | **DONE** 9082d6c - one sign rule; 4 of 7 entry_types affected, incl. an unreported LOTO SETTLEMENT case | found closing LIRA-128 |
 | LIRA-130 | Custom Services history shows a REFUNDED service as live | **High** | **DONE** e47dfa2 - frontend was starved, not unbuilt; audit -> LIRA-131 | owner report 2026-08-10 |
-| LIRA-131 | is_refunded dropped from 5 MORE module read paths        | **High** | TODO - 4 are one-line fixes, badge code already dead and waiting | LIRA-130's 11-table audit |
+| LIRA-131 | is_refunded dropped from 5 MORE module read paths        | **High** | **DONE** 4710cb8 - plus a 2nd financial_services projection and 2 frontend re-mapping drops the audit had missed | LIRA-130's 11-table audit |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
 
