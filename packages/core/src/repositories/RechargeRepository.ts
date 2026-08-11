@@ -310,7 +310,17 @@ interface TelecomStockLeg {
  * `-Math.abs(data.amount)` unconditionally, so selling 30 days debited the MTC
  * drawer $30.00 instead of the $0.90 the three SMSes actually cost — a 33x
  * over-deduction (owner ruling 2026-08-06: each SMS adds 10 days and costs the
- * shop $0.30; the shop's own validity never moves).
+ * shop $0.30).
+ *
+ * SUPERSEDED PARENTHETICAL (owner ruling 2026-08-06 also said "the shop's own
+ * validity never moves" — a LATER owner report, 2026-08-08, asked for the
+ * literal reverse: a DAYS sale must decrement the shop's own line's
+ * `validity_expires_at` by the days sold. This function's scope is
+ * unaffected — it only ever moved the USD credit-cost drawer leg, never
+ * validity — the validity decrement is a SEPARATE `CarrierLineService
+ * .applyMovement` call in `processRecharge`, right after this function's
+ * result is applied. See `RechargeRepository.daysChargeValidityDecrement
+ * .test.ts` (LIRA-113).
  *
  * The days figure comes from the operator-submitted cost, already converted to
  * USD by the caller — never recomputed from the day count, because the Days
@@ -946,6 +956,76 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           upsertBalanceDelta.run(providerDrawerName, "USD", stockLeg.amountUsd);
         }
 
+        // LIRA-113 (owner report, 2026-08-08): "charging 10 days to a
+        // customer decreases the shop's line validity by exactly 10 days" —
+        // a DAYS sale must decrement the shop's OWN carrier line's
+        // `validity_expires_at` by the days sold, not just consume the
+        // credit-cost drawer leg above. Gated to DAYS only — every other
+        // `RechargeData.type` sends USD credit face value and never touches
+        // validity (see `telecomStockLeg`'s doc).
+        //
+        // Reuses `CarrierLineService.applyMovement`/`CarrierLineRepository
+        // .computeAppliedState` — the SAME days→date math already exercised
+        // by the self-charge ADD path and the absolute-expiry checkpoint
+        // (rule 14, no second date computation) — with a NEGATIVE
+        // `validityDaysDelta`. `computeAppliedState` rebases onto
+        // `max(today, current_expiry)` before applying the delta, so a
+        // still-valid line (the normal case) subtracts from its own current
+        // expiry unchanged; it never re-derives "today" with new code, so no
+        // new timezone surface is introduced here — `localDay()` (already
+        // timezone-reviewed for the ClosingRepository checkpoint) is the only
+        // "what day is it" call in the whole path.
+        //
+        // Tied to `txnId`, so void/refund's type-agnostic
+        // `TransactionRepository._reverseCarrierLineMovements` restores
+        // `validity_expires_at` from `previous_validity_expires_at` verbatim
+        // (rule 20) — no new reversal code needed. Mirrors
+        // `FinancialServiceRepository.processTelecomCreditReturn`'s
+        // established convention: missing primary line logs a warning and
+        // skips the informational side effect rather than failing the sale
+        // (the credits leg above has already posted).
+        //
+        // Defensive `carrier_lines` existence check: several hand-rolled
+        // test DBs for THIS repository predate LIRA-090 and never create
+        // `carrier_lines`/`carrier_line_movements` at all (they test only
+        // the drawer-leg half of a DAYS sale — see
+        // `RechargeRepository.daysStockCost.test.ts` /
+        // `RechargeRepository.sms_cost.test.ts`), same rationale as
+        // `TransactionRepository._reverseCarrierLineMovements`'s own
+        // `sqlite_master` guard. Every REAL schema (create_db.sql, every
+        // migrated app db) creates both tables together, so this one check
+        // covers the pair.
+        if (data.type === "DAYS") {
+          const hasCarrierLinesTable = this.db
+            .prepare(
+              `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'carrier_lines'`,
+            )
+            .get();
+          if (hasCarrierLinesTable) {
+            const carrier: CarrierKey =
+              data.provider === "MTC" ? "mtc" : "alfa";
+            const primaryLine = getCarrierLineRepository().getPrimary(carrier);
+            if (primaryLine) {
+              const validityMovement = getCarrierLineService().applyMovement({
+                carrierLineId: primaryLine.id,
+                validityDaysDelta: -Math.abs(data.amount),
+                reason: "DAYS_SALE",
+                transactionId: txnId,
+              });
+              if (!validityMovement.success) {
+                throw new Error(
+                  `Failed to apply carrier line movement: ${validityMovement.error}`,
+                );
+              }
+            } else {
+              rechargeLogger.warn(
+                { carrier },
+                "processRecharge(DAYS): no primary carrier line configured — validity decrement skipped",
+              );
+            }
+          }
+        }
+
         // SMS cost deduction: each CREDIT_TRANSFER requires SMSes to send credits
         if (data.type === "CREDIT_TRANSFER" && smsCostUsd > 0) {
           insertPayment.run(
@@ -1101,6 +1181,28 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
    *     row, reason `CREDIT_BUYBACK`, `validityDaysDelta: 0` (D9 — a
    *     buy-back never touches validity; that only happens via an iPick/
    *     Katsh self-charge).
+   *
+   *     RE-VERIFIED 2026-08-11 (LIRA-113): the owner revoked D9's *general*
+   *     premise on 2026-08-10 ("that rule was written before adding a
+   *     validity and a shop line to the shop... credits and validity days
+   *     should be reduced" when charging a client phone days) — but that
+   *     revocation lands on the DAYS-sale gap (`processRecharge`'s `DAYS`
+   *     arm, fixed by this same ticket, see the block above the SMS-cost
+   *     deduction below), NOT on this method. Confirmed genuinely separate
+   *     flows, not two arms of one transaction: (1) this method is reachable
+   *     ONLY when `rechargeType === "CREDIT_TRANSFER"` and the typed phone
+   *     matches the shop's own line (`Recharge/index.tsx`'s `isBuyback`,
+   *     `TelecomForm.tsx`'s `isCreditBuyback`) — the Days tab's OWN
+   *     shop-line match instead renders a block-and-redirect notice
+   *     (`ShopLineRedirectNotice`) and refuses to submit at all, proven by
+   *     `Recharge.telecomPhoneNumberTabSwitch.test.tsx`; (2) `data.amount`
+   *     here is documented above as USD credit face value, not a day count —
+   *     there is no "days sold" figure in this flow's input to subtract at
+   *     all; (3) `RechargeRepository.creditBuyback.test.ts` already asserts
+   *     `validityDaysDelta === 0` and validity untouched as a passing,
+   *     unmodified test — changing this zero would break it, and this
+   *     ticket's brief authorizes editing only the 3 LIRA-113 red tests.
+   *     D9 stands, unchanged, for this method.
    *   - The provider drawer is then set to `getCarrierCreditsSum(carrier)`
    *     (§0.1) — posted as the DIFFERENCE from its current balance, as an
    *     ordinary auditable `payments` row, so §0.6's "a NEW path does not
@@ -1300,7 +1402,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         // Credit the shop's own line — D9: credits only, validity never
         // moves. Established call convention (mirrors
         // FinancialServiceRepository.selfChargeTelecomItem): repository for
-        // reads (getPrimary, above), service for the paired write.
+        // reads (getPrimary, above), service for the paired write. D9
+        // re-verified 2026-08-11 against the owner's 2026-08-10 LIRA-113
+        // note and confirmed to still apply to THIS method — see the
+        // "RE-VERIFIED 2026-08-11" paragraph on this method's own doc
+        // comment above for why the DAYS-sale fix does not extend here.
         const movement = getCarrierLineService().applyMovement({
           carrierLineId: primaryLine.id,
           creditsDelta: credits,
