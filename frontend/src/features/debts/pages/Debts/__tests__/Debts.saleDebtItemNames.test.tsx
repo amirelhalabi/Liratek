@@ -35,77 +35,88 @@ const mockGetSaleItems = jest.fn();
 const mockGetClientBalance = jest.fn();
 const mockGetSale = jest.fn();
 
-jest.mock("@liratek/ui", () => ({
-  useApi: () => ({
-    getDebtors: mockGetDebtors,
-    getClientDebtHistory: mockGetClientDebtHistory,
-    getTransactionById: mockGetTransactionById,
-    getSaleItems: mockGetSaleItems,
-    getClientBalance: mockGetClientBalance,
-    getCustomServiceById: jest.fn(),
-    getSale: mockGetSale,
-    cashOut: jest.fn(),
-    addRepayment: jest.fn(),
-    addAccountEntry: jest.fn(),
-    getClientDebtTotal: jest.fn(),
-  }),
-  PageHeader: ({
-    title,
-    actions,
-  }: {
-    title: string;
-    actions?: React.ReactNode;
-  }) => (
-    <div data-testid="page-header">
-      <h1>{title}</h1>
-      {actions}
-    </div>
-  ),
-  Select: ({
-    value,
-    onChange,
-    options,
-  }: {
-    value: string;
-    onChange: (v: string) => void;
-    options: { value: string; label: string }[];
-  }) => (
-    <select
-      data-testid="debt-filter-select"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  ),
-  ServiceTypeTabs: () => null,
-  MultiPaymentInput: () => null,
-  DataTable: <T,>({
-    data,
-    renderRow,
-    emptyMessage,
-  }: {
-    data: T[];
-    renderRow: (item: T) => React.ReactNode;
-    emptyMessage?: string;
-  }) => (
-    <table>
-      <tbody>
-        {data.length === 0 ? (
-          <tr>
-            <td>{emptyMessage}</td>
-          </tr>
-        ) : (
-          data.map((item) => renderRow(item))
-        )}
-      </tbody>
-    </table>
-  ),
-}));
+// Spread the REAL module first (`jest.requireActual`) — Debts also imports
+// the shared, presentation-only balance colour helpers (`BALANCE_EPS`/
+// `balanceTextColor`/`combinedBalanceBucket`/`BALANCE_BORDER_COLOR`,
+// `@liratek/ui`, Balance Pages colour audit 2026-08-11), which a plain
+// object-literal mock like the old one here would silently turn into
+// `undefined` (a `TypeError` at render). Only the pieces below need
+// stubbing — everything else stays real.
+jest.mock("@liratek/ui", () => {
+  const actual = jest.requireActual("@liratek/ui");
+  return {
+    ...actual,
+    useApi: () => ({
+      getDebtors: mockGetDebtors,
+      getClientDebtHistory: mockGetClientDebtHistory,
+      getTransactionById: mockGetTransactionById,
+      getSaleItems: mockGetSaleItems,
+      getClientBalance: mockGetClientBalance,
+      getCustomServiceById: jest.fn(),
+      getSale: mockGetSale,
+      cashOut: jest.fn(),
+      addRepayment: jest.fn(),
+      addAccountEntry: jest.fn(),
+      getClientDebtTotal: jest.fn(),
+    }),
+    PageHeader: ({
+      title,
+      actions,
+    }: {
+      title: string;
+      actions?: React.ReactNode;
+    }) => (
+      <div data-testid="page-header">
+        <h1>{title}</h1>
+        {actions}
+      </div>
+    ),
+    Select: ({
+      value,
+      onChange,
+      options,
+    }: {
+      value: string;
+      onChange: (v: string) => void;
+      options: { value: string; label: string }[];
+    }) => (
+      <select
+        data-testid="debt-filter-select"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    ),
+    ServiceTypeTabs: () => null,
+    MultiPaymentInput: () => null,
+    DataTable: <T,>({
+      data,
+      renderRow,
+      emptyMessage,
+    }: {
+      data: T[];
+      renderRow: (item: T) => React.ReactNode;
+      emptyMessage?: string;
+    }) => (
+      <table>
+        <tbody>
+          {data.length === 0 ? (
+            <tr>
+              <td>{emptyMessage}</td>
+            </tr>
+          ) : (
+            data.map((item) => renderRow(item))
+          )}
+        </tbody>
+      </table>
+    ),
+  };
+});
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),

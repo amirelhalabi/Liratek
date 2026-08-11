@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   appEvents,
+  BALANCE_EPS,
+  balanceBucket,
+  balanceTextColor,
   CounterpartySettleModal,
   PageHeader,
   type PaymentLine,
@@ -134,11 +137,22 @@ function drawerDisplayLabel(drawerName: string): string {
 
 /**
  * Supplier balance is the signed sum of the ledger:
- *   > 0  → WE owe the supplier   ("You owe …", red)
- *   < 0  → the supplier owes US  ("They owe you …", green) — e.g. after overpayment
- *   = 0  → settled
+ *   > 0  → WE owe the supplier   ("You owe …", GREEN) — owner's rule, verbatim
+ *          (2026-08-10): "Positive account should be green, means shop owes
+ *          the second party." Suppliers' own positive sign already means
+ *          "shop owes" natively, so no negation is needed before handing the
+ *          raw amount to the shared `balanceTextColor`/`balanceBucket`
+ *          helpers (`@liratek/ui`) — unlike Debts/Partners, whose positive
+ *          sign means the OPPOSITE and must negate first.
+ *   < 0  → the supplier owes US  ("They owe you …", RED) — e.g. after overpayment
+ *   = 0  → settled (within BALANCE_EPS)
+ *
+ * Pre-2026-08-11 this page's own convention (documented right here) inverted
+ * the owner's rule — red for "we owe", green for "they owe us" — inherited,
+ * not introduced, by the LIRA-129 refactor (9082d6c), which moved this
+ * comment and its branches verbatim without changing the polarity. Flipped
+ * as part of the Balance Pages colour audit (`BALANCE_PAGES_UX_AUDIT.md`).
  */
-const BALANCE_EPS = 0.005;
 
 /**
  * LIRA-129, rule 14 — the ONE place "which way does this signed money value
@@ -149,9 +163,17 @@ const BALANCE_EPS = 0.005;
  */
 type LedgerDirection = "UP" | "DOWN" | "FLAT";
 
+/** UP/DOWN/FLAT is this page's own domain vocabulary for "what happens to
+ *  the we-owe-the-supplier balance" — kept local since the badge tooltip
+ *  text (`LEDGER_DIRECTION_HINT`) is written in those terms. The actual
+ *  threshold/epsilon decision is NOT re-derived here — it delegates to the
+ *  shared `balanceBucket` (`@liratek/ui`), since Suppliers' positive sign
+ *  already means "shop owes" natively (no negation needed, unlike
+ *  Debts/Partners — see the balance doc-comment above). */
 function signBucket(amount: number): LedgerDirection {
-  if (amount > BALANCE_EPS) return "UP";
-  if (amount < -BALANCE_EPS) return "DOWN";
+  const bucket = balanceBucket(amount, BALANCE_EPS);
+  if (bucket === "SHOP_OWES") return "UP";
+  if (bucket === "COUNTERPARTY_OWES") return "DOWN";
   return "FLAT";
 }
 
@@ -193,6 +215,11 @@ const LEDGER_DIRECTION_HINT: Record<LedgerDirection, string> = {
  * every ledger row, so the same "+ increases what we owe, − decreases it"
  * rule applies uniformly to every entry_type, not just TOP_UP. `type` now
  * drives ONLY the label text (which event this was) — never the color.
+ *
+ * Colour polarity flipped 2026-08-11 (Balance Pages colour audit) to match
+ * the owner's rule: UP ("shop owes more") is now GREEN, DOWN ("supplier owes
+ * us more") is now RED — the label/meaning (`LEDGER_DIRECTION_HINT` below)
+ * did not change, only which colour each meaning gets.
  */
 function EntryTypeBadge({
   type,
@@ -203,9 +230,9 @@ function EntryTypeBadge({
 }) {
   const color =
     direction === "UP"
-      ? "bg-red-900/50 text-red-300"
+      ? "bg-green-900/50 text-green-300"
       : direction === "DOWN"
-        ? "bg-green-900/50 text-green-300"
+        ? "bg-red-900/50 text-red-300"
         : "bg-slate-700/50 text-slate-300";
   const label =
     type === "SALE_COST"
@@ -235,6 +262,12 @@ function formatMoney(amount: number, currency: "USD" | "LBP"): string {
     : `${Math.round(amount).toLocaleString()} LBP`;
 }
 
+/** Prose is unchanged; only the colour flips (owner's rule, 2026-08-11):
+ *  shop-owes ("You owe …") is GREEN, counterparty-owes ("They owe you …")
+ *  is RED. Delegates to the shared `balanceTextColor` (`@liratek/ui`) so
+ *  the actual bucket/colour mapping isn't re-derived per page (rule 14) —
+ *  also retires this page's `green-400` shade in favour of the
+ *  `emerald-400` the other two balance pages already use. */
 function describeBalance(
   amount: number,
   currency: "USD" | "LBP",
@@ -242,20 +275,19 @@ function describeBalance(
   const abs = Math.abs(amount);
   const money = formatMoney(abs, currency);
   const bucket = signBucket(amount);
-  if (bucket === "UP") return { text: `You owe ${money}`, cls: "text-red-400" };
-  if (bucket === "DOWN")
-    return { text: `They owe you ${money}`, cls: "text-green-400" };
-  return { text: "Settled", cls: "text-slate-400" };
+  const cls = balanceTextColor(amount, BALANCE_EPS);
+  if (bucket === "UP") return { text: `You owe ${money}`, cls };
+  if (bucket === "DOWN") return { text: `They owe you ${money}`, cls };
+  return { text: "Settled", cls };
 }
 
 /** Compact directional color for a single signed amount (list rows AND,
  *  LIRA-129, a ledger row's own amount cell — same `signBucket` the badge
- *  now uses, rule 14: one threshold, never re-derived). */
+ *  now uses, rule 14: one threshold, never re-derived). Suppliers' raw sign
+ *  already means "shop owes" when positive, so the amount is passed to the
+ *  shared helper unnegated (contrast Debts/Partners, which must negate). */
 function balanceColor(amount: number): string {
-  const bucket = signBucket(amount);
-  if (bucket === "UP") return "text-red-400";
-  if (bucket === "DOWN") return "text-green-400";
-  return "text-slate-500";
+  return balanceTextColor(amount, BALANCE_EPS);
 }
 
 export default function SuppliersPage() {
@@ -1001,12 +1033,16 @@ export default function SuppliersPage() {
         subtitle="Track amounts owed to suppliers. System debts are auto-recorded from transactions."
       />
 
-      {/* Balance overview */}
+      {/* Balance overview — was a bare `< 0 ? green : red` bypassing this
+          page's own signBucket/BALANCE_EPS (latent bug #1, audit): exactly
+          $0.00/0 LBP rendered alarm-red even when every supplier is settled.
+          Now routed through the shared helper: epsilon'd (neutral at ~0)
+          and owner's-rule polarity (positive = we owe = green). */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
           <div className="text-xs text-slate-400 mb-1">Total Owed (USD)</div>
           <div
-            className={`text-2xl font-bold font-mono ${totalOwed.usd < 0 ? "text-green-400" : "text-red-400"}`}
+            className={`text-2xl font-bold font-mono ${balanceTextColor(totalOwed.usd, BALANCE_EPS)}`}
           >
             ${totalOwed.usd.toFixed(2)}
           </div>
@@ -1014,7 +1050,7 @@ export default function SuppliersPage() {
         <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
           <div className="text-xs text-slate-400 mb-1">Total Owed (LBP)</div>
           <div
-            className={`text-2xl font-bold font-mono ${totalOwed.lbp < 0 ? "text-green-400" : "text-red-400"}`}
+            className={`text-2xl font-bold font-mono ${balanceTextColor(totalOwed.lbp, BALANCE_EPS)}`}
           >
             {totalOwed.lbp.toLocaleString()} LBP
           </div>

@@ -14,13 +14,24 @@
  * Suppliers page against the REAL, unmodified `EntryTypeBadge` and asserts
  * the rendered badge/amount classes agree, not a props-level shape.
  *
- * Rule 17 (failing-first): pre-fix, `EntryTypeBadge`'s color is a switch on
- * `type` alone (TOP_UP → always red), independent of sign. Run against a
- * negative TOP_UP row, the pre-fix badge carries the red classes
- * (`bg-red-900/50 text-red-300`) while the amount cell carries the green
- * class (`text-green-400`) — this test's "same direction" assertion fails.
- * See the task report for the literal failing output captured before the
- * fix landed.
+ * Rule 17 (failing-first, LIRA-129 era): pre-fix, `EntryTypeBadge`'s color
+ * was a switch on `type` alone (TOP_UP -> always red), independent of sign.
+ * Run against a negative TOP_UP row, the pre-fix badge carried the red
+ * classes (`bg-red-900/50 text-red-300`) while the amount cell carried the
+ * green class (`text-green-400`) -- the "same direction" assertion failed.
+ *
+ * UPDATED 2026-08-11 (Balance Pages colour audit) -- polarity flip, not a
+ * regression. This file's own concrete colour expectations (which family,
+ * green or red, "up"/"down" gets) encoded the PRE-audit convention that the
+ * audit found backwards against the owner's rule ("positive account should
+ * be green, means shop owes the second party"): Suppliers' positive/"UP"
+ * ("we owe the supplier more") was red, negative/"DOWN" was green. The
+ * audit flips that globally, so every concrete `text-red-400`/`text-green
+ * -400`/`red`/`green` expectation below is swapped to match. The actual
+ * regression this file guards -- that the badge and the amount cell must
+ * agree with EACH OTHER, whichever colour "agree" currently means -- is
+ * untouched: only the literal colour each direction maps to changed, not
+ * the "badge and amount must never disagree" assertion shape.
  */
 
 import { render, screen, fireEvent, within } from "@testing-library/react";
@@ -37,30 +48,42 @@ const mockGetUnsettledTransactions = jest.fn();
 const mockSettleTransactions = jest.fn();
 const mockAppEventsEmit = jest.fn();
 
-jest.mock("@liratek/ui", () => ({
-  useApi: () => ({
-    getSuppliers: mockGetSuppliers,
-    getSupplierBalances: mockGetSupplierBalances,
-    getSupplierProductBalances: mockGetSupplierProductBalances,
-    getSupplierLedger: mockGetSupplierLedger,
-    getSupplierProductItems: mockGetSupplierProductItems,
-    getAllSupplierTransactions: mockGetAllSupplierTransactions,
-    getUnsettledTransactions: mockGetUnsettledTransactions,
-    settleTransactions: mockSettleTransactions,
-    recordSupplierCashflow: jest.fn(),
-    addSupplierLedgerEntry: jest.fn(),
-    supplierWriteOff: jest.fn(),
-    getSupplierPurchases: jest.fn(),
-    createSupplierPurchase: jest.fn(),
-  }),
-  appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
-  CounterpartySettleModal: () => null,
-  PageHeader: ({ title }: { title: string }) => (
-    <div data-testid="page-header">
-      <h1>{title}</h1>
-    </div>
-  ),
-}));
+// Spread the REAL module first (`jest.requireActual`) — this page now also
+// imports the shared, presentation-only balance colour helpers
+// (`BALANCE_EPS`/`balanceBucket`/`balanceTextColor`, `@liratek/ui`, Balance
+// Pages colour audit 2026-08-11), which a plain object-literal mock like the
+// old one here would silently turn into `undefined` (a `TypeError` at
+// render, not a color mismatch). Only `useApi`/`appEvents`/
+// `CounterpartySettleModal`/`PageHeader` need stubbing — everything else
+// (including the balance helpers this test exercises) stays real.
+jest.mock("@liratek/ui", () => {
+  const actual = jest.requireActual("@liratek/ui");
+  return {
+    ...actual,
+    useApi: () => ({
+      getSuppliers: mockGetSuppliers,
+      getSupplierBalances: mockGetSupplierBalances,
+      getSupplierProductBalances: mockGetSupplierProductBalances,
+      getSupplierLedger: mockGetSupplierLedger,
+      getSupplierProductItems: mockGetSupplierProductItems,
+      getAllSupplierTransactions: mockGetAllSupplierTransactions,
+      getUnsettledTransactions: mockGetUnsettledTransactions,
+      settleTransactions: mockSettleTransactions,
+      recordSupplierCashflow: jest.fn(),
+      addSupplierLedgerEntry: jest.fn(),
+      supplierWriteOff: jest.fn(),
+      getSupplierPurchases: jest.fn(),
+      createSupplierPurchase: jest.fn(),
+    }),
+    appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
+    CounterpartySettleModal: () => null,
+    PageHeader: ({ title }: { title: string }) => (
+      <div data-testid="page-header">
+        <h1>{title}</h1>
+      </div>
+    ),
+  };
+});
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),
@@ -208,18 +231,21 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     fireEvent.click((await screen.findAllByText("OMT"))[0]);
 
     const amountCell = await screen.findByText("-45.50");
-    expect(amountCell.className).toMatch(/text-green-400/);
+    // Owner's rule (2026-08-11): DOWN ("supplier owes us more") is RED —
+    // the reverse of this file's pre-audit expectation (was green).
+    expect(amountCell.className).toMatch(/text-red-400/);
 
     const row = amountCell.parentElement as HTMLElement;
     const badge = within(row).getByText("TOP_UP");
 
-    // The defect: pre-fix, EntryTypeBadge colors purely off entry_type, so a
-    // TOP_UP badge is ALWAYS red — contradicting the green (down) amount
-    // right next to it. Post-fix, direction must come from the SAME sign the
-    // amount cell uses, so the badge must NOT be red here.
-    expect(badge.className).not.toMatch(/red/);
-    // And it must positively agree — green/down family, same as the amount.
-    expect(badge.className).toMatch(/green/);
+    // The defect this test actually guards (unchanged by the polarity flip):
+    // pre-LIRA-129, EntryTypeBadge coloured purely off entry_type, so a
+    // TOP_UP badge was ALWAYS one fixed colour — contradicting the amount
+    // cell's colour whenever the row's sign disagreed with the common case.
+    // Post-fix, direction must come from the SAME sign the amount cell uses,
+    // so the badge must agree with whichever colour the amount is (now red).
+    expect(badge.className).not.toMatch(/green/);
+    expect(badge.className).toMatch(/red/);
   });
 
   it("a POSITIVE TOP_UP (an ordinary SEND/top-up) still reads as debt going UP on both the badge and the amount", async () => {
@@ -230,13 +256,15 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     fireEvent.click((await screen.findAllByText("OMT"))[0]);
 
     const amountCell = await screen.findByText("+80.00");
-    expect(amountCell.className).toMatch(/text-red-400/);
+    // Owner's rule: UP ("we owe the supplier more") is GREEN — the reverse
+    // of this file's pre-audit expectation (was red).
+    expect(amountCell.className).toMatch(/text-emerald-400/);
 
     const row = amountCell.parentElement as HTMLElement;
     const badge = within(row).getByText("TOP_UP");
 
-    expect(badge.className).not.toMatch(/green/);
-    expect(badge.className).toMatch(/red/);
+    expect(badge.className).not.toMatch(/red/);
+    expect(badge.className).toMatch(/green/);
   });
 
   // Independently-discovered second instance (sweep for this ticket, not the
@@ -257,13 +285,14 @@ describe("Suppliers page — ledger badge/amount direction agreement (LIRA-129)"
     fireEvent.click((await screen.findAllByText("LOTO"))[0]);
 
     const amountCell = await screen.findByText("+15,000");
-    expect(amountCell.className).toMatch(/text-red-400/);
+    // Owner's rule: UP is GREEN (was red pre-audit).
+    expect(amountCell.className).toMatch(/text-emerald-400/);
 
     const row = amountCell.parentElement as HTMLElement;
     const badge = within(row).getByText("SETTLEMENT");
 
-    expect(badge.className).not.toMatch(/green/);
+    expect(badge.className).not.toMatch(/red/);
     expect(badge.className).not.toMatch(/blue/);
-    expect(badge.className).toMatch(/red/);
+    expect(badge.className).toMatch(/green/);
   });
 });

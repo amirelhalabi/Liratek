@@ -20,6 +20,10 @@ import {
 } from "lucide-react";
 import {
   appEvents,
+  BALANCE_BORDER_COLOR,
+  BALANCE_EPS,
+  balanceTextColor,
+  combinedBalanceBucket,
   CounterpartySettleModal,
   PageHeader,
   Select,
@@ -1340,21 +1344,32 @@ export default function Debts() {
                   {/* Center: Balance — each currency carries its OWN sign
                       and color: a client can hold a USD credit AND an LBP
                       debt at the same time (forcing one sign on both once
-                      displayed a mixed position as double credit). */}
+                      displayed a mixed position as double credit).
+                      Debts' own polarity is already correct per the owner's
+                      rule (2026-08-10 — "positive account should be green,
+                      means shop owes the second party"): netUsd/netLbp
+                      NEGATIVE means shop owes the client (see the field
+                      comment above), so `-netUsd`/`-netLbp` is the
+                      normalized "positive = shop owes" amount the shared
+                      helper (`@liratek/ui`) expects. Was a bare strict
+                      `< 0`/`<= 0`/`>= 0` with no epsilon (latent bug #2,
+                      audit) — an exactly-settled client rendered a red
+                      "-$0.00". Now epsilon'd via the shared bucket/colour
+                      helpers; the mixed-sign case (one currency shop-owes,
+                      the other counterparty-owes) renders neutral rather
+                      than guessing which currency should win the border. */}
                   <div
                     className={`flex items-center gap-3 px-5 py-2 rounded-xl border ${
-                      netUsd < 0 && netLbp <= 0
-                        ? "bg-emerald-500/5 border-emerald-500/20"
-                        : netUsd >= 0 && netLbp >= 0
-                          ? "bg-red-500/5 border-red-500/20"
-                          : "bg-slate-500/5 border-slate-500/20"
+                      BALANCE_BORDER_COLOR[
+                        combinedBalanceBucket(-netUsd, -netLbp, BALANCE_EPS)
+                      ]
                     }`}
                   >
                     <span className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
                       Balance
                     </span>
                     <span
-                      className={`font-mono text-2xl font-bold ${netUsd < 0 ? "text-emerald-400" : "text-red-400"}`}
+                      className={`font-mono text-2xl font-bold ${balanceTextColor(-netUsd, BALANCE_EPS)}`}
                     >
                       {netUsd < 0 ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
                     </span>
@@ -1362,7 +1377,7 @@ export default function Debts() {
                       <>
                         <span className="text-slate-600 text-lg">|</span>
                         <span
-                          className={`font-mono text-2xl font-bold ${netLbp < 0 ? "text-emerald-400" : "text-red-400"}`}
+                          className={`font-mono text-2xl font-bold ${balanceTextColor(-netLbp, BALANCE_EPS)}`}
                         >
                           {netLbp < 0 ? "+" : "-"}
                           {Math.abs(netLbp).toLocaleString()} LBP

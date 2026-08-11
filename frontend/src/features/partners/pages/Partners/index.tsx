@@ -39,6 +39,11 @@ import type {
 } from "@/types/electron";
 import {
   appEvents,
+  BALANCE_BORDER_COLOR,
+  BALANCE_EPS,
+  BALANCE_TEXT_COLOR,
+  balanceTextColor,
+  combinedBalanceBucket,
   CounterpartySettleModal,
   PageHeader,
   DecimalInput,
@@ -84,22 +89,39 @@ function fmtDate(iso: string) {
   });
 }
 
+/**
+ * `usd`/`lbp` = `SUM(DEBIT) - SUM(CREDIT)` (`PartnerRepository.getBalance`):
+ * DEBIT = partner owes the shop (positive), CREDIT = shop owes the partner
+ * (negative) — see the ledger comment above `LedgerRow`. So POSITIVE here
+ * means the OPPOSITE of the owner's rule ("positive = shop owes"); the
+ * normalized "shop owes" amount is `-usd`/`-lbp`, which is what gets handed
+ * to the shared `@liratek/ui` bucket/colour helpers. Two bugs fixed
+ * together (Balance Pages colour audit, 2026-08-11):
+ *   1. Polarity — CREDIT (negative usd/lbp, shop owes) is now GREEN, DEBIT
+ *      (positive, partner owes shop) is now RED. Was the reverse.
+ *   2. OR-across-currency — the old `usd > 0 || lbp > 0` colored a partner
+ *      owed +$5 USD but owing 100,000 LBP an all-green card off the USD
+ *      alone. `combinedBalanceBucket` buckets each currency independently
+ *      and only agrees on a colour when both currencies agree (or one is
+ *      zero) — a genuine mixed-sign row renders NEUTRAL, not a guess.
+ * Callers that already zero-pad one side (`balanceColor(partner.usd, 0)`,
+ * `balanceColor(0, partner.lbp)`) get a plain per-currency decision, same as
+ * before except for polarity + epsilon; only `PartnerCard`'s combined calls
+ * (passing both real values) are affected by the OR-bug fix.
+ */
 function balanceColor(usd: number, lbp: number) {
-  if (usd > 0 || lbp > 0) return "text-emerald-400";
-  if (usd < 0 || lbp < 0) return "text-red-400";
-  return "text-slate-400";
+  return BALANCE_TEXT_COLOR[combinedBalanceBucket(-usd, -lbp, BALANCE_EPS)];
 }
 
 function balanceBorderColor(usd: number, lbp: number) {
-  if (usd > 0 || lbp > 0) return "border-emerald-500/30 bg-emerald-900/10";
-  if (usd < 0 || lbp < 0) return "border-red-500/30 bg-red-900/10";
-  return "border-slate-700/50 bg-slate-800";
+  return BALANCE_BORDER_COLOR[combinedBalanceBucket(-usd, -lbp, BALANCE_EPS)];
 }
 
 function BalanceIcon({ usd, lbp }: { usd: number; lbp: number }) {
-  if (usd > 0 || lbp > 0)
+  const bucket = combinedBalanceBucket(-usd, -lbp, BALANCE_EPS);
+  if (bucket === "SHOP_OWES")
     return <TrendingUp className="w-4 h-4 text-emerald-400" />;
-  if (usd < 0 || lbp < 0)
+  if (bucket === "COUNTERPARTY_OWES")
     return <TrendingDown className="w-4 h-4 text-red-400" />;
   return <Minus className="w-4 h-4 text-slate-400" />;
 }
@@ -830,12 +852,15 @@ function RecordTxModal({
 
         <div>
           <label className="text-xs text-slate-400 block mb-1">Direction</label>
+          {/* Colour flipped (owner's rule, 2026-08-11): DEBIT = "they owe
+              us" = counterparty owes = RED; CREDIT = "we owe them" = shop
+              owes = GREEN. Labels/meaning unchanged. */}
           <div className="flex gap-2">
             <button
               onClick={() => setDirection("DEBIT")}
               className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors border ${
                 direction === "DEBIT"
-                  ? "bg-emerald-900/40 border-emerald-600 text-emerald-300"
+                  ? "bg-red-900/40 border-red-600 text-red-300"
                   : "bg-slate-700 border-slate-600 text-slate-400 hover:text-white"
               }`}
             >
@@ -846,7 +871,7 @@ function RecordTxModal({
               onClick={() => setDirection("CREDIT")}
               className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors border ${
                 direction === "CREDIT"
-                  ? "bg-red-900/40 border-red-600 text-red-300"
+                  ? "bg-emerald-900/40 border-emerald-600 text-emerald-300"
                   : "bg-slate-700 border-slate-600 text-slate-400 hover:text-white"
               }`}
             >
@@ -1163,6 +1188,15 @@ function parseTransactionType(raw: string | null): {
 function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
   const [expanded, setExpanded] = useState(false);
   const isDebit = entry.direction === "DEBIT";
+  // `entry.amount` is UNSIGNED (partner_ledger's `direction` enum carries the
+  // sign) — normalize to "positive = shop owes" so the badge, hover, and
+  // amount cell all derive from the SAME value (rule 14, and the exact class
+  // of bug LIRA-129 fixed on Suppliers: a badge coloured off `direction`
+  // alone and an amount coloured off a separate sign can silently disagree).
+  // DEBIT = partner owes shop (counterparty owes) = negative normalized;
+  // CREDIT = shop owes partner = positive normalized.
+  const normalizedAmount = isDebit ? -entry.amount : entry.amount;
+  const amountColor = balanceTextColor(normalizedAmount, BALANCE_EPS);
   const { modeBadge, modeColor, typeLabel } = parseTransactionType(
     entry.transaction_type,
   );
@@ -1174,7 +1208,7 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
     <>
       <tr
         className={`transition-colors ${
-          isDebit ? "hover:bg-emerald-900/10" : "hover:bg-red-900/10"
+          isDebit ? "hover:bg-red-900/10" : "hover:bg-emerald-900/10"
         } ${hasDetails ? "cursor-pointer" : ""}`}
         onClick={() => hasDetails && setExpanded((v) => !v)}
       >
@@ -1202,19 +1236,23 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
         </td>
         <td className="px-4 py-3">
           {isDebit ? (
-            <span className="inline-flex items-center gap-1 text-xs text-emerald-400 font-medium">
+            <span
+              className={`inline-flex items-center gap-1 text-xs font-medium ${amountColor}`}
+            >
               <ArrowUpRight className="w-3 h-3" />
               DEBIT
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 text-xs text-red-400 font-medium">
+            <span
+              className={`inline-flex items-center gap-1 text-xs font-medium ${amountColor}`}
+            >
               <ArrowDownLeft className="w-3 h-3" />
               CREDIT
             </span>
           )}
         </td>
         <td className="px-4 py-3 text-right font-mono font-semibold whitespace-nowrap">
-          <span className={isDebit ? "text-emerald-400" : "text-red-400"}>
+          <span className={amountColor}>
             {entry.currency === "USD"
               ? fmtUSD(entry.amount)
               : fmtLBP(entry.amount)}
@@ -1500,17 +1538,20 @@ function DetailPanel({
                   : "Settled"}
             </p>
             {breakdown && (
+              // Same DEBIT-positive/CREDIT-negative convention as `balance.usd`
+              // (`PartnerRepository.getBalanceBreakdown` — a FOR/THROUGH/other
+              // split of the identical SUM(DEBIT)-SUM(CREDIT)), so each
+              // component gets the SAME owner's-rule polarity as the parent
+              // card above it (negated -> shared helper): a positive
+              // component means "they owe us for this slice" (RED), negative
+              // means "we owe them" (GREEN). Left unflipped, a mixed FOR/
+              // THROUGH split could show a green sub-line inside a card
+              // whose own (correctly red) total says the opposite.
               <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-0.5">
                 {breakdown.usd.for !== 0 && (
                   <div className="flex justify-between text-[10px]">
                     <span className="text-violet-400">FOR (our system)</span>
-                    <span
-                      className={
-                        breakdown.usd.for > 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }
-                    >
+                    <span className={balanceTextColor(-breakdown.usd.for, BALANCE_EPS)}>
                       {fmtUSD(breakdown.usd.for)}
                     </span>
                   </div>
@@ -1519,11 +1560,7 @@ function DetailPanel({
                   <div className="flex justify-between text-[10px]">
                     <span className="text-sky-400">THROUGH (their system)</span>
                     <span
-                      className={
-                        breakdown.usd.through > 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }
+                      className={balanceTextColor(-breakdown.usd.through, BALANCE_EPS)}
                     >
                       {fmtUSD(breakdown.usd.through)}
                     </span>
@@ -1532,13 +1569,7 @@ function DetailPanel({
                 {breakdown.usd.other !== 0 && (
                   <div className="flex justify-between text-[10px]">
                     <span className="text-slate-500">Settlements / Adj.</span>
-                    <span
-                      className={
-                        breakdown.usd.other > 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }
-                    >
+                    <span className={balanceTextColor(-breakdown.usd.other, BALANCE_EPS)}>
                       {fmtUSD(breakdown.usd.other)}
                     </span>
                   </div>
@@ -1564,17 +1595,12 @@ function DetailPanel({
                   : "Settled"}
             </p>
             {breakdown && (
+              // Same polarity note as the USD breakdown above.
               <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-0.5">
                 {breakdown.lbp.for !== 0 && (
                   <div className="flex justify-between text-[10px]">
                     <span className="text-violet-400">FOR (our system)</span>
-                    <span
-                      className={
-                        breakdown.lbp.for > 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }
-                    >
+                    <span className={balanceTextColor(-breakdown.lbp.for, BALANCE_EPS)}>
                       {fmtLBP(breakdown.lbp.for)}
                     </span>
                   </div>
@@ -1583,11 +1609,7 @@ function DetailPanel({
                   <div className="flex justify-between text-[10px]">
                     <span className="text-sky-400">THROUGH (their system)</span>
                     <span
-                      className={
-                        breakdown.lbp.through > 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }
+                      className={balanceTextColor(-breakdown.lbp.through, BALANCE_EPS)}
                     >
                       {fmtLBP(breakdown.lbp.through)}
                     </span>
@@ -1596,13 +1618,7 @@ function DetailPanel({
                 {breakdown.lbp.other !== 0 && (
                   <div className="flex justify-between text-[10px]">
                     <span className="text-slate-500">Settlements / Adj.</span>
-                    <span
-                      className={
-                        breakdown.lbp.other > 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }
-                    >
+                    <span className={balanceTextColor(-breakdown.lbp.other, BALANCE_EPS)}>
                       {fmtLBP(breakdown.lbp.other)}
                     </span>
                   </div>
@@ -1790,15 +1806,26 @@ function PartnerCard({
           {p.phone}
         </div>
       )}
+      {/* Each currency's own text is coloured off ITS OWN sign only — zero-
+          padding the other side (`balanceColor(p.usd, 0)` / `(0, p.lbp)`),
+          same pattern the detail panel and settle modal already use below.
+          This is the fix for the OR-across-currency bug at the AMOUNT level
+          (latent bug #3): previously both spans shared ONE combined call
+          with both real values, so a +$5 USD / -100,000 LBP partner showed
+          BOTH numbers in green off the USD alone. The border/icon above
+          still need ONE shared verdict for the whole card — that's what
+          `balanceBorderColor`/`BalanceIcon`'s `combinedBalanceBucket` fix is
+          for (neutral on genuine disagreement, never a same-currency-only
+          guess). */}
       <div className="flex gap-2">
         <span
-          className={`text-xs font-mono font-medium ${balanceColor(p.usd, p.lbp)}`}
+          className={`text-xs font-mono font-medium ${balanceColor(p.usd, 0)}`}
         >
           {fmtUSD(p.usd)}
         </span>
         <span className="text-slate-600 text-xs">·</span>
         <span
-          className={`text-xs font-mono font-medium ${balanceColor(p.usd, p.lbp)}`}
+          className={`text-xs font-mono font-medium ${balanceColor(0, p.lbp)}`}
         >
           {fmtLBP(p.lbp)}
         </span>
@@ -1900,12 +1927,24 @@ export function PartnersPage() {
         }
       />
 
-      {/* ── Summary Cards ── */}
+      {/* ── Summary Cards ──
+          Third polarity bug found in this same audit pass, not named in the
+          original audit doc: these two cards are each FIXED to one meaning
+          ("Partners owe us" only ever sums the counterparty-owes side;
+          "We owe partners" only ever sums the shop-owes side — see
+          `totalOwedToUs`/`totalWeOwe` above), so unlike `balanceColor` their
+          colour never depended on a live sign — it was just the wrong
+          colour hard-coded per card. Per the owner's rule, "Partners owe
+          us" (counterparty owes) is RED and "We owe partners" (shop owes)
+          is GREEN — the reverse of what was here. Icon SHAPES (trending
+          up/down = money-flow direction) are unchanged; only their colour
+          and the card colours flip, matching `balanceColor` elsewhere on
+          this page. */}
       <div className="shrink-0">
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-slate-800 border border-emerald-700/30 rounded-xl p-3">
+          <div className="bg-slate-800 border border-red-700/30 rounded-xl p-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              <TrendingUp className="w-4 h-4 text-red-400" />
               <span className="text-xs text-slate-400">Partners owe us</span>
             </div>
             <div className="flex items-baseline gap-3">
@@ -1913,7 +1952,7 @@ export function PartnersPage() {
                 <span className="text-[10px] text-slate-500 uppercase tracking-wide">
                   USD
                 </span>
-                <p className="text-lg font-bold text-emerald-400">
+                <p className="text-lg font-bold text-red-400">
                   {fmtUSD(totalOwedToUs.usd)}
                 </p>
               </div>
@@ -1921,15 +1960,15 @@ export function PartnersPage() {
                 <span className="text-[10px] text-slate-500 uppercase tracking-wide">
                   LBP
                 </span>
-                <p className="text-lg font-bold text-emerald-400">
+                <p className="text-lg font-bold text-red-400">
                   {fmtLBP(totalOwedToUs.lbp)}
                 </p>
               </div>
             </div>
           </div>
-          <div className="bg-slate-800 border border-red-700/30 rounded-xl p-3">
+          <div className="bg-slate-800 border border-emerald-700/30 rounded-xl p-3">
             <div className="flex items-center gap-2 mb-1.5">
-              <TrendingDown className="w-4 h-4 text-red-400" />
+              <TrendingDown className="w-4 h-4 text-emerald-400" />
               <span className="text-xs text-slate-400">We owe partners</span>
             </div>
             <div className="flex items-baseline gap-3">
@@ -1937,7 +1976,7 @@ export function PartnersPage() {
                 <span className="text-[10px] text-slate-500 uppercase tracking-wide">
                   USD
                 </span>
-                <p className="text-lg font-bold text-red-400">
+                <p className="text-lg font-bold text-emerald-400">
                   {fmtUSD(totalWeOwe.usd)}
                 </p>
               </div>
@@ -1945,7 +1984,7 @@ export function PartnersPage() {
                 <span className="text-[10px] text-slate-500 uppercase tracking-wide">
                   LBP
                 </span>
-                <p className="text-lg font-bold text-red-400">
+                <p className="text-lg font-bold text-emerald-400">
                   {fmtLBP(totalWeOwe.lbp)}
                 </p>
               </div>

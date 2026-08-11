@@ -44,58 +44,68 @@ const mockGetUnsettledTransactions = jest.fn();
 const mockSettleTransactions = jest.fn();
 const mockAppEventsEmit = jest.fn();
 
-jest.mock("@liratek/ui", () => ({
-  useApi: () => ({
-    getSuppliers: mockGetSuppliers,
-    getSupplierBalances: mockGetSupplierBalances,
-    getSupplierProductBalances: mockGetSupplierProductBalances,
-    getSupplierLedger: mockGetSupplierLedger,
-    getSupplierProductItems: mockGetSupplierProductItems,
-    getAllSupplierTransactions: mockGetAllSupplierTransactions,
-    getUnsettledTransactions: mockGetUnsettledTransactions,
-    settleTransactions: mockSettleTransactions,
-    recordSupplierCashflow: jest.fn(),
-    addSupplierLedgerEntry: jest.fn(),
-    supplierWriteOff: jest.fn(),
-    getSupplierPurchases: jest.fn(),
-    createSupplierPurchase: jest.fn(),
-  }),
-  // Wrapped in a closure — see Partners.addCreditLbp.test.tsx's comment on
-  // why a direct `{ emit: mockAppEventsEmit }` property throws a TDZ error
-  // (jest.mock factories are hoisted above this file's `const` declarations).
-  appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
-  // Minimal stand-in that renders beforeContent/children (the D8 entry-mode
-  // UI lives in beforeContent) and exposes onConfirm — what's under test is
-  // Suppliers/index.tsx's own payload-building code, not the shared modal
-  // shell (covered elsewhere).
-  CounterpartySettleModal: ({
-    title,
-    onConfirm,
-    confirmLabel,
-    beforeContent,
-    children,
-  }: {
-    title?: string;
-    onConfirm: () => void;
-    confirmLabel: string;
-    beforeContent?: React.ReactNode;
-    children?: React.ReactNode;
-  }) => (
-    <div data-testid="settle-modal">
-      <h2>{title}</h2>
-      {beforeContent}
-      {children}
-      <button type="button" onClick={onConfirm}>
-        {confirmLabel}
-      </button>
-    </div>
-  ),
-  PageHeader: ({ title }: { title: string }) => (
-    <div data-testid="page-header">
-      <h1>{title}</h1>
-    </div>
-  ),
-}));
+// Spread the REAL module first (`jest.requireActual`) — this page now also
+// imports the shared, presentation-only balance colour helpers
+// (`BALANCE_EPS`/`balanceBucket`/`balanceTextColor`, `@liratek/ui`, Balance
+// Pages colour audit 2026-08-11), which a plain object-literal mock like the
+// old one here would silently turn into `undefined` (a `TypeError` at
+// render). Only the pieces below need stubbing — everything else stays real.
+jest.mock("@liratek/ui", () => {
+  const actual = jest.requireActual("@liratek/ui");
+  return {
+    ...actual,
+    useApi: () => ({
+      getSuppliers: mockGetSuppliers,
+      getSupplierBalances: mockGetSupplierBalances,
+      getSupplierProductBalances: mockGetSupplierProductBalances,
+      getSupplierLedger: mockGetSupplierLedger,
+      getSupplierProductItems: mockGetSupplierProductItems,
+      getAllSupplierTransactions: mockGetAllSupplierTransactions,
+      getUnsettledTransactions: mockGetUnsettledTransactions,
+      settleTransactions: mockSettleTransactions,
+      recordSupplierCashflow: jest.fn(),
+      addSupplierLedgerEntry: jest.fn(),
+      supplierWriteOff: jest.fn(),
+      getSupplierPurchases: jest.fn(),
+      createSupplierPurchase: jest.fn(),
+    }),
+    // Wrapped in a closure — see Partners.addCreditLbp.test.tsx's comment on
+    // why a direct `{ emit: mockAppEventsEmit }` property throws a TDZ error
+    // (jest.mock factories are hoisted above this file's `const` declarations).
+    appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
+    // Minimal stand-in that renders beforeContent/children (the D8 entry-mode
+    // UI lives in beforeContent) and exposes onConfirm — what's under test is
+    // Suppliers/index.tsx's own payload-building code, not the shared modal
+    // shell (covered elsewhere).
+    CounterpartySettleModal: ({
+      title,
+      onConfirm,
+      confirmLabel,
+      beforeContent,
+      children,
+    }: {
+      title?: string;
+      onConfirm: () => void;
+      confirmLabel: string;
+      beforeContent?: React.ReactNode;
+      children?: React.ReactNode;
+    }) => (
+      <div data-testid="settle-modal">
+        <h2>{title}</h2>
+        {beforeContent}
+        {children}
+        <button type="button" onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+      </div>
+    ),
+    PageHeader: ({ title }: { title: string }) => (
+      <div data-testid="page-header">
+        <h1>{title}</h1>
+      </div>
+    ),
+  };
+});
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),

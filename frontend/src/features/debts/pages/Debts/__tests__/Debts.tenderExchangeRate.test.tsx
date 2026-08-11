@@ -39,124 +39,135 @@ const mockAddRepayment = jest.fn();
 const mockCashOut = jest.fn();
 const mockAppEventsEmit = jest.fn();
 
-jest.mock("@liratek/ui", () => ({
-  useApi: () => ({
-    getDebtors: mockGetDebtors,
-    getClientDebtHistory: mockGetClientDebtHistory,
-    getClientBalance: mockGetClientBalance,
-    getClientDebtTotal: mockGetClientDebtTotal,
-    addRepayment: mockAddRepayment,
-    cashOut: mockCashOut,
-    addAccountEntry: jest.fn(),
-    getTransactionById: jest.fn(),
-    getSaleItems: jest.fn(),
-    getCustomServiceById: jest.fn(),
-    getSale: jest.fn(),
-  }),
-  // Wrapped in a closure (like `useApi: () => ({...})` below) rather than
-  // referenced directly — a direct `{ emit: mockAppEventsEmit }` property is
-  // evaluated immediately when this factory runs (require-time, before this
-  // file's own `const mockAppEventsEmit = jest.fn()` line has executed —
-  // jest.mock() calls are hoisted above imports, but plain `const`
-  // declarations are not), which throws a TDZ ReferenceError.
-  appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
-  // CounterpartySettleModal (which internally renders MultiPaymentInput) is
-  // stubbed with a minimal stand-in that exposes the exact same callback
-  // props Debts/index.tsx wires up — `onExchangeRateChange` is the identical
-  // prop the real MultiPaymentInput invokes when the operator edits the
-  // split-header rate. What's under test is Debts' own payload-building
-  // code, not MultiPaymentInput's UI (already covered elsewhere).
-  CounterpartySettleModal: ({
-    onConfirm,
-    confirmLabel,
-    multiPaymentInput,
-  }: {
-    onConfirm: () => void;
-    confirmLabel: string;
-    multiPaymentInput: {
-      onChange: (lines: unknown[]) => void;
-      onExchangeRateChange: (rate: number) => void;
-    };
-  }) => (
-    <div data-testid="settle-modal">
-      <button
-        type="button"
-        onClick={() => multiPaymentInput.onExchangeRateChange(93000)}
+// Spread the REAL module first (`jest.requireActual`) — Debts also imports
+// the shared, presentation-only balance colour helpers (`BALANCE_EPS`/
+// `balanceTextColor`/`combinedBalanceBucket`/`BALANCE_BORDER_COLOR`,
+// `@liratek/ui`, Balance Pages colour audit 2026-08-11), which a plain
+// object-literal mock like the old one here would silently turn into
+// `undefined` (a `TypeError` at render). Only the pieces below need
+// stubbing — everything else stays real.
+jest.mock("@liratek/ui", () => {
+  const actual = jest.requireActual("@liratek/ui");
+  return {
+    ...actual,
+    useApi: () => ({
+      getDebtors: mockGetDebtors,
+      getClientDebtHistory: mockGetClientDebtHistory,
+      getClientBalance: mockGetClientBalance,
+      getClientDebtTotal: mockGetClientDebtTotal,
+      addRepayment: mockAddRepayment,
+      cashOut: mockCashOut,
+      addAccountEntry: jest.fn(),
+      getTransactionById: jest.fn(),
+      getSaleItems: jest.fn(),
+      getCustomServiceById: jest.fn(),
+      getSale: jest.fn(),
+    }),
+    // Wrapped in a closure (like `useApi: () => ({...})` below) rather than
+    // referenced directly — a direct `{ emit: mockAppEventsEmit }` property is
+    // evaluated immediately when this factory runs (require-time, before this
+    // file's own `const mockAppEventsEmit = jest.fn()` line has executed —
+    // jest.mock() calls are hoisted above imports, but plain `const`
+    // declarations are not), which throws a TDZ ReferenceError.
+    appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
+    // CounterpartySettleModal (which internally renders MultiPaymentInput) is
+    // stubbed with a minimal stand-in that exposes the exact same callback
+    // props Debts/index.tsx wires up — `onExchangeRateChange` is the identical
+    // prop the real MultiPaymentInput invokes when the operator edits the
+    // split-header rate. What's under test is Debts' own payload-building
+    // code, not MultiPaymentInput's UI (already covered elsewhere).
+    CounterpartySettleModal: ({
+      onConfirm,
+      confirmLabel,
+      multiPaymentInput,
+    }: {
+      onConfirm: () => void;
+      confirmLabel: string;
+      multiPaymentInput: {
+        onChange: (lines: unknown[]) => void;
+        onExchangeRateChange: (rate: number) => void;
+      };
+    }) => (
+      <div data-testid="settle-modal">
+        <button
+          type="button"
+          onClick={() => multiPaymentInput.onExchangeRateChange(93000)}
+        >
+          Set Rate
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            multiPaymentInput.onChange([
+              { id: "1", method: "Cash", currencyCode: "USD", amount: 10 },
+            ])
+          }
+        >
+          Set Lines
+        </button>
+        <button type="button" onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+      </div>
+    ),
+    PageHeader: ({
+      title,
+      actions,
+    }: {
+      title: string;
+      actions?: React.ReactNode;
+    }) => (
+      <div data-testid="page-header">
+        <h1>{title}</h1>
+        {actions}
+      </div>
+    ),
+    Select: ({
+      value,
+      onChange,
+      options,
+    }: {
+      value: string;
+      onChange: (v: string) => void;
+      options: { value: string; label: string }[];
+    }) => (
+      <select
+        data-testid="debt-filter-select"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
       >
-        Set Rate
-      </button>
-      <button
-        type="button"
-        onClick={() =>
-          multiPaymentInput.onChange([
-            { id: "1", method: "Cash", currencyCode: "USD", amount: 10 },
-          ])
-        }
-      >
-        Set Lines
-      </button>
-      <button type="button" onClick={onConfirm}>
-        {confirmLabel}
-      </button>
-    </div>
-  ),
-  PageHeader: ({
-    title,
-    actions,
-  }: {
-    title: string;
-    actions?: React.ReactNode;
-  }) => (
-    <div data-testid="page-header">
-      <h1>{title}</h1>
-      {actions}
-    </div>
-  ),
-  Select: ({
-    value,
-    onChange,
-    options,
-  }: {
-    value: string;
-    onChange: (v: string) => void;
-    options: { value: string; label: string }[];
-  }) => (
-    <select
-      data-testid="debt-filter-select"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  ),
-  ServiceTypeTabs: () => null,
-  MultiPaymentInput: () => null,
-  DataTable: <T,>({
-    data,
-    renderRow,
-    emptyMessage,
-  }: {
-    data: T[];
-    renderRow: (item: T) => React.ReactNode;
-    emptyMessage?: string;
-  }) => (
-    <table>
-      <tbody>
-        {data.length === 0 ? (
-          <tr>
-            <td>{emptyMessage}</td>
-          </tr>
-        ) : (
-          data.map((item) => renderRow(item))
-        )}
-      </tbody>
-    </table>
-  ),
-}));
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    ),
+    ServiceTypeTabs: () => null,
+    MultiPaymentInput: () => null,
+    DataTable: <T,>({
+      data,
+      renderRow,
+      emptyMessage,
+    }: {
+      data: T[];
+      renderRow: (item: T) => React.ReactNode;
+      emptyMessage?: string;
+    }) => (
+      <table>
+        <tbody>
+          {data.length === 0 ? (
+            <tr>
+              <td>{emptyMessage}</td>
+            </tr>
+          ) : (
+            data.map((item) => renderRow(item))
+          )}
+        </tbody>
+      </table>
+    ),
+  };
+});
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),

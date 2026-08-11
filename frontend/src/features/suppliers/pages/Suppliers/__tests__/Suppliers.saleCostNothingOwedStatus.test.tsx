@@ -56,30 +56,41 @@ const mockGetUnsettledTransactions = jest.fn();
 const mockSettleTransactions = jest.fn();
 const mockAppEventsEmit = jest.fn();
 
-jest.mock("@liratek/ui", () => ({
-  useApi: () => ({
-    getSuppliers: mockGetSuppliers,
-    getSupplierBalances: mockGetSupplierBalances,
-    getSupplierProductBalances: mockGetSupplierProductBalances,
-    getSupplierLedger: mockGetSupplierLedger,
-    getSupplierProductItems: mockGetSupplierProductItems,
-    getAllSupplierTransactions: mockGetAllSupplierTransactions,
-    getUnsettledTransactions: mockGetUnsettledTransactions,
-    settleTransactions: mockSettleTransactions,
-    recordSupplierCashflow: jest.fn(),
-    addSupplierLedgerEntry: jest.fn(),
-    supplierWriteOff: jest.fn(),
-    getSupplierPurchases: jest.fn(),
-    createSupplierPurchase: jest.fn(),
-  }),
-  appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
-  CounterpartySettleModal: () => null,
-  PageHeader: ({ title }: { title: string }) => (
-    <div data-testid="page-header">
-      <h1>{title}</h1>
-    </div>
-  ),
-}));
+// Spread the REAL module first (`jest.requireActual`) — this page now also
+// imports the shared, presentation-only balance colour helpers
+// (`BALANCE_EPS`/`balanceBucket`/`balanceTextColor`, `@liratek/ui`, Balance
+// Pages colour audit 2026-08-11), which a plain object-literal mock like the
+// old one here would silently turn into `undefined` (a `TypeError` at
+// render, not a status-badge mismatch). Only the pieces below need
+// stubbing — everything else stays real.
+jest.mock("@liratek/ui", () => {
+  const actual = jest.requireActual("@liratek/ui");
+  return {
+    ...actual,
+    useApi: () => ({
+      getSuppliers: mockGetSuppliers,
+      getSupplierBalances: mockGetSupplierBalances,
+      getSupplierProductBalances: mockGetSupplierProductBalances,
+      getSupplierLedger: mockGetSupplierLedger,
+      getSupplierProductItems: mockGetSupplierProductItems,
+      getAllSupplierTransactions: mockGetAllSupplierTransactions,
+      getUnsettledTransactions: mockGetUnsettledTransactions,
+      settleTransactions: mockSettleTransactions,
+      recordSupplierCashflow: jest.fn(),
+      addSupplierLedgerEntry: jest.fn(),
+      supplierWriteOff: jest.fn(),
+      getSupplierPurchases: jest.fn(),
+      createSupplierPurchase: jest.fn(),
+    }),
+    appEvents: { emit: (...args: unknown[]) => mockAppEventsEmit(...args) },
+    CounterpartySettleModal: () => null,
+    PageHeader: ({ title }: { title: string }) => (
+      <div data-testid="page-header">
+        <h1>{title}</h1>
+      </div>
+    ),
+  };
+});
 
 jest.mock("@/features/auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 1, username: "admin", role: "admin" } }),
