@@ -1,0 +1,356 @@
+# Balance Pages UX Audit — Debts vs Suppliers vs Partners
+
+**Status:** Audit only, read-only, no code changed. Requested by owner 2026-08-10:
+_"We have three account balance pages in the app: debts, suppliers, partners. They
+should be very similar in terms of currency colors and UI UX. What is the current
+status today of these pages?"_
+
+**Scope:**
+
+- `frontend/src/features/debts/pages/Debts/index.tsx` (2691 lines)
+- `frontend/src/features/suppliers/pages/Suppliers/index.tsx` (2274 lines)
+- `frontend/src/features/partners/pages/Partners/index.tsx` (2084 lines)
+
+Audited at HEAD `bade74c`, immediately after `9082d6c` (Suppliers colour-rule
+refactor, LIRA-129), `e47dfa2` (Custom Services refund projection, LIRA-130), and
+`4710cb8` (refund projection sweep across 5 modules including `debt_ledger`,
+LIRA-131).
+
+---
+
+## Verdict
+
+**Correction notice:** this audit's initial pass (below) compared the three pages
+*to each other* and treated Suppliers' LIRA-129 refactor as the de-facto reference
+implementation to converge the other two onto. That framing is **wrong**, and the
+owner was right to ask for it to be tested rather than trusted. The owner has since
+stated the actual target explicitly (2026-08-10): *"Positive account should be
+green, means shop owes the second party."* That is a **meaning**-based rule, not a
+**sign**-based one — and once every page's sign is translated to its actual meaning
+(re-derived from source below, not assumed), the picture inverts: **Debts is the
+only one of the three that currently satisfies the owner's rule. Suppliers'
+own documented convention explicitly contradicts it (and predates today — LIRA-129
+preserved it, did not introduce it). Partners also contradicts it, for an
+unrelated, structural reason.** See "Colour-vs-Owner's-Rule" immediately below —
+that table, not the pairwise comparison further down, is the load-bearing result
+of this audit. The pairwise Difference Table, ACCIDENTAL/SEMANTIC list, and latent
+bugs below it are still accurate as *descriptions of what the code does*, but the
+Convergence Order has been rewritten to not propagate Suppliers' rule anywhere.
+
+Separately from the colour question: these three pages are genuinely built against
+three structurally different ledger schemas (`debt_ledger` and `supplier_ledger`
+carry a **signed** `amount_usd`/`amount_lbp` pair; `partner_ledger` carries one
+**unsigned** `amount` + `currency` string + `direction` enum, and additionally
+supports **USDT** — all re-verified directly against `electron-app/create_db.sql`
+below, not assumed from the brief). Partners has a genuine **OR-across-currency
+bug** that Debts avoids, and has **no refund/void visibility at all** because its
+schema has no `is_refunded` column. Suppliers is the most internally consistent of
+the three in its own terms (LIRA-129 gave it one named `signBucket()`/`BALANCE_EPS`
+threshold) — but "internally consistent" turns out to mean "consistently on the
+wrong side of the owner's rule," and that consistency doesn't reach its own
+page-level "Total Owed" summary cards, which have a separate exact-zero-renders-red
+bug on top. Debts has the most complete per-currency independence (no OR bug) and,
+we now know, the only currently-correct colour polarity — but the least UI polish
+(no loading/error state at all, a light-theme "Refunded" pill stranded in an
+otherwise all-dark UI). **The single highest-value convergence is no longer
+"adopt Suppliers' helper everywhere" — it is: fix Suppliers' and Partners' colour
+branches to match the rule Debts already satisfies**, then dedupe the resulting
+(now rule-correct, on all three) logic into one shared helper.
+
+---
+
+## Colour vs. the owner's rule (re-derived from source, not from the brief)
+
+Owner's rule, verbatim: **"Positive account should be green, means shop owes the
+second party."** Read as a meaning rule: whichever sign/direction on a given ledger
+means *"the shop owes the counterparty"* should render **green**. The sign that
+carries that meaning is not the same field-sign on every page (confirmed below by
+reading each page's own code comments, not by assuming one shared convention) — so
+this has to be checked per page, not applied as one shared `amount > 0 ? … : …`.
+
+| Page | Which sign means **"SHOP OWES the counterparty"** | Colour that sign renders **TODAY** | Matches owner's rule? |
+|---|---|---|---|
+| **Debts** | **Negative** `netUsd`/`netLbp`. Quoted directly from the page's own comment: `frontend/src/features/debts/pages/Debts/index.tsx:396-398` — *"positive = client owes shop, negative = shop owes client."* | `text-emerald-400` (green) — `netUsd < 0 ? "text-emerald-400" : "text-red-400"` at `:1357` (USD) and `:1365` (LBP, `netLbp < 0`). List-row equivalent at `:1288`/`:1300` (`client.total_debt_usd < -0.01 → emerald`) agrees. | **YES.** The one page that currently does what the owner asked. |
+| **Suppliers** | **Positive** `total_usd`/`total_lbp` balance. Quoted directly from the page's own comment: `frontend/src/features/suppliers/pages/Suppliers/index.tsx:136-138` — *"> 0 → WE owe the supplier ('You owe …', red) / < 0 → the supplier owes US ('They owe you …', green)."* The comment names its own colour choice. | `text-red-400` — `balanceColor()` (`:254-259`) and `describeBalance()` (`:238-249`) both return `text-red-400` for the ">0 = we owe" bucket. Same polarity on the page-level "Total Owed" summary cards (`:1009`, `:1017`, `< 0 ? green-400 : red-400`) and on `EntryTypeBadge`'s `UP` bucket (`:204-209`, "Increases what we owe" → red). | **NO.** The page's *own documentation* states positive = shop owes, and colours it red — the exact opposite of the stated rule. |
+| **Partners** | **Negative** `usd`/`lbp` (i.e. net `CREDIT`). Quoted directly: `frontend/src/features/partners/pages/Partners/index.tsx:701-702` — *"DEBIT = partner owes shop, CREDIT = shop owes partner"* — and the balance is `SUM(DEBIT)-SUM(CREDIT)` (`packages/core/src/repositories/PartnerRepository.ts:904-907`), so CREDIT-heavy ⇒ **negative** `usd`/`lbp` ⇒ shop owes. Confirmed again in the ledger-row label: `entry.direction === "CREDIT"` renders the text **"CREDIT"** (:1210-1213) next to the amount. | `text-red-400` — `balanceColor(usd, lbp)` (`:87-91`) returns red for `usd < 0 \|\| lbp < 0`; the per-row `LedgerRow` component colours a `CREDIT` entry (`isDebit = false`) `text-red-400` at `:1217` (and the DEBIT/CREDIT badge text itself at `:1210`); the "We owe them" balance-card caption (`:1498-1499`) sits under the same red `balanceColor(balance.usd, 0)` call at `:1492`. | **NO.** Same violation as Suppliers — "shop owes" renders red — reached by an unrelated code path (a `direction` column, not a raw sign). |
+
+**Two of three pages currently contradict the owner's explicit rule; only Debts is
+correct.** This reframes everything below it in this document: Debts is not "the
+page with a minor epsilon bug that otherwise agrees with the group" — it is the
+**only correct reference**, and any convergence plan must move Suppliers and
+Partners toward Debts' polarity, never the reverse.
+
+**On `9082d6c` (LIRA-129) specifically** — the coordinator asked this be checked and
+reported plainly, not fixed. Re-reading the commit's own diff
+(`git show 9082d6c -- frontend/src/features/suppliers/pages/Suppliers/index.tsx`):
+the `> 0 → red ("You owe")` / `< 0 → green ("They owe you")` mapping in
+`describeBalance`/`balanceColor`, and the identical block-comment at `:136-139`, are
+**moved verbatim, not changed** — the diff shows the exact same comment text and the
+exact same red/green branches being deleted from one location in the file and
+re-added, byte-for-byte, near the top. **LIRA-129 did not introduce the mismatch
+with the owner's rule; it inherited a pre-existing polarity and centralized it**
+(its actual fix — real and correct — was making `entry_type` stop overriding the
+row's own sign for the badge colour, per that commit's message). The mismatch with
+"positive/shop-owes = green" predates today's session.
+
+What *is* a live risk from that commit: its own message states *"The same [rule]
+pair is PROPOSED (not applied) for the Debts and Partner ledger views"* — i.e. the
+sibling work that produced `9082d6c` was heading toward propagating **Suppliers'
+polarity** (positive=red) onto Debts and Partners for the sake of *cross-page
+consistency*. Given the owner's rule, doing that would have **broken Debts** (which
+is currently correct) and **left Partners wrong in a new way**. Flagging this
+plainly, per the coordinator's request, and not fixing it: **whatever unifies these
+three pages' colours next must be derived from the owner's meaning-based rule
+applied per-page, not from copying Suppliers' branch shape.**
+
+---
+
+## Verification of the brief's "known starting facts"
+
+The coordinator's original brief listed four "known starting facts" and asked that
+they be verified rather than trusted, since they came from quick greps. Re-checked
+directly against source, one at a time:
+
+- **"Suppliers was just refactored (`9082d6c`) to `signBucket()`/`ledgerRowDirection()`/
+  `balanceColor()`/`LEDGER_DIRECTION_HINT`, colour from the SIGN never `entry_type`."**
+  **TRUE, verified via `git show 9082d6c`.** No correction needed.
+
+- **"Debts (~:1357) uses `netUsd < 0 ? emerald : red` — no epsilon, no neutral state,
+  0 renders RED. Same convention as Suppliers otherwise (negative = good)."**
+  **The first half is TRUE** (verified at `:1357`/`:1365`, no epsilon, confirmed
+  `0` → red). **The second half needs a correction, and it's the important one:**
+  "same convention... negative = good" is true only in the shallow sense that both
+  pages happen to write `negative → green` in their ternaries. It is **false** in
+  the sense the rest of this document cares about: Debts' negative means "shop owes
+  client" (matches the owner's rule), while Suppliers' negative means "supplier owes
+  shop" — i.e. the *opposite* of "shop owes." Two pages sharing a ternary shape while
+  meaning opposite things is exactly the trap the coordinator's follow-up message
+  named. Debts is not "conveniently the same as Suppliers" — it is the one page that
+  independently happens to satisfy the owner's rule.
+
+- **"Partners (~:88-89) uses `if (usd > 0 || lbp > 0) return green` — positive =
+  green, the OPPOSITE convention — and the `||` colours a +$5/−100,000 LBP row green
+  off the USD alone."**
+  **TRUE on both counts, verified at `:87-91` (exact lines 87-91, not 88-89 — 87 is
+  the function signature, the two `if`s are 88 and 89) and at the `PartnerCard`
+  usage sites `:1759/:1779/:1795/:1801`.** No correction needed to the *code* claims.
+  The correction is again about framing: "the OPPOSITE convention" was written
+  relative to Suppliers, implying Suppliers is the standard being deviated from. It
+  is not — see the rule-based table above. Partners is wrong, but not because it
+  differs from Suppliers; it would still be wrong even if Suppliers didn't exist.
+
+- **"`partner_ledger` stores the amount POSITIVE with a separate `direction` column
+  (DEBIT/CREDIT); `supplier_ledger` and `debt_ledger` carry direction in the SIGN.
+  Confirm this."**
+  **TRUE, re-derived independently from `electron-app/create_db.sql` (not assumed):**
+  `debt_ledger` (:341-365) and `supplier_ledger` (:432-454) each have plain
+  `amount_usd`/`amount_lbp` columns and **no** `direction` column.
+  `partner_ledger` (:729-745) has one unsigned `amount REAL`, one `currency TEXT`
+  column (not split `amount_usd`/`amount_lbp`), and `direction TEXT CHECK(direction
+  IN ('DEBIT','CREDIT'))`. One thing the brief didn't mention that matters for this
+  audit: `partner_ledger`/`PartnerRepository` also carry a third currency, **USDT**
+  (`PartnerRepository.ts:908-909,849-854`), which the other two ledgers don't have at
+  all — the schema difference is larger than "direction lives in a column instead of
+  a sign," it's a genuinely different currency model.
+
+**Net effect of the correction:** every individual code-level claim in the brief
+checked out as true. What did not check out was the *interpretive frame* built on
+top of those claims — "Debts and Suppliers share a convention, Partners is the
+outlier" — which happens to be false once the actual target (the owner's rule) is
+used to judge "outlier" instead of "differs from Suppliers."
+
+---
+
+## Difference Table
+
+| # | Dimension | Debts (`Debts/index.tsx`) | Suppliers (`Suppliers/index.tsx`) | Partners (`Partners/index.tsx`) |
+|---|---|---|---|---|
+| 1 | **Sign semantics** | `netUsd`/`netLbp` (:406-407): positive = **client owes the shop** (a receivable); negative = shop owes client (client credit). | Page-wide convention documented at :135-139: positive = **shop owes the supplier** (a payable); negative = supplier owes shop. | `usd`/`lbp` = `SUM(DEBIT)-SUM(CREDIT)` (`PartnerRepository.getBalance`, `packages/core/src/repositories/PartnerRepository.ts:898-909`): positive = **partner owes the shop** (a receivable — same economic direction as Debts' positive) but the frontend colours it the opposite way (row 2). |
+| 2 | **Colour convention** | Positive → `text-red-400`; negative → `text-emerald-400` (:1357, :1365). List row uses the same pairing independently per currency (:1288-1304). **Per the "Colour vs. the owner's rule" table above, this is the only one of the three that currently matches the stated rule** ("shop owes" = negative here = green). | Positive → `text-red-400`; negative → `text-green-400` (`balanceColor` :254-259, `describeBalance` :238-249). Note: **`green-400`, not `emerald-400`** — a different shade than Debts uses for the identical "good" state. **More importantly: "shop owes" is *positive* on this page (its own comment says so, :136-138) and positive renders red — this contradicts the owner's rule**, independent of the shade question. | Positive → `text-emerald-400`; negative → `text-red-400` (`balanceColor` :87-91). This is the exact opposite branch-shape from Debts, even though both `netUsd`/Debts and `usd`/Partners represent the same thing (money owed *to* the shop by the counterparty — i.e. NOT the "shop owes" case). Translating to meaning: "shop owes" here is *negative* (CREDIT) and renders red — **also contradicts the owner's rule**, by an independent path from Suppliers'. |
+| 3 | **Zero handling** | **No epsilon.** `netUsd < 0 ? emerald : red` (:1357, :1365) — `netUsd === 0` renders **red**. List-row version has an explicit `> 0.01` / `< -0.01` neutral band that DOES fall through to `text-slate-400` (:1286-1304), so the bug is confined to the detail-header balance chip. | `BALANCE_EPS = 0.005` (:141), `signBucket()` (:152-156) buckets `FLAT` for `\|amount\| ≤ 0.005`, used by every **per-row/per-supplier** decision. BUT the page-level "Total Owed (USD/LBP)" summary cards (:1009, :1017) bypass `signBucket`/`balanceColor` entirely and use a bare `< 0 ? green : red` — **exactly-0.00 across all suppliers still renders red.** | **No epsilon constant.** `balanceColor`/`balanceBorderColor`/`BalanceIcon` (:87-105) use strict `> 0` / `< 0` with an implicit `else` → `text-slate-400`/`Minus` icon, so exact `0` **does** render neutral — better than Debts' detail chip, but with no epsilon a sum like `1e-10` (float residue after many partial settlements) would NOT be caught and would render a colored "$0.00" instead of "Settled" (:1495-1501 does the same strict `>0`/`<0`/`else` for the "They owe us"/"We owe them"/"Settled" text). |
+| 4 | **Mixed-currency rows — OR-across-currency bug** | **Not present.** Every colour decision that takes both currencies is done per-currency independently (list row :1286-1304, detail chip :1357-1368) — a USD credit + LBP debt on the same client renders each side in its own correct colour. | **Not present**, by construction: `ledgerRowDirection(amountUsd, amountLbp)` (:167-169) picks "whichever of the two is nonzero," which is safe *only* because every write path is documented (:158-165) to populate exactly one of the two columns, or to give both the same sign when both are populated. This is a **documented invariant**, not a runtime guarantee. | **Present and real.** `balanceColor(usd, lbp)`, `balanceBorderColor(usd, lbp)`, `BalanceIcon({usd, lbp})` (:87-105) do `if (usd > 0 \|\| lbp > 0) return green`. Called with **both real, independent values at once** in `PartnerCard` — the left-hand partner-list item — at :1759 (border), :1779 (icon), :1795 & :1801 (both the USD *and* the LBP amount text, coloured by the **same** call). A partner who is owed +$5 USD but owes 100,000 LBP shows an all-green, up-arrow card; the LBP liability is invisible until you click in. The detail panel is safe because it always zero-pads the other currency (`balanceColor(balance.usd, 0)` :1492, `balanceColor(0, balance.lbp)` :1556) — **the bug is confined to the `PartnerCard` list component.** |
+| 5 | **Direction source** | Sign of `amount_usd`/`amount_lbp` on `debt_ledger` (no `direction` column — confirmed: `electron-app/create_db.sql:341-365`). | Sign of `amount_usd`/`amount_lbp` on `supplier_ledger` (no `direction` column — confirmed: `electron-app/create_db.sql:432-454`). | Explicit `direction TEXT CHECK(direction IN ('DEBIT','CREDIT'))` column, **plus** a single unsigned `amount REAL` and a `currency TEXT` string (not split `amount_usd`/`amount_lbp` columns) — confirmed: `electron-app/create_db.sql:729-745`. Also the only one of the three with **USDT** support (`PartnerRepository.getBalance` sums a third `usdt` bucket, :908-909; `getBalanceBreakdown` too, :849-854). This is a structurally different ledger shape, not just a display difference. |
+| 6 | **Status vocabulary** | No per-row paid/unpaid concept. Only a client-level `Ongoing / Closed / All` filter (:74, :1145-1163, :1237-1241) and, inside the sale-detail modal only, literal text `"Outstanding Debt:"` (:2679). No "Settled" wording anywhere on this page. | Per-transaction FIFO status badges: `Settled` (blue, when `settlement_id != null`), `Paid` (green), `Partial` (amber), `Unpaid` (red) (:1562-1578), plus an aggregate `"N paid · N partial · N unpaid"` footer (:1591-1613) and a `"Settled"` word for the balance-is-zero case (:1136-1138). | Balance-only vocabulary: `"They owe us"` / `"We owe them"` / `"Settled"` (:1496-1501, :1556-1560-ish). No per-transaction paid/unpaid/partial concept at all — there is nothing to be partially paid against (no FIFO invoice model). |
+| 7 | **Refund display** | **Fixed today** (`4710cb8`, LIRA-131): `is_refunded` now projected by `DebtRepository.getColumns()`. Frontend already had the badge code (`isRefunded = Boolean(item.is_refunded)` :1572, :1826) — it renders a `"Refunded"` pill with **light-theme** Tailwind classes `bg-red-100 … text-red-700` (:1592-1594) stranded inside an otherwise all-dark UI, plus `opacity-50` row dimming (:1577). | Pre-existing (unrelated to today's 3 commits — LIRA-129 only touched colour, not refund). `is_refunded` on `supplier_ledger` (`electron-app/create_db.sql:443-444`) renders a dark-theme `"VOIDED"` badge (`bg-slate-600/50 text-slate-300` :1761-1765) plus `opacity-60` row dimming and a `line-through` on the amount cells (:1751, :1768, :1775). **Different word ("Refunded" vs "VOIDED") and different visual language (light pill vs dark badge) for the same concept.** | **No concept exists.** `partner_ledger` has **no `is_refunded`/`refunded_at` column** (confirmed: schema at :729-745, and no repository code references it — `PartnerRepository.ts` has zero hits for `is_refunded`/`void`/`refund`). By design (`TransactionRepository.ts:2693-2798`, LIRA-085): "partner_ledger has no soft-void column — every reversal here is a **NEW row**" with `direction` flipped and a note `"Reversal of voided/refunded txn #N"` (:2763-2777). The Partners page has **zero** UI referencing reversal/void/refund (`grep` for `Reversal\|Voided\|Refund\|VOID` on the page returns no matches) — a reversed partner transaction shows as an ordinary, unlabeled DEBIT/CREDIT row next to the one it cancels. |
+| 8 | **Amount formatting** | Ad hoc, inline, no shared helper: `` `$${x.toFixed(2)}` ``-style templates and `.toLocaleString()` scattered through JSX (e.g. :1294, :1359, :2681). USD has **no thousands separator** (`toFixed(2)` only). No import of any of the app's existing `formatCurrency` helpers (`frontend/src/utils/currency.ts`, `currencyUtils.ts`, `paymentUtils.ts`) — confirmed zero hits for `formatCurrency` on this file. | Named page-local helper `formatMoney(amount, currency)` (:232-236): `` `$${amount.toFixed(2)}` `` for USD (also **no thousands separator**), `` `${Math.round(amount).toLocaleString()} LBP` `` for LBP (suffix placement, comma-grouped). Reused consistently via `describeBalance`. | Named page-local helpers `fmtUSD`/`fmtLBP` (:61-75) via `Intl.NumberFormat`. **Verified by direct execution:** `fmtUSD` **does** thousands-group (`$1,234.50`, unlike Debts/Suppliers' raw `toFixed`), and `fmtLBP` renders **currency-code-prefixed** (`"LBP 1,234,567"`, negative as `"-LBP 1,234,567"`) — the opposite placement from Debts/Suppliers' `"1,234,567 LBP"` suffix style. Three pages, three formatters, no shared helper, and the USD-grouping + LBP-placement differences are **visible on screen**, not just internal. |
+| 9 | **Balance computation** | Primarily backend: `debt:client-balance` IPC → `ledgerBalance` state; a documented frontend-arithmetic fallback (`debtEntries`/`paymentEntries` reduced client-side, :367-385) is used only while that call is loading (or on web, per the comment at :400-405) — the comment explicitly flags that the fallback can silently diverge from the ledger on rows with an "unexpected sign" (imports/voids/legacy fixes) and that this **already caused a bug once** ("the panel once showed a credit the service refused to cash out"). | Backend `SUM(amount_usd)`/`SUM(amount_lbp)` per supplier (`SupplierRepository.ts:978-979`, exposed as `total_usd`/`total_lbp`), consumed directly by the frontend with no client-side re-derivation — the frontend only aggregates *across* suppliers for the page-level "Total Owed" cards (:438-449, itself a plain `for` loop, not a query). | Backend `SUM(CASE DEBIT) - SUM(CASE CREDIT)` per currency (`PartnerRepository.ts:898-909` for the flat balance, :827-854 for the FOR/THROUGH/other breakdown) — no frontend re-derivation found. Page-level "Partners owe us"/"we owe" summary cards (:1860-1873) are a plain client-side `reduce` over already-fetched per-partner balances, same pattern as Suppliers' `totalOwed`. |
+| 10 | **Table/tab structure** | No tabs. Two side-by-side `DataTable`s per selected client: "Purchases (& Charges)" and "Payments" (:1510+), with the left header text itself branching on the account's mixed/creditor/pure-debtor state (`accountFraming`, :1515-1519) — a small extra nuance neither other page has. | Three tabs: `settle` (transaction history + FIFO status + batch-settle), `manual` (ledger adjustments via `CounterpartySettleModal`), `items` (products view only, when `viewCategory === "products"`) — state at :276, tab buttons ~:1230-1250. | No tabs. Single scrollable detail panel: balance cards (USD/LBP, with FOR/THROUGH/other breakdown) → filters → one ledger table with columns `Date / Type / Direction / Amount / Notes` (:1710-1727). |
+| 11 | **Actions** | `Settle Debt` (:1396, emerald), `Cash Out` (:1411, red), `Write off` (admin-only, :1428), `Add Credit / Debt` (:1198). | `Write off` (admin-only, :1202), `Add Credit / Debt` (:1185/:1821, **identical label to Debts**), batch `Settle` (:1391), `Record Payment`/`Record Receipt` inside `CounterpartySettleModal` (:1694-1695). | `Add Credit / Debt` (:907/:1448, **identical label to the other two**), `Record Transaction` (:908, a Partners-only manual-ledger-entry mode distinct from the credit/debt adjustment), `Write off` (:1065/:1459), and a Partners-only `Deactivate` (:1130/:1468) — neither Debts (clients aren't deactivated here) nor Suppliers (no deactivate control on this page at all — `is_active` is read-only display, :1069-1077) exposes an equivalent control. |
+| 12 | **Modal component** | No shared/local `Modal` wrapper — every dialog is a raw `<div className="fixed inset-0 bg-black/80 z-50 …">` (:2202, :2330, :2553). | Same pattern: raw `<div className="fixed inset-0 bg-black/80 z-50 …">` per dialog (:1809, :1966). | **Local `Modal` component** (defined :165-183) used for Add/Edit Partner, Record Transaction, Write-off, Deactivate — at `z-[60]`, one level above the other two pages' `z-50`. **All three pages independently import and use the same shared `CounterpartySettleModal`** from `@liratek/ui` for the actual money-movement flow (Debts :2012-2193, Suppliers :1646-1731 & :2062-2270, Partners :524-690) — that component itself renders at `z-50` (`packages/ui/.../CounterpartySettleModal.tsx:202`). `Select`'s dropdown was raised to `z-[500]` (LIRA-120) specifically to clear every one of these z-index values app-wide, so the 50/50/60 split is inconsistent but not currently bug-causing. |
+| 13 | **Empty / loading / error states** | **None for the main data load.** No `isLoading`/`isError`/spinner/"Loading" text anywhere on the page (confirmed: zero matches) — the debtor list and history populate silently once the effect resolves. Only an empty-state exists: `"No debtors found."` (:1318), `"No purchases on debt"` / `"No payment entries yet."`-style `emptyMessage` props on the `DataTable`s. | **Partial, per-section.** Uses TanStack Query `isLoading` flags per tab (:1255, :1410, :1493) rendered as plain centered text ("Loading transactions…" :1494-1496) — **no spinner, no `isError` handling anywhere** on this page. Empty states: `"No suppliers found."` (:1101-1103), `"No transactions found for {name}"` (:1498-1499), `"No payment entries yet."` (:1790-1792). | **Most complete of the three.** Explicit spinner (`animate-spin`, :1693-1697), explicit error state with an `AlertCircle` icon (:1698-1702), explicit empty state with a `FileText` icon (:1703-1707) — all three states are visually distinct, unlike the other two pages. |
+| 14 | **Anything else** | "Debt Aging Buckets" (Current / 31–60 / 61–90 / Over 90 days), unique to this page (:1436-1507) — no analog on Suppliers or Partners; this is a genuinely different business need (client collections aging) that doesn't map onto supplier or partner ledgers. Excel import flow (unique to Debts, :888-1143) is unrelated to balance UX and out of scope here. | Commission-at-settlement plumbing (LUMP/RATE toggle, per-supplier `commission_entry_mode`) is Suppliers-only and correctly so — suppliers earn commission, clients and partners don't in the same sense. | FOR (our system) / THROUGH (their system) / Settlements-Adj. breakdown (:1502-1547) is Partners-only, backed by a dedicated repository query (`getBalanceBreakdown`) — reflects a real revenue-share business model that has no Debts/Suppliers equivalent. |
+
+**Identical across all three** (worth stating plainly, per the task's own framing — not
+every dimension is a gap): the `"Add Credit / Debt"` action label (Debts :1198,
+Suppliers :1185/:1821, Partners :907/:1448); the underlying money-movement modal
+(`CounterpartySettleModal` from `@liratek/ui`, used by all three); the overall page
+shell (`bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950`, `PageHeader`
+component, rounded `slate-800`/`slate-700` panel chrome) — visually, the three pages
+"feel" like the same app at the chrome level; the divergence is concentrated in the
+colour/epsilon/refund/format logic, not the page scaffolding.
+
+---
+
+## ACCIDENTAL vs SEMANTIC
+
+| Difference | Classification | Why |
+|---|---|---|
+| **Suppliers' colour polarity contradicts the owner's rule** — the page's own comment (:136-138) says positive = "WE owe the supplier," and colours that **red**; the owner's rule says "shop owes" should be **green**. Confirmed *not* introduced by `9082d6c`/LIRA-129 — that commit moved this comment and its branches verbatim (see "Colour vs. the owner's rule" above); the mismatch predates today. | **ACCIDENTAL (bug), now RESOLVED as a finding** — no longer "the reference implementation" | This was the single biggest correction to the original brief's framing: Suppliers was treated as the page to converge the others onto; it is instead the page whose *own documentation* names a rule that contradicts the owner's explicit instruction. Applies to `balanceColor`/`describeBalance` (:254-259/:238-249), the "Total Owed" summary cards (:1009/:1017), and `EntryTypeBadge`'s `UP` bucket (:204-209) — i.e. every colour decision on the page, consistently on the wrong side. |
+| **Partners' colour polarity also contradicts the owner's rule** — "shop owes partner" = CREDIT = negative `usd`/`lbp` (:701-702, :904-907), and that renders **red** (`balanceColor` :87-91, `LedgerRow` :1210-1217), not green. | **ACCIDENTAL (bug), now RESOLVED as a finding** — previously logged below as "unresolved, needs an owner call"; the owner has since given the rule, so it no longer is | The original draft of this audit treated Partners' polarity as ambiguous ("maybe intentional — partners are trusted counterparties") pending an owner ruling. The owner has now given the rule directly, and by it Partners is simply wrong, via a different code path (a `direction` enum, not a raw sign) than Suppliers' wrongness. See the superseded row further down, kept for the record rather than deleted. |
+| Colour shade `emerald-400` (Debts, Partners) vs `green-400` (Suppliers' `balanceColor`/`describeBalance`/summary cards) for the same "good" state | **ACCIDENTAL** | No domain reason for two different green shades; pure drift. Converge on one — but only after step 3 in Convergence Order below fixes *which* sign gets which colour; don't dedupe a wrong-polarity branch first. |
+| Debts' balance-chip zero renders red (:1357/:1365); Suppliers' page-level "Total Owed" cards zero renders red (:1009/:1017) | **ACCIDENTAL** (bug) | Both are un-epsilon'd copies of what each page does correctly elsewhere on the same page. Not a design choice. |
+| Three independent money formatters (`toFixed` ad hoc, `formatMoney`, `fmtUSD`/`fmtLBP` via `Intl`) with visibly different USD grouping and LBP symbol placement | **ACCIDENTAL** | Nothing about debts/suppliers/partners semantics requires different number formatting; this is the clearest, lowest-risk convergence target. |
+| "Refunded" (light pill) vs "VOIDED" (dark badge) wording/styling for the identical `is_refunded=1` concept | **ACCIDENTAL** | Same underlying flag, same meaning, gratuitously different word and a stray light-theme component in a dark app. |
+| Modal chrome: raw `z-50` divs (Debts, Suppliers) vs local `Modal` component at `z-[60]` (Partners) | **ACCIDENTAL** (currently harmless) | No reason Partners needs a different z-index or its own component; `Select` was already patched to clear all of them, so this is dormant drift, not a live bug — but the next person who copies Partners' `z-[60]` pattern into a *new* page without knowing about the `Select` fix could reintroduce a stacking bug. |
+| Status vocabulary: Suppliers' FIFO `Paid/Partial/Unpaid` per-transaction badges | **SEMANTIC** | Suppliers alone has an invoice-like FIFO settlement model (`fifo_status`, `fifo_paid_usd`) because supplier debt is booked per delivered good/top-up and paid down over time. Debts and Partners have no equivalent granularity to hang this vocabulary on — do **not** force a fake "Paid/Partial/Unpaid" onto client debts or partner ledgers just for consistency. |
+| Debts' Aging Buckets (Current/31-60/61-90/Over 90) | **SEMANTIC** | Client-collections-specific; suppliers and partners aren't aged the same way in this app's model. |
+| Partners' FOR/THROUGH/Settlements-Adj breakdown and USDT support | **SEMANTIC** | Reflects the revenue-share/multi-system partner model (`transaction_type LIKE 'FOR_%'/'THROUGH_%'`) and crypto settlement, which debts and suppliers don't have. |
+| Partners' `Deactivate` action | **SEMANTIC (probably)** | Partners are a small, manually curated set of business relationships that get added/retired; clients accumulate by the thousand (deactivating one is meaningless) and suppliers are apparently managed from a separate "manage service providers" surface per recent commits (`fc319c8`). Worth a quick confirm but not a red flag. |
+| ~~Partners' inverted colour polarity — UNRESOLVED, needs an explicit owner call~~ **SUPERSEDED, see the resolved row above** | Was logged as unresolved; now resolved | Originally reasoned: "(a) it's a straightforward bug... or (b) it's intentional product framing — partners are trusted counterparties, so money they owe the shop is deliberately shown as good news (green)... the code gives no signal either way, ask the owner first." The owner has since given the rule directly ("positive=green means shop owes"), which resolves this to reading (a): it is a bug, not intentional framing — kept here, struck through, so the correction is visible rather than silently rewritten. |
+| Partners' mixed-currency OR-bug in `balanceColor`/`balanceBorderColor`/`BalanceIcon` (:87-105, used at :1759/:1779/:1795/:1801) | **ACCIDENTAL (bug)**, not semantic | There's no domain reason a partner's LBP liability should be masked by an unrelated positive USD balance. This is the same class of bug the owner's prompt already named for Suppliers pre-LIRA-129 (colour driven by the wrong signal) — it just survives in Partners because nothing analogous to LIRA-129 has touched this page yet. |
+| Partners has zero refund/void UI (no `is_refunded` column, no "Reversal" badge) | **Mostly SEMANTIC at the schema layer** (reversal-as-new-row is a deliberate, documented design, LIRA-085/`TransactionRepository.ts:2693-2798`) **but ACCIDENTAL at the UI layer** — nothing stops the page from labeling a reversal row (it could match on `notes LIKE 'Reversal of%'` or a dedicated marker) the way Debts/Suppliers label a voided one. Today a user has no way to tell a genuine partner transaction from its own reversal in the ledger table. | See latent bug list below. |
+
+---
+
+## Latent Bugs Found
+
+0a. **Suppliers colours "shop owes" red, contradicting the owner's explicit rule.**
+   `frontend/src/features/suppliers/pages/Suppliers/index.tsx:136-138` (comment),
+   `:254-259` (`balanceColor`), `:238-249` (`describeBalance`), `:1009,1017` (Total
+   Owed cards), `:204-209` (`EntryTypeBadge` `UP` bucket). Consequence: every red
+   balance/badge on this page today is flagging the exact condition ("we owe the
+   supplier") that the owner wants shown in green. This is the highest-priority item
+   in this whole audit — it affects every screen of the page, not an edge case.
+
+0b. **Partners colours "shop owes" red too, by an independent path.**
+   `frontend/src/features/partners/pages/Partners/index.tsx:701-702` (comment),
+   `:87-91` (`balanceColor`), `:1210-1217` (`LedgerRow` CREDIT), `:1492-1501`
+   (balance card + "We owe them" caption). Consequence: same user-facing problem as
+   0a — a CREDIT-heavy (shop-owes) partner balance renders red — reached via a
+   `direction` enum rather than a raw sign, so a fix here cannot be copy-pasted from
+   Suppliers' fix; it has to flip the `CREDIT`/negative branch specifically.
+
+1. **Suppliers "Total Owed" summary cards render red at exactly $0.00 / 0 LBP.**
+   `frontend/src/features/suppliers/pages/Suppliers/index.tsx:1009,1017` — bypasses
+   the page's own `signBucket`/`BALANCE_EPS` (:141,152-156) that every other colour
+   decision on this page uses. Consequence: a shop with every supplier fully settled
+   sees its top-of-page balance tiles in alarm-red, contradicting the "Settled" text
+   shown one panel over.
+
+2. **Debts' balance chip renders red at exactly $0.00 / 0 LBP.**
+   `frontend/src/features/debts/pages/Debts/index.tsx:1357,1365` —
+   `netUsd < 0 ? emerald : red` has no neutral branch and no epsilon, unlike the list
+   row two hundred lines above it (:1286-1304) which does. Consequence: a fully
+   settled client's detail header shows a red "-$0.00", visually flagging a
+   non-existent debt.
+
+3. **Partners' mixed-currency OR bug hides a real liability.**
+   `frontend/src/features/partners/pages/Partners/index.tsx:87-105` (`balanceColor`,
+   `balanceBorderColor`, `BalanceIcon`), used with both currencies live at :1759,
+   :1779, :1795, :1801 inside `PartnerCard`. A partner who is owed +$5 USD but owes
+   100,000 LBP renders as an all-green, up-arrow card in the list — the LBP debit is
+   invisible until the row is opened. Confirmed structurally safe in the detail panel
+   only because those call sites zero-pad the other currency (:1486-1556); the list
+   card does not.
+
+4. **Partners' reversal rows are visually indistinguishable from live rows.**
+   `packages/core/src/repositories/TransactionRepository.ts:2707-2778` inserts a new,
+   opposite-`direction` `partner_ledger` row on void/refund with only a free-text note
+   (`"Reversal of voided/refunded txn #N"`); `frontend/.../Partners/index.tsx` has no
+   UI referencing this at all (zero matches for `Reversal|Voided|Refund|VOID`). A
+   voided partner transaction and its silent reversal both show as ordinary,
+   unlabeled DEBIT/CREDIT rows — a user scanning the ledger cannot tell a genuine
+   transaction from its own cancellation without reading every note field.
+
+5. **Partners' zero-check has no epsilon.**
+   `frontend/src/features/partners/pages/Partners/index.tsx:87-105,1496-1501` use
+   strict `> 0`/`< 0`/`else`, unlike Suppliers' explicit `BALANCE_EPS = 0.005`
+   (:141). Lower severity than #1-3 (amounts here come from a `SUM()` of already
+   currency-rounded values, so true floating residue is unlikely but not
+   impossible after many partial settlements) — flagged for completeness since the
+   task asked for zero-handling specifically.
+
+---
+
+## Proposed Convergence Order (cheapest & safest first)
+
+**Superseded note:** the original version of this section (visible in earlier
+revisions of this document, not reproduced here) proposed lifting Suppliers'
+`signBucket`/`balanceColor` almost verbatim as the shared reference and asking the
+owner only about Partners' polarity. That proposal is now known to be wrong at step
+2 — Suppliers' own branches are the thing that needs fixing, not the thing to copy.
+The order below replaces it.
+
+1. **Fix Suppliers' and Partners' colour branches to match the owner's rule** —
+   this is now the highest-priority, not-yet-cosmetic item (latent bugs 0a/0b), and
+   it should go *before* the formatting/dedup work below so nothing gets deduplicated
+   around a wrong branch. Concretely:
+   - **Suppliers**: in `balanceColor`/`describeBalance`
+     (`Suppliers/index.tsx:254-259`/`:238-249`) and the "Total Owed" cards
+     (`:1009,1017`), swap which bucket gets which colour so `UP` ("we owe the
+     supplier," per the page's own comment at `:136-138`) → **green**, `DOWN` → red.
+     `EntryTypeBadge`'s `UP`/`DOWN` colours (`:204-209`) need the same swap — its
+     tooltip text (`LEDGER_DIRECTION_HINT`, `:171-175`) already correctly describes
+     *what* UP/DOWN mean; only the colour, not the label, needs to change.
+   - **Partners**: in `balanceColor`/`balanceBorderColor`/`BalanceIcon`
+     (`Partners/index.tsx:87-105`) and `LedgerRow` (`:1204-1217`), swap so `CREDIT`
+     (negative, "shop owes partner" per `:701-702`) → **green**, `DEBIT` (positive,
+     "partner owes shop") → red. This is a different code shape from Suppliers' fix
+     (a `direction` enum branch, not a raw-sign branch) — it cannot be copy-pasted,
+     each page's fix has to be written against its own field.
+   - **This is a live, on-screen colour flip on two pages that staff use daily** —
+     get an explicit go-ahead from the owner before shipping it (not because the
+     rule is ambiguous — it isn't, the owner stated it directly — but because
+     "colours I'm used to just swapped" is worth a heads-up regardless of
+     correctness). This document does not implement it; it is read-only.
+
+2. **Fix the OR-across-currency bug in the same Partners change** (latent bug #3,
+   `balanceColor`/`balanceBorderColor`/`BalanceIcon` at `:87-105`, used at
+   `PartnerCard` `:1759/:1779/:1795/:1801`) — unambiguously a bug regardless of which
+   polarity wins, since it's about reading the *wrong currency's* sign, not which
+   sign means what. Doing it in the same change as step 1 avoids touching this
+   function's signature twice.
+
+3. **Add the zero-epsilon these pages are each missing in different places**
+   (latent bugs #1 Suppliers-summary-cards, #2 Debts-detail-chip, #5
+   Partners-strict-equality) — do this *after* step 1, so the epsilon is applied to
+   the corrected branches, not the ones about to be flipped.
+
+4. **Extract one shared money-formatting helper** and adopt it on all three pages
+   (replacing Debts' ad hoc `toFixed`/`toLocaleString`, Suppliers' `formatMoney`,
+   Partners' `fmtUSD`/`fmtLBP`). Zero domain/polarity risk — purely presentational —
+   which is exactly why it's safe to do only *after* the colour-meaning question is
+   settled, not before. The existing app already has candidate helpers
+   (`frontend/src/utils/currency.ts`, `currencyUtils.ts`) that nothing here currently
+   uses — confirm none of them is already "the real one" before minting a fourth.
+   Decide once: USD grouping (yes, per Partners' current `Intl` behavior) and LBP
+   symbol placement (suffix `"X LBP"`, per Debts/Suppliers' current behavior, since
+   2 of 3 pages already agree).
+
+5. **Now dedupe the corrected colour/epsilon logic into one shared helper**
+   (`signBucket`/`balanceColor`/`describeBalance`-shaped, but built from the
+   rule-correct branches produced by steps 1 and 3 — Debts' existing correct branch
+   is the one to model the shared helper's *polarity* on, not Suppliers'
+   pre-existing one). Pick one green shade (`emerald-400`, already the majority) and
+   retire `green-400`.
+
+6. **Give Partners' reversal rows a visible marker** (latent bug #4) — cheapest
+   version: badge any row whose `notes` matches the `"Reversal of "` prefix
+   `_reversePartnerLedger`/`_reversePartnerSettlementLedger` already writes
+   (`TransactionRepository.ts:2763,2773`), styled like Suppliers' dark `"VOIDED"`
+   pill (:1761-1765) for visual consistency. Does **not** require a schema change (no
+   new `is_refunded` column) — a pure read-side pattern match, low risk, and the one
+   gap here that is a real UX blind spot today, not cosmetic drift.
+
+7. **Converge "Refunded" vs "VOIDED" wording** on Debts (currently the light-theme
+   outlier) to match Suppliers' dark `"VOIDED"` badge styling — cosmetic, no logic
+   change, but do it after step 6 so both pages' void/reversal badges are designed
+   together instead of twice.
+
+8. **Do NOT converge:** table/tab structure (10), status vocabulary's FIFO
+   Paid/Partial/Unpaid (6), Debt Aging Buckets (14), Partners' FOR/THROUGH/USDT
+   breakdown (14), or the Deactivate action (11) — each is backed by a real,
+   different underlying data model (documented in the SEMANTIC rows above). Forcing
+   a shared tab structure or a shared "Paid/Partial/Unpaid" badge onto Debts or
+   Partners would fabricate a distinction (or hide one) that doesn't exist in their
+   respective ledgers.
