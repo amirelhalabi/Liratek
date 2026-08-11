@@ -177,6 +177,16 @@ export interface FinancialServiceEntity {
    * D2 was written to retire).
    */
   commission_model: number;
+  /** LIRA-131: set by `TransactionRepository._markSourceRefunded` when the
+   *  unified transaction sourced from this row is voided/refunded —
+   *  `financial_services` is in its supported-tables whitelist. Already
+   *  consumed internally by `NOT_REFUNDED_SQL` (the pending-settlement
+   *  gates below), but never projected on the plain read paths
+   *  (getHistory/getAllByProvider), so the OMT/Whish Services page's
+   *  inline history table and the shared recharge/HistoryModal.tsx
+   *  (iPick/Katsh/Whish App/Crypto) never received it. */
+  is_refunded: number;
+  refunded_at: string | null;
 }
 
 export interface UnsettledSummary {
@@ -813,8 +823,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   }
 
   // Override getColumns() to use explicit columns instead of SELECT *
+  // LIRA-131: is_refunded/refunded_at are written by
+  // TransactionRepository._markSourceRefunded on void/refund but were never
+  // projected here, so a refunded financial_services row silently read back
+  // as an ordinary live row on the plain read paths (the pending-settlement
+  // queries already filtered on it via NOT_REFUNDED_SQL — only the display
+  // projection was missing it). getHistory()/getAllByProvider()/findById()/
+  // findAll() all share this one method (used by both the IPC
+  // `omt:get-history` handler and the REST `GET /api/services/history`
+  // route via FinancialService.getHistory -> repo.getHistory), so this one
+  // change fixes the read path identically for desktop and web (rule 19).
   protected getColumns(): string {
-    return `id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
+    return `id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, is_refunded, refunded_at, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
   }
 
   // ---------------------------------------------------------------------------
@@ -4119,8 +4139,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * SALE_COST ledger entry. LIRA-122: the old unconditional `cost` made the
    * Transactions tab show "Unpaid" on a prepaid, nothing-owed sale.
    */
+  // LIRA-131: mirrors the same is_refunded/refunded_at addition as
+  // getColumns() above — this projection feeds getAllByProvider()'s
+  // cost-flow SEND branch (iPick/Katsh/Whish App sale rows shown in the
+  // shared recharge/HistoryModal.tsx AND the Suppliers "all transactions"
+  // tab), which would otherwise still drop the flag even after the main
+  // getColumns() fix, since it's a separate hand-written column list (rule
+  // 14 — same underlying "is this row refunded" fact, kept in sync here).
   private getSaleCostSettleColumns(): string {
-    return `id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
+    return `id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode, commission_model, is_refunded, refunded_at, ${SUPPLIER_OWED_EXPR} AS supplier_owed`;
   }
 
   /**

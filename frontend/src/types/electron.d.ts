@@ -357,6 +357,9 @@ export interface ElectronAPI {
         expense_date: string;
         created_at?: string;
         updated_at?: string;
+        // LIRA-131: now projected by ExpenseRepository.getColumns().
+        is_refunded?: number;
+        refunded_at?: string | null;
       }>
     >;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
@@ -655,6 +658,9 @@ export interface ElectronAPI {
         created_by: number | null;
         /** Set on 'Session Debt' rows — the basket this charge belongs to. Null otherwise. */
         session_id: number | null;
+        // LIRA-131: now projected by DebtRepository.getColumns().
+        is_refunded?: number;
+        refunded_at?: string | null;
       }>
     >;
     addRepayment: (data: {
@@ -855,6 +861,9 @@ export interface ElectronAPI {
         rate: number;
         amount_in: number;
         amount_out: number;
+        // LIRA-131: now projected by ExchangeRepository.getColumns().
+        is_refunded?: number;
+        refunded_at?: string | null;
       }>
     >;
     updateMetadata: (data: {
@@ -1062,6 +1071,9 @@ export interface ElectronAPI {
         created_by: number;
         edited_by: string | null;
         edited_at: string | null;
+        // LIRA-131: now projected by RechargeRepository.getColumns().
+        is_refunded?: number;
+        refunded_at?: string | null;
       }>
     >;
     process: (data: {

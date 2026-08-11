@@ -210,7 +210,7 @@ function createTestDb(): Database.Database {
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_by       INTEGER,
       session_id       INTEGER
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- NEW vs. the sibling fixture: shop_base_system, read by
     -- SessionPaymentRepository.resolveBaseSystem() via SettingsRepository.
@@ -236,7 +236,7 @@ function createTestDb(): Database.Database {
       amount       REAL,
       currency     TEXT DEFAULT 'USD',
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- Seed the General drawer (cash) at zero so deltas are easy to read.
     -- OMT_System/Whish_System are deliberately NOT pre-seeded — applyDrawerDelta

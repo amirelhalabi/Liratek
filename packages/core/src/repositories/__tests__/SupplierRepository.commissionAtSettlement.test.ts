@@ -119,7 +119,7 @@ function createTestDb(): Database.Database {
       commission_model INTEGER NOT NULL DEFAULT 0,
       tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- Migration v150 (COMMISSION_AT_SETTLEMENT_PLAN.md §3) real schema.
     CREATE TABLE supplier_settlements (

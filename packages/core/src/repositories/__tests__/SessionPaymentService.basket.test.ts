@@ -178,7 +178,7 @@ function createTestDb(): Database.Database {
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_by       INTEGER,
       session_id       INTEGER
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- Seed the General drawer (cash) at zero so deltas are easy to read.
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'USD', 0);

@@ -291,7 +291,7 @@ function createTestDb(): Database.Database {
       note             TEXT,
       created_by       INTEGER,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- Seed drawer balances
     INSERT INTO drawer_balances VALUES (1, 'General',      'USD', 1000, CURRENT_TIMESTAMP);

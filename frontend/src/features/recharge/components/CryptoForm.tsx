@@ -788,6 +788,13 @@ export function CryptoForm({
               note: tx.description ?? "",
               paid_by: tx.paid_by ?? undefined,
               created_at: tx.created_at,
+              // LIRA-131: without this, HistoryModal's already-wired
+              // "Refunded" badge (gated on `tx.is_refunded`) stays dark for
+              // every Binance row even after the repository/loadBinanceData
+              // fixes — this re-mapping to FinancialTransaction dropped the
+              // flag a second time.
+              is_refunded: tx.is_refunded ?? 0,
+              refunded_at: tx.refunded_at ?? null,
             };
             return result;
           })}

@@ -87,7 +87,7 @@ function createSchema(db: Database.Database): void {
       is_refunded INTEGER DEFAULT 0,
       payment_method_fee REAL DEFAULT 0,
       created_at TEXT
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     -- Referenced by notPartnerPending (PFT-6). An uncovered FOR_% row makes
     -- its source partner-pending.
@@ -126,7 +126,7 @@ function createSchema(db: Database.Database): void {
       session_id INTEGER,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
-    );
+    , refunded_at TEXT DEFAULT NULL);
   `);
 }
 

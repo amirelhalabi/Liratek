@@ -115,7 +115,7 @@ function createSchema(d: TestDb): void {
       is_settled INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE recharges (
       tenant_id INTEGER DEFAULT 1,
@@ -127,7 +127,7 @@ function createSchema(d: TestDb): void {
       cost REAL NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE custom_services (
       tenant_id INTEGER DEFAULT 1,
@@ -173,7 +173,7 @@ function createSchema(d: TestDb): void {
       leg2_profit_usd REAL,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE expenses (
       tenant_id INTEGER DEFAULT 1,
@@ -182,7 +182,7 @@ function createSchema(d: TestDb): void {
       amount_lbp REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active',
       expense_date TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE payments (
       tenant_id INTEGER DEFAULT 1,
@@ -232,7 +232,7 @@ function createSchema(d: TestDb): void {
       session_id INTEGER,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
-    );
+    , refunded_at TEXT DEFAULT NULL);
   `);
 
   d.prepare(`INSERT INTO users (id, username) VALUES (1, 'cashier')`).run();

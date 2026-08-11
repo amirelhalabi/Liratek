@@ -363,22 +363,60 @@ export function HistoryModal({
                       {formatAmount(tx.cost ?? 0, tx.currency)}
                     </td>
 
-                    {/* Profit / Fee + Profit */}
+                    {/* Profit / Fee + Profit — LIRA-131: neutralise (muted +
+                        struck through + tooltip) on a refunded row instead
+                        of presenting reversed income as live, mirroring
+                        e47dfa2 (Custom Services). The row itself is already
+                        dimmed (opacity-50 above); this stops the figure
+                        from reading as still-live income on its own. */}
                     {showFeeAndProfit ? (
                       <>
-                        <td className="px-5 py-3 text-sm font-bold text-amber-400">
+                        <td
+                          className={`px-5 py-3 text-sm font-bold ${
+                            isRefunded
+                              ? "text-slate-500 line-through"
+                              : "text-amber-400"
+                          }`}
+                          title={
+                            isRefunded
+                              ? "Refunded — fee not realized"
+                              : undefined
+                          }
+                        >
                           {(tx.cost ?? 0) === 0 && tx.commission !== 0
                             ? formatAmount(tx.commission, tx.currency)
                             : "—"}
                         </td>
-                        <td className="px-5 py-3 text-sm font-bold text-emerald-400">
+                        <td
+                          className={`px-5 py-3 text-sm font-bold ${
+                            isRefunded
+                              ? "text-slate-500 line-through"
+                              : "text-emerald-400"
+                          }`}
+                          title={
+                            isRefunded
+                              ? "Refunded — profit not realized"
+                              : undefined
+                          }
+                        >
                           {(tx.cost ?? 0) > 0
                             ? formatAmount(tx.commission, tx.currency)
                             : "—"}
                         </td>
                       </>
                     ) : (
-                      <td className="px-5 py-3 text-sm font-bold text-emerald-400">
+                      <td
+                        className={`px-5 py-3 text-sm font-bold ${
+                          isRefunded
+                            ? "text-slate-500 line-through"
+                            : "text-emerald-400"
+                        }`}
+                        title={
+                          isRefunded
+                            ? "Refunded — profit not realized"
+                            : undefined
+                        }
+                      >
                         {formatAmount(tx.commission, tx.currency)}
                       </td>
                     )}

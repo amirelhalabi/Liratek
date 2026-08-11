@@ -95,7 +95,7 @@ function createTestDb(): Database.Database {
       settlement_id INTEGER,
       tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
     INSERT INTO financial_services (id, provider, service_type, amount, currency)
       VALUES (1, 'OMT', 'RECEIVE', 100, 'USD');
 
@@ -117,7 +117,7 @@ function createTestDb(): Database.Database {
       is_refunded INTEGER DEFAULT 0,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE supplier_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

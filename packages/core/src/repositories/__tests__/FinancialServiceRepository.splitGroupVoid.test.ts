@@ -235,7 +235,7 @@ function createTestDb(): Database.Database {
       due_date TEXT,
       created_by INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- Empty on purpose (see the file doc's scope note): no Katsh supplier
     -- row means the BILL branch's supplier-ledger auto-entry is a no-op,

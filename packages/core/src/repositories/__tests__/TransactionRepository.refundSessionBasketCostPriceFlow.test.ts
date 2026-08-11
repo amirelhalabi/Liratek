@@ -282,7 +282,7 @@ function createTestDb(): Database.Database {
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0,
       session_id INTEGER
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE sales (
       tenant_id INTEGER DEFAULT 1,

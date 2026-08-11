@@ -158,7 +158,7 @@ function createTestDb(): Database.Database {
       is_refunded INTEGER DEFAULT 0,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE sales (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

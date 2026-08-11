@@ -116,7 +116,7 @@ function createTestDb(): Database.Database {
       is_refunded INTEGER DEFAULT 0,
       due_date DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'USD', 500);
     INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'LBP', 50_000_000);

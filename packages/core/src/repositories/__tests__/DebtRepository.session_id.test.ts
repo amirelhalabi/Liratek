@@ -40,7 +40,7 @@ function createTestDb(): Database.Database {
       edited_at        TEXT,
       session_id       INTEGER,
       tenant_id        INTEGER DEFAULT 1
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
   `);
   return db;
 }

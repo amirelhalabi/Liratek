@@ -1089,6 +1089,11 @@ export type RechargeHistoryEntry = {
   created_by: number;
   edited_by: string | null;
   edited_at: string | null;
+  // LIRA-131: mirrors RechargeEntity — now projected by
+  // RechargeRepository.getColumns(). Kept here for type completeness (rule
+  // 12) even though this passthrough doesn't strip properties at runtime.
+  is_refunded?: number;
+  refunded_at?: string | null;
 };
 
 // MTC/Alfa recharge history for the history tab (Recharge/index.tsx's

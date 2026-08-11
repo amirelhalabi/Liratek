@@ -389,6 +389,13 @@ export default function MobileRecharge() {
           commission: tx.commission ?? 0,
           paid_by: tx.paid_by || null,
           created_at: tx.created_at,
+          // LIRA-131: financial_services now projects is_refunded/
+          // refunded_at, but this hand-built mapping dropped both before
+          // they ever reached `binanceTransactions` state — a second,
+          // frontend-side instance of the same starving-the-badge defect,
+          // on top of CryptoForm.tsx's own re-mapping to FinancialTransaction.
+          is_refunded: tx.is_refunded ?? 0,
+          refunded_at: tx.refunded_at ?? null,
         })),
       );
 

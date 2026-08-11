@@ -243,7 +243,7 @@ function createTestDb(): Database.Database {
       note TEXT,
       created_by INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE partner_ledger (
       tenant_id INTEGER DEFAULT 1,

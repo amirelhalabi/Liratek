@@ -42,20 +42,20 @@ function createSchema(d: Database.Database): void {
     CREATE TABLE debt_ledger (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       amount_usd REAL, amount_lbp REAL, transaction_type TEXT, created_at TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
     CREATE TABLE expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       amount_usd REAL, amount_lbp REAL, expense_date TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
     CREATE TABLE financial_services (
       supplier_debt_booked INTEGER NOT NULL DEFAULT 0,
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       currency TEXT, commission REAL, created_at TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
     CREATE TABLE recharges (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       currency_code TEXT, price REAL, cost REAL, created_at TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
     CREATE TABLE custom_services (
       id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
       profit_usd REAL, status TEXT, created_at TEXT

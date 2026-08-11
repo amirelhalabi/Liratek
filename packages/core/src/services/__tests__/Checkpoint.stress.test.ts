@@ -200,7 +200,7 @@ function createSchema(db: Database.Database): void {
       transaction_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_by INTEGER
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE IF NOT EXISTS expenses (
       tenant_id INTEGER DEFAULT 1,
@@ -211,7 +211,7 @@ function createSchema(db: Database.Database): void {
       amount_usd REAL,
       amount_lbp REAL,
       expense_date DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE IF NOT EXISTS financial_services (
       tenant_id INTEGER DEFAULT 1,
@@ -222,7 +222,7 @@ function createSchema(db: Database.Database): void {
       currency TEXT DEFAULT 'USD',
       commission REAL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE IF NOT EXISTS recharges (
       tenant_id INTEGER DEFAULT 1,
@@ -234,7 +234,7 @@ function createSchema(db: Database.Database): void {
       price REAL DEFAULT 0,
       currency_code TEXT DEFAULT 'USD',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE IF NOT EXISTS custom_services (
       tenant_id INTEGER DEFAULT 1,
@@ -279,7 +279,7 @@ function createSchema(db: Database.Database): void {
       amount_out REAL NOT NULL,
       rate REAL NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
   `);
 }
 

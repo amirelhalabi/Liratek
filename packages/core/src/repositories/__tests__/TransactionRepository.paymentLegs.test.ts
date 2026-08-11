@@ -90,7 +90,7 @@ function createTestDb(): Database.Database {
       created_by       INTEGER,
       tenant_id        INTEGER NOT NULL DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
   `);
 
   db.prepare(`INSERT INTO users (id, username) VALUES (1, 'cashier')`).run();

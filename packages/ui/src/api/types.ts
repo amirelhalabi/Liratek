@@ -51,6 +51,9 @@ export type DebtLedgerEntity = {
   created_by: number | null;
   /** Set on 'Session Debt' rows — the basket this charge belongs to. Null otherwise. */
   session_id: number | null;
+  /** LIRA-131: now projected by DebtRepository.getColumns(). */
+  is_refunded?: number;
+  refunded_at?: string | null;
 };
 
 export type DashboardStats = {

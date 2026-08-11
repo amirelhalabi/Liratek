@@ -85,7 +85,7 @@ describe("RechargeRepository — SEND stamps the tendered rate", () => {
         created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
         edited_by              TEXT,
         edited_at              TEXT
-      );
+      , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
       CREATE TABLE transactions (
         tenant_id INTEGER DEFAULT 1,
@@ -154,7 +154,7 @@ describe("RechargeRepository — SEND stamps the tendered rate", () => {
         due_date         TEXT,
         created_by       INTEGER,
         created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
+      , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
       CREATE TABLE exchange_rates (
         to_code    TEXT,
@@ -382,7 +382,7 @@ describe("RechargeRepository — processCreditBuyback stamps the tendered rate",
         due_date TEXT,
         created_by TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
+      , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
       CREATE TABLE exchange_rates (
         to_code    TEXT,

@@ -78,7 +78,7 @@ function createTestDb(): Database.Database {
       omt_fee      REAL DEFAULT 0,
       whish_fee    REAL DEFAULT 0,
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE system_settings (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,

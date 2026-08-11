@@ -159,7 +159,7 @@ function createTestDb(): Database.Database {
       due_date         TEXT,
       created_by       INTEGER,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE exchange_rates (
       to_code     TEXT,

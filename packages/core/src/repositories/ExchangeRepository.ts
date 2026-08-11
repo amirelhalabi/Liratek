@@ -52,6 +52,15 @@ export interface ExchangeTransactionEntity {
   created_by: number | null;
   edited_by: string | null;
   edited_at: string | null;
+  /** LIRA-131: set by `TransactionRepository._markSourceRefunded` when the
+   *  unified transaction sourced from this row is voided/refunded —
+   *  `exchange_transactions` is in its supported-tables whitelist. Was
+   *  written by the reversal path but never projected here, so the
+   *  Exchange history modal's existing "Refunded" badge (`exchange/pages
+   *  /Exchange/components/HistoryModal.tsx`, gated on `tx.is_refunded`)
+   *  stayed dormant. */
+  is_refunded: number;
+  refunded_at: string | null;
 }
 
 export interface CreateExchangeData {
@@ -124,6 +133,14 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     super("exchange_transactions", { softDelete: false });
   }
 
+  // LIRA-131: is_refunded/refunded_at are written by
+  // TransactionRepository._markSourceRefunded on void/refund but were never
+  // projected here, so a refunded exchange silently read back as an
+  // ordinary live row. getHistory()/findById()/findAll() all share this one
+  // method (used by both the IPC `exchange:get-history` handler and the
+  // REST `GET /api/exchange/history` route via ExchangeService.getHistory
+  // -> repo.getHistory), so this one change fixes the read path identically
+  // for desktop and web (rule 19).
   protected getColumns(): string {
     return [
       "id",
@@ -148,6 +165,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       "created_by",
       "edited_by",
       "edited_at",
+      "is_refunded",
+      "refunded_at",
     ].join(", ");
   }
 

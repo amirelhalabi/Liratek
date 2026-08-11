@@ -152,7 +152,7 @@ function createTestDb(): Database.Database {
       due_date TEXT,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , refunded_at TEXT DEFAULT NULL);
   `);
   return db;
 }

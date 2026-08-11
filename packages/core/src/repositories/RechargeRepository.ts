@@ -167,6 +167,14 @@ export interface RechargeEntity {
   created_by: number;
   edited_by: string | null;
   edited_at: string | null;
+  /** LIRA-131: set by `TransactionRepository._markSourceRefunded` when the
+   *  unified transaction sourced from this row is voided/refunded —
+   *  `recharges` is in its supported-tables whitelist. Was written by the
+   *  reversal path but never projected here, so the Recharge history
+   *  modal's existing "Refunded" badge (`recharge/components/HistoryModal
+   *  .tsx`, gated on `tx.is_refunded`) stayed dormant. */
+  is_refunded: number;
+  refunded_at: string | null;
 }
 
 // =============================================================================
@@ -363,8 +371,16 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     super("recharges", { softDelete: false });
   }
 
+  // LIRA-131: is_refunded/refunded_at are written by
+  // TransactionRepository._markSourceRefunded on void/refund but were never
+  // projected here, so a refunded recharge silently read back as an
+  // ordinary live row. getHistory()/findById()/findAll() all share this one
+  // method (used by both the IPC `recharge:get-history` handler and the
+  // REST `GET /api/recharge/history` route via RechargeService.getHistory
+  // -> repo.getHistory), so this one change fixes the read path identically
+  // for desktop and web (rule 19).
   protected getColumns(): string {
-    return "id, carrier, recharge_type, amount, cost, price, default_price_to_client, currency_code, paid_by, phone_number, client_id, client_name, note, created_at, created_by, edited_by, edited_at";
+    return "id, carrier, recharge_type, amount, cost, price, default_price_to_client, currency_code, paid_by, phone_number, client_id, client_name, note, created_at, created_by, edited_by, edited_at, is_refunded, refunded_at";
   }
 
   /**

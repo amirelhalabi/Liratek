@@ -176,7 +176,7 @@ function createTestDb(): Database.Database {
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_by       INTEGER,
       session_id       INTEGER
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE system_settings (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,7 +198,7 @@ function createTestDb(): Database.Database {
       amount       REAL,
       currency     TEXT DEFAULT 'USD',
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'USD', 0);
     INSERT INTO drawer_balances (tenant_id, drawer_name, currency_code, balance) VALUES (1, 'General', 'LBP', 0);

@@ -160,7 +160,7 @@ function createSchema(d: Database.Database): void {
       is_settled INTEGER NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE recharges (
       tenant_id INTEGER DEFAULT 1,
@@ -172,7 +172,7 @@ function createSchema(d: Database.Database): void {
       cost REAL NOT NULL DEFAULT 0,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE custom_services (
       tenant_id INTEGER DEFAULT 1,
@@ -218,7 +218,7 @@ function createSchema(d: Database.Database): void {
       leg2_profit_usd REAL,
       is_refunded INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE expenses (
       tenant_id INTEGER DEFAULT 1,
@@ -227,7 +227,7 @@ function createSchema(d: Database.Database): void {
       amount_lbp REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active',
       expense_date TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- Referenced by ProfitRepository's notPartnerPending / salePaidOrPartnerSettled
     -- fragments (PFT-6). Left empty: the NOT EXISTS gate then passes every row.
@@ -266,7 +266,7 @@ function createSchema(d: Database.Database): void {
       session_id INTEGER,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
-    );
+    , refunded_at TEXT DEFAULT NULL);
   `);
 
   d.prepare(`INSERT INTO users (id, username) VALUES (1, 'admin')`).run();

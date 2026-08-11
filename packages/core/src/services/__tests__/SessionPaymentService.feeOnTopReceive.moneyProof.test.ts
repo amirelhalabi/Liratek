@@ -260,7 +260,7 @@ function createTestDb(): Database.Database {
       created_by INTEGER,
       session_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE currencies (
       tenant_id INTEGER DEFAULT 1,

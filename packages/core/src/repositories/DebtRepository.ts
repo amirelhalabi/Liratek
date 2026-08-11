@@ -72,6 +72,14 @@ export interface DebtLedgerEntity {
   /** Set on 'Session Debt' rows — the basket this charge belongs to
    *  (customer_session_transactions.session_id). Null for every other type. */
   session_id: number | null;
+  /** LIRA-131: set by `TransactionRepository._markSourceRefunded` when the
+   *  unified transaction sourced from this row is voided/refunded —
+   *  `debt_ledger` is in its supported-tables whitelist. Was written by the
+   *  reversal path but never projected here, so the Debts page's existing
+   *  "Refunded" badge (`debts/pages/Debts/index.tsx`, gated on
+   *  `item.is_refunded`) stayed dormant. */
+  is_refunded: number;
+  refunded_at: string | null;
 }
 
 export interface DebtorSummary {
@@ -145,8 +153,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   }
 
   // Override getColumns() to use explicit columns instead of SELECT *
+  // LIRA-131: is_refunded/refunded_at are written by
+  // TransactionRepository._markSourceRefunded on void/refund but were never
+  // projected here, so a refunded debt_ledger row silently read back as an
+  // ordinary live row. findClientHistory()/findById()/findAll() all share
+  // this one method (used by both the IPC `debt:get-client-history` handler
+  // and the REST `GET /api/debts/clients/:clientId/history` route via
+  // DebtService.getClientHistory -> repo.findClientHistory), so this one
+  // change fixes the read path identically for desktop and web (rule 19).
   protected getColumns(): string {
-    return "id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_at, created_by, edited_by, edited_at, session_id";
+    return "id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_at, created_by, edited_by, edited_at, session_id, is_refunded, refunded_at";
   }
 
   // ---------------------------------------------------------------------------

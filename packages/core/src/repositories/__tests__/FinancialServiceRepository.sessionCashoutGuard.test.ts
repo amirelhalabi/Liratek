@@ -88,7 +88,7 @@ function createTestDb(): Database.Database {
       paid_amount REAL DEFAULT NULL, paid_currency TEXT DEFAULT NULL,
       partner_id INTEGER, partner_mode TEXT,
       commission_model INTEGER NOT NULL DEFAULT 0
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE transactions (
       tenant_id INTEGER DEFAULT 1,

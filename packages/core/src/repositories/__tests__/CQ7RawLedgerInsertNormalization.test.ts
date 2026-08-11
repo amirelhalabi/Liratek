@@ -73,7 +73,7 @@ function createRechargeTestDb(): Database.Database {
       edited_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE suppliers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -668,7 +668,7 @@ function createFkStrictTestDb(): Database.Database {
       edited_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE loto_tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -108,7 +108,7 @@ function createSchema(db: Database.Database): void {
       is_refunded INTEGER DEFAULT 0,
       payment_method_fee REAL DEFAULT 0,
       created_at TEXT
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE recharges (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,7 +119,7 @@ function createSchema(db: Database.Database): void {
       cost REAL DEFAULT 0,
       is_refunded INTEGER DEFAULT 0,
       created_at TEXT
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE custom_services (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,7 +160,7 @@ function createSchema(db: Database.Database): void {
       amount_usd REAL DEFAULT 0,
       amount_lbp REAL DEFAULT 0,
       expense_date TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE exchange_transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,7 +170,7 @@ function createSchema(db: Database.Database): void {
       leg2_profit_usd REAL DEFAULT 0,
       is_refunded INTEGER DEFAULT 0,
       created_at TEXT
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -221,7 +221,7 @@ function createSchema(db: Database.Database): void {
       session_id INTEGER,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
-    );
+    , refunded_at TEXT DEFAULT NULL);
   `);
 }
 

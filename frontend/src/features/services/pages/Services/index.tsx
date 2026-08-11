@@ -256,6 +256,14 @@ interface Transaction {
   omt_service_type?: OmtServiceType;
   note?: string;
   created_at: string;
+  /** LIRA-131: set by `TransactionRepository._markSourceRefunded` when the
+   *  unified transaction sourced from this row is voided/refunded. Now
+   *  projected by `FinancialServiceRepository.getColumns()` (via
+   *  `FinancialService.getHistory()` -> IPC `omt:get-history` / REST
+   *  `GET /api/services/history`) — this table had NO badge code at all
+   *  before this fix (unlike the sibling recharge/HistoryModal.tsx). */
+  is_refunded?: number | null;
+  refunded_at?: string | null;
 }
 
 interface SupplierOwed {
@@ -2454,10 +2462,17 @@ export default function Services() {
                         (o) => o.value === tx.omt_service_type,
                       )?.label
                     : null;
+                  // LIRA-131: this inline history table had NO refund
+                  // display at all — `is_refunded` is now projected by
+                  // FinancialServiceRepository.getColumns(), so build the
+                  // same badge + row-dim + neutralised-profit pattern every
+                  // other module's history already uses (recharge/exchange/
+                  // expenses/debts/custom-services).
+                  const isRefunded = Boolean(tx.is_refunded);
                   return (
                     <tr
                       key={tx.id}
-                      className="hover:bg-slate-700/20 transition-colors"
+                      className={`hover:bg-slate-700/20 transition-colors${isRefunded ? " opacity-50" : ""}`}
                     >
                       <td className="px-6 py-4">
                         <span
@@ -2476,6 +2491,11 @@ export default function Services() {
                               ? "↓ Send"
                               : "↑ Receive"}
                           </span>
+                          {isRefunded && (
+                            <span className="ml-1 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              Refunded
+                            </span>
+                          )}
                         </div>
                         {omtLabel && (
                           <div className="text-xs text-slate-500 mt-0.5">
@@ -2497,7 +2517,18 @@ export default function Services() {
                           );
                         })()}
                       </td>
-                      <td className="px-6 py-4 text-sm font-bold text-emerald-400 font-mono">
+                      <td
+                        className={`px-6 py-4 text-sm font-bold font-mono ${
+                          isRefunded
+                            ? "text-slate-500 line-through"
+                            : "text-emerald-400"
+                        }`}
+                        title={
+                          isRefunded
+                            ? "Refunded — profit not realized"
+                            : undefined
+                        }
+                      >
                         ${tx.commission.toFixed(4)}
                       </td>
                       <td className="px-6 py-4 text-sm">

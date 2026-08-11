@@ -137,7 +137,7 @@ function createTestDb(): Database.Database {
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER DEFAULT 1,
       provider  TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- Empty in every test here — only exists so DebtRepository's FIFO
     -- coverage queries (_markSalesPaidFIFO / _unwindSalesPaidFifo) don't

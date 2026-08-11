@@ -234,10 +234,21 @@ export function HistoryModal({
                       <td className="px-4 py-3 text-sm font-bold text-right">
                         {totalProfit !== null && totalProfit !== undefined ? (
                           <span
+                            // LIRA-131: neutralise (muted + struck through +
+                            // tooltip) on a refunded row instead of
+                            // presenting reversed income as live, mirroring
+                            // e47dfa2 (Custom Services).
                             className={
-                              totalProfit >= 0
-                                ? "text-emerald-400"
-                                : "text-red-400"
+                              isRefunded
+                                ? "text-slate-500 line-through"
+                                : totalProfit >= 0
+                                  ? "text-emerald-400"
+                                  : "text-red-400"
+                            }
+                            title={
+                              isRefunded
+                                ? "Refunded — profit not realized"
+                                : undefined
                             }
                           >
                             ${Number(totalProfit).toFixed(2)}

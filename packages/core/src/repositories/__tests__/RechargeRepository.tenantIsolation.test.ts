@@ -52,7 +52,7 @@ function createTestDb(): Database.Database {
       created_by              INTEGER DEFAULT 1,
       edited_by                TEXT,
       edited_at                TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE drawer_balances (
       tenant_id     INTEGER NOT NULL,

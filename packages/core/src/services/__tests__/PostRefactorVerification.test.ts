@@ -216,7 +216,7 @@ function buildSchema(db: Database.Database): void {
       created_by       INTEGER,
       edited_by        TEXT,
       edited_at        TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- ══════════════════════════════════════════
     -- FINANCIAL SERVICES (OMT / WHISH)
@@ -262,7 +262,7 @@ function buildSchema(db: Database.Database): void {
       edited_by             TEXT,
       edited_at             TEXT,
       commission_model      INTEGER NOT NULL DEFAULT 0
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE IF NOT EXISTS suppliers (
       tenant_id INTEGER DEFAULT 1,
@@ -330,7 +330,7 @@ function buildSchema(db: Database.Database): void {
       session_id INTEGER,
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE IF NOT EXISTS item_costs (
       tenant_id INTEGER DEFAULT 1,
@@ -367,7 +367,7 @@ function buildSchema(db: Database.Database): void {
       created_by              INTEGER DEFAULT 1,
       edited_by               TEXT,
       edited_at               TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- ══════════════════════════════════════════
     -- EXPENSES
@@ -388,7 +388,7 @@ function buildSchema(db: Database.Database): void {
       edited_at      TEXT,
       created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- ══════════════════════════════════════════
     -- MAINTENANCE
@@ -477,7 +477,7 @@ function buildSchema(db: Database.Database): void {
       created_by       INTEGER,
       edited_by        TEXT,
       edited_at        TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     -- ══════════════════════════════════════════
     -- CLOSING / CHECKPOINTS

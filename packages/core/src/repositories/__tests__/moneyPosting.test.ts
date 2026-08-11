@@ -671,7 +671,7 @@ describe("bookClientDebtCharge (CQ-4 — the client-kind consolidation)", () => 
         created_by       INTEGER,
         tenant_id        INTEGER,
         created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
+      , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
     `);
     return db;
   }

@@ -252,7 +252,7 @@ function createTestDb(withPaymentMethodsTable: boolean): Database.Database {
       created_by       INTEGER,
       due_date         DATETIME,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     INSERT INTO drawer_balances VALUES (1, 'General',      'USD', 1000, CURRENT_TIMESTAMP);
     INSERT INTO drawer_balances VALUES (1, 'General',      'LBP',    0, CURRENT_TIMESTAMP);

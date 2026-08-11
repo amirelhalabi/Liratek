@@ -41,7 +41,7 @@ function createTestDb(): Database.Database {
       edited_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE partners (
       tenant_id INTEGER DEFAULT 1,

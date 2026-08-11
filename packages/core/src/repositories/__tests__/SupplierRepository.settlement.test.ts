@@ -82,7 +82,7 @@ function createTestDb(): Database.Database {
       settlement_id INTEGER,
       tenant_id INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE drawer_balances (
       drawer_name TEXT NOT NULL,
@@ -1082,7 +1082,7 @@ function createExtendedTestDb(): Database.Database {
       edited_at DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE drawer_balances (
       drawer_name TEXT NOT NULL,

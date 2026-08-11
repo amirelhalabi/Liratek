@@ -66,7 +66,7 @@ function createTestDb(): Database.Database {
       created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
       edited_by              TEXT,
       edited_at              TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE transactions (
       tenant_id INTEGER DEFAULT 1,

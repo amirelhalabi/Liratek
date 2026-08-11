@@ -137,7 +137,7 @@ function createTestDb(): Database.Database {
       -- DBT-1 (v129): repayment FIFO coverage of module-debt charges
       covered_usd REAL NOT NULL DEFAULT 0,
       covered_lbp REAL NOT NULL DEFAULT 0
-    );
+    , refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE sales (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

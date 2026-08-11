@@ -22,6 +22,15 @@ export interface ExpenseEntity {
   updated_at?: string;
   edited_by: string | null;
   edited_at: string | null;
+  /** LIRA-131: set by `TransactionRepository._markSourceRefunded` when the
+   *  unified transaction sourced from this row is voided/refunded —
+   *  `expenses` is in its supported-tables whitelist. Was written by the
+   *  reversal path but never projected here, so the Expenses history
+   *  modal's existing "Refunded" badge (`expenses/pages/Expenses
+   *  /components/HistoryModal.tsx`, gated on `expense.is_refunded`) stayed
+   *  dormant. */
+  is_refunded: number;
+  refunded_at: string | null;
 }
 
 export interface CreateExpenseData {
@@ -40,8 +49,16 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   }
 
   // Override getColumns() to use explicit columns instead of SELECT *
+  // LIRA-131: is_refunded/refunded_at are written by
+  // TransactionRepository._markSourceRefunded on void/refund but were never
+  // projected here, so a refunded expense silently read back as an
+  // ordinary live row. getTodayExpenses()/findById()/findAll() all share
+  // this one method (used by both the IPC handlers in dbHandlers.ts and the
+  // REST routes in backend/src/api/expenses.ts via ExpenseService), so this
+  // one change fixes the read path identically for desktop and web (rule
+  // 19).
   protected getColumns(): string {
-    return "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method, note, status, edited_by, edited_at";
+    return "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method, note, status, edited_by, edited_at, is_refunded, refunded_at";
   }
 
   /**

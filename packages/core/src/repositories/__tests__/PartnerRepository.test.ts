@@ -49,7 +49,7 @@ function createTestDb(): Database.Database {
       phone_number     TEXT,
       tenant_id        INTEGER DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
   `);
   return db;
 }

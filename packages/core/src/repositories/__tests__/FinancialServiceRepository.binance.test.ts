@@ -119,7 +119,7 @@ function createTestDb(): Database.Database {
       partner_id            INTEGER,
       partner_mode          TEXT,
       commission_model      INTEGER NOT NULL DEFAULT 0
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE debt_ledger (
       tenant_id INTEGER DEFAULT 1,
@@ -133,7 +133,7 @@ function createTestDb(): Database.Database {
       created_by       INTEGER,
       due_date         TEXT,
       created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE transactions (
       tenant_id INTEGER DEFAULT 1,

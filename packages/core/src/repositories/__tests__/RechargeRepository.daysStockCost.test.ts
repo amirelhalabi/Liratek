@@ -155,7 +155,7 @@ function createTestDb(): Database.Database {
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id INTEGER DEFAULT 1,
       provider  TEXT
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE sales (
       id                     INTEGER PRIMARY KEY AUTOINCREMENT,

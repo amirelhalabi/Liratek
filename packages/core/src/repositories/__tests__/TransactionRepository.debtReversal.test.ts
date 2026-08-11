@@ -129,7 +129,7 @@ function createTestDb(): Database.Database {
       created_by       INTEGER,
       tenant_id        INTEGER DEFAULT 1,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+    , is_refunded INTEGER DEFAULT 0, refunded_at TEXT DEFAULT NULL);
 
     CREATE TABLE recharges (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
