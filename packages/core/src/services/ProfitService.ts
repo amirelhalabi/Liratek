@@ -157,6 +157,16 @@ export interface ProfitSummary {
    *  (same treatment as debt_repayments) — a discount is a real P&L event,
    *  not just a footnote. */
   discounts: { usd: number; lbp: number };
+  /** LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md) — bills-only
+   *  settlement commission (Katsh/iPick BILL rows), profit-only (no
+   *  revenue/cost pair) and stamped directly on the SUPPLIER_SETTLEMENT
+   *  transaction at settlement. NETTED into totals below (same immediate-
+   *  recognition treatment as debt_repayments/discounts — the commission
+   *  arrives directly into the provider drawer at settlement, so no
+   *  partner-/debt-pending gate applies to it, unlike financial_services
+   *  commission). Exactly 0 for every other settlement shape (legacy
+   *  commission_model = 0, or a non-bills new-model batch). */
+  supplier_commission: { profit_usd: number; profit_lbp: number; count: number };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
@@ -372,6 +382,14 @@ export class ProfitService {
         lbp: discountTotals.profit_lbp,
       };
 
+      // LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md) — bills-only
+      // settlement commission (profit-only, immediate recognition — same
+      // treatment as debtRepayments/discounts above).
+      const supplierCommission = this.repo.getSupplierCommissionTotals(
+        fromDt,
+        toDt,
+      );
+
       // 7. Expenses.
       const expenses = this.repo.getExpenseTotals(fromDt, toDt);
 
@@ -417,7 +435,8 @@ export class ProfitService {
         exchange.profit_usd +
         mobileSvc.profit_usd +
         debtRepayments.profit_usd +
-        discounts.usd;
+        discounts.usd +
+        supplierCommission.profit_usd;
       const grossProfitLbp =
         finSvc.commission_lbp +
         finSvc.pm_fee_lbp +
@@ -427,7 +446,8 @@ export class ProfitService {
         loto.profit_lbp +
         mobileSvc.profit_lbp +
         debtRepayments.profit_lbp +
-        discounts.lbp;
+        discounts.lbp +
+        supplierCommission.profit_lbp;
 
       return {
         period: `${from} to ${to}`,
@@ -441,6 +461,7 @@ export class ProfitService {
         exchange,
         debt_repayments: debtRepayments,
         discounts,
+        supplier_commission: supplierCommission,
         expenses,
         totals: {
           gross_revenue_usd: grossRevenueUsd,

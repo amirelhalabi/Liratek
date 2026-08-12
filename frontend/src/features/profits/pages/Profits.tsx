@@ -123,6 +123,12 @@ interface ProfitSummary {
    *  breakout for visibility. Optional so an older cached summary response
    *  (pre-CQ-10 backend) doesn't crash the page. */
   discounts?: { usd: number; lbp: number };
+  /** LIRA-137 fix: bills-only settlement commission (Katsh/iPick BILL rows),
+   *  stamped directly on the SUPPLIER_SETTLEMENT transaction at settlement —
+   *  "our profit entirely" (owner). Already folded into the totals above;
+   *  this is a visibility breakout. Optional so an older cached summary
+   *  response (pre-fix backend) doesn't crash the page. */
+  supplier_commission?: { profit_usd: number; profit_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
     gross_revenue_lbp: number;
@@ -1047,6 +1053,49 @@ export default function Profits() {
                             }`}
                           >
                             {formatAmount(summary.discounts.lbp, "LBP")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              {/* Supplier commission (LIRA-137 fix): bills-only Katsh/iPick
+                  settlement commission, entered at settlement and stamped
+                  directly on the SUPPLIER_SETTLEMENT transaction. Already
+                  folded into the totals above; this is a visibility
+                  breakout. */}
+              {summary.supplier_commission &&
+                summary.supplier_commission.count > 0 && (
+                  <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-white">
+                        Supplier Commission
+                      </span>
+                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                        {summary.supplier_commission.count} settlements
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      {summary.supplier_commission.profit_usd !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">USD</span>
+                          <span className="text-emerald-400 font-semibold">
+                            {formatAmount(
+                              summary.supplier_commission.profit_usd,
+                              "USD",
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {summary.supplier_commission.profit_lbp !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="font-semibold">LBP</span>
+                          <span className="text-emerald-400 font-semibold">
+                            {formatAmount(
+                              summary.supplier_commission.profit_lbp,
+                              "LBP",
+                            )}
                           </span>
                         </div>
                       )}

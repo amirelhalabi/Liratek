@@ -216,6 +216,22 @@ const EXCLUDED_UNITS: Record<string, string> = {
     "COUNTERPARTY_DISCOUNT carries a signed profit stamp with amount_usd/lbp " +
     "always 0 (no cash moved) and is NON_REVERSIBLE_TRANSACTION_TYPES — " +
     "immediate recognition by design, nothing left to defer.",
+  "getSupplierCommissionTotals:(query)":
+    "LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md): recognition-by-" +
+    "construction, same reasoning as getDebtRepaymentProfit/" +
+    "getCounterpartyDiscountTotals above. A bills-only settlement's " +
+    "commission is a REAL provider-drawer top-up funded directly by the " +
+    "supplier AT settlement (SupplierRepository.settleTransactions's " +
+    "isBillsOnlyBatch branch) — there is no counterparty-pending state left " +
+    "to gate against: no partner_ledger row is EVER created with " +
+    "reference_table = 'supplier_ledger' (verified — grep across the " +
+    "codebase), and no debt_ledger module-debt row is ever keyed to a " +
+    "SUPPLIER_SETTLEMENT transaction id (module-debt rows are keyed to " +
+    "CUSTOMER_ACCOUNT-charged services only), so notPartnerPending/" +
+    "notDebtPending would always no-op here. Money-real-once verified " +
+    "separately via rule 20 (void status-excludes; refund's negated stamp " +
+    "nets the pair to 0) — see ProfitService.supplierSettlementCommission" +
+    ".test.ts.",
   "getFinancialPendingByCurrency:(query)":
     "Deliberately the PRE-recognition bucket (is_settled = 0), surfaced as " +
     "its own 'pending' line (ProfitService.getByPaymentMethod) and never " +

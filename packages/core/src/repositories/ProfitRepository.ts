@@ -218,6 +218,17 @@ export interface DeferredProfitRow {
   client_debt_profit_lbp: number;
 }
 
+/**
+ * LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md) — bills-only settlement
+ * commission, profit-only (no revenue/cost pair of its own — see
+ * {@link ProfitRepository.getSupplierCommissionTotals}).
+ */
+export interface SupplierCommissionTotalsRow {
+  profit_usd: number;
+  profit_lbp: number;
+  count: number;
+}
+
 // =============================================================================
 // Rule 14 — named domain-rule SQL fragments (defined ONCE, reused everywhere)
 // =============================================================================
@@ -371,9 +382,36 @@ const INTERNAL_PAYMENT_METHODS =
  * belongs in the same revenue/profit reporting bucket as a forward RECHARGE
  * sale — unlike `TELECOM_SELF_CHARGE` (LIRA-090 M3), which is deliberately
  * EXCLUDED because it always stamps 0 profit ("no profit row").
+ *
+ * `SUPPLIER_SETTLEMENT` (LIRA-137 fix, BILL_COMMISSION_SETTLEMENT_PLAN.md) is
+ * included for the SAME reason: a bills-only Katsh/iPick settlement
+ * (`SupplierRepository.settleTransactions`'s `isBillsOnlyBatch` branch)
+ * stamps the operator's entered commission as real `profit_usd`/`profit_lbp`
+ * on the settlement transaction itself — "our profit entirely" (owner). Every
+ * OTHER settlement shape (legacy `commission_model = 0`, or a non-bills
+ * new-model batch) stamps exactly 0/0 here, so this addition is a no-op for
+ * them (byte-for-byte unchanged). Never partner-/debt-pending: no
+ * `partner_ledger` row is ever created with `reference_table =
+ * 'supplier_ledger'` and no `debt_ledger` module-debt row is ever keyed to a
+ * SUPPLIER_SETTLEMENT transaction id, so `txnNotPartnerPending`/
+ * `notDebtPending` always pass it through — it can never be wrongly deferred
+ * by {@link getDeferredProfit}. Falls to the generic `ELSE` arms of
+ * {@link getByUser}/{@link getByClient} (its `source_table` is
+ * `'supplier_ledger'`, matching neither the `sales` nor `financial_services`
+ * special-cased branches): revenue contribution is `t.amount_usd`, which is
+ * contractually 0/0 for a bills-only batch (the commission is profit-only,
+ * no revenue/cost pair), and profit is `t.profit_usd`/`t.profit_lbp` — the
+ * stamped commission, attributed to the settling user, "Walk-in" client
+ * bucket (no client on a settlement row) — a sensible home, not "unknown."
+ * `REFUND` (already in this list) already carries the negated stamp for a
+ * reversed settlement (`TransactionRepository._refundTransactionInternal`),
+ * so adding `SUPPLIER_SETTLEMENT` here also closes a latent asymmetry: before
+ * this fix, refunding a bills-only settlement would have summed the REFUND's
+ * negative profit alone (REFUND was already in this list) with no positive
+ * counterpart to net against.
  */
 const PROFIT_TXN_TYPES =
-  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'TELECOM_CREDIT_BUYBACK'";
+  "'SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE', 'LOTO', 'REFUND', 'TELECOM_CREDIT_BUYBACK', 'SUPPLIER_SETTLEMENT'";
 
 /**
  * Maintenance jobs that count as completed revenue: the device was delivered.
@@ -523,6 +561,59 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       profit_lbp: number;
       count: number;
     };
+  }
+
+  /**
+   * LIRA-137 fix (BILL_COMMISSION_SETTLEMENT_PLAN.md) — bills-only
+   * settlement commission: `SupplierRepository.settleTransactions`'s
+   * `isBillsOnlyBatch` branch stamps the operator's entered commission as
+   * `profit_usd`/`profit_lbp` directly on the SUPPLIER_SETTLEMENT
+   * transaction (a real provider-drawer top-up funded BY the provider — the
+   * shop's own words, "our profit entirely"). Every OTHER settlement shape
+   * (legacy `commission_model = 0` OMT/WHISH, or a non-bills new-model
+   * batch) stamps exactly 0/0 here, so this bucket is a no-op for them.
+   *
+   * Double-count analysis (verified before this method was added): no OTHER
+   * ProfitRepository query reads a supplier_ledger-sourced transaction, and
+   * a BILL row's `financial_services.commission` column stays 0 forever
+   * (LIRA-112 — the settlement never writes it back), so this is the
+   * commission's ONE and ONLY home across every profits view.
+   *
+   * Includes `REFUND` on the SAME `source_table` (rule 14 — same pattern as
+   * {@link getDebtRepaymentProfit}): a reversed settlement's REFUND row
+   * carries the negated stamp (`TransactionRepository
+   * ._refundTransactionInternal`), so summing the pair nets to 0 (rule 20).
+   * A VOIDed settlement needs no REFUND counterpart — its own row simply
+   * drops out of the `status = 'ACTIVE'` filter. `source_table =
+   * 'supplier_ledger'` also matches SUPPLIER_PAYMENT / journal-entry rows
+   * (and their REFUNDs) — harmless, since none of those ever stamp a
+   * nonzero profit (verified: no `createTransaction` call for them passes
+   * `profit_usd`/`profit_lbp`, so both default to 0).
+   */
+  getSupplierCommissionTotals(
+    fromDt: string,
+    toDt: string,
+  ): SupplierCommissionTotalsRow {
+    return this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(profit_usd), 0) AS profit_usd,
+          COALESCE(SUM(profit_lbp), 0) AS profit_lbp,
+          COALESCE(SUM(CASE WHEN type = 'SUPPLIER_SETTLEMENT'
+                             AND (profit_usd != 0 OR profit_lbp != 0)
+                            THEN 1 ELSE 0 END), 0) AS count
+        FROM transactions
+        WHERE status = 'ACTIVE'
+          AND source_table = 'supplier_ledger'
+          AND type IN ('SUPPLIER_SETTLEMENT', 'REFUND')
+          AND ${dateRange("created_at")}
+          AND tenant_id = ?`,
+      )
+      .get(
+        fromDt,
+        toDt,
+        getCurrentTenantId(),
+      ) as SupplierCommissionTotalsRow;
   }
 
   /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */
