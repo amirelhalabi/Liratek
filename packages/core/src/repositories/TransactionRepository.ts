@@ -3048,12 +3048,24 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    *
    * COMMISSION_AT_SETTLEMENT_PLAN.md D5/D6 (Phase 0) — a NEW-MODEL
    * (`commission_model` = 1) settlement DOES fund a real commission credit
-   * again (`SUPPLIER_PAYS_US`, `SupplierRepository._bookCommissionAtSettlement`)
-   * — the fee-only-model paragraph above is about the OLD embedded-commission
-   * float, unrelated to this. That credit row is soft-voided for FREE by
-   * step 5c's existing LIRA-091 sibling cascade (linked via the SAME
-   * `source_ref_table`/`source_ref_id` shape as every other auto supplier
-   * sibling); this method additionally deletes the settlement's
+   * again — the fee-only-model paragraph above is about the OLD embedded-
+   * commission float, unrelated to this. This reversal method itself needs
+   * NO bespoke code for either shape:
+   *
+   *   - Non-bills new-model batches (`SUPPLIER_PAYS_US`,
+   *     `SupplierRepository._bookCommissionAtSettlement`'s original branch):
+   *     that credit row is soft-voided for FREE by step 5c's existing
+   *     LIRA-091 sibling cascade (linked via the SAME `source_ref_table`/
+   *     `source_ref_id` shape as every other auto supplier sibling).
+   *   - Bills-only batches (BILL_COMMISSION_SETTLEMENT_PLAN.md, LIRA-137) —
+   *     the commission posts as a `payments` leg ON THIS SAME settlement
+   *     transaction (`_bookBillsCommissionDrawerTopUp`, no `supplier_ledger`
+   *     row at all) — reversed for FREE by the generic `_reversePayments`
+   *     step that already runs for every voided/refunded transaction
+   *     (rule 20); the transaction's own `profit_usd`/`profit_lbp` nets to 0
+   *     the same generic way every other transaction's profit does.
+   *
+   * Either way, this method additionally deletes the settlement's
    * `supplier_settlements` + `settlement_commission_allocations` rows
    * (`_reverseCommissionAtSettlementRecords` — no soft-void column exists on
    * either table, so DELETE is the correct reversal, not a compensating row).

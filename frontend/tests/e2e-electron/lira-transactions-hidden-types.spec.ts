@@ -9,20 +9,46 @@
  * (rendered "Supplier Credit") only reappears when the operator explicitly
  * selects the "Supplier Credit" type filter.
  *
- * The is_credit SUPPLIER_PAYMENT fixture used to come from creating a Katsh
- * BILL directly (the old hardcoded −20,000 LBP commission booked AT
- * CREATION). `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 1
- * removed that: a fresh BILL is now born `commission_model = 1` and books
- * NOTHING until settled (see `lira-089-bill-commission-settlement.spec.ts`).
- * This spec now produces the credit the SAME way the new model actually does
- * — create the bill, then settle it with a nonzero commission
- * (`suppliers.settleTransactions` → `SupplierRepository
- * ._bookCommissionAtSettlement`, which books the exact same is_credit/is_auto
- * SUPPLIER_PAYS_US row the old creation-time path used to). This was chosen
- * over `recordSupplierCashflow`'s RECEIVE direction (which also books a
- * SUPPLIER_PAYS_US row) because settling a bill is the flow this filter was
- * actually written to hide, and it reuses an already-proven IPC path instead
- * of a second, less-travelled one.
+ * ⚠ UPDATED FOR LIRA-137 (BILL_COMMISSION_SETTLEMENT_PLAN.md, 2026-08-11).
+ * This spec used to generate its is_credit fixture by settling a Katsh BILL
+ * with a nonzero commission — `SupplierRepository._bookCommissionAtSettlement`
+ * used to book a cashless `SUPPLIER_PAYS_US` `supplier_ledger` credit
+ * (`is_credit: true`) for exactly that shape. LIRA-137 replaced that credit,
+ * for a BILLS-ONLY batch, with a REAL top-up into the Katsh/iPick provider
+ * DRAWER, posted as a `payments` leg on the SUPPLIER_SETTLEMENT transaction
+ * itself — `_bookBillsCommissionDrawerTopUp` deliberately never calls
+ * `addLedgerEntry`/writes `supplier_ledger` for this money at all (rule 20:
+ * there is no debt for it to net against). Concretely, `commission_model = 1`
+ * is stamped EXCLUSIVELY on BILL rows at creation (no other service_type ever
+ * reaches this settlement branch), so a bills-only batch is the ONLY shape
+ * that has ever fed this settlement-side ledger-credit mechanism in
+ * production — meaning post-LIRA-137 there is genuinely NO REACHABLE way
+ * (real UI, raw IPC, or otherwise) left to generate a fresh is_credit
+ * SUPPLIER_PAYMENT row any more: the manual `addLedgerEntry` IPC/REST
+ * endpoint's Zod schema restricts `entry_type` to `["TOP_UP", "PAYMENT",
+ * "ADJUSTMENT"]` (`packages/core/src/validators/supplier.ts`) — never
+ * `SUPPLIER_PAYS_US` — and `recordSupplierCashflow`'s RECEIVE direction also
+ * books `entry_type: "SUPPLIER_PAYS_US"` but does NOT set `is_credit` on its
+ * transaction (real cash, not a paper receivable — see
+ * `TransactionsViewer.tsx`'s own comment on the distinction). This is not a
+ * bug: bills commission is no longer a receivable waiting to be collected
+ * (the OLD "paper credit" semantic `is_credit` exists to flag) — it is real
+ * cash landing in the drawer the instant Confirm is pressed (owner, 2026-08-11:
+ * "it is profit, entirely").
+ *
+ * The is_credit/"Supplier Credit"-filter MECHANISM itself is untouched and
+ * still unit-tested in isolation against a synthetic fixture
+ * (`frontend/src/features/audit/__tests__/supplierPaymentVisibility.test.ts`)
+ * — it simply has no live producer for BILLS any more. So this spec's first
+ * test below no longer tries to manufacture that dead combination; instead
+ * it proves the row that NOW carries the audit evidence for a bills
+ * commission settlement — the SUPPLIER_SETTLEMENT transaction itself — is
+ * VISIBLE BY DEFAULT (SUPPLIER_SETTLEMENT was never in scope of the
+ * is_auto/is_credit hide rule to begin with, CQ-8) with its cash-flow badge
+ * reading IN (money arrived, per cashFlow.ts's new SUPPLIER_SETTLEMENT case).
+ * This is a stronger, more direct proof of the thing D2/CQ-8 actually cares
+ * about here ("can the operator see this money moved by default") than the
+ * old is_credit/filter-reveal path was for this exact scenario.
  *
  * Non-credit SUPPLIER_PAYMENT renders as "SUPPLIER PAYMENT" and CLIENT_CREATED
  * as "CLIENT CREATED" (label fallback) — so their absence/presence in the table
@@ -50,15 +76,15 @@ type SettleApi = {
 };
 
 test.describe("Transactions table — hidden types", () => {
-  test("supplier-payment, client-created & supplier-credit hidden by default; supplier-credit filter reveals it; no ⚙ button", async ({
+  test("supplier-payment & client-created hidden by default; bills-only commission settlement stays visible with IN flow (LIRA-137); no ⚙ button", async ({
     appPage,
   }) => {
     const ts = Date.now();
     // Rule-15 identity anchors: unique amounts make THIS run's own payment
-    // and credit rows matchable in the shared, accumulating e2e DB — a stale
-    // $7 payment or a stale 20,000 LBP credit left by an earlier spec must
-    // never be able to satisfy a precondition or a table assertion in place
-    // of the row this run actually created.
+    // and settlement rows matchable in the shared, accumulating e2e DB — a
+    // stale $7 payment or a stale 20,000 LBP settlement left by an earlier
+    // spec must never be able to satisfy a precondition or a table assertion
+    // in place of the row this run actually created.
     const paymentAmount = 7 + ((ts % 88) + 1) / 100; // $7.01–$7.88, never a bare $7
     const commissionLbp = 20000 + (ts % 5000); // 20,000–24,999 LBP
 
@@ -69,10 +95,11 @@ test.describe("Transactions table — hidden types", () => {
     });
 
     // 2. A non-credit SUPPLIER_PAYMENT (a supplier PAYMENT) and
-    // 3. A credit SUPPLIER_PAYMENT (a commission credit booked AT
-    //    SETTLEMENT, is_credit=true — see file header comment for why a bare
-    //    BILL creation no longer produces this row post COMMISSION_AT_
-    //    SETTLEMENT_PLAN.md Phase 1).
+    // 3. A Katsh BILL settled with a nonzero commission — post-LIRA-137 this
+    //    is a REAL Katsh-drawer top-up plus a visible SUPPLIER_SETTLEMENT
+    //    transaction (flow="IN"), never a hidden is_credit ledger row (see
+    //    file header comment for why that mechanism has no live producer
+    //    left for bills at all).
     const gen = await appPage.evaluate(
       async ({ paymentAmount, commissionLbp }) => {
         const katsh = (
@@ -104,13 +131,15 @@ test.describe("Transactions table — hidden types", () => {
           paidByMethod: "CASH",
         });
 
-        // The bill itself books nothing now (born commission_model=1) — settle
-        // it with a nonzero LUMP commission so `_bookCommissionAtSettlement`
-        // books the real SUPPLIER_PAYS_US credit (is_credit/is_auto), the
-        // fixture this test's "supplierCredit" assertion needs. amount_usd/
+        // The bill itself books nothing now (born commission_model=1) —
+        // settle it with a nonzero LUMP commission. LIRA-137:
+        // `_bookCommissionAtSettlement` books a REAL Katsh-drawer top-up
+        // (`_bookBillsCommissionDrawerTopUp`) for a bills-only batch, never
+        // a supplier_ledger credit — see file header comment. amount_usd/
         // amount_lbp stay 0: the bill's own principal already reached the
-        // supplier via the provider drawer's cost leg, so there is no net cash
-        // owed here — only the commission moves (same shape lira-089 proves).
+        // supplier via the provider drawer's cost leg, so there is no net
+        // cash owed here — only the commission moves (same shape lira-089
+        // proves).
         const settleApi = window as unknown as SettleApi;
         const settlement =
           katsh && bill.success === true && bill.id
@@ -122,7 +151,7 @@ test.describe("Transactions table — hidden types", () => {
                 commission_usd: 0,
                 commission_lbp: commissionLbp,
                 entry_mode: "LUMP",
-                note: "E2E hide-test commission-at-settlement credit",
+                note: "E2E hide-test commission-at-settlement",
               })
             : { success: false, error: "bill or supplier missing" };
 
@@ -142,13 +171,13 @@ test.describe("Transactions table — hidden types", () => {
     expect(gen.settlementError).toBeNull();
     expect(gen.settlementOk).toBe(true);
 
-    // Preconditions: all three exist in the data so the hide/keep assertions
-    // below are meaningful (not vacuous) — the supplier rows are matched by
-    // THIS run's own unique amount (rule 15), never by an earlier spec's
-    // stale row of the same type. `paymentSummary`/`creditSummary` capture
-    // the exact rendered summary text of our own two rows, reused below to
-    // scope the /audit DOM assertions to that same identity instead of a
-    // generic label match that any stale row could satisfy.
+    // Preconditions: both rows exist in the data so the hide/keep assertions
+    // below are meaningful (not vacuous) — matched by THIS run's own unique
+    // amount (rule 15), never an earlier spec's stale row of the same type.
+    // `paymentSummary`/`settlementSummary` capture the exact rendered
+    // summary text of our own two rows, reused below to scope the /audit DOM
+    // assertions to that same identity instead of a generic label match any
+    // stale row could satisfy.
     const present = await appPage.evaluate(
       ({ paymentAmount, commissionLbp }) => {
         const isCredit = (r: { metadata_json: string | null }) => {
@@ -175,18 +204,27 @@ test.describe("Transactions table — hidden types", () => {
               !isCredit(r) &&
               Math.abs(r.amount_usd - paymentAmount) < 0.001,
           );
-          const creditRow = recent.find(
-            (r) =>
-              r.type === "SUPPLIER_PAYMENT" &&
-              isCredit(r) &&
-              r.amount_lbp === commissionLbp,
-          );
+          const settlementRow = recent.find((r) => {
+            if (r.type !== "SUPPLIER_SETTLEMENT") return false;
+            try {
+              const m = JSON.parse(r.metadata_json ?? "{}") as {
+                commission_lbp?: number;
+                counterparty?: { flow?: string };
+              };
+              return (
+                m.commission_lbp === commissionLbp &&
+                m.counterparty?.flow === "IN"
+              );
+            } catch {
+              return false;
+            }
+          });
           return {
             clientCreated: recent.some((r) => r.type === "CLIENT_CREATED"),
             supplierPaymentNonCredit: paymentRow !== undefined,
-            supplierCredit: creditRow !== undefined,
+            supplierSettlementInFlow: settlementRow !== undefined,
             paymentSummary: paymentRow?.summary ?? null,
-            creditSummary: creditRow?.summary ?? null,
+            settlementSummary: settlementRow?.summary ?? null,
           };
         });
       },
@@ -194,11 +232,16 @@ test.describe("Transactions table — hidden types", () => {
     );
     expect(present.clientCreated).toBe(true);
     expect(present.supplierPaymentNonCredit).toBe(true);
-    expect(present.supplierCredit).toBe(true);
+    // LIRA-137: the commission arrived as a real drawer top-up stamped on
+    // the SUPPLIER_SETTLEMENT transaction (flow="IN") — NOT a hidden
+    // is_credit SUPPLIER_PAYMENT row (the mechanism this assertion used to
+    // check is unreachable for bills post-LIRA-137 — see file header
+    // comment).
+    expect(present.supplierSettlementInFlow).toBe(true);
     expect(present.paymentSummary).not.toBeNull();
-    expect(present.creditSummary).not.toBeNull();
+    expect(present.settlementSummary).not.toBeNull();
     const paymentSummary = present.paymentSummary as string;
-    const creditSummary = present.creditSummary as string;
+    const settlementSummary = present.settlementSummary as string;
 
     // Bounce through "/" first (README "Assertion discipline") — a viewer
     // already parked on /audit from an earlier spec in the shared-instance
@@ -231,28 +274,46 @@ test.describe("Transactions table — hidden types", () => {
       ourPaymentRow.getByText("SUPPLIER PAYMENT", { exact: true }),
     ).toBeVisible();
 
-    // …and so is the commission-revenue "Supplier Credit" row, by default —
-    // again scoped to THIS run's own credit row, not any stale one.
+    // …and so is the bills-commission SUPPLIER_SETTLEMENT row, by default —
+    // LIRA-137: SUPPLIER_SETTLEMENT was never in scope of the is_auto/
+    // is_credit hide rule to begin with (CQ-8, "Suppliers are first-class
+    // citizens of the Transactions page") — it is a real, always-visible
+    // row. Scoped to THIS run's own settlement row, not any stale one.
+    const ourSettlementRow = appPage.locator("tr", {
+      hasText: settlementSummary,
+    });
+    await expect(ourSettlementRow).toBeVisible({ timeout: 8_000 });
     await expect(
-      appPage.locator("tr", { hasText: creditSummary }),
-    ).toHaveCount(0);
+      ourSettlementRow.getByText("Supplier Settlement", { exact: true }),
+    ).toBeVisible();
+    // The cash-flow badge reads IN (money arrived, funded by Katsh) — the
+    // opposite of a real net-payment settlement's "OUT" stamp, and — along
+    // with the summary text below — the only visible signal that money moved
+    // here at all, since amount_usd/amount_lbp are contractually 0/0 for
+    // this batch shape (no bill principal is owed for a bill).
+    await expect(
+      ourSettlementRow.locator('[data-testid="cash-flow-badge"]'),
+    ).toHaveAttribute("data-direction", "in");
+    // The commission amount itself is visible in the row's own summary text
+    // by default (SupplierRepository.ts's `settlementSummary` — the fix for
+    // the audit-visibility gap this spec caught while investigating LIRA-137:
+    // the drawer leg is filtered from the customer-facing legs subtext by
+    // the SAME PROVIDER_STOCK_DRAWERS rule that hides a bill's own
+    // creation-time cost leg, and amount_usd/amount_lbp stay 0/0, so without
+    // this fix the row would show IN but never HOW MUCH).
+    expect(settlementSummary).toContain(
+      `${commissionLbp.toLocaleString()} LBP`,
+    );
 
     // …and the ⚙ System Transactions fold button never renders.
     await expect(appPage.getByText("⚙")).toHaveCount(0);
 
-    // Selecting the "Supplier Credit" filter reveals just that row — and
-    // specifically proves it reveals THIS run's own row.
-    await appPage
-      .locator("button")
-      .filter({ hasText: /^All types$/ })
-      .first()
-      .click();
-    await appPage.getByText("Supplier Credit", { exact: true }).click();
-    const ourCreditRow = appPage.locator("tr", { hasText: creditSummary });
-    await expect(ourCreditRow).toBeVisible({ timeout: 8_000 });
-    await expect(
-      ourCreditRow.getByText("Supplier Credit", { exact: true }),
-    ).toBeVisible();
+    // The "Supplier Credit" filter mechanism itself is untouched by
+    // LIRA-137 and stays covered at the unit level against a synthetic
+    // fixture (frontend/src/features/audit/__tests__/
+    // supplierPaymentVisibility.test.ts) — it simply has no live producer
+    // for bills any more (see file header comment), so this spec no longer
+    // exercises it via a real settlement flow here.
   });
 
   test("B6: 'Cash only (till)' filter keeps cash rows and drops wallet-only rows", async ({

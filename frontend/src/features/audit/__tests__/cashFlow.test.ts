@@ -256,6 +256,58 @@ describe("getCashFlowDirection — SUPPLIER_PAYMENT (both directions)", () => {
   });
 });
 
+/**
+ * SUPPLIER_SETTLEMENT direction (BILL_COMMISSION_SETTLEMENT_PLAN.md, LIRA-137):
+ * a bills-only commission-at-settlement batch (Katsh) moves NO cash out of a
+ * drawer — the entered commission arrives IN via a provider-drawer top-up.
+ * A fixed "out" mapping painted a red ↑ on a row that only ever moves cash
+ * IN. Direction now reads `metadata.counterparty.flow`, same CQ-8 contract
+ * pattern as SUPPLIER_PAYMENT above; every historical/legacy row (real
+ * OUT payment to a supplier, or no metadata at all) keeps the "out" default.
+ * The "in" case fails against the pre-fix (hardcoded "out") code (rule 17).
+ */
+describe("getCashFlowDirection — SUPPLIER_SETTLEMENT (bills commission IN, else OUT)", () => {
+  it("a bills-only commission batch is cash IN (provider-drawer top-up, no cash paid out)", () => {
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_SETTLEMENT",
+        JSON.stringify({
+          supplier_id: 1,
+          commission_model: 1,
+          counterparty: { flow: "IN", method: "Katsh" },
+        }),
+      ),
+    ).toBe("in");
+  });
+
+  it("a real net-payment settlement (legacy/OMT) stays cash OUT", () => {
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_SETTLEMENT",
+        JSON.stringify({
+          supplier_id: 1,
+          commission_model: 0,
+          counterparty: { flow: "OUT", method: "CASH" },
+        }),
+      ),
+    ).toBe("out");
+  });
+
+  it("historical rows with no counterparty metadata default to 'out' (unchanged)", () => {
+    expect(getCashFlowDirection("SUPPLIER_SETTLEMENT")).toBe("out");
+    expect(getCashFlowDirection("SUPPLIER_SETTLEMENT", null)).toBe("out");
+    expect(getCashFlowDirection("SUPPLIER_SETTLEMENT", "not-json{")).toBe(
+      "out",
+    );
+    expect(
+      getCashFlowDirection(
+        "SUPPLIER_SETTLEMENT",
+        JSON.stringify({ supplier_id: 1 }),
+      ),
+    ).toBe("out");
+  });
+});
+
 describe("getCashFlowDirection — PARTNER_SETTLEMENT / PARTNER_PAYMENT (CQ-8)", () => {
   const flowMeta = (flow: "IN" | "OUT") =>
     JSON.stringify({ counterparty: { flow } });

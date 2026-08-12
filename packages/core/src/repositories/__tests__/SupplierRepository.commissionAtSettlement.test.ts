@@ -305,6 +305,30 @@ function commissionCreditRows(
     .all(supplierId);
 }
 
+// BILL_COMMISSION_SETTLEMENT_PLAN.md — the bills-only commission path books
+// NO supplier_ledger row at all; these two helpers read the ACTUAL money
+// movement instead (drawer balance + the settlement's own transaction row).
+function drawerBalance(
+  db: Database.Database,
+  drawerName: string,
+  currencyCode: string,
+): number {
+  const row = db
+    .prepare(
+      `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
+    )
+    .get(drawerName, currencyCode) as { balance: number } | undefined;
+  return row?.balance ?? 0;
+}
+
+function settlementTxnFor(db: Database.Database, settlementLedgerId: number): any {
+  return db
+    .prepare(
+      `SELECT * FROM transactions WHERE source_table = 'supplier_ledger' AND source_id = ? AND type = 'SUPPLIER_SETTLEMENT'`,
+    )
+    .get(settlementLedgerId);
+}
+
 describe("SupplierRepository.settleTransactions() — commission-at-settlement (new-model)", () => {
   let db: Database.Database;
   let repo: SupplierRepository;
@@ -492,8 +516,9 @@ describe("SupplierRepository.settleTransactions() — commission-at-settlement (
 
   // ── Bills settlement note: gross = 0 for every row → equal-weight fallback ─
 
-  it("bills settlement note: a batch whose rows all have $0 gross owed (bill principal never touched the ledger) splits the commission EQUALLY, needs no payment legs", () => {
+  it("bills settlement note: a batch whose rows all have $0 gross owed (bill principal never touched the ledger) splits the commission EQUALLY across allocations, needs no payment legs, and books the commission as a Katsh-drawer top-up (BILL_COMMISSION_SETTLEMENT_PLAN.md, LIRA-137)", () => {
     const supplierId = seedSupplier(db, "Katsh", 0);
+    const drawerBefore = drawerBalance(db, "Katsh", "LBP");
     // BILL rows never book a TOP_UP/SALE_COST to the ledger — supplier_owed
     // for a non-OMT/WHISH provider with cost=0 is ABS(amount) per
     // SUPPLIER_OWED_EXPR's fallback branch... to genuinely simulate "gross
@@ -560,9 +585,38 @@ describe("SupplierRepository.settleTransactions() — commission-at-settlement (
       expect(a.commission_lbp).toBe(20000);
     }
 
-    const credits = commissionCreditRows(db, supplierId);
-    expect(credits).toHaveLength(1);
-    expect(credits[0].amount_lbp).toBe(-60000);
+    // NO supplier_ledger row for this money at all (rule 20 "one obligation,
+    // one owner" — there is no debt for a provider-funded top-up to net
+    // against). This is the exact behavior this test's PRE-fix version
+    // asserted the opposite of (a SUPPLIER_PAYS_US credit row) — see the
+    // task report for the rule-17 failing-first proof.
+    expect(commissionCreditRows(db, supplierId)).toHaveLength(0);
+
+    // The REAL money movement: the Katsh drawer (LBP) increases by EXACTLY
+    // the entered commission — a top-up funded by the provider, per the
+    // owner's own model ("Katsh owes you X, they pay it to us via top-up to
+    // our Katsh account", 2026-08-11).
+    expect(drawerBalance(db, "Katsh", "LBP") - drawerBefore).toBe(60000);
+    // No USD side effect for an LBP-only commission.
+    expect(drawerBalance(db, "Katsh", "USD")).toBe(0);
+
+    // It is profit, entirely (owner's words) — stamped on the settlement's
+    // OWN transaction the same way every other commission-earning flow in
+    // this codebase stamps profit (rule 10, FEATURE_GUIDE.md).
+    const settlementTxn = settlementTxnFor(db, settlementRow.id);
+    expect(settlementTxn.profit_lbp).toBe(60000);
+    expect(settlementTxn.profit_usd).toBe(0);
+    // amount_usd/amount_lbp stay 0 — no cash was PAID OUT, only credited IN.
+    expect(settlementTxn.amount_usd).toBe(0);
+    expect(settlementTxn.amount_lbp).toBe(0);
+
+    // CQ-8 counterparty contract: this batch's ONLY money movement is IN
+    // (the drawer top-up), not the "OUT" every other settlement stamps —
+    // drives the transactions-table cash-flow badge (cashFlow.ts).
+    const meta = JSON.parse(settlementTxn.metadata_json) as {
+      counterparty?: { flow?: string };
+    };
+    expect(meta.counterparty?.flow).toBe("IN");
   });
 
   // ── Reviewer finding #2: currency-bucket weights must exclude foreign-
@@ -712,5 +766,202 @@ describe("SupplierRepository.settleTransactions() — commission-at-settlement (
       .prepare(`SELECT is_settled FROM financial_services WHERE id = ?`)
       .get(fsId) as { is_settled: number };
     expect(fsRow.is_settled).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) — the bills-only drawer
+// top-up: no supplier debt, the OMT/legacy path untouched, and the new
+// reverse-hazard guard (legs with nothing owed).
+// ─────────────────────────────────────────────────────────────────────────
+describe("SupplierRepository.settleTransactions() — bills-only commission drawer top-up (LIRA-137)", () => {
+  let db: Database.Database;
+  let repo: SupplierRepository;
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    repo = new SupplierRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function drawerBalance(drawerName: string, currencyCode: string): number {
+    const row = db
+      .prepare(
+        `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
+      )
+      .get(drawerName, currencyCode) as { balance: number } | undefined;
+    return row?.balance ?? 0;
+  }
+
+  it("does NOT create supplier debt — no TOP_UP row, no supplier_ledger row of ANY entry_type for this money", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+
+    repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 20000,
+      entry_mode: "RATE",
+      commission_rate: 20000,
+      commission_unit_count: 1,
+      created_by: 1,
+    });
+
+    // The ONLY supplier_ledger row this settlement writes is its own
+    // (zero-amount) SETTLEMENT row — deliberately NOT the debt-booking
+    // TOP_UP entry_type `RechargeRepository.topUpFromSupplier` would write
+    // for a SHOP-funded top-up (this top-up is funded BY Katsh — the shop
+    // owes nothing back for it, see `_bookBillsCommissionDrawerTopUp`'s own
+    // doc comment). Asserted by absence of EVERY entry_type, not just
+    // SUPPLIER_PAYS_US, so a future accidental debt-booking call (however it
+    // spells its entry_type) trips this test.
+    const ledgerRows = db
+      .prepare(`SELECT entry_type FROM supplier_ledger WHERE supplier_id = ?`)
+      .all(supplierId) as { entry_type: string }[];
+    expect(ledgerRows.map((r) => r.entry_type)).toEqual(["SETTLEMENT"]);
+    expect(
+      ledgerRows.some((r) => r.entry_type === "TOP_UP"),
+    ).toBe(false);
+
+    // The money landed in the Katsh drawer instead.
+    expect(drawerBalance("Katsh", "LBP")).toBe(20000);
+  });
+
+  it("REGRESSION — an OMT (legacy, commission_model = 0) batch is byte-for-byte untouched: no drawer top-up, no profit stamp, unchanged SUPPLIER_SETTLEMENT metadata flow", () => {
+    const supplierId = seedSupplier(db, "OMT");
+    const fsId = seedFs(db, {
+      provider: "OMT",
+      amount: 100,
+      commission: 5,
+      commissionModel: 0,
+    });
+    const omtDrawerBefore = drawerBalance("OMT_System", "USD");
+
+    const result = repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 95,
+      amount_lbp: 0,
+      commission_usd: 5,
+      commission_lbp: 0,
+      created_by: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 95 }],
+    });
+
+    // Untouched: no bills-only drawer top-up ever runs for a legacy batch —
+    // the OMT float drawer only sees the CASH settlement leg itself
+    // (step 4), never a SECOND commission-credit leg.
+    expect(drawerBalance("OMT_System", "USD") - omtDrawerBefore).toBe(-95);
+
+    const txnId = (
+      db
+        .prepare(
+          `SELECT id FROM transactions WHERE source_table = 'supplier_ledger' AND source_id = ? AND type = 'SUPPLIER_SETTLEMENT'`,
+        )
+        .get(result.id) as { id: number }
+    ).id;
+    const txn = db
+      .prepare(
+        `SELECT profit_usd, profit_lbp, metadata_json FROM transactions WHERE id = ?`,
+      )
+      .get(txnId) as {
+      profit_usd: number;
+      profit_lbp: number;
+      metadata_json: string;
+    };
+    // No profit stamp for a legacy batch — commission_usd/commission_lbp on
+    // this transaction stay purely informational metadata, exactly as
+    // before this plan.
+    expect(txn.profit_usd).toBe(0);
+    expect(txn.profit_lbp).toBe(0);
+    // CQ-8 flow stays "OUT" — a real net payment TO the supplier, unchanged.
+    const meta = JSON.parse(txn.metadata_json) as {
+      counterparty?: { flow?: string };
+    };
+    expect(meta.counterparty?.flow).toBe("OUT");
+
+    // The pre-existing cashless commission credit still posts, unchanged.
+    expect(commissionCreditRows(db, supplierId)).toHaveLength(0); // legacy batch never books one at all
+  });
+
+  // ── LIRA-137 Q2 — the reverse hazard: legs with nothing contractually owed ─
+
+  it("rejects payment-method legs when both amount_usd and amount_lbp are ~0 — nothing owed for a leg to pay", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+
+    expect(() =>
+      repo.settleTransactions({
+        supplier_id: supplierId,
+        financial_service_ids: [fsId],
+        amount_usd: 0,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 20000,
+        entry_mode: "RATE",
+        commission_rate: 20000,
+        commission_unit_count: 1,
+        created_by: 1,
+        // A stray leg forced through despite nothing being owed — exactly
+        // the LIRA-137 Q2 risk (a real drawer debited with no matching
+        // ledger/gross entry).
+        payments: [{ method: "CASH", currency_code: "LBP", amount: 20000 }],
+      }),
+    ).toThrow(/no cash owed/i);
+
+    // Rejected BEFORE any write — nothing committed.
+    const ledgerCount = (
+      db.prepare("SELECT COUNT(*) as cnt FROM supplier_ledger").get() as {
+        cnt: number;
+      }
+    ).cnt;
+    expect(ledgerCount).toBe(0);
+    const fsRow = db
+      .prepare(`SELECT is_settled, settlement_id FROM financial_services WHERE id = ?`)
+      .get(fsId) as { is_settled: number; settlement_id: number | null };
+    expect(fsRow.is_settled).toBe(0);
+    expect(fsRow.settlement_id).toBeNull();
+  });
+
+  it("still accepts a genuinely-owed legacy batch WITH legs (the sibling guard, unaffected)", () => {
+    const supplierId = seedSupplier(db, "OMT");
+    const fsId = seedFs(db, {
+      provider: "OMT",
+      amount: 100,
+      commissionModel: 0,
+    });
+
+    expect(() =>
+      repo.settleTransactions({
+        supplier_id: supplierId,
+        financial_service_ids: [fsId],
+        amount_usd: 100,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 0,
+        created_by: 1,
+        payments: [{ method: "CASH", currency_code: "USD", amount: 100 }],
+      }),
+    ).not.toThrow();
   });
 });

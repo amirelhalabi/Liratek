@@ -1,23 +1,22 @@
 /** @jest-environment jsdom */
 /**
- * LIRA-119 — Settle modal showed "Net payment $0.00" / "Total Amount $0.00"
- * for a LBP RATE-mode commission (Katsh bills), hardcoding USD everywhere
- * regardless of the commission/rate currency the operator actually entered.
+ * LIRA-119 (superseded for bills by BILL_COMMISSION_SETTLEMENT_PLAN.md,
+ * LIRA-137) — Settle modal showed "Net payment $0.00" / "Total Amount
+ * $0.00" for a LBP RATE-mode commission (Katsh bills), hardcoding USD
+ * everywhere regardless of the commission/rate currency the operator
+ * actually entered.
  *
- * INVESTIGATION FINDING (see the task report for the full trace): what
- * actually POSTS for a bills-only Katsh batch was already CORRECT before
- * this fix — `SupplierRepository.settleTransactions` books $0/0 LBP cash
- * (genuinely nothing to pay: a bill's principal already left via a
- * provider-drawer cost leg at creation time — SUPPLIER_OWED_EXPR's BILL
- * branch is hardcoded 0) AND separately books the real 20,000 LBP commission
- * as a cashless `SUPPLIER_PAYS_US` ledger credit (proved at the repo level
- * by `SupplierRepository.commissionAtSettlement.test.ts` and unchanged by
- * this fix — `Suppliers.commissionAtSettlement.test.tsx`'s existing
- * `payload.amount_lbp).toBe(0)` / `payload.commission_lbp).toBe(20000)`
- * assertions still hold). The bug was PURELY the on-screen display: the
- * confirm modal's "Net payment"/"Total Amount" hardcoded a "$" prefix and
- * `currency: "USD"` regardless of what currency the batch's money was
- * actually in.
+ * LIRA-119 fixed only the currency LABEL on "Net payment"/"Total Amount" —
+ * both were still frozen at 0, and the commission still posted as an
+ * invisible cashless `SUPPLIER_PAYS_US` ledger credit (owner report,
+ * 2026-08-11: "how will I know how much I am paying?"). LIRA-137 removes
+ * "Net payment"/"Total Amount" for a bills-only batch ENTIRELY — there is no
+ * tender to enter — and replaces them with "{supplier} owes you: <amount>",
+ * the RAW entered commission, framed as arriving IN via a top-up to the
+ * provider's own drawer (`_bookBillsCommissionDrawerTopUp`,
+ * SupplierRepository.ts) the instant Confirm is pressed. The legacy/OMT
+ * scenario (second test below) is untouched — it still shows "Net payment
+ * to <supplier>:" exactly as LIRA-119 left it.
  *
  * This is an INTERACTION-layer test (rule 17's "not just repo-level math"
  * instruction) — unlike Suppliers.commissionAtSettlement.test.tsx, this file
@@ -27,13 +26,11 @@
  * assertions below are against literal rendered DOM text, not intercepted
  * props.
  *
- * Rule 17 (failing-first): confirmed against the pre-fix
- * Suppliers/index.tsx (hardcoded `$${settleNetPayUsd.toFixed(2)}` /
- * `currency: "USD"` / `totals: [{ amount: settleNetPayUsd, currency: "USD"
- * }]`, no `totalAmountCurrency`) — every assertion below that checks for
- * "LBP" failed; the DOM showed "$0.00" for both "Net payment to Katsh:" and
- * MultiPaymentInput's "Total Amount", and the payment-currency select's
- * value was "USD". See the task report for the exact failure output.
+ * Rule 17 (failing-first): confirmed against the pre-LIRA-137
+ * Suppliers/index.tsx — the first test below (Katsh BILL) failed at
+ * `screen.getByText("Net payment to Katsh:")` (that label no longer renders
+ * for a bills-only batch; `queryByText` was substituted for the assertion
+ * that it does NOT). See the task report for the exact failure output.
  */
 
 import {
@@ -203,7 +200,7 @@ describe("Suppliers page — Settle modal net-payment currency (LIRA-119)", () =
     mockSettleTransactions.mockResolvedValue({ success: true, id: 1 });
   });
 
-  it("LBP-commission (Katsh bill): Net payment + Total Amount show '0 LBP', never '$0.00', and the payment sheet defaults to LBP", async () => {
+  it("LBP-commission (Katsh bill): no 'Net payment'/'Total Amount' tender form at all — '{supplier} owes you: 20,000 LBP' instead, and Confirm is enabled with no legs", async () => {
     mockGetSuppliers.mockResolvedValue([KATSH_SUPPLIER, OMT_SUPPLIER]);
     mockGetUnsettledTransactions.mockImplementation((provider: string) =>
       Promise.resolve(provider === "Katsh" ? [BILL_ROW] : []),
@@ -223,34 +220,41 @@ describe("Suppliers page — Settle modal net-payment currency (LIRA-119)", () =
     // with the LBP-rated commission math the ticket's screenshot shows.
     expect(await screen.findByDisplayValue("20000")).toBeInTheDocument();
 
-    // ── The actual bug: "Net payment to Katsh:" must NOT read "$0.00" ──────
-    const netPayLabel = screen.getByText("Net payment to Katsh:");
-    const netPayRow = netPayLabel.closest("div")!;
-    expect(within(netPayRow).queryByText("$0.00")).toBeNull();
-    expect(within(netPayRow).getByText("0 LBP")).toBeInTheDocument();
+    // ── BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) — "Net payment to
+    // Katsh:" no longer renders at all for a bills-only batch; it is
+    // replaced by "Katsh owes you:" showing the RAW entered commission
+    // (rate × count = 20,000 × 1), never netted against a $0 "owed" figure.
+    expect(screen.queryByText("Net payment to Katsh:")).toBeNull();
+    expect(screen.queryByText(/Total owed to Katsh/)).toBeNull();
+    const owesYouLabel = await screen.findByText("Katsh owes you:");
+    const owesYouRow = owesYouLabel.closest("div")!;
+    expect(within(owesYouRow).getByText("20,000 LBP")).toBeInTheDocument();
 
-    // ── MultiPaymentInput's own "Total Amount" line (real component,
-    //     not mocked) — the second half of the ticket's screenshot ────────
-    const totalAmountLabel = screen.getByText("Total Amount");
-    const totalAmountRow = totalAmountLabel.closest("div")!;
-    expect(within(totalAmountRow).queryByText("$0.00")).toBeNull();
-    expect(within(totalAmountRow).getByText("0 LBP")).toBeInTheDocument();
+    // ── No tender form at all: MultiPaymentInput does not render for a
+    // bills-only batch (nothing to pay — the commission arrives as a
+    // provider-drawer top-up, not a payment leg the operator enters). ─────
+    expect(screen.queryByText("Total Amount")).toBeNull();
+    expect(
+      document.querySelector('[data-testid^="payment-currency-"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid^="payment-amount-"]'),
+    ).toBeNull();
 
-    // ── Payment sheet's default leg currency is LBP, not USD ────────────────
-    const currencySelect = document.querySelector<HTMLSelectElement>(
-      '[data-testid^="payment-currency-"]',
-    );
-    expect(currencySelect).not.toBeNull();
-    expect(currencySelect!.value).toBe("LBP");
+    // ── Confirm is enabled (nothing owed, no legs — no mismatch) ─────────
+    const confirmBtn = screen.getByText("Confirm Settlement");
+    expect(confirmBtn).not.toBeDisabled();
 
     // Confirming still settles $0/0 LBP cash + the real 20,000 LBP
-    // commission credit — the display fix must not change what posts.
-    fireEvent.click(screen.getByText("Confirm Settlement"));
+    // commission (now a drawer top-up, not a ledger credit) — no
+    // `payments` leg is ever sent for this batch shape.
+    fireEvent.click(confirmBtn);
     await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
     const payload = mockSettleTransactions.mock.calls[0][0];
     expect(payload.amount_usd).toBe(0);
     expect(payload.amount_lbp).toBe(0);
     expect(payload.commission_lbp).toBe(20000);
+    expect(payload.payments).toBeUndefined();
   });
 
   it("real USD cash owed (legacy OMT batch): Net payment stays in USD — the fix must not relabel genuine cash", async () => {

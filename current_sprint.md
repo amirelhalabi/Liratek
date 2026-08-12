@@ -4199,6 +4199,123 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 
 ---
 
+## LIRA-137: Katsh bill settlement — commission frozen at $0, wrong direction (DONE)
+
+| Field                | Value                                                                            |
+| -------------------- | --------------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Commission-at-settlement                                              |
+| **Type**             | Bug (money-correctness + UX)                                                      |
+| **Priority**         | **High**                                                                          |
+| **Status**           | **DONE** — see `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4 for the full design record |
+| **Affected Modules** | Suppliers (Katsh), Settle modal, `SupplierRepository`                             |
+| **Assigned To**      | —                                                                                  |
+| **Depends On**       | LIRA-112, LIRA-119 (partial fix, superseded here)                                 |
+| **Source Plan**      | `docs/plans/todo_plans/BILL_COMMISSION_SETTLEMENT_PLAN.md`                        |
+
+### Owner report (2026-08-11, verbatim)
+
+Settling 2 Katsh bills at RATE 20,000 LBP / COUNT 5: "the Net Payment to Katsh is not changing in
+the modal... still at zero... so I cannot do any payments," plus the correction: "When katsh owes
+us 100,000lbp they pay it to us via topup to our katsh account... The commission should be a
+separate payment regardless of if katsh owes us or we owe them... It is profit, entirely."
+
+### Root cause
+
+`settleNetPayUsd/Lbp = max(0, grossOwed − enteredCommission)` and a bill's `grossOwed` is
+STRUCTURALLY 0 (its principal already left via the provider-drawer cost leg at creation, never the
+ledger) — so the clamp floored every entered commission to 0, unconditionally, for every bills-only
+batch. The commission then posted as a cashless `SUPPLIER_PAYS_US` ledger credit — invisible in the
+modal and modeling the wrong real-world fact (a debt write-down against unrelated credit, not the
+separate top-up the owner described).
+
+### Fix
+
+- **Posting**: bills-only batches book the commission as a REAL drawer top-up into the Katsh/iPick
+  provider drawer (`_bookBillsCommissionDrawerTopUp`), profit-stamped, no supplier debt booked (kept
+  structurally apart from `topUpFromSupplier`'s debt-booking half). Every other batch shape is
+  byte-for-byte unchanged.
+- **UI**: "Total owed"/"Net payment to" dropped for this shape, replaced by "{supplier} owes you:
+  `<commission>`"; no tender form renders (nothing to pay); Confirm is enabled with no legs.
+- **Hazard**: `settleTransactions` now rejects a payload with legs but nothing owed (the mirror of
+  the pre-existing "owed but no legs" guard); the frontend removes the possibility structurally.
+- **Reversal**: free via the generic `_reversePayments`/profit-status-flip paths (rule 20) — no
+  bespoke reversal code.
+
+Full design record, the double-count judgement, and the deferred-generalisation note:
+`docs/plans/todo_plans/BILL_COMMISSION_SETTLEMENT_PLAN.md` §4.
+
+### Verification
+
+- `packages/core` jest: 190/190 suites, 1961/1961 tests (net +4 vs. the pre-task baseline of 1957).
+- `backend` jest: 42/42 suites, 582/582 tests (unaffected — no backend/IPC/schema changes were
+  needed; the fix lives entirely in the shared `@liratek/core` service/repository layer, so desktop
+  IPC and web REST both pick it up automatically).
+- `frontend` jest: 134/134 suites, 921 passed + 1 skipped / 922 (one pre-existing component test,
+  `Suppliers.settleNetPayCurrency.test.tsx`, updated to match the new UI and proved failing against
+  the pre-fix page; a new `cashFlow.ts` `SUPPLIER_SETTLEMENT` describe block added).
+- Rule 17 (failing-first): every new/changed assertion was run against the pre-fix code and observed
+  failing for the stated reason, then re-run green after restoring the fix — at both the repository
+  level (`SupplierRepository.commissionAtSettlement.test.ts`,
+  `FinancialServiceRepository.billsSettlement.test.ts`) and the component level
+  (`Suppliers.settleNetPayCurrency.test.tsx`).
+- **Desktop e2e is UNEXECUTED.** `lira-137-katsh-bill-settlement-modal-characterization.spec.ts`
+  (the diagnosis-only predecessor) was replaced by
+  `lira-137-katsh-bill-settlement-commission-topup.spec.ts` — a real guard, typechecked clean against
+  `tsconfig.playwright.json`, but desktop e2e cannot run from an agent shell (`yarn test:e2e` and
+  `node scripts/run-e2e.mjs` both exit 0 having run nothing) — the owner/orchestrator must run it
+  after a fresh `yarn dev` cycle.
+
+---
+
+## LIRA-138: Generalise the commission-at-settlement drawer top-up to OMT/WHISH (Phase 2)
+
+| Field                | Value                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Commission-at-settlement                                             |
+| **Type**             | Feature (deferred generalisation)                                                |
+| **Priority**         | Medium                                                                            |
+| **Status**           | TODO                                                                              |
+| **Affected Modules** | Suppliers (OMT/WHISH), `SupplierRepository`                                      |
+| **Assigned To**      | —                                                                                 |
+| **Depends On**       | LIRA-137 (DONE), `COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 2 (OMT/WHISH gross flip, not shipped) |
+| **Source Plan**      | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13; `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4   |
+
+### Summary
+
+LIRA-137 shipped the "commission books as a real provider-drawer top-up, profit-stamped, no
+supplier debt" model, but scoped it **narrowly to Katsh bills** (owner decision, 2026-08-11) — the
+new path in `SupplierRepository._bookCommissionAtSettlement` is gated on
+`isBillsOnlyBatch` (every eligible row's `service_type === "BILL"`), not the broader
+`isNewModelBatch`/`commission_model === 1`. Today that distinction is invisible (only BILL rows are
+ever born `commission_model = 1`), but once `COMMISSION_AT_SETTLEMENT_PLAN.md`'s Phase 2 (the
+OMT/WHISH gross-payable flip) ships and OMT/WHISH rows start earning `commission_model = 1` too,
+this ticket is what extends the SAME drawer-top-up/profit-stamp treatment to them.
+
+### Why this wasn't just built alongside LIRA-137
+
+1. Phase 2 (the OMT/WHISH gross flip itself) has not shipped — there is no `commission_model = 1`
+   OMT/WHISH row to design against yet.
+2. OMT/WHISH's commission is a provider FEE cut, collected from the customer at transaction time,
+   not a bills-style reward funded separately by the provider after the fact — whether "drawer
+   top-up, no debt" is the right model for THAT money is a genuinely open design question, not a
+   mechanical copy of LIRA-137's fix.
+3. The owner was explicit: narrow scope now, file the rest.
+
+### Acceptance criteria (draft, once Phase 2 ships)
+
+- [ ] Decide which drawer an OMT/WHISH commission-at-settlement credit lands in (the PCD? the
+      supplier's own float, if any is reintroduced?) — this is a NEW decision, not inherited from
+      LIRA-137.
+- [ ] Extend `_bookCommissionAtSettlement`'s branch condition (or replace it with a per-provider
+      posting strategy) so OMT/WHISH rows take the equivalent real-posting path.
+- [ ] Prove rule 20 (create → settle → void nets to 0, per currency, per drawer, per profit) for the
+      OMT/WHISH case the same way `FinancialServiceRepository.billsSettlement.test.ts` proved it for
+      Katsh.
+- [ ] Prove the Katsh/bills path stays byte-for-byte unchanged (it already has its own regression
+      test from LIRA-137 — re-run it, don't just trust it).
+
+---
+
 ## Summary (Sprint 6 — LIRA-098..107)
 
 | Priority  | Total  | Done  | Closed (won't do) | Remaining |
@@ -4253,6 +4370,8 @@ Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a corr
 | LIRA-131 | is_refunded dropped from 5 MORE module read paths        | **High** | **DONE** 4710cb8 - plus a 2nd financial_services projection and 2 frontend re-mapping drops the audit had missed | LIRA-130's 11-table audit |
 | LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
 | LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
+| LIRA-137 | Katsh bill settlement: commission frozen at $0, wrong direction | **High** | **DONE** — commission now books as a real Katsh-drawer top-up (profit-stamped, no supplier debt), tender form removed for the bills-only shape, both ends of the "legs with nothing owed" hazard closed; e2e spec rewritten as a guard (unexecuted — desktop e2e cannot run from an agent shell) | owner report 2026-08-11, `BILL_COMMISSION_SETTLEMENT_PLAN.md` |
+| LIRA-138 | Generalise commission-at-settlement drawer top-up to OMT/WHISH (Phase 2) | Medium | TODO — deliberately NOT built by LIRA-137 (narrow scope, owner-approved); `_bookCommissionAtSettlement`'s `isBillsOnlyBatch` gate already isolates the new path so this is additive, not a rewrite | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13, `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4 |
 
 > `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
 > LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully

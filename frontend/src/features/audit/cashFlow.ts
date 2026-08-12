@@ -175,11 +175,36 @@ export function getCashFlowDirection(
     // ACCOUNT_ADJUSTMENT.
     case "SUPPLIER_ADJUSTMENT":
       return null;
+    // SUPPLIER_SETTLEMENT is "out" almost always (the shop pays a supplier's
+    // net amount out of a drawer) — EXCEPT a bills-only commission-at-
+    // settlement batch (BILL_COMMISSION_SETTLEMENT_PLAN.md, LIRA-137), where
+    // the ONLY money that moves is the entered commission arriving IN (a
+    // top-up to the provider's own drawer, funded by the provider — "Katsh
+    // owes you, they pay it to us"). `SupplierRepository.settleTransactions`
+    // stamps `metadata.counterparty.flow` for every row (CQ-8 contract) —
+    // "IN" for that one shape, "OUT" for every other (byte-identical to the
+    // pre-existing behavior this replaces). Historical rows with no
+    // metadata, or a batch predating the CQ-8 contract, default to "out" —
+    // unchanged.
+    case "SUPPLIER_SETTLEMENT": {
+      if (metaJson) {
+        try {
+          const m = JSON.parse(metaJson) as {
+            counterparty?: { flow?: "IN" | "OUT" };
+          };
+          const flow = m.counterparty?.flow;
+          if (flow === "IN") return "in";
+          if (flow === "OUT") return "out";
+        } catch {
+          /* fall through to the default "out" */
+        }
+      }
+      return "out";
+    }
     case "EXPENSE":
     case "LOTO_MONTHLY_FEE":
     case "LOTO_SETTLEMENT":
     case "LOTO_CASH_PRIZE": // prize payout: shop cash out (B7 — was unmapped)
-    case "SUPPLIER_SETTLEMENT":
     case "CREDIT_CASH_OUT": // shop pays the client their credit
     case "DEBT_CASH_OUT": // shop hands the client a cash advance (new debt)
     case "DRAWER_CASHOUT": // owner's draw — cash physically leaves the General drawer

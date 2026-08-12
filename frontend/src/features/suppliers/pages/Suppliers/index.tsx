@@ -784,6 +784,19 @@ export default function SuppliersPage() {
   );
   const isMixedModelBatch = selectedModels.size > 1;
   const isNewModelBatch = !isMixedModelBatch && selectedModels.has(1);
+  // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) — narrow scope: the
+  // commission-arrives-as-a-drawer-top-up treatment applies ONLY when every
+  // selected row is a BILL (mirrors the SAME gate SupplierRepository.
+  // settleTransactions applies server-side — rule 14, one definition of
+  // "is this a bills-only batch"). Today every commission_model=1 row IS a
+  // BILL (only BILL rows are born that way), so this is currently identical
+  // to isNewModelBatch — but keeping the service_type check means a future
+  // non-bills new-model row (Phase 2, not built) doesn't silently inherit
+  // UI that was never designed for it.
+  const isBillsOnlyBatch =
+    isNewModelBatch &&
+    selectedUnsettled.length > 0 &&
+    selectedUnsettled.every((t) => t.service_type === "BILL");
   const settleTotalOwedUsd = useMemo(
     () =>
       selectedUnsettled
@@ -878,20 +891,49 @@ export default function SuppliersPage() {
   // bills-only batch shows "0 LBP" instead of a misleading "$0.00".
   //
   // IMPORTANT: this does NOT inflate the displayed net payment to the
-  // entered commission amount (e.g. 20,000 LBP). The commission is booked
-  // via `_bookCommissionAtSettlement` as a cashless SUPPLIER_PAYS_US ledger
-  // credit — it is money the supplier now owes the shop, never money the
-  // shop pays out through a payment leg. Showing "20,000 LBP" here would
-  // invite the operator to add a matching 20,000 LBP CASH leg, which would
-  // double-count that same commission as a real cash outflow. "0 LBP" is
-  // the correct, currency-honest figure for what this settlement actually
-  // pays in cash — see the task report for the full trace.
+  // entered commission amount (e.g. 20,000 LBP). For a bills-only batch the
+  // commission never pays out through THIS figure at all — it books as a
+  // real top-up into the provider's own drawer (BILL_COMMISSION_SETTLEMENT_
+  // PLAN.md, LIRA-137), which the modal shows via `settleEnteredCommission*`
+  // below, framed as money arriving IN, never as a payment leg to enter
+  // here. Showing the commission amount on THIS "net payment" figure would
+  // invite the operator to add a matching CASH leg, which would double-count
+  // that same commission as a real cash outflow. "0 LBP"/"$0.00" is the
+  // correct, currency-honest figure for what this settlement actually PAYS
+  // OUT in cash — see settleEnteredCommissionAmount for what it takes IN.
   const settleNetPayCurrency: "USD" | "LBP" =
     isNewModelBatch && settleNetPayUsd === 0 && settleEnteredCommissionLbp > 0
       ? "LBP"
       : "USD";
   const settleNetPayAmount =
     settleNetPayCurrency === "LBP" ? settleNetPayLbp : settleNetPayUsd;
+  // BILL_COMMISSION_SETTLEMENT_PLAN.md — the RAW entered commission (never
+  // netted against owed, unlike settleNetPay* above), for the bills-only
+  // "{supplier} owes you" display. Same single-currency tie-break convention
+  // as settleNetPayCurrency (LBP only when USD is exactly 0 and LBP > 0).
+  const settleEnteredCommissionCurrency: "USD" | "LBP" =
+    settleEnteredCommissionUsd === 0 && settleEnteredCommissionLbp > 0
+      ? "LBP"
+      : "USD";
+  const settleEnteredCommissionAmount =
+    settleEnteredCommissionCurrency === "LBP"
+      ? settleEnteredCommissionLbp
+      : settleEnteredCommissionUsd;
+  // LIRA-137 Q2 — the SAME two-sided guard settleTransactions enforces
+  // server-side (rule 14: one definition of "does this batch's cash math
+  // make sense"), mirrored here so Confirm never even reaches the backend
+  // with an impossible payload. A bills-only batch renders NO
+  // MultiPaymentInput at all (below), so settleHasActiveLegs is structurally
+  // always false for it — this also covers a legacy/OMT batch where the
+  // operator forces a stray leg with nothing owed, or leaves real cash owed
+  // with no leg at all (both previously reached "Settlement failed" only
+  // AFTER a submit attempt).
+  const settleHasActiveLegs = settlePaymentLines.some((p) => p.amount > 0);
+  const settleOwesCash =
+    Math.abs(settleNetPayUsd) > 0.005 || Math.abs(settleNetPayLbp) > 0.005;
+  const settleConfirmDisabled = settleOwesCash
+    ? !settleHasActiveLegs
+    : settleHasActiveLegs;
   // LIRA-119 — same USD-hardcoding bug, second location: the "Owed … − Net
   // you pay" strip UNDER the row list (shown before the operator has even
   // opened the confirm modal, so no entered-commission signal exists yet —
@@ -1011,7 +1053,11 @@ export default function SuppliersPage() {
       }
       appEvents.emit(
         "notification:show",
-        `Settled ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} — net ${formatMoney(settleNetPayAmount, settleNetPayCurrency)}`,
+        `Settled ${selectedSettleIds.size} transaction${selectedSettleIds.size !== 1 ? "s" : ""} — ${
+          isBillsOnlyBatch
+            ? `${selectedSupplier?.name ?? "supplier"} credited ${formatMoney(settleEnteredCommissionAmount, settleEnteredCommissionCurrency)}`
+            : `net ${formatMoney(settleNetPayAmount, settleNetPayCurrency)}`
+        }`,
         "success",
       );
       setShowSettleConfirm(false);
@@ -1094,6 +1140,7 @@ export default function SuppliersPage() {
               return (
                 <button
                   key={s.id}
+                  data-testid={`supplier-tile-${s.provider ?? s.id}`}
                   onClick={() => {
                     setSelectedSupplierId(s.id);
                     setActiveTab(
@@ -1500,24 +1547,40 @@ export default function SuppliersPage() {
                     )}
                     {selectedSettleIds.size > 0 && !isMixedModelBatch && (
                       <div className="flex items-center justify-between px-3 py-2 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
-                        <span>
-                          {isNewModelBatch ? (
-                            <>
-                              Owed{" "}
-                              {formatMoney(preSettleOwed, preSettleCurrency)} −
-                              commission (entered below)
-                            </>
-                          ) : (
-                            <>
-                              Owed ${settleTotalOwedUsd.toFixed(2)} − commission
-                              ${settleCommissionUsd.toFixed(4)}
-                            </>
-                          )}
-                        </span>
-                        <span className="font-mono font-bold text-white">
-                          Net you pay:{" "}
-                          {formatMoney(preSettleNetPay, preSettleCurrency)}
-                        </span>
+                        {isBillsOnlyBatch ? (
+                          // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) —
+                          // a bills-only batch has NOTHING for the shop to
+                          // pay; the commission (set in Settle) arrives IN
+                          // as a top-up to the provider's own balance. The
+                          // old "Owed X − commission / Net you pay: 0" strip
+                          // implied a payment that never happens — say what
+                          // is true instead.
+                          <span className="text-emerald-400">
+                            {selectedSupplier.name} owes you a settlement
+                            commission — set the rate/count in Settle
+                          </span>
+                        ) : (
+                          <>
+                            <span>
+                              {isNewModelBatch ? (
+                                <>
+                                  Owed{" "}
+                                  {formatMoney(preSettleOwed, preSettleCurrency)}{" "}
+                                  − commission (entered below)
+                                </>
+                              ) : (
+                                <>
+                                  Owed ${settleTotalOwedUsd.toFixed(2)} −
+                                  commission ${settleCommissionUsd.toFixed(4)}
+                                </>
+                              )}
+                            </span>
+                            <span className="font-mono font-bold text-white">
+                              Net you pay:{" "}
+                              {formatMoney(preSettleNetPay, preSettleCurrency)}
+                            </span>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2103,14 +2166,25 @@ export default function SuppliersPage() {
           confirmLabel="Confirm Settlement"
           confirmColor="blue"
           isSubmitting={settleSubmitting}
+          confirmDisabled={settleConfirmDisabled}
           beforeContent={
             <div className="bg-slate-800 rounded-xl p-4 space-y-3 text-sm">
-              <div className="flex justify-between text-slate-300">
-                <span>Total owed to {selectedSupplier.name} (fee-net):</span>
-                <span className="font-mono font-bold text-white">
-                  ${settleTotalOwedUsd.toFixed(2)}
-                </span>
-              </div>
+              {!isBillsOnlyBatch && (
+                // BILL_COMMISSION_SETTLEMENT_PLAN.md — this figure is
+                // structurally always $0.00 for a bills-only batch (a
+                // bill's principal never reaches the ledger —
+                // SUPPLIER_OWED_EXPR's BILL branch is hardcoded 0) AND was
+                // hardcoded to a "$"-prefixed USD string regardless of the
+                // batch's real currency — dropped entirely for that shape
+                // rather than showing a number that can never be anything
+                // but a misleading zero.
+                <div className="flex justify-between text-slate-300">
+                  <span>Total owed to {selectedSupplier.name} (fee-net):</span>
+                  <span className="font-mono font-bold text-white">
+                    ${settleTotalOwedUsd.toFixed(2)}
+                  </span>
+                </div>
+              )}
 
               {isNewModelBatch ? (
                 <>
@@ -2256,41 +2330,75 @@ export default function SuppliersPage() {
               )}
 
               <div className="h-px bg-slate-600" />
-              <div className="flex justify-between font-bold">
-                <span className="text-white">
-                  Net payment to {selectedSupplier.name}:
-                </span>
-                {/* LIRA-119 — respects settleNetPayCurrency instead of a
-                    hardcoded "$" prefix; see settleNetPayCurrency's own
-                    comment for why this shows "0 LBP" (not "20,000 LBP")
-                    for a bills-only Katsh batch. */}
-                <span className="font-mono text-blue-400 text-base">
-                  {formatMoney(settleNetPayAmount, settleNetPayCurrency)}
-                </span>
-              </div>
+              {isBillsOnlyBatch ? (
+                // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) — the owner's
+                // own model: "Katsh owes you X, they pay it to us via top-up
+                // to our Katsh account" — a bills-only batch pays NOTHING
+                // out; the entered commission arrives IN as a credit to the
+                // Katsh/iPick provider drawer the instant Confirm is
+                // pressed. No tender form, no method dropdown — there is
+                // only one destination for this money, so offering a choice
+                // that doesn't exist would be the exact footgun LIRA-118
+                // removed elsewhere ("Paid from" principle).
+                <div className="space-y-1">
+                  <div className="flex justify-between font-bold">
+                    <span className="text-white">
+                      {selectedSupplier.name} owes you:
+                    </span>
+                    <span className="font-mono text-emerald-400 text-base">
+                      {formatMoney(
+                        settleEnteredCommissionAmount,
+                        settleEnteredCommissionCurrency,
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Arrives as a top-up to the {selectedSupplier.name} balance
+                    when you confirm — no payment for you to make.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex justify-between font-bold">
+                  <span className="text-white">
+                    Net payment to {selectedSupplier.name}:
+                  </span>
+                  {/* LIRA-119 — respects settleNetPayCurrency instead of a
+                      hardcoded "$" prefix. */}
+                  <span className="font-mono text-blue-400 text-base">
+                    {formatMoney(settleNetPayAmount, settleNetPayCurrency)}
+                  </span>
+                </div>
+              )}
             </div>
           }
           multiPaymentInputKey={settleKey}
-          multiPaymentInput={{
-            // LIRA-119 — both the total and the payment sheet's default leg
-            // currency now follow settleNetPayCurrency instead of being
-            // hardcoded to USD, so a Katsh-style LBP commission settlement
-            // defaults to LBP the way the owner expects.
-            totals: [
-              { amount: settleNetPayAmount, currency: settleNetPayCurrency },
-            ],
-            totalAmountCurrency: settleNetPayCurrency,
-            currency: settleNetPayCurrency,
-            onChange: setSettlePaymentLines,
-            showPmFee: false,
-            showDiscount: false,
-            paymentMethods: methods,
-            currencies: [
-              { code: "USD", symbol: "$" },
-              { code: "LBP", symbol: "LBP" },
-            ],
-            exchangeRate: exchangeRate,
-          }}
+          multiPaymentInput={
+            isBillsOnlyBatch
+              ? null
+              : {
+                  // LIRA-119 — both the total and the payment sheet's default
+                  // leg currency now follow settleNetPayCurrency instead of
+                  // being hardcoded to USD, so a Katsh-style LBP commission
+                  // settlement defaults to LBP the way the owner expects.
+                  totals: [
+                    {
+                      amount: settleNetPayAmount,
+                      currency: settleNetPayCurrency,
+                    },
+                  ],
+                  totalAmountCurrency: settleNetPayCurrency,
+                  currency: settleNetPayCurrency,
+                  onChange: setSettlePaymentLines,
+                  showPmFee: false,
+                  showDiscount: false,
+                  paymentMethods: methods,
+                  currencies: [
+                    { code: "USD", symbol: "$" },
+                    { code: "LBP", symbol: "LBP" },
+                  ],
+                  exchangeRate: exchangeRate,
+                }
+          }
         >
           <div>
             <label className="block text-xs text-slate-400 mb-1">

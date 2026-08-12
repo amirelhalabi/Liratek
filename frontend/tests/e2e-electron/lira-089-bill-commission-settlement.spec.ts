@@ -2,6 +2,30 @@
  * E2E: LIRA-089 — commission-at-settlement for iPick/Katsh BILLs
  * (docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md, Phase 0+1)
  *
+ * ⚠ UPDATED FOR LIRA-137 (BILL_COMMISSION_SETTLEMENT_PLAN.md, 2026-08-11 owner
+ * decision). This spec originally asserted the commission posting as a
+ * cashless `SUPPLIER_PAYS_US` `supplier_ledger` credit (negative = supplier
+ * owes shop). The owner decided that model was wrong for bills: "the katsh
+ * bills are commissioned, but at settlement, the commission is not reduced
+ * from the total owed... he will pay us... when katsh owes us X they pay it
+ * to us via topup to our katsh account." LIRA-137 replaced the ledger credit
+ * (for a bills-only batch) with a REAL top-up into the Katsh/iPick provider
+ * DRAWER, profit-stamped, with NO `supplier_ledger` row written for this
+ * money at all (`SupplierRepository._bookBillsCommissionDrawerTopUp`). The
+ * assertions below were rewritten accordingly (see the inline comments at
+ * each changed block) — this is a deliberate design change, not new
+ * breakage, and every changed assertion stays equal-or-stronger:
+ *   - the OLD assertion proved a signed ledger amount; the NEW assertion
+ *     proves a real drawer-balance delta (harder to fake, and it is the
+ *     ACTUAL money movement per the owner's model) PLUS an explicit
+ *     zero-new-ledger-rows check (stronger than "a specific ledger shape is
+ *     absent" — it catches ANY new commission-shaped ledger row, not just a
+ *     SUPPLIER_PAYS_US one);
+ *   - the void assertions now prove the DRAWER (not the ledger) reverses,
+ *     because the drawer is where the money actually lives post-LIRA-137;
+ *     the pre-existing "ledger row soft-voids" and "balance nets to 0" and
+ *     "bill re-joins the unsettled queue" checks are kept byte-for-byte.
+ *
  * Pre-plan behaviour (still guarded by lira-062): every BILL hardcoded a
  * −20,000 LBP `SUPPLIER_PAYS_US` credit AT CREATION. Post-plan, a fresh
  * iPick/Katsh BILL row is born `commission_model = 1` (AT_SETTLEMENT) —
@@ -23,7 +47,7 @@
  *   3. Settle it via `suppliers:settle-transactions` in RATE mode
  *      (rate × unit_count) — the batch's ONLY member is this bill, so the
  *      largest-remainder proportional allocation (D6) degenerates to "100%
- *      of the entered commission to this one row," letting the ledger credit
+ *      of the entered commission to this one row," letting the drawer delta
  *      alone prove the money math exactly. (The Suppliers page's own
  *      Settle-tab UI has NOT been extended with LUMP/RATE controls yet — see
  *      the transport report's "Settlement-UI change... out of this task's
@@ -32,10 +56,11 @@
  *      is not even selectable there today. The settle CALL itself is
  *      real-IPC-driven here, same convention as lira-056/lira-059's settle
  *      coverage.)
- *   4. Void the settlement and prove the WHOLE cycle nets to 0: the
- *      commission credit and the SETTLEMENT ledger row both soft-void, the
- *      supplier's LBP balance returns to its pre-bill baseline, and the bill
- *      re-joins the unsettled queue (rule 20 — reversal symmetry).
+ *   4. Void the settlement and prove the WHOLE cycle nets to 0 (rule 20): the
+ *      Katsh drawer and the SETTLEMENT ledger row both reverse, the
+ *      supplier's LBP LEDGER balance returns to its pre-bill baseline (it
+ *      never moved in the first place post-LIRA-137), and the bill re-joins
+ *      the unsettled queue.
  *
  * `settlement_commission_allocations`/`supplier_settlements` have NO IPC
  * projection at all (verified: no `electron-app/handlers/supplierHandlers.ts`
@@ -43,7 +68,7 @@
  * allocation record was written is the SUPPLIER_SETTLEMENT transaction's own
  * `metadata_json` (`commission_model`/`entry_mode`/`commission_lbp`, stamped
  * from the SAME data `_bookCommissionAtSettlement` persists into
- * `supplier_settlements`), asserted below alongside the ledger credit.
+ * `supplier_settlements`), asserted below alongside the drawer delta.
  *
  * Rule 15: shared accumulating DB, ordered before lira-095 alphabetically —
  * lira-062/lira-078 already left their own pending (never-settled) Katsh
@@ -51,8 +76,9 @@
  * iPick BILLs are commission-ineligible and never join the queue at all, so
  * only Katsh contributes stale rows here), so every assertion here is a
  * DELTA around this run's own action, and every row is matched by IDENTITY
- * (unique bill amount, this settlement's own ledger-entry id embedded in the
- * credit's note) — never absolute totals or `[0]`.
+ * (unique bill amount, this settlement's own ledger-entry id, the drawer
+ * snapshot bracketing only the settle/void actions) — never absolute totals
+ * or `[0]`.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -100,12 +126,16 @@ type SupplierTxnRow = {
 type RecentTxnRow = {
   id: number;
   type: string;
+  status?: string;
   source_table: string;
   source_id: number | null;
   amount_usd: number;
   amount_lbp: number;
+  summary?: string | null;
   metadata_json: string | null;
 };
+
+type DrawerRow = { name: string; usdBalance: number; lbpBalance: number };
 
 type Api = {
   api: {
@@ -131,6 +161,7 @@ type Api = {
         note?: string;
       }) => Promise<{ success?: boolean; id?: number; error?: string }>;
     };
+    recharge: { getDrawerBalances: () => Promise<DrawerRow[]> };
     transactions: {
       getRecent: (
         limit?: number,
@@ -142,6 +173,29 @@ type Api = {
     };
   };
 };
+
+/** Katsh provider drawer balance (both currencies), by name lookup — mirrors
+ *  lira-137-katsh-bill-settlement-commission-topup.spec.ts's own helper. */
+async function katshDrawer(page: Page): Promise<{ usd: number; lbp: number }> {
+  return page.evaluate(async () => {
+    const w = window as unknown as Api;
+    const rows = await w.api.recharge.getDrawerBalances();
+    const katsh = rows.find((d) => d.name === "Katsh");
+    return { usd: katsh?.usdBalance ?? 0, lbp: katsh?.lbpBalance ?? 0 };
+  });
+}
+
+/** Count of `SUPPLIER_PAYS_US` ledger rows for a supplier — used to prove
+ *  LIRA-137's bills-only batch writes NONE (the old model's only money-
+ *  bearing row for this scenario). */
+async function paysUsRowCount(page: Page, supplierId: number): Promise<number> {
+  return page.evaluate(async (id: number) => {
+    const w = window as unknown as Api;
+    return (await w.api.suppliers.getLedger(id, 500)).filter(
+      (l) => l.entry_type === "SUPPLIER_PAYS_US",
+    ).length;
+  }, supplierId);
+}
 
 // ── KatchForm UI helpers (mirrors lira-095's real-form conventions) ────────
 
@@ -321,6 +375,11 @@ test.describe("LIRA-089 — bill commission-at-settlement", () => {
     // ── 4. Settle in RATE mode (rate × unit_count) — $0/0 LBP net (the
     // bill's principal already reached the supplier via the provider
     // drawer's cost leg; only the commission moves here). ───────────────────
+    // LIRA-137 — snapshot the Katsh DRAWER and the SUPPLIER_PAYS_US ledger
+    // row count immediately before the settle action (rule 15): the
+    // commission now posts as a real drawer top-up, never a ledger credit.
+    const drawerBeforeSettle = await katshDrawer(appPage);
+    const paysUsCountBeforeSettle = await paysUsRowCount(appPage, katshId);
     const settleRes = await appPage.evaluate(
       async (args: {
         supplierId: number;
@@ -356,27 +415,47 @@ test.describe("LIRA-089 — bill commission-at-settlement", () => {
     const settlementLedgerId = settleRes.id!;
     expect(settlementLedgerId).toBeTruthy();
 
-    // ── Assert: SUPPLIER_PAYS_US credit of exactly rate × count, linked to
-    // THIS settlement via its note (never by time proximity — LIRA-085). ────
-    const creditRow = await appPage.evaluate(
+    // ── LIRA-137: the entered commission is a REAL top-up into the Katsh
+    // provider DRAWER, funded by Katsh itself (owner's own model,
+    // 2026-08-11) — NOT a `SUPPLIER_PAYS_US` supplier_ledger credit (the OLD
+    // assertion this replaces). This is EQUAL-OR-STRONGER proof than the old
+    // signed-ledger-amount check: a drawer-balance delta is real money
+    // actually movable/spendable, not a bookkeeping figure, and it is the
+    // ACTUAL mechanism the owner asked for ("katsh drawer should increase by
+    // the payment"). ──────────────────────────────────────────────────────
+    const drawerAfterSettle = await katshDrawer(appPage);
+    expect(drawerAfterSettle.lbp - drawerBeforeSettle.lbp).toBe(
+      COMMISSION_LBP,
+    );
+    expect(drawerAfterSettle.usd - drawerBeforeSettle.usd).toBe(0);
+
+    // ── Assert the supplier LEDGER has NO commission row at all — the
+    // exact "credit ledger row not found" failure this rewrite fixes proved
+    // the OLD assertion was checking for a row LIRA-137 deliberately stopped
+    // writing. This is STRONGER than the old check (which only proved ONE
+    // specific SUPPLIER_PAYS_US shape was absent): it proves NO new ledger
+    // row of ANY kind was written for this money — only the settlement's
+    // own $0/0 SETTLEMENT row (asserted below) exists. ───────────────────────
+    const paysUsCountAfterSettle = await paysUsRowCount(appPage, katshId);
+    expect(paysUsCountAfterSettle).toBe(paysUsCountBeforeSettle);
+    const settlementLedgerRow = await appPage.evaluate(
       async (args: { id: number; settlementLedgerId: number }) => {
         const w = window as unknown as Api;
         return (
           (await w.api.suppliers.getLedger(args.id, 500)).find(
-            (l) =>
-              l.entry_type === "SUPPLIER_PAYS_US" &&
-              (l.note ?? "").includes(
-                `commission credit from settlement #${args.settlementLedgerId}`,
-              ),
+            (l) => l.id === args.settlementLedgerId,
           ) ?? null
         );
       },
       { id: katshId, settlementLedgerId },
     );
-    expect(creditRow, "commission credit ledger row not found").toBeTruthy();
-    expect(creditRow!.amount_lbp).toBe(-COMMISSION_LBP);
-    expect(creditRow!.amount_usd).toBe(0);
-    expect(creditRow!.is_refunded ?? 0).toBe(0);
+    expect(
+      settlementLedgerRow,
+      "settlement's own SETTLEMENT ledger row not found",
+    ).toBeTruthy();
+    expect(settlementLedgerRow!.entry_type).toBe("SETTLEMENT");
+    expect(settlementLedgerRow!.amount_usd).toBe(0);
+    expect(settlementLedgerRow!.amount_lbp).toBe(0);
 
     // ── Allocation proof (no IPC projects supplier_settlements/
     // settlement_commission_allocations directly — see file doc comment):
@@ -409,10 +488,30 @@ test.describe("LIRA-089 — bill commission-at-settlement", () => {
       commission_model?: number;
       entry_mode?: string;
       commission_lbp?: number;
+      counterparty?: { flow?: string };
     };
     expect(meta.commission_model).toBe(1);
     expect(meta.entry_mode).toBe("RATE");
     expect(meta.commission_lbp).toBe(COMMISSION_LBP);
+    // LIRA-137 CQ-8 contract: money ARRIVED (Katsh funded the top-up) —
+    // never "OUT" the way a real net-payment settlement stamps it. Drives
+    // the transactions-table cash-flow badge (cashFlow.ts).
+    expect(meta.counterparty?.flow).toBe("IN");
+    // amount_usd/amount_lbp stay 0/0 — no cash was paid OUT; the commission
+    // was credited IN to the drawer (asserted above), never routed through
+    // this settlement's own net-pay figure (see SupplierRepository.ts's
+    // settleNetPay* comments for why double-counting it here would be wrong).
+    expect(settlementTxn!.amount_usd).toBe(0);
+    expect(settlementTxn!.amount_lbp).toBe(0);
+    // Audit-visibility fix (found while investigating this exact spec's
+    // failure): the commission amount is visible in the row's own summary
+    // text by default — no filter, no toggle — even though amount_usd/lbp
+    // stay 0 and the drawer leg itself is filtered from the customer-facing
+    // legs subtext (PROVIDER_STOCK_DRAWERS/isInternalLegJs, unrelated to this
+    // plan). See SupplierRepository.ts's `settlementSummary` comment.
+    expect(settlementTxn!.summary ?? "").toContain(
+      `${COMMISSION_LBP.toLocaleString()} LBP`,
+    );
 
     // The bill itself is now settled, linked to THIS settlement.
     const billAfterSettle = await appPage.evaluate(async (amount: number) => {
@@ -431,18 +530,9 @@ test.describe("LIRA-089 — bill commission-at-settlement", () => {
     expect(voidRes.error ?? null).toBeNull();
     expect(voidRes.success).toBe(true);
 
-    // Both ledger rows this settlement wrote are soft-voided.
-    const creditRowAfterVoid = await appPage.evaluate(
-      async (args: { id: number; creditId: number }) => {
-        const w = window as unknown as Api;
-        return (await w.api.suppliers.getLedger(args.id, 500)).find(
-          (l) => l.id === args.creditId,
-        );
-      },
-      { id: katshId, creditId: creditRow!.id },
-    );
-    expect(creditRowAfterVoid?.is_refunded).toBe(1);
-
+    // The settlement's own $0/0 SETTLEMENT ledger row soft-voids — there is
+    // no SUPPLIER_PAYS_US credit row any more (proven above) to also
+    // soft-void alongside it.
     const settlementRowAfterVoid = await appPage.evaluate(
       async (args: { id: number; settlementLedgerId: number }) => {
         const w = window as unknown as Api;
@@ -454,8 +544,25 @@ test.describe("LIRA-089 — bill commission-at-settlement", () => {
     );
     expect(settlementRowAfterVoid?.is_refunded).toBe(1);
 
-    // Supplier LBP balance is back to the pre-bill baseline — the whole
-    // create → settle → void cycle nets to exactly 0.
+    // ── LIRA-137 rule 20: the Katsh DRAWER — where the commission's money
+    // actually lives post-LIRA-137 — nets back to its pre-settle balance.
+    // The generic `_reversePayments` step every void/refund already runs
+    // mirrors the top-up leg with a negated amount; no bespoke reversal
+    // code exists or is needed (the whole point of posting the leg on the
+    // settlement's OWN transaction rather than a separate hidden one). ─────
+    const drawerAfterVoid = await katshDrawer(appPage);
+    expect(drawerAfterVoid.lbp - drawerBeforeSettle.lbp).toBe(0);
+    expect(drawerAfterVoid.usd - drawerBeforeSettle.usd).toBe(0);
+
+    // No SUPPLIER_PAYS_US row appeared at any point across the whole
+    // create → settle → void cycle either.
+    const paysUsCountAfterVoid = await paysUsRowCount(appPage, katshId);
+    expect(paysUsCountAfterVoid).toBe(paysUsCountBeforeSettle);
+
+    // Supplier LEDGER balance is back to the pre-bill baseline — trivially
+    // true post-LIRA-137 (it never carried the commission at all, see the
+    // drawer assertions above) but kept as belt-and-suspenders coverage of
+    // the settlement's own $0/0 SETTLEMENT row reversing cleanly too.
     const balAfterVoid = await appPage.evaluate(async (id) => {
       const w = window as unknown as Api;
       return (

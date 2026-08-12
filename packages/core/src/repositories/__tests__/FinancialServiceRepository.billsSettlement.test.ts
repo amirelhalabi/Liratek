@@ -362,6 +362,21 @@ function ledgerRowsForSupplier(
   }>;
 }
 
+// BILL_COMMISSION_SETTLEMENT_PLAN.md — the bills-only commission books a
+// REAL provider-drawer credit, not a supplier_ledger row.
+function drawerBalance(
+  db: Database.Database,
+  drawerName: string,
+  currencyCode: string,
+): number {
+  const row = db
+    .prepare(
+      `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
+    )
+    .get(drawerName, currencyCode) as { balance: number } | undefined;
+  return row?.balance ?? 0;
+}
+
 describe("COMMISSION_AT_SETTLEMENT_PLAN.md Phase 1 — bills slice", () => {
   let db: Database.Database;
   let fsRepo: FinancialServiceRepository;
@@ -772,8 +787,11 @@ describe("LIRA-112 (D12) — iPick books zero commission; Katsh does", () => {
     expect(katsh.commission_rate! * katshSummary.bill_count).toBe(40000);
   });
 
-  // ── Rule 20 — create → settle → void nets to 0, per currency ────────────
-  it("Katsh BILL: create → settle (RATE × count, 20,000 LBP) → void nets supplier_ledger back to 0", () => {
+  // ── Rule 20 — create → settle → void nets to 0, per currency, per drawer,
+  //    per profit (BILL_COMMISSION_SETTLEMENT_PLAN.md, LIRA-137: the
+  //    commission now books as a Katsh-drawer top-up + a profit stamp on
+  //    the settlement's own transaction — NOT a supplier_ledger row) ──────
+  it("Katsh BILL: create → settle (RATE × count, 20,000 LBP) → void nets the Katsh drawer + profit back to 0 (no supplier_ledger row for this money)", () => {
     const katshId = supplierIdByProvider(db, "Katsh");
     const supplierRepo = getSupplierRepository();
 
@@ -795,6 +813,8 @@ describe("LIRA-112 (D12) — iPick books zero commission; Katsh does", () => {
     const unsettled = fsRepo.getUnsettledBySupplier("Katsh");
     expect(unsettled.map((r) => r.id)).toContain(fsId);
 
+    const katshLbpBeforeSettle = drawerBalance(db, "Katsh", "LBP");
+
     const settlement = supplierRepo.settleTransactions({
       supplier_id: katshId,
       financial_service_ids: [fsId],
@@ -808,44 +828,57 @@ describe("LIRA-112 (D12) — iPick books zero commission; Katsh does", () => {
       created_by: 1,
     });
 
-    // Settled: commission credit posted, row cleared from the queue.
+    // Settled: row cleared from the queue, and the ONLY supplier_ledger row
+    // is the (zero-amount) SETTLEMENT row itself — NO SUPPLIER_PAYS_US
+    // credit row for this batch shape any more.
     const postSettleLedger = ledgerRowsForSupplier(db, katshId);
-    expect(postSettleLedger).toHaveLength(2);
-    expect(postSettleLedger).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          entry_type: "SUPPLIER_PAYS_US",
-          amount_lbp: -20000,
-        }),
-        expect.objectContaining({ entry_type: "SETTLEMENT" }),
-      ]),
-    );
+    expect(postSettleLedger).toHaveLength(1);
+    expect(postSettleLedger[0].entry_type).toBe("SETTLEMENT");
     expect(
       fsRepo.getUnsettledBySupplier("Katsh").map((r) => r.id),
     ).not.toContain(fsId);
+
+    // The REAL money movement: the Katsh drawer (LBP) increases by EXACTLY
+    // the entered commission — a top-up funded by Katsh itself, per the
+    // owner's own model (2026-08-11), never a supplier_ledger receivable.
+    expect(drawerBalance(db, "Katsh", "LBP") - katshLbpBeforeSettle).toBe(
+      20000,
+    );
 
     const settlementTxn = txnRepo.getBySourceId(
       "supplier_ledger",
       settlement.id,
     )!;
+    // Profit, entirely (owner's words) — stamped on the settlement's own
+    // transaction, same mechanism every other commission-earning flow uses.
+    expect(settlementTxn.profit_lbp).toBe(20000);
+    expect(settlementTxn.profit_usd).toBe(0);
+
     txnRepo.voidTransaction(settlementTxn.id, 1);
 
-    // Net to 0 per currency across supplier_ledger: the SUPPLIER_PAYS_US
-    // credit and the SETTLEMENT row both soft-void, leaving nothing live.
-    const ledgerSumLbp = db
+    // Rule 20 — nets to 0, per currency, across EVERY ledger/drawer/profit
+    // this batch touched:
+    //   1. supplier_ledger: still exactly the (zero-amount) SETTLEMENT row —
+    //      there was never a nonzero row for this money to net out.
+    const postVoidLedger = ledgerRowsForSupplier(db, katshId);
+    expect(
+      postVoidLedger.every((r) => r.amount_usd === 0 && r.amount_lbp === 0),
+    ).toBe(true);
+    //   2. Katsh drawer (LBP): the generic `_reversePayments` step mirrors
+    //      the top-up leg with a negated amount — back to its pre-settle
+    //      balance, with NO bespoke reversal code (this is the point).
+    expect(drawerBalance(db, "Katsh", "LBP")).toBe(katshLbpBeforeSettle);
+    //   3. Profit: the original settlement row flips to VOIDED (excluded
+    //      from every ACTIVE-only profit sum) and its reversal row carries
+    //      no profit stamp of its own — summed over ACTIVE rows for this
+    //      exact source, profit nets to 0.
+    const activeProfitLbp = db
       .prepare(
-        `SELECT COALESCE(SUM(amount_lbp), 0) as total FROM supplier_ledger
-           WHERE supplier_id = ? AND is_refunded = 0`,
+        `SELECT COALESCE(SUM(profit_lbp), 0) as total FROM transactions
+           WHERE source_table = 'supplier_ledger' AND source_id = ? AND status = 'ACTIVE'`,
       )
-      .get(katshId) as { total: number };
-    expect(ledgerSumLbp.total).toBe(0);
-    const ledgerSumUsd = db
-      .prepare(
-        `SELECT COALESCE(SUM(amount_usd), 0) as total FROM supplier_ledger
-           WHERE supplier_id = ? AND is_refunded = 0`,
-      )
-      .get(katshId) as { total: number };
-    expect(ledgerSumUsd.total).toBe(0);
+      .get(settlement.id) as { total: number };
+    expect(activeProfitLbp.total).toBe(0);
 
     // Reversal symmetry (rule 20): the bill row re-joins the unsettled
     // queue, exactly as if it had never been settled.

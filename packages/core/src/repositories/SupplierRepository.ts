@@ -25,6 +25,11 @@ import {
   insertPaymentRow,
   buildCounterpartyDiscountPosting,
 } from "./moneyPosting.js";
+// BILL_COMMISSION_SETTLEMENT_PLAN.md — the bills-only commission-at-settlement
+// drawer top-up reuses the SAME provider→drawer map `RechargeRepository
+// .topUpFromSupplier` uses (rule 14), deliberately WITHOUT that method's
+// debt-booking half — see `_bookBillsCommissionDrawerTopUp`'s doc comment.
+import { TOP_UP_PROVIDER_DRAWERS, isTopUpProvider } from "../constants/index.js";
 
 export interface SupplierEntity {
   id: number;
@@ -1049,6 +1054,23 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         "Settlement requires at least one payment-method leg to pay the net amount owed",
       );
     }
+    // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137 Q2) — the REVERSE hazard:
+    // a $0/0-LBP-owed batch (the bills-only shape — a bill's principal never
+    // touches the ledger, so gross owed is structurally 0) has no
+    // contractual cash amount for a payment-method leg to pay. Before this
+    // guard, a forced leg here would debit a real drawer with NO matching
+    // ledger/gross entry — the settlement's own SETTLEMENT row still nets to
+    // $0.00/0 LBP. The frontend no longer offers a tender form for this
+    // shape at all (Suppliers/index.tsx's isBillsOnlyBatch gate skips
+    // rendering MultiPaymentInput entirely), but this repository is the
+    // single source of truth for every caller (raw IPC/REST, a future
+    // script) — reject the impossible payload here too, same tier as the
+    // sibling guard above.
+    if (!owesCash && data.payments?.length) {
+      throw new DatabaseError(
+        "Settlement has no cash owed — payment-method legs are not accepted (a bills-only commission books as a provider-drawer credit, never a cash payment)",
+      );
+    }
     // Reviewer finding #3 (harden) — same throw-before-try tier as the
     // mixed-model-batch guard below: reject BEFORE any write when the
     // caller's financial_service_ids don't actually belong to
@@ -1071,6 +1093,22 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         data.financial_service_ids,
         getCurrentTenantId(),
       );
+    // BILL_COMMISSION_SETTLEMENT_PLAN.md — narrow scope (owner, 2026-08-11):
+    // the drawer-top-up-and-profit treatment applies ONLY when every
+    // eligible row is a BILL. Today `commission_model = 1` is stamped
+    // EXCLUSIVELY on BILL rows at creation (FinancialServiceRepository's own
+    // comment on that stamp), so this is currently identical to
+    // `batchModel === 1` — but gating on service_type too means a future
+    // OMT/WHISH row that earns `commission_model = 1` (Phase 2 of
+    // COMMISSION_AT_SETTLEMENT_PLAN.md, not built) automatically stays on
+    // the OLD cashless SUPPLIER_PAYS_US path below until that generalisation
+    // is deliberately designed and shipped (tracked as LIRA-138) — it does
+    // NOT silently inherit "top up a drawer" semantics that were never
+    // decided for it.
+    const isBillsOnlyBatch =
+      batchModel === 1 &&
+      eligibleRows.length > 0 &&
+      eligibleRows.every((r) => r.service_type === "BILL");
 
     try {
       const tenantId = getCurrentTenantId();
@@ -1136,20 +1174,65 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // guards and exchange-rate snapshot (previously always NULL here).
         //
         // Primary Cash Drawer model (plan §8.3): NO separate "realize the
-        // commission" step exists. `commission_usd`/`commission_lbp` are
-        // stamped below purely as audit metadata — under the GROSS model the
-        // shop's cut is already embedded in `amount_usd`/`amount_lbp` (and in
-        // the TOP_UP rows being settled) via `grossOwedDelta`, so there is
+        // commission" step exists for a LEGACY/OMT-shaped batch.
+        // `commission_usd`/`commission_lbp` are stamped below purely as
+        // audit metadata for that shape — under the GROSS model the shop's
+        // cut is already embedded in `amount_usd`/`amount_lbp` (and in the
+        // TOP_UP rows being settled) via `grossOwedDelta`, so there is
         // nothing left to fund/credit here; there is no separate
         // `drawer += commission` pair or `SUPPLIER_PAYS_US` ledger row — that
         // would double-count money already reflected in the gross TOP_UP/
         // SETTLEMENT pair.
+        //
+        // BILL_COMMISSION_SETTLEMENT_PLAN.md — for a bills-only batch this IS
+        // the money-bearing event: `_bookCommissionAtSettlement` (step 5)
+        // posts the entered commission straight into the Katsh/iPick provider
+        // drawer as a real payment leg on THIS SAME transaction — never a
+        // supplier_ledger row (rule 20's "one obligation, one owner": there is
+        // no debt for it to net against; Katsh funds it directly). It is
+        // profit, entirely (owner, 2026-08-11) — stamped here via the SAME
+        // `profit_usd`/`profit_lbp` mechanism every other commission-earning
+        // flow in this codebase uses (FinancialServiceRepository's SEND/
+        // RECEIVE commission, LotoTicketRepository's ticket commission),
+        // never a bespoke field. Exactly 0 for every other batch shape
+        // (byte-for-byte unchanged from before this plan).
         const settlementMethod =
           data.payments && data.payments.length > 0
             ? data.payments.length === 1
               ? data.payments[0].method
               : "SPLIT"
             : "CASH";
+        // Audit-visibility fix (found while investigating LIRA-137's own e2e
+        // fallout, lira-transactions-hidden-types.spec.ts): the commission
+        // drawer-top-up leg `_bookBillsCommissionDrawerTopUp` posts (step 5,
+        // below) targets the Katsh/iPick drawer — which
+        // `TransactionRepository`'s `PROVIDER_STOCK_DRAWERS` set ALSO uses to
+        // hide a bill's own creation-time cost leg from the customer-facing
+        // "payment legs" subtext (rule 14, the SAME predicate). That hiding
+        // rule is correct for a bill's cost leg (a walk-in customer's receipt
+        // shouldn't show the shop's internal provider-stock movement) but
+        // this settlement transaction has no customer at all — the provider
+        // drawer credit IS the entire point of the row, not an internal
+        // aside. Reusing the shared predicate therefore also hid the ONE
+        // number (the commission amount) that made this row auditable:
+        // amount_usd/amount_lbp are contractually 0/0 for this batch shape
+        // (no bill principal is owed — see the doc comment above), and the
+        // `payments` leg itself is filtered out of `row.payments` by that
+        // same predicate, so nothing on the row showed how much arrived —
+        // only the IN direction (cashFlow.ts). Fixed at the summary-text
+        // level instead of touching the shared predicate (which also guards
+        // every sale/recharge/financial-service cost leg — far too broad a
+        // lever for a one-row problem): `summary` is never filtered, and
+        // TransactionsViewer renders it unconditionally under the cash-flow
+        // badge, so the commission is now visible in the DEFAULT table view.
+        const commissionMoney = `$${data.commission_usd.toFixed(2)}${
+          data.commission_lbp
+            ? ` + ${data.commission_lbp.toLocaleString()} LBP`
+            : ""
+        }`;
+        const settlementSummary = isBillsOnlyBatch
+          ? `Settlement: ${data.financial_service_ids.length} txns — ${this._getSupplierName(data.supplier_id)} credited ${commissionMoney} commission (drawer top-up)`
+          : `Settlement: ${data.financial_service_ids.length} txns, net $${data.amount_usd.toFixed(2)}`;
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
           source_table: "supplier_ledger",
@@ -1157,7 +1240,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           user_id: data.created_by,
           amount_usd: data.amount_usd,
           amount_lbp: data.amount_lbp,
-          summary: `Settlement: ${data.financial_service_ids.length} txns, net $${data.amount_usd.toFixed(2)}`,
+          profit_usd: isBillsOnlyBatch ? data.commission_usd : 0,
+          profit_lbp: isBillsOnlyBatch ? data.commission_lbp : 0,
+          summary: settlementSummary,
           metadata_json: {
             supplier_id: data.supplier_id,
             financial_service_ids: data.financial_service_ids,
@@ -1175,12 +1260,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             commission_model: batchModel,
             entry_mode: data.entry_mode ?? "LUMP",
             // CQ-8 counterparty contract: a settlement pays the supplier's
-            // net amount OUT of the drawer.
+            // net amount OUT of the drawer — EXCEPT a bills-only batch, where
+            // the only money that moves is the commission arriving IN (the
+            // provider drawer top-up, step 5). `getCashFlowDirection`
+            // (frontend/src/features/audit/cashFlow.ts) reads this field for
+            // the transactions-table badge, same pattern as SUPPLIER_PAYMENT.
             counterparty: buildCounterpartyMetadata({
               kind: "supplier",
               id: data.supplier_id,
               name: this._getSupplierName(data.supplier_id),
-              flow: "OUT",
+              flow: isBillsOnlyBatch ? "IN" : "OUT",
               method: settlementMethod,
               ledgerEntryId: ledgerEntryId,
             }),
@@ -1226,14 +1315,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         }
 
         // ── 5. NEW-MODEL batches only — book the real commission ──────────
-        // (D5/D6 audit/allocation record + the SUPPLIER_PAYS_US commission
-        // credit itself). No-op for a legacy batch or an empty eligible set
-        // (e.g. every selected id was already settled) — see the method's
-        // own doc comment.
+        // (D5/D6 audit/allocation record, plus EITHER the bills-only drawer
+        // top-up (BILL_COMMISSION_SETTLEMENT_PLAN.md) OR the legacy
+        // SUPPLIER_PAYS_US credit — see the method's own doc comment for the
+        // branch). No-op for a legacy batch or an empty eligible set (e.g.
+        // every selected id was already settled).
         if (batchModel === 1 && eligibleRows.length > 0) {
           this._bookCommissionAtSettlement({
             settlementLedgerId: ledgerEntryId,
+            settlementTxnId: txnId,
             supplierId: data.supplier_id,
+            supplierProvider: supplier?.provider ?? null,
+            isBillsOnlyBatch,
             rows: eligibleRows,
             data,
             tenantId,
@@ -1418,25 +1511,57 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *    supplier via the provider-drawer cost leg, never the ledger, so
    *    every bill row's gross weight is 0 and an equal per-bill split is
    *    the only sane default.
-   * 3. The commission credit itself — a `SUPPLIER_PAYS_US` supplier_ledger
-   *    row (negative = the supplier owes the shop), `is_auto`, linked to
-   *    THIS settlement's own ledger row via `source_ref_table`/
-   *    `source_ref_id` — the EXACT shape `TransactionRepository`'s existing
-   *    LIRA-091 sibling-void cascade already scans for
-   *    (`_cascadeSupplierSiblingVoid`, keyed off the SUPPLIER_SETTLEMENT
-   *    transaction's own `source_table`/`source_id`, which IS this ledger
-   *    row) — so voiding/refunding the settlement finds and soft-voids this
-   *    row for free; no bespoke reversal code is needed for it. Skipped
-   *    when the entered commission is $0/0 LBP (nothing to credit).
+   * 3. The commission credit itself — the money-bearing step, which BRANCHES
+   *    on `isBillsOnlyBatch` (BILL_COMMISSION_SETTLEMENT_PLAN.md, owner
+   *    decision 2026-08-11):
+   *
+   *    - **Bills-only batch** (every eligible row is a BILL — today this is
+   *      exactly Katsh; iPick is `commission_eligible = 0` so it never earns
+   *      a nonzero commission here): the entered commission is a REAL
+   *      top-up into the Katsh/iPick provider drawer, funded BY the
+   *      provider — "Katsh owes us X, they pay it to us via top-up to our
+   *      Katsh account" (owner, verbatim). Posted as a `payments` leg on
+   *      THIS settlement's own transaction (`_bookBillsCommissionDrawerTopUp`)
+   *      — no `supplier_ledger` row at all for this money (rule 20 "one
+   *      obligation, one owner": there is no debt for it to net against).
+   *      Reversal is FREE via the generic `_reversePayments` step every
+   *      other transaction already gets (rule 20) — no bespoke code needed.
+   *    - **Every other new-model batch** (none reachable in production
+   *      today — kept for the generic `commission_model = 1` batches this
+   *      file's OWN tests exercise, and for forward-compatibility with a
+   *      future non-bills new-model row): unchanged from before this plan —
+   *      a cashless `SUPPLIER_PAYS_US` `supplier_ledger` credit row
+   *      (negative = the supplier owes the shop), `is_auto`, linked to THIS
+   *      settlement's own ledger row via `source_ref_table`/`source_ref_id`
+   *      — the EXACT shape `TransactionRepository`'s existing LIRA-091
+   *      sibling-void cascade already scans for (`_cascadeSupplierSiblingVoid`,
+   *      keyed off the SUPPLIER_SETTLEMENT transaction's own
+   *      `source_table`/`source_id`, which IS this ledger row) — so voiding/
+   *      refunding the settlement finds and soft-voids this row for free.
+   *
+   *    Both branches skip entirely when the entered commission is $0/0 LBP
+   *    (nothing to credit).
    */
   private _bookCommissionAtSettlement(args: {
     settlementLedgerId: number;
+    settlementTxnId: number;
     supplierId: number;
+    supplierProvider: string | null;
+    isBillsOnlyBatch: boolean;
     rows: EligibleSettlementRow[];
     data: SettleTransactionsData;
     tenantId: number;
   }): void {
-    const { settlementLedgerId, supplierId, rows, data, tenantId } = args;
+    const {
+      settlementLedgerId,
+      settlementTxnId,
+      supplierId,
+      supplierProvider,
+      isBillsOnlyBatch,
+      rows,
+      data,
+      tenantId,
+    } = args;
 
     // Gross (supplier_owed) per row, reused verbatim via findById() —
     // getColumns() already embeds SUPPLIER_OWED_EXPR, so this never
@@ -1537,12 +1662,27 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       );
     }
 
-    // The commission credit itself — cashless SUPPLIER_PAYS_US row. Skipped
-    // for a $0/0-LBP entered commission (nothing to credit); addLedgerEntry
-    // creates its own separate hidden transaction (no drawer_name/
-    // transaction_id) and, via source_ref_table/source_ref_id, is found for
-    // free by TransactionRepository's existing LIRA-091 sibling-void cascade
-    // on this settlement's own void/refund — see the method's doc comment.
+    // The commission credit itself — see the method's own doc comment for
+    // the branch.
+    if (isBillsOnlyBatch) {
+      this._bookBillsCommissionDrawerTopUp({
+        settlementTxnId,
+        supplierProvider,
+        commissionUsd: data.commission_usd,
+        commissionLbp: data.commission_lbp,
+        createdBy: data.created_by,
+        settlementLedgerId,
+        tenantId,
+      });
+      return;
+    }
+
+    // ORIGINAL cashless-credit path — unchanged. Skipped for a $0/0-LBP
+    // entered commission (nothing to credit); addLedgerEntry creates its own
+    // separate hidden transaction (no drawer_name/transaction_id) and, via
+    // source_ref_table/source_ref_id, is found for free by
+    // TransactionRepository's existing LIRA-091 sibling-void cascade on this
+    // settlement's own void/refund.
     if (
       Math.abs(data.commission_usd) > 0.005 ||
       Math.abs(data.commission_lbp) > 0.005
@@ -1559,6 +1699,103 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         source_ref_id: settlementLedgerId,
       });
     }
+  }
+
+  /**
+   * BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) — Katsh/iPick bills-only
+   * commission at settlement is a REAL top-up into the provider's OWN
+   * drawer, funded BY the provider ("Katsh owes you 100,000 LBP... they pay
+   * it to us via top-up to our Katsh account", owner 2026-08-11) — not a
+   * `supplier_ledger` receivable.
+   *
+   * Deliberately does NOT reuse `RechargeRepository.topUpFromSupplier`'s
+   * debt-booking half: that method books a `TOP_UP` `supplier_ledger` row
+   * because the SHOP is extending its own credit line (the shop now owes the
+   * supplier for the stock it just received). Here it is the OPPOSITE
+   * direction — KATSH funds this top-up as a reward/commission — so the shop
+   * owes nothing back for it; posting a `TOP_UP` row here would fabricate a
+   * debt that was never incurred. This method therefore calls ONLY the
+   * drawer-credit half (`applyDrawerDelta` + a `payments` leg on the
+   * settlement's own transaction), never `addLedgerEntry`/`supplier_ledger`
+   * at all — the two methods are kept apart by construction, not by a
+   * runtime flag: this method has no code path that can reach
+   * `supplier_ledger`.
+   *
+   * The leg posts on `settlementTxnId` (the SAME transaction step 3 of
+   * `settleTransactions` already created) rather than a separate hidden
+   * transaction — so reversal is FREE via the generic `_reversePayments`
+   * step every void/refund already runs (rule 20): it mirrors every
+   * `payments` row for the original transaction with the negated amount,
+   * sign-agnostic, no bespoke code needed here. The transaction's own
+   * `profit_usd`/`profit_lbp` (stamped by the caller, `settleTransactions`
+   * step 3) net to 0 the same generic way every other transaction's profit
+   * does on void (status flips to VOIDED, excluded from every ACTIVE-only
+   * profit sum) or refund (the REFUND row carries `-profit_usd`/`-profit_lbp`).
+   *
+   * `method`/`drawerName` mirror the EXACT convention
+   * `FinancialServiceRepository`'s cost/price-flow cost leg already uses for
+   * a provider-drawer movement (`insertPayment.run(txnId, data.provider,
+   * providerDrawer, ...)`) — the provider name IS the method, which is also
+   * why `PROVIDER_STOCK_DRAWERS` (`TransactionRepository.ts`) already
+   * excludes a Katsh-drawer leg from the customer-facing in/out legs
+   * subtext, exactly like that cost leg.
+   *
+   * Skips entirely when both currencies are ~0 (nothing to credit — mirrors
+   * the old SUPPLIER_PAYS_US guard it replaces for this batch shape).
+   */
+  private _bookBillsCommissionDrawerTopUp(args: {
+    settlementTxnId: number;
+    supplierProvider: string | null;
+    commissionUsd: number;
+    commissionLbp: number;
+    createdBy: number;
+    settlementLedgerId: number;
+    tenantId: number;
+  }): void {
+    const {
+      settlementTxnId,
+      supplierProvider,
+      commissionUsd,
+      commissionLbp,
+      createdBy,
+      settlementLedgerId,
+      tenantId,
+    } = args;
+    if (Math.abs(commissionUsd) <= 0.005 && Math.abs(commissionLbp) <= 0.005) {
+      return;
+    }
+    // Defensive — every BILL row's provider is Katsh or iPick today (the
+    // only two BILL-capable providers), both real top-up providers. Refuses
+    // rather than silently dropping real money into nowhere if that
+    // invariant is ever violated.
+    if (!supplierProvider || !isTopUpProvider(supplierProvider)) {
+      throw new DatabaseError(
+        `Cannot book bills commission drawer top-up — provider "${supplierProvider ?? "null"}" has no configured top-up drawer`,
+      );
+    }
+    const destDrawer = TOP_UP_PROVIDER_DRAWERS[supplierProvider];
+
+    const post = (amount: number, currencyCode: "USD" | "LBP") => {
+      if (Math.abs(amount) <= 0.005) return;
+      applyDrawerDelta(this.db, {
+        drawerName: destDrawer,
+        currencyCode,
+        delta: amount,
+        tenantId,
+      });
+      insertPaymentRow(this.db, {
+        transactionId: settlementTxnId,
+        method: supplierProvider,
+        drawerName: destDrawer,
+        currencyCode,
+        amount,
+        note: `Commission from settlement #${settlementLedgerId}: +${amount} ${currencyCode} → ${destDrawer}`,
+        createdBy,
+        tenantId,
+      });
+    };
+    post(commissionUsd, "USD");
+    post(commissionLbp, "LBP");
   }
 
   /**
