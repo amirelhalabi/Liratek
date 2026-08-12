@@ -1076,8 +1076,8 @@ export default function TransactionsViewer({
           <div className="flex flex-col gap-0.5">
             <CashFlowBadge
               type={row.type}
-              amountUsd={tender?.usd ?? row.amount_usd}
-              amountLbp={tender?.lbp ?? row.amount_lbp}
+              amountUsd={commissionAmount?.usd ?? tender?.usd ?? row.amount_usd}
+              amountLbp={commissionAmount?.lbp ?? tender?.lbp ?? row.amount_lbp}
               metaJson={row.metadata_json}
               legs={row.payments}
             />

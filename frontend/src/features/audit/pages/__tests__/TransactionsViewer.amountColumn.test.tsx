@@ -166,6 +166,95 @@ const malformedMetadataRow = baseRow({
   metadata_json: "{not valid json",
 });
 
+// Owner report (2026-08-12): the Amount <td> fix above left a SECOND render
+// site of the same figure untouched — the CashFlowBadge (Summary column,
+// the small "↓ <amount>" chip next to the free-text summary). It computes
+// its own displayed magnitude from the row's stored amount_usd/amount_lbp
+// (0/0 for a bills-only settlement), independent of the Amount <td>'s
+// billsOnlyCommissionAmount() derivation, so it rendered "—" even after the
+// Amount column was fixed.
+function badgeInRowFor(summaryText: string): HTMLElement {
+  const summarySpan = screen.getByText(summaryText, { exact: false });
+  const row = summarySpan.closest("tr");
+  if (!row) throw new Error(`No <tr> ancestor found for "${summaryText}"`);
+  const badge = row.querySelector('[data-testid="cash-flow-badge"]');
+  if (!badge) {
+    throw new Error(`No cash-flow-badge found in row for "${summaryText}"`);
+  }
+  return badge as HTMLElement;
+}
+
+describe("TransactionsViewer — CashFlowBadge for a bills-only settlement", () => {
+  beforeEach(() => {
+    mockGetRecentTransactions.mockReset();
+  });
+
+  it("shows the commission amount in the badge, not an em dash", async () => {
+    mockGetRecentTransactions.mockResolvedValue([billsOnlySettlementRow]);
+
+    render(
+      <TransactionsViewer
+        limit="50"
+        selectedFilter="All"
+        search=""
+        from=""
+        to=""
+      />,
+    );
+
+    await waitFor(() => screen.getByText(BILLS_ONLY_SUMMARY, { exact: false }));
+
+    const badge = badgeInRowFor(BILLS_ONLY_SUMMARY);
+    expect(badge.getAttribute("data-direction")).toBe("in");
+    expect(badge.textContent).toContain("100,000 LBP");
+    expect(badge.textContent).not.toContain("—");
+  });
+
+  it("leaves a legacy (commission_model = 0) settlement badge rendering exactly as before", async () => {
+    mockGetRecentTransactions.mockResolvedValue([legacySettlementRow]);
+
+    render(
+      <TransactionsViewer
+        limit="50"
+        selectedFilter="All"
+        search=""
+        from=""
+        to=""
+      />,
+    );
+
+    await waitFor(() => screen.getByText(LEGACY_SUMMARY, { exact: false }));
+
+    const badge = badgeInRowFor(LEGACY_SUMMARY);
+    expect(badge.getAttribute("data-direction")).toBe("out");
+    expect(badge.textContent).toContain("$25");
+  });
+
+  it("degrades a malformed metadata_json on a bills-only-shaped row to today's unaffected badge instead of throwing", async () => {
+    mockGetRecentTransactions.mockResolvedValue([malformedMetadataRow]);
+
+    render(
+      <TransactionsViewer
+        limit="50"
+        selectedFilter="All"
+        search=""
+        from=""
+        to=""
+      />,
+    );
+
+    await waitFor(() =>
+      screen.getByText("Settlement: malformed metadata row", {
+        exact: false,
+      }),
+    );
+
+    const badge = badgeInRowFor("Settlement: malformed metadata row");
+    expect(badge.getAttribute("data-direction")).toBe("out");
+    expect(badge.textContent).toContain("—");
+  });
+});
+
 describe("TransactionsViewer — Amount column for a bills-only settlement", () => {
   beforeEach(() => {
     mockGetRecentTransactions.mockReset();
