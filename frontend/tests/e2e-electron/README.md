@@ -129,3 +129,24 @@ the same direct invocation anyway, per `.github/workflows/ci.yml`'s comment on t
   unsettled. Any FUTURE spec that assumes a ticket is still uncheckpointed after
   lira-129 has run (alphabetically before it: none currently do) would need its own
   fresh, unique ticket rather than relying on a stray from an earlier file.
+
+## Sprint 2 ticket-to-spec cross-reference (moved from `current_sprint.md`, 2026-08-12)
+
+The table below is the original Sprint-2 e2e-coverage mapping — relocated here per
+`docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` (§2, §6.4) because it is a ticket-to-spec
+cross-reference, not a ticket board: it carries no Status column, so a naive "not DONE" grep over
+`current_sprint.md` was double-counting these 6 already-closed tickets as open. All 6 tickets
+(LIRA-056, 057, 059, 061, 063, 064) are DONE — see `docs/plans/done_plans/SPRINT_2_ARCHIVE_2026-08-12.md`.
+Enforced per the file's own banner note ("add a test … for each ticket implemented"); plan doc:
+`docs/plans/done_plans/sprint2-e2e-coverage.md`. Each spec is IPC-driven
+(`appPage.evaluate(() => window.api.*)`) over the shared per-worker DB and asserts **deltas matched
+by identity** (never "newest row"):
+
+| Ticket   | Spec                                       | Validates                                                                                                                 |
+| -------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| LIRA-056 | `lira-056-supplier-credit-topup-settle`    | Katsh/iPick credit top-up funds the provider drawer, General untouched; settle nets ledger to baseline                    |
+| LIRA-057 | `lira-057-whish-topup-partner-client`      | Whish App Via Partner (`WHISH_TOPUP`/CREDIT, no cash drawer) + From Client (credits-in / cash-out, profit = fee) + guards |
+| LIRA-059 | `lira-059-supplier-cashflow-bidirectional` | PAY / `SUPPLIER_PAYS_US` / overpay-goes-negative; Companies vs Products (`is_system`) split                               |
+| LIRA-061 | `lira-061-sale-cost-supplier-ledger`       | cost/price SEND books `SALE_COST` (not `TOP_UP`) for Katsh/iPick/Whish App; per-txn settle + cumulative pay-down          |
+| LIRA-063 | `lira-063-omt-whish-optional-client`       | OMT/Whish App SEND & RECEIVE proceed with empty name/phone; provided values still persisted                               |
+| LIRA-064 | `lira-064-payment-legs-summary`            | structured in/out payment legs per row (mixed IN+OUT, two same-currency INs, cash-only SEND)                              |

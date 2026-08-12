@@ -2,2796 +2,62 @@
 
 > **IMPORTANT NOTE — add a test into the e2e file for each ticket implemented to validate the feature.**
 
-> **Sprint Focus:** UI Consistency, Binance Fixes, Whish App UX, Transaction Enrichment & Session Checkout
-> **Created:** 2026-06-07
-> **Last Updated:** 2026-06-20 (Sprint-2 e2e coverage + WHISH_APP rename v105)
-> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED`
-
----
-
-## 🔍 PRE-MERGE REVIEW & FIXES (2026-06-19) — 10 findings fixed, all green
-
-A pre-merge code review of `feat/session-basket-payment` vs `main` (multi-angle finder + adversarial
-verify) surfaced 10 real findings, all now fixed. Gates: **core 379/379** (374 + 5 new), **backend
-384/384**, **frontend 209**, typecheck clean, lint 0 errors, **full e2e green**.
-
-**Blocking money-correctness (fixed):**
-
-1. **Cashout/payout in a session was never recorded.** Hybrid fix: **Binance RECEIVE** payout
-   un-deferred (`FinancialServiceRepository` — posted even in session mode); **loto prize / OMT-Whish
-   RECEIVE** stay deferred and the **Session Checkout modal** now emits the net cash-OUT leg when a
-   currency total is negative (`SessionCheckoutModal.tsx`), so the recorder posts the payout once.
-2. **Cross-item cash bleed** + 3. **gift-card under-realization** — `backfillSaleSettlement` rewritten
-   to **account-debt-to-sales-first**: `salesPaidPool = max(0, salesTotal − (debtUsd−giftCardUsd +
-(debtLbp−giftCardLbp)/rate))`. Conservative (never realizes uncollected profit); gift-card counts
-   as collected; CUSTOMER_ACCOUNT correctly stays pending.
-3. **v102 purge** scoped to `entry_type IN ('TOP_UP','SALE_COST')` — never deletes a real cash entry.
-
-**Should-fix (fixed):** 5. v101 backfill only fills unstamped rows whose source exists (no clobber). 6. v101 excludes refunded maintenance. 7. custom-service cost-outflow leg excluded from the viewer
-in/out summary. 8. REFUND revenue gated by `saleFullyPaid` in `getByUser`/`getByClient`. 9. sales
-profit dated by `s.created_at` to reconcile with revenue. 10. `payments.session_id` nulled on session
-delete (v100 ADD COLUMN FK is not enforced on upgraded DBs — documented).
-
-**Also:** fixed a pre-existing `exactOptionalPropertyTypes` error in `Suppliers/index.tsx`
-(`recordCashflow` note), and **stabilized a flaky e2e** (`app.spec.ts` "Debts: add sale debt and
-settle" raced the async CUSTOMER_ACCOUNT auto-switch — now waits for the payment method to commit).
-
-**New regression tests:**
-
-- `packages/core/src/repositories/__tests__/SessionPaymentService.basket.test.ts` (backend, 5 cases:
-  cross-item bleed, gift-card realizes, account-stays-pending control, loto OUT-leg payout, posted-once).
-- `frontend/tests/e2e-electron/lira-session-payout.spec.ts` (#1 — Binance RECEIVE + loto payout).
-- `frontend/tests/e2e-electron/lira-session-allocation.spec.ts` (#2/#3 — bleed + gift-card).
-
-**Bug caught by the new e2e (fixed):** the `sales` table was missing `updated_at` (create_db.sql
-never had it; no migration added it), yet `markSalePaid` — the session back-fill path — writes it, so
-**a session basket containing a POS sale failed at checkout** (`no such column: updated_at`) on every
-DB. Fixed: column added to create_db.sql + **migration v104**; `lira-session-allocation.spec.ts`
-surfaced it. (Fix #1 / payout — `lira-session-payout.spec.ts` — was confirmed passing live.)
-
-> **Note:** e2e specs are typechecked by `tsconfig.playwright.json`, NOT the standard
-> `yarn workspace @liratek/frontend typecheck` (which only covers `src`). CI should run both.
-
-**Migration re-test caveat:** the v100–v102 _migration_ fixes only re-run on a DB that hasn't applied
-those versions yet. Reset/recreate a dev DB that already ran the old v101/v102 to exercise them.
-
----
-
-## 🧪 POST-REVIEW FOLLOW-UPS (2026-06-20) — WHISH_APP rename + Sprint-2 e2e coverage
-
-**1. `WISH_APP` → `WHISH_APP` provider rename (typo fix) — migration v105.** The Whish App provider
-value was stored as the misspelled `WISH_APP`. Renamed everywhere:
-
-- **Migration v105** (`rename_wish_app_to_whish_app`): recreates `financial_services` from its OWN
-  live `CREATE` statement, widening ONLY the provider `CHECK` to also accept `'WHISH_APP'`
-  (schema-faithful — every column/constraint/index preserved), then relabels
-  `financial_services.provider`, `mobile_service_items.provider`, and `transactions.metadata_json`.
-  `down()` reverses the data relabel (the widened CHECK still permits the old value → no recreate).
-- Mirrored in `electron-app/create_db.sql` (CHECK uses `WHISH_APP`; `schema_migrations` seeded
-  through v105) and renamed in `electron-app/schemas/index.ts` + `electron-app/preload.ts`.
-- **Why it mattered:** with the typo, Whish App SEND failed to book a settleable `SALE_COST` supplier
-  entry. Now covered by `lira-061` ("Whish App SEND books SALE_COST (WISH_APP→WHISH_APP fix)").
-
-**2. Sprint-2 e2e coverage enforced — 6 specs, all green** (per the banner note "add a test … for
-each ticket implemented"). Plan: `docs/plans/done_plans/sprint2-e2e-coverage.md`. Each is IPC-driven
-(`appPage.evaluate(() => window.api.*)`) over the shared per-worker DB and asserts **deltas matched by
-identity** (never "newest row"):
-
-| Ticket   | Spec                                       | Validates                                                                                                                 |
-| -------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| LIRA-056 | `lira-056-supplier-credit-topup-settle`    | Katsh/iPick credit top-up funds the provider drawer, General untouched; settle nets ledger to baseline                    |
-| LIRA-057 | `lira-057-whish-topup-partner-client`      | Whish App Via Partner (`WHISH_TOPUP`/CREDIT, no cash drawer) + From Client (credits-in / cash-out, profit = fee) + guards |
-| LIRA-059 | `lira-059-supplier-cashflow-bidirectional` | PAY / `SUPPLIER_PAYS_US` / overpay-goes-negative; Companies vs Products (`is_system`) split                               |
-| LIRA-061 | `lira-061-sale-cost-supplier-ledger`       | cost/price SEND books `SALE_COST` (not `TOP_UP`) for Katsh/iPick/Whish App; per-txn settle + cumulative pay-down          |
-| LIRA-063 | `lira-063-omt-whish-optional-client`       | OMT/Whish App SEND & RECEIVE proceed with empty name/phone; provided values still persisted                               |
-| LIRA-064 | `lira-064-payment-legs-summary`            | structured in/out payment legs per row (mixed IN+OUT, two same-currency INs, cash-only SEND)                              |
-
-**3. CLAUDE.md hardened** with the lessons learned: **rule 15** (E2E assertions over the shared DB —
-match a row by identity + assert deltas, never "newest row"; one action can write multiple
-`transactions` rows; `created_at` is second-granular) and a **stale-build note** in "Running E2E
-tests" (rebuild `electron-app/dist` after editing electron-app source — a stale `schemas/dist` once
-surfaced as a confusing `WHISH_APP` Zod-validation failure).
-
----
-
-## LIRA-048: Exchange Page — Show Dual USD/LBP Output Fields
-
-| Field                | Value          |
-| -------------------- | -------------- |
-| **Epic**             | UI Consistency |
-| **Type**             | Feature / UX   |
-| **Priority**         | High           |
-| **Status**           | DONE           |
-| **Affected Modules** | Exchange       |
-| **Assigned To**      | —              |
-| **Depends On**       | —              |
-
-### Summary
-
-Currently the Exchange page shows a single "Customer Gets" field displaying the converted amount in the target currency. Replace this with two always-visible output fields — **USD** and **LBP** — mirroring the dual-currency display pattern used in the POS Checkpoint Modal.
-
-### Context
-
-The POS Checkpoint Modal already has a proven dual-field layout where both USD and LBP amounts are shown simultaneously. The Exchange page should adopt the same pattern for output so the operator always sees both representations regardless of the exchange direction.
-
-### Acceptance Criteria
-
-- [x] Remove single "customer gets (to currency)" output field
-- [x] Always show two output fields: USD and LBP
-- [x] Field values computed using the current exchange rate (same logic as before, just surfaced in both currencies)
-- [x] Layout matches the dual-field style from POS Checkpoint Modal
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                           | Change                                          |
-| -------- | -------------------------------------------------------------- | ----------------------------------------------- |
-| Frontend | `frontend/src/features/exchange/pages/Exchange/index.tsx`      | Replace single output field with USD + LBP pair |
-| Frontend | Any exchange-related components showing the "customer gets" UI | Same dual-field replacement                     |
-
----
-
-## LIRA-049: Recharge — Dual USD/LBP Fields + Payment Method Dropdown
-
-| Field                | Value                       |
-| -------------------- | --------------------------- |
-| **Epic**             | UI Consistency              |
-| **Type**             | Feature / UX                |
-| **Priority**         | High                        |
-| **Status**           | DONE                        |
-| **Affected Modules** | Mobile Recharge (all forms) |
-| **Assigned To**      | —                           |
-| **Depends On**       | —                           |
-
-### Summary
-
-Replace the current payment display in Recharge forms with:
-
-1. **Dual USD/LBP fields** — same appearance and functionality as in the POS Checkpoint Modal
-2. **Payment method dropdown** — lets the operator change the payment method when needed (instead of it being fixed)
-
-### Context
-
-Currently Recharge forms show amounts in a fixed way. The POS Checkpoint Modal has a well-designed dual-currency input/display pattern. Recharge should adopt this same pattern so operators can see USD and LBP simultaneously and switch payment method inline without extra steps.
-
-### Acceptance Criteria
-
-- [x] Recharge forms show two amount fields: USD and LBP (matching POS Checkpoint Modal style)
-- [x] A payment method dropdown is added, allowing the operator to change the method if needed
-- [x] Dropdown uses the same payment methods available in the current system
-- [x] USD/LBP field interaction (editing one auto-calculates the other via exchange rate) mirrors POS Checkout Modal behavior
-- [x] TelecomForm: dual LBP/USD price fields + payment method dropdown (MTC/Alfa)
-- [x] FinancialForm: USD equivalent shown below LBP total in sticky bar (OMT/Whish Bills/iPick)
-- [x] KatchForm: USD equivalent shown below LBP total in sticky bar (Katsh/iPick)
-- [x] CryptoForm: LBP equivalent shown below USD total in sticky bar + payment method dropdown (Binance)
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                          | Change                                                   |
-| -------- | ------------------------------------------------------------- | -------------------------------------------------------- |
-| Frontend | `frontend/src/features/recharge/components/TelecomForm.tsx`   | Dual LBP/USD price fields + payment method dropdown ✓    |
-| Frontend | `frontend/src/features/recharge/components/FinancialForm.tsx` | USD equivalent in sticky bar ✓                           |
-| Frontend | `frontend/src/features/recharge/components/CryptoForm.tsx`    | LBP equivalent in sticky bar + payment method dropdown ✓ |
-| Frontend | `frontend/src/features/recharge/components/KatchForm.tsx`     | USD equivalent in sticky bar ✓                           |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`     | Propagate changes ✓                                      |
-
----
-
-## LIRA-050: Mobile Recharge — Fix Layout (Proceed to Pay Position + Scrollable Grid)
-
-| Field                | Value           |
-| -------------------- | --------------- |
-| **Epic**             | UI Layout       |
-| **Type**             | Bug / UX        |
-| **Priority**         | Medium          |
-| **Status**           | DONE            |
-| **Affected Modules** | Mobile Recharge |
-| **Assigned To**      | —               |
-| **Depends On**       | —               |
-
-### Summary
-
-Two layout issues in the Mobile Recharge page:
-
-1. **"Proceed to Pay" button/section** should be repositioned to the **top right**, aligned with the search bar, and its position should be fixed (not scroll away).
-2. **Only the recharge items grid** should be scrollable — the rest of the page (header, search bar, proceed-to-pay) stays fixed.
-
-### Acceptance Criteria
-
-- [x] "Proceed to Pay" section is anchored to the top right, next to the search bar
-- [x] "Proceed to Pay" does not scroll out of view
-- [x] The recharge items grid scrolls independently within its container
-- [x] No layout regressions on other parts of the page
-
-### Files to Modify
-
-| Layer    | File                                                          | Change                                     |
-| -------- | ------------------------------------------------------------- | ------------------------------------------ |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`     | Restructure layout for fixed top-right CTA |
-| Frontend | Any recharge sub-components that own the grid/proceed section | Adjust scroll container and position       |
-
----
-
-## LIRA-051: Partners Page — Simplify Record Transaction Types
-
-| Field                | Value           |
-| -------------------- | --------------- |
-| **Epic**             | Partner System  |
-| **Type**             | Cleanup / UX    |
-| **Priority**         | Medium          |
-| **Status**           | DONE            |
-| **Affected Modules** | Partners        |
-| **Assigned To**      | —               |
-| **Depends On**       | LIRA-047 (DONE) |
-
-### Summary
-
-Audit the "Record Transaction" dialog/modal on the Partners page. The transaction type options may be overly verbose or inconsistent after LIRA-047 added `THROUGH_*` / `FOR_*` prefixed types alongside legacy types. Simplify the type list so it is clean, readable, and reflects current business terminology.
-
-### Context
-
-After LIRA-047, the `partner_ledger.transaction_type` field has accumulated several formats: legacy plain types, `THROUGH_*` prefixed types, and `FOR_*` prefixed types. The UI dropdown for recording transactions should present these in a clear, consistent way — removing or consolidating anything confusing.
-
-### Acceptance Criteria
-
-- [x] Review all `transaction_type` values currently shown in "Record Transaction" dropdown
-- [x] Remove or relabel redundant/legacy entries — THROUGH*\*/FOR*\* removed (auto-written by FSR, not for manual entry)
-- [x] Group or order types logically into optgroups: General, OMT, Whish, Other
-- [x] TypeScript types updated — `PartnerTransactionType` union added, covers all historical DB values for display
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                                       | Change                                          |
-| -------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
-| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx`                  | Simplify type dropdown in Record Transaction UI |
-| Frontend | `frontend/src/features/partners/components/` (any relevant sub-components) | Update type labels/options                      |
-| Types    | `frontend/src/types/electron.d.ts`                                         | Remove obsolete transaction type values if any  |
-
----
-
-## LIRA-052: Binance — Fix SEND Drawer Logic (Cash Drawer Not Credited, Amount Goes to Wrong Place)
-
-| Field                | Value                                          |
-| -------------------- | ---------------------------------------------- |
-| **Epic**             | Binance / Financial Services                   |
-| **Type**             | Bug                                            |
-| **Priority**         | High                                           |
-| **Status**           | DONE                                           |
-| **Affected Modules** | Mobile Recharge > Binance, Drawers, Checkpoint |
-| **Assigned To**      | —                                              |
-| **Depends On**       | —                                              |
-
-### Summary
-
-Multiple bugs in the Binance SEND transaction flow:
-
-1. Sending $102 **adds 2 USDT to the General drawer** instead of crediting the Cash drawer with $102.
-2. The **Cash drawer is not affected at all** — it should be credited with the full $102 paid by the customer.
-3. The **Binance drawer is being checkpointed in USD ($500)** instead of in USDT — the Binance drawer should track USDT balances.
-4. The **fee is incorrectly routed to the General drawer**, and the send amount is not credited anywhere.
-
-### Root Cause Investigation Areas
-
-- `FinancialServiceRepository.ts` — Binance SEND drawer logic: which drawer is debited/credited, how fee and amount are split
-- Binance drawer currency: confirm drawer is set up as USDT, not USD
-- `create_db.sql` / migrations: verify Binance drawer currency_code is `USDT`
-- Checkpoint: verify Binance drawer reads/writes USDT amounts, not USD
-
-### Expected Behavior (Binance SEND — customer sends $102 to Binance)
-
-| Event            | Drawer Effect                                  |
-| ---------------- | ---------------------------------------------- |
-| Customer pays    | Cash (General) drawer +$102                    |
-| Binance deducted | Binance drawer (USDT) -100 USDT (amount sent)  |
-| Fee kept         | Shop profit — no separate drawer entry for fee |
-
-_(Exact fee/amount split to be confirmed during investigation)_
-
-### Acceptance Criteria
-
-- [x] Binance SEND with cash payment: Cash/General drawer is credited with the amount paid by customer
-- [x] Binance drawer tracks USDT (not USD) and is correctly debited on SEND
-- [x] Fee does not appear as a spurious entry in General drawer (implicit in cash-in vs crypto-out spread)
-- [x] Migration v93: remaps Binance drawer currency_code USD→USDT, merges stale balances, updates create_db.sql
-- [x] RECEIVE logic fixed: Binance drawer credited in USDT, General drawer debited in USD (amount−fee)
-- [x] `FinancialServiceRepository.binance.test.ts` added (12 tests covering SEND/RECEIVE/CUSTOMER_ACCOUNT)
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                           | Change                                       |
-| -------- | -------------------------------------------------------------- | -------------------------------------------- |
-| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts` | Fix Binance SEND drawer credit/debit routing |
-| Backend  | `packages/core/src/repositories/RechargeRepository.ts`         | Review if Binance logic lives here instead   |
-| Database | `packages/core/src/db/migrations/index.ts`                     | Fix Binance drawer currency if needed        |
-| Database | `electron-app/create_db.sql`                                   | Sync schema fix                              |
-| Frontend | `frontend/src/features/recharge/components/CryptoForm.tsx`     | Verify correct fields passed for SEND        |
-
----
-
-## LIRA-053: Whish App — Flip Toggle Order (Bills/Transactions) + Flip Audit/Transactions Tab Order
-
-| Field                | Value        |
-| -------------------- | ------------ |
-| **Epic**             | Whish App UX |
-| **Type**             | UX / Polish  |
-| **Priority**         | Low          |
-| **Status**           | DONE         |
-| **Affected Modules** | Whish App    |
-| **Assigned To**      | —            |
-| **Depends On**       | —            |
-
-### Summary
-
-Two ordering changes in the Whish App UI:
-
-1. **Bills / Transactions toggle** — flip the order so Transactions comes before Bills (or vice versa — confirm desired order with user).
-2. **Audit and Transactions page tab order** — flip so the preferred tab appears first.
-
-### Acceptance Criteria
-
-- [x] Bills/Transactions toggle order is flipped (Transfer now first)
-- [x] Audit/Transactions page tab order is flipped (Transactions now first)
-- [x] Whish App tab now defaults to Transfer on navigation (not Bills)
-- [x] No functional regressions — toggling and tab switching still work correctly
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                                | Change                            |
-| -------- | ------------------------------------------------------------------- | --------------------------------- |
-| Frontend | Whish App toggle/tab component (locate in `frontend/src/features/`) | Flip render order of toggle items |
-| Frontend | Audit/Transactions page component                                   | Flip tab order                    |
-
----
-
-## LIRA-054: Transaction Table — Add In/Out Amounts to Summary Description
-
-| Field                | Value                  |
-| -------------------- | ---------------------- |
-| **Epic**             | Transaction Visibility |
-| **Type**             | Feature / UX           |
-| **Priority**         | Medium                 |
-| **Status**           | DONE                   |
-| **Affected Modules** | All transaction tables |
-| **Assigned To**      | —                      |
-| **Depends On**       | —                      |
-
-### Summary
-
-Each transaction row in transaction tables has a summary/description column. Enrich this description to include the **in** and **out** amounts for each transaction, so the operator can quickly see cash flow direction and magnitude without opening the transaction detail.
-
-### Context
-
-Currently transaction descriptions may only show type/label. Adding `IN: $X` / `OUT: $Y` (or equivalent) directly in the description text makes scanning the table faster and reduces the need to drill into individual records.
-
-### Acceptance Criteria
-
-- [x] Each transaction row summary includes directional arrow badges (↑ in / ↓ out)
-- [x] Consistent emerald/red color coding across all tables
-- [x] Applied to 7 tables: TransactionsViewer, Expenses, Maintenance, CustomServices, Recharge history, Services (OMT/Whish), Loto checkpoint history
-- [x] No performance regression — amounts already present in query results
-- [x] Typecheck and lint pass
-- [x] **Follow-up (done, validated 2026-07-19):** BINANCE rows in TransactionsViewer show no directional badge — needs `service_type` on unified transaction row (backend join)
-
-### Files to Modify
-
-| Layer    | File                                                                   | Change                                               |
-| -------- | ---------------------------------------------------------------------- | ---------------------------------------------------- |
-| Frontend | Transaction table component(s) across all modules                      | Append in/out amounts to description/summary cell    |
-| Backend  | Relevant repository `getAll` / `list` queries (if amounts not present) | Ensure in/out amounts are included in query response |
-
----
-
-## LIRA-055: Customer Session Checkout Modal — Add MultiPaymentInput Component
-
-| Field                | Value                                    |
-| -------------------- | ---------------------------------------- |
-| **Epic**             | Customer Sessions                        |
-| **Type**             | Feature                                  |
-| **Priority**         | High                                     |
-| **Status**           | DONE                                     |
-| **Affected Modules** | POS > Customer Sessions > Checkout Modal |
-| **Assigned To**      | —                                        |
-| **Depends On**       | —                                        |
-
-### Summary
-
-The Customer Session Checkout Modal currently uses a simpler payment input. Replace/augment it with the existing **`MultiPaymentInput`** component and its full functionality — matching the multi-payment capability available in other checkout contexts (split payments, USD + LBP, CUSTOMER_ACCOUNT auto-select, etc.).
-
-### Context
-
-`MultiPaymentInput` (`packages/ui/src/components/ui/MultiPaymentInput.tsx`) is already used in other checkout flows and supports:
-
-- Multiple simultaneous payment methods
-- USD + LBP split
-- CUSTOMER_ACCOUNT auto-selection when a client is in session
-- Dynamic total validation
-
-The Customer Session Checkout Modal should have the same richness instead of a reduced version.
-
-### Acceptance Criteria
-
-- [x] Checkout Modal renders `MultiPaymentInput` in place of the existing bulk payment selector
-- [x] All `MultiPaymentInput` features work inside the modal (split payment, USD/LBP, CUSTOMER_ACCOUNT)
-- [x] CUSTOMER_ACCOUNT auto-selects when session has a named client
-- [x] Separate MultiPaymentInput instances for USD and LBP totals; USDT shown as read-only display
-- [x] Payment legs now passed in checkout IPC call (previously always sent as empty array)
-- [x] Modal layout accommodates the wider component without overflow
-- [x] Payment totals validate correctly before confirming checkout
-- [x] Typecheck and lint pass
-- [x] **Follow-up (resolved differently — client resolved at checkout, SessionCheckoutService.resolveSessionClientForCheckout):** Voucher support at checkout requires `client_id` on session (currently only `customer_name`/`customer_phone` stored)
-
-### Files to Modify
-
-| Layer    | File                                                                           | Change                                                |
-| -------- | ------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| Frontend | Customer Session Checkout Modal component (locate in `frontend/src/features/`) | Replace simple payment input with `MultiPaymentInput` |
-| Frontend | `packages/ui/src/components/ui/MultiPaymentInput.tsx`                          | Any props adjustments needed for modal context        |
-| Types    | `frontend/src/types/electron.d.ts`                                             | Update if checkout payload shape changes              |
-
----
-
-## Summary (Sprint 1 — LIRA-048..055)
-
-| Priority  | Total | Done  | Remaining |
-| --------- | ----- | ----- | --------- |
-| High      | 4     | 4     | 0         |
-| Medium    | 2     | 2     | 0         |
-| Low       | 1     | 1     | 0         |
-| Bug       | 1     | 1     | 0         |
-| **Total** | **8** | **8** | **0**     |
-
----
-
-## Open Follow-ups (Post-Sprint 1)
-
-| ID          | Description                                                                                                             | Priority |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------- | -------- |
-| LIRA-054-FU | BINANCE rows in TransactionsViewer missing directional badge — needs `service_type` joined onto unified transaction row | Low      |
-| LIRA-055-FU | Voucher support at session checkout requires `client_id` stored on session (currently only name/phone)                  | Low      |
-
----
-
----
-
-# Sprint 2 — Topup Flows, Supplier Improvements & Hold Money
-
-> **Sprint Focus:** Topup modal UX fixes, Whish App partner/client topup, supplier balance improvements, hold money service
-> **Created:** 2026-06-14
-> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW`
-
----
-
-## LIRA-056: KATSH / iPick — Remove "From Drawer" from Topup Modal + Settlement E2E Test
-
-| Field                | Value                   |
-| -------------------- | ----------------------- |
-| **Epic**             | Topup UX                |
-| **Type**             | Bug / UX + Test         |
-| **Priority**         | Medium                  |
-| **Status**           | DONE                    |
-| **Affected Modules** | Recharge > Katsh, iPick |
-| **Assigned To**      | —                       |
-| **Depends On**       | —                       |
-
-### Summary
-
-When topping up Katsh or iPick, the operator contacts the supplier who extends credit — no cash leaves any drawer. The current `TopUpModal` incorrectly shows a "from drawer" dropdown for these providers, implying a drawer transfer that doesn't happen. Remove it.
-
-Additionally, the supplier settlement flow for Katsh/iPick has not been tested. Add an e2e/integration test to verify that settling with a supplier correctly deducts from the selected drawer and records the payment in the supplier ledger.
-
-### Context
-
-- Katsh/iPick topup = supplier credits your app balance now; you pay them later via settle (recorded as `TOP_UP` entry in supplier ledger, no drawer affected)
-- The `TopUpModal` (`packages/ui/src/components/ui/TopUpModal.tsx`) shows "From Drawer" / "External (Cash In)" modes for all providers — this makes no sense for Katsh/iPick where the only topup source is the supplier themselves
-- Supplier settlement has a `PAYMENT` entry type and drawer deduction — this path needs a test to verify correctness
-
-### Acceptance Criteria
-
-- [x] `TopUpModal` for Katsh and iPick no longer shows the "from drawer" dropdown or mode toggle — replaced with amber supplier-credit banner + "Confirm Supplier Credit" button
-- [x] Topup for Katsh/iPick now calls new `recharge:top-up-from-supplier` IPC endpoint → records `TOP_UP` entry in `supplier_ledger`, increases provider drawer balance, NO source drawer deducted
-- [x] `RechargeRepository.topUpFromSupplier()` added; `RechargeService.topUpFromSupplier()` added; Zod schema `TopUpFromSupplierSchema` added; IPC handler registered; preload binding + `electron.d.ts` type added
-- [x] Integration tests: 5 tests for `topUpFromSupplier` + 2 for supplier settlement — all pass (384 backend tests green)
-- [x] Frontend typecheck clean (pre-existing errors in unrelated files on this branch); 210 frontend tests pass
-
-### Files Modified
-
-| Layer    | File                                                                             | Change                                                                  |
-| -------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Backend  | `packages/core/src/repositories/RechargeRepository.ts`                           | Added `topUpFromSupplier()` method                                      |
-| Backend  | `packages/core/src/services/RechargeService.ts`                                  | Added `topUpFromSupplier()` service method                              |
-| Backend  | `packages/core/src/repositories/__tests__/SupplierRepository.settlement.test.ts` | 7 new tests for topUpFromSupplier + supplier settlement                 |
-| Electron | `electron-app/schemas/index.ts`                                                  | Added `TopUpFromSupplierSchema`                                         |
-| Electron | `electron-app/handlers/rechargeHandlers.ts`                                      | Added `recharge:top-up-from-supplier` IPC handler                       |
-| Electron | `electron-app/preload.ts`                                                        | Added `topUpFromSupplier` binding                                       |
-| Types    | `frontend/src/types/electron.d.ts`                                               | Added `topUpFromSupplier` type                                          |
-| Frontend | `packages/ui/src/components/ui/TopUpModal.tsx`                                   | `isSupplierCredit` flag hides drawer UI; shows supplier banner          |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`                        | Added `handleTopUpConfirmSupplier`; passes `onConfirmSupplier` to modal |
-
----
-
-## LIRA-057: WHISH APP — Topup Via Partner / From Client Sub-Modes
-
-| Field                | Value                          |
-| -------------------- | ------------------------------ |
-| **Epic**             | Whish App Topup                |
-| **Type**             | Feature                        |
-| **Priority**         | High                           |
-| **Status**           | DONE                           |
-| **Affected Modules** | Recharge > Whish App, Partners |
-| **Assigned To**      | —                              |
-| **Depends On**       | —                              |
-
-### Summary
-
-The existing Whish App topup button opens the generic `TopUpModal` with a "from drawer" flow — which does not match either real-world topup scenario. Replaced it with two sub-modes:
-
-- **Via Partner**: a partner credits your Whish App balance now; you owe them and pay later via settle. Records a `partner_ledger` CREDIT entry (we owe partner) + increases Whish_App drawer. No cash drawer touched.
-- **From Client**: a client transfers Whish credits to the shop; shop pays the client cash. Mirrors the existing MTC/Alfa `topUpFromCustomer` flow (credits in / cash out) with a RECEIVE-style fee UI: Whish_App **+amount**, General **−(amount − fee)**, profit = fee. Fee field has 1% USD auto-default; "fee included" checkbox unchecked by default.
-
-### Implementation Note (correction during build)
-
-Initial assumption was "From Client" === Whish App RECEIVE. Tracing the code showed RECEIVE _decreases_ the system drawer (provider owes shop) — the wrong direction. "From Client" is credits-in / cash-out, structurally identical to the existing MTC/Alfa `topUpFromCustomer`. Implemented as a dedicated `topUpFromClient` repo method (Whish_App +amount, General −cashPaid, profit booked = amount − cashPaid).
-
-### Acceptance Criteria
-
-- [x] TopUpModal for WHISH_APP shows two sub-mode buttons: "Via Partner" / "From Client"; old drawer/external UI hidden for WHISH_APP
-- [x] **Via Partner**: `PartnerSelector` shown; on confirm → `RechargeRepository.topUpFromPartner` creates `partner_ledger` CREDIT (`WHISH_TOPUP`) entry + Whish_App drawer +amount; no cash drawer affected; visible in Partners ledger
-- [x] **From Client**: amount (USD/LBP) + fee field (1% USD auto-default, manual override) + "fee included" checkbox (unchecked default) + optional client name; on confirm → `topUpFromClient`: Whish_App +amount, General −(amount−fee), profit = fee
-- [x] New IPC: `recharge:top-up-from-partner`, `recharge:top-up-from-client` (Zod-validated, requireRole) + preload bindings + `electron.d.ts` types
-- [x] `'WHISH_TOPUP'` added to `partner_ledger` transaction_type union
-- [x] Tests: 5 new `RechargeRepository.topup.test.ts` (partner CREDIT + no-drawer, unknown-partner guard, client credits-in/cash-out, insufficient-balance guard, LBP path) — all pass
-- [x] Full validation: packages/core 343/343, @liratek/backend 384/384, frontend 209 passed/1 skipped, typecheck + lint clean for changed files
-
-### Files Modified
-
-| Layer    | File                                                                             | Change                                                                                                                                                                                                                                                                      |
-| -------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend  | `packages/core/src/repositories/RechargeRepository.ts`                           | Added `topUpFromPartner` + `topUpFromClient`                                                                                                                                                                                                                                |
-| Backend  | `packages/core/src/services/RechargeService.ts`                                  | Added service delegates                                                                                                                                                                                                                                                     |
-| Backend  | `packages/core/src/repositories/PartnerRepository.ts`                            | Added `'WHISH_TOPUP'` to transaction_type union                                                                                                                                                                                                                             |
-| Database | `packages/core/src/db/migrations/index.ts`                                       | **v97** — dropped `recharges.carrier CHECK(MTC/Alfa)` so all-provider top-ups can log; **v98** — added `'WHISH_TOPUP'` to `partner_ledger.transaction_type CHECK` (mirrors v83). Both recreate-table migrations validated (rows+ids+indexes preserved, new inserts succeed) |
-| Database | `electron-app/create_db.sql`                                                     | `recharges.carrier TEXT NOT NULL` (no CHECK), `partner_ledger` CHECK += `WHISH_TOPUP`, v97 + v98 migration entries                                                                                                                                                          |
-| Backend  | `packages/core/src/repositories/__tests__/RechargeRepository.topup.test.ts`      | New — 5 tests                                                                                                                                                                                                                                                               |
-| Backend  | `packages/core/src/repositories/__tests__/SupplierRepository.settlement.test.ts` | Fixed `transactions` test schema (missing exchange_rate/client_phone/device_id) — unblocked LIRA-056's 7 tests                                                                                                                                                              |
-| Electron | `electron-app/schemas/index.ts`                                                  | `TopUpFromPartnerSchema`, `TopUpFromClientSchema`                                                                                                                                                                                                                           |
-| Electron | `electron-app/handlers/rechargeHandlers.ts`                                      | Two new IPC handlers                                                                                                                                                                                                                                                        |
-| Electron | `electron-app/preload.ts`                                                        | `topUpFromPartner` + `topUpFromClient` bindings                                                                                                                                                                                                                             |
-| Types    | `frontend/src/types/electron.d.ts`                                               | Matching IPC types                                                                                                                                                                                                                                                          |
-| Frontend | `packages/ui/src/components/ui/TopUpModal.tsx`                                   | `isWhishTopUp` two-mode UI (partner picker / client fee form)                                                                                                                                                                                                               |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`                        | `handleTopUpConfirmPartner/Client`, partner state, modal wiring                                                                                                                                                                                                             |
-
----
-
-## LIRA-058: OMT APP — Topup Flow Design
-
-| Field                | Value                         |
-| -------------------- | ----------------------------- |
-| **Epic**             | OMT App Topup                 |
-| **Type**             | Feature                       |
-| **Priority**         | Medium                        |
-| **Status**           | NEEDS INTERVIEW               |
-| **Affected Modules** | Recharge > OMT App, Suppliers |
-| **Assigned To**      | —                             |
-| **Depends On**       | —                             |
-
-### Summary
-
-OMT App topup has a nuanced dual-pool problem that needs design clarification before implementation. Blocked on interview.
-
-### Context (partial — interview incomplete)
-
-In OMT System there are conceptually two money pools:
-
-- **Cash pool**: physical cash customers paid for OMT transactions → lives in the OMT System drawer
-- **Owed/topup pool**: money committed/sent to OMT App — does NOT come from the cash drawer
-
-Topping up OMT App from OMT System should:
-
-- NOT reduce the OMT System cash drawer
-- Record a transaction visible in the Suppliers page for OMT System
-- Track the distinction between cash and owed money
-
-### Acceptance Criteria
-
-- [ ] _(To be defined after interview)_
-
-### Notes
-
-- Interview required to clarify: what exactly is the "owed pool", how does it appear in the supplier ledger, how does OMT pay us back, can the owed pool go negative?
-
----
-
-## LIRA-059: SUPPLIERS — Display Fixes + Bidirectional Balance + Supplier Pays Us
-
-| Field                | Value               |
-| -------------------- | ------------------- |
-| **Epic**             | Supplier Management |
-| **Type**             | Feature + Bug Fix   |
-| **Priority**         | High                |
-| **Status**           | DONE                |
-| **Affected Modules** | Suppliers           |
-| **Assigned To**      | —                   |
-| **Depends On**       | —                   |
-
-### Summary
-
-Six bundled improvements to the Suppliers page:
-
-1. ✅ **DONE (v1.24.0)** — **Rename "Katch" → "Katsh"** (migration v96 + `create_db.sql`).
-2. ✅ **DONE (v1.24.0)** — **Wire Loto Liban drawer name** (`PROVIDER_DRAWER` += `LOTO: "Loto"`).
-3. **Bidirectional balance**: allow overpayment on settlement — the balance goes negative (supplier owes us). Show negative balance in green ("they owe you"), positive in red ("you owe them"). This already works mathematically; the display and UX need to correctly communicate the direction.
-4. **Supplier pays us**: add a "Supplier Payment Received" action in the supplier detail. Operator selects payment method → related drawer is credited → supplier balance is reduced (or goes further negative). Mirrors a settlement but in the opposite direction.
-5. **Focused pay/receive actions via MultiPaymentInput + pay-back-anytime**: today the Manual Entry tab uses raw USD/LBP fields and a "Withdraw from `<provider>` drawer" checkbox — which wrongly withdraws from the **provider's own drawer** (e.g. "Katsh"), not the cash you actually pay with. The generic Manual Entry tab is being **removed** (see **LIRA-074**); replace it with focused **Pay Supplier** / **Supplier Paid Us** actions that use **`MultiPaymentInput`** (as the settlement modal already does) so the operator pays/receives with any payment method and the **correct drawer** is debited/credited. This also solves "I did a top-up, 0 pending transactions, how do I pay the supplier back?" — paying down a positive balance no longer requires pending transactions to settle. (Pairs with **LIRA-061**, which fixes how SEND-provider debt is recorded/settled.)
-6. **Companies / Products tabs**: add a tab bar under the "Suppliers" page title with two tabs — **Companies** (selected by default) and **Products**. **Companies** = the current system/financial suppliers (iPick, Katsh, OMT, OMT App, Whish App, Loto Liban). **Products** = the records from the **Product Suppliers** table (Settings → Categories & Suppliers), surfaced read-side here.
-
-### Context
-
-- `create_db.sql` line 928: `('Katch', 'ipec_katch', 'Katsh', 1)` — name is "Katch", should be "Katsh"
-- `PROVIDER_DRAWER` map (`frontend/src/features/suppliers/pages/Suppliers/index.tsx` line 71): missing `LOTO: "Loto"`
-- Supplier balance = sum of TOP_UP entries minus sum of PAYMENT/SETTLEMENT entries. Currently the UI may not handle or display a negative result clearly
-- "Supplier pays us" = new entry type (e.g., `SUPPLIER_PAYS_US`) or reuse `ADJUSTMENT` with a sign — creates a drawer credit and reduces supplier balance
-
-### Acceptance Criteria
-
-- [x] Migration: UPDATE `suppliers SET name = 'Katsh' WHERE name = 'Katch'`; `create_db.sql` updated to seed "Katsh" — **done v1.24.0 (v96)**
-- [x] Loto Liban shows its drawer name ("Loto") on the right side of the supplier list — **done v1.24.0**
-- [x] Settling with an amount greater than owed creates a negative balance (credit)
-- [x] Negative balance displayed in green with clear label (e.g., "They owe you $20.00")
-- [x] Positive balance displayed in red with label "You owe $50.00"
-- [x] "Supplier Payment Received" button in supplier detail — operator enters amount + selects payment method
-- [x] On confirm: correct drawer credited, supplier ledger entry created, balance updated
-- [x] **Manual Entry tab replaced with Pay/Receive UI** — PAY SUPPLIER / SUPPLIER PAID US toggle + `MultiPaymentInput`; PAYMENT debits the **payment-method drawer**, not the provider's own drawer
-- [x] Paying down a positive supplier balance works with **zero pending transactions** to settle
-- [x] **Companies / Products tabs** under the page title; Companies default = is_system=1 suppliers; Products = is_system=0 product vendors
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                          | Change                                                                                     |
-| -------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Database | `packages/core/src/db/migrations/index.ts`                    | ~~Migration: rename Katch→Katsh~~ done (v96)                                               |
-| Database | `electron-app/create_db.sql`                                  | ~~Fix seed name "Katch"→"Katsh"~~ done                                                     |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`   | Bidirectional balance display; Companies/Products tabs; Manual Entry → `MultiPaymentInput` |
-| Backend  | `packages/core/src/repositories/SupplierRepository.ts`        | "Supplier pays us" entry type + drawer credit; pay-down without pending txns               |
-| Electron | `electron-app/handlers/supplierHandlers.ts`                   | New IPC handler for supplier-pays-us / pay-down action                                     |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`   | "Supplier Payment Received" UI; MultiPaymentInput in Manual Entry                          |
-| Backend  | `packages/core/src/repositories/ProductSupplierRepository.ts` | Read API for Products tab (reuse existing if present)                                      |
-
-> **Depends on / pairs with:** LIRA-061 (SEND-provider debt recording) — the Manual Entry pay-down and bidirectional balance assume the ledger correctly separates manual top-ups from sale costs.
-
-### Post-implementation fixes (implemented with LIRA-065)
-
-Several follow-up improvements shipped alongside LIRA-065:
-
-- **Negative-balance color fix** — Total Owed cards now show green for negative (supplier owes you) instead of always red.
-- **Tab bar moved** inside the top of the left panel (was at the page-level title).
-- **Loto Liban `is_system` fix** — seeded without `is_system = 1` so it appeared under Products instead of Companies. Fixed original migration INSERT; **migration v107** (`UPDATE suppliers SET is_system = 1 WHERE provider = 'LOTO'`) for existing DBs; `create_db.sql` updated.
-- **Products tab connected to inventory (migration v108)** — `product_suppliers` gained a `supplier_id` FK to `suppliers`; v108 backfills all existing rows. `ProductSupplierRepository.create()`/`getOrCreate()` now atomically create the linked `suppliers` row. New `getProductItems(supplierId)` + `getProductSupplierBalances()`. Two new IPC channels: `suppliers:product-balances` + `suppliers:product-items`. Products tab detail panel: **Items** tab (product table with per-row totals) + **Pay / Receive** tab (same cashflow form as Companies, pre-fills owed amount).
-- **Settle Transactions currency fixes** — amount/commission columns format dynamically (LBP vs USD) based on the transaction's `currency` field; OMT Fee column hidden when no row has a non-zero fee (gone for Katsh/iPick); `settleTotalOwedLbp`/`settleNetPayLbp` added to inline summary and confirmation modal; `handleSettle` previously hardcoded `amount_lbp: 0` — now passes the correct LBP net; settlement modal `MultiPaymentInput` pre-fills LBP amount and switches currency automatically for LBP-only transactions.
-
----
-
-## LIRA-060: SERVICES — Hold Money
-
-| Field                | Value                                   |
-| -------------------- | --------------------------------------- |
-| **Epic**             | Services                                |
-| **Type**             | Feature                                 |
-| **Priority**         | Medium                                  |
-| **Status**           | DONE (validated 2026-07-19 — was stale) |
-| **Affected Modules** | Services, Dashboard                     |
-| **Assigned To**      | —                                       |
-| **Depends On**       | —                                       |
-
-### Summary
-
-Add a "Hold Money" category to the Services page. The operator can hold cash (USD and/or LBP) for a named client; the held amount goes into the General drawer. When the client returns, the operator clicks "Collect" — cash goes out of General drawer and the hold is marked as collected. The Dashboard shows one notification card per active hold.
-
-### Context
-
-- Lives inside the existing Services page as a new preset category (e.g., category name: "Hold Money")
-- Seeded preset: name "Hold Money", cost = 0, price = 0, plus two new amount fields (USD held, LBP held) and a client name field
-- The preset is cash-only — no payment method selector needed; always hits the General drawer
-- Dashboard: active holds are surfaced as notification cards (one per hold). When no holds exist, no notification is shown
-- Releasing a hold = cash out of General drawer + marks the hold record as `collected`
-
-### Acceptance Criteria
-
-- [ ] New "Hold Money" category seeded in custom services (or equivalent Services preset table)
-- [ ] Preset form shows: Client Name (text), USD Amount (optional), LBP Amount (optional) — at least one amount required
-- [ ] On submit: USD amount credited to General drawer (USD), LBP amount credited to General drawer (LBP), hold record created with status `held`
-- [ ] Services page lists active holds under the "Hold Money" category with client name and amounts
-- [ ] "Collect" button on each active hold: marks status as `collected`, debits General drawer for the held amounts (cash out), creates a collection transaction
-- [ ] Dashboard: one card per active hold showing client name + held amounts; cards disappear when collected
-- [ ] Collected holds visible in transaction/audit history
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                      | Change                                                                                                                  |
-| -------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Database | `packages/core/src/db/migrations/index.ts`                | Migration v96: `hold_money` table (id, client_name, usd_amount, lbp_amount, status, created_by, created_at, updated_at) |
-| Database | `electron-app/create_db.sql`                              | Add `hold_money` table + seed "Hold Money" preset/category                                                              |
-| Backend  | `packages/core/src/repositories/HoldMoneyRepository.ts`   | create, list active, collect                                                                                            |
-| Backend  | `packages/core/src/services/HoldMoneyService.ts`          | Business logic: validate, drawer credit on hold, drawer debit on collect                                                |
-| Electron | `electron-app/handlers/holdMoneyHandlers.ts`              | IPC handlers: create, list, collect                                                                                     |
-| Frontend | `frontend/src/features/services/pages/Services/index.tsx` | "Hold Money" section with form + active holds list + Collect button                                                     |
-| Frontend | `frontend/src/features/dashboard/pages/Dashboard.tsx`     | Notification cards for active holds                                                                                     |
-
----
-
-## LIRA-061: BUG — iPick/Katsh/Whish App/OMT App Sales Recorded as TOP_UP, Not Settleable
-
-| Field                | Value                                   |
-| -------------------- | --------------------------------------- |
-| **Epic**             | Supplier System                         |
-| **Type**             | Bug                                     |
-| **Priority**         | High                                    |
-| **Status**           | DONE                                    |
-| **Affected Modules** | Suppliers, Financial Services, Recharge |
-| **Assigned To**      | —                                       |
-| **Depends On**       | —                                       |
-| **Blocks**           | LIRA-062                                |
-
-### Summary
-
-Creating a **sale** through a cost/price provider (Katsh observed; same path for iPick, and the SEND side of Whish App / OMT App) auto-writes a `TOP_UP` entry into the supplier ledger instead of surfacing as a settleable transaction. Result: the ledger shows `TOP_UP +924,150 — Auto: SEND via Katsh`, the owed balance inflates, and the Settle Transactions tab shows "No pending transactions to settle for Katsh" — so a sale can't be reconciled per-transaction and is indistinguishable from a manual top-up.
-
-### Root Cause (grounded)
-
-- `FinancialServiceRepository.ts` ~L1585-1595: in the cost/price flow, **any non-RECEIVE** service type books `entry_type: "TOP_UP"` with `ledgerAmount = cost`. A sale (SEND) is therefore written identically to a manual supplier top-up.
-- `getUnsettledBySupplier()` ~L1722-1729: **only RECEIVE rows** with `commission > 0` and `is_settled = 0` are returned. SEND/cost-flow sales never qualify → never appear in the Settle tab.
-
-### Acceptance Criteria
-
-- [x] Katsh/iPick (and Whish App / OMT App SEND) sales appear in **transaction history** and are reconcilable — not as generic "TOP_UP" ledger rows
-- [x] Ledger clearly **distinguishes** a manual supplier top-up from a sale-cost consumed from balance — new `SALE_COST` entry type/label (migration v99)
-- [x] A decision is implemented for **how SEND-provider debt is settled** — per-transaction settle list (getUnsettledBySupplier UNION branch) + cumulative-balance pay-down; guard is `settlement_id IS NULL`
-- [x] Owed balance stays mathematically correct after the relabel (no double counting) — SALE_COST same positive sign as TOP_UP; SETTLEMENT nets it to zero
-- [x] Tests: Katsh SEND sale ledger effect, iPick SEND, the settle/pay-down path (FinancialServiceRepository.saleCost.test.ts + e2e)
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                           | Change                                                                           |
-| -------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts` | Fix ledger entry-type for cost-flow SEND sales; revisit `getUnsettledBySupplier` |
-| Backend  | `packages/core/src/repositories/SupplierRepository.ts`         | Entry-type / settlement model for SEND-provider debt                             |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Surface sales correctly (settle list vs balance pay-down)                        |
-| Backend  | `packages/core/src/repositories/__tests__/`                    | New tests for sale → ledger effect + settlement                                  |
-
----
-
-## LIRA-062: iPick / Katsh — Bills Section
-
-| Field                | Value                              |
-| -------------------- | ---------------------------------- |
-| **Epic**             | Bills / Recharge                   |
-| **Type**             | Feature                            |
-| **Priority**         | Medium                             |
-| **Status**           | DONE                               |
-| **Affected Modules** | Recharge > iPick, Katsh; Suppliers |
-| **Assigned To**      | —                                  |
-| **Depends On**       | LIRA-061                           |
-
-### Summary
-
-Add a simple **Bills** section inside the existing iPick & Katsh recharge screens. The operator enters a single **bill amount** and uses the same bottom **"Proceed to Pay"** button — no item catalog.
-
-### Drawer / Ledger Mechanics (confirmed)
-
-The bill amount is entered in **one currency**, chosen via a **USD/LBP toggle** (same single-currency pattern as the Maintenance page — `useState<"USD" | "LBP">`, the unselected currency stays zeroed). For a bill of `X` in the selected currency:
-
-- Customer pays the bill amount in **cash** → **General drawer (selected currency) + X**
-- The bill amount is treated as **cost** → **provider drawer (Katsh/iPick app balance) − X** (same currency)
-- The shop earns a **hardcoded 20,000 LBP commission per bill**, regardless of bill amount or currency, paid by the supplier → **supplier owes shop + 20,000 LBP** (supplier-ledger credit, shown green on the Suppliers page)
-
-### Acceptance Criteria
-
-- [ ] New "Bills" section/tab in the iPick **and** Katsh recharge screens; single amount input + **USD/LBP toggle**; uses existing Proceed to Pay
-- [ ] Bill amount is single-currency (toggle picks USD **or** LBP, mirroring the Maintenance page)
-- [ ] On confirm: General **+X** (cash in, selected currency), provider drawer **−X** (cost out, selected currency), supplier-owes-shop **+20,000 LBP**
-- [ ] Commission is **hardcoded at 20,000 LBP per bill** — always LBP, independent of bill currency/amount
-- [ ] Bill shows in transaction history with correct in/out
-- [ ] Suppliers page shows the 20,000 LBP commission as supplier→shop (green / credit)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                                | Change                                                                                         |
-| -------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Backend  | `packages/core/src/repositories/RechargeRepository.ts` (or FSR)     | `processBill()` — drawer (selected currency) + supplier-ledger (20,000 LBP commission) effects |
-| Electron | `electron-app/schemas/index.ts` / `handlers/rechargeHandlers.ts`    | Zod schema (amount + currency) + IPC handler                                                   |
-| Electron | `electron-app/preload.ts`, `frontend/src/types/electron.d.ts`       | Binding + type                                                                                 |
-| Frontend | `frontend/src/features/recharge/components/KatchForm.tsx` (+ iPick) | Bills sub-section with USD/LBP toggle (mirror `Maintenance/index.tsx` L110-111)                |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`           | Wire bill confirm into Proceed to Pay                                                          |
-
-> **Note:** commission is hardcoded (no setting/migration needed). If a bill needs to be a persisted record (vs. a plain transaction), add it during implementation.
-
----
-
-## LIRA-063: Whish App + OMT App — Make Client Name / Phone Optional
-
-| Field                | Value                         |
-| -------------------- | ----------------------------- |
-| **Epic**             | Whish / OMT App UX            |
-| **Type**             | UX                            |
-| **Priority**         | Low                           |
-| **Status**           | DONE                          |
-| **Affected Modules** | Recharge > OMT App, Whish App |
-| **Assigned To**      | —                             |
-| **Depends On**       | —                             |
-
-### Summary
-
-In the shared OMT App / Whish App transfer form, the SEND/RECEIVE buttons are disabled until **both** name and phone are filled (`OmtWhishAppTransferForm.tsx` L674-683). Make name & phone **optional** for both providers; still persist them when provided.
-
-### Acceptance Criteria
-
-- [x] SEND/RECEIVE can proceed with empty name/phone (amount-only validation remains)
-- [x] Applies to **both** OMT App and Whish App (gating keyed on `serviceType`, not provider — both covered)
-- [x] When provided, name/phone are still saved (`handleSubmit` trims + passes `clientName`/`phoneNumber` unchanged; client propagation untouched)
-- [x] Typecheck and lint pass (frontend typecheck clean; lint 0 errors)
-
-### Files Modified
-
-| Layer    | File                                                                    | Change                                                                                                                                                               |
-| -------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frontend | `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx` | Removed the SEND and RECEIVE name/phone alert-gating blocks in the Proceed-to-Pay handler; only the amount check remains (button `disabled` was already amount-only) |
-
----
-
-## LIRA-064: Transactions Table — Structured In/Out Payment Breakdown in Summary
-
-| Field                | Value                      |
-| -------------------- | -------------------------- |
-| **Epic**             | Transaction Visibility     |
-| **Type**             | Feature                    |
-| **Priority**         | Medium                     |
-| **Status**           | DONE                       |
-| **Affected Modules** | Audit > TransactionsViewer |
-| **Assigned To**      | —                          |
-| **Depends On**       | — (builds on LIRA-054)     |
-
-### Summary
-
-Beyond the directional arrow badges (LIRA-054), surface the actual **payment legs** per transaction — what the customer paid (**in**) and what the shop returned (**out**), with currencies. e.g. `in: $50 + 100,000 LBP · out: 20,000 LBP`.
-
-### Design Constraints (per user)
-
-- The backend returns a **structured** payment-info field on each transaction row (join the payments table) — a clear `payments` / in+out legs array with currency. **Do NOT** bake payment text into the stored `summary` string.
-- The frontend reads the structured field and renders it **appended in the summary column** (joined client-side, not persisted).
-- Structure it so we can later switch to an **expandable detail row** with no data changes.
-
-### Acceptance Criteria
-
-- [x] Unified transaction query returns structured in/out payment legs per row (stored `summary` text unchanged)
-- [x] TransactionsViewer summary column renders in/out legs with currencies, joined client-side
-- [x] Data shape supports a future expandable-row view without backend changes (`TransactionPaymentLeg[]` with direction/amount/signed_amount/currency_code/method)
-- [x] Scope: **TransactionsViewer only** for now
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                          | Change                                             |
-| -------- | ------------------------------------------------------------- | -------------------------------------------------- |
-| Backend  | `packages/core/src/repositories/TransactionRepository.ts`     | Join payments → structured in/out legs on each row |
-| Electron | `electron-app/preload.ts`, `frontend/src/types/electron.d.ts` | Surface the structured field                       |
-| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx`    | Render in/out legs in the summary column           |
-
----
-
-## Summary (Sprint 2 — LIRA-056..064)
-
-| Priority  | Total | Done  | Remaining |
-| --------- | ----- | ----- | --------- |
-| High      | 3     | 3     | 0         |
-| Medium    | 5     | 4     | 1         |
-| Low       | 1     | 1     | 0         |
-| **Total** | **9** | **8** | **1**     |
-
-> Recounted 2026-07-19: only LIRA-058 (OMT App top-up — needs owner interview)
-> remains open in Sprint 2.
-
-### Sprint 2 board
-
-| ID       | Title                                                  | Priority | Status          |
-| -------- | ------------------------------------------------------ | -------- | --------------- |
-| LIRA-056 | KATSH/iPick — remove "From Drawer" + tests             | Medium   | DONE            |
-| LIRA-057 | Whish App — Via Partner / From Client top-up           | High     | DONE            |
-| LIRA-058 | OMT App — top-up flow design                           | Medium   | NEEDS INTERVIEW |
-| LIRA-059 | Suppliers — balance, pay-back, Companies/Products tabs | High     | DONE            |
-| LIRA-060 | Services — Hold Money                                  | Medium   | DONE            |
-| LIRA-061 | BUG — sales mislabeled as TOP_UP, not settleable       | High     | DONE            |
-| LIRA-062 | iPick/Katsh — Bills section                            | Medium   | DONE            |
-| LIRA-063 | Whish/OMT App — optional name/phone                    | Low      | DONE            |
-| LIRA-064 | Transactions — structured in/out breakdown             | Medium   | DONE            |
-
-> **E2E coverage (2026-06-20):** every DONE Sprint-2 ticket now has a dedicated money-invariant e2e —
-> `lira-056/057/059/061/063/064` (plan: `docs/plans/done_plans/sprint2-e2e-coverage.md`). Details in the
-> **POST-REVIEW FOLLOW-UPS (2026-06-20)** section near the top.
-
----
-
----
-
-# Sprint 3 — Enhancements & Polish
-
-> **Sprint Focus:** setup/onboarding, transaction visibility & receipts, profits hardening, supplier/recharge polish
-> **Created:** 2026-06-17
-> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW`
-
----
-
-## LIRA-065: Setup — Initial Drawer Amounts Page
-
-| Field                | Value                                                    |
-| -------------------- | -------------------------------------------------------- |
-| **Epic**             | Setup / Onboarding                                       |
-| **Type**             | Feature                                                  |
-| **Priority**         | Medium                                                   |
-| **Status**           | DONE                                                     |
-| **Affected Modules** | Settings / Setup, Drawers, Dashboard, TransactionsViewer |
-| **Depends On**       | —                                                        |
-
-### Summary
-
-Add a setup page where the operator sets **initial (opening) amounts** for each currency drawer (General/per-provider, USD + LBP). Today there is no first-run page to seed starting drawer balances (Settings only references Opening/Closing in passing).
-
-### Acceptance Criteria
-
-- [x] A "Initial Drawer Amounts" page (in Setup, or a Settings panel) lists each drawer × currency with an amount input
-- [x] Saving seeds the opening balances (creates the appropriate drawer/adjustment entries)
-- [x] Idempotent / clearly communicates if balances are already set (no silent double-seed)
-- [x] Values reflected in Closing/Opening and dashboards
-- [x] Typecheck and lint pass
-
-### Files Modified
-
-| Layer    | File                                                       | Change                                                                                                                                                                                                                                              |
-| -------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend  | `packages/core/src/repositories/ClosingRepository.ts`      | `hasInitialBalancesSet()` — checks if any drawer has a non-zero balance                                                                                                                                                                             |
-| Backend  | `packages/core/src/services/ClosingService.ts`             | Delegates `hasInitialBalancesSet()`                                                                                                                                                                                                                 |
-| Backend  | `packages/core/src/repositories/ClosingRepository.ts`      | `notes` field added to `metadata_json` in `createCheckpoint`                                                                                                                                                                                        |
-| Electron | `electron-app/handlers/closingHandlers.ts`                 | `closing:has-initial-balances-set` IPC handler                                                                                                                                                                                                      |
-| Electron | `electron-app/preload.ts`                                  | `hasInitialBalancesSet` binding                                                                                                                                                                                                                     |
-| Frontend | Setup wizard `StepDrawerAmounts`                           | Step 6 — module-filtered drawer grid; stores amounts in `payload.drawer_amounts`                                                                                                                                                                    |
-| Frontend | Setup wizard `SetupWizard`                                 | Now 7 steps; `StepComplete` applies drawer amounts via `createCheckpoint` after setup                                                                                                                                                               |
-| Frontend | `frontend/src/features/dashboard/pages/Dashboard.tsx`      | Amber banner when initial balances not set; `InitialDrawerAmountsModal` (2-column grid, pre-fills current balances)                                                                                                                                 |
-| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx` | `CHECKPOINT` label → "Checkpoint" / "Initial Setup" (orange when notes contain "initial"/"setup"); per-drawer amounts breakdown in summary; payment legs suppressed for CHECKPOINT rows; amount column uses `metadata_json.amounts` physical totals |
-
----
-
-## LIRA-066: Settlement Transactions Appear in Transactions Table
-
-| Field                | Value                                                  |
-| -------------------- | ------------------------------------------------------ |
-| **Epic**             | Transaction Visibility                                 |
-| **Type**             | Bug / Feature                                          |
-| **Priority**         | Medium                                                 |
-| **Status**           | DONE (a3d09e7; board was stale — validated 2026-07-19) |
-| **Affected Modules** | Audit > TransactionsViewer, Debts, Suppliers, Partners |
-| **Depends On**       | — (related: LIRA-061)                                  |
-
-### Summary
-
-Ensure **settlement transactions** are visible in the unified Transactions table: **client** (debt repayment), **supplier** (both _company_ and _product_ suppliers), and **partner** settlements. The filter groups already list "Debt Repayment", "Supplier Payment/Settlement" — verify each path actually writes a `transactions` row and that none are missing.
-
-### Acceptance Criteria
-
-- [ ] Client debt settlement → appears in Transactions table
-- [ ] Supplier settlement/payment (company **and** product suppliers) → appears
-- [ ] Partner settlement → appears
-- [ ] Correct in/out direction + amounts per settlement
-- [ ] Existing filter-group labels resolve to real rows (no dead filters)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                         | Change                                          |
-| -------- | ------------------------------------------------------------ | ----------------------------------------------- |
-| Backend  | Debt/Supplier/Partner repositories + `TransactionRepository` | Ensure settlement paths create transaction rows |
-| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx`   | Verify rendering/filters                        |
-
-### Progress Notes (2026-07-20 — owner notes batch)
-
-- **Partner paper Record-Tx visibility (note 2) — FIXED today.** A partner Record-Transaction
-  made with the "Cash moved" toggle off (paper/no-drawer entry) now posts a `PARTNER_ADJUSTMENT`
-  row so it shows up in the Transactions table like every other partner entry. Failing-first
-  tested.
-- **Verification sweep (today)** re-confirmed this ticket's original acceptance criteria against
-  the current tree: client debt settlement, supplier settlement (both company and product
-  suppliers), and cash-partner settlement all write a `transactions` row correctly.
-- **Residual gap found today, fix landing today:** the **CLIENT_ACCOUNT-method** partner
-  settlement path (settling a partner balance by charging it to a client's account rather than
-  cash) does not yet write a visible row — being fixed as part of the same 2026-07-20 session.
-  Status intentionally left as-is (not flipped to DONE) until that fix is verified.
-
----
-
-## LIRA-067: Transaction Payment Detail — Expandable Row + Indented Report Print
-
-| Field                | Value                                  |
-| -------------------- | -------------------------------------- |
-| **Epic**             | Transaction Visibility                 |
-| **Type**             | Feature                                |
-| **Priority**         | Medium                                 |
-| **Status**           | DISREGARDED                            |
-| **Affected Modules** | Audit > TransactionsViewer, Exports    |
-| **Depends On**       | **LIRA-064** (structured payment data) |
-
-### Summary
-
-Consume the structured in/out payment data from **LIRA-064** in two more surfaces:
-
-1. **Expandable row** in the Transactions table — clicking a row reveals the per-leg payment detail.
-2. **Printed/exported report** — print the payment details **under** the transaction row, **indented (start at column + 1)**.
-
-### Acceptance Criteria
-
-- [ ] Clicking a transaction row expands to show structured in/out payment legs
-- [ ] Report/export prints payment detail lines beneath each transaction, indented one column in
-- [ ] Reuses the LIRA-064 structured field (no duplicate data wiring; nothing baked into `summary` text)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                        | Change                                       |
-| -------- | ----------------------------------------------------------- | -------------------------------------------- |
-| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx`  | Expandable row UI                            |
-| Frontend | `packages/ui/src/components/ui/DataTable.tsx` (export path) | Indented sub-rows in printed/exported report |
-
----
-
-## LIRA-068: Mark Transaction "Amount Changed" When Edited
-
-| Field                | Value                          |
-| -------------------- | ------------------------------ |
-| **Epic**             | Transaction Visibility / Audit |
-| **Type**             | Feature                        |
-| **Priority**         | Low                            |
-| **Status**           | TODO                           |
-| **Affected Modules** | All transaction types          |
-| **Depends On**       | —                              |
-
-### Summary
-
-If a transaction's **amount** was modified after creation, flag it as **"amount changed"** (badge/indicator). Edits are already tracked via `edited_by` / `edited_at` across modules. **Check overlap with the existing recharge "margin alert"** (theft-detection on margin override, `HistoryModal` `marginAlertThreshold`, default 100k LBP) — reuse/align rather than duplicate. **Expand the indicator to all transaction types.**
-
-### Acceptance Criteria
-
-- [ ] A transaction whose amount changed shows an "amount changed" indicator
-- [ ] Approach reconciled with the existing margin-alert mechanism (no duplicate/contradictory signals)
-- [ ] Applies across all transaction types (not just recharge)
-- [ ] Distinguishes "amount changed" from generic edited metadata where relevant
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                              | Change                                    |
-| -------- | ------------------------------------------------- | ----------------------------------------- |
-| Backend  | transaction/edit paths                            | Persist/expose amount-changed signal      |
-| Frontend | `TransactionsViewer.tsx` + module `HistoryModal`s | Render indicator; align with margin alert |
-
----
-
-## LIRA-069: Invoice / Receipt Print on Successful Payment
-
-| Field                | Value                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| **Epic**             | Receipts / Printing                                                                   |
-| **Type**             | Feature                                                                               |
-| **Priority**         | Low                                                                                   |
-| **Status**           | DONE (2026-07-19 — gating predicate, history/session print, auto-print; see plan doc) |
-| **Affected Modules** | POS, Recharge, Services, Maintenance, Customer Sessions, Audit                        |
-| **Depends On**       | —                                                                                     |
-
-### Summary
-
-Print a receipt/invoice when a payment succeeds, with session-aware behavior and reprint entry points.
-
-### Acceptance Criteria
-
-- [ ] On successful payment → open a print dialog (receipt/invoice)
-- [ ] If a **customer session is ongoing** → skip the auto-dialog; show a **Print** button in the customer-session payment modal instead
-- [ ] In **all cases**, show a Print button for a selected transaction in the **Transactions table**
-- [ ] Show a Print button in **each module's History modal**
-- [ ] **Include** transaction types: mobile recharge, services, maintenance, etc.
-- [ ] **Exclude**: OMT/Whish **System**, OMT/Whish **App**, Binance
-- [ ] **Include Whish App Bills** (exception to the App exclusion)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                     | Change                                      |
-| -------- | -------------------------------------------------------- | ------------------------------------------- |
-| Frontend | Receipt/invoice component (new, or reuse POS receipt)    | Render + print dialog                       |
-| Frontend | Checkout/payment success handlers; CustomerSession modal | Trigger dialog / session-aware Print button |
-| Frontend | `TransactionsViewer.tsx` + module `HistoryModal`s        | Per-row Print button (type-gated)           |
-
----
-
-## LIRA-070: Profits Page — Correctness Audit
-
-| Field                | Value                                                                    |
-| -------------------- | ------------------------------------------------------------------------ |
-| **Epic**             | Profits                                                                  |
-| **Type**             | Bug / Audit                                                              |
-| **Priority**         | Low                                                                      |
-| **Status**           | DONE (audit + lira-090 earlier; split-void gap closed 2026-07-19 via B+) |
-| **Affected Modules** | Profits                                                                  |
-| **Depends On**       | —                                                                        |
-
-### Summary
-
-Verify the Profits page (`frontend/src/features/profits/pages/Profits.tsx`) computes profit correctly across all sources (sales, recharge, services, maintenance, financial, etc.) and that totals/margins reconcile.
-
-**Follow-up finding (2026-07-21, via LIRA-081):** `ProfitRepository.PROFIT_TXN_TYPES` (used by `getByUser`/`getByClient`/`getDeferredProfit`) does not include `EXCHANGE` — a pending for-partner exchange's deferred profit is invisible in the deferred-profit bucket (money math itself is correct). Pre-existing; fix has broad blast radius across all exchanges — audit before changing. (The missing `notPartnerPending` gate on exchange/custom-service totals WAS fixed 2026-07-21.)
-
-### Acceptance Criteria
-
-- [ ] Profit per source matches underlying transaction profit fields
-- [ ] Totals/margins reconcile; no double-counting or missing sources
-- [ ] Edge cases (refunds, voids, dual-currency, LBP-native) handled
-- [ ] Discrepancies fixed at the source (repository/service), with tests
-- [ ] Typecheck and lint pass
-
----
-
-## LIRA-071: Hide Profits Page + Profit Data for Non-Admin
-
-| Field                | Value                             |
-| -------------------- | --------------------------------- |
-| **Epic**             | Profits / Security                |
-| **Type**             | Feature / Security                |
-| **Priority**         | Low                               |
-| **Status**           | DONE                              |
-| **Affected Modules** | Profits, routing, margin displays |
-| **Depends On**       | —                                 |
-
-### Summary
-
-`/profits` is currently behind `ProtectedRoute` (auth only), not role-gated. Hide the **Profits page** and **profit/margin data** from non-admin roles (route guard + nav item + any inline margin displays).
-
-### Acceptance Criteria
-
-- [x] Non-admins cannot navigate to `/profits` (new `AdminRoute` guard; nav item already hidden via `admin_only` module flag)
-- [x] Profit/margin figures hidden for non-admins wherever surfaced (reuses `useAuth().user?.role === "admin"`, same as recharge `CardGridPayView`)
-- [x] Admins unaffected
-- [x] Backend profit IPC also role-checked (defense in depth) — `profitHandlers.ts` already `requireRole(["admin"])` on every channel
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                              | Change                     |
-| -------- | --------------------------------- | -------------------------- |
-| Frontend | `frontend/src/app/App.tsx`        | Role-gate `/profits` route |
-| Frontend | nav/sidebar + any margin displays | Hide for non-admin         |
-| Electron | profits handler(s)                | `requireRole(["admin"])`   |
-
----
-
-## LIRA-072: Telecom (Alfa/MTC) Voucher Items Named by Card Number, Not Sell Amount
-
-| Field                | Value                                                               |
-| -------------------- | ------------------------------------------------------------------- |
-| **Epic**             | Recharge Catalog                                                    |
-| **Type**             | Feature / Data                                                      |
-| **Priority**         | Low                                                                 |
-| **Status**           | DONE\* (iPick mtc Prepaid renamed; Credits/Validity held for owner) |
-| **Affected Modules** | Recharge > iPick, Katsh, Whish App                                  |
-| **Depends On**       | —                                                                   |
-
-### Summary
-
-For Alfa/MTC voucher items in iPick/Katsh/Whish App, the cart/item is currently named by its **sell amount**. Instead, name it by the **number printed on the card itself** (the card denomination/code). Requires checking the providers' actual cards to map correct labels.
-
-### Acceptance Criteria
-
-- [ ] Alfa/MTC voucher items display/save the name as the **card's printed number**, not the sell amount
-- [ ] Mapping verified against the provider cards (Alfa + MTC denominations)
-- [ ] Existing carts/history still render sensibly (no broken labels)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer        | File                                        | Change                  |
-| ------------ | ------------------------------------------- | ----------------------- |
-| Backend/Data | mobile service items seed/catalog           | Item name = card number |
-| Frontend     | `KatchForm.tsx` + telecom voucher rendering | Use card-number label   |
-
----
-
-## LIRA-073: DataTable Export — Customizable Columns
-
-| Field                | Value                           |
-| -------------------- | ------------------------------- |
-| **Epic**             | Exports / Table Component       |
-| **Type**             | Feature                         |
-| **Priority**         | Low                             |
-| **Status**           | DONE                            |
-| **Affected Modules** | Shared `DataTable` (all tables) |
-| **Depends On**       | —                               |
-
-### Summary
-
-Let the operator choose which columns are exported from the shared `DataTable` (`packages/ui/src/components/ui/DataTable.tsx`). Default the export to **Time, Summary, User**; allow adding any extra columns before exporting (Excel/PDF).
-
-### Acceptance Criteria
-
-- [x] Export defaults to **Time / Summary / User** columns (or all, when those headers are absent; overridable via `exportDefaultColumns` prop)
-- [x] A pre-export column picker lets the user add/remove extra columns
-- [x] Applies to both Excel and PDF export paths
-- [x] No regression for tables that already export
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                          | Change                         |
-| -------- | --------------------------------------------- | ------------------------------ |
-| Frontend | `packages/ui/src/components/ui/DataTable.tsx` | Column-selection before export |
-
----
-
-## LIRA-074: Remove Manual Entry Tab in Suppliers
-
-| Field                | Value                              |
-| -------------------- | ---------------------------------- |
-| **Epic**             | Supplier Management                |
-| **Type**             | Cleanup / UX                       |
-| **Priority**         | Low                                |
-| **Status**           | DONE                               |
-| **Affected Modules** | Suppliers                          |
-| **Depends On**       | **LIRA-059** (replacement actions) |
-
-### Summary
-
-Remove the free-form **Manual Entry** tab (TOP_UP/PAYMENT/ADJUSTMENT raw entry) from the Suppliers page. Its legitimate use (paying a supplier / recording a supplier payment) is replaced by the focused **Pay Supplier** / **Supplier Paid Us** actions using `MultiPaymentInput` (LIRA-059 item 5).
-
-### Acceptance Criteria
-
-- [x] Manual Entry tab removed from `Suppliers/index.tsx` (replaced with Pay/Receive UI in LIRA-059 item 5)
-- [x] No loss of capability — pay/receive flows exist via LIRA-059's focused actions
-- [x] Ledger history still renders
-- [x] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                        | Change                          |
-| -------- | ----------------------------------------------------------- | ------------------------------- |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx` | Remove Manual Entry tab + state |
-
----
-
-## LIRA-075: Favorite/Pin Whish App Quick Link in Home Grid
-
-| Field                | Value                 |
-| -------------------- | --------------------- |
-| **Epic**             | Navigation / Home     |
-| **Type**             | Feature               |
-| **Priority**         | Low                   |
-| **Status**           | TODO                  |
-| **Affected Modules** | Dashboard / Home grid |
-| **Depends On**       | —                     |
-
-### Summary
-
-Add favorite/pinned **quick links** to a page (starting with Whish App) in the home grid view (`Dashboard.tsx`). Noted as **partially implemented** — finish the favorite-link affordance so Whish App (and others) can be pinned for quick access.
-
-### Acceptance Criteria
-
-- [ ] User can favorite/pin a page (Whish App) as a quick link in the home grid
-- [ ] Pinned links persist and navigate correctly
-- [ ] Builds on the partial home-grid implementation (no parallel mechanism)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                  | Change                     |
-| -------- | ----------------------------------------------------- | -------------------------- |
-| Frontend | `frontend/src/features/dashboard/pages/Dashboard.tsx` | Favorite/pin quick-link UI |
-
----
-
-## LIRA-076: Remove "Save as Client" Checkbox from Customer Session Modal (Keep Auto-Save)
-
-| Field                | Value             |
-| -------------------- | ----------------- |
-| **Epic**             | Customer Sessions |
-| **Type**             | Cleanup / UX      |
-| **Priority**         | Medium            |
-| **Status**           | DONE              |
-| **Affected Modules** | Sessions          |
-| **Depends On**       | —                 |
-
-### Summary
-
-Starting a customer session with a name + phone saved a `clients` row **even when the "Save as client" checkbox was left unchecked** — the checkbox and the code path that actually inserts into `clients` were completely disconnected (see Root Cause). **Owner decision:** keep the auto-save-on-session-create behavior; remove the now-misleading checkbox from the session modal instead of gating the backend behind it.
-
-### Root Cause (grounded)
-
-- **Checkbox path (frontend-only, now removed):** `StartSessionModal.tsx` rendered `SaveAsClientCheckbox` driven by the `useSaveAsClient` hook. When checked, `trySaveAsClient()` called `window.api.clients.create()` directly. The checkbox's boolean state was **never included** in the `session:start` IPC payload.
-- **Actual insert (backend, unconditional — unchanged/kept):** `electron-app/handlers/sessionHandlers.ts` ~L303-320 has an "Auto-register client" block that runs on every `session:start` whenever `customer_name` **and** `customer_phone` are both present, via `ClientRepository.createClient()` (dedup'd by `findByPhone`). This is the behavior being kept.
-
-### Resolution
-
-- [x] Removed `useSaveAsClient` hook usage and `<SaveAsClientCheckbox />` from `StartSessionModal.tsx` (import, hook call, `resetSaveAsClient()` calls, `trySaveAsClient()` call, and the JSX)
-- [x] Backend auto-register in `sessionHandlers.ts` left untouched — session start with name+phone still saves/finds the client automatically
-- [x] `SaveAsClientCheckbox` / `useSaveAsClient` themselves NOT deleted — still used by Custom Services, Recharge (OMT/Whish transfer), Maintenance, and Services forms
-- [x] Typecheck and lint pass (frontend: 0 errors, pre-existing warnings only)
-
-### Files Modified
-
-| Layer    | File                                                              | Change                                                                                                         |
-| -------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Frontend | `frontend/src/features/sessions/components/StartSessionModal.tsx` | Removed the "Save as client" checkbox + its hook wiring; session client save is now purely automatic (backend) |
-
----
-
-## Summary (Sprint 3 — LIRA-065..076)
-
-> **2026-07-19 validation & completion sweep** (code-audited, then finished by
-> parallel workstreams; full record:
-> `docs/plans/todo_plans/PARTIAL_TASKS_COMPLETION_PLAN.md`):
-> LIRA-066 was already DONE in code (commit a3d09e7 — board was stale).
-> LIRA-069, -070(void gap), -072(iPick mtc Prepaid), -077 completed 2026-07-19.
-> Remaining open: LIRA-068, LIRA-075, LIRA-058 (needs interview).
-
-| Priority  | Total  | Done  | Remaining |
-| --------- | ------ | ----- | --------- |
-| Medium    | 4      | 3     | 0         |
-| Low       | 8      | 6     | 2         |
-| **Total** | **12** | **9** | **2**     |
-
-### Sprint 3 board
-
-| ID       | Title                                               | Priority | Status      |
-| -------- | --------------------------------------------------- | -------- | ----------- |
-| LIRA-065 | Setup — initial drawer amounts page                 | Medium   | DONE        |
-| LIRA-066 | Settlement txns (client/supplier/partner) in table  | Medium   | DONE        |
-| LIRA-067 | Txn payment detail — expandable row + report print  | Medium   | DISREGARDED |
-| LIRA-068 | Mark txn "amount changed" on edit                   | Low      | TODO        |
-| LIRA-069 | Invoice/receipt print on payment                    | Low      | DONE        |
-| LIRA-070 | Profits page correctness audit                      | Low      | DONE        |
-| LIRA-071 | Hide profits page + data for non-admin              | Low      | DONE        |
-| LIRA-072 | Telecom vouchers named by card number               | Low      | DONE\*      |
-| LIRA-073 | DataTable export — customizable columns             | Low      | DONE        |
-| LIRA-074 | Remove Manual Entry tab in Suppliers                | Low      | DONE        |
-| LIRA-075 | Favorite/pin Whish App quick link in home grid      | Low      | TODO        |
-| LIRA-076 | Remove "save as client" checkbox from session modal | Medium   | DONE        |
-
-> \* LIRA-072: iPick mtc **Prepaid** renamed to card face value (matching the
-> owner's A1 decision); `mtc.Credits` + `mtc.Validity` deliberately left
-> amount/duration-labeled pending owner confirmation (evidence they're direct
-> top-ups, not cards). Existing installs get the DB rename via the W6
-> migration (see plan doc).
-
----
-
-## 🔮 Backlog / Future Enhancements
-
-## LIRA-077: Inventory — Stock Replenishment / Adjustment
-
-| Field                | Value                                                         |
-| -------------------- | ------------------------------------------------------------- |
-| **Epic**             | Inventory                                                     |
-| **Type**             | Feature / Enhancement                                         |
-| **Priority**         | High                                                          |
-| **Status**           | DONE (2026-07-19 — v132 audit table + adjust modal + history) |
-| **Affected Modules** | Inventory, POS                                                |
-| **Assigned To**      | —                                                             |
-| **Depends On**       | Allow out-of-stock sales config + Negative-Stock report       |
-
-### Summary
-
-With **"Allow out-of-stock sales"** enabled, `stock_quantity` can go **negative** (and the Negative-Stock report / Diagnostics panel now surfaces oversold items). Add a way to **replenish / adjust stock** so operators can correct negative or inaccurate counts — e.g. a "Restock" / stock-adjustment action reachable from the Negative-Stock report and from Inventory. This closes the reconciliation loop for shops running in out-of-stock mode.
-
-**TBD [to be discussed]:**
-
-- Set-absolute vs. add-delta (or both); single-item vs. bulk restock.
-- Entry point(s): Negative-Stock report row action, Inventory row action, and/or a dedicated screen.
-- Audit trail (who / when / why); whether a restock books a transaction/cost or is a pure count correction (supplier/cost reconciliation vs. count-only).
-- Permissions (admin vs. staff) and behaviour across desktop (IPC) + web (REST).
-
-### Acceptance Criteria
-
-- [ ] TBD — pending the discussion above.
-
----
-
-## Session Summary — Session Basket Payment, Transaction-Based Profits & Supplier-Ledger Fix
-
-> Builds on **LIRA-055** (session checkout modal) + **LIRA-064** (structured payment legs).
-> Implemented on branch **`feat/session-basket-payment`**. Migrations **v100–v102** here
-> (the parallel LIRA-059 supplier work added **v103**, sequential — no conflict).
-
-### What was done
-
-**Session basket payment — single source of truth (the core change)**
-
-- A customer session is now ONE basket the customer pays for **once**. Each cart item is
-  created in `deferPayment` mode: it books only its **internal** legs (provider cost, telecom
-  stock, OMT/WHISH `_System` reserve transfer, Binance USDT) and **skips** its own
-  customer-cash side. OMT/WHISH SEND keeps its `General → *_System` reserve on the transaction.
-- New **`SessionPaymentService`** + **`SessionPaymentRepository`** record the single basket
-  payment: customer-cash legs → `payments` (new **`session_id`** column), posted to drawers
-  **once**, **one** debt-ledger entry for the CUSTOMER_ACCOUNT portion, gift-card redemption,
-  and back-fill of each session SALE's paid state.
-- Forms (OMT/Whish App, Crypto, Telecom, Katch, Financial, recharge page) no longer open a
-  PaymentSheet in session mode — the Session Checkout modal is the **only** payment surface.
-  Per-item method dropdowns removed; per-item **discount** added; gift card moved to a
-  basket-level `GIFT_CARD` leg.
-- Transactions viewer: same-session rows share the one basket payment + rate, with a
-  **per-session colored left border** (light/dark safe). Migration **v100** (`payments.session_id`).
-
-**Supplier-ledger secondary-system fix** (coordinates with LIRA-059)
-
-- Only the shop's PRIMARY (base) OMT/WHISH system books a supplier-ledger debt. The SECONDARY
-  system runs via a partner (obligation lives in `partner_ledger`) and is now **hidden from the
-  Suppliers page**. Migration **v102** purges existing secondary-system pollution.
-
-**Transaction-based profits + refund fix**
-
-- Profit amount is now sourced uniformly from `transactions.profit_usd` (realized/pending gates
-  kept). **REFUND** transactions stamp negative profit so refunds net correctly. Migration
-  **v101** backfills historical custom-service/maintenance profit. Operator-edited exchange rate
-  is recorded; new **`useSellRate`** unifies the Money-IN rate.
-
-**Architecture (CLAUDE.md rules 13/14)**
-
-- `ProfitService` + `SessionPaymentService` are now **SQL-free** (logic only); all SQL moved to
-  **`ProfitRepository`** / **`SessionPaymentRepository`** with de-duplicated business predicates.
-
-**Quality** — jest **374/374**, frontend **209**, **5 dedicated e2e specs**
-(`lira-supplier-secondary-system`, `-session-basket-payment`, `-session-exchange-rate`,
-`-session-profits`, `-session-basket-debt`), lint 0 errors, typecheck clean. `yarn test` made
-sequential (`-A`) so the local full-suite run no longer OOMs (CI runs per-workspace, unaffected).
-
-### What to manually test
-
-**Session basket payment**
-
-1. Start a customer session (name + phone).
-2. Add several items from different modules — e.g. a **Whish App SEND**, an **MTC recharge**, a
-   **POS sale** — and confirm you are **not** asked to pay at add-to-cart time.
-3. Open **Session Checkout** → enter the payment once; try **overpaying** and handing back change.
-   Confirm.
-4. Expect: the **cash drawer rises by exactly (tendered − change)** — no double-count; the
-   Transactions table shows each session row sharing the **same** payment legs + rate, with a
-   matching per-session **left-border color** (toggle light/dark — the border stays).
-5. Pay (partly) by **Customer Account** → expect exactly **one** debt entry for the basket on the
-   session's client (not one per item).
-6. Edit the exchange rate in the modal → the session's transactions show that rate (`@ <rate>`).
-
-**Supplier-ledger fix**
-
-1. Suppliers page → the **secondary** OMT/WHISH system (the non-base one) should **not** appear.
-2. Do a secondary-system transfer via a partner → it books only a **partner-ledger** entry (no
-   supplier-ledger entry); the base system still books normally.
-
-**Profits**
-
-1. Profits page totals for a past date range should be **unchanged** (parity).
-2. A session **POS sale's** profit should be **realized** after a paid checkout (not stuck in
-   Pending). Refund part of a sale → its profit drops by exactly the refunded amount.
-
-### After testing — what's next
-
-- **Finish committing** branch `feat/session-basket-payment`: db + core are committed (core
-  bundles the parallel LIRA-059 supplier-cashflow edits, by request); **electron + frontend +
-  e2e + chore** chunks remain.
-- **Native ABI:** the suite last ran jest (Node ABI) — run `yarn dev` once to restore the
-  Electron ABI before the next `test:e2e` (see CLAUDE.md "Running E2E tests").
-- **Optional follow-up:** thread `exchange_rate` through custom/sales/loto/maintenance session
-  transactions (financial/recharge already do it).
-- **Sprint board next:** **LIRA-067** (expandable txn payment detail — builds directly on
-  LIRA-064), **LIRA-065** (initial drawer amounts), **LIRA-066** (settlement txns in table).
-  **LIRA-070** (profits correctness audit) is now largely covered by the transaction-based
-  refactor — worth re-scoping or closing.
-
----
-
----
-
-# Sprint 4 — Owner Notes Batch (2026-07-20)
-
-> **Sprint Focus:** disposition of a 32-note owner feedback batch delivered 2026-07-20 — each
-> note was verified against the code before being ticketed. Full per-note disposition log (fixed
-> today / invalid / in progress / ticketed / parked) lives in `LEFT_TO_DO.md`, dated section
-> "2026-07-20 — Owner notes batch (32 notes)".
-> **Created:** 2026-07-20
-> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW`
-
----
-
-## LIRA-078: Refund Tender-Selection Modal
-
-| Field                | Value                                                                                   |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| **Epic**             | Transactions                                                                            |
-| **Type**             | Feature / UX                                                                            |
-| **Priority**         | High                                                                                    |
-| **Status**           | DONE (2026-07-21 — method-override modal, 33 unit tests + lira-126 e2e transport guard) |
-| **Affected Modules** | Audit > TransactionsViewer                                                              |
-| **Assigned To**      | —                                                                                       |
-| **Depends On**       | —                                                                                       |
-
-### Summary
-
-Owner note 22b. Today refunding a transaction is a bare `confirm("Refund this transaction? A
-reversal entry will be created.")` dialog (`TransactionsViewer.tsx` `handleRefund`) followed by
-an instant, automatic reversal of the original payment legs — the operator has no say in HOW the
-money goes back (e.g. return cash when the customer originally paid by CUSTOMER_ACCOUNT, or split
-the return across methods). Replace this with a modal built on the shared `MultiPaymentInput`
-component (the same pattern already used by `CounterpartySettleModal`) so the operator explicitly
-chooses the return method(s), pre-filled with the original legs reversed as a sane default.
-
-### Acceptance Criteria
-
-- [ ] Clicking Refund opens a modal (not a `confirm()` dialog) containing `MultiPaymentInput`
-- [ ] Modal defaults/pre-fills to the original transaction's legs, reversed (today's behavior, as the default path)
-- [ ] Operator can change the return method/split before confirming
-- [ ] Whichever methods are chosen, the correct drawer(s) are affected per method
-- [ ] Reversal still nets ledgers and profit to exactly zero per currency (rule 20), regardless of which return method the operator picks
-- [ ] Failing-first regression test proving the old auto-reversal-only path is superseded (rule 17)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                            | Change                                                                                                     |
-| -------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx`      | Replace `confirm()` + `handleRefund` auto-reversal with a modal launch                                     |
-| Frontend | New refund modal component (pattern: `CounterpartySettleModal`) | `MultiPaymentInput`-based tender selection                                                                 |
-| Backend  | `packages/core/src/repositories/TransactionRepository.ts`       | Accept operator-chosen legs for the refund reversal instead of always reversing the original legs verbatim |
-
----
-
-## LIRA-079: Refund Scope + Void Button Decision
-
-| Field                | Value                      |
-| -------------------- | -------------------------- |
-| **Epic**             | Transactions               |
-| **Type**             | Enhancement / Decision     |
-| **Priority**         | Medium                     |
-| **Status**           | NEEDS INTERVIEW            |
-| **Affected Modules** | Audit > TransactionsViewer |
-| **Assigned To**      | —                          |
-| **Depends On**       | —                          |
-
-### Summary
-
-Owner notes 21b/21c and the second (duplicate-labeled) note 27 ("second 27"). The owner wants
-refund available on "all" transaction types, and separately raised whether the Void button
-should be removed altogether (possibly superseded by Refund). Both conflict with the deliberate
-`NON_REVERSIBLE_TRANSACTION_TYPES` gate (`packages/core/src/constants/transactionTypes.ts`),
-which exists because several types (LOTO, LOTO_CASH_PRIZE, LOTO_SETTLEMENT,
-SUPPLIER_SETTLEMENT, RECHARGE_TOPUP, REFUND, and the partner-ledger types) have side effects the
-generic reversal path cannot safely undo. Blocked on owner answers before any code changes.
-
-### Open Questions (owner interview required)
-
-- [ ] Which transaction types actually need refund support — all of them, or a defined subset excluding the types the gate protects for a real reason?
-- [ ] Keep the Void button alongside Refund, or remove it? If removed, does every current Void-only use case have a Refund-based replacement?
-
-### Acceptance Criteria
-
-- [ ] _(To be defined after interview)_
-
----
-
-## LIRA-080: No-Drawer (Paper) Credit/Debt Entries on Accounts + Supplier Pages
-
-| Field                | Value                                                                |
-| -------------------- | -------------------------------------------------------------------- |
-| **Epic**             | Counterparty Ledgers                                                 |
-| **Type**             | Feature                                                              |
-| **Priority**         | High                                                                 |
-| **Status**           | DONE (2026-07-21 — landed + verified; core tests 4/4, rule-20 gated) |
-| **Affected Modules** | Debts (Accounts), Suppliers                                          |
-| **Assigned To**      | —                                                                    |
-| **Depends On**       | CQ-6 (`COUNTERPARTY_CONSOLIDATION_PLAN.md`)                          |
-
-### Summary
-
-Owner notes 1 + 32. The Partner page already has a default-off "Cash moved" toggle so a
-Record-Transaction entry can be posted as a pure paper/ledger adjustment with no drawer effect.
-The Accounts (client debt) page has no such toggle — every Add Credit/Debt always moves the
-drawer. The Supplier page is worse: it has no Add Credit/Debt action at all today. Add the same
-toggle to Accounts (default ON, preserving today's behavior) and add the missing Add Credit/Debt
-button to Suppliers with the same toggle.
-
-### Acceptance Criteria
-
-- [ ] Accounts page "Add Credit/Debt" gains a "Cash moved" toggle, default ON (= current behavior unchanged when left alone)
-- [ ] Supplier page gains an "Add Credit/Debt" action (currently absent), with the same toggle
-- [ ] A paper (toggle-off) entry posts a visible no-cash-movement row in Transactions
-- [ ] Reversal ownership defined for the new paper-entry ledger rows (rule 20)
-- [ ] Failing-first tests for both the drawer-affecting and paper paths
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                                    | Change                                  |
-| -------- | ----------------------------------------------------------------------- | --------------------------------------- |
-| Frontend | `frontend/src/features/debts/pages/Debts/index.tsx` (Accounts)          | "Cash moved" toggle on Add Credit/Debit |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`             | New Add Credit/Debt action + toggle     |
-| Backend  | `packages/core/src/repositories/{DebtRepository,SupplierRepository}.ts` | Paper-entry write path + reversal owner |
-
----
-
-## LIRA-081: For-Partner Toggle on Exchange and Custom Services
-
-| Field                | Value                                                                                              |
-| -------------------- | -------------------------------------------------------------------------------------------------- |
-| **Epic**             | Partners                                                                                           |
-| **Type**             | Enhancement                                                                                        |
-| **Priority**         | Medium                                                                                             |
-| **Status**           | DONE (2026-07-21 — Exchange + Custom Services; Maintenance deliberately excluded, see ticket note) |
-| **Affected Modules** | Exchange, Custom Services                                                                          |
-| **Assigned To**      | —                                                                                                  |
-| **Depends On**       | CQ-6 (ForPartnerToggle consolidation)                                                              |
-
-### Summary
-
-Owner note 3. `ForPartnerToggle` is already wired into POS (`CheckoutModal.tsx`), Loto, and every
-recharge form (`FinancialForm`, `OmtWhishAppTransferForm`, `KatchForm`, `TelecomForm`,
-`CryptoForm`) but is absent from Exchange and Custom Services — those transactions cannot be
-attributed to a partner today.
-
-### Acceptance Criteria
-
-- [ ] `ForPartnerToggle` present on Exchange and Custom Services forms, wired the same way as the existing consumers (single shared component, no copy-paste)
-- [ ] Toggling posts the matching `partner_ledger` `FOR_*` entry
-- [ ] Void cascade extends to these two newly-covered parent transaction types
-- [ ] Tests covering the toggle-on write path and its void reversal
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                                             | Change                                        |
-| -------- | -------------------------------------------------------------------------------- | --------------------------------------------- |
-| Frontend | `frontend/src/features/exchange/pages/Exchange/index.tsx`                        | Add `ForPartnerToggle`                        |
-| Frontend | `frontend/src/features/custom-services/pages/CustomServices/index.tsx`           | Add `ForPartnerToggle`                        |
-| Backend  | `packages/core/src/repositories/{ExchangeRepository,CustomServiceRepository}.ts` | `FOR_*` partner_ledger posting + void cascade |
-
----
-
-## LIRA-082: Detailed Summaries on All createTransaction Call Sites
-
-| Field                | Value                                                        |
-| -------------------- | ------------------------------------------------------------ |
-| **Epic**             | Transaction Visibility                                       |
-| **Type**             | Enhancement                                                  |
-| **Priority**         | Medium                                                       |
-| **Status**           | DONE (2026-07-20 — 5 call sites enriched, no e2e collisions) |
-| **Affected Modules** | Maintenance, Debts, Suppliers, Services (Hold Money)         |
-| **Assigned To**      | —                                                            |
-| **Depends On**       | —                                                            |
-
-### Summary
-
-Owner note 14. Several `createTransaction` call sites write bare, amount-only summaries that
-don't reflect what actually happened: the Maintenance summary omits the device/issue, and
-DebtRepayment / SupplierPayment / HoldMoney summaries carry only the amount with no context.
-Enrich each with the relevant detail, appended to (not replacing) the existing summary prefix.
-
-### Acceptance Criteria
-
-- [ ] Maintenance transaction summary includes device + issue detail
-- [ ] DebtRepayment, SupplierPayment, and HoldMoney summaries include identifying detail beyond the bare amount
-- [ ] Existing summary prefixes/conventions preserved (no format break for existing rows/filters)
-- [ ] Tests updated to assert the enriched summary text
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer   | File                                                                                        | Change                         |
-| ------- | ------------------------------------------------------------------------------------------- | ------------------------------ |
-| Backend | `packages/core/src/repositories/MaintenanceRepository.ts`                                   | Append device/issue to summary |
-| Backend | `packages/core/src/repositories/{DebtRepository,SupplierRepository,HoldMoneyRepository}.ts` | Enrich summaries               |
-
----
-
-## LIRA-083: Service Status Workflow for Custom Services
-
-| Field                | Value           |
-| -------------------- | --------------- |
-| **Epic**             | Custom Services |
-| **Type**             | Feature         |
-| **Priority**         | Medium          |
-| **Status**           | TODO            |
-| **Affected Modules** | Custom Services |
-| **Assigned To**      | —               |
-| **Depends On**       | —               |
-
-### Summary
-
-Owner note 15 ("sejel 3adli" — a paperwork-style custom service). `custom_services.status` today
-only ever transitions between `completed` and `voided` (an accounting-only status) — there is no
-work-in-progress lifecycle like Maintenance's `Received → In_Progress → Ready → Delivered`. Add a
-genuine status workflow so a custom service (e.g. official-paper processing) can be tracked as it
-progresses.
-
-### Acceptance Criteria
-
-- [ ] New multi-state work-status field, separate from the existing accounting status (proposed: `pending → in_progress → done`; confirm exact states with owner before finalizing)
-- [ ] Status editable from the Custom Services page
-- [ ] Status filterable in the list view
-- [ ] Status visible in history (HistoryModal)
-- [ ] Migration adds the column with a safe default (no `CURRENT_TIMESTAMP` default on an ALTER, per the v104 lesson)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                            | Change                             |
-| -------- | --------------------------------------------------------------- | ---------------------------------- |
-| Database | `packages/core/src/db/migrations/index.ts`                      | New migration — work-status column |
-| Database | `electron-app/create_db.sql`                                    | Mirror                             |
-| Backend  | `packages/core/src/repositories/CustomServiceRepository.ts`     | Status transitions + filter        |
-| Frontend | `frontend/src/features/custom-services/pages/CustomServices/**` | Status UI, filter, history display |
-
----
-
-## LIRA-084: Partial Keep-Change
-
-| Field                | Value                                            |
-| -------------------- | ------------------------------------------------ |
-| **Epic**             | Payments                                         |
-| **Type**             | Enhancement                                      |
-| **Priority**         | Medium                                           |
-| **Status**           | TODO                                             |
-| **Affected Modules** | MultiPaymentInput (shared)                       |
-| **Assigned To**      | —                                                |
-| **Depends On**       | T3 Keep Change (shipped — this is the follow-up) |
-
-### Summary
-
-Owner note 17. `keepChange` in `MultiPaymentInput` is currently all-or-nothing — the operator
-either keeps the entire computed change or returns all of it. The owner wants to split it: e.g.
-of a 140,000 LBP change, return 100,000 LBP and keep 40,000 on the customer's account.
-
-### Acceptance Criteria
-
-- [ ] Operator can keep a PARTIAL amount of the change, not just all-or-nothing
-- [ ] The kept portion books exactly like today's full-keep (same ledger/debt path)
-- [ ] The OUT (return) legs reflect only the amount actually returned, not the full computed change
-- [ ] Works independently per currency
-- [ ] Component test covering the partial-keep math
-- [ ] Repository test covering the resulting legs
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                  | Change                        |
-| -------- | ----------------------------------------------------- | ----------------------------- |
-| Frontend | `packages/ui/src/components/ui/MultiPaymentInput.tsx` | Partial keep-change UI + math |
-
----
-
-## LIRA-085: Undo/Reverse for Partner & Supplier Ledger Transactions
-
-| Field                | Value                                                        |
-| -------------------- | ------------------------------------------------------------ |
-| **Epic**             | Partners / Suppliers                                         |
-| **Type**             | Bug / Enhancement                                            |
-| **Priority**         | High                                                         |
-| **Status**           | DONE (2026-07-21 — module-owned reversals, 27 netting tests) |
-| **Affected Modules** | Partners, Suppliers                                          |
-| **Assigned To**      | —                                                            |
-| **Depends On**       | —                                                            |
-
-### Summary
-
-Owner notes 25 and the partner/supplier half of note 26. `PARTNER_SETTLEMENT`,
-`PARTNER_PAYMENT`, and `SUPPLIER_SETTLEMENT` are deliberately listed in
-`NON_REVERSIBLE_TRANSACTION_TYPES` (rule 20) because no reversal owner was ever built for them.
-The owner wants a mistake-undo path for these ledgers.
-
-### Acceptance Criteria
-
-- [ ] A module-owned reversal defined for each of the currently-non-reversible partner/supplier types (per rule 20 — generic-path extension or dedicated reversal)
-- [ ] Create + reverse nets to exactly zero per currency, across every ledger touched (partner_ledger / supplier_ledger / drawer / debt if applicable)
-- [ ] Undo affordance surfaced on the Partner and Supplier pages
-- [ ] Failing-first proof (rule 17)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                                                             | Change                                                                            |
-| -------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| Backend  | `packages/core/src/constants/transactionTypes.ts`                                                | Move types out of `NON_REVERSIBLE_TRANSACTION_TYPES` once a reversal owner exists |
-| Backend  | `packages/core/src/repositories/{PartnerRepository,SupplierRepository,TransactionRepository}.ts` | Reversal owner implementation                                                     |
-| Frontend | `frontend/src/features/{partners,suppliers}/pages/*/index.tsx`                                   | Undo affordance                                                                   |
-
----
-
-## LIRA-086: Dashboard Checkpoint Freshness Coloring
-
-| Field                | Value       |
-| -------------------- | ----------- |
-| **Epic**             | Dashboard   |
-| **Type**             | Enhancement |
-| **Priority**         | Low         |
-| **Status**           | TODO        |
-| **Affected Modules** | Dashboard   |
-| **Assigned To**      | —           |
-| **Depends On**       | —           |
-
-### Summary
-
-Owner note 29. Color the dashboard's last-checkpointed value by how fresh/consistent it is
-versus the expected value: green when it matches, orange for a small drift, red for a large
-drift. Thresholds TBD with the owner.
-
-### Acceptance Criteria
-
-- [ ] Dashboard compares the last checkpointed value against the expected value
-- [ ] Green = match, orange = small diff, red = large diff
-- [ ] Drift thresholds confirmed with the owner (TBD — not yet defined)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                  | Change                             |
-| -------- | ----------------------------------------------------- | ---------------------------------- |
-| Frontend | `frontend/src/features/dashboard/pages/Dashboard.tsx` | Freshness-coded checkpoint display |
-
----
-
-## LIRA-087: Product-Supplier — Record Debt Now, Attach Products Later
-
-| Field                | Value                 |
-| -------------------- | --------------------- |
-| **Epic**             | Suppliers / Inventory |
-| **Type**             | Feature               |
-| **Priority**         | Medium                |
-| **Status**           | TODO                  |
-| **Affected Modules** | Suppliers, Inventory  |
-| **Assigned To**      | —                     |
-| **Depends On**       | —                     |
-
-### Summary
-
-Owner note 31. Restocking already-received goods currently risks double-booking supplier debt:
-there is no way to record a supplier debt without immediately tying it to specific inventory
-items. Add a flow to record the debt first, then attach the related products to it later.
-
-### Acceptance Criteria
-
-- [ ] Record a supplier debt entry without any line items
-- [ ] Later attach the related products to that recorded debt
-- [ ] No duplicate debt created when products are attached after the fact
-- [ ] Ledger stays consistent (balances unaffected by the two-step flow vs. the one-step flow)
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer    | File                                                                       | Change                                                           |
-| -------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Database | `packages/core/src/db/migrations/index.ts`                                 | Linking table/column between a debt entry and product line items |
-| Backend  | `packages/core/src/repositories/{SupplierRepository,ProductRepository}.ts` | Two-step debt→attach flow                                        |
-| Frontend | `frontend/src/features/{suppliers,inventory}/**`                           | UI for recording debt then attaching products                    |
-
----
-
-## LIRA-088: MTC/Alfa Provider-Balance Decrement Adjustment
-
-| Field                | Value                |
-| -------------------- | -------------------- |
-| **Epic**             | Recharge             |
-| **Type**             | Feature              |
-| **Priority**         | Medium               |
-| **Status**           | NEEDS INTERVIEW      |
-| **Affected Modules** | Recharge > MTC, Alfa |
-| **Assigned To**      | —                    |
-| **Depends On**       | —                    |
-
-### Summary
-
-Owner note 4. MTC/Alfa top-up paths (`RechargeRepository.ts`) force positive amounts via
-`Math.abs(data.amount)` — there is no way to record the shop consuming its own provider credit
-(e.g. using the shop's phone line) as a signed decrement. Note: the "buy credits from customer"
-half of the owner's ask already exists (`topUpFromCustomer`) — this ticket is only the decrement
-half.
-
-**2026-07-20 amendment:** the W6.a carrier-lines work (`CarrierLineService.updateBalance`,
-drawer-free by design) may already cover this if the owner meant the shop-SIM credits reading.
-If they meant the _resale_ provider-drawer balance, the decrement gap remains. Downgraded to
-NEEDS INTERVIEW — confirm which balance the owner meant before building
-(see `docs/plans/todo_plans/OWNER_NOTES_TASK_PLAN.md` §B).
-
-### Acceptance Criteria
-
-- [ ] A signed/decrement adjustment path exists for MTC/Alfa provider balance
-- [ ] Does not move any cash drawer (informational/internal consumption, not a customer transaction)
-- [ ] Audit trail records who/when/how much
-- [ ] Tests covering the decrement path
-- [ ] Typecheck and lint pass
-
-### Files to Modify
-
-| Layer   | File                                                   | Change                             |
-| ------- | ------------------------------------------------------ | ---------------------------------- |
-| Backend | `packages/core/src/repositories/RechargeRepository.ts` | Signed decrement adjustment method |
-
----
-
-## LIRA-089: iPick/Katsh Bills — Commission at Settlement, Not Per-Bill
-
-| Field                | Value                                                                       |
-| -------------------- | --------------------------------------------------------------------------- |
-| **Epic**             | Suppliers / Recharge                                                        |
-| **Type**             | Feature / Decision                                                          |
-| **Priority**         | Medium                                                                      |
-| **Status**           | DONE (2026-08-08, `1d498ff`) — Phase 1 of `COMMISSION_AT_SETTLEMENT_PLAN.md` shipped |
-| **Affected Modules** | Recharge > iPick, Katsh; Suppliers                                          |
-| **Assigned To**      | —                                                                           |
-| **Depends On**       | —                                                                           |
-
-### Summary
-
-Owner note 13. Today every iPick/Katsh bill auto-books a hardcoded −20,000 LBP
-`SUPPLIER_PAYS_US` ledger row at transaction time (`FinancialServiceRepository`, per LIRA-062).
-The owner's model instead: count bills only at transaction time (no commission booked yet), and
-enter the ACTUAL commission amount later, at supplier settlement. Blocked on owner answers before
-implementation.
-
-### Open Questions — ANSWERED (owner interview 2026-08-08)
-
-- [x] Entry shape: **both, per supplier** — lump per settlement batch OR per-bill × count; the
-      settlement UI offers both modes.
-- [x] Historical bills: **cutover, keep history** — rows booked under the hardcoded-per-bill model
-      stay as-is; no backfill/migration of past data.
-- [x] (From the joint interview) This is **Phase 1 of the unified COMMISSION_AT_SETTLEMENT
-      redesign** with LIRA-095 — the bills slice ships first to validate the settlement-time
-      commission machinery.
-
-### Acceptance Criteria
-
-Defined in `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` Phase 1. This ticket closes
-when the bills slice ships.
-
----
-
-## LIRA-090: Telecom Days/Credit Model (MTC/Alfa)
-
-| Field                | Value                          |
-| -------------------- | ------------------------------ |
-| **Epic**             | Recharge                       |
-| **Type**             | Feature / Decision             |
-| **Priority**         | High                           |
-| **Status**           | NEEDS INTERVIEW                |
-| **Affected Modules** | Recharge > MTC, Alfa; Settings |
-| **Assigned To**      | —                              |
-| **Depends On**       | —                              |
-
-### Summary
-
-Owner notes 6–12. A substantial new model for shop-number validity days and per-item cost/credit
-breakdowns for telecom (MTC/Alfa) — see `docs/plans/todo_plans/TELECOM_DAYS_VALIDITY_PLAN.md` for
-the full scope, current-state facts, and the open owner questions blocking implementation.
-
-### Acceptance Criteria
-
-- [ ] _(Blocked on the owner interview — see the plan doc)_
-
----
-
-## Summary (Sprint 4 — LIRA-078..090)
-
-| Priority  | Total  | Done  | Remaining |
-| --------- | ------ | ----- | --------- |
-| High      | 4      | 0     | 4         |
-| Medium    | 7      | 0     | 7         |
-| Low       | 1      | 0     | 1         |
-| **Total** | **13** | **0** | **13**    |
-
-> 3 of the 13 (LIRA-080, LIRA-081, LIRA-082) are already IN PROGRESS — implementation landing
-> the same day (2026-07-20) as this batch was triaged. 3 are NEEDS INTERVIEW (LIRA-079, LIRA-089,
-> LIRA-090) and cannot proceed without owner answers.
-
-## LIRA-091: Void Cascade for Auto Supplier-Ledger Siblings (FS/RECHARGE)
-
-| Field                | Value                                      |
-| -------------------- | ------------------------------------------ |
-| **Epic**             | Transactions / Suppliers                   |
-| **Type**             | Bug                                        |
-| **Priority**         | High                                       |
-| **Status**           | DONE (2026-07-21)                          |
-| **Affected Modules** | Transactions, Financial Services, Recharge |
-| **Assigned To**      | —                                          |
-| **Depends On**       | —                                          |
-
-### Summary
-
-The FEATURE_GUIDE §9 standing gap (also `LEFT_TO_DO.md` "Known gap — next batch"): voiding a
-`FINANCIAL_SERVICE` (e.g. OMT/OMT-App SEND) or `RECHARGE` reverses cash + wallet legs, but the
-**auto supplier TOP_UP/SUPPLIER_PAYS_US sibling** (ledger row + hidden `SUPPLIER_PAYMENT` txn)
-stays — the supplier balance overstates the debt by the voided amount (conservative direction:
-overstated, never understated). No schema link exists from the parent row to the sibling.
-Fix: add the reference (migration v136), cascade the soft-void through both the single void
-and `voidCheckoutGroup`, and handle the already-settled sibling case. Legacy (pre-link) rows
-are out of reach without a heuristic data repair — documented limitation, mirroring LIRA-094.
-
-**Shipped (2026-07-21):** `supplier_ledger.source_ref_table`/`source_ref_id` (migration v136)
-back-links an auto sibling to its parent's `source_table`/`source_id`, stamped by both
-FinancialServiceRepository `is_auto:true` sites (BILL commission, SEND/RECEIVE TOP_UP/PAYMENT).
-`TransactionRepository._cascadeSupplierSiblingVoid` finds unrefunded, `is_auto=1` siblings and
-reuses `_voidTransactionInternal` per sibling (soft-void via the pre-existing
-`_markSourceRefunded` step — no second reversal path); `voidCheckoutGroup` inherits it for free
-since it already delegates to the same internal method (proved for a Katsh BILL split-group
-member). `_assertSupplierSiblingsVoidable` blocks the whole void/refund up-front, naming the
-settlement, when the parent's own `financial_services.settlement_id` is already stamped —
-honest-block, no compensating entry. FACTS-FIRST finding: RechargeRepository has no LIVE
-`is_auto:true` separate-hidden-transaction creation site today (`topUpFromSupplier` is
-link-mode, tied to the already-non-reversible `RECHARGE_TOPUP` type, and is deliberately left
-unstamped — see the code comment); the RECHARGE acceptance case is proved as a synthetic,
-source-table-generic fixture instead of a live path. Guarded against ~26 pre-existing hand-rolled
-`supplier_ledger` test fixtures that predate v136 (`SupplierRepository._supplierLedgerHasSourceRefColumns`
-/ `TransactionRepository._supplierLedgerHasSourceRefColumns` check column existence before
-reading/writing the new columns — absent columns means "no siblings possible," a correct
-no-op, not a swallowed error).
-
-### Acceptance Criteria
-
-- [x] Parent void/refund also soft-voids the auto supplier sibling (ledger + hidden txn)
-- [x] Create + void nets to 0 across supplier_ledger per currency (failing-first proof)
-- [x] Already-settled sibling handled explicitly (block — documented decision, owner sign-off item)
-- [x] Both creation paths covered (FinancialServiceRepository live; RechargeRepository proved
-      generically via a synthetic fixture — no live creation site exists today, see summary)
-- [x] Migration v136 in BOTH migrations index and create_db.sql
-
-## LIRA-094: Carrier-Legs Void Asymmetry (Split Checkouts) — retroactive filing
-
-| Field                | Value                                                          |
-| -------------------- | -------------------------------------------------------------- |
-| **Epic**             | Transactions / Payments                                        |
-| **Type**             | Bug                                                            |
-| **Priority**         | High                                                           |
-| **Status**           | DONE (2026-07-19, shipped as design B+ in W5)                  |
-| **Affected Modules** | Transactions, Financial Services, Recharge (Katch/iPick bills) |
-| **Assigned To**      | —                                                              |
-| **Depends On**       | —                                                              |
-
-### Summary
-
-Retroactive registry filing (2026-07-21): this work was executed 2026-07-19 under the
-mislabel "LIRA-070" in `PARTIAL_TASKS_COMPLETION_PLAN.md` — the registry's real LIRA-070 is
-the unrelated Profits-page audit. Multi-unit split checkouts book all payment legs on ONE
-carrier transaction; voiding a single member (carrier or sibling) broke reversal symmetry
-(rule 20). Shipped fix: metadata `split_group` linkage at create time, a void/refund guard on
-group members, atomic `voidCheckoutGroup`, and a "Void entire checkout (N units)" action —
-full design record in `docs/plans/done_plans/CARRIER_LEGS_VOID_ASYMMETRY.md`. Open follow-ups
-live there (design-A real column when a migration window opens; legacy pre-fix rows
-undetectable by the guard). Numbers LIRA-092–093 remain free (LIRA-091 filed 2026-07-21, see above).
-
-### Sprint 4 board
-
-| ID       | Title                                                   | Priority | Status                                                 |
-| -------- | ------------------------------------------------------- | -------- | ------------------------------------------------------ |
-| LIRA-078 | Refund tender-selection modal                           | High     | DONE                                                   |
-| LIRA-079 | Refund scope + Void button decision                     | Medium   | NEEDS INTERVIEW                                        |
-| LIRA-080 | No-drawer paper credit/debt on Accounts + Supplier      | High     | DONE                                                   |
-| LIRA-081 | For-Partner toggle on Exchange + Custom Services        | Medium   | DONE                                                   |
-| LIRA-082 | Detailed summaries on all createTransaction call sites  | Medium   | DONE                                                   |
-| LIRA-083 | Custom Services status workflow                         | Medium   | TODO                                                   |
-| LIRA-084 | Partial keep-change                                     | Medium   | TODO                                                   |
-| LIRA-085 | Undo/reverse for partner & supplier ledger transactions | High     | DONE                                                   |
-| LIRA-086 | Dashboard checkpoint freshness coloring                 | Low      | TODO                                                   |
-| LIRA-087 | Product-supplier — debt now, attach products later      | Medium   | TODO                                                   |
-| LIRA-088 | MTC/Alfa provider-balance decrement                     | Medium   | NEEDS INTERVIEW                                        |
-| LIRA-089 | iPick/Katsh bills commission at settlement              | Medium   | DONE `1d498ff` (Phase 0+1 shipped) |
-| LIRA-090 | Telecom days/credit model                               | High     | NEEDS INTERVIEW                                        |
-| LIRA-091 | Void cascade for auto supplier-ledger siblings          | High     | DONE                                                   |
-| LIRA-094 | Carrier-legs void asymmetry (retroactive — shipped W5)  | High     | DONE                                                   |
-
-> Full per-note disposition (all 32 owner notes, including the ones that were INVALID/already
-> working, FIXED today, or already tracked under an existing ticket) is logged in
-> `LEFT_TO_DO.md`, dated section "2026-07-20 — Owner notes batch (32 notes)".
-
----
-
----
-
-# Sprint 5 — Owner Notes Batch (2026-08-07/08)
-
-> **Sprint Focus:** Triage of a fresh owner QA note batch (11 notes, tested against v1.30.0).
-> **Created:** 2026-08-08
-> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW`
-
-**Source:** 11 freeform owner notes from a live QA session, 2026-08-07 (1:34–2:46 AM). 8 of the
-11 were bug reports — all 8 re-validated against the codebase, confirmed, fixed, and independently
-verified same-day (commits `dd6cbb6` "fix: resolve 6 QA-reported bugs across money repositories
-and UI" and `a65ce03` "fix: stamp the operator's tendered exchange rate on transactions" — the
-latter from a separate live follow-up report, not this note batch, but shipped in the same
-session). The 3 tickets below are the notes that were **feature/design requests, not bugs** —
-correctly not attacked as part of the bug-fix pass; filed here so they aren't lost.
-
-## LIRA-095: OMT/Whish/Katsh — Rethink Commission Flow (Don't Deduct From Transaction Amount)
-
-| Field                | Value                                                                                        |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| **Epic**             | Financial Services / Suppliers                                                               |
-| **Type**             | Feature / Decision                                                                           |
-| **Priority**         | High (money-flow architecture)                                                               |
-| **Status**           | INTERVIEW DONE (2026-08-08) → plan: `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` |
-| **Affected Modules** | Financial Services (OMT, Whish, Katsh, iPick), Suppliers, Profits                            |
-| **Assigned To**      | —                                                                                            |
-| **Depends On**       | —                                                                                            |
-
-### Summary
-
-Owner note (2026-08-07, 2:04 AM): _"Commission should not be deduced from the amount (we have
-this function amount + fee - commission). We should rethink about commission flow. Commission
-should not be deduced directly in ledgers. It should be entered in payment between shop and
-supplier. In the new way we should still be able to track the commissions per transaction type
-for the profits page."_
-
-This asks to move WHERE commission is recognized: today it's computed and deducted inline as
-part of each transaction's own amount/ledger math; the owner wants it moved to be a value entered
-at supplier-payment/settlement time instead — while the Profits page still needs to attribute it
-back to the originating transaction type. This is an architectural change touching every
-OMT/Whish/Katsh/iPick money flow, not a bug fix. Needs an owner interview before any code is
-touched (see LIRA-089 above for the closely related, already-filed "iPick/Katsh bills commission
-at settlement" ticket — this note may be the general case LIRA-089 is one instance of; resolve
-LIRA-089's open questions and this one together).
-
-### Open Questions — ANSWERED (owner interview 2026-08-08)
-
-- [x] Per-type split: **allocate the settlement lump proportionally** across the settled
-      transactions by type.
-- [x] Historical commission: **cutover date, keep history** — no restatement, new model applies
-      forward only.
-- [x] Entry shape at settlement: **both modes, per supplier** — a lump sum for the batch OR a
-      per-unit rate × count; the settlement UI offers both.
-- [x] Relationship to LIRA-089: **one unified redesign** (owner reviewed the code-grounded
-      comparison: both tickets change the same recognition point and share all machinery —
-      settlement-time entry, allocation, cutover). LIRA-089's bills flow is Phase 1 (the simplest
-      vertical slice, validates the machinery before the OMT/Whish payable math changes).
-- [ ] Provider set for the Profits "Commission" row (folded in from LIRA-108's residuals): the row
-      still counts iPick/Katsh `commission > 0` rows the per-currency sibling routes to Mobile
-      Services, and sums raw `fs.commission` vs the sibling's stamped `t.profit_usd/lbp` (USDT
-      buckets as USD). Resolve inside the plan's Profits phase.
-
-### Acceptance Criteria
-
-Defined in `docs/plans/todo_plans/COMMISSION_AT_SETTLEMENT_PLAN.md` (the unified plan for
-LIRA-095 + LIRA-089). This ticket closes when that plan's OMT/Whish phases ship.
-
-### Files to Modify
-
-| Layer    | File                                                           | Change                                    |
-| -------- | -------------------------------------------------------------- | ----------------------------------------- |
-| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts` | Commission recognition point (TBD)        |
-| Backend  | `packages/core/src/repositories/ProfitRepository.ts`           | Per-transaction-type attribution (TBD)    |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Settlement-time commission entry UI (TBD) |
-
----
-
-## LIRA-096: Partners Page — Remove "Record Transaction" (Redundant with Add Credit/Debt)
-
-| Field                | Value                                                               |
-| -------------------- | ------------------------------------------------------------------- |
-| **Epic**             | Partner System                                                      |
-| **Type**             | Cleanup / Decision                                                  |
-| **Priority**         | Low                                                                 |
-| **Status**           | NEEDS INTERVIEW                                                     |
-| **Affected Modules** | Partners                                                            |
-| **Assigned To**      | —                                                                   |
-| **Depends On**       | LIRA-051 (DONE — prior Record Transaction type-list simplification) |
-
-### Summary
-
-Owner note (2026-08-07, 2:20 AM): _"Remove record txn in partner. Its redundant we have add
-credit debt."_ Requests removing the "Record Transaction" action/modal from the Partners page
-entirely, on the grounds that "Add Credit/Debt" already covers the same need. LIRA-051 (DONE)
-previously simplified Record Transaction's type dropdown rather than removing the feature — this
-note goes a step further. Before removing anything, confirm there's no transaction type or
-capability Record Transaction covers that Add Credit/Debt cannot currently express — if a gap
-exists, it needs to move into Add Credit/Debt first, or the owner needs to accept losing that case.
-
-### Open Questions (owner interview required)
-
-- [ ] Confirm every Record Transaction type in current use is already reachable via Add
-      Credit/Debit before removing the feature.
-
-### Acceptance Criteria
-
-- [ ] _(To be defined once the above is confirmed — likely: remove the Record Transaction
-      action/modal from the Partners page once no functional gap is found)_
-
-### Files to Modify
-
-| Layer    | File                                                      | Change                                              |
-| -------- | --------------------------------------------------------- | --------------------------------------------------- |
-| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx` | Remove Record Transaction UI (pending confirmation) |
-
----
-
-## LIRA-097: Partners Page — Enable LBP Option for Add Credit/Debt
-
-| Field                | Value                                                   |
-| -------------------- | ------------------------------------------------------- |
-| **Epic**             | Partner System                                          |
-| **Type**             | Enhancement                                             |
-| **Priority**         | Low                                                     |
-| **Status**           | CLOSED — ALREADY WORKING (2026-08-08; guard test added) |
-| **Affected Modules** | Partners                                                |
-| **Assigned To**      | —                                                       |
-| **Depends On**       | —                                                       |
-
-### Summary
-
-Owner note (2026-08-07, 2:21 AM): _"Enable lbp option to add credit debt in partner page."_ The
-Add Credit/Debt action on the Partners page needs an LBP currency option — confirm the exact
-current currency options on that action before building (the note implies LBP isn't currently
-selectable there, unlike the equivalent actions on Debts/Suppliers).
-
-### Acceptance Criteria
-
-- [x] Confirm current currency options on the Partners page's Add Credit/Debt action.
-- [x] ~~Add LBP~~ **Premise false — LBP was already selectable and fully wired.** The Add Credit/Debt
-      modal's Currency `Select` has offered USD + LBP since 2026-06-22 (commit `b3f96649`, predating
-      the owner's note by over a month), and the full chain already propagates it on BOTH transports:
-      UI (`Partners/index.tsx:808-814`) → shared Zod validator (`validators/partner.ts`, free string)
-      → IPC handler AND `POST /api/partners/transactions` → `PartnerService.recordPartnerTransaction`
-      → `PartnerRepository.addLedgerEntry` → `partner_ledger.currency` (no CHECK constraint).
-- [x] Partner ledger correctly books the amount in the selected currency (verified through the chain
-      above, parameterized insert).
-- [x] Typecheck and lint pass.
-
-### Outcome — no code change; regression guard added
-
-Like the earlier "OMT receive fee override" note from the same batch, this owner note described
-something that already works. Possible the owner hit a stale build, or expected the dual-field
-USD+LBP-simultaneous pattern Debts uses (partner_ledger is single-currency-per-row like Suppliers,
-so the single-amount + currency-toggle UI is the correct analogue). **If the owner still sees no LBP
-option in the running app, that's a build/deployment question, not a code gap — re-open with a
-screenshot.**
-
-No test previously exercised the LBP path (existing partner specs only send USD), so a guard was
-added: `Partners.addCreditLbp.test.tsx` drives the real modal to submit `currency: "LBP"` and was
-proven failing-first by temporarily removing the LBP option (rule 17).
-
-### Files to Modify
-
-| Layer    | File                                                      | Change                                    |
-| -------- | --------------------------------------------------------- | ----------------------------------------- |
-| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx` | Add LBP option to Add Credit/Debt form    |
-| Backend  | `packages/core/src/repositories/PartnerRepository.ts`     | Verify/extend currency handling if needed |
-
----
-
-## Summary (Sprint 5 — LIRA-095..097)
-
-| Priority  | Total | Done  | Remaining |
-| --------- | ----- | ----- | --------- |
-| High      | 1     | 0     | 1         |
-| Low       | 2     | 0     | 2         |
-| **Total** | **3** | **0** | **3**     |
-
-### Sprint 5 board
-
-| ID       | Title                                            | Priority | Status                                          |
-| -------- | ------------------------------------------------ | -------- | ----------------------------------------------- |
-| LIRA-095 | OMT/Whish/Katsh — rethink commission flow        | High     | INTERVIEW DONE → COMMISSION_AT_SETTLEMENT_PLAN  |
-| LIRA-096 | Partners — remove Record Transaction (redundant) | Low      | NEEDS INTERVIEW                                 |
-| LIRA-097 | Partners — enable LBP for Add Credit/Debt        | Low      | CLOSED — already working (guard test `d217221`) |
-
-> The other 8 notes from this same batch were bugs — all fixed and independently verified
-> 2026-08-07/08 (commits `dd6cbb6`, `a65ce03`). One further note (OMT receive fee override) was
-> investigated and found to already work correctly — no ticket needed.
-
----
-
----
-
-# Sprint 6 — Todo-Plans Sweep (2026-08-08)
-
-> **Sprint Focus:** `current_sprint.md` as the single source of truth — every `docs/plans/todo_plans/*.md`
-> file was re-verified against the actual current code (not just its own claimed status/checkboxes,
-> which are known to go stale within days), and every genuinely-remaining item is filed below as a
-> real ticket. Nothing here was found by trusting a plan doc's own words — each item was independently
-> confirmed via grep/read/`git log` before being ticketed.
-> **Created:** 2026-08-08
-> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW`
-
-**Source:** all 8 files under `docs/plans/todo_plans/`. `OWNER_NOTES_TASK_PLAN.md`'s remainder needs
-**no new ticket** — it's already fully represented by the existing **LIRA-083, 084, 086, 087, 088, 089**
-(Sprint 4, above). The other 7 files each had 1-2 genuine, verified residuals — ticketed below.
-Several plans turned out MORE complete than their own "Left TODO" notes claimed (e.g.
-`PRIMARY_CASH_DRAWER_PLAN.md` flagged a spec as broken that was actually already fixed 2026-08-07) —
-a reminder that the plan docs themselves are not reliable evidence, only the code is.
-
-## LIRA-098: Guard test — profit queries must use the debt/partner-pending recognition gate
-
-| Field                | Value                                                                        |
-| -------------------- | ---------------------------------------------------------------------------- |
-| **Epic**             | Profits / Counterparty Ledgers                                               |
-| **Type**             | Test / Guard                                                                 |
-| **Priority**         | Medium                                                                       |
-| **Status**           | DONE (2026-08-08) — and it found LIRA-108                                    |
-| **Affected Modules** | Profits                                                                      |
-| **Assigned To**      | —                                                                            |
-| **Depends On**       | —                                                                            |
-| **Source Plan**      | `docs/plans/todo_plans/COUNTERPARTY_CONSOLIDATION_PLAN.md` (CQ-1, last item) |
-
-### Summary
-
-`ProfitRepository.ts` defines and reuses `notDebtPending`/`notPartnerPending`/`saleFullyPaid`/
-`salePaidOrPartnerSettled` fragments (~15 call sites) so profit is only recognized once money is
-real — but nothing scans for a future profit query that skips the gate. A second file-scanning
-guard test (the plan's own CQ-1 goal) was never written — only `moduleDebtTypes.guard.test.ts` and
-`partnerLedgerTypes.guard.test.ts` exist in `constants/__tests__/`, no third file.
-
-### Acceptance Criteria
-
-- [x] New `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts`, mirroring
-      `partnerLedgerTypes.guard.test.ts`'s file-scanning approach — extended beyond the ticket's
-      sketch: per-`.prepare()` query units, the big `getByDate` CTE split into one unit per CTE
-      (so a new ungated CTE can't hide behind its siblings' gates), `--` comment stripping (proven
-      necessary — a SQL comment containing the word "profit" false-positived on the first clean run),
-      six gate fragments recognized (the ticket's four + `saleNotFullyPaid`/`txnNotPartnerPending`,
-      without which the guard fails on CORRECT code), five documented exclusions each with a verified
-      reason, and two guard-the-guard sanity tests (fragments still exist; scan finds >10 units —
-      actual 27).
-- [x] Rule 17 both ways: passes on clean code; observed FAILING on an injected ungated
-      `SUM(profit_usd)` dummy (then removed, `git diff` confirmed empty).
-- [x] Full core jest green: 154/154 suites, 1658/1658 tests. Typecheck clean.
-
-### Outcome — the guard found a real candidate bug on day one
-
-Building the exclusion list surfaced **LIRA-108** (filed below): `getRealizedCommissionTotals` lacks
-the counterparty gates its sibling settled-commission query carries. That's the guard doing exactly
-what CQ-1 wanted — except the hole predates the guard. With this, `COUNTERPARTY_CONSOLIDATION_PLAN.md`
-has nothing left and can be archived once LIRA-108 is resolved (the plan's own scope is complete;
-108 is a new finding, not a plan residual).
-
-### Files to Modify
-
-| Layer   | File                                                                          | Change                   |
-| ------- | ----------------------------------------------------------------------------- | ------------------------ |
-| Backend | `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` (new) | File-scanning guard test |
-
----
-
-## LIRA-108: `getRealizedCommissionTotals` missing counterparty gates — "Commission (Settled)" may overstate
-
-| Field                | Value                                                          |
-| -------------------- | -------------------------------------------------------------- |
-| **Epic**             | Profits / Counterparty Ledgers                                 |
-| **Type**             | Bug (candidate — needs money-eyes verification)                |
-| **Priority**         | Medium                                                         |
-| **Status**           | DONE (2026-08-08) — CONFIRMED REAL, fixed, double-SHIP verdict |
-| **Affected Modules** | Profits                                                        |
-| **Assigned To**      | —                                                              |
-| **Depends On**       | —                                                              |
-| **Source Plan**      | Found by LIRA-098's guard-building analysis (2026-08-08)       |
-
-### Summary
-
-`ProfitRepository.getRealizedCommissionTotals` (~line 1220, feeds `ProfitService.getByPaymentMethod`'s
-"Commission (Settled)" row) sums `financial_services.commission` with only
-`is_settled = 1 AND commission > 0 AND notRefunded AND dateRange AND tenant_id` — **no**
-`notPartnerPending`/`notDebtPending`. Its sibling `getFinancialSettledByCurrency` (~line 529) carries
-BOTH gates (lines 546-547) for the same `is_settled = 1` population. Asymmetry verified directly in
-source, not just reported.
-
-Consequence if real: a commission transaction that is supplier-settled but still partner-pending
-(for-partner flow) or account-charged (debt still open) shows its commission as realized profit in
-the "Commission (Settled)" row while the sibling per-currency view correctly withholds it — the two
-profit views disagree, and the totals row overstates.
-
-### Acceptance Criteria
-
-- [x] Money-eyes verification: **CONFIRMED REAL** — constructed concretely (in-memory DB, same
-      window/tenant): realized totals returned 23 USD/3 rows (control 5 + partner-pending 7 +
-      debt-pending 11) while the gated sibling returned 5 USD/1 row. Divergence 18 USD, asserted
-      directly. Domain-intent review of FEATURE_GUIDE/COUNTERPARTY_LEDGERS + git history: omission,
-      not a decision.
-- [x] Gates added by adopting the sibling's exact JOIN shape (`t.type='FINANCIAL_SERVICE'`,
-      `t.status='ACTIVE'`, `notPartnerPending` + `notDebtPending`, dual tenant binds) — rule 14
-      fragments reused verbatim. Rule 17: regression test observed failing pre-fix
-      (Expected 10/Received 28; divergence Expected 0/Received 18), independently re-confirmed by a
-      second reviewer who reverted and re-ran himself.
-- [x] `getPendingCommissionTotals` deliberately UNCHANGED — investigation answer: a
-      settled-but-counterparty-pending row belongs in NEITHER by-payment row (it lives in
-      deferred/counterparty views until the counterparty pays); documented in the method comment
-      and `docs/COUNTERPARTY_LEDGERS.md` §6.
-- [x] LIRA-098 guard widened: token scan now `profit|commission`, 4 new verified exclusions, proven
-      to fail on an injected ungated commission dummy (both by implementer and independently by the
-      completeness reviewer).
-- [x] Suites: core 155/1662, backend 38/529, frontend 111/851+1 — full `yarn test` exit 0.
-
-### Adversarial review (2 lenses, both SHIP)
-
-JOIN fan-out **refuted** (exactly one `FINANCIAL_SERVICE`-type transaction writer per fs row; auto
-SUPPLIER_PAYMENT sibling and REFUND rows excluded by the `t.type` filter — no double-count possible).
-Dropped-rows risk **refuted** (`_markSourceRefunded` sets `is_refunded=1` on both void and refund, so
-every row the ACTIVE-join excludes was already excluded by the old `notRefunded` gate).
-
-### Residuals discovered (filed, not silently fixed)
-
-1. → folded into **LIRA-095**'s open questions: the Commission row still counts iPick/Katsh
-   `commission > 0` rows that the per-currency sibling routes to Mobile Services (possible
-   double-display), and it sums raw `fs.commission` while the sibling sums stamped
-   `t.profit_usd/lbp` (USDT currently buckets as USD in the totals row). Provider-set narrowing is
-   an owner semantics call, same discussion as the commission-flow redesign.
-2. → **LIRA-110** (new): `ClosingRepository.ts:689-696` computes daily fs commission with a THIRD,
-   fully ungated sum — not even `is_settled`/`notRefunded`. Same bug class on the closing screen.
-3. Flake note for CI: one core run failed 2 suites/3 tests then passed twice on identical code —
-   pre-existing parallel-worker flakiness (unrelated modules), a red core run may need one retry.
-
-### Files to Modify
-
-| Layer   | File                                                                    | Change                     |
-| ------- | ----------------------------------------------------------------------- | -------------------------- |
-| Backend | `packages/core/src/repositories/ProfitRepository.ts`                    | Add gates if confirmed     |
-| Backend | `packages/core/src/constants/__tests__/profitRecognition.guard.test.ts` | Optionally widen heuristic |
-
----
-
-## LIRA-099: Multi-tenant — admin/impersonation e2e spec + final full-suite proof
-
-| Field                | Value                                                                        |
-| -------------------- | ---------------------------------------------------------------------------- |
-| **Epic**             | Multi-Tenant / Admin                                                         |
-| **Type**             | Test                                                                         |
-| **Priority**         | Medium                                                                       |
-| **Status**           | TODO                                                                         |
-| **Affected Modules** | Admin, Multi-Tenant                                                          |
-| **Assigned To**      | —                                                                            |
-| **Depends On**       | —                                                                            |
-| **Source Plan**      | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item) |
-
-### Summary
-
-Every other work package (WP1-WP8, WP10a/c) is shipped and merged — confirmed via `git log`,
-`check-tenant-scoping` run live (647 statements, 0 violations), and existing WP2/WP5/WP6/WP8 test
-files. WP9, the dedicated end-to-end proof, was never written: no spec anywhere drives super-admin
-login → provision a tenant → impersonate → verify data isolation → disconnect through a real
-browser (`impersonat` has zero hits across all of `frontend/tests/`).
-
-### Acceptance Criteria
-
-- [ ] `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts`: super-admin login → `/admin/tenants`
-      list renders → provision a tenant via `AddTenantModal` → "Connect as admin" → `ImpersonationBanner`
-      shows the right tenant → create a row while impersonating → confirm invisible from a different
-      tenant's session → Disconnect.
-- [ ] One final confirmed full-suite green run: `yarn dev` → stop → `yarn test:e2e` AND
-      `yarn test:e2e:web`, plus `yarn check:tenant-scoping`, `yarn check:bind-arity`,
-      `yarn typecheck && yarn lint` repo-wide — none of these has been run together as one proof yet.
-- [ ] Once green, archive `MULTI_TENANT_IMPLEMENTATION_PLAN.md` to `done_plans/`.
-
-### Files to Modify
-
-| Layer | File                                                              | Change   |
-| ----- | ----------------------------------------------------------------- | -------- |
-| E2E   | `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts` (new) | New spec |
-
----
-
-## LIRA-100: Loto — no in-module ticket reprint UI
-
-| Field                | Value                                                                      |
-| -------------------- | -------------------------------------------------------------------------- |
-| **Epic**             | Loto                                                                       |
-| **Type**             | Feature / Gap                                                              |
-| **Priority**         | Low                                                                        |
-| **Status**           | DONE (2026-08-08) — e2e LOTO row executed GREEN same day                   |
-| **Affected Modules** | Loto                                                                       |
-| **Assigned To**      | —                                                                          |
-| **Depends On**       | LIRA-069 (DONE — receipt-print gating foundation)                          |
-| **Source Plan**      | `docs/plans/todo_plans/PARTIAL_TASKS_COMPLETION_PLAN.md` (W1.c, last item) |
-
-### Summary
-
-Recharge, Maintenance, and Custom Services all got a per-ticket History/reprint entry point when
-receipt-print gating shipped (LIRA-069) — Loto didn't. `Loto/index.tsx` has no history/reprint UI
-for individual ticket sales; its only history surface, `CheckpointHistory.tsx`, operates on
-aggregate checkpoint rows (`total_tickets`, `settlement_id`), not individual tickets. A loto ticket
-can only be reprinted today via the general `/audit` Transactions viewer.
-
-### Acceptance Criteria
-
-- [x] Ticket-level History view: new `frontend/src/features/loto/components/TicketHistoryModal.tsx`
-      mirroring Recharge's `HistoryModal` UX, self-fetching on mount (like the sibling
-      `CheckpointHistory`) since Loto's page holds no preloaded ticket superset. Data path is 100%
-      pre-existing dual-mode plumbing — `useApi().loto.getByDateRange` and `getTransactionBySource`,
-      zero new adapter/REST/IPC code, zero raw `window.api` in the component (grep-verified).
-- [x] Rows gated per-row by `isReceiptableRow({ type: "LOTO" })` — the canonical predicate.
-- [x] Transaction resolved via the dual-mode `getTransactionBySource("loto_tickets", ticketId)` →
-      `TransactionRepository.getBySourceId`; print via the shared `printServiceReceiptByTransaction`.
-- [x] Component test (3 cases incl. gate-wiring proof; rule 17: bypassing the gate with `|| true`
-      made exactly the hide-assertion fail) + lira-069 e2e spec extended with a LOTO row.
-      **Executed 2026-08-08: PASSED** — lira-069 ran 3/3 green including the LOTO row, in the same
-      4/4 desktop run that proved LIRA-102's spec.
-- [x] Frontend tests 3/3, typecheck clean, playwright tsc adds zero new errors (re-run independently).
-
-### Files to Modify
-
-| Layer    | File                                              | Change                          |
-| -------- | ------------------------------------------------- | ------------------------------- |
-| Frontend | `frontend/src/features/loto/pages/Loto/index.tsx` | Ticket-level History/reprint UI |
-
----
-
-## LIRA-101: Primary Cash Drawer — cleanup stale docs/dead code + verify Suppliers `settleNetPayUsd`
-
-| Field                | Value                                                                     |
-| -------------------- | ------------------------------------------------------------------------- |
-| **Epic**             | Suppliers / Financial Services                                            |
-| **Type**             | Cleanup / Verification                                                    |
-| **Priority**         | Medium (one sub-item touches money math)                                  |
-| **Status**           | TODO                                                                      |
-| **Affected Modules** | Suppliers, Financial Services                                             |
-| **Assigned To**      | —                                                                         |
-| **Depends On**       | —                                                                         |
-| **Source Plan**      | `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items) |
-
-### Summary
-
-The Primary Cash Drawer feature itself is fully shipped (commit `9553807`) and `FEATURE_GUIDE.md`
-§7/§8/§8.1 is current. What's left is small cleanup, EXCEPT one item that needs real money-eyes
-attention:
-
-1. Stale JSDoc still references the withdrawn §8.5 insufficient-funds guard (`packages/ui/src/api/types.ts:606,619`,
-   `packages/core/src/services/FinancialService.ts:41-42`, `frontend/src/api/backendApi.ts:3194`) —
-   could mislead a future reader into re-adding a guard the owner explicitly reversed.
-2. Dead code: unused `getBalance()` in `DrawerTopUpRepository.ts:409-418`; unused import
-   `primaryCashDrawerName` in `FinancialServiceRepository.ts:17`.
-3. **Money item**: `frontend/src/features/suppliers/pages/Suppliers/index.tsx:625` and
-   `frontend/src/features/suppliers/hooks/useSuppliers.ts:298-299` still describe the superseded
-   fee-only ledger model. Needs a verification pass confirming `settleNetPayUsd` computes correctly
-   under the current GROSS supplier-ledger model, not just a comment edit.
-
-### Acceptance Criteria
-
-- [ ] Stale JSDoc/comments corrected to describe the current (no insufficient-funds guard) reality.
-- [ ] Dead code removed (`getBalance()`, unused import).
-- [ ] `settleNetPayUsd` independently verified correct under the GROSS model (failing-first test if
-      a discrepancy is found; otherwise document the verification and update the stale comments).
-- [ ] Typecheck and lint pass.
-
-### Files to Modify
-
-| Layer    | File                                                             | Change                             |
-| -------- | ---------------------------------------------------------------- | ---------------------------------- |
-| Backend  | `packages/core/src/services/FinancialService.ts`                 | Correct stale JSDoc                |
-| Backend  | `packages/core/src/repositories/DrawerTopUpRepository.ts`        | Remove dead `getBalance()`         |
-| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts`   | Remove unused import               |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`      | Correct stale comment; verify math |
-| Frontend | `frontend/src/features/suppliers/hooks/useSuppliers.ts`          | Correct stale comment; verify math |
-| Types    | `packages/ui/src/api/types.ts`, `frontend/src/api/backendApi.ts` | Correct stale JSDoc                |
-
----
-
-## LIRA-102: Session grouping UI — missing e2e coverage
-
-| Field                | Value                                                                        |
-| -------------------- | ---------------------------------------------------------------------------- |
-| **Epic**             | Customer Sessions / Transactions                                             |
-| **Type**             | Test                                                                         |
-| **Priority**         | Low                                                                          |
-| **Status**           | DONE (2026-08-08) — spec `0579942`, executed GREEN same day                  |
-| **Affected Modules** | Transactions (Audit)                                                         |
-| **Assigned To**      | —                                                                            |
-| **Depends On**       | —                                                                            |
-| **Source Plan**      | `docs/plans/todo_plans/session-basket-payment-remaining.md` (#3a, last item) |
-
-### Summary
-
-The per-session border-accent feature itself shipped and is unchanged (`TransactionsViewer.tsx`'s
-`sessionHue`/`data-session`, `index.css`'s dark/light accent colors) — only the e2e spec the plan
-called for was never written. `lira-session-grouping-ui.spec.ts` does not exist (confirmed: never
-created, not deleted).
-
-### Acceptance Criteria
-
-- [x] `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts`: checkout 2 custom-service
-      items in one session → assert both rows expose `data-session=""` and share the same
-      `--session-hue` (`round(abs(id * 137.508)) % 360`) → toggle dark mode → assert
-      `border-left-color` changes (62% dark / 42% light) while hue holds. Match rows by unique
-      label (rule 15), never `tbody tr.first()`.
-      **Executed 2026-08-08: PASSED (2.4s), in a 4/4 run alongside lira-069 + its new LOTO row.**
-      All three first-run risks flagged in the spec header (numeric CSS custom-property
-      pass-through, HSL→RGB probe comparison, theme-toggle localStorage leakage) held.
-- [ ] `session-basket-payment-remaining.md` has nothing left — move to `done_plans/` (pending).
-
-### Files to Modify
-
-| Layer | File                                                                 | Change   |
-| ----- | -------------------------------------------------------------------- | -------- |
-| E2E   | `frontend/tests/e2e-electron/lira-session-grouping-ui.spec.ts` (new) | New spec |
-
----
-
-## LIRA-103: Recharge — close remaining REST-parity gaps (history route + unmigrated drawer-balances call)
-
-| Field                | Value                                                                         |
-| -------------------- | ----------------------------------------------------------------------------- |
-| **Epic**             | Recharge / Web Parity                                                         |
-| **Type**             | Bug / Dual-Transport                                                          |
-| **Priority**         | Medium                                                                        |
-| **Status**           | DONE (2026-08-08) — web spec executed GREEN same day; found residual LIRA-109 |
-| **Affected Modules** | Recharge                                                                      |
-| **Assigned To**      | —                                                                             |
-| **Depends On**       | —                                                                             |
-| **Source Plan**      | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9, Recharge items)            |
-
-### Summary
-
-Recharge's transfer/top-up endpoints already went dual-mode (carrier-lines waves, 2026-08-06/07),
-but two spots still call raw `window.api.recharge.*` with no REST backing:
-
-1. **History has no REST route at all**: `Recharge/index.tsx:673` calls
-   `window.api.recharge.getHistory(activeProvider)` for the MTC/Alfa history tab. No `/history`
-   route exists in `backend/src/api/recharge.ts`, no wrapper in `backendApi.ts`/`ElectronApiAdapter.ts`.
-   Degrades to a silently-empty history list in a real browser (wrapped in try/catch) rather than
-   crashing — a real data gap, not a crash.
-2. **Leftover unmigrated call site in the SAME file**: `Recharge/index.tsx:391-400`
-   (`loadDrawerBalances`) still calls raw `window.api.recharge.getDrawerBalances()` even though a
-   working dual-mode twin, `api.getRechargeDrawerBalances()`, already exists and is used elsewhere
-   in this same file (`handleTopUpClick:753`) — this call site was simply never switched over. The
-   `line 392` comment ("Drawer balances are IPC-only") is stale.
-
-### Acceptance Criteria
-
-- [x] `GET /api/recharge/history` route (validated via new `getRechargeHistorySchema`, required
-      `provider: z.enum(["MTC","Alfa"])` — first schema for this endpoint, the IPC handler has none
-      to lift) + `getRechargeHistory` wrapper in `backendApi.ts`/`ElectronApiAdapter.ts`/`ApiAdapter`
-      types. **Auth parity verified in source**: `recharge:get-history` has NO `requireRole`
-      (rechargeHandlers.ts:36-40), so the REST route is likewise not role-gated (router-level
-      `authenticateJWT` only) — same documented rationale as the sibling `/stock` route; gating web
-      would make it stricter than desktop.
-- [x] `loadDrawerBalances` switched to the existing `api.getRechargeDrawerBalances()`; the
-      `if (!window.api?.recharge) return;` guard and stale "IPC-only" comment deleted.
-- [x] Web e2e: `lira-web-020-recharge-history-drawer-balances.spec.ts` — seeds via
-      `POST /api/recharge/process`, drives the real page, asserts drawer stat + history modal.
-      **Executed 2026-08-08: both tests PASSED** in a full 59/59 `test:e2e:web` run.
-- [x] Rule 17: new component test (adapter-mocked, zero `window.api`) observed failing 2/2 pre-fix,
-      passing post-fix. Backend +5 route tests. Full `yarn test` exit 0 on the combined tree:
-      backend 38/521, frontend 110/849+1, core 154/1658.
-
-### Outcome note
-
-A THIRD unmigrated raw call was found in the same feature during the sweep —
-`TelecomForm.tsx:~1198` `window.api.recharge.updateMetadata` (history-edit path). Out of this
-ticket's named scope; filed as **LIRA-109** so it doesn't vanish.
-
-### Files to Modify
-
-| Layer    | File                                                          | Change                                |
-| -------- | ------------------------------------------------------------- | ------------------------------------- |
-| Backend  | `backend/src/api/recharge.ts`                                 | Add `/history` route                  |
-| Frontend | `frontend/src/api/backendApi.ts`, `.../ElectronApiAdapter.ts` | `getRechargeHistory` wrapper          |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`     | Both call sites switched to dual-mode |
-
----
-
-## LIRA-115: Refunding a session-basket item never returns the customer's cash (live money loss)
-
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Transactions / Sessions               |
-| **Type**              | Bug (money loss)                      |
-| **Priority**          | **HIGH — live money**                 |
-| **Status**            | **FIX IMPLEMENTED (option (a)) — pending e2e + orchestrator review/commit** |
-| **Affected Modules**  | Transactions, Customer Sessions, Financial Services |
-| **Assigned To**       | —                                      |
-| **Depends On**        | —                                      |
-| **Source Plan**       | Owner report 2026-08-08, reproduced   |
-
-### Summary
-
-Owner: *"Refund of a service txn where customer paid 1010$, cost 1008$, is adding back into drawer
-1008$ not 1010$."* **Reproduced.** Fires only when the item was sold through a **session basket**
-(customer cart) — the direct single-item sale path is correct
-(`TransactionRepository.refundCostPriceFlow.test.ts` proves it).
-
-Mechanism:
-- At sale time the **cost leg** is written with `transaction_id = <item's own txn id>`.
-- The **customer's cash leg** is deliberately skipped for basket items (`deferPayment`) and written
-  later by `SessionPaymentService.recordBasketPayment` → `insertSessionLeg` with
-  **`transaction_id = NULL`, `session_id = <basket session>`** — pooled across every item in the
-  basket.
-- `_reversePayments` queries **only** `WHERE transaction_id = ?`. It finds the cost leg, reverses
-  $1008 into the provider drawer, and never sees the customer's $1010. **General is untouched.**
-
-**Worse than reported: `voidTransaction` has the identical hole and no warning modal** — the
-frontend at least half-knows (`TransactionsViewer.handleRefund` detects `session_id` and skips part
-of the flow); void has nothing.
-
-### Design decision required (not a patch)
-
-When one item of a multi-item basket is refunded, which item owns the pooled cash? The codebase's
-own precedent for this class (split-group checkouts, `_assertReversible` + `voidCheckoutGroup`) is
-to **refuse the per-item reversal and require a group-level one**.
-
-- [x] **Recommended (a) — IMPLEMENTED**: gate session-linked rows out of per-item refund/void with a
-      clear message, and route to a basket-level reversal — mirrors the split_group precedent, lowest
-      risk.
-- [ ] (b): implement true per-item reversal of a pooled payment (proportional reallocation) — a real
-      accounting design, materially more work. Not built (a) was chosen).
-
-### Fix implemented (2026-08-09)
-
-- `TransactionRepository._assertReversible` gained a session-basket check, shaped exactly like the
-  existing `split_group` check immediately above it (rule 14): any row linked via
-  `customer_session_transactions.unified_transaction_id` now hard-refuses a bare
-  `voidTransaction`/`refundTransaction` with `"This transaction is part of session basket #N;
-  void/refund the whole basket instead."` — before any write (the throw is before
-  `this.transaction()` opens).
-- New repository methods `voidSessionBasket(sessionId, userId)` and
-  `refundSessionBasket(sessionId, userId)` are the basket-level route: they loop every item linked to
-  the session via the EXISTING per-item reversal (`_voidTransactionInternal`/
-  `_refundTransactionInternal` with a new `allowSessionMember: true` bypass) — so every module-specific
-  side effect (cost/provider-drawer leg, profit stamp, carrier-line movements, supplier-ledger
-  siblings, partner ledger) is reversed exactly the way a normal single-item void/refund already
-  does, nothing reimplemented — PLUS two new steps that only run ONCE for the whole basket:
-  `_reverseSessionPooledPayments` (negates the pooled `payments` row(s), `transaction_id IS NULL,
-  session_id = ?`) and `_cancelSessionDebt` (negates the pooled `debt_ledger` `'Session Debt'` row —
-  closes the gap `transactionTypes.ts`'s own doc comment named but never implemented: *"reversed by
-  the session flow, not the generic path"* — that flow now exists). A `_assertSessionBasketReversible`
-  up-front guard refuses a second call on an already-reversed basket (idempotency without
-  double-reversal risk).
-- Regression test file (now tracked — see rule 17/.gitignore note below):
-  `TransactionRepository.refundSessionBasketCostPriceFlow.test.ts` — 8 tests: the original SANITY
-  case: two "refused" tests (void + refund) proving the guard fires and nothing partial persists;
-  a nets-to-zero proof for `refundSessionBasket` (drawer + profit, CASH-paid basket); a
-  CUSTOMER_ACCOUNT variant proving `_cancelSessionDebt` nets the pooled debt to 0 (the owner's
-  literal payment method, General never touched); a `voidSessionBasket` parity test; a double-call
-  idempotency-refusal test; and a 2-item basket test proving the pooled leg is reversed EXACTLY ONCE,
-  not once per item.
-- **Known gap, named on purpose (not silently dropped)**: `voidSessionBasket`/`refundSessionBasket`
-  are NOT yet wired to IPC/REST/a frontend button — building that blind (this pass could not run
-  `yarn dev`/e2e/launch Electron to verify a new UI flow) risked shipping an unverifiable new surface.
-  `TransactionsViewer.tsx` now HIDES the per-item Void/Refund buttons for any session-basket row
-  (mirrors the split_group button-hiding treatment) and shows an explanatory label ("Basket item —
-  see admin to reverse") instead of a button that would just surface the guard's error after a click.
-  Today an admin can still reverse a basket via a REPL/console call to the new repository methods;
-  wiring a real "Void/Refund entire basket" button (IPC handler + REST route + preload/adapter
-  binding + UI) is the explicit follow-up, same shape as `voidCheckoutGroup`'s existing wiring.
-- **Also a known, pre-existing, NOT-newly-introduced gap**: if an item was refunded through the OLD
-  buggy per-item path *before* this fix shipped, its pooled cash is already lost and this fix does
-  not retroactively recover it (no backfill was attempted — out of scope for "stop further loss").
-
-### Acceptance Criteria
-
-- [x] Failing-first test (rule 17) reproducing 1010/1008 through the session-basket path — the
-      pre-existing untracked repro (adapted into the "FIXED" suite above; observed failing against
-      the pre-fix code via `git stash`, both as a TS compile error — the new API doesn't exist yet —
-      and, with only the guard line disabled, as a runtime assertion failure on the two refusal tests).
-- [x] Rule 20: create + reverse nets to **0 per drawer per currency** for the chosen path (drawer +
-      profit + debt_ledger all proven in the test file above).
-- [x] **`voidTransaction` gets the same treatment as `refundTransaction`** — both gated identically,
-      both proven.
-- [ ] e2e on both transports — NOT run this pass (explicitly out of scope per this task's own
-      instructions: no `yarn dev`/`test:e2e`/`test:e2e:web`). The hidden-button frontend change has
-      no e2e coverage yet either.
-
-### Files Modified
-
-| Layer   | File                                                     | Change                          |
-| ------- | ------------------------------------------------------------ | ---------------------------------- |
-| Backend | `packages/core/src/repositories/TransactionRepository.ts` | Session-aware refund/void gating + `voidSessionBasket`/`refundSessionBasket` |
-| Tests   | `packages/core/src/repositories/__tests__/TransactionRepository.refundSessionBasketCostPriceFlow.test.ts` | Now tracked (removed from `.gitignore`); 8 tests |
-| Frontend| `frontend/src/features/audit/pages/TransactionsViewer.tsx` | Hide per-item Void/Refund buttons on session-basket rows, explain why |
-
----
-
-## LIRA-113: Should a DAYS sale consume the shop line's validity? (reverses D12) — NEEDS INTERVIEW
+> **Last Restructured:** 2026-08-12 (see "How to keep this file honest" below)
+> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW` | `PARTIAL`
+
+---
+
+## How to keep this file honest
+
+This file tracks two things ONLY: (1) genuinely open work, and (2) a short "Recently Closed" window
+of context around the current sprint. It does **not** hold multi-month history — that lives in
+`docs/plans/done_plans/`.
+
+- **Closed sprints get archived, not deleted.** When a sprint's board is fully (or mostly) closed,
+  its ticket bodies move verbatim to `docs/plans/done_plans/SPRINT_N_ARCHIVE_2026-08-12.md`, leaving
+  only still-open tickets behind here. See the **Archive Index** at the bottom of this file for what
+  moved where. This restructuring (2026-08-12) archived Sprints 1-5 wholesale and the already-closed
+  ~80% of Sprint 6, per `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` — a read-only audit
+  that found 67 of 86 tracked items in this file were already closed history, not backlog, and that
+  only 19 were genuinely still open.
+- **Spec-name indexes are not ticket boards.** A table mapping `LIRA-NNN` to a `lira-NNN-spec-name`
+  e2e spec filename has no Status column, so a naive "not DONE" grep silently miscounts every one of
+  its rows as open. That table now lives in `frontend/tests/e2e-electron/README.md`'s coverage index
+  (and, verbatim, in the Sprint 1 archive) — not here.
+- **`WEB_PARITY_ROADMAP.md` runs its own, independent `lira-NNN` numbering** for e2e spec files,
+  assigned chronologically as specs were written — it is NOT the same sequence as this file's
+  `LIRA-NNN` ticket IDs, and several numbers collide: 084, 096, 099 and 101 each name two completely
+  different, unrelated pieces of work in the two files. `git log --grep=LIRA-0NN` or a plain-text
+  search over commit messages can therefore return the WRONG story for those four numbers unless you
+  also check commit dates. This collision is exactly what let 6 stale status markers in this file go
+  uncorrected for days (see `SPRINT_INVENTORY_2026-08-12.md` §2, §4) — check commit dates, not just
+  grep hits, before trusting a ticket's apparent git history.
+- **Before marking anything DONE, fix it everywhere it's mentioned** — a ticket's own detail block
+  AND any summary board table that also lists it. Two of the six stale markers fixed in this
+  restructuring (LIRA-104, LIRA-111) were the same file contradicting itself: the ticket's own detail
+  block said TODO while a board 350 lines below it already said DONE.
+
+---
+
+## Recently Closed (2026-08-12)
+
+> Everything below closed **today** (2026-08-12) and is kept here — rather than immediately
+> archived — because it is recent enough to still be useful context for anyone picking up related
+> work. It will move to the Sprint 6 archive (`docs/plans/done_plans/SPRINT_6_ARCHIVE_2026-08-12.md`)
+> in a future pass once it ages out. Ticket bodies below are otherwise verbatim from before this
+> restructuring; two carry an explicit correction (LIRA-113's stale status; LIRA-119's supersession
+> note) per `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` §4.4-4.5.
+
+---
+
+## LIRA-113: Should a DAYS sale consume the shop line's validity? (reverses D12) — DONE
 
 | Field                | Value                              |
 | --------------------- | ------------------------------------ |
 | **Epic**              | Recharge / Carrier Lines              |
 | **Type**              | Product decision                      |
 | **Priority**          | Medium                                |
-| **Status**            | TODO — **owner confirmed 2026-08-08: D12 IS REVERSED** |
+| **Status**            | **DONE** `eb820c7` (corrected 2026-08-12 — this detail block read TODO everywhere in the file; owner confirmed 2026-08-08 D12 is reversed, shipped 2026-08-11 decrementing the SELECTED carrier line, guarded by 3 new rule-20 VOID/REFUND tests) |
 | **Affected Modules**  | Recharge > Telecom, Carrier Lines     |
 | **Assigned To**       | —                                      |
 | **Source Plan**       | Owner report 2026-08-08 vs `done_plans/CARRIER_LINES_VALIDITY_PLAN.md` D12 |
@@ -2858,162 +124,6 @@ transaction generically.
 
 Repro test written (currently failing by design):
 `packages/core/src/repositories/__tests__/RechargeRepository.daysChargeValidityDecrement.test.ts`
-
----
-
-## LIRA-114: FOR-partner service on "Debt" appears to move General — NEEDS INTERVIEW
-
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Services / Partners                   |
-| **Type**              | Investigation → likely UX fix         |
-| **Priority**          | Medium                                |
-| **Status**            | **NEEDS INTERVIEW**                   |
-| **Affected Modules**  | Financial Services, Custom Services, Partners |
-| **Assigned To**       | —                                      |
-| **Source Plan**       | Owner report 2026-08-08 ('7welet souria') |
-
-### Summary
-
-Owner: *"a service for partner called '7welet souria' and payment method debt; it's affecting the
-general drawer."*
-
-**The literal scenario does NOT reproduce.** In `FinancialServiceRepository`, a FOR-partner service
-carrying a CUSTOMER_ACCOUNT leg is **rejected before any drawer write**
-(`assertNoCustomerAccountLeg` → *"A partner financial service cannot carry a CUSTOMER_ACCOUNT
-leg"*), and the whole transaction rolls back. 8 new tests + 27 existing partner tests + 5
-custom-service partner tests all confirm General delta = 0. (Note: the `DEBT` payment code was
-renamed `CUSTOMER_ACCOUNT` in migration v86; the UI label is still "Customer Account (Debt)".)
-
-**Most likely the report is about a different feature**: `CustomServiceRepository`'s FOR-partner
-branch posts a **cost outflow** (real money leaving for the provider) while the form still *shows*
-a Payment Method selector that is inert in FOR mode — producing exactly the "I chose Debt but the
-drawer moved" impression.
-
-### 🔴 CORRECTED 2026-08-09 — the "Services page" is `custom_services`, NOT `omt_whish`
-
-**The module labels and routes are crossed, and it misled two investigations:**
-
-| module key        | UI label      | route              |
-| ----------------- | ------------- | ------------------ |
-| `custom_services` | **"Services"**| `/custom-services` |
-| `omt_whish`       | "OMT/Whish"   | **`/services`**    |
-
-(`electron-app/create_db.sql:1218,1222`.) When the owner said "it's in the **Services** module",
-they meant the tile labeled *Services* — which is **`custom_services`** — not the `/services`
-route. A prior investigation "refuted" this ticket on the reasoning *"Services/index.tsx never sets
-cost/price, so cost 1008 / price 1010 cannot originate there"*. That reasoning was **correct about
-the code and wrong about which page** — `custom_services` DOES have cost/price fields, and the
-numbers fit it exactly.
-
-⇒ **The original hypothesis is back: this is `CustomServiceRepository`'s FOR-partner cost outflow.**
-
-**Owner confirmed 2026-08-09:** the transaction WAS entered with the **"For Partner"** checkbox
-ticked — *"yes confirmed it was for partner but it acts as through"*. That mismatch (labelled FOR,
-behaving like THROUGH) is now the core question of this ticket, not the drawer routing alone.
-Owner also confirmed: **keep the checkbox label "For Partner"** — do not rename it.
-
-### ⚑ EARLIER HANDOFF CONTEXT (superseded in part by the correction above)
-
-**The exact scenario, in the owner's words:**
-> *"7welet souria is the partner name. It's in the **Services** module… I entered **cost 1008** and
-> **price USD 1010** and **payment method customer account**."*
-
-So: **Services page** (`frontend/src/features/services/`, i.e. `FinancialServiceRepository`) — **not**
-Custom Services (the owner reports that page isn't even visible to them; the earlier diagnosis
-guessed Custom Services and that guess is now **ruled out**). Partner = *7welet souria*.
-Cost $1008, price $1010, payment method **Customer Account**. Observed: **General drawer moved.**
-
-**🔴 These are the same numbers as LIRA-115.** The refund report ("customer paid 1010, cost 1008,
-refund returned 1008") uses the identical figures — this is very likely **one transaction producing
-two symptoms**. Investigate them together; a single root cause may explain both, and fixing one
-blind could mask the other.
-
-**What the earlier (pre-clarification) diagnosis established — still valid, don't redo:**
-- The `DEBT` payment code was renamed `CUSTOMER_ACCOUNT` in migration v86. The UI label is
-  "Customer Account (Debt)". No row for a literal `"DEBT"` code exists.
-- **FOR**-partner + a `CUSTOMER_ACCOUNT` leg is **rejected before any drawer write** by
-  `assertNoCustomerAccountLeg` (~`FinancialServiceRepository.ts:1806`) — *"A partner financial
-  service cannot carry a CUSTOMER_ACCOUNT leg"* — and the whole `db.transaction` rolls back.
-- **THROUGH**-partner: `CUSTOMER_ACCOUNT` legs are explicitly skipped by the drawer-crediting loop
-  (`if (p.method === "CUSTOMER_ACCOUNT") continue;`, ~:2769) and booked to `debt_ledger` via
-  `bookClientDebtCharge`. General delta 0.
-- 8 tests documenting all of the above pass:
-  `packages/core/src/repositories/__tests__/FinancialServiceRepository.forPartnerDebtDrawer.test.ts`
-
-**⇒ Leading hypothesis for the next agent: the drawer movement is NOT the payment method — it's the
-COST leg.** With cost $1008 the cost/price flow (`useCostPriceFlow`,
-~`FinancialServiceRepository.ts:2093-2247`) posts a cost outflow to the provider's drawer. If the
-provider/partner has no mapped drawer, `paymentMethodToDrawerName` /
-`FALLBACK_DRAWER_MAP[...] ?? "General"` (`packages/core/src/utils/payments.ts`) **falls back to
-General**. That would put $1008 on General while the operator's chosen payment method (Customer
-Account) correctly moved nothing — matching the report precisely, and explaining why the refund
-also revolves around 1008.
-
-### What the next agent must do
-
-- [ ] Confirm which `partner_mode` the real transaction used (FOR vs THROUGH) — the two paths are
-      completely different and only one can be the subject.
-- [ ] Trace the $1008 cost leg's drawer resolution end-to-end and prove (test) whether it lands in
-      General via the unmapped-provider fallback.
-- [ ] Decide the accounting: for a partner service with a cost, **should** the cost outflow hit
-      General, a partner/provider drawer, or the partner ledger? Owner-facing question.
-- [ ] Investigate **jointly with LIRA-115** — same figures, probably the same transaction.
-
-### Separately flagged (own decision, don't lose it)
-
-The THROUGH-partner multi-leg loop credits General/PCD for real customer cash, while a stale
-single-leg path claims it should be skipped. One of the two is wrong; lock in whichever the owner
-confirms with a regression test. **Not changed this pass — needs the owner's decision, not a guess.**
-
-### ⚑ Joint investigation with LIRA-115, resolved (2026-08-09)
-
-**`same_transaction`: NOT the same transaction.** Traced every shipped UI path that can reach the
-Services cost/price flow (KatchForm, FinancialForm, CryptoForm, OmtWhishAppTransferForm,
-`Services/index.tsx`): every one of them hardcodes `partnerMode: "FOR"` for a partner selection, and
-a FOR-partner cost/price sale **forbids ALL payment legs outright** (`FinancialServiceRepository.ts`
-~1864-1868, *"the full selling price goes on the partner's tab"*) — so a partner-carrying cost/price
-item can never reach the session-basket/`deferPayment` path LIRA-115 actually reproduces (that path
-requires NO partner at all, per its own repro fixture). The owner's two reports share the SAME
-round numbers (cost 1008, price 1010) most likely because they explored the SAME cost/price flow
-twice — once with a partner attached, once inside a session basket — and reported both under one
-mental model ("the same sale"), not because one `createTransaction()` call produced both symptoms.
-
-**The literal LIRA-114 scenario (partner + cost/price + CUSTOMER_ACCOUNT) does not reproduce, and
-the code is behaving as designed — confirmed with a new regression test, no money changed:**
-`FinancialServiceRepository.forPartnerDebtDrawer.test.ts` gained a `"LIRA-114"` describe block
-(2 new tests) with the owner's EXACT figures (iPick, cost 1008, price 1010, partner "7welet souria"):
-
-1. Attaching a CUSTOMER_ACCOUNT leg (any IN-direction payment leg, in fact — see below) to a
-   FOR-partner cost/price sale throws **before any drawer write** — General/iPick delta 0, zero rows
-   written. The rejecting guard is actually `assertNoCounterPayment` (*"a partner financial service
-   takes no counter payment"*), not `assertNoCustomerAccountLeg` — a FOR-partner cost/price sale
-   rejects the customer "paying" via ANY method at all (there is no walk-in customer on a partner
-   sale), so the operator's payment-method choice is never even evaluated. This is a MORE total
-   rejection than the ticket's original hypothesis, not a narrower one.
-2. The only way a FOR-partner cost/price sale succeeds (no payment legs at all) correctly debits the
-   cost from the **provider's own drawer** (iPick, -1008) — never General — and books the full price
-   (1010) as a DEBIT on `partner_ledger` (`FOR_IPICK`). This is the shop's own stock being consumed;
-   General movement would be the ACTUAL bug. `mapDrawerName` only falls back to `"General"` for
-   provider `"BOB"`/`"OTHER"`, which no shipped form ever sends (confirmed by the original diagnosis,
-   not re-verified this pass — grep still shows zero matches in `frontend/src`).
-
-**Conclusion: no money-routing bug found for the literal report; no code change made to drawer
-routing.** Per this ticket's own decision tree ("if $1008 movement IS correct accounting, do NOT
-change the money"), the cost/price flow's behavior for every provider actually reachable from the
-UI is correct, and is now locked in by the two new tests above. The genuinely inconsistent behavior
-that WAS found (the "Separately flagged" THROUGH-partner note above) is real but requires an owner
-decision this pass didn't have — left untouched, as instructed.
-
-**Recommended next step (not done this pass — needs the owner, not more code archaeology):** get the
-owner's exact click path (or a screen recording) for the ORIGINAL "affecting the general drawer"
-report. Every reachable code path was traced and none reproduces it verbatim; without the actual
-click path, any further "fix" would be guessing at a UX explanation for behavior that may not even be
-this ticket's mechanism.
-
-**Status: investigation closed for the literal report (correct-accounting, tests lock it in);
-NEEDS INTERVIEW remains open only for (a) the owner's exact click path and (b) the THROUGH-partner
-inconsistency decision.**
 
 ---
 
@@ -3112,6 +222,18 @@ line in the settle modal. Owner deferred: "we will get back to it later."
 
 - [ ] Net payment + total respect the commission/rate currency; payment currency defaults to it.
 - [ ] Rule 17 failing-first; rule 20 net-to-0 preserved.
+
+### Supersession note (2026-08-12, per `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` §4.5)
+
+The "Still OPEN" callout above is stale for the case it was filed against. **LIRA-137** (below)
+did exactly what was proposed here, for the bills-only shape: "'Total owed'/'Net payment to'
+dropped for this shape, replaced by '{supplier} owes you: `<commission>`'." LIRA-137's own metadata
+says so explicitly: `Depends On | LIRA-112, LIRA-119 (partial fix, superseded here)`. This ticket's
+remaining ask is therefore resolved for its filed scope (Katsh bills). Any true remainder — e.g. the
+same "owes you" line once OMT/WHISH gets commission-at-settlement — is now tracked as **LIRA-138**
+(Phase 2), not a separate LIRA-119 gap. Status stays **PARTIAL** (not DONE) because the checkbox
+above (respecting commission/rate currency + rule 17/20 tests) was never separately proven; it is
+kept here rather than archived since the correction is still fresh.
 
 ---
 
@@ -3697,508 +819,6 @@ nothing else in the whitelist is affected.
 
 ---
 
-## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
-
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Custom Services / Inventory           |
-| **Type**              | Test coverage gap                     |
-| **Priority**          | Medium                                |
-| **Status**            | TODO                                  |
-| **Affected Modules**  | Custom Services, Inventory            |
-| **Source Plan**       | Found while shipping §2b (2026-08-09) |
-
-### Summary
-
-§2b (`69c29e8`) made an inventory-backed custom service consume stock, driven by a new
-`custom_services.product_id`. The backend is well covered (`CustomServiceRepository.stock.test.ts`,
-plus the scenarioMatrix's A1/A2/A3 divergence), but **no e2e spec ever picks a product from the
-inventory SearchBar.**
-
-All four specs that touch `custom-service-item-search` — `lira-088`, `lira-093`, `lira-094`,
-`lira-135` — use `.fill(text) + press("Enter")`, i.e. the **free-text commit path**, which sends no
-`product_id`. So a UI-side regression (the page failing to send `product_id`, or sending the wrong
-one) would pass every test we have.
-
-This is exactly the layer-seam problem this suite has been bitten by before: specs that hand-build
-IPC payloads bypass the frontend entirely and cannot catch a frontend↔repository mismatch.
-
-### Acceptance Criteria
-
-- [ ] New desktop e2e spec: seed a product with known stock → open Custom Services → **pick it from
-      the SearchBar dropdown** (not fill+Enter) → submit → assert the product's `stock_quantity`
-      dropped by exactly 1 → void/refund the transaction → assert it returns to the original value.
-- [ ] Assert by identity and delta (rule 15) — snapshot stock immediately before, never absolute.
-- [ ] Also assert the negative case in the same spec: a **free-text** service leaves stock
-      untouched. That is the regression that matters most, since all three input paths share one
-      backend code path.
-- [ ] Consider a web e2e twin (rule 19) if the pick flow differs in browser mode.
-
-### Files to Modify
-
-| Layer | File                                                    | Change   |
-| ----- | ----------------------------------------------------------- | ------------ |
-| E2E   | `frontend/tests/e2e-electron/lira-117-custom-service-stock.spec.ts` (new) | New spec |
-
----
-
-## LIRA-116: Rename the crossed "Services" module labels/routes (owner approved)
-
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Naming / DX                           |
-| **Type**              | Refactor (naming only)                |
-| **Priority**          | Medium                                |
-| **Status**            | TODO — **owner approved 2026-08-09**  |
-| **Affected Modules**  | Custom Services, OMT/Whish            |
-| **Source Plan**       | Found while diagnosing LIRA-114       |
-
-### Summary
-
-The two modules have crossed names, which has already cost real debugging time:
-
-| module key        | UI label       | route              | repository                  |
-| ----------------- | -------------- | ------------------ | --------------------------- |
-| `custom_services` | **"Services"** | `/custom-services` | `CustomServiceRepository`   |
-| `omt_whish`       | "OMT/Whish"    | **`/services`**    | `FinancialServiceRepository`|
-
-So "the Services page" means `custom_services`, while the `/services` ROUTE belongs to OMT/Whish.
-This directly caused LIRA-114 to be wrongly refuted: an investigation reasoned *"Services/index.tsx
-never sets cost/price, so the owner's cost 1008 / price 1010 can't come from there"* — true of
-`/services`, irrelevant to the page the owner actually meant. Two separate agent investigations
-were misled by it.
-
-Owner approved the rename 2026-08-09 ("rename yes").
-
-### Acceptance Criteria
-
-- [ ] Decide the target naming (suggest: keep the UI label **"Services"** for `custom_services`
-      since that is what the owner calls it, and move its route to `/services`; rename the
-      `omt_whish` route to `/omt-whish` to match its "OMT/Whish" label). Whatever is chosen, the
-      **label, route, module key, repository name, and feature folder should agree**.
-- [ ] Migration for the `modules` table `route` values (rule 10: BOTH `migrations/index.ts` and
-      `create_db.sql`), plus `ActiveModuleContext.tsx`'s route→key map.
-- [ ] Update `App.tsx` routes, feature folder names if renamed, and every e2e spec that navigates
-      to either route (grep `"/services"` and `"/custom-services"` across `frontend/tests/`).
-- [ ] ⚠ **Old route must not 404 for a user mid-session** — consider a redirect, and check whether
-      any stored state (last-visited route, deep links) references the old paths.
-- [ ] Full suites + desktop/web e2e green.
-
-### Note
-
-**Do NOT rename the "For Partner" checkbox** — owner explicitly wants that label kept as-is
-(2026-08-09).
-
----
-
-## LIRA-112: iPick bills must book NO commission (only Katsh pays) — corrects shipped behavior
-
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Suppliers / Recharge                  |
-| **Type**              | Bug (pre-existing, carried forward)   |
-| **Priority**          | **High** (wrong money on the supplier ledger) |
-| **Status**            | DONE (2026-08-09, `be4143c`) — v151, e2e 252/252 |
-| **Affected Modules**  | Recharge > iPick/Katsh, Suppliers     |
-| **Assigned To**       | —                                      |
-| **Depends On**        | LIRA-089 (DONE)                       |
-| **Source Plan**       | Owner correction 2026-08-08 (COMMISSION_AT_SETTLEMENT_PLAN §6 D12) |
-
-### Summary
-
-Owner: **iPick bills earn the shop NO commission. Katsh bills earn 20,000 LBP per bill.**
-
-Both the pre-plan code and shipped Phase 1 treat the two providers identically:
-- Legacy booking: `Auto: BILL commission from ${data.provider}` fired for ANY bill provider
-  (`FinancialServiceRepository.ts:~3337`) — so **iPick has been credited 20,000 LBP per bill it
-  never earned**, inflating the iPick supplier balance in the shop's favour.
-- Phase 1: `commission_model = data.serviceType === "BILL" ? 1 : 0` (`:1046`) — no provider check,
-  so iPick bills now also join the commission settlement queue.
-
-Neither is correct. This is a pre-existing bug we carried forward, not a Phase 1 regression — but
-Phase 1 is the right place to fix it since the machinery now exists.
-
-### Target behavior
-
-- **Katsh**: bills join the settlement queue; the Suppliers settle screen shows an **estimated
-  commission of 20,000 LBP × bills sold** (this is exactly the RATE × count mode Phase 0 built —
-  drive it from the supplier's stored preference rather than a hardcode).
-- **iPick**: bills book **no commission at all**, at creation or settlement, and do not appear in
-  the commission settlement queue.
-- Make it **data-driven**, not a provider name hardcoded in a repository: use the v150
-  `suppliers.commission_entry_mode` / `commission_rate` columns (Katsh → RATE @ 20,000; iPick →
-  none). Note `commission_rate` was specced as USD — bills are LBP, so a rate **currency** is
-  needed (extra column or a documented convention). Rule 14: one definition of "does this supplier
-  pay commission".
-
-### Acceptance Criteria
-
-- [ ] Failing-first test (rule 17): an iPick bill books zero commission rows at creation AND is
-      absent from the unsettled commission queue; a Katsh bill does both.
-- [ ] Settle screen prefills Katsh's estimate = 20,000 LBP × bill count, from stored config.
-- [x] Historical iPick credits: **owner decided 2026-08-08 — LEAVE THEM.** ("Historical ipick leave
-      them i dont care.") No backfill, no correcting migration, no reporting task. Consistent with
-      the D3 cutover principle: history keeps the old model, the fix applies forward only. Do NOT
-      let a future review re-open this as an unfinished data-integrity item.
-- [ ] Full suites + desktop/web e2e green; extend `lira-089` / `lira-web-021` with an iPick case.
-
-### Files to Modify
-
-| Layer    | File                                                          | Change                        |
-| -------- | ---------------------------------------------------------------- | -------------------------------- |
-| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts` | Provider-aware commission gating |
-| Backend  | `packages/core/src/db/migrations/index.ts` + `create_db.sql`   | Rate currency + Katsh/iPick seed |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Estimated-commission prefill     |
-
----
-
-## LIRA-111: 8 e2e specs navigate to `/audit` without the documented remount bounce
-
-| Field                | Value                              |
-| --------------------- | ------------------------------------ |
-| **Epic**              | Test infrastructure                   |
-| **Type**              | Latent flake / hygiene                |
-| **Priority**          | Low                                   |
-| **Status**            | TODO                                  |
-| **Affected Modules**  | e2e suite                             |
-| **Assigned To**       | —                                      |
-| **Depends On**        | —                                      |
-| **Source Plan**       | Found while shipping Phase 0+1 (2026-08-08) |
-
-### Summary
-
-The app uses **hash routing**: `navigateTo("/audit")` while the app is ALREADY parked on `/audit`
-fires no `hashchange`, so `AuditPage`/`TransactionsViewer` never remounts and the table keeps
-showing whatever it fetched on its first visit. `frontend/tests/e2e-electron/README.md:26-27`
-documents the fix — bounce `navigateTo("/")` → `navigateTo("/audit")`.
-
-These 8 specs navigate to `/audit` WITHOUT the bounce and pass today only because nothing currently
-running before them leaves the app parked there:
-
-`lira-063-omt-whish-optional-client`, `lira-064-payment-legs-summary`,
-`lira-073-datatable-export-columns`, `lira-087-currency-by-date`, `lira-092-supplier-payment-void`,
-`lira-104-refund-account-debt`, `lira-124-split-void-group`, `lira-transactions-timezone`
-
-**Risk is now higher than before**: `lira-session-grouping-ui.spec.ts` (added 2026-08-08 for
-LIRA-102) ends its test still parked on `/audit`, which is exactly what exposed this in
-`lira-transactions-hidden-types` and cost three agent rounds to root-cause (it presents as
-"the row exists in the DB but isn't rendered" — no error, just an absent row).
-
-### Acceptance Criteria
-
-- [ ] Add the documented `/` bounce to all 8 specs (one line each).
-- [ ] Consider the systemic fix instead/additionally: either have `navigateTo` detect a same-route
-      call and force a remount, or add an `afterEach` that parks the app on `/` so no spec can leave
-      a stale viewer for its neighbour.
-- [ ] Full desktop e2e still 252/252.
-
----
-
-## LIRA-110: Daily closing sums financial-services commission with ZERO gates
-
-| Field                | Value                                                                  |
-| -------------------- | ---------------------------------------------------------------------- |
-| **Epic**             | Closing / Profits                                                      |
-| **Type**             | Bug (candidate — same class as LIRA-108)                               |
-| **Priority**         | Medium                                                                 |
-| **Status**           | TODO                                                                   |
-| **Affected Modules** | Closing                                                                |
-| **Assigned To**      | —                                                                      |
-| **Depends On**       | —                                                                      |
-| **Source Plan**      | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers) |
-
-### Summary
-
-`ClosingRepository.ts:689-696` computes the daily financial-services commission figure with a
-third, fully ungated `SUM(commission)` — missing not just the LIRA-108 counterparty gates but even
-`is_settled` and `notRefunded`. A refunded or unsettled or partner-pending commission row inflates
-the closing screen's daily commission number. Also rule-14 debt: a third hand-rolled copy of the
-"realized commission" concept instead of reusing one definition.
-
-### Acceptance Criteria
-
-- [ ] Money-eyes pass on what the closing figure is MEANT to show (day's earned commission?
-      cash-collected commission?) — the closing screen may intentionally differ from Profits
-      (e.g. cash-basis vs recognition-basis). Decide against docs, not taste.
-- [ ] Failing-first repro (rule 17), then either reuse the gated definition (rule 14) or document
-      the intentional difference in the method comment + COUNTERPARTY_LEDGERS.md.
-- [ ] LIRA-098's guard only scans ProfitRepository — consider extending its file list to
-      ClosingRepository or adding a sibling guard.
-
-### Files to Modify
-
-| Layer   | File                                                  | Change           |
-| ------- | ----------------------------------------------------- | ---------------- |
-| Backend | `packages/core/src/repositories/ClosingRepository.ts` | Gate or document |
-
----
-
-## LIRA-109: Recharge — `updateMetadata` still raw `window.api` (history-edit path)
-
-| Field                | Value                                              |
-| -------------------- | -------------------------------------------------- |
-| **Epic**             | Recharge / Web Parity                              |
-| **Type**             | Bug / Dual-Transport                               |
-| **Priority**         | Low                                                |
-| **Status**           | DONE (2026-08-08) — web e2e executed green (60/60) |
-| **Affected Modules** | Recharge                                           |
-| **Assigned To**      | —                                                  |
-| **Depends On**       | —                                                  |
-| **Source Plan**      | Found during LIRA-103 (2026-08-08)                 |
-
-### Summary
-
-`TelecomForm.tsx` (~line 1198, `onUpdateMetadata` handler for the history modal's edit feature)
-still calls raw `window.api.recharge.updateMetadata` — the third and last unmigrated recharge call
-site after LIRA-103 fixed history + drawer-balances. In a browser, editing a history row's metadata
-silently fails. Same fix shape as LIRA-103: mirror the IPC handler as a REST route (check its
-roles!), dual-mode wrapper, adapter type, switch the call site (rule 19).
-
-### Acceptance Criteria
-
-- [x] REST route `POST /api/recharge/update-metadata`: `requireRole(["admin","staff"])` matching
-      the IPC handler verbatim; `editedBy` derived from the JWT username, never the body (a test
-      sends a spoofed `editedBy` and asserts it's ignored); IPC-identical envelope.
-- [x] **Second finding confirmed and fixed on BOTH transports**: the IPC handler had NO Zod
-      validation (raw typed arg trusted verbatim). One shared `updateRechargeMetadataSchema`
-      (`validators/recharge.ts`) now feeds `validatePayload` (IPC) and `validateRequest` (REST) —
-      rules 14 + 19b, closed in one move rather than validating only the new route.
-- [x] Dual-mode wrapper + adapter + `ApiAdapter` type; `TelecomForm.tsx` call site switched
-      (one-line swap — the adapter was already in scope).
-- [x] Rule 17 component test (2 tests, observed failing pre-fix); lira-web-020 extended with the
-      edit path — **executed 2026-08-08: 60/60 web suite green** (59 + the new case).
-- [x] The ticket's predicted `phone_number`/`client_phone` mismatch was a false alarm — the
-      `client_phone` naming belongs to the SALES module's own updateMetadata; the recharge chain
-      agrees on `phone_number` at all four layers (checked, not assumed).
-
-> Note: `electron-app/` source changed (handler + schemas) — the next DESKTOP e2e session needs its
-> usual `yarn dev` rebuild first or the old dist runs. No existing desktop spec exercises this path
-> (grep-verified), so nothing needed re-running today.
-
-### Files to Modify
-
-| Layer    | File                                                        | Change                    |
-| -------- | ----------------------------------------------------------- | ------------------------- |
-| Backend  | `backend/src/api/recharge.ts`                               | Add update-metadata route |
-| Frontend | `frontend/src/api/backendApi.ts`, `ElectronApiAdapter.ts`   | Dual-mode wrapper         |
-| Frontend | `frontend/src/features/recharge/components/TelecomForm.tsx` | Switch call site          |
-
----
-
-## LIRA-104: Web-mode REST write routes create no audit trail
-
-| Field                | Value                                              |
-| -------------------- | -------------------------------------------------- |
-| **Epic**             | Web Parity / Security                              |
-| **Type**             | Design / Feature                                   |
-| **Priority**         | Medium                                             |
-| **Status**           | TODO                                               |
-| **Affected Modules** | All web-migrated modules                           |
-| **Assigned To**      | —                                                  |
-| **Depends On**       | —                                                  |
-| **Source Plan**      | `docs/plans/todo_plans/WEB_PARITY_ROADMAP.md` (§9) |
-
-### Summary
-
-Every Electron IPC handler that writes money/state calls the audit logger — 31 handler files call
-`audit(...)`. Zero REST routes do (`grep audit( backend/src/api/*.ts` → 0 matches across every
-migrated module: loto, sessions, holdMoney, servicePresets, sales, recharge, …). A web-mode write
-today leaves no audit trail at all. Needs a design decision on where/how REST audit entries should
-be recorded (same `audit()` call reused from `req.user`? a middleware wrapper?) before broad
-implementation — flagging as TODO rather than NEEDS INTERVIEW since the shape of the fix is fairly
-standard, but the rollout touches every REST route file.
-
-### Acceptance Criteria
-
-- [ ] Design: how REST routes record audit entries (reuse the existing `audit()` helper, sourcing
-      the actor from `req.user` instead of an IPC-side `auth.userId`).
-- [ ] Applied consistently across every REST write route.
-- [ ] Test asserting a REST write produces the same audit entry shape an equivalent IPC call would.
-
-### Files to Modify
-
-| Layer   | File                                      | Change                    |
-| ------- | ----------------------------------------- | ------------------------- |
-| Backend | `backend/src/api/*.ts` (all write routes) | Add audit-trail recording |
-
----
-
-## LIRA-105: Payment-method unknown-code fallback disagrees between `payments.ts` and `PaymentMethodRepository`
-
-| Field                | Value                                                                 |
-| -------------------- | --------------------------------------------------------------------- |
-| **Epic**             | Payments (shared)                                                     |
-| **Type**             | Bug (latent)                                                          |
-| **Priority**         | Low                                                                   |
-| **Status**           | DONE (2026-08-08, `c9f2262` + regression fix `6f74cfd`)               |
-| **Affected Modules** | Payments (shared utility)                                             |
-| **Assigned To**      | —                                                                     |
-| **Depends On**       | —                                                                     |
-| **Source Plan**      | `docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md` (§2 bug 8) |
-
-### Summary
-
-`packages/core/src/utils/payments.ts`'s `isDrawerAffectingMethod`/`isNonCashDrawerMethod` treat an
-unregistered payment-method code as drawer-affecting (`true`) when `getByCode()` returns null;
-`PaymentMethodRepository.isDrawerAffecting` treats the same case as `false`. Exposure is currently
-latent only — no code path can create an unregistered method code today (the retired `"FEE"`
-literal that used to trigger this was removed) — but the two predicates disagree and should be
-reconciled before that changes.
-
-### Acceptance Criteria
-
-- [x] Pick one semantics for an unregistered method code (matched the repository, `false`) and align
-      both predicates — defined ONCE as `UNREGISTERED_METHOD_IS_DRAWER_AFFECTING` (rule 14).
-- [x] Test proving the two predicates now agree for an unregistered code (5 new tests; the 3
-      agreement assertions were observed FAILING pre-fix per rule 17).
-
-### Outcome — this was more than a consistency cleanup
-
-Reviewing the call sites showed `false` is not merely the _consistent_ choice but the **safer** one:
-the permissive `true` fallback let an unregistered code fall through to
-`paymentMethodToDrawerName`'s own unknown-code default (`FALLBACK_DRAWER_MAP[method] ?? "General"`),
-silently posting real money into the General drawer for a code nobody configured. All ~40 call sites
-across every money repository were reviewed — each either skips to a debt branch on `false` or throws;
-none relied on `true` to post a legitimate drawer movement.
-
-Exposure was confirmed latent (verified by grep, not assumed): the retired `"FEE"` literal is gone
-(owner decision #9) and the `"MULTI"` sentinel is hard-rejected in `RechargeRepository.processRecharge`
-before reaching these functions. The DB-_unavailable_ `catch` fallback is deliberately untouched and
-still uses the hardcoded map, so the `SessionPaymentService.basket` tests that omit the
-`payment_methods` table on purpose keep passing.
-
-**Residual (not blocking, worth a follow-up):** every Zod leg schema types `method` as a free
-`z.string().min(1)` with no enum restricting it to registered codes, so a bogus method string can
-still reach the repositories from an external caller. Pre-existing and orthogonal — and this fix makes
-that scenario safer (reject/no-op instead of a silent post to General) rather than worse.
-
-### Regression + fix (`6f74cfd`) — read this before touching `payments.ts` again
-
-The first attempt (`c9f2262`) was verified against the **core** suite only, and broke
-`backend/src/__tests__/core_payments.test.ts`. The lesson is not "run more tests" but **what** the
-failure exposed: `c9f2262` split two cases that had always shared one return path — "DB unavailable"
-(the `catch`) and "DB reachable but no row" — and sent the latter to `false`. A canonical method's row
-can legitimately be missing while the DB is fine:
-
-1. `TenantRepository.seedPaymentMethods()` seeds OMT/WHISH/BINANCE with `is_system = 0` — **deletable
-   per tenant.** A shop deleting its OMT method would have silently stopped crediting the `OMT_App`
-   drawer. Real money.
-2. `backend/jest.config.cjs` mocks better-sqlite3, so `getByCode()` resolves `undefined` for every
-   code and the `catch` path is never reached in that workspace.
-
-Fix: `CANONICAL_METHODS` (derived from `FALLBACK_DRAWER_MAP` keys ∪ `NON_DRAWER_METHODS`, so it can't
-drift). "Reachable but no row" returns `false` ONLY for a non-canonical code; a canonical one falls
-through to the hardcoded-map answer. `core_payments.test.ts` was deliberately left **unmodified** —
-its expectations were right all along, and editing it would have buried the bug.
-
-Full `yarn test` after, exit 0: backend 38/38 · 516 tests, frontend 107/107 · 843+1 skipped,
-core 153/153 · 1654 tests.
-
-### Files to Modify
-
-| Layer   | File                                                        | Change                      |
-| ------- | ----------------------------------------------------------- | --------------------------- |
-| Backend | `packages/core/src/utils/payments.ts`                       | Align fallback semantics    |
-| Backend | `packages/core/src/repositories/PaymentMethodRepository.ts` | Reference point for the fix |
-
----
-
-## LIRA-106: Recharge — provider-tab switch doesn't reset stale crypto fields
-
-| Field                | Value                                                                                   |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| **Epic**             | Recharge / Binance                                                                      |
-| **Type**             | Bug (UI hygiene, no money risk)                                                         |
-| **Priority**         | Low                                                                                     |
-| **Status**           | DONE (2026-08-08, `0c910cd`) — scope widened, see Outcome                               |
-| **Affected Modules** | Recharge > Binance                                                                      |
-| **Assigned To**      | —                                                                                       |
-| **Depends On**       | —                                                                                       |
-| **Source Plan**      | `docs/plans/todo_plans/BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md` (adversarial-review finding) |
-
-### Summary
-
-`Recharge/index.tsx`'s `useEffect` keyed on `[activeProvider]` (~line 317) resets several
-provider-specific fields on a tab switch but touches zero `crypto*` state
-(`cryptoFeeCollectedSeparately`, `cryptoFeePaymentLines`, `cryptoAmount`, `cryptoFeeIncluded`). A
-stale Binance selection can carry across a provider-tab switch or SEND↔RECEIVE flip until the next
-successful submit (which does clear them). No money-correctness risk — a real submit still clears
-state correctly — but it's a UI-hygiene gap worth closing.
-
-### Acceptance Criteria
-
-- [x] The tab-switch reset effect also clears the `crypto*` fields — **all 13**, not just the 4 this
-      ticket originally named (see Outcome).
-- [x] Component test: switch away from Binance mid-edit, switch back, assert fields are reset
-      (5 assertions, all observed FAILING pre-fix per rule 17).
-
-### Outcome — this ticket under-specified its own fix
-
-The ticket named 4 fields (`cryptoAmount`, `cryptoFeeIncluded`, `cryptoFeeCollectedSeparately`,
-`cryptoFeePaymentLines`). Reviewing the first pass against the two crypto submit paths
-(`index.tsx:1148-1160` mode-C early return, `:1242-1254` main submit) showed those paths reset **13**
-fields — so 9 were still surviving a tab switch, and they carry **higher** stakes than the 4 named:
-
-- `cryptoPaymentLines`, `cryptoReturnLegs`, `cryptoKeptChange` — money-leg state
-- `cryptoClientId`, `cryptoClientName`, `cryptoClientPhone` — a stale `client_id` could attribute the
-  next crypto transaction to the **wrong client** (rule 11 territory)
-- `cryptoFee`, `cryptoDescription`, `cryptoTransactionTime`
-
-All 13 now reset, using the submit paths' exact values. `cryptoType`/`cryptoPaidBy`/`cryptoTenderRate`
-are deliberately left sticky — neither submit path resets them either.
-
-Recharge module suite after: 23 suites / 146 tests (143 baseline + 3 new).
-
-### Files to Modify
-
-| Layer    | File                                                      | Change                         |
-| -------- | --------------------------------------------------------- | ------------------------------ |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx` | Extend tab-switch reset effect |
-
----
-
-## LIRA-107: Recharge — SEND↔RECEIVE flip resets nothing (CLOSED — WON'T DO)
-
-| Field                | Value                                         |
-| -------------------- | --------------------------------------------- |
-| **Epic**             | Recharge / Binance                            |
-| **Type**             | Design question                               |
-| **Priority**         | Low                                           |
-| **Status**           | CLOSED — WON'T DO (owner decision 2026-08-08) |
-| **Affected Modules** | Recharge > Binance                            |
-| **Assigned To**      | —                                             |
-| **Depends On**       | LIRA-106 (DONE)                               |
-| **Source Plan**      | Found while reviewing LIRA-106 (2026-08-08)   |
-
-### Owner decision — NO
-
-Asked whether flipping SEND↔RECEIVE should clear the crypto form. Owner answered **no** (2026-08-08).
-A direction flip keeps the operator's in-progress entry; only a **provider-tab** switch clears it
-(LIRA-106). No `cryptoType`-keyed reset effect will be added.
-
-**Do not "fix" this later as if it were an oversight** — the asymmetry between the provider-switch
-reset and the direction flip is intentional and owner-confirmed. A future adversarial review that
-re-flags it should be pointed at this decision.
-
-### Summary
-
-LIRA-106's summary named two triggers for stale crypto state: a provider-tab switch **and** a
-SEND↔RECEIVE flip. Only the first is now fixed. The reset effect is keyed on `[activeProvider]`, and
-there is **no `cryptoType`-keyed reset effect anywhere in the file** (verified by grep) — so flipping
-direction mid-edit resets nothing at all.
-
-### The question that was asked (kept for the record)
-
-Should flipping SEND↔RECEIVE clear the crypto form? A UX trade-off, not a correctness bug:
-
-- **Clear it** — matches the "direction change means a different transaction" reading; legs entered
-  under SEND semantics are arguably wrong for RECEIVE (opposite money flow: SEND wallet−/General+,
-  RECEIVE wallet+/General−).
-- **Keep it** — an operator who flips direction just to check something doesn't lose their entry.
-  ← **owner chose this**
-
----
-
 ## LIRA-137: Katsh bill settlement — commission frozen at $0, wrong direction (DONE)
 
 | Field                | Value                                                                            |
@@ -4267,6 +887,199 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 
 ---
 
+
+---
+
+## Open Board (19 items)
+
+> Every item below is genuinely open per `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` §3 —
+> verified against source/git history, not against any file's own status marker. Ticket bodies are
+> verbatim from before this restructuring (title, priority, status, acceptance criteria, owner
+> quotes, commit references unchanged) except where a stale marker is explicitly corrected elsewhere
+> in this file. Grouped by priority; original sprint/location noted per row.
+
+| Ticket | Description | Priority | Originally in |
+|---|---|---|---|
+| LIRA-114 | "For Partner" custom service behaves like THROUGH; owner's exact click path never captured | High (narrowed) | Sprint 6 |
+| LIRA-138 | Generalise the commission-at-settlement drawer top-up (LIRA-137) from Katsh bills to OMT/WHISH | Medium | Sprint 6 |
+| LIRA-079 | Refund scope (which txn types get Refund) + whether to remove the Void button | Medium | Sprint 4 |
+| LIRA-083 | Custom Services needs a real work-status lifecycle | Medium | Sprint 4 |
+| LIRA-084 | Partial keep-change in MultiPaymentInput | Medium | Sprint 4 |
+| LIRA-087 | Record a supplier debt without line items, attach products later | Medium | Sprint 4 |
+| LIRA-088 | Signed decrement path for MTC/Alfa provider balance | Medium (likely partially superseded) | Sprint 4 |
+| LIRA-099 | Multi-tenant admin/impersonation e2e spec + full-suite proof run | Medium | Sprint 6 |
+| LIRA-101 | Primary Cash Drawer cleanup + verify Suppliers `settleNetPayUsd` | Medium | Sprint 6 |
+| LIRA-110 | Daily closing sums financial-services commission with zero gates | Medium | Sprint 6 |
+| LIRA-116 | Rename the crossed `custom_services`/`omt_whish` module labels + routes | Medium | Sprint 6 |
+| LIRA-117 | No e2e spec drives the inventory-pick to stock-decrement flow | Medium | Sprint 6 |
+| LIRA-058 | OMT App topup flow design (dual cash/owed-pool model) | Medium | Sprint 2 |
+| LIRA-096 | Partners page — remove "Record Transaction" | Low | Sprint 5 |
+| LIRA-068 | Mark Transaction "Amount Changed" when edited | Low | Sprint 3 |
+| LIRA-075 | Favorite/pin Whish App quick link in home grid | Low | Sprint 3 |
+| LIRA-086 | Dashboard checkpoint freshness coloring | Low | Sprint 4 |
+| LIRA-054-FU | Binance rows in TransactionsViewer missing directional badge | Low | Sprint 1 follow-up (orphaned) |
+| LIRA-055-FU | Voucher support at session checkout needs `client_id` | Low | Sprint 1 follow-up (orphaned) |
+
+**Count by priority:** High — 1 · Medium — 12 · Low — 6. **Total: 19.**
+
+---
+
+## LIRA-114: FOR-partner service on "Debt" appears to move General — NEEDS INTERVIEW
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Services / Partners                   |
+| **Type**              | Investigation → likely UX fix         |
+| **Priority**          | Medium                                |
+| **Status**            | **NEEDS INTERVIEW**                   |
+| **Affected Modules**  | Financial Services, Custom Services, Partners |
+| **Assigned To**       | —                                      |
+| **Source Plan**       | Owner report 2026-08-08 ('7welet souria') |
+
+### Summary
+
+Owner: *"a service for partner called '7welet souria' and payment method debt; it's affecting the
+general drawer."*
+
+**The literal scenario does NOT reproduce.** In `FinancialServiceRepository`, a FOR-partner service
+carrying a CUSTOMER_ACCOUNT leg is **rejected before any drawer write**
+(`assertNoCustomerAccountLeg` → *"A partner financial service cannot carry a CUSTOMER_ACCOUNT
+leg"*), and the whole transaction rolls back. 8 new tests + 27 existing partner tests + 5
+custom-service partner tests all confirm General delta = 0. (Note: the `DEBT` payment code was
+renamed `CUSTOMER_ACCOUNT` in migration v86; the UI label is still "Customer Account (Debt)".)
+
+**Most likely the report is about a different feature**: `CustomServiceRepository`'s FOR-partner
+branch posts a **cost outflow** (real money leaving for the provider) while the form still *shows*
+a Payment Method selector that is inert in FOR mode — producing exactly the "I chose Debt but the
+drawer moved" impression.
+
+### 🔴 CORRECTED 2026-08-09 — the "Services page" is `custom_services`, NOT `omt_whish`
+
+**The module labels and routes are crossed, and it misled two investigations:**
+
+| module key        | UI label      | route              |
+| ----------------- | ------------- | ------------------ |
+| `custom_services` | **"Services"**| `/custom-services` |
+| `omt_whish`       | "OMT/Whish"   | **`/services`**    |
+
+(`electron-app/create_db.sql:1218,1222`.) When the owner said "it's in the **Services** module",
+they meant the tile labeled *Services* — which is **`custom_services`** — not the `/services`
+route. A prior investigation "refuted" this ticket on the reasoning *"Services/index.tsx never sets
+cost/price, so cost 1008 / price 1010 cannot originate there"*. That reasoning was **correct about
+the code and wrong about which page** — `custom_services` DOES have cost/price fields, and the
+numbers fit it exactly.
+
+⇒ **The original hypothesis is back: this is `CustomServiceRepository`'s FOR-partner cost outflow.**
+
+**Owner confirmed 2026-08-09:** the transaction WAS entered with the **"For Partner"** checkbox
+ticked — *"yes confirmed it was for partner but it acts as through"*. That mismatch (labelled FOR,
+behaving like THROUGH) is now the core question of this ticket, not the drawer routing alone.
+Owner also confirmed: **keep the checkbox label "For Partner"** — do not rename it.
+
+### ⚑ EARLIER HANDOFF CONTEXT (superseded in part by the correction above)
+
+**The exact scenario, in the owner's words:**
+> *"7welet souria is the partner name. It's in the **Services** module… I entered **cost 1008** and
+> **price USD 1010** and **payment method customer account**."*
+
+So: **Services page** (`frontend/src/features/services/`, i.e. `FinancialServiceRepository`) — **not**
+Custom Services (the owner reports that page isn't even visible to them; the earlier diagnosis
+guessed Custom Services and that guess is now **ruled out**). Partner = *7welet souria*.
+Cost $1008, price $1010, payment method **Customer Account**. Observed: **General drawer moved.**
+
+**🔴 These are the same numbers as LIRA-115.** The refund report ("customer paid 1010, cost 1008,
+refund returned 1008") uses the identical figures — this is very likely **one transaction producing
+two symptoms**. Investigate them together; a single root cause may explain both, and fixing one
+blind could mask the other.
+
+**What the earlier (pre-clarification) diagnosis established — still valid, don't redo:**
+- The `DEBT` payment code was renamed `CUSTOMER_ACCOUNT` in migration v86. The UI label is
+  "Customer Account (Debt)". No row for a literal `"DEBT"` code exists.
+- **FOR**-partner + a `CUSTOMER_ACCOUNT` leg is **rejected before any drawer write** by
+  `assertNoCustomerAccountLeg` (~`FinancialServiceRepository.ts:1806`) — *"A partner financial
+  service cannot carry a CUSTOMER_ACCOUNT leg"* — and the whole `db.transaction` rolls back.
+- **THROUGH**-partner: `CUSTOMER_ACCOUNT` legs are explicitly skipped by the drawer-crediting loop
+  (`if (p.method === "CUSTOMER_ACCOUNT") continue;`, ~:2769) and booked to `debt_ledger` via
+  `bookClientDebtCharge`. General delta 0.
+- 8 tests documenting all of the above pass:
+  `packages/core/src/repositories/__tests__/FinancialServiceRepository.forPartnerDebtDrawer.test.ts`
+
+**⇒ Leading hypothesis for the next agent: the drawer movement is NOT the payment method — it's the
+COST leg.** With cost $1008 the cost/price flow (`useCostPriceFlow`,
+~`FinancialServiceRepository.ts:2093-2247`) posts a cost outflow to the provider's drawer. If the
+provider/partner has no mapped drawer, `paymentMethodToDrawerName` /
+`FALLBACK_DRAWER_MAP[...] ?? "General"` (`packages/core/src/utils/payments.ts`) **falls back to
+General**. That would put $1008 on General while the operator's chosen payment method (Customer
+Account) correctly moved nothing — matching the report precisely, and explaining why the refund
+also revolves around 1008.
+
+### What the next agent must do
+
+- [ ] Confirm which `partner_mode` the real transaction used (FOR vs THROUGH) — the two paths are
+      completely different and only one can be the subject.
+- [ ] Trace the $1008 cost leg's drawer resolution end-to-end and prove (test) whether it lands in
+      General via the unmapped-provider fallback.
+- [ ] Decide the accounting: for a partner service with a cost, **should** the cost outflow hit
+      General, a partner/provider drawer, or the partner ledger? Owner-facing question.
+- [ ] Investigate **jointly with LIRA-115** — same figures, probably the same transaction.
+
+### Separately flagged (own decision, don't lose it)
+
+The THROUGH-partner multi-leg loop credits General/PCD for real customer cash, while a stale
+single-leg path claims it should be skipped. One of the two is wrong; lock in whichever the owner
+confirms with a regression test. **Not changed this pass — needs the owner's decision, not a guess.**
+
+### ⚑ Joint investigation with LIRA-115, resolved (2026-08-09)
+
+**`same_transaction`: NOT the same transaction.** Traced every shipped UI path that can reach the
+Services cost/price flow (KatchForm, FinancialForm, CryptoForm, OmtWhishAppTransferForm,
+`Services/index.tsx`): every one of them hardcodes `partnerMode: "FOR"` for a partner selection, and
+a FOR-partner cost/price sale **forbids ALL payment legs outright** (`FinancialServiceRepository.ts`
+~1864-1868, *"the full selling price goes on the partner's tab"*) — so a partner-carrying cost/price
+item can never reach the session-basket/`deferPayment` path LIRA-115 actually reproduces (that path
+requires NO partner at all, per its own repro fixture). The owner's two reports share the SAME
+round numbers (cost 1008, price 1010) most likely because they explored the SAME cost/price flow
+twice — once with a partner attached, once inside a session basket — and reported both under one
+mental model ("the same sale"), not because one `createTransaction()` call produced both symptoms.
+
+**The literal LIRA-114 scenario (partner + cost/price + CUSTOMER_ACCOUNT) does not reproduce, and
+the code is behaving as designed — confirmed with a new regression test, no money changed:**
+`FinancialServiceRepository.forPartnerDebtDrawer.test.ts` gained a `"LIRA-114"` describe block
+(2 new tests) with the owner's EXACT figures (iPick, cost 1008, price 1010, partner "7welet souria"):
+
+1. Attaching a CUSTOMER_ACCOUNT leg (any IN-direction payment leg, in fact — see below) to a
+   FOR-partner cost/price sale throws **before any drawer write** — General/iPick delta 0, zero rows
+   written. The rejecting guard is actually `assertNoCounterPayment` (*"a partner financial service
+   takes no counter payment"*), not `assertNoCustomerAccountLeg` — a FOR-partner cost/price sale
+   rejects the customer "paying" via ANY method at all (there is no walk-in customer on a partner
+   sale), so the operator's payment-method choice is never even evaluated. This is a MORE total
+   rejection than the ticket's original hypothesis, not a narrower one.
+2. The only way a FOR-partner cost/price sale succeeds (no payment legs at all) correctly debits the
+   cost from the **provider's own drawer** (iPick, -1008) — never General — and books the full price
+   (1010) as a DEBIT on `partner_ledger` (`FOR_IPICK`). This is the shop's own stock being consumed;
+   General movement would be the ACTUAL bug. `mapDrawerName` only falls back to `"General"` for
+   provider `"BOB"`/`"OTHER"`, which no shipped form ever sends (confirmed by the original diagnosis,
+   not re-verified this pass — grep still shows zero matches in `frontend/src`).
+
+**Conclusion: no money-routing bug found for the literal report; no code change made to drawer
+routing.** Per this ticket's own decision tree ("if $1008 movement IS correct accounting, do NOT
+change the money"), the cost/price flow's behavior for every provider actually reachable from the
+UI is correct, and is now locked in by the two new tests above. The genuinely inconsistent behavior
+that WAS found (the "Separately flagged" THROUGH-partner note above) is real but requires an owner
+decision this pass didn't have — left untouched, as instructed.
+
+**Recommended next step (not done this pass — needs the owner, not more code archaeology):** get the
+owner's exact click path (or a screen recording) for the ORIGINAL "affecting the general drawer"
+report. Every reachable code path was traced and none reproduces it verbatim; without the actual
+click path, any further "fix" would be guessing at a UX explanation for behavior that may not even be
+this ticket's mechanism.
+
+**Status: investigation closed for the literal report (correct-accounting, tests lock it in);
+NEEDS INTERVIEW remains open only for (a) the owner's exact click path and (b) the THROUGH-partner
+inconsistency decision.**
+
+---
+
 ## LIRA-138: Generalise the commission-at-settlement drawer top-up to OMT/WHISH (Phase 2)
 
 | Field                | Value                                                                             |
@@ -4316,63 +1129,645 @@ this ticket is what extends the SAME drawer-top-up/profit-stamp treatment to the
 
 ---
 
-## Summary (Sprint 6 — LIRA-098..107)
+## LIRA-079: Refund Scope + Void Button Decision
 
-| Priority  | Total  | Done  | Closed (won't do) | Remaining |
-| --------- | ------ | ----- | ----------------- | --------- |
-| Medium    | 7      | 3     | 0                 | 4         |
-| Low       | 6      | 5     | 1                 | 0         |
-| **Total** | **13** | **8** | **1**             | **4**     |
+| Field                | Value                      |
+| -------------------- | -------------------------- |
+| **Epic**             | Transactions               |
+| **Type**             | Enhancement / Decision     |
+| **Priority**         | Medium                     |
+| **Status**           | NEEDS INTERVIEW            |
+| **Affected Modules** | Audit > TransactionsViewer |
+| **Assigned To**      | —                          |
+| **Depends On**       | —                          |
 
-> All e2e proof EXECUTED (2026-08-08): desktop targeted run 4/4 (LIRA-102 spec + lira-069 with the
-> LIRA-100 LOTO row), web suite 59/59 then 60/60 after LIRA-109's edit case. Every Low ticket in
-> Sprint 6 is now resolved. Remaining open (all Medium): LIRA-099, 101, 104, 108.
+### Summary
 
-> LIRA-102's spec is **written and committed but never executed** — running it needs the
-> `yarn dev` → stop → `yarn test:e2e` sequence, which the owner runs. It stays TODO until it has
-> actually passed once; a spec that has never run proves nothing.
+Owner notes 21b/21c and the second (duplicate-labeled) note 27 ("second 27"). The owner wants
+refund available on "all" transaction types, and separately raised whether the Void button
+should be removed altogether (possibly superseded by Refund). Both conflict with the deliberate
+`NON_REVERSIBLE_TRANSACTION_TYPES` gate (`packages/core/src/constants/transactionTypes.ts`),
+which exists because several types (LOTO, LOTO_CASH_PRIZE, LOTO_SETTLEMENT,
+SUPPLIER_SETTLEMENT, RECHARGE_TOPUP, REFUND, and the partner-ledger types) have side effects the
+generic reversal path cannot safely undo. Blocked on owner answers before any code changes.
 
-### Sprint 6 board
+### Open Questions (owner interview required)
 
-| ID       | Title                                                    | Priority | Status                                                    | Source Plan                         |
-| -------- | -------------------------------------------------------- | -------- | --------------------------------------------------------- | ----------------------------------- |
-| LIRA-098 | Profit-recognition guard test                            | Medium   | DONE `e6e3747` (found LIRA-108)                           | COUNTERPARTY_CONSOLIDATION_PLAN.md  |
-| LIRA-099 | Multi-tenant admin/impersonation e2e + full-suite proof  | Medium   | TODO                                                      | MULTI_TENANT_IMPLEMENTATION_PLAN.md |
-| LIRA-100 | Loto — in-module ticket reprint UI                       | Low      | DONE `a3e24af` (e2e row green)                            | PARTIAL_TASKS_COMPLETION_PLAN.md    |
-| LIRA-101 | PCD cleanup + Suppliers `settleNetPayUsd` verification   | Medium   | TODO                                                      | PRIMARY_CASH_DRAWER_PLAN.md         |
-| LIRA-102 | Session-grouping UI e2e spec                             | Low      | DONE — executed green 2026-08-08 (4/4 with lira-069+LOTO) | session-basket-payment-remaining.md |
-| LIRA-103 | Recharge — remaining REST-parity gaps                    | Medium   | DONE (web spec green; found LIRA-109)                     | WEB_PARITY_ROADMAP.md               |
-| LIRA-104 | Web-mode REST writes have no audit trail                 | Medium   | DONE `6949bc1` (124 routes, 2 blockers fixed)             | WEB_PARITY_ROADMAP.md               |
-| LIRA-105 | Payment-method unknown-code semantics mismatch           | Low      | DONE `c9f2262`+`6f74cfd`                                  | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md  |
-| LIRA-106 | Recharge — crypto fields not reset on tab switch         | Low      | DONE `0c910cd`                                            | BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md  |
-| LIRA-107 | Recharge — SEND↔RECEIVE flip resets nothing              | Low      | CLOSED — WON'T DO (owner)                                 | found reviewing LIRA-106            |
-| LIRA-108 | `getRealizedCommissionTotals` missing counterparty gates | Medium   | DONE — confirmed real (18 USD divergence), fixed, 2× SHIP | found by LIRA-098's guard           |
-| LIRA-110 | Daily closing sums fs commission with zero gates         | Medium   | TODO                                                      | found by LIRA-108's workflow        |
-| LIRA-111 | 8 e2e specs miss the `/audit` remount bounce             | Low      | DONE `6949bc1` (desktop e2e 252/252)                      | found shipping commission Phase 0+1 |
-| LIRA-112 | iPick bills must book NO commission (only Katsh pays)    | **High** | DONE `be4143c` (v151, data-driven, e2e 252/252)           | owner correction (plan §6 D12)      |
-| LIRA-113 | DAYS sale decrements shop-line validity (D12 reversed)   | Medium   | TODO (owner confirmed; use SELECTED line)                 | owner report 2026-08-08             |
-| LIRA-114 | 'For Partner' custom service acts as THROUGH; cost hits General | **High** | RE-OPENED 2026-08-09 — it IS custom_services, not omt_whish (crossed labels); owner confirmed For-Partner ticked | owner report 2026-08-08 |
-| LIRA-116 | Rename crossed 'Services' module labels/routes          | Medium   | TODO (owner approved 2026-08-09)                          | found via LIRA-114                  |
-| LIRA-117 | No e2e drives inventory-pick -> stock decrement          | Medium   | TODO                                                      | found shipping §2b                  |
-| LIRA-118 | BLOCKER: submit-to-partner disabled on Custom Services   | **BLOCKER** | **DONE** e586de9 (pre-existing from 62e43ea, NOT a regression) | owner manual test 2026-08-10        |
-| LIRA-119 | Settle modal: LBP commission shows Net payment $0.00     | **High** | **PARTIAL** cccd4ca - display fixed; "supplier owes you X" line still open (owner: revisit) | owner manual test 2026-08-10        |
-| LIRA-120 | Partners currency dropdown will not open (re-opens 097)  | **High** | **DONE** 714837d, owner-tested; check-icon removal in flight | owner manual test 2026-08-10        |
-| LIRA-121 | For-Partner notice now states the opposite of the truth  | Medium   | **DONE** e586de9                                          | owner manual test 2026-08-10        |
-| LIRA-122 | Supplier table shows 'Unpaid' where nothing is owed      | Low      | **DONE** - rule-14 unification on supplier_debt_booked    | owner manual test 2026-08-10        |
-| LIRA-123 | `yarn test:e2e` silently no-ops (exit 0, zero output)     | **High** | **DONE** db149e6 - direct invocation + spec-count floor; CI was NOT affected (Ubuntu) | found verifying LIRA-118..121 |
-| LIRA-124 | THROUGH-partner RECEIVE pays customer from no drawer     | **High** | **DONE** 2e9e822 - payout + fee leg post; FOR path untouched (correct) | PARTNER_DISBURSEMENT_MATRIX.md |
-| LIRA-125 | THROUGH legacy single-method SEND skips drawer credit    | Medium   | **DONE** 43c7450 - legacy path was LIVE, unified not deleted | PARTNER_DISBURSEMENT_MATRIX.md   |
-| LIRA-126 | THROUGH ledger rows mislabeled WHISH (Binance/iPick/Katsh) | Low    | **DONE** 43c7450 - throws on unmapped; 0 rows to migrate  | PARTNER_DISBURSEMENT_MATRIX.md      |
-| LIRA-127 | Secondary-system partner guard hardcodes provider==='WHISH' | Medium | **DONE** 5980180 - was an UNSUBMITTABLE OMT tab, not just a missing guard | section 5b, owner-approved 2026-08-10 |
-| LIRA-128 | Confirm on-behalf RECEIVE drawer semantics (OMT vs wallet) | Medium | **RESOLVED** - owner confirmed no cash moves; documented FEATURE_GUIDE 8.1.0 | PARTNER_DISBURSEMENT_MATRIX.md |
-| LIRA-129 | Ledger badge contradicts the amount's sign                | Medium | **DONE** 9082d6c - one sign rule; 4 of 7 entry_types affected, incl. an unreported LOTO SETTLEMENT case | found closing LIRA-128 |
-| LIRA-130 | Custom Services history shows a REFUNDED service as live | **High** | **DONE** e47dfa2 - frontend was starved, not unbuilt; audit -> LIRA-131 | owner report 2026-08-10 |
-| LIRA-131 | is_refunded dropped from 5 MORE module read paths        | **High** | **DONE** 4710cb8 - plus a 2nd financial_services projection and 2 frontend re-mapping drops the audit had missed | LIRA-130's 11-table audit |
-| LIRA-115 | Session-basket refund never returns customer cash       | **HIGH** | DONE `405a190` — e2e VERIFIED (full desktop 252/252, 2026-08-09); basket-level reversal path is a named follow-up | owner report 2026-08-08, reproduced |
-| LIRA-109 | Recharge `updateMetadata` still raw `window.api`         | Low      | DONE — web e2e green 60/60                                | found during LIRA-103               |
-| LIRA-137 | Katsh bill settlement: commission frozen at $0, wrong direction | **High** | **DONE** — commission now books as a real Katsh-drawer top-up (profit-stamped, no supplier debt), tender form removed for the bills-only shape, both ends of the "legs with nothing owed" hazard closed; e2e spec rewritten as a guard (unexecuted — desktop e2e cannot run from an agent shell) | owner report 2026-08-11, `BILL_COMMISSION_SETTLEMENT_PLAN.md` |
-| LIRA-138 | Generalise commission-at-settlement drawer top-up to OMT/WHISH (Phase 2) | Medium | TODO — deliberately NOT built by LIRA-137 (narrow scope, owner-approved); `_bookCommissionAtSettlement`'s `isBillsOnlyBatch` gate already isolates the new path so this is additive, not a rewrite | `COMMISSION_AT_SETTLEMENT_PLAN.md` D13, `BILL_COMMISSION_SETTLEMENT_PLAN.md` §4 |
+- [ ] Which transaction types actually need refund support — all of them, or a defined subset excluding the types the gate protects for a real reason?
+- [ ] Keep the Void button alongside Refund, or remove it? If removed, does every current Void-only use case have a Refund-based replacement?
 
-> `OWNER_NOTES_TASK_PLAN.md` needed no new ticket — its full remainder is already tracked as
-> LIRA-083, 084, 086, 087, 088, 089 (Sprint 4). All 8 `todo_plans/*.md` files are now fully
-> represented in this registry — `current_sprint.md` is the source of truth going forward.
+### Acceptance Criteria
+
+- [ ] _(To be defined after interview)_
+
+---
+
+## LIRA-083: Service Status Workflow for Custom Services
+
+| Field                | Value           |
+| -------------------- | --------------- |
+| **Epic**             | Custom Services |
+| **Type**             | Feature         |
+| **Priority**         | Medium          |
+| **Status**           | TODO            |
+| **Affected Modules** | Custom Services |
+| **Assigned To**      | —               |
+| **Depends On**       | —               |
+
+### Summary
+
+Owner note 15 ("sejel 3adli" — a paperwork-style custom service). `custom_services.status` today
+only ever transitions between `completed` and `voided` (an accounting-only status) — there is no
+work-in-progress lifecycle like Maintenance's `Received → In_Progress → Ready → Delivered`. Add a
+genuine status workflow so a custom service (e.g. official-paper processing) can be tracked as it
+progresses.
+
+### Acceptance Criteria
+
+- [ ] New multi-state work-status field, separate from the existing accounting status (proposed: `pending → in_progress → done`; confirm exact states with owner before finalizing)
+- [ ] Status editable from the Custom Services page
+- [ ] Status filterable in the list view
+- [ ] Status visible in history (HistoryModal)
+- [ ] Migration adds the column with a safe default (no `CURRENT_TIMESTAMP` default on an ALTER, per the v104 lesson)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                            | Change                             |
+| -------- | --------------------------------------------------------------- | ---------------------------------- |
+| Database | `packages/core/src/db/migrations/index.ts`                      | New migration — work-status column |
+| Database | `electron-app/create_db.sql`                                    | Mirror                             |
+| Backend  | `packages/core/src/repositories/CustomServiceRepository.ts`     | Status transitions + filter        |
+| Frontend | `frontend/src/features/custom-services/pages/CustomServices/**` | Status UI, filter, history display |
+
+---
+
+## LIRA-084: Partial Keep-Change
+
+| Field                | Value                                            |
+| -------------------- | ------------------------------------------------ |
+| **Epic**             | Payments                                         |
+| **Type**             | Enhancement                                      |
+| **Priority**         | Medium                                           |
+| **Status**           | TODO                                             |
+| **Affected Modules** | MultiPaymentInput (shared)                       |
+| **Assigned To**      | —                                                |
+| **Depends On**       | T3 Keep Change (shipped — this is the follow-up) |
+
+### Summary
+
+Owner note 17. `keepChange` in `MultiPaymentInput` is currently all-or-nothing — the operator
+either keeps the entire computed change or returns all of it. The owner wants to split it: e.g.
+of a 140,000 LBP change, return 100,000 LBP and keep 40,000 on the customer's account.
+
+### Acceptance Criteria
+
+- [ ] Operator can keep a PARTIAL amount of the change, not just all-or-nothing
+- [ ] The kept portion books exactly like today's full-keep (same ledger/debt path)
+- [ ] The OUT (return) legs reflect only the amount actually returned, not the full computed change
+- [ ] Works independently per currency
+- [ ] Component test covering the partial-keep math
+- [ ] Repository test covering the resulting legs
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                  | Change                        |
+| -------- | ----------------------------------------------------- | ----------------------------- |
+| Frontend | `packages/ui/src/components/ui/MultiPaymentInput.tsx` | Partial keep-change UI + math |
+
+---
+
+## LIRA-087: Product-Supplier — Record Debt Now, Attach Products Later
+
+| Field                | Value                 |
+| -------------------- | --------------------- |
+| **Epic**             | Suppliers / Inventory |
+| **Type**             | Feature               |
+| **Priority**         | Medium                |
+| **Status**           | TODO                  |
+| **Affected Modules** | Suppliers, Inventory  |
+| **Assigned To**      | —                     |
+| **Depends On**       | —                     |
+
+### Summary
+
+Owner note 31. Restocking already-received goods currently risks double-booking supplier debt:
+there is no way to record a supplier debt without immediately tying it to specific inventory
+items. Add a flow to record the debt first, then attach the related products to it later.
+
+### Acceptance Criteria
+
+- [ ] Record a supplier debt entry without any line items
+- [ ] Later attach the related products to that recorded debt
+- [ ] No duplicate debt created when products are attached after the fact
+- [ ] Ledger stays consistent (balances unaffected by the two-step flow vs. the one-step flow)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                                       | Change                                                           |
+| -------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Database | `packages/core/src/db/migrations/index.ts`                                 | Linking table/column between a debt entry and product line items |
+| Backend  | `packages/core/src/repositories/{SupplierRepository,ProductRepository}.ts` | Two-step debt→attach flow                                        |
+| Frontend | `frontend/src/features/{suppliers,inventory}/**`                           | UI for recording debt then attaching products                    |
+
+---
+
+## LIRA-088: MTC/Alfa Provider-Balance Decrement Adjustment
+
+| Field                | Value                |
+| -------------------- | -------------------- |
+| **Epic**             | Recharge             |
+| **Type**             | Feature              |
+| **Priority**         | Medium               |
+| **Status**           | NEEDS INTERVIEW      |
+| **Affected Modules** | Recharge > MTC, Alfa |
+| **Assigned To**      | —                    |
+| **Depends On**       | —                    |
+
+### Summary
+
+Owner note 4. MTC/Alfa top-up paths (`RechargeRepository.ts`) force positive amounts via
+`Math.abs(data.amount)` — there is no way to record the shop consuming its own provider credit
+(e.g. using the shop's phone line) as a signed decrement. Note: the "buy credits from customer"
+half of the owner's ask already exists (`topUpFromCustomer`) — this ticket is only the decrement
+half.
+
+**2026-07-20 amendment:** the W6.a carrier-lines work (`CarrierLineService.updateBalance`,
+drawer-free by design) may already cover this if the owner meant the shop-SIM credits reading.
+If they meant the _resale_ provider-drawer balance, the decrement gap remains. Downgraded to
+NEEDS INTERVIEW — confirm which balance the owner meant before building
+(see `docs/plans/todo_plans/OWNER_NOTES_TASK_PLAN.md` §B).
+
+### Acceptance Criteria
+
+- [ ] A signed/decrement adjustment path exists for MTC/Alfa provider balance
+- [ ] Does not move any cash drawer (informational/internal consumption, not a customer transaction)
+- [ ] Audit trail records who/when/how much
+- [ ] Tests covering the decrement path
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer   | File                                                   | Change                             |
+| ------- | ------------------------------------------------------ | ---------------------------------- |
+| Backend | `packages/core/src/repositories/RechargeRepository.ts` | Signed decrement adjustment method |
+
+---
+
+## LIRA-099: Multi-tenant — admin/impersonation e2e spec + final full-suite proof
+
+| Field                | Value                                                                        |
+| -------------------- | ---------------------------------------------------------------------------- |
+| **Epic**             | Multi-Tenant / Admin                                                         |
+| **Type**             | Test                                                                         |
+| **Priority**         | Medium                                                                       |
+| **Status**           | TODO                                                                         |
+| **Affected Modules** | Admin, Multi-Tenant                                                          |
+| **Assigned To**      | —                                                                            |
+| **Depends On**       | —                                                                            |
+| **Source Plan**      | `docs/plans/todo_plans/MULTI_TENANT_IMPLEMENTATION_PLAN.md` (WP9, last item) |
+
+### Summary
+
+Every other work package (WP1-WP8, WP10a/c) is shipped and merged — confirmed via `git log`,
+`check-tenant-scoping` run live (647 statements, 0 violations), and existing WP2/WP5/WP6/WP8 test
+files. WP9, the dedicated end-to-end proof, was never written: no spec anywhere drives super-admin
+login → provision a tenant → impersonate → verify data isolation → disconnect through a real
+browser (`impersonat` has zero hits across all of `frontend/tests/`).
+
+### Acceptance Criteria
+
+- [ ] `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts`: super-admin login → `/admin/tenants`
+      list renders → provision a tenant via `AddTenantModal` → "Connect as admin" → `ImpersonationBanner`
+      shows the right tenant → create a row while impersonating → confirm invisible from a different
+      tenant's session → Disconnect.
+- [ ] One final confirmed full-suite green run: `yarn dev` → stop → `yarn test:e2e` AND
+      `yarn test:e2e:web`, plus `yarn check:tenant-scoping`, `yarn check:bind-arity`,
+      `yarn typecheck && yarn lint` repo-wide — none of these has been run together as one proof yet.
+- [ ] Once green, archive `MULTI_TENANT_IMPLEMENTATION_PLAN.md` to `done_plans/`.
+
+### Files to Modify
+
+| Layer | File                                                              | Change   |
+| ----- | ----------------------------------------------------------------- | -------- |
+| E2E   | `frontend/tests/e2e-web/lira-web-020-admin-tenants.spec.ts` (new) | New spec |
+
+---
+
+## LIRA-101: Primary Cash Drawer — cleanup stale docs/dead code + verify Suppliers `settleNetPayUsd`
+
+| Field                | Value                                                                     |
+| -------------------- | ------------------------------------------------------------------------- |
+| **Epic**             | Suppliers / Financial Services                                            |
+| **Type**             | Cleanup / Verification                                                    |
+| **Priority**         | Medium (one sub-item touches money math)                                  |
+| **Status**           | TODO                                                                      |
+| **Affected Modules** | Suppliers, Financial Services                                             |
+| **Assigned To**      | —                                                                         |
+| **Depends On**       | —                                                                         |
+| **Source Plan**      | `docs/plans/todo_plans/PRIMARY_CASH_DRAWER_PLAN.md` (§6, remaining items) |
+
+### Summary
+
+The Primary Cash Drawer feature itself is fully shipped (commit `9553807`) and `FEATURE_GUIDE.md`
+§7/§8/§8.1 is current. What's left is small cleanup, EXCEPT one item that needs real money-eyes
+attention:
+
+1. Stale JSDoc still references the withdrawn §8.5 insufficient-funds guard (`packages/ui/src/api/types.ts:606,619`,
+   `packages/core/src/services/FinancialService.ts:41-42`, `frontend/src/api/backendApi.ts:3194`) —
+   could mislead a future reader into re-adding a guard the owner explicitly reversed.
+2. Dead code: unused `getBalance()` in `DrawerTopUpRepository.ts:409-418`; unused import
+   `primaryCashDrawerName` in `FinancialServiceRepository.ts:17`.
+3. **Money item**: `frontend/src/features/suppliers/pages/Suppliers/index.tsx:625` and
+   `frontend/src/features/suppliers/hooks/useSuppliers.ts:298-299` still describe the superseded
+   fee-only ledger model. Needs a verification pass confirming `settleNetPayUsd` computes correctly
+   under the current GROSS supplier-ledger model, not just a comment edit.
+
+### Acceptance Criteria
+
+- [ ] Stale JSDoc/comments corrected to describe the current (no insufficient-funds guard) reality.
+- [ ] Dead code removed (`getBalance()`, unused import).
+- [ ] `settleNetPayUsd` independently verified correct under the GROSS model (failing-first test if
+      a discrepancy is found; otherwise document the verification and update the stale comments).
+- [ ] Typecheck and lint pass.
+
+### Files to Modify
+
+| Layer    | File                                                             | Change                             |
+| -------- | ---------------------------------------------------------------- | ---------------------------------- |
+| Backend  | `packages/core/src/services/FinancialService.ts`                 | Correct stale JSDoc                |
+| Backend  | `packages/core/src/repositories/DrawerTopUpRepository.ts`        | Remove dead `getBalance()`         |
+| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts`   | Remove unused import               |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`      | Correct stale comment; verify math |
+| Frontend | `frontend/src/features/suppliers/hooks/useSuppliers.ts`          | Correct stale comment; verify math |
+| Types    | `packages/ui/src/api/types.ts`, `frontend/src/api/backendApi.ts` | Correct stale JSDoc                |
+
+---
+
+## LIRA-110: Daily closing sums financial-services commission with ZERO gates
+
+| Field                | Value                                                                  |
+| -------------------- | ---------------------------------------------------------------------- |
+| **Epic**             | Closing / Profits                                                      |
+| **Type**             | Bug (candidate — same class as LIRA-108)                               |
+| **Priority**         | Medium                                                                 |
+| **Status**           | TODO                                                                   |
+| **Affected Modules** | Closing                                                                |
+| **Assigned To**      | —                                                                      |
+| **Depends On**       | —                                                                      |
+| **Source Plan**      | Found by LIRA-108's workflow (2026-08-08, confirmed by both reviewers) |
+
+### Summary
+
+`ClosingRepository.ts:689-696` computes the daily financial-services commission figure with a
+third, fully ungated `SUM(commission)` — missing not just the LIRA-108 counterparty gates but even
+`is_settled` and `notRefunded`. A refunded or unsettled or partner-pending commission row inflates
+the closing screen's daily commission number. Also rule-14 debt: a third hand-rolled copy of the
+"realized commission" concept instead of reusing one definition.
+
+### Acceptance Criteria
+
+- [ ] Money-eyes pass on what the closing figure is MEANT to show (day's earned commission?
+      cash-collected commission?) — the closing screen may intentionally differ from Profits
+      (e.g. cash-basis vs recognition-basis). Decide against docs, not taste.
+- [ ] Failing-first repro (rule 17), then either reuse the gated definition (rule 14) or document
+      the intentional difference in the method comment + COUNTERPARTY_LEDGERS.md.
+- [ ] LIRA-098's guard only scans ProfitRepository — consider extending its file list to
+      ClosingRepository or adding a sibling guard.
+
+### Files to Modify
+
+| Layer   | File                                                  | Change           |
+| ------- | ----------------------------------------------------- | ---------------- |
+| Backend | `packages/core/src/repositories/ClosingRepository.ts` | Gate or document |
+
+---
+
+## LIRA-116: Rename the crossed "Services" module labels/routes (owner approved)
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Naming / DX                           |
+| **Type**              | Refactor (naming only)                |
+| **Priority**          | Medium                                |
+| **Status**            | TODO — **owner approved 2026-08-09**  |
+| **Affected Modules**  | Custom Services, OMT/Whish            |
+| **Source Plan**       | Found while diagnosing LIRA-114       |
+
+### Summary
+
+The two modules have crossed names, which has already cost real debugging time:
+
+| module key        | UI label       | route              | repository                  |
+| ----------------- | -------------- | ------------------ | --------------------------- |
+| `custom_services` | **"Services"** | `/custom-services` | `CustomServiceRepository`   |
+| `omt_whish`       | "OMT/Whish"    | **`/services`**    | `FinancialServiceRepository`|
+
+So "the Services page" means `custom_services`, while the `/services` ROUTE belongs to OMT/Whish.
+This directly caused LIRA-114 to be wrongly refuted: an investigation reasoned *"Services/index.tsx
+never sets cost/price, so the owner's cost 1008 / price 1010 can't come from there"* — true of
+`/services`, irrelevant to the page the owner actually meant. Two separate agent investigations
+were misled by it.
+
+Owner approved the rename 2026-08-09 ("rename yes").
+
+### Acceptance Criteria
+
+- [ ] Decide the target naming (suggest: keep the UI label **"Services"** for `custom_services`
+      since that is what the owner calls it, and move its route to `/services`; rename the
+      `omt_whish` route to `/omt-whish` to match its "OMT/Whish" label). Whatever is chosen, the
+      **label, route, module key, repository name, and feature folder should agree**.
+- [ ] Migration for the `modules` table `route` values (rule 10: BOTH `migrations/index.ts` and
+      `create_db.sql`), plus `ActiveModuleContext.tsx`'s route→key map.
+- [ ] Update `App.tsx` routes, feature folder names if renamed, and every e2e spec that navigates
+      to either route (grep `"/services"` and `"/custom-services"` across `frontend/tests/`).
+- [ ] ⚠ **Old route must not 404 for a user mid-session** — consider a redirect, and check whether
+      any stored state (last-visited route, deep links) references the old paths.
+- [ ] Full suites + desktop/web e2e green.
+
+### Note
+
+**Do NOT rename the "For Partner" checkbox** — owner explicitly wants that label kept as-is
+(2026-08-09).
+
+---
+
+## LIRA-117: No e2e spec drives the inventory-pick → stock-decrement flow
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Custom Services / Inventory           |
+| **Type**              | Test coverage gap                     |
+| **Priority**          | Medium                                |
+| **Status**            | TODO                                  |
+| **Affected Modules**  | Custom Services, Inventory            |
+| **Source Plan**       | Found while shipping §2b (2026-08-09) |
+
+### Summary
+
+§2b (`69c29e8`) made an inventory-backed custom service consume stock, driven by a new
+`custom_services.product_id`. The backend is well covered (`CustomServiceRepository.stock.test.ts`,
+plus the scenarioMatrix's A1/A2/A3 divergence), but **no e2e spec ever picks a product from the
+inventory SearchBar.**
+
+All four specs that touch `custom-service-item-search` — `lira-088`, `lira-093`, `lira-094`,
+`lira-135` — use `.fill(text) + press("Enter")`, i.e. the **free-text commit path**, which sends no
+`product_id`. So a UI-side regression (the page failing to send `product_id`, or sending the wrong
+one) would pass every test we have.
+
+This is exactly the layer-seam problem this suite has been bitten by before: specs that hand-build
+IPC payloads bypass the frontend entirely and cannot catch a frontend↔repository mismatch.
+
+### Acceptance Criteria
+
+- [ ] New desktop e2e spec: seed a product with known stock → open Custom Services → **pick it from
+      the SearchBar dropdown** (not fill+Enter) → submit → assert the product's `stock_quantity`
+      dropped by exactly 1 → void/refund the transaction → assert it returns to the original value.
+- [ ] Assert by identity and delta (rule 15) — snapshot stock immediately before, never absolute.
+- [ ] Also assert the negative case in the same spec: a **free-text** service leaves stock
+      untouched. That is the regression that matters most, since all three input paths share one
+      backend code path.
+- [ ] Consider a web e2e twin (rule 19) if the pick flow differs in browser mode.
+
+### Files to Modify
+
+| Layer | File                                                    | Change   |
+| ----- | ----------------------------------------------------------- | ------------ |
+| E2E   | `frontend/tests/e2e-electron/lira-117-custom-service-stock.spec.ts` (new) | New spec |
+
+---
+
+## LIRA-058: OMT APP — Topup Flow Design
+
+| Field                | Value                         |
+| -------------------- | ----------------------------- |
+| **Epic**             | OMT App Topup                 |
+| **Type**             | Feature                       |
+| **Priority**         | Medium                        |
+| **Status**           | NEEDS INTERVIEW               |
+| **Affected Modules** | Recharge > OMT App, Suppliers |
+| **Assigned To**      | —                             |
+| **Depends On**       | —                             |
+
+### Summary
+
+OMT App topup has a nuanced dual-pool problem that needs design clarification before implementation. Blocked on interview.
+
+### Context (partial — interview incomplete)
+
+In OMT System there are conceptually two money pools:
+
+- **Cash pool**: physical cash customers paid for OMT transactions → lives in the OMT System drawer
+- **Owed/topup pool**: money committed/sent to OMT App — does NOT come from the cash drawer
+
+Topping up OMT App from OMT System should:
+
+- NOT reduce the OMT System cash drawer
+- Record a transaction visible in the Suppliers page for OMT System
+- Track the distinction between cash and owed money
+
+### Acceptance Criteria
+
+- [ ] _(To be defined after interview)_
+
+### Notes
+
+- Interview required to clarify: what exactly is the "owed pool", how does it appear in the supplier ledger, how does OMT pay us back, can the owed pool go negative?
+
+---
+
+## LIRA-096: Partners Page — Remove "Record Transaction" (Redundant with Add Credit/Debt)
+
+| Field                | Value                                                               |
+| -------------------- | ------------------------------------------------------------------- |
+| **Epic**             | Partner System                                                      |
+| **Type**             | Cleanup / Decision                                                  |
+| **Priority**         | Low                                                                 |
+| **Status**           | NEEDS INTERVIEW                                                     |
+| **Affected Modules** | Partners                                                            |
+| **Assigned To**      | —                                                                   |
+| **Depends On**       | LIRA-051 (DONE — prior Record Transaction type-list simplification) |
+
+### Summary
+
+Owner note (2026-08-07, 2:20 AM): _"Remove record txn in partner. Its redundant we have add
+credit debt."_ Requests removing the "Record Transaction" action/modal from the Partners page
+entirely, on the grounds that "Add Credit/Debt" already covers the same need. LIRA-051 (DONE)
+previously simplified Record Transaction's type dropdown rather than removing the feature — this
+note goes a step further. Before removing anything, confirm there's no transaction type or
+capability Record Transaction covers that Add Credit/Debt cannot currently express — if a gap
+exists, it needs to move into Add Credit/Debt first, or the owner needs to accept losing that case.
+
+### Open Questions (owner interview required)
+
+- [ ] Confirm every Record Transaction type in current use is already reachable via Add
+      Credit/Debit before removing the feature.
+
+### Acceptance Criteria
+
+- [ ] _(To be defined once the above is confirmed — likely: remove the Record Transaction
+      action/modal from the Partners page once no functional gap is found)_
+
+### Files to Modify
+
+| Layer    | File                                                      | Change                                              |
+| -------- | --------------------------------------------------------- | --------------------------------------------------- |
+| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx` | Remove Record Transaction UI (pending confirmation) |
+
+---
+
+## LIRA-068: Mark Transaction "Amount Changed" When Edited
+
+| Field                | Value                          |
+| -------------------- | ------------------------------ |
+| **Epic**             | Transaction Visibility / Audit |
+| **Type**             | Feature                        |
+| **Priority**         | Low                            |
+| **Status**           | TODO                           |
+| **Affected Modules** | All transaction types          |
+| **Depends On**       | —                              |
+
+### Summary
+
+If a transaction's **amount** was modified after creation, flag it as **"amount changed"** (badge/indicator). Edits are already tracked via `edited_by` / `edited_at` across modules. **Check overlap with the existing recharge "margin alert"** (theft-detection on margin override, `HistoryModal` `marginAlertThreshold`, default 100k LBP) — reuse/align rather than duplicate. **Expand the indicator to all transaction types.**
+
+### Acceptance Criteria
+
+- [ ] A transaction whose amount changed shows an "amount changed" indicator
+- [ ] Approach reconciled with the existing margin-alert mechanism (no duplicate/contradictory signals)
+- [ ] Applies across all transaction types (not just recharge)
+- [ ] Distinguishes "amount changed" from generic edited metadata where relevant
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                              | Change                                    |
+| -------- | ------------------------------------------------- | ----------------------------------------- |
+| Backend  | transaction/edit paths                            | Persist/expose amount-changed signal      |
+| Frontend | `TransactionsViewer.tsx` + module `HistoryModal`s | Render indicator; align with margin alert |
+
+---
+
+## LIRA-075: Favorite/Pin Whish App Quick Link in Home Grid
+
+| Field                | Value                 |
+| -------------------- | --------------------- |
+| **Epic**             | Navigation / Home     |
+| **Type**             | Feature               |
+| **Priority**         | Low                   |
+| **Status**           | TODO                  |
+| **Affected Modules** | Dashboard / Home grid |
+| **Depends On**       | —                     |
+
+### Summary
+
+Add favorite/pinned **quick links** to a page (starting with Whish App) in the home grid view (`Dashboard.tsx`). Noted as **partially implemented** — finish the favorite-link affordance so Whish App (and others) can be pinned for quick access.
+
+### Acceptance Criteria
+
+- [ ] User can favorite/pin a page (Whish App) as a quick link in the home grid
+- [ ] Pinned links persist and navigate correctly
+- [ ] Builds on the partial home-grid implementation (no parallel mechanism)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                  | Change                     |
+| -------- | ----------------------------------------------------- | -------------------------- |
+| Frontend | `frontend/src/features/dashboard/pages/Dashboard.tsx` | Favorite/pin quick-link UI |
+
+---
+
+## LIRA-086: Dashboard Checkpoint Freshness Coloring
+
+| Field                | Value       |
+| -------------------- | ----------- |
+| **Epic**             | Dashboard   |
+| **Type**             | Enhancement |
+| **Priority**         | Low         |
+| **Status**           | TODO        |
+| **Affected Modules** | Dashboard   |
+| **Assigned To**      | —           |
+| **Depends On**       | —           |
+
+### Summary
+
+Owner note 29. Color the dashboard's last-checkpointed value by how fresh/consistent it is
+versus the expected value: green when it matches, orange for a small drift, red for a large
+drift. Thresholds TBD with the owner.
+
+### Acceptance Criteria
+
+- [ ] Dashboard compares the last checkpointed value against the expected value
+- [ ] Green = match, orange = small diff, red = large diff
+- [ ] Drift thresholds confirmed with the owner (TBD — not yet defined)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                  | Change                             |
+| -------- | ----------------------------------------------------- | ---------------------------------- |
+| Frontend | `frontend/src/features/dashboard/pages/Dashboard.tsx` | Freshness-coded checkpoint display |
+
+---
+
+
+## Open Follow-ups (Post-Sprint 1) — orphaned, still open
+
+> These two never appear in any Sprint 2-6 board or summary — structurally orphaned since Sprint 1,
+> per `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` §3, §5.3. Kept as their own table,
+> verbatim, exactly as originally filed.
+
+| ID          | Description                                                                                                             | Priority |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------- | -------- |
+| LIRA-054-FU | BINANCE rows in TransactionsViewer missing directional badge — needs `service_type` joined onto unified transaction row | Low      |
+| LIRA-055-FU | Voucher support at session checkout requires `client_id` stored on session (currently only name/phone)                  | Low      |
+
+---
+
+## Previously untracked items (found by this restructuring's source inventory)
+
+Two real issues surfaced by `docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md` §5 that had no
+ticket at all — both inside the LIRA-137 commission work.
+
+### CLOSED — Profit rollup for supplier commission was invisible on the Profits page
+
+LIRA-137 stamps `profit_usd`/`profit_lbp` on the new `SUPPLIER_SETTLEMENT` transaction using the same
+mechanism every other commission-earning flow uses, but `ProfitRepository.ts`'s `PROFIT_TXN_TYPES`
+constant did not include `SUPPLIER_SETTLEMENT`, so every profit-recognition query in that file
+silently excluded it — the commission was real and profit-stamped but permanently absent from every
+Profits-page aggregate. **Fixed in `02f97aa`** (current HEAD at the time of this restructuring).
+
+### OPEN — Settlement row shows $0.00 in the amount column; the real value lives only in `summary` prose
+
+`SupplierRepository.ts:1205-1227` documents (comment written during LIRA-137 itself) that
+`amount_usd`/`amount_lbp` are contractually 0/0 for a bills-only commission-settlement batch shape —
+a deliberate, documented workaround, not an oversight. The actual commission value (e.g. "100,000
+LBP") appears only inside the free-text `summary` string, which is never filtered by anything. Low
+urgency today (a human reading the row can see the number), but a landmine for any future
+export/sort-by-amount/aggregate-by-amount view (e.g. LIRA-073's DataTable export) built without
+knowing this convention exists. **Pending an owner decision** on whether/how to surface it
+structurally; no ticket number assigned yet.
+
+---
+
+## Archive Index
+
+Closed sprint history moved out of this file on 2026-08-12 (per
+`docs/plans/todo_plans/SPRINT_INVENTORY_2026-08-12.md`, committed `2bfc7f5`):
+
+| Archive file | Contents |
+|---|---|
+| `docs/plans/done_plans/SPRINT_1_ARCHIVE_2026-08-12.md` | Pre-merge review (2026-06-19), post-review follow-ups (2026-06-20), LIRA-048..055 — all DONE |
+| `docs/plans/done_plans/SPRINT_2_ARCHIVE_2026-08-12.md` | LIRA-056, 057, 059..064 — all DONE (LIRA-058 stayed here, open) |
+| `docs/plans/done_plans/SPRINT_3_ARCHIVE_2026-08-12.md` | LIRA-065..067, 069..074, 076, 077 + Backlog + Session Summary narrative — all DONE (LIRA-068, 075 stayed here, open) |
+| `docs/plans/done_plans/SPRINT_4_ARCHIVE_2026-08-12.md` | LIRA-078, 080..082, 085, 089..091, 094 — all DONE, including LIRA-090 (corrected DONE) (LIRA-079, 083, 084, 086, 087, 088 stayed here, open) |
+| `docs/plans/done_plans/SPRINT_5_ARCHIVE_2026-08-12.md` | LIRA-095, 097 — DONE / CLOSED-already-working (LIRA-096 stayed here, open) |
+| `docs/plans/done_plans/SPRINT_6_ARCHIVE_2026-08-12.md` | LIRA-098, 100, 102, 103, 104 (corrected DONE), 105..109, 111 (corrected DONE), 112, 115 — all DONE/CLOSED, plus the DECISION LOG and the Sprint 6 summary board (header range corrected) |
+
+The 6-row `Ticket \| Spec \| Validates` e2e coverage table (originally lines 80-88 of this file, under
+"POST-REVIEW FOLLOW-UPS") moved to `frontend/tests/e2e-electron/README.md`'s spec index — it was never
+a ticket board (no Status column), which is exactly what made a naive grep miscount 6 closed tickets
+as open. It is also preserved verbatim inside the Sprint 1 archive above.
