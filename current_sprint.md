@@ -919,8 +919,98 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 | LIRA-086 | Dashboard checkpoint freshness coloring | Low | Sprint 4 |
 | LIRA-054-FU | Binance rows in TransactionsViewer missing directional badge | Low | Sprint 1 follow-up (orphaned) |
 | LIRA-055-FU | Voucher support at session checkout needs `client_id` | Low | Sprint 1 follow-up (orphaned) |
+| LIRA-139 | Sort-by-Amount ignores `amount_lbp` — every LBP-primary row sorts as 0 | Medium | Found 2026-08-12 |
+| LIRA-140 | Non-till money renders identically to till cash on a settlement row | Low | Found 2026-08-12 |
 
-**Count by priority:** High — 1 · Medium — 12 · Low — 6. **Total: 19.**
+**Count by priority:** High — 1 · Medium — 13 · Low — 7. **Total: 21.**
+
+---
+
+## LIRA-139: Sort-by-Amount ignores `amount_lbp` — every LBP-primary row sorts as 0
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Transactions / Reporting              |
+| **Type**              | Bug - pre-existing, table-wide        |
+| **Priority**          | Medium                                |
+| **Status**            | TODO - needs an owner decision on semantics |
+| **Affected Modules**  | audit (Transactions page)             |
+| **Source**            | Found 2026-08-12 during the LIRA-137 render-site sweep (`752e154`) |
+
+### Summary
+
+`getSortValue`'s `"amount_usd"` key in
+`frontend/src/features/audit/pages/TransactionsViewer.tsx` reads **only** `row.amount_usd` and ignores
+`row.amount_lbp` entirely. So **every LBP-primary transaction sorts as 0** — clicking the Amount header
+groups all LBP rows together at one end regardless of their actual size.
+
+This is **older and much wider than LIRA-137**; it affects every LBP row in the table, not just bill
+settlements. It surfaced only because the sweep for that ticket enumerated every render/consumer of a
+row's amount.
+
+### Why it is not a one-line fix
+
+There is no single number to sort by. A shop runs two live currencies, so the fix requires deciding
+what "sort by amount" should MEAN:
+
+- **Convert to one currency** using a rate — but which rate? The row's own stamped
+  `exchange_rate`, or today's? Historical rows would re-sort as the rate moves.
+- **Sort by the row's primary currency, secondarily by the other** — stable and cheap, but a 1,000,000
+  LBP row and a $50 row are then not really comparable.
+- **Sort within currency groups** — honest, but changes the table's behaviour from one ordering to two.
+
+### Acceptance Criteria
+
+- [ ] Owner picks the semantics (the three options above, or another).
+- [ ] Sorting by Amount orders LBP rows by their actual magnitude under the chosen rule.
+- [ ] Mixed USD+LBP rows behave predictably and the rule is documented in the code.
+- [ ] Rule 17 failing-first at the interaction layer — sorting is a rendering behaviour and was invisible
+      to every existing test.
+- [ ] Presentation only; no stored value changes.
+
+---
+
+## LIRA-140: Non-till money renders identically to till cash on a settlement row
+
+| Field                | Value                              |
+| --------------------- | ------------------------------------ |
+| **Epic**              | Transactions / Reporting              |
+| **Type**              | UX - missing distinction (money is correct) |
+| **Priority**          | Low                                   |
+| **Status**            | TODO - product call, not a defect     |
+| **Affected Modules**  | audit (Transactions page), suppliers  |
+| **Source**            | Found 2026-08-12 assessing the amber marker during `752e154` |
+
+### Summary
+
+A bills-only Katsh settlement now shows the plain green `↓` "cash in" badge — **visually identical to
+an ordinary cash receipt** — even though that money never touched a till. It went into the shop's Katsh
+provider balance as a top-up.
+
+There used to be an affordance for exactly this: `isSupplierCredit` renders a distinct **amber `+`**
+marker meaning *"a receivable owed to us, not drawer cash."* It keys on
+`type === "SUPPLIER_PAYMENT"` with `is_credit === true`, which only a `SUPPLIER_PAYS_US` ledger entry
+stamps — and LIRA-137 (`4fd0ad1`) deliberately stopped booking that entry for bills, replacing it with
+the drawer top-up. So the marker is now **unreachable for new bills**.
+
+It is NOT dead code: it still renders correctly for legacy `commission_model = 0` rows already in a
+shop's history, and it remains the ready-made hook for LIRA-138. Recommendation was to leave the code
+alone — this ticket is only about whether the DISTINCTION deserves a visual affordance again.
+
+### The question for the owner
+
+Should a settlement whose money landed in a provider balance (rather than a till) look different from a
+cash receipt on the Transactions page? Both are "money in" and both are correctly recorded — the
+question is purely whether the page should say WHERE it landed at a glance.
+
+### Acceptance Criteria
+
+- [ ] Owner decides: restore a distinct marker for provider-balance inflows, or accept the plain "in"
+      arrow.
+- [ ] If restored: it must cover the LIRA-137 drawer-top-up shape, not just the legacy
+      `is_credit` shape, and must not disturb the legacy rows that still use the amber marker.
+- [ ] Presentation only.
+- [ ] Rule 17 at the interaction layer.
 
 ---
 
