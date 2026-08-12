@@ -498,6 +498,64 @@ function isSignedPartnerType(type: string): boolean {
 }
 
 /**
+ * LIRA-137 residual (BILL_COMMISSION_SETTLEMENT_PLAN.md): a bills-only
+ * commission settlement stores `amount_usd`/`amount_lbp` as a contractual
+ * 0/0 — a bill's principal already left at creation, so there is no gross
+ * amount owed to net. The real money is the commission credited into the
+ * provider's own drawer (`SupplierRepository._bookBillsCommissionDrawerTopUp`)
+ * — but that leg's `drawer_name` ("Katsh"/"iPick") is in
+ * `TransactionRepository`'s `PROVIDER_STOCK_DRAWERS`, so `isInternalLegJs`
+ * strips it out of `row.payments` entirely, one layer before the array
+ * this page receives is even built (`_attachPaymentLegs`'s `toLeg`, which
+ * returns null for it) — there is no leg to read here, by design, and this
+ * function does not touch that filter.
+ *
+ * The SAME commission figure is also stamped onto `metadata_json` —
+ * `commission_usd`/`commission_lbp`, sourced from the identical settlement
+ * input that funded the drawer leg (SupplierRepository.ts's own doc comment
+ * calls these "the real money-bearing totals" for exactly this batch shape)
+ * — so this reads THAT field instead of inventing a new one.
+ *
+ * DISPLAY ONLY: returns a value for the Amount column alone. The row's own
+ * `amount_usd`/`amount_lbp` are never touched — they keep meaning "cash
+ * through a till" for receipts, the refund-override candidate set, and
+ * ProfitRepository's own queries.
+ *
+ * Gated narrowly: only a bills-only batch (`commission_model === 1` AND
+ * `counterparty.flow === "IN"`) with the contractual 0/0 stored amount.
+ * Returns null for a legacy OMT/WHISH settlement (`commission_model` 0 or
+ * absent) and for every other row type, which keep rendering exactly as
+ * before. Parses defensively — a null/absent/malformed `metadata_json`, a
+ * missing `counterparty`, or a non-numeric commission field all degrade to
+ * null (today's $0.00), never a thrown error or a blanked row.
+ */
+function billsOnlyCommissionAmount(
+  row: TransactionRow,
+): { usd: number; lbp: number } | null {
+  if (row.type !== "SUPPLIER_SETTLEMENT") return null;
+  if (row.amount_usd !== 0 || row.amount_lbp !== 0) return null;
+  if (!row.metadata_json) return null;
+  try {
+    const meta = JSON.parse(row.metadata_json) as {
+      commission_model?: unknown;
+      commission_usd?: unknown;
+      commission_lbp?: unknown;
+      counterparty?: { flow?: unknown } | null;
+    };
+    if (meta.commission_model !== 1) return null;
+    if (meta.counterparty?.flow !== "IN") return null;
+    const usd =
+      typeof meta.commission_usd === "number" ? meta.commission_usd : 0;
+    const lbp =
+      typeof meta.commission_lbp === "number" ? meta.commission_lbp : 0;
+    if (!usd && !lbp) return null;
+    return { usd, lbp };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): a row stamped with
  * `split_group` is one unit of a multi-unit split-payment checkout
  * (KatchForm bills / FinancialForm catalog units). Voiding a single member
@@ -990,6 +1048,7 @@ export default function TransactionsViewer({
     const partnerSigned = isSignedPartnerType(row.type);
     const tender = saleTenderTotals(row.type, row.payments);
     const splitGroup = getSplitGroupInfo(row.metadata_json);
+    const commissionAmount = billsOnlyCommissionAmount(row);
     return (
       <tr
         key={trKey ?? row.id}
@@ -1096,11 +1155,13 @@ export default function TransactionsViewer({
                   );
                 })()
               : formatAmount(
-                  tender?.usd ??
+                  commissionAmount?.usd ??
+                    tender?.usd ??
                     (credit || partnerSigned
                       ? Math.abs(row.amount_usd)
                       : row.amount_usd),
-                  tender?.lbp ??
+                  commissionAmount?.lbp ??
+                    tender?.lbp ??
                     (credit || partnerSigned
                       ? Math.abs(row.amount_lbp)
                       : row.amount_lbp),
