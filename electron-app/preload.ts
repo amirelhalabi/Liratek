@@ -553,6 +553,11 @@ contextBridge.exposeInMainWorld("api", {
       entry_mode?: "LUMP" | "RATE";
       commission_rate?: number;
       commission_unit_count?: number;
+      /** Owner follow-up (2026-08-13) — bills-only batch only: 'TOP_UP'
+       *  (default) credits the provider's own drawer, 'OTHER_PAYMENT' means
+       *  `payments` below carries the real collection legs instead. Rule 12:
+       *  must mirror supplierSettleSchema. */
+      commission_collection_mode?: "TOP_UP" | "OTHER_PAYMENT";
       /** @deprecated no longer used to move money — see SupplierRepository.SettleTransactionsData */
       drawer_name?: string;
       note?: string;

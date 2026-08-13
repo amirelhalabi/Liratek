@@ -363,4 +363,101 @@ describe("Suppliers page — commission-at-settlement Settle modal (Phase 0+1)",
     expect(payload.commission_rate).toBeUndefined();
     expect(payload.commission_unit_count).toBeUndefined();
   });
+
+  // Owner request (2026-08-13) #1/#2 — the settle list's section heading and
+  // column headers. Scoped via `within(container)` because "Type"/"Date" are
+  // ALSO column headers in the (always-rendered) Payments ledger history
+  // table further down the same page — an unscoped `getByText` would throw
+  // "multiple elements found".
+  it("renders the 'Commission Settlement' heading (not the old 'Settle transactions —' label) with column headers matching the row's own cells", async () => {
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "Katsh" ? [BILL_ROW] : []),
+    );
+
+    renderPage();
+
+    fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+    await screen.findByText("Bill");
+
+    const heading = screen.getByText("Commission Settlement");
+    expect(heading.tagName).toBe("H3");
+    // The old combined label is gone; "select all" survives as its own,
+    // simpler affordance.
+    expect(screen.queryByText(/Settle transactions/)).toBeNull();
+    expect(screen.getByText(/^Select all \(1\)$/)).toBeInTheDocument();
+
+    const container = heading.parentElement!;
+    expect(within(container).getByText("Type")).toBeInTheDocument();
+    expect(within(container).getByText("Amount")).toBeInTheDocument();
+    expect(within(container).getByText("Commission")).toBeInTheDocument();
+    expect(within(container).getByText("Date")).toBeInTheDocument();
+  });
+
+  // Owner request (2026-08-13) #1 — "this table is used for different
+  // companies, we should see the column names wherever its used": the
+  // heading/headers are generic, not conditioned on the Katsh provider name
+  // anywhere — proved here against the LEGACY (OMT) supplier, the OTHER
+  // provider this same fixture set exercises.
+  it("renders the SAME 'Commission Settlement' heading and column headers for a non-Katsh supplier (OMT)", async () => {
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "OMT" ? [LEGACY_ROW] : []),
+    );
+
+    renderPage();
+
+    fireEvent.click(await screen.findByText("OMT"));
+    await screen.findByText("OMT_TRANSFER");
+
+    const heading = screen.getByText("Commission Settlement");
+    const container = heading.parentElement!;
+    expect(within(container).getByText("Type")).toBeInTheDocument();
+    expect(within(container).getByText("Amount")).toBeInTheDocument();
+    expect(within(container).getByText("Commission")).toBeInTheDocument();
+    expect(within(container).getByText("Date")).toBeInTheDocument();
+  });
+
+  // Owner follow-up (2026-08-13) #3 — the Top-up|Other payment toggle only
+  // appears for a bills-only batch, defaulted to "Top-up".
+  it("shows the Top-up|Other payment toggle, defaulted to Top-up, for a bills-only batch", async () => {
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "Katsh" ? [BILL_ROW] : []),
+    );
+
+    renderPage();
+
+    fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+    const billRow = (await screen.findByText("Bill")).closest("label")!;
+    fireEvent.click(within(billRow).getByRole("checkbox"));
+    fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
+
+    const topUpBtn = await screen.findByRole("button", {
+      name: "Top-up",
+    });
+    const otherPaymentBtn = screen.getByRole("button", {
+      name: "Other payment",
+    });
+    expect(topUpBtn.className).toContain("bg-emerald-600");
+    expect(otherPaymentBtn.className).not.toContain("bg-emerald-600");
+  });
+
+  // A legacy/non-bills-only selection has no collection-mode choice at all —
+  // its commission has only ever had one path (the "Net payment" tender).
+  it("does NOT show the Top-up|Other payment toggle for a legacy batch", async () => {
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "OMT" ? [LEGACY_ROW] : []),
+    );
+
+    renderPage();
+
+    fireEvent.click(await screen.findByText("OMT"));
+    const legacyRow = (await screen.findByText("OMT_TRANSFER")).closest(
+      "label",
+    )!;
+    fireEvent.click(within(legacyRow).getByRole("checkbox"));
+    fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
+    await screen.findByText("Confirm Settlement");
+
+    expect(screen.queryByRole("button", { name: "Top-up" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Other payment" })).toBeNull();
+  });
 });

@@ -186,7 +186,10 @@ function signBucket(amount: number): LedgerDirection {
  * populated (a mixed-currency settlement/cashflow), both share the caller's
  * one `sign`. So "whichever is nonzero" is safe and matches either currency.
  */
-function ledgerRowDirection(amountUsd: number, amountLbp: number): LedgerDirection {
+function ledgerRowDirection(
+  amountUsd: number,
+  amountLbp: number,
+): LedgerDirection {
   return signBucket(amountUsd !== 0 ? amountUsd : amountLbp);
 }
 
@@ -378,6 +381,15 @@ export default function SuppliersPage() {
     "USD",
   );
   const [settleUnitCountInput, setSettleUnitCountInput] = useState("");
+  // Owner follow-up (2026-08-13) — bills-only batch only: how the entered
+  // commission is COLLECTED. 'TOP_UP' (default, unchanged) credits the
+  // Katsh/iPick provider drawer directly; 'OTHER_PAYMENT' renders
+  // MultiPaymentInput (autofilled with the entered commission) and the
+  // commission arrives through real payment legs instead. Mirrors the
+  // settleEntryMode (LUMP|RATE) toggle immediately above — same pattern, a
+  // sibling control, reset alongside it in handleOpenSettleConfirm.
+  const [settleCommissionCollectionMode, setSettleCommissionCollectionMode] =
+    useState<"TOP_UP" | "OTHER_PAYMENT">("TOP_UP");
 
   // ── Exchange rate ─────────────────────────────────────────────────────────
   // Payments use the BUY rate (owner decision 2026-07-06): every
@@ -922,18 +934,32 @@ export default function SuppliersPage() {
   // LIRA-137 Q2 — the SAME two-sided guard settleTransactions enforces
   // server-side (rule 14: one definition of "does this batch's cash math
   // make sense"), mirrored here so Confirm never even reaches the backend
-  // with an impossible payload. A bills-only batch renders NO
-  // MultiPaymentInput at all (below), so settleHasActiveLegs is structurally
-  // always false for it — this also covers a legacy/OMT batch where the
-  // operator forces a stray leg with nothing owed, or leaves real cash owed
-  // with no leg at all (both previously reached "Settlement failed" only
-  // AFTER a submit attempt).
+  // with an impossible payload. A bills-only batch in the default "Top-up"
+  // mode renders NO MultiPaymentInput at all (below), so settleHasActiveLegs
+  // is structurally always false for it — this also covers a legacy/OMT
+  // batch where the operator forces a stray leg with nothing owed, or leaves
+  // real cash owed with no leg at all (both previously reached "Settlement
+  // failed" only AFTER a submit attempt).
   const settleHasActiveLegs = settlePaymentLines.some((p) => p.amount > 0);
   const settleOwesCash =
     Math.abs(settleNetPayUsd) > 0.005 || Math.abs(settleNetPayLbp) > 0.005;
-  const settleConfirmDisabled = settleOwesCash
-    ? !settleHasActiveLegs
-    : settleHasActiveLegs;
+  // Owner follow-up (2026-08-13) — "Other payment" mode's legs are NOT a
+  // net-pay tender (settleOwesCash is always false for a bills-only batch);
+  // they collect the entered COMMISSION instead. Same two-sided shape as
+  // settleOwesCash above, keyed off the commission rather than the (always
+  // 0, for bills) net pay owed.
+  const settleCommissionOwed =
+    Math.abs(settleEnteredCommissionUsd) > 0.005 ||
+    Math.abs(settleEnteredCommissionLbp) > 0.005;
+  const settleConfirmDisabled = isBillsOnlyBatch
+    ? settleCommissionCollectionMode === "OTHER_PAYMENT"
+      ? settleCommissionOwed
+        ? !settleHasActiveLegs
+        : settleHasActiveLegs
+      : settleHasActiveLegs // Top-up: no MultiPaymentInput renders, structurally always false
+    : settleOwesCash
+      ? !settleHasActiveLegs
+      : settleHasActiveLegs;
   // LIRA-119 — same USD-hardcoding bug, second location: the "Owed … − Net
   // you pay" strip UNDER the row list (shown before the operator has even
   // opened the confirm modal, so no entered-commission signal exists yet —
@@ -985,6 +1011,9 @@ export default function SuppliersPage() {
     setSettleUnitCountInput(String(selectedSettleIds.size));
     setSettleCommissionUsdInput("");
     setSettleCommissionLbpInput("");
+    // Owner follow-up (2026-08-13) — always reopen in the default "Top-up"
+    // mode, same reset-on-open convention as settleEntryMode above.
+    setSettleCommissionCollectionMode("TOP_UP");
     setShowSettleConfirm(true);
   };
 
@@ -1028,6 +1057,12 @@ export default function SuppliersPage() {
                     commission_unit_count:
                       parseInt(settleUnitCountInput.replace(/,/g, ""), 10) || 0,
                   }
+                : {}),
+              // Owner follow-up (2026-08-13) — only meaningful for a
+              // bills-only batch (the ONLY shape with a collection-mode
+              // toggle at all); the backend ignores it otherwise.
+              ...(isBillsOnlyBatch
+                ? { commission_collection_mode: settleCommissionCollectionMode }
                 : {}),
             }
           : {
@@ -1437,152 +1472,185 @@ export default function SuppliersPage() {
               {selectedSupplier.is_active !== 0 &&
                 activeTab === "settle" &&
                 isAdmin && (
-                  <div className="border border-slate-700 rounded-xl overflow-hidden mb-4">
-                    <div className="flex items-center justify-between px-3 py-2 bg-slate-900/60">
-                      <label className="flex items-center gap-2 text-slate-300 text-xs cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={
-                            selectableUnsettled.length > 0 &&
-                            selectedSettleIds.size ===
-                              selectableUnsettled.length
+                  <div className="mb-4">
+                    {/* Owner request (2026-08-13): this table settles
+                        commission for whichever supplier is selected — not
+                        just Katsh — so the section heading is generic, and
+                        renders identically for every supplier that reaches
+                        this tab. */}
+                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
+                      Commission Settlement
+                    </h3>
+                    <div className="border border-slate-700 rounded-xl overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-2 bg-slate-900/60">
+                        <label className="flex items-center gap-2 text-slate-300 text-xs cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={
+                              selectableUnsettled.length > 0 &&
+                              selectedSettleIds.size ===
+                                selectableUnsettled.length
+                            }
+                            onChange={(e) =>
+                              setSelectedSettleIds(
+                                e.target.checked
+                                  ? new Set(
+                                      selectableUnsettled.map((t) => t.id),
+                                    )
+                                  : new Set(),
+                              )
+                            }
+                            className="w-4 h-4 rounded border-slate-600 bg-slate-900"
+                          />
+                          Select all ({selectableUnsettled.length})
+                        </label>
+                        <button
+                          onClick={handleOpenSettleConfirm}
+                          disabled={
+                            selectedSettleIds.size === 0 || isMixedModelBatch
                           }
-                          onChange={(e) =>
-                            setSelectedSettleIds(
-                              e.target.checked
-                                ? new Set(selectableUnsettled.map((t) => t.id))
-                                : new Set(),
-                            )
+                          title={
+                            isMixedModelBatch
+                              ? "Selection mixes legacy and new-model commission transactions — settle them in separate batches"
+                              : undefined
                           }
-                          className="w-4 h-4 rounded border-slate-600 bg-slate-900"
-                        />
-                        Settle transactions — select all (
-                        {selectableUnsettled.length})
-                      </label>
-                      <button
-                        onClick={handleOpenSettleConfirm}
-                        disabled={
-                          selectedSettleIds.size === 0 || isMixedModelBatch
-                        }
-                        title={
-                          isMixedModelBatch
-                            ? "Selection mixes legacy and new-model commission transactions — settle them in separate batches"
-                            : undefined
-                        }
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium"
-                      >
-                        Settle
-                        {selectedSettleIds.size > 0
-                          ? ` (${selectedSettleIds.size})`
-                          : ""}
-                      </button>
-                    </div>
-                    {/* D4 — mixed-model selection explanation. The backend
+                          className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium"
+                        >
+                          Settle
+                          {selectedSettleIds.size > 0
+                            ? ` (${selectedSettleIds.size})`
+                            : ""}
+                        </button>
+                      </div>
+                      {/* D4 — mixed-model selection explanation. The backend
                         hard-rejects this batch (_resolveSettlementBatchModel)
                         because entering one commission figure across rows
                         whose payable was computed two different ways
                         (embedded vs at-settlement) would double-net the
                         legacy rows' already-embedded cut. */}
-                    {isMixedModelBatch && (
-                      <div className="px-3 py-2 bg-amber-900/30 border-t border-amber-700/40 text-xs text-amber-300">
-                        This selection mixes legacy and new-model commission
-                        transactions — they can&apos;t be settled in one batch.
-                        Deselect one group and settle it separately.
-                      </div>
-                    )}
-                    {unsettledQuery.isLoading ? (
-                      <div className="text-slate-400 text-xs py-4 text-center">
-                        Loading pending transactions…
-                      </div>
-                    ) : selectableUnsettled.length === 0 ? (
-                      <div className="text-slate-500 text-xs py-4 text-center">
-                        No pending transactions to settle for{" "}
-                        {selectedSupplier.name}
-                      </div>
-                    ) : (
-                      <div className="max-h-[30vh] overflow-y-auto divide-y divide-slate-700">
-                        {selectableUnsettled.map((t) => (
-                          <label
-                            key={t.id}
-                            className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-700/30 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedSettleIds.has(t.id)}
-                              onChange={(e) => {
-                                const next = new Set(selectedSettleIds);
-                                if (e.target.checked) next.add(t.id);
-                                else next.delete(t.id);
-                                setSelectedSettleIds(next);
-                              }}
-                              className="w-4 h-4 rounded border-slate-600 bg-slate-900 shrink-0"
-                            />
-                            <span className="flex-1 text-slate-300">
-                              {t.service_type === "BILL"
-                                ? "Bill"
-                                : t.omt_service_type || t.service_type}
+                      {isMixedModelBatch && (
+                        <div className="px-3 py-2 bg-amber-900/30 border-t border-amber-700/40 text-xs text-amber-300">
+                          This selection mixes legacy and new-model commission
+                          transactions — they can&apos;t be settled in one
+                          batch. Deselect one group and settle it separately.
+                        </div>
+                      )}
+                      {unsettledQuery.isLoading ? (
+                        <div className="text-slate-400 text-xs py-4 text-center">
+                          Loading pending transactions…
+                        </div>
+                      ) : selectableUnsettled.length === 0 ? (
+                        <div className="text-slate-500 text-xs py-4 text-center">
+                          No pending transactions to settle for{" "}
+                          {selectedSupplier.name}
+                        </div>
+                      ) : (
+                        <>
+                          {/* Owner request (2026-08-13): column headers,
+                            matching each row's own cell order/widths so they
+                            line up — checkbox spacer, Type (flex-1), Amount
+                            (font-mono, no fixed width — mirrors the row
+                            cell), Commission (w-20 text-right), Date (w-36
+                            text-right). Renders for every supplier that
+                            reaches this tab, not just Katsh. */}
+                          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/40 border-t border-slate-700 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                            <span className="w-4 shrink-0" aria-hidden="true" />
+                            <span className="flex-1">Type</span>
+                            <span className="font-mono text-right">Amount</span>
+                            <span className="w-20 text-right">Commission</span>
+                            <span className="w-36 text-right">Date</span>
+                          </div>
+                          <div className="max-h-[30vh] overflow-y-auto divide-y divide-slate-700">
+                            {selectableUnsettled.map((t) => (
+                              <label
+                                key={t.id}
+                                className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-700/30 cursor-pointer"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSettleIds.has(t.id)}
+                                  onChange={(e) => {
+                                    const next = new Set(selectedSettleIds);
+                                    if (e.target.checked) next.add(t.id);
+                                    else next.delete(t.id);
+                                    setSelectedSettleIds(next);
+                                  }}
+                                  className="w-4 h-4 rounded border-slate-600 bg-slate-900 shrink-0"
+                                />
+                                <span className="flex-1 text-slate-300">
+                                  {t.service_type === "BILL"
+                                    ? "Bill"
+                                    : t.omt_service_type || t.service_type}
+                                </span>
+                                <span className="font-mono text-white">
+                                  {t.currency === "LBP"
+                                    ? `${Math.round(Math.abs(t.amount)).toLocaleString()} LBP`
+                                    : `$${Math.abs(t.amount).toFixed(2)}`}
+                                </span>
+                                <span className="font-mono text-emerald-400 w-20 text-right">
+                                  {t.service_type === "BILL" ? (
+                                    // Commission is entered AT settlement (D8) —
+                                    // no per-row commission to show for a bill.
+                                    <span className="text-slate-600">—</span>
+                                  ) : t.commission > 0 ? (
+                                    `+$${t.commission.toFixed(4)}`
+                                  ) : (
+                                    "—"
+                                  )}
+                                </span>
+                                <span className="text-slate-500 w-36 text-right">
+                                  {parseDbDate(t.created_at).toLocaleString()}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {selectedSettleIds.size > 0 && !isMixedModelBatch && (
+                        <div className="flex items-center justify-between px-3 py-2 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
+                          {isBillsOnlyBatch ? (
+                            // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) —
+                            // a bills-only batch has NOTHING for the shop to
+                            // pay; the commission (set in Settle) arrives IN
+                            // as a top-up to the provider's own balance. The
+                            // old "Owed X − commission / Net you pay: 0" strip
+                            // implied a payment that never happens — say what
+                            // is true instead.
+                            <span className="text-emerald-400">
+                              {selectedSupplier.name} owes you a settlement
+                              commission — set the rate/count in Settle
                             </span>
-                            <span className="font-mono text-white">
-                              {t.currency === "LBP"
-                                ? `${Math.round(Math.abs(t.amount)).toLocaleString()} LBP`
-                                : `$${Math.abs(t.amount).toFixed(2)}`}
-                            </span>
-                            <span className="font-mono text-emerald-400 w-20 text-right">
-                              {t.service_type === "BILL" ? (
-                                // Commission is entered AT settlement (D8) —
-                                // no per-row commission to show for a bill.
-                                <span className="text-slate-600">—</span>
-                              ) : t.commission > 0 ? (
-                                `+$${t.commission.toFixed(4)}`
-                              ) : (
-                                "—"
-                              )}
-                            </span>
-                            <span className="text-slate-500 w-36 text-right">
-                              {parseDbDate(t.created_at).toLocaleString()}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                    {selectedSettleIds.size > 0 && !isMixedModelBatch && (
-                      <div className="flex items-center justify-between px-3 py-2 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
-                        {isBillsOnlyBatch ? (
-                          // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) —
-                          // a bills-only batch has NOTHING for the shop to
-                          // pay; the commission (set in Settle) arrives IN
-                          // as a top-up to the provider's own balance. The
-                          // old "Owed X − commission / Net you pay: 0" strip
-                          // implied a payment that never happens — say what
-                          // is true instead.
-                          <span className="text-emerald-400">
-                            {selectedSupplier.name} owes you a settlement
-                            commission — set the rate/count in Settle
-                          </span>
-                        ) : (
-                          <>
-                            <span>
-                              {isNewModelBatch ? (
-                                <>
-                                  Owed{" "}
-                                  {formatMoney(preSettleOwed, preSettleCurrency)}{" "}
-                                  − commission (entered below)
-                                </>
-                              ) : (
-                                <>
-                                  Owed ${settleTotalOwedUsd.toFixed(2)} −
-                                  commission ${settleCommissionUsd.toFixed(4)}
-                                </>
-                              )}
-                            </span>
-                            <span className="font-mono font-bold text-white">
-                              Net you pay:{" "}
-                              {formatMoney(preSettleNetPay, preSettleCurrency)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    )}
+                          ) : (
+                            <>
+                              <span>
+                                {isNewModelBatch ? (
+                                  <>
+                                    Owed{" "}
+                                    {formatMoney(
+                                      preSettleOwed,
+                                      preSettleCurrency,
+                                    )}{" "}
+                                    − commission (entered below)
+                                  </>
+                                ) : (
+                                  <>
+                                    Owed ${settleTotalOwedUsd.toFixed(2)} −
+                                    commission ${settleCommissionUsd.toFixed(4)}
+                                  </>
+                                )}
+                              </span>
+                              <span className="font-mono font-bold text-white">
+                                Net you pay:{" "}
+                                {formatMoney(
+                                  preSettleNetPay,
+                                  preSettleCurrency,
+                                )}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -2334,13 +2402,12 @@ export default function SuppliersPage() {
                 // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137) — the owner's
                 // own model: "Katsh owes you X, they pay it to us via top-up
                 // to our Katsh account" — a bills-only batch pays NOTHING
-                // out; the entered commission arrives IN as a credit to the
-                // Katsh/iPick provider drawer the instant Confirm is
-                // pressed. No tender form, no method dropdown — there is
-                // only one destination for this money, so offering a choice
-                // that doesn't exist would be the exact footgun LIRA-118
-                // removed elsewhere ("Paid from" principle).
-                <div className="space-y-1">
+                // out; the entered commission arrives IN, either as a credit
+                // to the Katsh/iPick provider drawer (default "Top-up") or,
+                // per the owner's 2026-08-13 follow-up, through real
+                // payment-method legs instead ("Other payment" — the sheet
+                // below, autofilled with this same figure).
+                <div className="space-y-2">
                   <div className="flex justify-between font-bold">
                     <span className="text-white">
                       {selectedSupplier.name} owes you:
@@ -2352,10 +2419,43 @@ export default function SuppliersPage() {
                       )}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    Arrives as a top-up to the {selectedSupplier.name} balance
-                    when you confirm — no payment for you to make.
-                  </p>
+
+                  {/* Owner follow-up (2026-08-13) — mirrors the LUMP/RATE
+                      toggle above: same look and behaviour, a sibling
+                      control. Switching back to "Top-up" clears any
+                      in-progress Other-payment legs so a stale leg can never
+                      leak into a Top-up submission. */}
+                  <div className="flex gap-2">
+                    {(["TOP_UP", "OTHER_PAYMENT"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => {
+                          setSettleCommissionCollectionMode(mode);
+                          if (mode === "TOP_UP") setSettlePaymentLines([]);
+                        }}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          settleCommissionCollectionMode === mode
+                            ? "bg-emerald-600 text-white"
+                            : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                        }`}
+                      >
+                        {mode === "TOP_UP" ? "Top-up" : "Other payment"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {settleCommissionCollectionMode === "TOP_UP" ? (
+                    <p className="text-[11px] text-slate-500">
+                      Arrives as a top-up to the {selectedSupplier.name} balance
+                      when you confirm — no payment for you to make.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">
+                      Pick how {selectedSupplier.name} pays you below — the
+                      amount is prefilled from the commission above.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="flex justify-between font-bold">
@@ -2374,7 +2474,32 @@ export default function SuppliersPage() {
           multiPaymentInputKey={settleKey}
           multiPaymentInput={
             isBillsOnlyBatch
-              ? null
+              ? settleCommissionCollectionMode === "OTHER_PAYMENT"
+                ? {
+                    // Owner follow-up (2026-08-13) — "Other payment" mode:
+                    // the sheet's target is the RAW entered commission
+                    // (never the always-0 net pay), autofilled by
+                    // MultiPaymentInput's own single-mode auto-sync (same
+                    // mechanism the legacy branch below already relies on).
+                    totals: [
+                      {
+                        amount: settleEnteredCommissionAmount,
+                        currency: settleEnteredCommissionCurrency,
+                      },
+                    ],
+                    totalAmountCurrency: settleEnteredCommissionCurrency,
+                    currency: settleEnteredCommissionCurrency,
+                    onChange: setSettlePaymentLines,
+                    showPmFee: false,
+                    showDiscount: false,
+                    paymentMethods: methods,
+                    currencies: [
+                      { code: "USD", symbol: "$" },
+                      { code: "LBP", symbol: "LBP" },
+                    ],
+                    exchangeRate: exchangeRate,
+                  }
+                : null
               : {
                   // LIRA-119 — both the total and the payment sheet's default
                   // leg currency now follow settleNetPayCurrency instead of

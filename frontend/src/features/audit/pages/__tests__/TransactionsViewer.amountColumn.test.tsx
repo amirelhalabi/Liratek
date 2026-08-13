@@ -65,8 +65,12 @@ function amountCellFor(summaryText: string): string {
   return cells[AMOUNT_COL_INDEX]?.textContent ?? "";
 }
 
+// Owner follow-up (2026-08-13, request #4): the real backend
+// (SupplierRepository's `_formatCommissionMoneyForSummary`) now drops the
+// zero USD side and the "(drawer top-up)" parenthetical — this fixture
+// mirrors that CURRENT format, not the pre-fix one this file used to encode.
 const BILLS_ONLY_SUMMARY =
-  "Settlement: 2 txns — Katsh credited $0.00 + 100,000 LBP commission (drawer top-up)";
+  "Settlement: 2 txns — Katsh credited 100,000 LBP commission";
 const LEGACY_SUMMARY = "Settlement: 3 txns, net $25.00";
 const SALE_SUMMARY = "Sale of a widget";
 

@@ -882,9 +882,9 @@ describe("LIRA-112 (D12) — iPick books zero commission; Katsh does", () => {
 
     // Reversal symmetry (rule 20): the bill row re-joins the unsettled
     // queue, exactly as if it had never been settled.
-    expect(
-      fsRepo.getUnsettledBySupplier("Katsh").map((r) => r.id),
-    ).toContain(fsId);
+    expect(fsRepo.getUnsettledBySupplier("Katsh").map((r) => r.id)).toContain(
+      fsId,
+    );
 
     const allocations = db
       .prepare(
@@ -898,5 +898,91 @@ describe("LIRA-112 (D12) — iPick books zero commission; Katsh does", () => {
     // gracefully (see FinancialServiceRepository.omtCommissionModelGate.test.ts's
     // "falls back to legacy behavior" precedent); either way none survive.
     expect(allocations).toHaveLength(0);
+  });
+
+  // Owner follow-up (2026-08-13) — the "Other payment" sibling of the
+  // rule-20 proof above: same money fact (create → settle → void nets to 0),
+  // different collection mode. The commission now arrives via a real CASH
+  // leg into General instead of a Katsh-drawer top-up — General must net
+  // back to 0 too, and the Katsh drawer must never have moved at all.
+  it("Katsh BILL: create → settle (Other payment, CASH, 20,000 LBP) → void nets the General drawer + profit back to 0, and the Katsh drawer never moves", () => {
+    const katshId = supplierIdByProvider(db, "Katsh");
+    const supplierRepo = getSupplierRepository();
+
+    const { id: fsId } = fsRepo.createTransaction({
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 20,
+      cost: 20,
+      price: 20,
+      currency: "USD",
+      commission: 0,
+      deferPayment: true,
+      exchangeRate: 90000,
+      userId: 1,
+    });
+
+    const katshLbpBeforeSettle = drawerBalance(db, "Katsh", "LBP");
+    const generalLbpBeforeSettle = drawerBalance(db, "General", "LBP");
+
+    const settlement = supplierRepo.settleTransactions({
+      supplier_id: katshId,
+      financial_service_ids: [fsId],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 20000,
+      entry_mode: "RATE",
+      commission_rate: 20000,
+      commission_unit_count: 1,
+      created_by: 1,
+      commission_collection_mode: "OTHER_PAYMENT",
+      payments: [{ method: "CASH", currency_code: "LBP", amount: 20000 }],
+    });
+
+    // The chosen drawer (General) gains exactly the commission; the
+    // provider's own drawer (Katsh) is UNTOUCHED — the top-up branch never
+    // ran for this mode.
+    expect(drawerBalance(db, "General", "LBP") - generalLbpBeforeSettle).toBe(
+      20000,
+    );
+    expect(drawerBalance(db, "Katsh", "LBP")).toBe(katshLbpBeforeSettle);
+
+    const settlementTxn = txnRepo.getBySourceId(
+      "supplier_ledger",
+      settlement.id,
+    )!;
+    expect(settlementTxn.profit_lbp).toBe(20000);
+    expect(settlementTxn.profit_usd).toBe(0);
+
+    txnRepo.voidTransaction(settlementTxn.id, 1);
+
+    // Rule 20 — nets to 0, per currency, across EVERY drawer/profit this
+    // batch touched:
+    //   1. General (LBP): the generic `_reversePayments` step mirrors the
+    //      CASH leg with a negated amount — back to its pre-settle balance,
+    //      no bespoke reversal code.
+    expect(drawerBalance(db, "General", "LBP")).toBe(generalLbpBeforeSettle);
+    //   2. Katsh drawer: still untouched (0 delta) throughout create, settle,
+    //      AND void — this money never passed through it in this mode.
+    expect(drawerBalance(db, "Katsh", "LBP")).toBe(katshLbpBeforeSettle);
+    //   3. supplier_ledger: no nonzero row for this money at any point.
+    const postVoidLedger = ledgerRowsForSupplier(db, katshId);
+    expect(
+      postVoidLedger.every((r) => r.amount_usd === 0 && r.amount_lbp === 0),
+    ).toBe(true);
+    //   4. Profit: nets to 0 across ACTIVE rows for this exact source.
+    const activeProfitLbp = db
+      .prepare(
+        `SELECT COALESCE(SUM(profit_lbp), 0) as total FROM transactions
+           WHERE source_table = 'supplier_ledger' AND source_id = ? AND status = 'ACTIVE'`,
+      )
+      .get(settlement.id) as { total: number };
+    expect(activeProfitLbp.total).toBe(0);
+
+    // Reversal symmetry: the bill re-joins the unsettled queue.
+    expect(fsRepo.getUnsettledBySupplier("Katsh").map((r) => r.id)).toContain(
+      fsId,
+    );
   });
 });

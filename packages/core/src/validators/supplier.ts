@@ -65,6 +65,20 @@ export const supplierSettleSchema = z.object({
   // commission_lbp above regardless of entry mode.
   commission_rate: z.number().nonnegative().optional(),
   commission_unit_count: z.number().int().nonnegative().optional(),
+  // BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up (owner, 2026-08-13) — for a
+  // BILLS-ONLY batch (server-verified, never trusted from this field alone),
+  // how the entered commission actually arrives:
+  //   'TOP_UP' (default when omitted, byte-identical to pre-existing
+  //     behavior) — the provider (Katsh/iPick) funds a top-up straight into
+  //     its OWN drawer; `payments` below must stay empty (no cash owed).
+  //   'OTHER_PAYMENT' — the commission arrives via real payment-method legs
+  //     instead (`payments` below), e.g. genuine CASH into the till.
+  //     SupplierRepository verifies the legs sum to commission_usd/
+  //     commission_lbp before accepting them.
+  // Ignored for every other batch shape (legacy, non-bills new-model) — the
+  // provider-drawer top-up is the ONLY commission-collection path those
+  // shapes have ever had, and this field cannot change that.
+  commission_collection_mode: z.enum(["TOP_UP", "OTHER_PAYMENT"]).optional(),
   // Deprecated — no longer used to move money (OMT_System/Whish_System is
   // the provider float, never a real cash drawer). Kept optional so older
   // callers that still send it don't fail validation; ignored by the

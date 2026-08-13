@@ -321,7 +321,10 @@ function drawerBalance(
   return row?.balance ?? 0;
 }
 
-function settlementTxnFor(db: Database.Database, settlementLedgerId: number): any {
+function settlementTxnFor(
+  db: Database.Database,
+  settlementLedgerId: number,
+): any {
   return db
     .prepare(
       `SELECT * FROM transactions WHERE source_table = 'supplier_ledger' AND source_id = ? AND type = 'SUPPLIER_SETTLEMENT'`,
@@ -833,9 +836,7 @@ describe("SupplierRepository.settleTransactions() — bills-only commission draw
       .prepare(`SELECT entry_type FROM supplier_ledger WHERE supplier_id = ?`)
       .all(supplierId) as { entry_type: string }[];
     expect(ledgerRows.map((r) => r.entry_type)).toEqual(["SETTLEMENT"]);
-    expect(
-      ledgerRows.some((r) => r.entry_type === "TOP_UP"),
-    ).toBe(false);
+    expect(ledgerRows.some((r) => r.entry_type === "TOP_UP")).toBe(false);
 
     // The money landed in the Katsh drawer instead.
     expect(drawerBalance("Katsh", "LBP")).toBe(20000);
@@ -937,7 +938,9 @@ describe("SupplierRepository.settleTransactions() — bills-only commission draw
     ).cnt;
     expect(ledgerCount).toBe(0);
     const fsRow = db
-      .prepare(`SELECT is_settled, settlement_id FROM financial_services WHERE id = ?`)
+      .prepare(
+        `SELECT is_settled, settlement_id FROM financial_services WHERE id = ?`,
+      )
       .get(fsId) as { is_settled: number; settlement_id: number | null };
     expect(fsRow.is_settled).toBe(0);
     expect(fsRow.settlement_id).toBeNull();
@@ -963,5 +966,378 @@ describe("SupplierRepository.settleTransactions() — bills-only commission draw
         payments: [{ method: "CASH", currency_code: "USD", amount: 100 }],
       }),
     ).not.toThrow();
+  });
+
+  it("still rejects a bills-only batch's stray legs when commission_collection_mode is explicitly 'TOP_UP' — the mode string itself gates the exception, not merely its absence", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+
+    expect(() =>
+      repo.settleTransactions({
+        supplier_id: supplierId,
+        financial_service_ids: [fsId],
+        amount_usd: 0,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 20000,
+        entry_mode: "RATE",
+        commission_rate: 20000,
+        commission_unit_count: 1,
+        created_by: 1,
+        commission_collection_mode: "TOP_UP",
+        payments: [{ method: "CASH", currency_code: "LBP", amount: 20000 }],
+      }),
+    ).toThrow(/no cash owed/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Owner follow-up (2026-08-13) — "Other payment" commission-collection mode:
+// a bills-only batch's commission arrives via real payment-method legs
+// instead of the provider-drawer top-up.
+// ─────────────────────────────────────────────────────────────────────────
+describe("SupplierRepository.settleTransactions() — bills-only commission via 'Other payment' legs", () => {
+  let db: Database.Database;
+  let repo: SupplierRepository;
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    repo = new SupplierRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function drawerBalance(drawerName: string, currencyCode: string): number {
+    const row = db
+      .prepare(
+        `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
+      )
+      .get(drawerName, currencyCode) as { balance: number } | undefined;
+    return row?.balance ?? 0;
+  }
+
+  function paymentsForTxn(
+    txnId: number,
+  ): Array<{ method: string; drawer_name: string; amount: number }> {
+    return db
+      .prepare(
+        `SELECT method, drawer_name, amount FROM payments WHERE transaction_id = ? ORDER BY id ASC`,
+      )
+      .all(txnId) as Array<{
+      method: string;
+      drawer_name: string;
+      amount: number;
+    }>;
+  }
+
+  it("accepts 'OTHER_PAYMENT' mode legs, credits the CHOSEN drawer (General via CASH) — NOT the Katsh drawer — and does not ALSO debit it (the double-post hazard the reorder fixed)", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+    const generalLbpBefore = drawerBalance("General", "LBP");
+    const katshLbpBefore = drawerBalance("Katsh", "LBP");
+
+    const result = repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 20000,
+      entry_mode: "RATE",
+      commission_rate: 20000,
+      commission_unit_count: 1,
+      created_by: 1,
+      commission_collection_mode: "OTHER_PAYMENT",
+      payments: [{ method: "CASH", currency_code: "LBP", amount: 20000 }],
+    });
+
+    // The chosen drawer (General, via CASH) gains EXACTLY the commission —
+    // not 0 (which a debit-then-credit double-post would net to).
+    expect(drawerBalance("General", "LBP") - generalLbpBefore).toBe(20000);
+    // The Katsh drawer is UNTOUCHED — the top-up branch never ran.
+    expect(drawerBalance("Katsh", "LBP") - katshLbpBefore).toBe(0);
+
+    // No supplier_ledger row for this money either (same "one obligation,
+    // one owner" rule as the top-up path) — only the settlement's own
+    // (zero-amount) SETTLEMENT row exists.
+    expect(commissionCreditRows(db, supplierId)).toHaveLength(0);
+    const ledgerRows = db
+      .prepare(`SELECT entry_type FROM supplier_ledger WHERE supplier_id = ?`)
+      .all(supplierId) as { entry_type: string }[];
+    expect(ledgerRows.map((r) => r.entry_type)).toEqual(["SETTLEMENT"]);
+
+    // Exactly ONE payments row on this transaction — a positive (IN) CASH
+    // leg into General. If the net-pay debit loop had ALSO run over this
+    // same leg (the bug the step-4 `!isOtherPaymentCommission` guard
+    // fixes), there would be a SECOND, negative row here instead.
+    const settlementTxn = settlementTxnFor(db, result.id);
+    const legs = paymentsForTxn(settlementTxn.id);
+    expect(legs).toHaveLength(1);
+    expect(legs[0]).toMatchObject({
+      method: "CASH",
+      drawer_name: "General",
+      amount: 20000,
+    });
+
+    // Profit is stamped exactly the same as the Top-up path (owner: "it is
+    // profit, entirely" — regardless of how it's collected).
+    expect(settlementTxn.profit_lbp).toBe(20000);
+    expect(settlementTxn.profit_usd).toBe(0);
+
+    // The mode itself is stamped onto metadata — "either way, the chosen
+    // method must appear in the transaction metadata".
+    const meta = JSON.parse(settlementTxn.metadata_json) as {
+      commission_collection_mode?: string;
+      counterparty?: { flow?: string; method?: string };
+    };
+    expect(meta.commission_collection_mode).toBe("OTHER_PAYMENT");
+    expect(meta.counterparty?.flow).toBe("IN");
+    expect(meta.counterparty?.method).toBe("CASH");
+  });
+
+  it("rejects 'OTHER_PAYMENT' legs that don't sum to the entered commission — a mismatch would credit a different amount than the profit/allocation records claim", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+
+    expect(() =>
+      repo.settleTransactions({
+        supplier_id: supplierId,
+        financial_service_ids: [fsId],
+        amount_usd: 0,
+        amount_lbp: 0,
+        commission_usd: 0,
+        commission_lbp: 20000,
+        entry_mode: "RATE",
+        commission_rate: 20000,
+        commission_unit_count: 1,
+        created_by: 1,
+        commission_collection_mode: "OTHER_PAYMENT",
+        // Only 15,000 of the 20,000 entered commission — a real mismatch.
+        payments: [{ method: "CASH", currency_code: "LBP", amount: 15000 }],
+      }),
+    ).toThrow(/must sum to the entered commission/i);
+
+    // Rejected BEFORE any write — nothing committed.
+    const ledgerCount = (
+      db.prepare("SELECT COUNT(*) as cnt FROM supplier_ledger").get() as {
+        cnt: number;
+      }
+    ).cnt;
+    expect(ledgerCount).toBe(0);
+  });
+
+  it("rejects 'OTHER_PAYMENT' mode for a NON-bills-only batch — the field only has meaning when the server itself derives isBillsOnlyBatch", () => {
+    const supplierId = seedSupplier(db, "OMT");
+    const fsId = seedFs(db, {
+      provider: "OMT",
+      amount: 100,
+      commissionModel: 0, // legacy — never isBillsOnlyBatch
+    });
+
+    expect(() =>
+      repo.settleTransactions({
+        supplier_id: supplierId,
+        financial_service_ids: [fsId],
+        amount_usd: 0,
+        amount_lbp: 0,
+        commission_usd: 20,
+        commission_lbp: 0,
+        created_by: 1,
+        commission_collection_mode: "OTHER_PAYMENT",
+        payments: [{ method: "CASH", currency_code: "USD", amount: 20 }],
+      }),
+    ).toThrow(/no cash owed/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Owner follow-up (2026-08-13, request #4) — the settlement summary text:
+// omit a currency that's ~0 instead of always printing "$0.00 + X LBP", and
+// drop the "(drawer top-up)" parenthetical (the payment-detail subtext now
+// carries that). Target: "Settlement: 2 txns — Katsh credited 40,000 LBP
+// commission" — not "...credited $0.00 + 40,000 LBP commission (drawer
+// top-up)".
+// ─────────────────────────────────────────────────────────────────────────
+describe("SupplierRepository.settleTransactions() — bills-only settlement summary text (owner request #4)", () => {
+  let db: Database.Database;
+  let repo: SupplierRepository;
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    repo = new SupplierRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function summaryFor(settlementLedgerId: number): string {
+    return settlementTxnFor(db, settlementLedgerId).summary as string;
+  }
+
+  it("omits the zero USD side entirely — 'credited 40,000 LBP commission', no '$0.00', no '(drawer top-up)'", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fs1 = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+    const fs2 = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+
+    const result = repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fs1, fs2],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 40000,
+      entry_mode: "RATE",
+      commission_rate: 20000,
+      commission_unit_count: 2,
+      created_by: 1,
+    });
+
+    const summary = summaryFor(result.id);
+    expect(summary).toBe(
+      "Settlement: 2 txns — Katsh credited 40,000 LBP commission",
+    );
+    expect(summary).not.toContain("$0.00");
+    expect(summary).not.toContain("drawer top-up");
+  });
+
+  it("omits the zero LBP side entirely when the commission is USD-denominated", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "USD",
+      commissionModel: 1,
+    });
+
+    const result = repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 5,
+      commission_lbp: 0,
+      entry_mode: "LUMP",
+      created_by: 1,
+    });
+
+    const summary = summaryFor(result.id);
+    expect(summary).toBe(
+      "Settlement: 1 txns — Katsh credited $5.00 commission",
+    );
+    expect(summary).not.toContain("LBP");
+    expect(summary).not.toContain("drawer top-up");
+  });
+
+  it("prints both currencies, joined with ' + ', when both are genuinely nonzero", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "USD",
+      commissionModel: 1,
+    });
+
+    const result = repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 5,
+      commission_lbp: 40000,
+      entry_mode: "LUMP",
+      created_by: 1,
+    });
+
+    const summary = summaryFor(result.id);
+    expect(summary).toBe(
+      "Settlement: 1 txns — Katsh credited $5.00 + 40,000 LBP commission",
+    );
+  });
+
+  it("both-zero (defensive, should be unreachable) — omits the whole 'credited ...' clause instead of rendering a dangling 'credited'", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+
+    const result = repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 0,
+      entry_mode: "LUMP",
+      created_by: 1,
+    });
+
+    const summary = summaryFor(result.id);
+    expect(summary).toBe("Settlement: 1 txns — Katsh");
+    expect(summary).not.toContain("credited");
+  });
+
+  it("keeps the legacy/OMT summary format byte-for-byte unchanged", () => {
+    const supplierId = seedSupplier(db, "OMT");
+    const fsId = seedFs(db, {
+      provider: "OMT",
+      amount: 100,
+      commissionModel: 0,
+    });
+
+    const result = repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 99.9,
+      amount_lbp: 0,
+      commission_usd: 0.1,
+      commission_lbp: 0,
+      created_by: 1,
+      payments: [{ method: "CASH", currency_code: "USD", amount: 99.9 }],
+    });
+
+    expect(summaryFor(result.id)).toBe("Settlement: 1 txns, net $99.90");
   });
 });

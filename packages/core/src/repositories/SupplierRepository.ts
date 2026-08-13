@@ -29,7 +29,10 @@ import {
 // drawer top-up reuses the SAME provider→drawer map `RechargeRepository
 // .topUpFromSupplier` uses (rule 14), deliberately WITHOUT that method's
 // debt-booking half — see `_bookBillsCommissionDrawerTopUp`'s doc comment.
-import { TOP_UP_PROVIDER_DRAWERS, isTopUpProvider } from "../constants/index.js";
+import {
+  TOP_UP_PROVIDER_DRAWERS,
+  isTopUpProvider,
+} from "../constants/index.js";
 
 export interface SupplierEntity {
   id: number;
@@ -257,6 +260,29 @@ export interface SettleTransactionsData {
   commission_rate?: number;
   /** RATE mode only — the unit count (e.g. bill/transaction count) the operator entered (audit snapshot; see `entry_mode`). */
   commission_unit_count?: number;
+  /**
+   * BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up (owner, 2026-08-13) — for a
+   * BILLS-ONLY batch (`isBillsOnlyBatch`, re-derived server-side — never
+   * trusted from this field alone), how the entered commission actually
+   * arrives:
+   *   - `'TOP_UP'` (default when omitted — byte-identical to the original
+   *     LIRA-137 behavior): the provider (Katsh/iPick) funds a top-up
+   *     straight into its OWN drawer via `_bookBillsCommissionDrawerTopUp`.
+   *     `payments` below must stay empty — there is no cash owed for a leg
+   *     to pay.
+   *   - `'OTHER_PAYMENT'`: the commission arrives via real payment-method
+   *     legs instead — `payments` below carries them (money arriving IN,
+   *     e.g. genuine CASH into the till), posted by
+   *     `_bookBillsCommissionViaPaymentLegs`. `settleTransactions` verifies
+   *     the legs sum to `commission_usd`/`commission_lbp` (within the same
+   *     tolerance every other cash-owed check in this method uses) before
+   *     accepting them — this is the ONE exception to the sibling "no cash
+   *     owed, no legs" guard just below.
+   * Ignored for every other batch shape (legacy, non-bills new-model) — the
+   * provider-drawer top-up is the ONLY commission-collection path those
+   * shapes have ever had, and this field cannot change that.
+   */
+  commission_collection_mode?: "TOP_UP" | "OTHER_PAYMENT";
   /**
    * @deprecated No longer used to move money. `OMT_System`/`Whish_System` IS
    * the shop's real physical cash drawer at the money-transfer counter (plan
@@ -1047,34 +1073,19 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     if (!data.financial_service_ids.length) {
       throw new DatabaseError("No transactions selected for settlement");
     }
-    const owesCash =
-      Math.abs(data.amount_usd) > 0.005 || Math.abs(data.amount_lbp) > 0.005;
-    if (owesCash && !data.payments?.length) {
-      throw new DatabaseError(
-        "Settlement requires at least one payment-method leg to pay the net amount owed",
-      );
-    }
-    // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137 Q2) — the REVERSE hazard:
-    // a $0/0-LBP-owed batch (the bills-only shape — a bill's principal never
-    // touches the ledger, so gross owed is structurally 0) has no
-    // contractual cash amount for a payment-method leg to pay. Before this
-    // guard, a forced leg here would debit a real drawer with NO matching
-    // ledger/gross entry — the settlement's own SETTLEMENT row still nets to
-    // $0.00/0 LBP. The frontend no longer offers a tender form for this
-    // shape at all (Suppliers/index.tsx's isBillsOnlyBatch gate skips
-    // rendering MultiPaymentInput entirely), but this repository is the
-    // single source of truth for every caller (raw IPC/REST, a future
-    // script) — reject the impossible payload here too, same tier as the
-    // sibling guard above.
-    if (!owesCash && data.payments?.length) {
-      throw new DatabaseError(
-        "Settlement has no cash owed — payment-method legs are not accepted (a bills-only commission books as a provider-drawer credit, never a cash payment)",
-      );
-    }
     // Reviewer finding #3 (harden) — same throw-before-try tier as the
     // mixed-model-batch guard below: reject BEFORE any write when the
     // caller's financial_service_ids don't actually belong to
     // data.supplier_id. See _verifySupplierOwnership's own doc comment.
+    //
+    // Moved AHEAD of the two cash-owed guards below (was previously AFTER
+    // them) — the commission-collection-mode follow-up needs
+    // `isBillsOnlyBatch` resolved before it can decide whether the reverse
+    // hazard guard's exception (a bills-only "Other payment" leg-set) even
+    // applies, and ownership/batch-model resolution is read-only either way,
+    // so reordering it changes no committed behavior for any single-guard
+    // violation — only which of several SIMULTANEOUS violations a caller
+    // sees first, which no existing test depends on.
     this._verifySupplierOwnership(
       data.financial_service_ids,
       data.supplier_id,
@@ -1109,6 +1120,76 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       batchModel === 1 &&
       eligibleRows.length > 0 &&
       eligibleRows.every((r) => r.service_type === "BILL");
+
+    const owesCash =
+      Math.abs(data.amount_usd) > 0.005 || Math.abs(data.amount_lbp) > 0.005;
+    if (owesCash && !data.payments?.length) {
+      throw new DatabaseError(
+        "Settlement requires at least one payment-method leg to pay the net amount owed",
+      );
+    }
+    // BILL_COMMISSION_SETTLEMENT_PLAN.md (LIRA-137 Q2) — the REVERSE hazard:
+    // a $0/0-LBP-owed batch (the bills-only shape — a bill's principal never
+    // touches the ledger, so gross owed is structurally 0) has no
+    // contractual cash amount for a payment-method leg to pay. Before this
+    // guard, a forced leg here would debit a real drawer with NO matching
+    // ledger/gross entry — the settlement's own SETTLEMENT row still nets to
+    // $0.00/0 LBP.
+    //
+    // Follow-up (owner, 2026-08-13) — this guard must now distinguish TWO
+    // reasons a bills-only batch can carry legs while owing $0/0 LBP net:
+    //   (a) legs because the operator chose "Other payment" for HOW the
+    //       commission is collected (`commission_collection_mode ===
+    //       "OTHER_PAYMENT"`, server-verified `isBillsOnlyBatch === true`) —
+    //       these are not a net-pay tender at all, they ARE the commission
+    //       collection, and are accepted ONLY once their sum (per currency)
+    //       matches the entered commission — a leg total that disagreed
+    //       would credit a drawer with a different amount than the profit/
+    //       allocation records claim, the same class of hazard this guard
+    //       exists to catch, just inverted.
+    //   (b) every other shape — the original hazard, still rejected exactly
+    //       as before: a legacy/OMT batch with nothing owed, a bills-only
+    //       batch left in (default) "Top-up" mode, or ANY batch where the
+    //       mode flag is absent/mistyped.
+    // The frontend only ever offers a tender form for shape (a) — no
+    // MultiPaymentInput renders for "Top-up" mode or a non-bills-only batch
+    // (Suppliers/index.tsx's isBillsOnlyBatch/mode gates) — but this
+    // repository is the single source of truth for every caller (raw IPC/
+    // REST, a future script), so both branches are enforced here too.
+    const isOtherPaymentCommission =
+      isBillsOnlyBatch && data.commission_collection_mode === "OTHER_PAYMENT";
+    if (!owesCash && data.payments?.length) {
+      if (!isOtherPaymentCommission) {
+        throw new DatabaseError(
+          "Settlement has no cash owed — payment-method legs are not accepted (a bills-only commission books as a provider-drawer credit, never a cash payment)",
+        );
+      }
+      // Sum the Other-payment legs per currency and require an EXACT match
+      // (same 0.005 tolerance as every other cash-owed check in this
+      // method) against the entered commission — never a cross-currency
+      // conversion here (this payload carries no exchange rate to convert
+      // at; the UI always offers the leg sheet in the SAME currency the
+      // commission was entered in).
+      const legSum = data.payments.reduce(
+        (acc, p) => {
+          const amt = Math.abs(p.amount);
+          if (p.currency_code === "LBP") acc.lbp += amt;
+          else acc.usd += amt;
+          return acc;
+        },
+        { usd: 0, lbp: 0 },
+      );
+      if (
+        Math.abs(legSum.usd - data.commission_usd) > 0.005 ||
+        Math.abs(legSum.lbp - data.commission_lbp) > 0.005
+      ) {
+        throw new DatabaseError(
+          `Other-payment commission legs must sum to the entered commission exactly ` +
+            `(entered $${data.commission_usd.toFixed(2)} + ${data.commission_lbp} LBP, ` +
+            `legs summed to $${legSum.usd.toFixed(2)} + ${legSum.lbp} LBP)`,
+        );
+      }
+    }
 
     try {
       const tenantId = getCurrentTenantId();
@@ -1225,13 +1306,25 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // lever for a one-row problem): `summary` is never filtered, and
         // TransactionsViewer renders it unconditionally under the cash-flow
         // badge, so the commission is now visible in the DEFAULT table view.
-        const commissionMoney = `$${data.commission_usd.toFixed(2)}${
-          data.commission_lbp
-            ? ` + ${data.commission_lbp.toLocaleString()} LBP`
-            : ""
-        }`;
+        // Owner follow-up (2026-08-13): the old builder above ALWAYS printed
+        // both currencies ("$0.00 + 40,000 LBP") even when one side was
+        // genuinely zero, and appended "(drawer top-up)" — a parenthetical
+        // that is now misleading for the Other-payment mode, since the
+        // payment-detail subtext (driven by the real `payments` leg this
+        // method posts below) already says how the money actually arrived.
+        // `formatCommissionMoneyForSummary` drops whichever currency is ~0
+        // and never appends the mode; `settlementSummary` itself handles the
+        // (should-be-unreachable — both booking branches below skip a $0/0
+        // commission entirely) both-zero case defensively by omitting the
+        // "credited ..." clause rather than rendering a dangling "credited".
+        const commissionMoney = this._formatCommissionMoneyForSummary(
+          data.commission_usd,
+          data.commission_lbp,
+        );
         const settlementSummary = isBillsOnlyBatch
-          ? `Settlement: ${data.financial_service_ids.length} txns — ${this._getSupplierName(data.supplier_id)} credited ${commissionMoney} commission (drawer top-up)`
+          ? `Settlement: ${data.financial_service_ids.length} txns — ${this._getSupplierName(data.supplier_id)}${
+              commissionMoney ? ` credited ${commissionMoney} commission` : ""
+            }`
           : `Settlement: ${data.financial_service_ids.length} txns, net $${data.amount_usd.toFixed(2)}`;
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
@@ -1259,6 +1352,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             // record for a new-model batch is `supplier_settlements`).
             commission_model: batchModel,
             entry_mode: data.entry_mode ?? "LUMP",
+            // Owner follow-up (2026-08-13) — HOW a bills-only batch's
+            // commission arrived: 'TOP_UP' (provider-drawer credit) or
+            // 'OTHER_PAYMENT' (real payment-method legs, see `payments`
+            // below and `settlementMethod` above). Stamped only when it has
+            // a real meaning (isBillsOnlyBatch) — omitted for every other
+            // batch shape rather than a meaningless 'TOP_UP' default.
+            ...(isBillsOnlyBatch
+              ? {
+                  commission_collection_mode:
+                    data.commission_collection_mode ?? "TOP_UP",
+                }
+              : {}),
             // CQ-8 counterparty contract: a settlement pays the supplier's
             // net amount OUT of the drawer — EXCEPT a bills-only batch, where
             // the only money that moves is the commission arriving IN (the
@@ -1288,7 +1393,24 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // moves here. No bare `drawer_name` fallback: the constructor guard
         // above already refused a nonzero amount with no legs, so this loop
         // is the sole payer whenever cash actually changes hands.
-        if (data.payments && data.payments.length > 0) {
+        //
+        // `!isOtherPaymentCommission` (rule 16 — a shared end-of-transaction
+        // loop must consume only the legs it OWNS): when a bills-only batch's
+        // operator chose "Other payment", `data.payments` above is NOT a
+        // net-pay tender at all — the whole reason the reverse-hazard guard
+        // let it through despite `owesCash === false` is that these ARE the
+        // commission-collection legs (money arriving IN, credited by step 5's
+        // `_bookBillsCommissionViaPaymentLegs` below). Without this guard,
+        // THIS loop would ALSO run over the SAME legs and debit them as if
+        // paying the supplier — a double-post that nets the drawer back to
+        // zero and writes a second, contradictory `payments` row on the same
+        // transaction. Every other shape is unaffected: `owesCash` is true
+        // exactly when `data.payments` really is the net-pay tender.
+        if (
+          data.payments &&
+          data.payments.length > 0 &&
+          !isOtherPaymentCommission
+        ) {
           for (const p of data.payments) {
             if (!isDrawerAffectingMethod(p.method)) continue;
             // Primary Cash Drawer plan §1/§8.2 (decision #10): a CASH leg
@@ -1330,6 +1452,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             rows: eligibleRows,
             data,
             tenantId,
+            drawerCtx,
           });
         }
 
@@ -1541,6 +1664,15 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
    *
    *    Both branches skip entirely when the entered commission is $0/0 LBP
    *    (nothing to credit).
+   *
+   *    Owner follow-up (2026-08-13) — the bills-only branch itself now has
+   *    TWO shapes, selected by `data.commission_collection_mode`:
+   *    `_bookBillsCommissionDrawerTopUp` (mode `'TOP_UP'`, default, unchanged
+   *    from the above) or `_bookBillsCommissionViaPaymentLegs` (mode
+   *    `'OTHER_PAYMENT'` — credits whatever drawer(s) the operator's chosen
+   *    payment method(s) map to instead of the provider's own drawer). Both
+   *    are equally "one obligation, one owner": neither ever touches
+   *    `supplier_ledger` for this money.
    */
   private _bookCommissionAtSettlement(args: {
     settlementLedgerId: number;
@@ -1551,6 +1683,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     rows: EligibleSettlementRow[];
     data: SettleTransactionsData;
     tenantId: number;
+    drawerCtx: ServiceCashDrawerContext;
   }): void {
     const {
       settlementLedgerId,
@@ -1561,6 +1694,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       rows,
       data,
       tenantId,
+      drawerCtx,
     } = args;
 
     // Gross (supplier_owed) per row, reused verbatim via findById() —
@@ -1665,15 +1799,26 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     // The commission credit itself — see the method's own doc comment for
     // the branch.
     if (isBillsOnlyBatch) {
-      this._bookBillsCommissionDrawerTopUp({
-        settlementTxnId,
-        supplierProvider,
-        commissionUsd: data.commission_usd,
-        commissionLbp: data.commission_lbp,
-        createdBy: data.created_by,
-        settlementLedgerId,
-        tenantId,
-      });
+      if (data.commission_collection_mode === "OTHER_PAYMENT") {
+        this._bookBillsCommissionViaPaymentLegs({
+          settlementTxnId,
+          payments: data.payments ?? [],
+          createdBy: data.created_by,
+          settlementLedgerId,
+          tenantId,
+          drawerCtx,
+        });
+      } else {
+        this._bookBillsCommissionDrawerTopUp({
+          settlementTxnId,
+          supplierProvider,
+          commissionUsd: data.commission_usd,
+          commissionLbp: data.commission_lbp,
+          createdBy: data.created_by,
+          settlementLedgerId,
+          tenantId,
+        });
+      }
       return;
     }
 
@@ -1796,6 +1941,117 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     };
     post(commissionUsd, "USD");
     post(commissionLbp, "LBP");
+  }
+
+  /**
+   * Owner follow-up (2026-08-13) — the "Other payment" sibling of
+   * `_bookBillsCommissionDrawerTopUp` above. Same money fact (a bills-only
+   * batch's commission is profit, entirely, credited IN), different
+   * destination: instead of topping up the Katsh/iPick provider's OWN
+   * drawer, the commission arrives via the SAME real payment-method legs
+   * the operator picked in the modal (`MultiPaymentInput`, autofilled with
+   * the entered commission) — genuine CASH into the till (General or the
+   * PCD, via `resolveServiceCashDrawer`, same resolution step 4 above uses),
+   * or a wallet method into its own drawer.
+   *
+   * `settleTransactions`'s reverse-hazard guard already verified `payments`
+   * sums to `commission_usd`/`commission_lbp` (per currency, within
+   * tolerance) before this method ever runs, and skipped step 4's net-pay
+   * debit loop for these SAME legs (`!isOtherPaymentCommission`) — so this
+   * is the ONLY place they post. Money lands exactly where the legs say:
+   * this posts the legs' OWN amounts, not a re-derived `commission_usd`/
+   * `commission_lbp` figure, so a legitimate cross-method split (e.g. two
+   * CASH legs of different currencies) credits precisely what was entered
+   * per leg.
+   *
+   * Deliberately does NOT reuse `postPayoutLegs` (`moneyPosting.ts`): that
+   * helper posts NEGATIVE (payout) legs and reconciles against an
+   * `ExpectedTotals`/`exchangeRate` this payload doesn't carry (the
+   * commission is entered in a SINGLE currency, never split across both by
+   * this UI) — reconciliation already happened, currency-by-currency, in
+   * `settleTransactions` itself. This method's own job is narrower: post
+   * each already-validated leg as a CREDIT (the mirror image of step 4's
+   * debit), same `applyDrawerDelta`/`insertPaymentRow` primitives.
+   *
+   * Reversal is FREE via the generic `_reversePayments` step every
+   * void/refund already runs (rule 20) — identical reasoning to
+   * `_bookBillsCommissionDrawerTopUp`'s own doc comment: these legs live on
+   * `settlementTxnId`, sign-agnostic, no bespoke reversal code needed.
+   *
+   * A non-drawer-affecting leg (CUSTOMER_ACCOUNT/GIFT_CARD — neither is ever
+   * offered by this sheet's `paymentMethods`, but this is the single source
+   * of truth for every caller) throws rather than silently dropping it,
+   * mirroring `postPayoutLegs`'s own "no phantom leg" guard: a leg the
+   * reverse-hazard sum-check already counted toward the entered commission
+   * MUST actually land in a drawer, or the drawer would under-credit
+   * relative to the profit/allocation records this same settlement stamps.
+   */
+  private _bookBillsCommissionViaPaymentLegs(args: {
+    settlementTxnId: number;
+    payments: Array<{ method: string; currency_code: string; amount: number }>;
+    createdBy: number;
+    settlementLedgerId: number;
+    tenantId: number;
+    drawerCtx: ServiceCashDrawerContext;
+  }): void {
+    const {
+      settlementTxnId,
+      payments,
+      createdBy,
+      settlementLedgerId,
+      tenantId,
+      drawerCtx,
+    } = args;
+    for (const p of payments) {
+      const amount = Math.abs(p.amount);
+      if (amount <= 0.005) continue;
+      if (!isDrawerAffectingMethod(p.method)) {
+        throw new DatabaseError(
+          `Other-payment commission leg: "${p.method}" is not a valid drawer-affecting payment method`,
+        );
+      }
+      const drawerName = resolveServiceCashDrawer(p.method, drawerCtx);
+      applyDrawerDelta(this.db, {
+        drawerName,
+        currencyCode: p.currency_code,
+        delta: amount,
+        tenantId,
+      });
+      insertPaymentRow(this.db, {
+        transactionId: settlementTxnId,
+        method: p.method,
+        drawerName,
+        currencyCode: p.currency_code,
+        amount,
+        note: `Commission from settlement #${settlementLedgerId} via ${p.method}: +${amount} ${p.currency_code} → ${drawerName}`,
+        createdBy,
+        tenantId,
+      });
+    }
+  }
+
+  /**
+   * Owner follow-up (2026-08-13) — the ONE place the settlement summary's
+   * commission-money fragment is composed (rule 14): drops whichever
+   * currency is ~0 instead of always printing both ("$0.00 + 40,000 LBP"),
+   * and never appends a collection-mode parenthetical — the payment-detail
+   * subtext (driven by the real `payments` leg the booking step posts) now
+   * carries that. Returns "" when BOTH are ~0 (should be unreachable — both
+   * booking branches skip a $0/0 commission entirely) so the caller can omit
+   * the whole "credited ..." clause rather than render a dangling "credited"
+   * with nothing after it.
+   */
+  private _formatCommissionMoneyForSummary(
+    commissionUsd: number,
+    commissionLbp: number,
+  ): string {
+    const parts: string[] = [];
+    if (Math.abs(commissionUsd) > 0.005)
+      parts.push(`$${commissionUsd.toFixed(2)}`);
+    if (Math.abs(commissionLbp) > 0.005) {
+      parts.push(`${Math.round(commissionLbp).toLocaleString()} LBP`);
+    }
+    return parts.join(" + ");
   }
 
   /**

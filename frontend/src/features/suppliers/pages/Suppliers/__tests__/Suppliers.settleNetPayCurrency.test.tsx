@@ -257,6 +257,100 @@ describe("Suppliers page — Settle modal net-payment currency (LIRA-119)", () =
     expect(payload.payments).toBeUndefined();
   });
 
+  // Owner follow-up (2026-08-13, request #3) — "Other payment" mode: the
+  // SAME real MultiPaymentInput this file already proves renders for the
+  // legacy branch now renders for a bills-only batch too, once the operator
+  // switches the toggle — autofilled with the entered commission (never
+  // typed manually), and the leg travels to the backend as `payments` +
+  // `commission_collection_mode: "OTHER_PAYMENT"`.
+  it("Other payment mode: switching the toggle reveals MultiPaymentInput autofilled with the commission, and Confirm sends the leg + commission_collection_mode", async () => {
+    mockGetSuppliers.mockResolvedValue([KATSH_SUPPLIER, OMT_SUPPLIER]);
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "Katsh" ? [BILL_ROW] : []),
+    );
+
+    renderPage();
+
+    fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+    const billRow = (await screen.findByText("Bill")).closest("label")!;
+    fireEvent.click(within(billRow).getByRole("checkbox"));
+    fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
+
+    await screen.findByDisplayValue("20000"); // RATE input, confirms the modal opened
+
+    // Default mode ("Top-up"): no tender form, exactly as the sibling test
+    // above already proves.
+    expect(
+      document.querySelector('[data-testid^="payment-amount-"]'),
+    ).toBeNull();
+
+    // Switch to "Other payment".
+    fireEvent.click(screen.getByRole("button", { name: "Other payment" }));
+
+    // The sheet now renders, autofilled with the entered commission (20,000
+    // LBP) — never typed by the operator (MultiPaymentInput's own
+    // single-mode auto-sync fills it from `totals`).
+    const amountInput = document.querySelector<HTMLInputElement>(
+      '[data-testid^="payment-amount-"]',
+    );
+    expect(amountInput).not.toBeNull();
+    expect(parseFloat((amountInput!.value || "0").replace(/,/g, ""))).toBe(
+      20000,
+    );
+    const currencySelect = document.querySelector<HTMLSelectElement>(
+      '[data-testid^="payment-currency-"]',
+    );
+    expect(currencySelect!.value).toBe("LBP");
+
+    // Confirm — the leg travels through `payments`, tagged with the mode.
+    fireEvent.click(screen.getByText("Confirm Settlement"));
+    await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
+    const payload = mockSettleTransactions.mock.calls[0][0];
+    expect(payload.amount_usd).toBe(0);
+    expect(payload.amount_lbp).toBe(0);
+    expect(payload.commission_lbp).toBe(20000);
+    expect(payload.commission_collection_mode).toBe("OTHER_PAYMENT");
+    expect(payload.payments).toEqual([
+      { method: "CASH", currency_code: "LBP", amount: 20000 },
+    ]);
+  });
+
+  // Switching back to "Top-up" after visiting "Other payment" must clear the
+  // in-progress leg — otherwise a stale leg would ride along into a Top-up
+  // submission and trip the backend's mode-aware guard.
+  it("switching back to Top-up clears any in-progress Other-payment leg", async () => {
+    mockGetSuppliers.mockResolvedValue([KATSH_SUPPLIER, OMT_SUPPLIER]);
+    mockGetUnsettledTransactions.mockImplementation((provider: string) =>
+      Promise.resolve(provider === "Katsh" ? [BILL_ROW] : []),
+    );
+
+    renderPage();
+
+    fireEvent.click((await screen.findAllByText("Katsh"))[0]);
+    const billRow = (await screen.findByText("Bill")).closest("label")!;
+    fireEvent.click(within(billRow).getByRole("checkbox"));
+    fireEvent.click(await screen.findByText(/^Settle \(1\)$/));
+    await screen.findByDisplayValue("20000");
+
+    fireEvent.click(screen.getByRole("button", { name: "Other payment" }));
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid^="payment-amount-"]'),
+      ).not.toBeNull(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Top-up" }));
+    expect(
+      document.querySelector('[data-testid^="payment-amount-"]'),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByText("Confirm Settlement"));
+    await waitFor(() => expect(mockSettleTransactions).toHaveBeenCalled());
+    const payload = mockSettleTransactions.mock.calls[0][0];
+    expect(payload.payments).toBeUndefined();
+    expect(payload.commission_collection_mode).toBe("TOP_UP");
+  });
+
   it("real USD cash owed (legacy OMT batch): Net payment stays in USD — the fix must not relabel genuine cash", async () => {
     mockGetSuppliers.mockResolvedValue([KATSH_SUPPLIER, OMT_SUPPLIER]);
     mockGetUnsettledTransactions.mockImplementation((provider: string) =>

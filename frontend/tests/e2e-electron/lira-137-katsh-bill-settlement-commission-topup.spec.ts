@@ -213,7 +213,12 @@ async function payCashWithClient(page: Page, name: string, phone: string) {
  */
 async function selectKatshSupplierTile(page: Page) {
   const tile = page.getByTestId("supplier-tile-Katsh");
-  const settleHeader = page.getByText(/Settle transactions — select all/);
+  // Owner request (2026-08-13): the section heading was renamed from
+  // "Settle transactions — select all (N)" to "Commission Settlement" (a
+  // separate <h3>), with the checkbox affordance now reading "Select all
+  // (N)" alone — see Suppliers/index.tsx. The heading is the more stable
+  // anchor (unique to this table, doesn't depend on the row count).
+  const settleHeader = page.getByText("Commission Settlement");
   for (let attempt = 0; attempt < 3; attempt++) {
     await expect(tile).toBeVisible({ timeout: 15_000 });
     if (attempt === 0) {
@@ -242,7 +247,7 @@ async function selectKatshSupplierTile(page: Page) {
     .catch(() => false);
   const url = page.url();
   throw new Error(
-    `Katsh supplier tile selected but "Settle transactions — select all" ` +
+    `Katsh supplier tile selected but "Commission Settlement" heading ` +
       `never appeared. tileText=${JSON.stringify(tileText)} overlay=${overlay} url=${url}`,
   );
 }
@@ -275,9 +280,8 @@ async function captureModalState(page: Page, label: string) {
 
   const entryModeBtn = (mode: "Lump sum" | "Rate × count") =>
     before.getByRole("button", { name: mode, exact: true });
-  const rateActiveClass = await entryModeBtn("Rate × count").getAttribute(
-    "class",
-  );
+  const rateActiveClass =
+    await entryModeBtn("Rate × count").getAttribute("class");
   const lumpActiveClass = await entryModeBtn("Lump sum").getAttribute("class");
 
   const rateInput = before
@@ -297,8 +301,12 @@ async function captureModalState(page: Page, label: string) {
 
   const rateVal = await rateInput.inputValue().catch(() => "<not found>");
   const countVal = await countInput.inputValue().catch(() => "<not found>");
-  const lbpBtnClass = await currencyLbpBtn.getAttribute("class").catch(() => null);
-  const usdBtnClass = await currencyUsdBtn.getAttribute("class").catch(() => null);
+  const lbpBtnClass = await currencyLbpBtn
+    .getAttribute("class")
+    .catch(() => null);
+  const usdBtnClass = await currencyUsdBtn
+    .getAttribute("class")
+    .catch(() => null);
 
   const computedLine = before.locator("div.text-slate-500.text-right");
   const computedLineText = await computedLine
@@ -311,7 +319,9 @@ async function captureModalState(page: Page, label: string) {
   // will NEVER match anything makes Playwright poll until the test's own
   // 90s timeout, not a quick failure; `.catch()` alone would silently eat
   // that entire wait on every call.
-  const totalOwedRow = before.locator("div.flex.justify-between.text-slate-300");
+  const totalOwedRow = before.locator(
+    "div.flex.justify-between.text-slate-300",
+  );
   const totalOwedText =
     (await totalOwedRow.count()) > 0
       ? await totalOwedRow.innerText().catch(() => "<not found>")
@@ -342,15 +352,25 @@ async function captureModalState(page: Page, label: string) {
   const confirmDisabled = await confirmBtn.isDisabled();
 
   console.warn(`\n=== ${label} ===`);
-  console.warn(`  Entry mode toggle -- "Rate x count" active: ${(rateActiveClass ?? "").includes("bg-emerald-600")}, "Lump sum" active: ${(lumpActiveClass ?? "").includes("bg-emerald-600")}`);
+  console.warn(
+    `  Entry mode toggle -- "Rate x count" active: ${(rateActiveClass ?? "").includes("bg-emerald-600")}, "Lump sum" active: ${(lumpActiveClass ?? "").includes("bg-emerald-600")}`,
+  );
   console.warn(`  RATE PER UNIT input value: "${rateVal}"`);
   console.warn(`  COUNT input value: "${countVal}"`);
-  console.warn(`  CURRENCY -- LBP active: ${(lbpBtnClass ?? "").includes("emerald-900")}, USD active: ${(usdBtnClass ?? "").includes("emerald-900")}`);
-  console.warn(`  Computed "rate x count = ..." line: "${computedLineText.replace(/\n/g, " ")}"`);
-  console.warn(`  "Total owed to Katsh (fee-net)" row: "${totalOwedText.replace(/\n/g, " ")}"`);
+  console.warn(
+    `  CURRENCY -- LBP active: ${(lbpBtnClass ?? "").includes("emerald-900")}, USD active: ${(usdBtnClass ?? "").includes("emerald-900")}`,
+  );
+  console.warn(
+    `  Computed "rate x count = ..." line: "${computedLineText.replace(/\n/g, " ")}"`,
+  );
+  console.warn(
+    `  "Total owed to Katsh (fee-net)" row: "${totalOwedText.replace(/\n/g, " ")}"`,
+  );
   console.warn(`  "Katsh owes you:" row: "${netPayText.replace(/\n/g, " ")}"`);
   console.warn(`  MultiPaymentInput rendered at all: ${mpiVisibleCount > 0}`);
-  console.warn(`  Payment sheet "Total Amount" row: "${totalAmountText.replace(/\n/g, " ")}"`);
+  console.warn(
+    `  Payment sheet "Total Amount" row: "${totalAmountText.replace(/\n/g, " ")}"`,
+  );
   console.warn(`  "Confirm Settlement" button disabled: ${confirmDisabled}`);
 
   return {
@@ -427,11 +447,11 @@ test.describe("LIRA-137 -- Katsh bill settlement commission books as a drawer to
     console.warn(
       `\n=== PRE-MODAL STRIP (under the row list, before clicking Settle) ===`,
     );
-    console.warn(`  "${(await preModalStrip.innerText()).replace(/\n/g, " | ")}"`);
+    console.warn(
+      `  "${(await preModalStrip.innerText()).replace(/\n/g, " | ")}"`,
+    );
     // The old "Net you pay:" framing no longer appears for this batch.
-    await expect(
-      appPage.getByText(/Net you pay:/).first(),
-    ).toHaveCount(0);
+    await expect(appPage.getByText(/Net you pay:/).first()).toHaveCount(0);
 
     const settleBtn = appPage.getByRole("button", { name: /^Settle \(2\)$/ });
     await expect(settleBtn).toBeVisible();
@@ -603,7 +623,10 @@ test.describe("LIRA-137 -- Katsh bill settlement commission books as a drawer to
           .sort((a, b) => b.id - a.id)[0] ?? null
       );
     });
-    expect(settlementTxn, "SUPPLIER_SETTLEMENT transaction not found").toBeTruthy();
+    expect(
+      settlementTxn,
+      "SUPPLIER_SETTLEMENT transaction not found",
+    ).toBeTruthy();
     const meta = JSON.parse(settlementTxn!.metadata_json ?? "{}") as {
       commission_model?: number;
       entry_mode?: string;
@@ -625,7 +648,10 @@ test.describe("LIRA-137 -- Katsh bill settlement commission books as a drawer to
         const rows = await w.api.suppliers.getUnsettledTransactions("Katsh");
         return rows.find((r) => r.service_type === "BILL" && r.amount === amt);
       }, amount);
-      expect(row, `bill ${amount} should be settled, not in the queue`).toBeUndefined();
+      expect(
+        row,
+        `bill ${amount} should be settled, not in the queue`,
+      ).toBeUndefined();
     }
 
     console.warn(
