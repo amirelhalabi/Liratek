@@ -99,10 +99,66 @@
  *    (logs) `.method` for BOTH modes without asserting a specific value on
  *    the TOP_UP side, so it neither hides nor bakes in the wrong value.
  *
- * UNEXECUTED: better-sqlite3 is on the Electron ABI in this environment;
- * running any jest suite or e2e here would flip it. This spec is typechecked
- * against tsconfig.playwright.json and carefully re-read, but has not been
- * run. The orchestrator runs it via `node scripts/run-e2e.mjs electron`.
+ * ── Fix-round 3 notes (full-suite run found two more things) ───────────────
+ *
+ * 4. Checkpoint 2's three RECHARGE_TOPUP identity matchers (topUpFromSupplier,
+ *    topUpFromClient, topUpApp) hardcoded the raw, comma-less amount (e.g.
+ *    `${AMOUNT_A} LBP`). Commit `a85636c1` deliberately reformatted every
+ *    RechargeRepository top-up summary/note through the shared
+ *    `formatMoneyAmount()` (comma-grouped, matching the /audit badge) -- so
+ *    the OLD matchers were pinning the exact defect that commit fixed. Fixed
+ *    by routing each through `.toLocaleString()` (topUpFromClient's credits
+ *    quantity has no currency suffix -- "credits" already conveys the unit,
+ *    per the commit). The two DRAWER_TOPUP matchers (NOTE_EXT/NOTE_FD) are
+ *    text markers, not numbers, and `DrawerTopUpRepository` was untouched by
+ *    that commit (its summaries never interpolate an amount) -- verified via
+ *    `git show --stat`, not assumed; left as-is.
+ *
+ * 5. Checkpoint 1's FIRST settlement (`billRowLabel` for BILL_TOPUP_LBP)
+ *    timed out in a full-suite run despite the bill provably existing
+ *    (IPC pre-flight confirmed it moments earlier) -- NOT reproducible
+ *    running this file alone. Root cause: `useUnsettledTransactionsQuery`
+ *    (`frontend/src/features/suppliers/hooks/useSuppliers.ts`) has no
+ *    per-query `staleTime` override, so it inherits the app's global 30s
+ *    default (`frontend/src/app/App.tsx`). `lira-137-katsh-...spec.ts` runs
+ *    immediately before this file (alphabetical order) in the SAME shared
+ *    Electron renderer / single `QueryClient` (`fixtures.ts` never reloads
+ *    the page across specs) and its own settlement mutation both writes to
+ *    AND refetches that exact query key (`useSettleTransactionsMutation`'s
+ *    `onSuccess`, same file) mere seconds before this spec creates its two
+ *    new bills and revisits the same page -- well inside the 30s window.
+ *    Nothing on the Recharge/bill-creation path invalidates that key (grep
+ *    confirms zero `invalidateQueries` calls anywhere under
+ *    `frontend/src/features/recharge/`), so the Settle tab renders the
+ *    STALE, pre-existing snapshot instead of refetching -- the two new bills
+ *    are invisible even though they are in the database. Worse: the
+ *    Suppliers page's own manual "Refresh" button (`Suppliers/index.tsx`,
+ *    ~line 1323) explicitly refetches `suppliersQuery`/`balancesQuery`/
+ *    `productBalancesQuery`/`ledgerQuery`/`allTxnsQuery` but NOT
+ *    `unsettledQuery` -- so even a user who notices the gap and clicks
+ *    Refresh gets no relief. This is the SAME class of gap "Fix-round 2"
+ *    note #1 above already flagged (a write on a different page never
+ *    invalidates this query) -- that round only closed the WITHIN-this-file
+ *    trigger; this run shows it also reproduces CROSS-FILE against a real,
+ *    accumulating shop database, which is closer to how an operator would
+ *    actually hit it. This is a genuine product limitation, not a test bug --
+ *    per the task's own instruction it is reported here rather than papered
+ *    over with a scroll/search/wait workaround, and Checkpoint 1 is expected
+ *    to keep failing in a full-suite run until it is fixed at the product
+ *    layer (candidates: a shorter/zero `staleTime` for this query, cross-
+ *    feature invalidation from the Recharge bill-creation path, and/or
+ *    adding `unsettledQuery.refetch()` to the Refresh button) -- an owner
+ *    decision, not something to silently pick here.
+ *
+ * VERIFICATION STATUS (fix-round 3): run in ISOLATION only --
+ * `npx playwright test ... lira-141-....spec.ts` -- both checkpoints passed
+ * (2 passed, 45.4s). That does NOT prove note #5 above is fixed: an isolated
+ * run is the FIRST-EVER visit to /suppliers+Katsh in that render session, so
+ * there is no pre-existing 30s-fresh cache entry to collide with -- exactly
+ * why it also passed the first time this file was run alone before the
+ * full-suite run that caught it. Only a full-suite run (`node
+ * scripts/run-e2e.mjs electron`) exercises the cross-file condition; the
+ * orchestrator owns that run.
  */
 
 import { test, expect, navigateTo } from "./fixtures";
@@ -379,6 +435,91 @@ async function assertCashFlowBadge(
   expect(direction).toBe(expectedDirection);
 }
 
+// ── /audit payment-detail disclosure reader (LIRA-137 owner follow-up,
+// commit `b92eea0b`: "either method picked, should appear in the payment
+// detail in the transaction metadata"). Asserts the `▸ payment detail`
+// toggle + the `commission-mode-{id}` line it reveals for a bills-only
+// settlement row. Bounces "/" -> "/audit" itself (README "Assertion
+// discipline" -- a parked viewer does not remount on a same-route hash
+// click) rather than relying on the caller having just done so.
+//
+// Scoped by IDENTITY, never page position: the toggle is looked up INSIDE
+// the `<tr>` already matched by `matchText` (the row's own unique
+// `rateLbp`-derived Amount-cell text, same marker `assertCashFlowBadge`
+// matches by) -- not a page-wide `getByTestId`, which is exactly how this
+// spec file failed on an earlier round (file header "Fix-round 2" note #2:
+// a page-wide locator hit more than one element and threw a strict-mode
+// violation). The detail row itself is a SEPARATE sibling `<tr>` (see
+// `withLegDetail` in TransactionsViewer.tsx), so it can't be reached as a
+// descendant of `row` -- its own testid embeds the transaction's numeric DB
+// id, which is unique by construction, so looking it up directly carries no
+// ambiguity risk.
+async function assertPaymentDetailDisclosure(
+  page: Page,
+  txnId: number,
+  matchText: string,
+  mode: "TOP_UP" | "OTHER_PAYMENT",
+  rateLbp: number,
+) {
+  await navigateTo(page, "/");
+  await navigateTo(page, "/audit");
+  await expect(page.locator("tbody tr").first()).toBeVisible({
+    timeout: 10_000,
+  });
+  const row = page.locator("tr", { hasText: matchText });
+  await expect(row).toBeVisible({ timeout: 10_000 });
+
+  // (1) The toggle must exist for THIS row. For TOP_UP this is NEW
+  // behaviour: before commit `b92eea0b` this row had NO disclosure at all
+  // (methodLegsFor(row) is empty -- the drawer-credit leg is a
+  // PROVIDER_STOCK_DRAWERS member stripped from row.payments one layer
+  // before this page ever sees it, per billsOnlyCommissionAmount's own doc
+  // comment). The toggle now renders because commissionAmount !== null.
+  const toggle = row.getByTestId(`toggle-legs-${txnId}`);
+  await expect(
+    toggle,
+    `expected a "▸ payment detail" toggle on the ${mode} settlement row (txn ${txnId})`,
+  ).toBeVisible({ timeout: 8_000 });
+  await expect(toggle).toContainText("payment detail");
+  await toggle.click();
+
+  const detail = page.getByTestId(`payment-legs-detail-${txnId}`);
+  await expect(detail).toBeVisible({ timeout: 8_000 });
+  const modeLineEl = detail.getByTestId(`commission-mode-${txnId}`);
+  await expect(
+    modeLineEl,
+    `expected a commission-mode-${txnId} line inside the ${mode} settlement's payment detail`,
+  ).toBeVisible({ timeout: 8_000 });
+  const modeLineText = (await modeLineEl.innerText())
+    .replace(/\s+/g, " ")
+    .trim();
+  const detailText = (await detail.innerText()).replace(/\n/g, " | ");
+
+  console.warn(
+    `\n=== CHECKPOINT1 [${mode}] payment-detail disclosure (txn ${txnId}) ===\n` +
+      `  toggle-legs-${txnId} present: true\n` +
+      `  commission-mode-${txnId} text: "${modeLineText}"\n` +
+      `  full payment-legs-detail-${txnId} text: "${detailText}"`,
+  );
+
+  if (mode === "TOP_UP") {
+    // "Top-up → Katsh drawer  <rate> LBP" -- supplier?.provider ("Katsh") is
+    // the real drawer the commission credited, no longer the generic "CASH"
+    // literal (SupplierRepository.ts's settlementMethod fix).
+    expect(modeLineText).toContain("Top-up");
+    expect(modeLineText).toContain("Katsh");
+    expect(modeLineText).toContain(`${rateLbp.toLocaleString()} LBP`);
+  } else {
+    // Exact match -- billsCommissionModeLine returns the bare literal
+    // "Other payment" for this mode, nothing appended.
+    expect(modeLineText).toBe("Other payment");
+    // (3) The real CASH/LBP leg line must STILL be rendered alongside the
+    // mode line -- the mode line must not have replaced it.
+    expect(detailText).toContain(`${rateLbp.toLocaleString()} LBP`);
+    expect(detailText.toLowerCase()).toContain("cash");
+  }
+}
+
 test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
   test.afterEach(async ({ appPage }) => {
     await closeAllActiveSessions(appPage).catch(() => {});
@@ -611,14 +752,15 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
         commission_collection_mode?: string;
         counterparty?: { flow?: string; method?: string };
       };
-      // NOTE (fix-round 2 finding #3, NOT fixed in this spec -- see file
-      // header): `.method` is expected/known to read "CASH" for TOP_UP even
-      // though nothing was paid by CASH (SupplierRepository.ts's
-      // `settlementMethod` defaults to "CASH" whenever `data.payments` is
-      // empty, a leftover assumption from before this batch shape existed).
-      // Logged, not asserted, for EITHER mode -- capturing reality without
-      // baking in a value that may change once the orchestrator decides how
-      // to fix it.
+      // NOTE (fix-round 2 finding #3 -- since fixed by SupplierRepository.ts,
+      // commit `b92eea0b`): `.method` used to read the generic literal
+      // "CASH" for TOP_UP even though nothing was paid by CASH. It now reads
+      // the real provider drawer (`supplier?.provider`, e.g. "Katsh") that
+      // the commission credited. Still just logged raw here (not asserted on
+      // this metadata field directly, for either mode) -- the value IS
+      // asserted, but via its rendered form: `assertPaymentDetailDisclosure`
+      // below checks the /audit disclosure's drawer label reads "Katsh" for
+      // TOP_UP.
       console.warn(
         `\n=== CHECKPOINT1 [${mode}] transaction metadata + payment detail ===\n` +
           `  metadata.commission_collection_mode: "${meta.commission_collection_mode}"\n` +
@@ -654,11 +796,26 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
       // summary text. Both modes carry the SAME "IN" flow (Katsh funds the
       // commission either way) -- what differs is HOW it arrived, captured
       // above via metadata/payments, not via the badge direction.
+      const matchText = `${rateLbp.toLocaleString()} LBP`;
       await assertCashFlowBadge(
         appPage,
-        `${rateLbp.toLocaleString()} LBP`,
+        matchText,
         "in",
         `Checkpoint1 [${mode}] SUPPLIER_SETTLEMENT row`,
+      );
+
+      // NEW (commit `b92eea0b`): the payment-detail disclosure naming WHICH
+      // mode was used -- the whole point of this owner follow-up, not
+      // asserted until now. Same identity marker (matchText) plus the
+      // transaction's own numeric id (txn!.id, already identity-matched
+      // above via its unique commission_lbp) locate the row/detail
+      // unambiguously.
+      await assertPaymentDetailDisclosure(
+        appPage,
+        txn!.id,
+        matchText,
+        mode,
+        rateLbp,
       );
     }
 
@@ -706,7 +863,10 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
     expect(katshDelta).toBe(AMOUNT_A);
     await assertCashFlowBadge(
       appPage,
-      `${AMOUNT_A} LBP`,
+      // Commit `a85636c1` (formatMoneyAmount): the stored summary now prints
+      // the comma-formatted amount, matching the badge -- a raw `${AMOUNT_A}
+      // LBP` no longer appears anywhere on the row.
+      `${AMOUNT_A.toLocaleString()} LBP`,
       "in",
       "topUpFromSupplier (the owner's own reported case)",
     );
@@ -728,7 +888,10 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
     await expectModalClosed(modalB);
     await assertCashFlowBadge(
       appPage,
-      `+${AMOUNT_B} credits`,
+      // Commit `a85636c1`: the credits quantity is now printed via
+      // `amount.toLocaleString()` (no currency suffix -- "credits" already
+      // conveys the unit) instead of the raw interpolated number.
+      `+${AMOUNT_B.toLocaleString()} credits`,
       "both",
       "topUpFromClient (cashPaid > 0 -- cash really leaves General)",
     );
@@ -750,7 +913,9 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
     await expectModalClosed(modalC);
     await assertCashFlowBadge(
       appPage,
-      `General → OMT_App: ${AMOUNT_C} LBP`,
+      // Commit `a85636c1`: topUpApp's stored summary now runs its amount
+      // through formatMoneyAmount() -- comma-formatted, matching the badge.
+      `General → OMT_App: ${AMOUNT_C.toLocaleString()} LBP`,
       "both",
       "topUpApp (General -> OMT_App, both cash-equivalent)",
     );
