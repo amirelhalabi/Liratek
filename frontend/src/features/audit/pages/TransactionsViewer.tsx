@@ -556,6 +556,77 @@ function billsOnlyCommissionAmount(
 }
 
 /**
+ * LIRA-137 owner follow-up (2026-08-15) — "either method picked, should
+ * appear in the payment detail in the transaction metadata": names WHICH
+ * collection mode a bills-only settlement used, reading the SAME
+ * `metadata_json.commission_collection_mode` field `SupplierRepository`
+ * stamps (rule 14 — never re-derived here). Only ever called for a row
+ * `billsOnlyCommissionAmount` already accepted (the caller gates on that),
+ * so this never re-derives that predicate either.
+ *
+ *   - TOP_UP: `methodLegsFor(row)` is empty for this mode — the drawer
+ *     top-up leg's `drawer_name` ("Katsh"/"iPick") is a
+ *     `PROVIDER_STOCK_DRAWERS` member, stripped from `row.payments` one
+ *     layer before this page ever sees the row (same fact
+ *     `billsOnlyCommissionAmount`'s own doc comment explains) — so this
+ *     line IS the entire disclosure: names the destination drawer (reading
+ *     `metadata_json.counterparty.method`, the real provider per the
+ *     SupplierRepository fix — no longer the generic literal "CASH") and
+ *     the credited amount.
+ *   - OTHER_PAYMENT: a real leg already renders via `methodLegsFor` — this
+ *     just names the mode alongside it, never repeating the leg's own
+ *     drawer/amount.
+ *
+ * Returns null for any other/malformed `commission_collection_mode` so the
+ * caller degrades to "no line" rather than a thrown error or a half-built
+ * disclosure — defensive only; every REAL bills-only row always carries one
+ * of the two literal modes (SupplierRepository defaults the field to
+ * "TOP_UP" whenever it stamps it at all).
+ */
+function billsCommissionModeLine(
+  row: TransactionRow,
+  commissionAmount: { usd: number; lbp: number },
+  labelByCode: Map<string, string>,
+): string | null {
+  if (!row.metadata_json) return null;
+  try {
+    const meta = JSON.parse(row.metadata_json) as {
+      commission_collection_mode?: unknown;
+      counterparty?: { method?: unknown } | null;
+    };
+    const mode = meta.commission_collection_mode;
+    if (mode === "OTHER_PAYMENT") return "Other payment";
+    if (mode !== "TOP_UP") return null;
+    const providerMethod =
+      typeof meta.counterparty?.method === "string"
+        ? meta.counterparty.method
+        : null;
+    const drawerLabel = providerMethod
+      ? (labelByCode.get(providerMethod) ?? fallbackMethodLabel(providerMethod))
+      : "provider";
+    const leg: TransactionPaymentLeg =
+      Math.abs(commissionAmount.usd) > 0.005
+        ? {
+            direction: "in",
+            amount: commissionAmount.usd,
+            signed_amount: commissionAmount.usd,
+            currency_code: "USD",
+            method: providerMethod ?? "",
+          }
+        : {
+            direction: "in",
+            amount: commissionAmount.lbp,
+            signed_amount: commissionAmount.lbp,
+            currency_code: "LBP",
+            method: providerMethod ?? "",
+          };
+    return `Top-up → ${drawerLabel} drawer  ${formatLegAmount(leg)}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): a row stamped with
  * `split_group` is one unit of a multi-unit split-payment checkout
  * (KatchForm bills / FinancialForm catalog units). Voiding a single member
@@ -1006,12 +1077,19 @@ export default function TransactionsViewer({
    * (blank Time cell, everything else merged under Summary via colSpan) —
    * printed on export unconditionally, and shown on screen only when the
    * row is in expandedLegRows. Null when the row has no customer-facing legs
-   * (methodLegsFor already covers payments + account_payments, same set the
-   * Method column reads).
+   * AND no bills-only commission-mode line to show (methodLegsFor already
+   * covers payments + account_payments, same set the Method column reads;
+   * `billsCommissionModeLine` — LIRA-137 owner follow-up, "either method
+   * picked, should appear in the payment detail" — is the ONE other reason
+   * this row can have something to disclose, see its own doc comment).
    */
   function buildLegDetailTr(row: TransactionRow, keySuffix: string) {
     const legs = methodLegsFor(row);
-    if (legs.length === 0) return null;
+    const commissionAmount = billsOnlyCommissionAmount(row);
+    const modeLine = commissionAmount
+      ? billsCommissionModeLine(row, commissionAmount, methodLabelByCode)
+      : null;
+    if (legs.length === 0 && !modeLine) return null;
     return (
       <tr
         key={`legdetail-${row.id}-${keySuffix}`}
@@ -1021,6 +1099,9 @@ export default function TransactionsViewer({
         <td className="p-2" />
         <td className="p-2 pl-5 text-slate-400 font-mono" colSpan={9}>
           <div className="flex flex-col gap-0.5">
+            {modeLine && (
+              <div data-testid={`commission-mode-${row.id}`}>{modeLine}</div>
+            )}
             {legs.map((leg, i) => (
               <div key={i}>
                 {leg.direction === "in" ? "In" : "Out"} —{" "}
@@ -1113,7 +1194,7 @@ export default function TransactionsViewer({
                   </span>
                 );
               })()}
-            {methodLegsFor(row).length > 0 && (
+            {(methodLegsFor(row).length > 0 || commissionAmount !== null) && (
               <button
                 onClick={() => toggleLegExpand(row.id)}
                 data-testid={`toggle-legs-${row.id}`}

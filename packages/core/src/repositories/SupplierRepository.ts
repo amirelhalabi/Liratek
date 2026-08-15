@@ -1277,12 +1277,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // RECEIVE commission, LotoTicketRepository's ticket commission),
         // never a bespoke field. Exactly 0 for every other batch shape
         // (byte-for-byte unchanged from before this plan).
-        const settlementMethod =
-          data.payments && data.payments.length > 0
-            ? data.payments.length === 1
-              ? data.payments[0].method
-              : "SPLIT"
-            : "CASH";
         // Audit-visibility fix (found while investigating LIRA-137's own e2e
         // fallout, lira-transactions-hidden-types.spec.ts): the commission
         // drawer-top-up leg `_bookBillsCommissionDrawerTopUp` posts (step 5,
@@ -1321,6 +1315,32 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           data.commission_usd,
           data.commission_lbp,
         );
+        // Owner follow-up (2026-08-15) — "either method picked, should
+        // appear in the payment detail in the transaction metadata": for a
+        // bills-only batch in the DEFAULT drawer top-up mode
+        // (`isBillsOnlyBatch && !isOtherPaymentCommission`), `data.payments`
+        // is empty (there is no net-pay tender at all for this batch shape —
+        // the reverse-hazard guard above refuses one) so the branch below
+        // would fall through to the literal "CASH", which is FALSE: no cash
+        // moves for this batch shape. The real leg
+        // `_bookBillsCommissionDrawerTopUp` posts below (step 5) uses
+        // `method: supplierProvider` (e.g. "Katsh") — read the SAME source
+        // here (`supplier?.provider`, rule 14) rather than inventing a
+        // second parallel string. Every other shape is untouched: a legacy/
+        // OMT batch and an ordinary net-pay settlement both have
+        // `isBillsOnlyBatch === false`, and the OTHER_PAYMENT mode's
+        // `data.payments` genuinely IS the real collection leg (already
+        // correctly derived by the branch below) — this override only ever
+        // replaces the otherwise-meaningless "CASH" fallback, never a
+        // genuinely-derived value.
+        const settlementMethod =
+          isBillsOnlyBatch && !isOtherPaymentCommission
+            ? (supplier?.provider ?? "CASH")
+            : data.payments && data.payments.length > 0
+              ? data.payments.length === 1
+                ? data.payments[0].method
+                : "SPLIT"
+              : "CASH";
         const settlementSummary = isBillsOnlyBatch
           ? `Settlement: ${data.financial_service_ids.length} txns — ${this._getSupplierName(data.supplier_id)}${
               commissionMoney ? ` credited ${commissionMoney} commission` : ""

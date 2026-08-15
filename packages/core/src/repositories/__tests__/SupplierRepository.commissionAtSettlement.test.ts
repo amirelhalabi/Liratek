@@ -617,9 +617,48 @@ describe("SupplierRepository.settleTransactions() — commission-at-settlement (
     // (the drawer top-up), not the "OUT" every other settlement stamps —
     // drives the transactions-table cash-flow badge (cashFlow.ts).
     const meta = JSON.parse(settlementTxn.metadata_json) as {
-      counterparty?: { flow?: string };
+      counterparty?: { flow?: string; method?: string };
     };
     expect(meta.counterparty?.flow).toBe("IN");
+    // Owner follow-up (2026-08-15) — "either method picked, should appear
+    // in the payment detail in the transaction metadata": the real leg
+    // `_bookBillsCommissionDrawerTopUp` posts uses `method: supplierProvider`
+    // ("Katsh") — counterparty.method must say the SAME thing, never the
+    // generic literal "CASH" (no cash moved at all for this batch shape).
+    expect(meta.counterparty?.method).toBe("Katsh");
+  });
+
+  it("stamps counterparty.method as the real provider drawer ('Katsh'), not the literal 'CASH', when commission_collection_mode is omitted (defaults to TOP_UP)", () => {
+    const supplierId = seedSupplier(db, "Katsh", 0);
+    const fsId = seedFs(db, {
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 0,
+      currency: "LBP",
+      commissionModel: 1,
+    });
+
+    const result = repo.settleTransactions({
+      supplier_id: supplierId,
+      financial_service_ids: [fsId],
+      amount_usd: 0,
+      amount_lbp: 0,
+      commission_usd: 0,
+      commission_lbp: 861369,
+      entry_mode: "LUMP",
+      created_by: 1,
+      // commission_collection_mode omitted entirely — same as the default
+      // path a caller who never heard of "Other payment" takes.
+    });
+
+    const settlementTxn = settlementTxnFor(db, result.id);
+    const meta = JSON.parse(settlementTxn.metadata_json) as {
+      commission_collection_mode?: string;
+      counterparty?: { method?: string; flow?: string };
+    };
+    expect(meta.commission_collection_mode).toBe("TOP_UP");
+    expect(meta.counterparty?.flow).toBe("IN");
+    expect(meta.counterparty?.method).toBe("Katsh");
   });
 
   // ── Reviewer finding #2: currency-bucket weights must exclude foreign-
@@ -891,9 +930,13 @@ describe("SupplierRepository.settleTransactions() — bills-only commission draw
     expect(txn.profit_lbp).toBe(0);
     // CQ-8 flow stays "OUT" — a real net payment TO the supplier, unchanged.
     const meta = JSON.parse(txn.metadata_json) as {
-      counterparty?: { flow?: string };
+      counterparty?: { flow?: string; method?: string };
     };
     expect(meta.counterparty?.flow).toBe("OUT");
+    // A legacy batch's settlementMethod is genuinely derived from its real
+    // net-pay leg — untouched by the bills-only TOP_UP override (rule 14's
+    // "surgical requirement": every other shape stays byte-for-byte).
+    expect(meta.counterparty?.method).toBe("CASH");
 
     // The pre-existing cashless commission credit still posts, unchanged.
     expect(commissionCreditRows(db, supplierId)).toHaveLength(0); // legacy batch never books one at all
