@@ -25,6 +25,23 @@
  * new rows carry `metadata.counterparty.flow` ('IN'|'OUT') and that is
  * preferred whenever present.
  */
+// Provider *stock* drawers — value the SHOP holds with a provider (telecom
+// credit stock, app balance), never customer/owner cash. Mirrors
+// TransactionRepository.ts's own `PROVIDER_STOCK_DRAWERS` (rule 14: one
+// definition of "is this drawer cash-equivalent"). This frontend module has
+// no import path into packages/core (it is deliberately dependency-free so
+// it can be unit-tested without the Electron/DB stack), so the set is
+// restated here rather than re-derived — change both in lockstep if the
+// provider-stock roster ever changes.
+const PROVIDER_STOCK_DRAWERS = new Set(["MTC", "Alfa", "Katsh", "iPick"]);
+
+/** True for General/OMT_System/Whish_System/OMT_App/Whish_App — every drawer
+ *  the app already treats as customer/owner-facing money. False for the four
+ *  provider stock drawers above (and for a missing/unknown name). */
+function isCashEquivalentDrawer(drawerName: string | null | undefined): boolean {
+  return !!drawerName && !PROVIDER_STOCK_DRAWERS.has(drawerName);
+}
+
 export function getCashFlowDirection(
   type: string,
   metaJson?: string | null,
@@ -71,18 +88,47 @@ export function getCashFlowDirection(
     case "CREDIT_CASH_IN": // customer hands the shop cash for account credit
     case "LOTO": // ticket sale: customer cash in (B7 — was unmapped, blank badge)
       return "in";
+    // RECHARGE_TOPUP covers four funding/destination shapes (Top-Up
+    // Cash-Flow Direction Audit, TOPUP_CASHFLOW_DIRECTION_AUDIT.md — owner-
+    // approved rule: "in" when no cash-equivalent drawer is actually
+    // debited (funded by new supplier/partner debt); "both" when a
+    // cash-equivalent drawer is debited INTO another cash-equivalent
+    // drawer; "out" when the debited cash buys provider STOCK or leaves
+    // the business):
+    //  - topUpFromPartner: funded by partner credit, no drawer debited
+    //    anywhere → "in" (unchanged).
+    //  - topUpFromSupplier (the owner's reported Katsh bug):
+    //    `sourceDrawer: "SUPPLIER"`, funded by NEW supplier debt, writes
+    //    ZERO payment legs, no drawer debited anywhere → "in" (was "out").
+    //  - topUpFromClient: General is REALLY debited by `cashPaid` (a raw
+    //    `UPDATE`, guarded by `cashPaid > 0`) into Whish_App — both
+    //    cash-equivalent → "both" whenever `cashPaid > 0` (was "in",
+    //    hiding a genuine till decrease); `cashPaid === 0` still means no
+    //    real debit happened, so it stays "in".
+    //  - topUpApp (generic "from drawer"; only OMT_App is reachable from
+    //    the current UI's TopUpModal — Katsh/iPick always route through
+    //    onConfirmSupplier, Whish_App always through the partner/client
+    //    sub-modes): a real source drawer is ALWAYS debited (required
+    //    field, no partnerId/cashPaid in its metadata) into `destDrawer` —
+    //    "both" when destDrawer is cash-equivalent (was "out"); "out" when
+    //    destDrawer is a provider *stock* drawer (MTC/Alfa/Katsh/iPick),
+    //    matching the cash-for-goods convention (a SALE's inventory
+    //    decrease isn't badged either).
     case "RECHARGE_TOPUP": {
-      // RECHARGE_TOPUP covers two opposite flows. The classic "from drawer"
-      // top-up spends cash (out). But Whish App credit-acquisition top-ups —
-      // funded by a partner (partnerId) or bought from a client (cashPaid) —
-      // increase the provider drawer, so they are inflows (like MTC/ALFA_TOPUP).
       if (metaJson) {
         try {
           const m = JSON.parse(metaJson) as {
             partnerId?: number | null;
             cashPaid?: number | null;
+            sourceDrawer?: string | null;
+            destDrawer?: string | null;
           };
-          if (m.partnerId != null || m.cashPaid != null) return "in";
+          if (m.partnerId != null) return "in";
+          if (m.cashPaid != null) return m.cashPaid > 0 ? "both" : "in";
+          if (m.sourceDrawer === "SUPPLIER") return "in";
+          if (m.sourceDrawer != null) {
+            return isCashEquivalentDrawer(m.destDrawer) ? "both" : "out";
+          }
         } catch {
           /* fall through to default "out" */
         }
@@ -222,6 +268,31 @@ export function getCashFlowDirection(
     case "WALLET_EXCHANGE": // same-drawer USD<->LBP wallet conversion (OMT App / Whish App)
     case "DRAWER_TRANSFER":
       return "both";
+    // DRAWER_TOPUP was entirely absent from this switch (rendered NO badge
+    // at all — Top-Up Cash-Flow Direction Audit, TOPUP_CASHFLOW_DIRECTION_
+    // AUDIT.md finding #4) despite covering two shapes, both always into the
+    // General drawer (cash-equivalent):
+    //  - "External (Cash In)" (`DrawerTopUpRepository.createTopUp`):
+    //    genuinely NEW money entering from outside the system, no source
+    //    drawer debited at all — metadata has no `source_drawer` key → "in".
+    //  - "From Drawer" (`DrawerTopUpRepository.createTopUpFromDrawer`): a
+    //    real named source drawer (e.g. OMT_System/Whish_System, itself
+    //    cash-equivalent) is debited via a raw UPDATE straight into General
+    //    — metadata stamps `source_drawer` → "both". This is the identical
+    //    real-world move `DRAWER_TRANSFER`'s `to_general` direction already
+    //    renders "both" for, through a separate legacy code path (see the
+    //    audit's §5 note).
+    case "DRAWER_TOPUP": {
+      if (metaJson) {
+        try {
+          const m = JSON.parse(metaJson) as { source_drawer?: string | null };
+          if (m.source_drawer) return "both";
+        } catch {
+          /* fall through to default "in" */
+        }
+      }
+      return "in";
+    }
     default:
       return null;
   }

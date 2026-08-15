@@ -114,13 +114,10 @@ describe("getCashFlowDirection — unchanged types (guard against regressions)",
     expect(getCashFlowDirection(type)).toBe(expected);
   });
 
-  it("RECHARGE_TOPUP: 'out' from drawer, 'in' when partner/client funded", () => {
+  it("RECHARGE_TOPUP: 'out' with no metadata (legacy/malformed default), 'in' when partner funded", () => {
     expect(getCashFlowDirection("RECHARGE_TOPUP")).toBe("out");
     expect(
       getCashFlowDirection("RECHARGE_TOPUP", JSON.stringify({ partnerId: 3 })),
-    ).toBe("in");
-    expect(
-      getCashFlowDirection("RECHARGE_TOPUP", JSON.stringify({ cashPaid: 10 })),
     ).toBe("in");
   });
 
@@ -152,6 +149,191 @@ describe("getCashFlowDirection — unchanged types (guard against regressions)",
         { usd: 250, lbp: 0 },
       ),
     ).toBeNull();
+  });
+});
+
+/**
+ * Top-Up Cash-Flow Direction Audit (TOPUP_CASHFLOW_DIRECTION_AUDIT.md) —
+ * owner-approved rule: "in" when no cash-equivalent drawer is actually
+ * debited (funded by new supplier/partner debt); "both" when a
+ * cash-equivalent drawer is debited INTO another cash-equivalent drawer;
+ * "out" when the debited cash buys provider STOCK (MTC/Alfa/Katsh/iPick) or
+ * leaves the business.
+ *
+ * Proven failing-first (rule 17) against the pre-fix code (the single
+ * `if (m.partnerId != null || m.cashPaid != null) return "in"; return "out";`
+ * body this describe block replaced):
+ *   - topUpFromSupplier (`{sourceDrawer:"SUPPLIER",destDrawer:"Katsh"}`):
+ *     neither key existed → fell through to "out". FAILED against "in".
+ *   - topUpFromClient with `cashPaid > 0` (`{cashPaid:50,...}`): `cashPaid
+ *     != null` → "in". FAILED against "both".
+ *   - topUpApp into OMT_App (`{sourceDrawer:"General",destDrawer:"OMT_App"}`):
+ *     neither `partnerId` nor `cashPaid` present → "out". FAILED against
+ *     "both".
+ *   - topUpApp into Katsh (`{sourceDrawer:"General",destDrawer:"Katsh"}`):
+ *     same shape → "out", which happens to be the CORRECT answer for a
+ *     stock destination — included here as the discriminating case that
+ *     proves the fix reads `destDrawer`, not just "sourceDrawer present".
+ */
+describe("getCashFlowDirection — RECHARGE_TOPUP (Top-Up Cash-Flow Direction Audit)", () => {
+  it("topUpFromSupplier (owner's reported Katsh bug): sourceDrawer SUPPLIER, no drawer debited → in", () => {
+    expect(
+      getCashFlowDirection(
+        "RECHARGE_TOPUP",
+        JSON.stringify({
+          provider: "Katsh",
+          amount: 1000000,
+          currency: "LBP",
+          sourceDrawer: "SUPPLIER",
+          destDrawer: "Katsh",
+        }),
+      ),
+    ).toBe("in");
+  });
+
+  it("topUpFromSupplier via iPick: same SUPPLIER shape → in", () => {
+    expect(
+      getCashFlowDirection(
+        "RECHARGE_TOPUP",
+        JSON.stringify({
+          provider: "iPick",
+          amount: 100,
+          currency: "USD",
+          sourceDrawer: "SUPPLIER",
+          destDrawer: "iPick",
+        }),
+      ),
+    ).toBe("in");
+  });
+
+  it("topUpFromClient: cashPaid > 0 really debits General into Whish_App → both", () => {
+    expect(
+      getCashFlowDirection(
+        "RECHARGE_TOPUP",
+        JSON.stringify({
+          provider: "WHISH_APP",
+          amount: 100,
+          cashPaid: 90,
+          currency: "USD",
+          sourceDrawer: "General",
+          destDrawer: "Whish_App",
+        }),
+      ),
+    ).toBe("both");
+  });
+
+  it("topUpFromClient: cashPaid === 0 debits nothing → in", () => {
+    expect(
+      getCashFlowDirection(
+        "RECHARGE_TOPUP",
+        JSON.stringify({
+          provider: "WHISH_APP",
+          amount: 100,
+          cashPaid: 0,
+          currency: "USD",
+          sourceDrawer: "General",
+          destDrawer: "Whish_App",
+        }),
+      ),
+    ).toBe("in");
+  });
+
+  it("topUpApp into OMT_App (only reachable destination from the current UI): both", () => {
+    expect(
+      getCashFlowDirection(
+        "RECHARGE_TOPUP",
+        JSON.stringify({
+          provider: "OMT_APP",
+          amount: 100,
+          currency: "USD",
+          sourceDrawer: "General",
+          destDrawer: "OMT_App",
+        }),
+      ),
+    ).toBe("both");
+  });
+
+  it("topUpApp into Whish_App: both (cash-equivalent destination)", () => {
+    expect(
+      getCashFlowDirection(
+        "RECHARGE_TOPUP",
+        JSON.stringify({
+          provider: "WHISH_APP",
+          amount: 100,
+          currency: "USD",
+          sourceDrawer: "General",
+          destDrawer: "Whish_App",
+        }),
+      ),
+    ).toBe("both");
+  });
+
+  it("topUpApp into a provider STOCK drawer (Katsh/iPick/MTC/Alfa): stays out", () => {
+    expect(
+      getCashFlowDirection(
+        "RECHARGE_TOPUP",
+        JSON.stringify({
+          provider: "Katsh",
+          amount: 100,
+          currency: "USD",
+          sourceDrawer: "General",
+          destDrawer: "Katsh",
+        }),
+      ),
+    ).toBe("out");
+  });
+
+  it("topUpFromPartner: unchanged — partnerId still wins → in", () => {
+    expect(
+      getCashFlowDirection(
+        "RECHARGE_TOPUP",
+        JSON.stringify({
+          provider: "WHISH_APP",
+          partnerId: 7,
+          amount: 100,
+          currency: "USD",
+          destDrawer: "Whish_App",
+        }),
+      ),
+    ).toBe("in");
+  });
+});
+
+/**
+ * DRAWER_TOPUP (Top-Up Cash-Flow Direction Audit finding #4): the type was
+ * entirely absent from the switch, so BOTH its sub-shapes rendered no badge
+ * at all. Proven failing-first (rule 17): pre-fix, `getCashFlowDirection`
+ * had no `"DRAWER_TOPUP"` case, so it fell through to `default: return null`
+ * for every call below — both assertions FAILED (got `null`, wanted
+ * `"in"`/`"both"`).
+ */
+describe("getCashFlowDirection — DRAWER_TOPUP (Top-Up Cash-Flow Direction Audit)", () => {
+  it('"External (Cash In)": no source_drawer key, genuinely new money → in', () => {
+    expect(
+      getCashFlowDirection(
+        "DRAWER_TOPUP",
+        JSON.stringify({ drawer: "General", notes: null, extra_currencies: null }),
+      ),
+    ).toBe("in");
+  });
+
+  it('"From Drawer": source_drawer debited into General (both cash-equivalent) → both', () => {
+    expect(
+      getCashFlowDirection(
+        "DRAWER_TOPUP",
+        JSON.stringify({
+          drawer: "General",
+          source_drawer: "OMT_System",
+          notes: null,
+        }),
+      ),
+    ).toBe("both");
+  });
+
+  it("no metadata / malformed metadata defaults to 'in' (external-cash-in shape)", () => {
+    expect(getCashFlowDirection("DRAWER_TOPUP")).toBe("in");
+    expect(getCashFlowDirection("DRAWER_TOPUP", null)).toBe("in");
+    expect(getCashFlowDirection("DRAWER_TOPUP", "not-json{")).toBe("in");
   });
 });
 
