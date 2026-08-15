@@ -20,6 +20,7 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KatchForm } from "../KatchForm";
 import type { ServiceItem } from "../../hooks/useMobileServiceItems";
 import type { ProviderConfig } from "../../types";
@@ -167,24 +168,34 @@ const CONFIG: ProviderConfig = {
 };
 
 function renderForm() {
+  // KatchForm now invalidates the Suppliers-page unsettled-bill query
+  // (`useQueryClient()`) on a successful bill submission — needs a real
+  // QueryClientProvider in the tree, same as every Suppliers-page test.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <KatchForm
-      activeConfig={CONFIG}
-      activeProvider="Katsh"
-      getCategoriesForProvider={() => ["games"]}
-      getServiceItems={(_p, category) => (category === "games" ? [ITEM] : [])}
-      methods={[
-        { code: "CASH", label: "Cash" },
-        { code: "CUSTOMER_ACCOUNT", label: "Customer Account (Debt)" },
-      ]}
-      loadFinancialData={jest.fn()}
-      formatAmount={(v) => v.toLocaleString()}
-      alfaCreditSellRate={1500}
-      alfaCreditCostRate={1400}
-      exchangeRate={90000}
-      showHistory={false}
-      setShowHistory={jest.fn()}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <KatchForm
+        activeConfig={CONFIG}
+        activeProvider="Katsh"
+        getCategoriesForProvider={() => ["games"]}
+        getServiceItems={(_p, category) =>
+          category === "games" ? [ITEM] : []
+        }
+        methods={[
+          { code: "CASH", label: "Cash" },
+          { code: "CUSTOMER_ACCOUNT", label: "Customer Account (Debt)" },
+        ]}
+        loadFinancialData={jest.fn()}
+        formatAmount={(v) => v.toLocaleString()}
+        alfaCreditSellRate={1500}
+        alfaCreditCostRate={1400}
+        exchangeRate={90000}
+        showHistory={false}
+        setShowHistory={jest.fn()}
+      />
+    </QueryClientProvider>,
   );
 }
 

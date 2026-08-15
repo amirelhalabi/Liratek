@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, memo, startTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Phone, Plus, X } from "lucide-react";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
@@ -35,6 +36,7 @@ import { HistoryModal } from "./HistoryModal";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import logger from "@/utils/logger";
+import { SUPPLIER_KEYS } from "@/features/suppliers/hooks/useSuppliers";
 
 // ─── Module-level pure helpers ────────────────────────────────────────────────
 
@@ -571,6 +573,7 @@ function KatchFormInner({
   onCartCountChange,
 }: KatchFormProps) {
   const api = useApi();
+  const queryClient = useQueryClient();
   const {
     activeSession,
     linkTransaction,
@@ -1337,6 +1340,16 @@ function KatchFormInner({
       if (allSucceeded) {
         setPendingBills([]);
       }
+      // A Katsh/iPick BILL is `commission_model = 1` (COMMISSION_AT_SETTLEMENT_
+      // PLAN.md §4 Phase 1) — it joins the Suppliers -> Settle unsettled queue
+      // immediately, but that query has no per-query staleTime override
+      // (frontend/src/app/App.tsx's app-wide 30s applies) and nothing on this
+      // path ever invalidated it, so a freshly created bill stayed invisible
+      // there for up to 30s. Invalidate unconditionally: even a break above
+      // may have posted one or more bills before the failure.
+      queryClient.invalidateQueries({
+        queryKey: SUPPLIER_KEYS.unsettled(activeProvider),
+      });
     }
 
     if (allSucceeded) {
@@ -1735,6 +1748,13 @@ function KatchFormInner({
       if (allSucceeded) {
         setPendingBills([]);
       }
+      // See the matching comment in handleForPartnerSubmit's bills loop above
+      // — a Katsh/iPick BILL is commission_model = 1 and joins the Suppliers
+      // -> Settle unsettled queue immediately, but nothing on this path ever
+      // invalidated that query, so it stayed stale for up to 30s.
+      queryClient.invalidateQueries({
+        queryKey: SUPPLIER_KEYS.unsettled(activeProvider),
+      });
     }
 
     if (allSucceeded) {

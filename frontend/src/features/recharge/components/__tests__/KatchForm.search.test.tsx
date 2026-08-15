@@ -6,6 +6,7 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KatchForm } from "../KatchForm";
 import type {
   ServiceItem,
@@ -227,7 +228,17 @@ const mockProps = {
 
 const renderKatchForm = (overrides = {}) => {
   const props = { ...mockProps, ...overrides };
-  return render(<KatchForm {...props} />);
+  // KatchForm now invalidates the Suppliers-page unsettled-bill query
+  // (`useQueryClient()`) on a successful bill submission — needs a real
+  // QueryClientProvider in the tree, same as every Suppliers-page test.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <KatchForm {...props} />
+    </QueryClientProvider>,
+  );
 };
 
 const getSearchInput = () => {

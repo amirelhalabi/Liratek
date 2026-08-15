@@ -1327,6 +1327,15 @@ export default function SuppliersPage() {
                       productBalancesQuery.refetch();
                       ledgerQuery.refetch();
                       if (!isProductSupplier) allTxnsQuery.refetch();
+                      // LIRA-141 follow-up: the Settle tab's unsettled-bill
+                      // list (`unsettledQuery`) inherits the app-wide 30s
+                      // staleTime like every other query here, but was never
+                      // wired into Refresh — clicking it silently did nothing
+                      // for the one tab an operator actually watches after
+                      // creating a bill. Same provider/non-product gate as
+                      // allTxnsQuery above (the query itself is `enabled:
+                      // !!provider`, which is null for a product supplier).
+                      if (!isProductSupplier) unsettledQuery.refetch();
                       if (isProductSupplier) productItemsQuery.refetch();
                     }}
                     className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"

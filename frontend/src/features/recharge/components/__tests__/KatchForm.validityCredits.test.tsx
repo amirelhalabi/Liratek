@@ -6,6 +6,7 @@
  */
 
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KatchForm } from "../KatchForm";
 import type {
   ServiceItem,
@@ -141,20 +142,34 @@ const mockProps = {
   setShowHistory: jest.fn(),
 };
 
+// KatchForm now invalidates the Suppliers-page unsettled-bill query
+// (`useQueryClient()`) on a successful bill submission — needs a real
+// QueryClientProvider in the tree, same as every Suppliers-page test.
+function renderKatchForm() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <KatchForm {...mockProps} />
+    </QueryClientProvider>,
+  );
+}
+
 describe("KatchForm ItemCard — validity/credits (LIRA W6.b)", () => {
   it("shows '10d validity' for a card with validityDays set", async () => {
-    render(<KatchForm {...mockProps} />);
+    renderKatchForm();
     expect(await screen.findByText("10d validity")).toBeInTheDocument();
   });
 
   it("shows the credit amount for a card with credits set", async () => {
-    render(<KatchForm {...mockProps} />);
+    renderKatchForm();
     expect(await screen.findByText("Credit only")).toBeInTheDocument();
     expect(await screen.findByText("$1")).toBeInTheDocument();
   });
 
   it("shows neither line for a card with no validity/credits", async () => {
-    render(<KatchForm {...mockProps} />);
+    renderKatchForm();
     // "start" card renders (label present) but carries no validity/credit chip
     expect(await screen.findByText("start")).toBeInTheDocument();
   });

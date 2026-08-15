@@ -8,6 +8,7 @@
  */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KatchForm } from "../KatchForm";
 import type { ServiceItem } from "../../hooks/useMobileServiceItems";
 import type { ProviderConfig } from "../../types";
@@ -172,22 +173,30 @@ const CONFIG_IPICK: ProviderConfig = {
 };
 
 function renderWithItem(item: ServiceItem) {
+  // KatchForm now invalidates the Suppliers-page unsettled-bill query
+  // (`useQueryClient()`) on a successful bill submission — needs a real
+  // QueryClientProvider in the tree, same as every Suppliers-page test.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <KatchForm
-      activeConfig={CONFIG_IPICK}
-      activeProvider="iPick"
-      getCategoriesForProvider={() => ["mtc"]}
-      getServiceItems={() => [item]}
-      methods={[{ code: "CASH", label: "Cash" }]}
-      loadFinancialData={jest.fn()}
-      formatAmount={(v) => v.toLocaleString()}
-      // alfaCreditSellRate is used for the customer price in Only-Days mode.
-      // 100,000 LBP per $1 recovered credit.
-      alfaCreditSellRate={100_000}
-      exchangeRate={89_500}
-      showHistory={false}
-      setShowHistory={jest.fn()}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <KatchForm
+        activeConfig={CONFIG_IPICK}
+        activeProvider="iPick"
+        getCategoriesForProvider={() => ["mtc"]}
+        getServiceItems={() => [item]}
+        methods={[{ code: "CASH", label: "Cash" }]}
+        loadFinancialData={jest.fn()}
+        formatAmount={(v) => v.toLocaleString()}
+        // alfaCreditSellRate is used for the customer price in Only-Days mode.
+        // 100,000 LBP per $1 recovered credit.
+        alfaCreditSellRate={100_000}
+        exchangeRate={89_500}
+        showHistory={false}
+        setShowHistory={jest.fn()}
+      />
+    </QueryClientProvider>,
   );
 }
 
