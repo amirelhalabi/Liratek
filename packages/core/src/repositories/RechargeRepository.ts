@@ -28,6 +28,7 @@ import {
   postPayoutLegs,
   usdEquivalent,
   resolveStampedExchangeRate,
+  formatMoneyAmount,
 } from "./moneyPosting.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
@@ -450,6 +451,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
+      const amountLabel = formatMoneyAmount(amount, currency);
       const tenantId = getCurrentTenantId();
 
       // Validate source drawer has sufficient balance
@@ -481,7 +483,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             amount,
             currency,
             data.sourceDrawer,
-            `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up from ${data.sourceDrawer}: +${amount} ${currency}`,
+            `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up from ${data.sourceDrawer}: +${amountLabel}`,
             data.userId,
             tenantId,
           );
@@ -496,7 +498,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: data.userId,
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
-          summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amount} ${currency}`,
+          summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amountLabel}`,
           metadata_json: {
             provider: data.provider,
             amount,
@@ -534,7 +536,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           sourceDrawer: data.sourceDrawer,
           destDrawer,
         },
-        `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amount} ${currency}`,
+        `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amountLabel}`,
       );
 
       return { success: true };
@@ -1489,6 +1491,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
+      const amountLabel = formatMoneyAmount(amount, currency);
       const tenantId = getCurrentTenantId();
 
       // Find matching active supplier for this provider
@@ -1505,7 +1508,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             data.provider,
             amount,
             currency,
-            `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amount} ${currency}`,
+            `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amountLabel}`,
             data.userId,
             tenantId,
           );
@@ -1520,7 +1523,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: data.userId,
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
-          summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amount} ${currency}`,
+          summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amountLabel}`,
           metadata_json: {
             provider: data.provider,
             amount,
@@ -1541,7 +1544,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             entry_type: "TOP_UP",
             amount_usd: currency === "USD" ? amount : 0,
             amount_lbp: currency === "LBP" ? amount : 0,
-            note: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amount} ${currency}`,
+            note: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amountLabel}`,
             created_by: data.userId,
             transaction_id: txnId,
           });
@@ -1564,7 +1567,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           destDrawer,
           supplierId: supplier?.id ?? null,
         },
-        `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amount} ${currency}`,
+        `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amountLabel}`,
       );
 
       return { success: true };
@@ -1594,6 +1597,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
+      const amountLabel = formatMoneyAmount(amount, currency);
       const tenantId = getCurrentTenantId();
 
       // Validate the partner exists and is active
@@ -1616,7 +1620,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           .run(
             amount,
             currency,
-            `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up via partner: +${amount} ${currency}`,
+            `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up via partner: +${amountLabel}`,
             data.userId,
             tenantId,
           );
@@ -1650,7 +1654,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: data.userId,
           amount_usd: currency === "USD" ? amount : 0,
           amount_lbp: currency === "LBP" ? amount : 0,
-          summary: `Whish App top-up via partner: +${amount} ${currency}`,
+          summary: `Whish App top-up via partner: +${amountLabel}`,
           metadata_json: {
             provider: data.provider,
             partnerId: data.partnerId,
@@ -1677,7 +1681,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           currency,
           destDrawer,
         },
-        `Whish App top-up via partner: +${amount} ${currency}`,
+        `Whish App top-up via partner: +${amountLabel}`,
       );
 
       return { success: true };
@@ -1709,6 +1713,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const currency = data.currency;
       const amount = Math.abs(data.amount);
       const cashPaid = Math.abs(data.cashPaid);
+      // `amount` is a credits quantity (no currency label — "credits" already
+      // conveys the unit), `cashPaid` is real cash in `currency` — formatted
+      // to match the cash-flow badge (rule 14: reuse the shared formatter,
+      // don't hand-roll a second raw `${cashPaid} ${currency}` interpolation).
+      const creditsLabel = amount.toLocaleString();
+      const cashLabel = formatMoneyAmount(cashPaid, currency);
       const tenantId = getCurrentTenantId();
 
       if (amount <= 0) {
@@ -1744,7 +1754,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             cashPaid,
             amount,
             currency,
-            `Whish App top-up from client: +${amount} credits, paid ${cashPaid} ${currency} cash`,
+            `Whish App top-up from client: +${creditsLabel} credits, paid ${cashLabel} cash`,
             data.userId,
             tenantId,
           );
@@ -1763,7 +1773,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           profit_lbp: currency === "LBP" ? profit : 0,
           client_id: data.clientId ?? null,
           client_name: data.clientName ?? null,
-          summary: `Whish App top-up from client: +${amount} credits, -${cashPaid} ${currency} cash`,
+          summary: `Whish App top-up from client: +${creditsLabel} credits, -${cashLabel} cash`,
           metadata_json: {
             provider: "WHISH_APP",
             amount,
@@ -1805,7 +1815,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           clientId: data.clientId ?? null,
           destDrawer,
         },
-        `Whish App top-up from client: +${amount} credits, -${cashPaid} ${currency} cash`,
+        `Whish App top-up from client: +${creditsLabel} credits, -${cashLabel} cash`,
       );
 
       return { success: true };
