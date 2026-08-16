@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
+import { PRIMARY_CASH_DRAWER_NAMES } from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -28,6 +29,25 @@ type TopUpMode = "external" | "from_drawer" | "transfer";
  *  drawer (OMT_System/Whish_System), both directions
  *  (Primary Cash Drawer plan §0 decision #12). */
 type TransferDirection = "to_primary" | "to_general";
+
+/** Routing decision for `PRIMARY_CASH_DRAWER_NAMES` (imported above from
+ *  `@liratek/core` — single definition per CLAUDE.md rule 14, see
+ *  `packages/core/src/constants/systemFloatDrawers.ts`). Owner-approved
+ *  routing fix (LIRA-141 follow-up): General <-> either of these two names
+ *  now goes through the reversible `transferBetweenDrawers` path in BOTH
+ *  directions (previously only General -> primary went through it, via
+ *  Transfer mode below — primary -> General, the "From Drawer" mode's only
+ *  real-world case, still called the older non-reversible
+ *  `drawerTopUp.createFromDrawer`). Any OTHER named source drawer keeps
+ *  using `createFromDrawer` unchanged — that append-only, audit-trail-only
+ *  move is a deliberately different use case
+ *  (`DrawerTopUpRepository.createTopUpFromDrawer`'s own doc comment) and
+ *  must not be rerouted.
+ *
+ *  Widened to `readonly string[]` here (the core export is a narrower `as
+ *  const` literal tuple) so `.includes(selectedDrawer)` below — where
+ *  `selectedDrawer` is a plain `string` — typechecks without casting. */
+const primaryCashDrawerNames: readonly string[] = PRIMARY_CASH_DRAWER_NAMES;
 
 function formatDrawerAmount(amount: number, currency: "USD" | "LBP"): string {
   return currency === "LBP"
@@ -210,12 +230,26 @@ export function DrawerTopUpModal({
 
       let result;
       if (mode === "from_drawer") {
-        result = await api.drawerTopUp.createFromDrawer({
-          amount_usd: usd,
-          amount_lbp: lbp,
-          source_drawer: selectedDrawer,
-          ...(trimmedNotes ? { notes: trimmedNotes } : {}),
-        });
+        // Primary-cash-drawer sources (OMT_System/Whish_System) route
+        // through the generic, reversible transfer — the SAME call
+        // handleTransferSubmit below makes for the opposite direction. Any
+        // other named source drawer keeps the old, deliberately
+        // non-reversible from-drawer top-up (see the routing decision
+        // comment above `primaryCashDrawerNames`).
+        result = primaryCashDrawerNames.includes(selectedDrawer)
+          ? await api.transferBetweenDrawers({
+              fromDrawer: selectedDrawer,
+              toDrawer: "General",
+              amount_usd: usd,
+              amount_lbp: lbp,
+              ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+            })
+          : await api.drawerTopUp.createFromDrawer({
+              amount_usd: usd,
+              amount_lbp: lbp,
+              source_drawer: selectedDrawer,
+              ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+            });
       } else {
         result = await api.drawerTopUp.create({
           amount_usd: usd,

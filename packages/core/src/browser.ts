@@ -30,6 +30,13 @@ export * from "./validators/index.js";
 // whether a typed phone number is the shop's own carrier line.
 export * from "./utils/phoneNumber.js";
 
+// Primary cash drawer names (OMT_System/Whish_System) — pure `as const`
+// tuple + one pure function, no Node.js deps. DrawerTopUpModal.tsx (the
+// General <-> PCD transfer routing decision) imports PRIMARY_CASH_DRAWER_NAMES
+// from here instead of hand-maintaining a mirror copy (CLAUDE.md rule 14 —
+// systemFloatDrawers.ts's own doc comment calls it the single definition).
+export * from "./constants/systemFloatDrawers.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

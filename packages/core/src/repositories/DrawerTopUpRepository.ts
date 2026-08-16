@@ -235,13 +235,27 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
    * Drawer plan §8.6): this method's source-drawer debit is a raw `UPDATE`
    * (see `deductBalance` below) with no `payments` row on that side, so it
    * is permanently non-reversible (`TRANSACTION_TYPES.DRAWER_TOPUP` is in
-   * `NON_REVERSIBLE_TRANSACTION_TYPES` for exactly this reason). The
+   * `NON_REVERSIBLE_TRANSACTION_TYPES` for exactly this reason — that
+   * membership is about the missing source-side leg and is UNCHANGED by the
+   * cash-flow-report fix below). The
    * General/OMT_System/Whish_System pair now goes through
    * `transferBetweenDrawers` (below) instead, which posts BOTH legs via
    * `insertPaymentRow`/`applyDrawerDelta` and stays reversible via the
    * generic void/refund path. This method is kept for its original,
    * different use case (an arbitrary named source drawer draining into
    * General as an append-only, audit-trail-only move) — do not delete it.
+   *
+   * CASH-FLOW REPORT FIX: the General-side leg below posts with
+   * `DRAWER_TRANSFER_METHOD`, NOT `TOPUP_METHOD`. This is an internal
+   * treasury transfer between two of the shop's OWN drawers (the doc comment
+   * on `DRAWER_TRANSFER_METHOD` above already states the rule), never a
+   * customer tender — using `TOPUP_METHOD` ("CASH", a real customer-tender
+   * method not in `INTERNAL_LEG_METHODS`) inflated
+   * `TransactionRepository.getCashFlowByDate`'s reported total_in by the
+   * shuttled amount every time cash moved between the shop's own drawers.
+   * `createTopUp` (External Cash-In, above) is UNCHANGED and still uses
+   * `TOPUP_METHOD` — that path is genuine outside cash entering the shop and
+   * must keep counting as customer cash-in.
    */
   createTopUpFromDrawer(
     data: CreateDrawerTopUpFromDrawerData,
@@ -308,7 +322,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         });
         insertPaymentRow(this.db, {
           transactionId: txnId,
-          method: TOPUP_METHOD,
+          method: DRAWER_TRANSFER_METHOD,
           drawerName: GENERAL_DRAWER,
           currencyCode: "USD",
           amount: data.amount_usd,
@@ -329,7 +343,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         });
         insertPaymentRow(this.db, {
           transactionId: txnId,
-          method: TOPUP_METHOD,
+          method: DRAWER_TRANSFER_METHOD,
           drawerName: GENERAL_DRAWER,
           currencyCode: "LBP",
           amount: data.amount_lbp,

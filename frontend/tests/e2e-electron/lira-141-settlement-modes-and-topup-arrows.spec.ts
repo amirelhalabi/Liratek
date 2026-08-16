@@ -33,6 +33,9 @@
  *   - DRAWER_TOPUP "External (Cash In)"                   -> "in"
  *   - DRAWER_TOPUP "From Drawer" (a cash-equivalent PCD debited)
  *                                                          -> "both"
+ *     (Fix-round 4 below: this row's transaction TYPE changed from
+ *     DRAWER_TOPUP to DRAWER_TRANSFER after the LIRA-141 routing follow-up --
+ *     the "both" direction is unaffected, DRAWER_TRANSFER maps to "both" too)
  * All FIVE are driven through the real UI below (Recharge page's TopUpModal
  * for the first three, the Dashboard's DrawerTopUpModal for the last two).
  * `topUpFromPartner` is deliberately NOT covered here -- the commit left it
@@ -149,6 +152,41 @@
  *    feature invalidation from the Recharge bill-creation path, and/or
  *    adding `unsettledQuery.refetch()` to the Refresh button) -- an owner
  *    decision, not something to silently pick here.
+ *
+ * ── Fix-round 4 notes (LIRA-141 routing follow-up: DRAWER_TOPUP "From
+ * Drawer" -> DRAWER_TRANSFER) ────────────────────────────────────────────
+ *
+ * 6. Case E used to submit through `DrawerTopUpRepository.createTopUpFromDrawer`
+ *    (type `DRAWER_TOPUP`, summary `Drawer Top-Up: <drawer> -> General`) --
+ *    a NON-reversible path (its source-side debit is a raw `UPDATE` with no
+ *    payment leg, and `DRAWER_TOPUP` is in `NON_REVERSIBLE_TRANSACTION_TYPES`).
+ *    The opposite direction (General -> primary drawer, this same modal's
+ *    "Transfer" mode) already went through `transferBetweenDrawers` (type
+ *    `DRAWER_TRANSFER`) and was already reversible -- an owner-noticed
+ *    asymmetry. `DrawerTopUpModal.tsx`'s "From Drawer" submit handler now
+ *    routes a PRIMARY cash drawer source (OMT_System/Whish_System -- the
+ *    ONLY two names `getSourceDrawers()` ever returns, so this is every
+ *    real-world "From Drawer" submission) through `transferBetweenDrawers`
+ *    instead, making both directions symmetric and reversible.
+ *    `createTopUpFromDrawer` itself is UNCHANGED and still reachable for its
+ *    original, deliberately different use case (an arbitrary NON-primary
+ *    named source drawer draining into General, append-only/audit-trail-
+ *    only) -- this spec does not exercise that path since the real UI's
+ *    selector never offers a non-primary drawer.
+ *
+ *    Consequence for Case E below: the row is now a `DRAWER_TRANSFER`
+ *    (summary `Drawer Transfer: <drawer> -> General...`), and
+ *    `DRAWER_TRANSFER` is a member of `INTERNAL_LEG_METHODS`
+ *    (`packages/core/src/repositories/TransactionRepository.ts`), so its
+ *    payment legs never reach the frontend's `payments` array at all -- the
+ *    "in: ..." payment-legs subtext and the "▸ payment detail" disclosure
+ *    toggle both disappear from the row. The cash-flow badge stays "both"
+ *    (`DRAWER_TRANSFER` already mapped to "both" in `cashFlow.ts`, same as
+ *    `DRAWER_TOPUP`'s from-drawer shape did) -- confirmed by the owner as the
+ *    correct, unchanged rendering. Asserted positively below (summary text,
+ *    absence of the legs subtext/toggle, badge direction) rather than just
+ *    re-running the pre-existing badge check, per rule 17 (a guard that only
+ *    re-checks what already passed proves nothing about the actual change).
  *
  * VERIFICATION STATUS (fix-round 3): run in ISOLATION only --
  * `npx playwright test ... lira-141-....spec.ts` -- both checkpoints passed
@@ -935,11 +973,17 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
       'DRAWER_TOPUP "External (Cash In)"',
     );
 
-    // ── Case E -- DRAWER_TOPUP "From Drawer": a real cash-equivalent source
-    // drawer (OMT_System/Whish_System) debited into General -> "both". This
-    // type was PREVIOUSLY ABSENT from the switch entirely (no badge at all)
-    // -- both DRAWER_TOPUP shapes are new coverage, not a re-check of an
-    // already-covered case. ─────────────────────────────────────────────────
+    // ── Case E -- "From Drawer": a real cash-equivalent source drawer
+    // (OMT_System/Whish_System) debited into General -> "both". PRE-LIRA-141-
+    // follow-up this wrote a DRAWER_TOPUP row (non-reversible); the owner-
+    // approved routing fix (Fix-round 4 above) now sends a PRIMARY cash
+    // drawer source through `transferBetweenDrawers` instead, so this is a
+    // DRAWER_TRANSFER row (reversible, symmetric with the modal's "Transfer"
+    // mode). The badge direction is unchanged ("both" either way); what
+    // changed is the transaction TYPE/summary and the disappearance of the
+    // legs subtext + payment-detail toggle (DRAWER_TRANSFER is an
+    // INTERNAL_LEG_METHODS member) -- asserted positively below, not just
+    // re-confirming the badge. ──────────────────────────────────────────────
     const NOTE_FD = `L141-FD-${ts}`;
     const AMOUNT_FD = 400 + (ts % 200);
     const modalE = await openDrawerTopUpModal(appPage);
@@ -951,14 +995,38 @@ test.describe("LIRA-141 -- settlement modes & top-up cash-flow arrows", () => {
     await modalE.getByPlaceholder("Add a note...").fill(NOTE_FD);
     await submitDrawerTopUp(modalE);
     console.warn(
-      `\n=== CHECKPOINT2 [DRAWER_TOPUP From Drawer] source drawer auto-selected: "${sourceDrawerName}" ===`,
+      `\n=== CHECKPOINT2 [From Drawer -> DRAWER_TRANSFER] source drawer auto-selected: "${sourceDrawerName}" ===`,
     );
     await assertCashFlowBadge(
       appPage,
       NOTE_FD,
       "both",
-      'DRAWER_TOPUP "From Drawer"',
+      'DRAWER_TOPUP "From Drawer" (now a DRAWER_TRANSFER)',
     );
+
+    // Positive assertion of the NEW shape (rule 17 -- don't just re-check
+    // the badge, which would pass unchanged whether or not the routing fix
+    // landed). Still on /audit, same row, matched by the SAME NOTE_FD
+    // identity `assertCashFlowBadge` just used -- no re-navigation needed.
+    const transferRow = appPage.locator("tr", { hasText: NOTE_FD });
+    const transferCellText = (
+      await transferRow.locator("td").nth(1).innerText()
+    ).replace(/\n/g, " | ");
+    console.warn(
+      `\n=== CHECKPOINT2 [From Drawer -> DRAWER_TRANSFER] Amount-cell: "${transferCellText}" ===`,
+    );
+    // Summary is now "Drawer Transfer: <drawer> -> General", not the old
+    // "Drawer Top-Up: <drawer> -> General".
+    expect(transferCellText).toContain(
+      `Drawer Transfer: ${sourceDrawerName} → General`,
+    );
+    expect(transferCellText).not.toContain("Drawer Top-Up:");
+    // DRAWER_TRANSFER's legs are in INTERNAL_LEG_METHODS
+    // (TransactionRepository.ts) -- they never reach the frontend's
+    // `payments` array, so neither the "in: ..." subtext nor the
+    // "▸ payment detail" disclosure toggle renders for this row.
+    expect(transferCellText).not.toContain("in:");
+    expect(transferCellText).not.toContain("payment detail");
   });
 });
 
