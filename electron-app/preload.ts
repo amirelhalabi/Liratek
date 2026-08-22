@@ -857,6 +857,25 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("wallet-exchange:history", { drawerName, limit }),
   },
 
+  // Exchange Lots (EXCHANGE_LOT_SETTLEMENT.md Phase 4a) — cost-basis lot
+  // tracking read/admin API for exotic-currency exchange positions.
+  exchangeLots: {
+    preview: (data: {
+      currencyCode: string;
+      qty: number;
+      unitProceedsUsd: number;
+    }) => ipcRenderer.invoke("exchange-lots:preview", data),
+    getPositions: () => ipcRenderer.invoke("exchange-lots:positions"),
+    getBreakdown: (exchangeId: number) =>
+      ipcRenderer.invoke("exchange-lots:breakdown", { exchangeId }),
+    adjust: (data: {
+      currencyCode: string;
+      qty: number;
+      unitCostUsd?: number;
+      note?: string;
+    }) => ipcRenderer.invoke("exchange-lots:adjust", data),
+  },
+
   // Partners
   partners: {
     getAll: (includeInactive?: boolean) =>

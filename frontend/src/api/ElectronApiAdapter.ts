@@ -769,6 +769,24 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.walletExchangeHistory(drawerName, limit),
   };
 
+  // Nested namespace mirroring window.api.exchangeLots (dual-mode) — cost-
+  // basis lot tracking read/admin API (EXCHANGE_LOT_SETTLEMENT.md Phase 4a).
+  exchangeLots = {
+    preview: (data: {
+      currencyCode: string;
+      qty: number;
+      unitProceedsUsd: number;
+    }) => api.previewLotSettlement(data),
+    getPositions: () => api.getLotPositions(),
+    getBreakdown: (exchangeId: number) => api.getLotBreakdown(exchangeId),
+    adjust: (data: {
+      currencyCode: string;
+      qty: number;
+      unitCostUsd?: number;
+      note?: string;
+    }) => api.adjustLotPosition(data),
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

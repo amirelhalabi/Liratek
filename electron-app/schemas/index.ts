@@ -45,6 +45,12 @@ import {
   createDrawerTransferSchema,
   createServiceProviderSchema,
   updateServiceProviderSchema,
+  previewLotSettlementSchema,
+  lotBreakdownSchema,
+  adjustLotPositionSchema,
+  type PreviewLotSettlementInput,
+  type LotBreakdownInput,
+  type AdjustLotPositionInput,
   selfChargeTelecomItemSchema,
   createRechargeSchema,
   topUpAppSchema,
@@ -1011,6 +1017,22 @@ export const CreateServiceProviderSchema =
   createServiceProviderSchema as unknown as z.ZodSchema<CreateServiceProviderInput>;
 export const UpdateServiceProviderSchema =
   updateServiceProviderSchema as unknown as z.ZodSchema<UpdateServiceProviderInput>;
+
+// =============================================================================
+// Exchange Lots (EXCHANGE_LOT_SETTLEMENT.md Phase 4a)
+// =============================================================================
+
+// The exchange-lot contracts live in packages/core/src/validators/exchangeLot.ts
+// so the Electron IPC handlers (exchangeLotHandlers.ts) and the REST routes
+// (backend/src/api/exchangeLots.ts) validate against ONE schema each (rule
+// 14). Casts bridge the zod-major mismatch (core=zod4, this workspace=zod3);
+// runtime API used is identical.
+export const PreviewLotSettlementSchema =
+  previewLotSettlementSchema as unknown as z.ZodSchema<PreviewLotSettlementInput>;
+export const LotBreakdownSchema =
+  lotBreakdownSchema as unknown as z.ZodSchema<LotBreakdownInput>;
+export const AdjustLotPositionSchema =
+  adjustLotPositionSchema as unknown as z.ZodSchema<AdjustLotPositionInput>;
 
 // =============================================================================
 // Helpers

@@ -1401,6 +1401,56 @@ export type ApiAdapter = {
     ) => Promise<{ success: boolean; data?: any[]; error?: string }>;
   };
 
+  /** Exchange lots — cost-basis lot tracking read/admin API for
+   *  exotic-currency exchange positions (EXCHANGE_LOT_SETTLEMENT.md Phase
+   *  4a). Reads return the raw data shape (throwing on failure); `adjust`
+   *  is a write and returns the envelope untouched. */
+  exchangeLots: {
+    preview: (data: {
+      currencyCode: string;
+      qty: number;
+      unitProceedsUsd: number;
+    }) => Promise<
+      | { lotTracked: false }
+      | {
+          lotTracked: true;
+          marketUnitCostUsd: number;
+          settlements: Array<{
+            id: number | null;
+            lot_id: number | null;
+            basis_source: "LOT" | "MARKET";
+            qty: number;
+            unit_cost_usd: number;
+            unit_proceeds_usd: number;
+            profit_usd: number;
+          }>;
+          realizedProfitUsd: number;
+          coveredQty: number;
+          marketQty: number;
+        }
+    >;
+    getPositions: () => Promise<
+      Array<{
+        currency_code: string;
+        open_qty: number;
+        avg_unit_cost_usd: number;
+        lot_count: number;
+        current_market_unit_usd: number | null;
+        unrealized_profit_usd: number | null;
+      }>
+    >;
+    getBreakdown: (exchangeId: number) => Promise<{
+      asSettler: any[];
+      againstSource: any[];
+    }>;
+    adjust: (data: {
+      currencyCode: string;
+      qty: number;
+      unitCostUsd?: number;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------

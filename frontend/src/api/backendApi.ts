@@ -3462,6 +3462,205 @@ export async function walletExchangeHistory(
   );
 }
 
+// ── Exchange lots (dual-mode) — cost-basis lot tracking read/admin API for
+// exotic-currency exchange positions (EXCHANGE_LOT_SETTLEMENT.md Phase 4a).
+// Reads (preview/positions/breakdown) return the RAW data shape — the
+// envelope's `success`/`error` are unwrapped here (throwing on failure, same
+// convention as `unwrapIpc`); `adjustLotPosition` is a write and returns the
+// envelope untouched. ──
+
+interface LotSettlementResultDto {
+  id: number | null;
+  lot_id: number | null;
+  basis_source: "LOT" | "MARKET";
+  qty: number;
+  unit_cost_usd: number;
+  unit_proceeds_usd: number;
+  profit_usd: number;
+}
+
+type PreviewLotSettlementResponse =
+  | { success: true; lotTracked: false }
+  | {
+      success: true;
+      lotTracked: true;
+      marketUnitCostUsd: number;
+      settlements: LotSettlementResultDto[];
+      realizedProfitUsd: number;
+      coveredQty: number;
+      marketQty: number;
+    }
+  | { success: false; error: string };
+
+export type LotSettlementPreview =
+  | { lotTracked: false }
+  | {
+      lotTracked: true;
+      marketUnitCostUsd: number;
+      settlements: LotSettlementResultDto[];
+      realizedProfitUsd: number;
+      coveredQty: number;
+      marketQty: number;
+    };
+
+export async function previewLotSettlement(data: {
+  currencyCode: string;
+  qty: number;
+  unitProceedsUsd: number;
+}): Promise<LotSettlementPreview> {
+  const res = await ipcOrHttp<PreviewLotSettlementResponse>(
+    async () => getElectronApi().exchangeLots.preview(data),
+    async () =>
+      requestJson<PreviewLotSettlementResponse>("/api/exchange-lots/preview", {
+        method: "POST",
+        body: data,
+      }),
+  );
+  if (!res.success) {
+    throw new Error("error" in res ? res.error : "Failed to preview exchange lot settlement");
+  }
+  return res.lotTracked
+    ? {
+        lotTracked: true,
+        marketUnitCostUsd: res.marketUnitCostUsd,
+        settlements: res.settlements,
+        realizedProfitUsd: res.realizedProfitUsd,
+        coveredQty: res.coveredQty,
+        marketQty: res.marketQty,
+      }
+    : { lotTracked: false };
+}
+
+export interface LotPositionDto {
+  currency_code: string;
+  open_qty: number;
+  avg_unit_cost_usd: number;
+  lot_count: number;
+  current_market_unit_usd: number | null;
+  unrealized_profit_usd: number | null;
+}
+
+export async function getLotPositions(): Promise<LotPositionDto[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().exchangeLots.getPositions();
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load exchange lot positions");
+      }
+      return res.data ?? [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: LotPositionDto[];
+        error?: string;
+      }>("/api/exchange-lots/positions");
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load exchange lot positions");
+      }
+      return res.data ?? [];
+    },
+  );
+}
+
+export interface LotSettlementEntityDto extends LotSettlementResultDto {
+  tenant_id: number | null;
+  settled_by_table: string;
+  settled_by_id: number;
+  is_refunded: number;
+  refunded_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LotSettlementWithLotDto extends LotSettlementEntityDto {
+  lot_acquired_at: string | null;
+  lot_source_table: string | null;
+  lot_source_id: number | null;
+}
+
+export interface LotBreakdownDto {
+  asSettler: LotSettlementWithLotDto[];
+  againstSource: LotSettlementEntityDto[];
+}
+
+export async function getLotBreakdown(
+  exchangeId: number,
+): Promise<LotBreakdownDto> {
+  const empty: LotBreakdownDto = { asSettler: [], againstSource: [] };
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().exchangeLots.getBreakdown(exchangeId);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load exchange lot breakdown");
+      }
+      return res.data ?? empty;
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: LotBreakdownDto;
+        error?: string;
+      }>(`/api/exchange-lots/breakdown/${exchangeId}`);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load exchange lot breakdown");
+      }
+      return res.data ?? empty;
+    },
+  );
+}
+
+export async function adjustLotPosition(data: {
+  currencyCode: string;
+  qty: number;
+  unitCostUsd?: number;
+  note?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().exchangeLots.adjust(data),
+    async () =>
+      requestJson<{
+        success: boolean;
+        data?: {
+          adjustment: {
+            id: number;
+            tenant_id: number | null;
+            currency_code: string;
+            qty: number;
+            unit_cost_usd: number | null;
+            note: string | null;
+            created_by: string | null;
+            created_at: string;
+            updated_at: string;
+          };
+          lot?: {
+            id: number;
+            tenant_id: number | null;
+            currency_code: string;
+            drawer_name: string;
+            source_type: "EXCHANGE_BUY" | "DRAWER_TOPUP" | "ADJUSTMENT";
+            source_table: string | null;
+            source_id: number | null;
+            original_qty: number;
+            remaining_qty: number;
+            unit_cost_usd: number;
+            acquired_at: string;
+            is_voided: number;
+            created_at: string;
+            updated_at: string;
+          };
+          consume?: {
+            settlements: LotSettlementResultDto[];
+            realizedProfitUsd: number;
+            coveredQty: number;
+            marketQty: number;
+          };
+        };
+        error?: string;
+      }>("/api/exchange-lots/adjust", { method: "POST", body: data }),
+  );
+}
+
 // WhatsApp
 export async function sendWhatsAppTestMessage(
   recipientPhone: string,

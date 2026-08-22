@@ -1952,6 +1952,141 @@ export interface ElectronAPI {
     }>;
   };
 
+  // Exchange Lots (EXCHANGE_LOT_SETTLEMENT.md Phase 4a) — cost-basis lot
+  // tracking read/admin API for exotic-currency exchange positions.
+  exchangeLots: {
+    preview: (data: {
+      currencyCode: string;
+      qty: number;
+      unitProceedsUsd: number;
+    }) => Promise<
+      | { success: true; lotTracked: false }
+      | {
+          success: true;
+          lotTracked: true;
+          marketUnitCostUsd: number;
+          settlements: Array<{
+            id: number | null;
+            lot_id: number | null;
+            basis_source: "LOT" | "MARKET";
+            qty: number;
+            unit_cost_usd: number;
+            unit_proceeds_usd: number;
+            profit_usd: number;
+          }>;
+          realizedProfitUsd: number;
+          coveredQty: number;
+          marketQty: number;
+        }
+      | { success: false; error: string }
+    >;
+    getPositions: () => Promise<{
+      success: boolean;
+      data?: Array<{
+        currency_code: string;
+        open_qty: number;
+        avg_unit_cost_usd: number;
+        lot_count: number;
+        current_market_unit_usd: number | null;
+        unrealized_profit_usd: number | null;
+      }>;
+      error?: string;
+    }>;
+    getBreakdown: (exchangeId: number) => Promise<{
+      success: boolean;
+      data?: {
+        asSettler: Array<{
+          id: number;
+          tenant_id: number | null;
+          lot_id: number | null;
+          basis_source: "LOT" | "MARKET";
+          settled_by_table: string;
+          settled_by_id: number;
+          qty: number;
+          unit_cost_usd: number;
+          unit_proceeds_usd: number;
+          profit_usd: number;
+          is_refunded: number;
+          refunded_at: string | null;
+          created_at: string;
+          updated_at: string;
+          lot_acquired_at: string | null;
+          lot_source_table: string | null;
+          lot_source_id: number | null;
+        }>;
+        againstSource: Array<{
+          id: number;
+          tenant_id: number | null;
+          lot_id: number | null;
+          basis_source: "LOT" | "MARKET";
+          settled_by_table: string;
+          settled_by_id: number;
+          qty: number;
+          unit_cost_usd: number;
+          unit_proceeds_usd: number;
+          profit_usd: number;
+          is_refunded: number;
+          refunded_at: string | null;
+          created_at: string;
+          updated_at: string;
+        }>;
+      };
+      error?: string;
+    }>;
+    adjust: (data: {
+      currencyCode: string;
+      qty: number;
+      unitCostUsd?: number;
+      note?: string;
+    }) => Promise<{
+      success: boolean;
+      data?: {
+        adjustment: {
+          id: number;
+          tenant_id: number | null;
+          currency_code: string;
+          qty: number;
+          unit_cost_usd: number | null;
+          note: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        lot?: {
+          id: number;
+          tenant_id: number | null;
+          currency_code: string;
+          drawer_name: string;
+          source_type: "EXCHANGE_BUY" | "DRAWER_TOPUP" | "ADJUSTMENT";
+          source_table: string | null;
+          source_id: number | null;
+          original_qty: number;
+          remaining_qty: number;
+          unit_cost_usd: number;
+          acquired_at: string;
+          is_voided: number;
+          created_at: string;
+          updated_at: string;
+        };
+        consume?: {
+          settlements: Array<{
+            id: number | null;
+            lot_id: number | null;
+            basis_source: "LOT" | "MARKET";
+            qty: number;
+            unit_cost_usd: number;
+            unit_proceeds_usd: number;
+            profit_usd: number;
+          }>;
+          realizedProfitUsd: number;
+          coveredQty: number;
+          marketQty: number;
+        };
+      };
+      error?: string;
+    }>;
+  };
+
   // Session
   session: {
     start: (data: {

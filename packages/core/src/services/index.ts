@@ -76,6 +76,25 @@ export {
 } from "./ExchangeService.js";
 export type { ExchangeResult } from "./ExchangeService.js";
 
+// Exchange Lot Service (EXCHANGE_LOT_SETTLEMENT.md Phase 4a — read/admin API
+// over the ExchangeLotRepository FIFO engine; does not touch ExchangeService)
+export {
+  ExchangeLotService,
+  getExchangeLotService,
+  resetExchangeLotService,
+} from "./ExchangeLotService.js";
+export type {
+  PreviewSettlementInput,
+  PreviewSettlementResult,
+  NotLotTrackedPreview,
+  LotTrackedPreview,
+  PreviewSettlementFailure,
+  LotPositionWithMarket,
+  LotBreakdown,
+  AdjustPositionInput,
+  AdjustPositionResult,
+} from "./ExchangeLotService.js";
+
 // Financial Service (OMT/WHISH/BOB/OTHER/IPEC/KATCH/WHISH_APP/OMT_APP/BINANCE)
 export {
   FinancialService,
