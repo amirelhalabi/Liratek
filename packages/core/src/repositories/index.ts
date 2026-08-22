@@ -126,6 +126,34 @@ export type {
   CreateExchangeData,
 } from "./ExchangeRepository.js";
 
+// Exchange Lot Repository (EXCHANGE_LOT_SETTLEMENT.md Phase 2 — FIFO cost-basis engine)
+export {
+  ExchangeLotRepository,
+  getExchangeLotRepository,
+  resetExchangeLotRepository,
+} from "./ExchangeLotRepository.js";
+export type {
+  LotSourceType,
+  LotBasisSource,
+  ExchangeLotEntity,
+  ExchangeLotSettlementEntity,
+  LotSettlementWithLot,
+  ExchangePositionAdjustmentEntity,
+  CreateLotInput,
+  LotSettlementResult,
+  FifoConsumeResult,
+  ConsumeFifoInput,
+  PreviewConsumeInput,
+  RestoreSettlementsInput,
+  VoidLotsBySourceInput,
+  HasActiveSettlementsAgainstSourceInput,
+  LotPosition,
+  SettlerSummary,
+  SourceSummary,
+  AdjustInput,
+  AdjustResult,
+} from "./ExchangeLotRepository.js";
+
 // Financial Service Repository (OMT, WHISH, BOB, OTHER, iPick, Katsh, WHISH_APP, OMT_APP, BINANCE)
 export {
   FinancialServiceRepository,
