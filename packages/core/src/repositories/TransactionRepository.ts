@@ -39,6 +39,7 @@ import { getPaymentMethodRepository } from "./PaymentMethodRepository.js";
 import { getCarrierLineMovementRepository } from "./CarrierLineMovementRepository.js";
 import { getCarrierLineService } from "../services/CarrierLineService.js";
 import { isPendingSupplierSettlement } from "./FinancialServiceRepository.js";
+import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -1303,6 +1304,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // see the method doc for why cascading through a settled sibling is
     // blocked rather than silently corrupting the settlement's netted math.
     this._assertSupplierSiblingsVoidable(original);
+    // EXCHANGE_LOT_SETTLEMENT.md Q12 — refuse up-front if this exchange's
+    // acquired lot has already been partially/fully sold. No-op for every
+    // non-EXCHANGE type.
+    this._assertExchangeLotsVoidable(original);
     // This ticket's own guard — refuse up-front if its checkpoint has already
     // settled (see the method doc). No-op for every non-LOTO type.
     this._assertLotoTicketVoidable(original);
@@ -1393,6 +1398,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // row, and un-stamp financial_services.settlement_id/is_settled. No-op
       // for every other type.
       this._reverseSupplierSettlement(original, userId);
+
+      // 5e2. EXCHANGE_LOT_SETTLEMENT.md rule 20 — if this transaction IS an
+      // EXCHANGE, restore whatever it (as a SELL) FIFO-consumed from someone
+      // else's lot and void whatever lot it (as a BUY) created — the guard
+      // above already proved a voided BUY's lot carries no active
+      // settlements. No-op for every other type.
+      this._reverseExchangeLotEffects(original);
 
       // 5f. Rule 20 — if this transaction IS a LOTO ticket sale, soft-void
       // its supplier_ledger TOP_UP row and delta-adjust its checkpoint (if
@@ -1507,6 +1519,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // LIRA-091: same up-front settled-sibling guard as voidTransaction — see
     // _assertSupplierSiblingsVoidable's doc.
     this._assertSupplierSiblingsVoidable(original);
+    // Same up-front settled-lot guard as voidTransaction — see
+    // _assertExchangeLotsVoidable's doc. No-op for every non-EXCHANGE type.
+    this._assertExchangeLotsVoidable(original);
     // Same up-front settled-checkpoint guard as voidTransaction — see
     // _assertLotoTicketVoidable's doc. No-op for every non-LOTO type.
     this._assertLotoTicketVoidable(original);
@@ -1602,6 +1617,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4e. LIRA-085 — SUPPLIER_SETTLEMENT commission/ledger/fs-stamp
       // restore. See voidTransaction's identical step.
       this._reverseSupplierSettlement(original, userId);
+
+      // 4e2. EXCHANGE_LOT_SETTLEMENT.md rule 20 — EXCHANGE lot restore/void.
+      // See voidTransaction's identical step.
+      this._reverseExchangeLotEffects(original);
 
       // 4f. Rule 20 — LOTO ticket TOP_UP soft-void + checkpoint delta-adjust.
       // See voidTransaction's identical step.
@@ -2007,6 +2026,64 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       getCurrentTenantId(),
     );
     return row?.settlement_id ?? null;
+  }
+
+  /**
+   * EXCHANGE_LOT_SETTLEMENT.md Q12 — refuse reversing an EXCHANGE transaction
+   * up-front (before any write) when the lot it created (as a BUY, whenever
+   * its `from_currency` was exotic) has already been partially or fully sold
+   * by a later SELL. Voiding/refunding it anyway would silently corrupt the
+   * FIFO chain those settlements already consumed from — a settlement's
+   * frozen `unit_cost_usd` would point at a lot that no longer represents a
+   * real acquisition. Mirrors `_assertSupplierSiblingsVoidable` (LIRA-091) —
+   * blocking beats corrupting; the owner corrects with an admin position
+   * adjustment (Q15) instead.
+   *
+   * A no-op for every non-EXCHANGE type, and for an EXCHANGE row that either
+   * never created a lot (its `from_currency` wasn't exotic) or whose lot has
+   * no ACTIVE settlement against it. Voiding/refunding a SELL is always
+   * allowed regardless of what it consumed — a SELL never creates a lot of
+   * its own for someone else to have settled against, so this check can
+   * never block it; `_reverseExchangeLotEffects` below undoes what it took.
+   *
+   * Also a no-op when the `exchange_lots`/`exchange_lot_settlements` tables
+   * don't exist on this connection (`_exchangeLotTablesExist`, same
+   * `sqlite_master` defensive pattern as `_supplierLedgerHasSourceRefColumns`)
+   * — every real DB has carried them since migration v156, but this guard
+   * fires for EVERY EXCHANGE void/refund, including a plain USD<->LBP one
+   * that never touches a lot; a minimal hand-rolled test schema predating
+   * this feature must not have every exchange void/refund start hard-crashing
+   * over a table it only reads defensively.
+   */
+  private _assertExchangeLotsVoidable(original: TransactionEntity): void {
+    if (
+      original.type !== "EXCHANGE" ||
+      original.source_table !== "exchange_transactions" ||
+      original.source_id == null ||
+      !this._exchangeLotTablesExist()
+    ) {
+      return;
+    }
+    const hasActiveSettlements = getExchangeLotRepository().hasActiveSettlementsAgainstSource({
+      sourceTable: "exchange_transactions",
+      sourceId: original.source_id,
+    });
+    if (hasActiveSettlements) {
+      throw new DatabaseError(
+        "Cannot void/refund — this exchange's acquired currency has already been partially or fully sold; void the consuming sell transaction(s) first.",
+        { entityId: original.id },
+      );
+    }
+  }
+
+  /** See `_assertExchangeLotsVoidable`'s doc for why this check exists. */
+  private _exchangeLotTablesExist(): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name IN ('exchange_lots', 'exchange_lot_settlements')`,
+      )
+      .all();
+    return row.length === 2;
   }
 
   /**
@@ -3139,6 +3216,52 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     // remains: the derived audit/reporting records this settlement wrote for
     // a new-model batch.
     this._reverseCommissionAtSettlementRecords(original.source_id, tenantId);
+  }
+
+  /**
+   * EXCHANGE_LOT_SETTLEMENT.md rule 20 reversal owner for an EXCHANGE
+   * transaction's lot side effects — mirrors `_reverseSupplierSettlement`'s
+   * template shape. Two independent, order-agnostic effects, both keyed off
+   * this transaction's OWN `source_id` (never the reversal/refund row's id —
+   * same convention every other `_reverseX` method here follows):
+   *
+   * 1. `restoreSettlements` — un-consumes whatever THIS exchange, acting as a
+   *    SELL, took from someone else's lot: credits `remaining_qty` back and
+   *    flags each settlement `is_refunded = 1`. Idempotent (a second call
+   *    finds no more ACTIVE rows), so a for-partner sell's reversal composes
+   *    for free with no special-casing.
+   * 2. `voidLotsBySource` — voids whatever lot THIS exchange, acting as a
+   *    BUY, created. Safe unconditionally: `_assertExchangeLotsVoidable`
+   *    above already proved that lot carries no active settlement before
+   *    this method is ever reached.
+   *
+   * Both calls are no-ops (match zero rows) for a currency pair that never
+   * touched a lot (USD<->LBP) or for whichever side of THIS exchange wasn't
+   * exotic — there is nothing conditional to branch on here, unlike the
+   * guard's `hasActiveSettlements` check, because voiding/restoring
+   * non-existent rows is already a correct no-op by construction. A no-op
+   * for every non-EXCHANGE type, and (same reasoning as
+   * `_assertExchangeLotsVoidable`) when the lot tables don't exist at all on
+   * this connection.
+   */
+  private _reverseExchangeLotEffects(original: TransactionEntity): void {
+    if (
+      original.type !== "EXCHANGE" ||
+      original.source_table !== "exchange_transactions" ||
+      original.source_id == null ||
+      !this._exchangeLotTablesExist()
+    ) {
+      return;
+    }
+    const lotRepo = getExchangeLotRepository();
+    lotRepo.restoreSettlements({
+      settledByTable: "exchange_transactions",
+      settledById: original.source_id,
+    });
+    lotRepo.voidLotsBySource({
+      sourceTable: "exchange_transactions",
+      sourceId: original.source_id,
+    });
   }
 
   /**

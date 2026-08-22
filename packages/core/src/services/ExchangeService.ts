@@ -24,6 +24,17 @@ export interface ExchangeOpResult {
   success: boolean;
   id?: number;
   error?: string;
+  /**
+   * EXCHANGE_LOT_SETTLEMENT.md Phase 3 — the SERVER-computed realized profit
+   * from `ExchangeRepository.createTransaction`'s lot engine, present ONLY
+   * when a to-side FIFO consume happened (an exotic `toCurrency`). The
+   * frontend's `session.linkTransaction` must use THIS number, never its own
+   * pre-submit preview (FEATURE_GUIDE §13 walkthrough item 9) — Phase 4/5
+   * wiring, plumbed through here now so the contract exists end-to-end.
+   */
+  realizedProfitUsd?: number;
+  lotCoveredQty?: number;
+  lotMarketQty?: number;
 }
 
 /** @deprecated Use ExchangeOpResult */
@@ -114,7 +125,8 @@ export class ExchangeService {
         tender_exchange_rate: input.tender_exchange_rate,
       };
 
-      const { id } = this.exchangeRepo.createTransaction(txData);
+      const { id, realizedProfitUsd, lotCoveredQty, lotMarketQty } =
+        this.exchangeRepo.createTransaction(txData);
 
       exchangeLogger.info(
         {
@@ -126,13 +138,20 @@ export class ExchangeService {
           legs: result.legs.length,
           viaCurrency: result.viaCurrency,
           totalProfitUsd: result.totalProfitUsd,
+          realizedProfitUsd,
         },
         `Exchange: ${input.amountIn} ${input.fromCurrency} → ${result.totalAmountOut} ${input.toCurrency}` +
           (result.viaCurrency ? ` via ${result.viaCurrency}` : "") +
           ` | Profit: $${result.totalProfitUsd.toFixed(4)}`,
       );
 
-      return { success: true, id };
+      return {
+        success: true,
+        id,
+        ...(realizedProfitUsd !== undefined
+          ? { realizedProfitUsd, lotCoveredQty, lotMarketQty }
+          : {}),
+      };
     } catch (error) {
       exchangeLogger.error(
         { error, input },
@@ -162,7 +181,8 @@ export class ExchangeService {
         }
       }
 
-      const { id } = this.exchangeRepo.createTransaction(data);
+      const { id, realizedProfitUsd, lotCoveredQty, lotMarketQty } =
+        this.exchangeRepo.createTransaction(data);
       exchangeLogger.info(
         {
           id,
@@ -171,10 +191,17 @@ export class ExchangeService {
           amountIn: data.amountIn,
           amountOut: data.amountOut,
           totalProfitUsd: data.totalProfitUsd,
+          realizedProfitUsd,
         },
         "Direct exchange transaction created",
       );
-      return { success: true, id };
+      return {
+        success: true,
+        id,
+        ...(realizedProfitUsd !== undefined
+          ? { realizedProfitUsd, lotCoveredQty, lotMarketQty }
+          : {}),
+      };
     } catch (error) {
       exchangeLogger.error({ error }, "addDirectTransaction failed");
       return {

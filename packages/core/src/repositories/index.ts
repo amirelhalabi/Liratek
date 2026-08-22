@@ -124,6 +124,7 @@ export {
 export type {
   ExchangeTransactionEntity,
   CreateExchangeData,
+  CreateExchangeResult,
 } from "./ExchangeRepository.js";
 
 // Exchange Lot Repository (EXCHANGE_LOT_SETTLEMENT.md Phase 2 — FIFO cost-basis engine)

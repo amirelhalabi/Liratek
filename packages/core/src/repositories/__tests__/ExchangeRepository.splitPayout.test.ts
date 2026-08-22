@@ -80,6 +80,59 @@ function createTestDb(): Database.Database {
       drawer_name TEXT NOT NULL
     );
 
+    -- EXCHANGE_LOT_SETTLEMENT.md Phase 3: ExchangeRepository.createTransaction
+    -- now reaches into the lot engine for ANY exotic-currency leg, including
+    -- the "rejects a split payout on an exotic target currency" guard test
+    -- below (it only cares about the later USD/LBP-target check, but the lot
+    -- hook runs first per the documented ordering) — these three tables must
+    -- exist even though this file never asserts anything about lots.
+    CREATE TABLE exchange_rates (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id   INTEGER DEFAULT 1,
+      to_code     TEXT    NOT NULL,
+      market_rate REAL    NOT NULL,
+      buy_rate    REAL    NOT NULL,
+      sell_rate   REAL    NOT NULL,
+      is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
+      updated_at  TEXT    DEFAULT (datetime('now')),
+      UNIQUE (tenant_id, to_code)
+    );
+
+    CREATE TABLE exchange_lots (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id      INTEGER DEFAULT 1,
+      currency_code  TEXT NOT NULL,
+      drawer_name    TEXT NOT NULL DEFAULT 'General',
+      source_type    TEXT NOT NULL CHECK(source_type IN ('EXCHANGE_BUY', 'DRAWER_TOPUP', 'ADJUSTMENT')),
+      source_table   TEXT,
+      source_id      INTEGER,
+      original_qty   REAL NOT NULL,
+      remaining_qty  REAL NOT NULL,
+      unit_cost_usd  REAL NOT NULL,
+      acquired_at    DATETIME NOT NULL,
+      is_voided      INTEGER NOT NULL DEFAULT 0,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX idx_exchange_lots_fifo ON exchange_lots(tenant_id, currency_code, acquired_at, id);
+
+    CREATE TABLE exchange_lot_settlements (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER DEFAULT 1,
+      lot_id             INTEGER REFERENCES exchange_lots(id) ON DELETE SET NULL,
+      basis_source       TEXT NOT NULL CHECK(basis_source IN ('LOT', 'MARKET')),
+      settled_by_table   TEXT NOT NULL,
+      settled_by_id      INTEGER NOT NULL,
+      qty                REAL NOT NULL,
+      unit_cost_usd      REAL NOT NULL,
+      unit_proceeds_usd  REAL NOT NULL,
+      profit_usd         REAL NOT NULL,
+      is_refunded        INTEGER NOT NULL DEFAULT 0,
+      refunded_at        TEXT,
+      created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE partners (
       tenant_id INTEGER DEFAULT 1,
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,

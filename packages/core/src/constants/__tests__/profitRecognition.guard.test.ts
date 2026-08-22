@@ -46,6 +46,27 @@
  * shape), and the token widening here makes the class unrepresentable:
  * a commission-summing query is profit reporting whether or not it spells
  * "profit", so it gets the same gate-or-documented-exclusion discipline.
+ *
+ * EXCHANGE_LOT_SETTLEMENT.md Phase 3 (2026-08-22) — recognition rationale for
+ * exotic-currency exchange profit, recorded here since this guard is exactly
+ * where a query's recognition timing is supposed to be documented. For a
+ * lot-tracked (non-USD, non-LBP) currency, `exchange_transactions
+ * .leg1_profit_usd`/`leg2_profit_usd` are no longer the half-spread-vs-
+ * mid-market snapshot: a BUY leg (the acquire side) always stamps 0 (Q8 — a
+ * buy earns nothing until it is sold), and a SELL leg (the consume side)
+ * stamps the FIFO-realized profit computed by `ExchangeLotRepository
+ * .consumeFifo` at settlement (the sell's own) time against
+ * `exchange_lot_settlements` — never at the buy's time. Both `getByUser`'s
+ * `EXCHANGE_LEG_PROFIT` unit and `getByDate`'s `daily_exchange` CTE keep
+ * summing those exact same two columns, still gated by
+ * `notPartnerPending("exchange_transactions", "id")` (a for-partner sell's
+ * realized profit still defers to partner coverage, same as before) — no new
+ * query, no new gate, no EXCLUDED_UNITS entry needed: the recognition RULE
+ * ("profit is real only when money is real") is unchanged, only WHICH number
+ * satisfies it for an exotic leg changed, and that number is computed inside
+ * `ExchangeRepository.createTransaction` before either column is ever
+ * written, not inside one of these already-gated queries. USD<->LBP legs are
+ * completely untouched (still the pre-existing spread stamp).
  */
 
 import * as fs from "node:fs";
