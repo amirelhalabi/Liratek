@@ -621,6 +621,83 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
 
 CREATE INDEX IF NOT EXISTS idx_exchange_transactions_tenant_id ON exchange_transactions(tenant_id);
 
+-- =============================================================================
+-- Exchange Lot Settlement (v156, EXCHANGE_LOT_SETTLEMENT.md Phase 1 — schema only)
+-- =============================================================================
+-- Cost-basis lot tracking for exotic-currency (non-USD, non-LBP) exchange positions.
+-- Nothing reads/writes these tables yet (the FIFO engine is a follow-up change); this
+-- block alone is zero behaviour change. See migration v156's description for the full
+-- rationale, including why currency_code uses the same composite FK shape as v154/v155
+-- (currencies only carries UNIQUE(tenant_id, code), never a unique index on code alone).
+
+-- One row per acquisition: an EXCHANGE_BUY leg, a foreign-currency drawer top-up, or an
+-- admin ADJUSTMENT. source_table/source_id are real ownership columns pointing at the row
+-- that created the lot (never a metadata_json id list).
+CREATE TABLE IF NOT EXISTS exchange_lots (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id      INTEGER REFERENCES tenants(id),
+    currency_code  TEXT NOT NULL,
+    drawer_name    TEXT NOT NULL DEFAULT 'General',
+    source_type    TEXT NOT NULL CHECK(source_type IN ('EXCHANGE_BUY', 'DRAWER_TOPUP', 'ADJUSTMENT')),
+    source_table   TEXT,
+    source_id      INTEGER,
+    original_qty   REAL NOT NULL,
+    remaining_qty  REAL NOT NULL,
+    unit_cost_usd  REAL NOT NULL,
+    acquired_at    DATETIME NOT NULL,
+    is_voided      INTEGER NOT NULL DEFAULT 0,
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_exchange_lots_tenant_id ON exchange_lots(tenant_id);
+-- FIFO scan order (id is the tiebreak — acquired_at is only as precise as its stamped
+-- datetime and two lots can share one).
+CREATE INDEX IF NOT EXISTS idx_exchange_lots_fifo ON exchange_lots(tenant_id, currency_code, acquired_at, id);
+
+-- One row per (lot x consuming SELL event). lot_id is nullable and basis_source='MARKET'
+-- marks the uncovered-oversell slice (no lot backing it, basis = that day's stamped
+-- market rate).
+CREATE TABLE IF NOT EXISTS exchange_lot_settlements (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id          INTEGER REFERENCES tenants(id),
+    lot_id             INTEGER REFERENCES exchange_lots(id) ON DELETE SET NULL,
+    basis_source       TEXT NOT NULL CHECK(basis_source IN ('LOT', 'MARKET')),
+    settled_by_table   TEXT NOT NULL,
+    settled_by_id      INTEGER NOT NULL,
+    qty                REAL NOT NULL,
+    unit_cost_usd      REAL NOT NULL,
+    unit_proceeds_usd  REAL NOT NULL,
+    profit_usd         REAL NOT NULL,
+    is_refunded        INTEGER NOT NULL DEFAULT 0,
+    refunded_at        TEXT,
+    created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_exchange_lot_settlements_tenant_id ON exchange_lot_settlements(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_exchange_lot_settlements_lot ON exchange_lot_settlements(tenant_id, lot_id);
+CREATE INDEX IF NOT EXISTS idx_exchange_lot_settlements_settled_by ON exchange_lot_settlements(tenant_id, settled_by_table, settled_by_id);
+
+-- Admin-only manual position adjustment (drift correction): add at a stated basis, or
+-- write off at zero profit. Moves no money and ties to no unified transaction.
+CREATE TABLE IF NOT EXISTS exchange_position_adjustments (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id      INTEGER REFERENCES tenants(id),
+    currency_code  TEXT NOT NULL,
+    qty            REAL NOT NULL,
+    unit_cost_usd  REAL,
+    note           TEXT,
+    created_by     TEXT,
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_exchange_position_adjustments_tenant_id ON exchange_position_adjustments(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_exchange_position_adjustments_currency ON exchange_position_adjustments(tenant_id, currency_code);
+
 -- Financial Services (OMT, Whish, iPick, Katsh, Wish App, Binance, etc.)
 -- v154 (FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md §5b phase 3): `provider` used to be
 -- a closed 9-value CHECK; it is now a composite FK (tenant_id, provider) ->
@@ -1820,4 +1897,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (152, 'custom_services_product_id_stock_link'),
     (153, 'add_service_providers_table'),
     (154, 'financial_services_provider_check_to_fk'),
-    (155, 'partners_system_association_to_fk');
+    (155, 'partners_system_association_to_fk'),
+    (156, 'add_exchange_lot_settlement_tables');

@@ -8785,6 +8785,129 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 156,
+    name: "add_exchange_lot_settlement_tables",
+    description:
+      "EXCHANGE_LOT_SETTLEMENT.md Phase 1 — schema only, no behaviour change (nothing reads or " +
+      "writes these tables yet; the FIFO engine is a follow-up change). Introduces cost-basis " +
+      "lot tracking for exotic-currency (non-USD, non-LBP) exchange positions, replacing the " +
+      "current half-spread-vs-mid-market profit snapshot for those currencies (Q1/Q8 of the " +
+      "decision record). `exchange_lots` is one row per acquisition (an EXCHANGE_BUY leg, a " +
+      "foreign-currency drawer top-up, or an admin ADJUSTMENT); `source_table`/`source_id` are " +
+      "real ownership columns pointing at the row that created the lot, never a metadata_json id " +
+      "list (TransactionRepository ~:3013 precedent). `exchange_lot_settlements` is one row per " +
+      "(lot x consuming SELL event) — `lot_id` is nullable and `basis_source='MARKET'` marks the " +
+      "Q6 uncovered-oversell slice (no lot backing it, basis = that day's stamped market rate). " +
+      "`exchange_position_adjustments` is the Q15 admin drift-correction escape hatch (add at a " +
+      "stated basis, or write off at zero profit); it moves no money and ties to no unified " +
+      "transaction (justified in the plan's FEATURE_GUIDE §13 walkthrough, item 1). " +
+      "currency_code uses the SAME composite FK shape as v154/v155 — FOREIGN KEY (tenant_id, " +
+      "currency_code) REFERENCES currencies(tenant_id, code) — deliberately not a bare " +
+      "`REFERENCES currencies(code)`, which would throw 'foreign key mismatch' on every " +
+      "statement against these tables: currencies only carries UNIQUE(tenant_id, code) " +
+      "(create_db.sql:148), not a unique index on code alone, since multi-tenant seeds the same " +
+      "currency codes per tenant by design. tenant_id stays nullable on all three tables, " +
+      "matching every other tenant-scoped table in this schema (exchange_transactions, " +
+      "financial_services, partners, service_providers); SQLite's standard composite-FK NULL " +
+      "semantics exempt a NULL-tenant_id row from the currency check entirely, same as v154/v155. " +
+      "The FIFO index on exchange_lots is (tenant_id, currency_code, acquired_at, id) — id is the " +
+      "tiebreak because created_at/acquired_at are only as precise as their stamped datetime and " +
+      "two lots can share one (rule 15's second-granularity trap, applied here to lot ordering " +
+      "rather than transaction ordering). No modules/currency_modules/currency_drawers rows: this " +
+      "is not a new module, it hooks into the existing Exchange module's write path.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS exchange_lots (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id      INTEGER REFERENCES tenants(id),
+          currency_code  TEXT NOT NULL,
+          drawer_name    TEXT NOT NULL DEFAULT 'General',
+          source_type    TEXT NOT NULL CHECK(source_type IN ('EXCHANGE_BUY', 'DRAWER_TOPUP', 'ADJUSTMENT')),
+          source_table   TEXT,
+          source_id      INTEGER,
+          original_qty   REAL NOT NULL,
+          remaining_qty  REAL NOT NULL,
+          unit_cost_usd  REAL NOT NULL,
+          acquired_at    DATETIME NOT NULL,
+          is_voided      INTEGER NOT NULL DEFAULT 0,
+          created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code)
+        );
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_exchange_lots_tenant_id ON exchange_lots(tenant_id);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_exchange_lots_fifo ON exchange_lots(tenant_id, currency_code, acquired_at, id);`,
+      );
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS exchange_lot_settlements (
+          id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id          INTEGER REFERENCES tenants(id),
+          lot_id             INTEGER REFERENCES exchange_lots(id) ON DELETE SET NULL,
+          basis_source       TEXT NOT NULL CHECK(basis_source IN ('LOT', 'MARKET')),
+          settled_by_table   TEXT NOT NULL,
+          settled_by_id      INTEGER NOT NULL,
+          qty                REAL NOT NULL,
+          unit_cost_usd      REAL NOT NULL,
+          unit_proceeds_usd  REAL NOT NULL,
+          profit_usd         REAL NOT NULL,
+          is_refunded        INTEGER NOT NULL DEFAULT 0,
+          refunded_at        TEXT,
+          created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_exchange_lot_settlements_tenant_id ON exchange_lot_settlements(tenant_id);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_exchange_lot_settlements_lot ON exchange_lot_settlements(tenant_id, lot_id);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_exchange_lot_settlements_settled_by ON exchange_lot_settlements(tenant_id, settled_by_table, settled_by_id);`,
+      );
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS exchange_position_adjustments (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id      INTEGER REFERENCES tenants(id),
+          currency_code  TEXT NOT NULL,
+          qty            REAL NOT NULL,
+          unit_cost_usd  REAL,
+          note           TEXT,
+          created_by     TEXT,
+          created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code)
+        );
+      `);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_exchange_position_adjustments_tenant_id ON exchange_position_adjustments(tenant_id);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_exchange_position_adjustments_currency ON exchange_position_adjustments(tenant_id, currency_code);`,
+      );
+
+      console.log(
+        "Migration v156: exchange_lots, exchange_lot_settlements, exchange_position_adjustments " +
+          "tables created (schema only — no reads/writes wired up yet)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS exchange_lot_settlements;`);
+      db.exec(`DROP TABLE IF EXISTS exchange_position_adjustments;`);
+      db.exec(`DROP TABLE IF EXISTS exchange_lots;`);
+      console.log(
+        "Migration v156 rolled back: exchange_lots, exchange_lot_settlements, " +
+          "exchange_position_adjustments tables dropped",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
