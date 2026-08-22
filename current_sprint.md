@@ -900,7 +900,7 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 
 | Ticket | Description | Priority | Originally in |
 |---|---|---|---|
-| LIRA-114 | "For Partner" custom service behaves like THROUGH; owner's exact click path never captured | High (narrowed) | Sprint 6 |
+| LIRA-114 | Services/OMT-Whish For-Partner payment section: unfiltered on SEND, discarded on RECEIVE | High (narrowed) | Sprint 6 |
 | LIRA-138 | Generalise the commission-at-settlement drawer top-up (LIRA-137) from Katsh bills to OMT/WHISH | Medium | Sprint 6 |
 | LIRA-079 | Refund scope (which txn types get Refund) + whether to remove the Void button | Medium | Sprint 4 |
 | LIRA-083 | Custom Services needs a real work-status lifecycle | Medium | Sprint 4 |
@@ -910,7 +910,7 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 | LIRA-099 | Multi-tenant admin/impersonation e2e spec + full-suite proof run | Medium | Sprint 6 |
 | LIRA-101 | Primary Cash Drawer cleanup + verify Suppliers `settleNetPayUsd` | Medium | Sprint 6 |
 | LIRA-110 | Daily closing sums financial-services commission with zero gates | Medium | Sprint 6 |
-| LIRA-116 | Rename the crossed `custom_services`/`omt_whish` module labels + routes | Medium | Sprint 6 |
+| LIRA-116 | Rename the crossed `custom_services`/`omt_whish` module labels + routes | **High** (raised 2026-08-22 — has now misled 3 investigations) | Sprint 6 |
 | LIRA-117 | No e2e spec drives the inventory-pick to stock-decrement flow | Medium | Sprint 6 |
 | LIRA-058 | OMT App topup flow design (dual cash/owed-pool model) | Medium | Sprint 2 |
 | LIRA-096 | Partners page — remove "Record Transaction" | Low | Sprint 5 |
@@ -921,8 +921,9 @@ Full design record, the double-count judgement, and the deferred-generalisation 
 | LIRA-055-FU | Voucher support at session checkout needs `client_id` | Low | Sprint 1 follow-up (orphaned) |
 | LIRA-139 | Sort-by-Amount ignores `amount_lbp` — every LBP-primary row sorts as 0 | Medium | Found 2026-08-12 |
 | LIRA-140 | Non-till money renders identically to till cash on a settlement row | Low | Found 2026-08-12 |
+| LIRA-142 | PM Fee input renders on a For-Partner SEND while the payload forces the fee to 0 | Low | Found 2026-08-22 |
 
-**Count by priority:** High — 1 · Medium — 13 · Low — 7. **Total: 21.**
+**Count by priority:** High — 2 · Medium — 12 · Low — 8. **Total: 22.**
 
 ---
 
@@ -1014,17 +1015,21 @@ question is purely whether the page should say WHERE it landed at a glance.
 
 ---
 
-## LIRA-114: FOR-partner service on "Debt" appears to move General — NEEDS INTERVIEW
+## LIRA-114: For-Partner payment section on Services — ROOT CAUSE FIXED, §4 UI gating IN BUILD
 
 | Field                | Value                              |
 | --------------------- | ------------------------------------ |
 | **Epic**              | Services / Partners                   |
 | **Type**              | Investigation → likely UX fix         |
 | **Priority**          | Medium                                |
-| **Status**            | **NEEDS INTERVIEW**                   |
+| **Status**            | **IN BUILD 2026-08-22** (was NEEDS INTERVIEW) |
 | **Affected Modules**  | Financial Services, Custom Services, Partners |
 | **Assigned To**       | —                                      |
 | **Source Plan**       | Owner report 2026-08-08 ('7welet souria') |
+
+> ⏭ **Jump to "RESOLVED 2026-08-22" at the end of this ticket first.** The root cause was fixed
+> on 2026-08-09; everything between here and there is historical investigation written while it was
+> still unknown, and one block of it investigated the wrong module (see LIRA-116).
 
 ### Summary
 
@@ -1167,6 +1172,40 @@ this ticket's mechanism.
 **Status: investigation closed for the literal report (correct-accounting, tests lock it in);
 NEEDS INTERVIEW remains open only for (a) the owner's exact click path and (b) the THROUGH-partner
 inconsistency decision.**
+
+
+### ✅ RESOLVED 2026-08-22 — the root cause was already fixed; only the UI gating remained
+
+**Read this first — the sections above are historical.** Everything below them was written while
+the cause was still unknown. It is now known, and it was fixed almost two weeks before this entry:
+
+- The reported symptom (For Partner ticked, cost 1008, General drops) was **Custom Services posting
+  the cost as a hardcoded General cash outflow**. `d1a0ad24` (2026-08-09) removed it — cost is a
+  profit input only now. `cc452278` closed the follow-on hole where a stale `paid_by` was stamped
+  into `metadata_json` as if it had executed. Both are on `main`.
+- The 2026-08-09 "joint investigation" block above traced `FinancialServiceRepository` — the
+  `/services` route, i.e. the **`omt_whish`** module. That is the crossed-name trap LIRA-116
+  documents, hit for the **third** time: the owner's page is `custom_services`. Its conclusions
+  about `FinancialServiceRepository` are accurate but were about the wrong module.
+
+**What was genuinely still open, verified against source 2026-08-22:** plan §4 item 1 — the
+For-Partner payment section on the OMT/Whish Services page.
+
+- The picker has no `forPartner` gate: `paymentMethods` is the unfiltered `allPaymentMethods` on
+  SEND (`Services/index.tsx:2187`), so Customer Account is selectable; `autoDebtRemainder`
+  (`:2161`) is likewise ungated and can add that leg unprompted; the label says "Payment"
+  (`:2199`) though on a For-Partner SEND the method means **which drawer funds the payout**.
+- Picking it **hard-rejects the whole transaction** — the OUT leg lands in `returnLegs`
+  (`partitionLegs`, `FinancialServiceRepository.ts:1879`) and `:2116` throws before any drawer
+  write. **A UX defect, not a money bug** — no money is ever misrouted.
+- On a For-Partner RECEIVE the section is shown but the choice is **silently discarded**
+  (`payments: []`, `:1085`) with no cue.
+
+**Owner decision 2026-08-22** — the plan's original "hide the payment UI everywhere" rule is wrong
+for Services SEND (it would discard a real drawer choice). Approved instead: SEND keeps the picker,
+relabelled **"Paid from"** and filtered to `drawerAffectingMethods`, with a notice stating both
+sides; RECEIVE hides it behind a notice. Full rationale in
+`docs/plans/todo_plans/FOR_PARTNER_AND_COST_UNIFICATION_PLAN.md` §4's decision block.
 
 ---
 
@@ -1541,10 +1580,17 @@ the closing screen's daily commission number. Also rule-14 debt: a third hand-ro
 | --------------------- | ------------------------------------ |
 | **Epic**              | Naming / DX                           |
 | **Type**              | Refactor (naming only)                |
-| **Priority**          | Medium                                |
+| **Priority**          | **High** (raised 2026-08-22)          |
 | **Status**            | TODO — **owner approved 2026-08-09**  |
 | **Affected Modules**  | Custom Services, OMT/Whish            |
 | **Source Plan**       | Found while diagnosing LIRA-114       |
+
+> 🔴 **THIRD STRIKE, 2026-08-22 — priority raised to High.** This has now misled a **third**
+> consecutive LIRA-114 investigation, and that one produced a dated, file:line-cited "resolved"
+> conclusion about `FinancialServiceRepository` (`omt_whish`) when the subject was
+> `CustomServiceRepository` (`custom_services`). Documenting the trap has demonstrably not stopped
+> it — three investigations read this very warning and fell in anyway. The rename is the only fix
+> that ends it. Owner approved it 2026-08-09; it is still unbuilt.
 
 ### Summary
 
@@ -1861,3 +1907,46 @@ The 6-row `Ticket \| Spec \| Validates` e2e coverage table (originally lines 80-
 "POST-REVIEW FOLLOW-UPS") moved to `frontend/tests/e2e-electron/README.md`'s spec index — it was never
 a ticket board (no Status column), which is exactly what made a naive grep miscount 6 closed tickets
 as open. It is also preserved verbatim inside the Sprint 1 archive above.
+
+---
+
+## LIRA-142: PM Fee input renders on a For-Partner SEND while the payload forces the fee to 0
+
+| Field                | Value                                             |
+| --------------------- | --------------------------------------------------- |
+| **Epic**              | Services / Partners                                 |
+| **Type**              | UX fix (offered-but-discarded input)                |
+| **Priority**          | Low                                                 |
+| **Status**            | TODO                                                |
+| **Affected Modules**  | OMT/Whish (Financial Services)                      |
+| **Source**            | Found while building LIRA-114 §4, 2026-08-22        |
+
+### Summary
+
+`Services/index.tsx`'s "Payment Method Fee" box renders whenever `pmFeeApplies` is true, with no
+`forPartner` gate — so a For-Partner SEND paying via a non-cash drawer method (e.g. the OMT wallet)
+still shows a PM-fee input the operator can type into. The submit payload then **forces
+`paymentMethodFee: 0`** for `forPartner` (the PFT-3b spread, `~:1083`), so whatever they typed is
+silently discarded.
+
+This is the **same offered-but-discarded shape as LIRA-114 §4** — the defect that ticket just fixed
+for the payment-method picker and the RECEIVE cashout selector. It was deliberately left out of
+scope there because that change's hard constraint was "the only behavioural change is which methods
+can be picked".
+
+### Acceptance Criteria
+
+- [ ] Either hide the PM-fee box on a For-Partner SEND, or state in-line that no PM fee is charged
+      on a partner disbursement. Presentation only — do **not** start honouring the value (the
+      payload zeroing it is the owner-approved PFT-3b contract, not a bug).
+- [ ] Rule 17 at the interaction layer: prove the assertion fails against the current page. The
+      natural home is the existing `Services.forPartnerPaymentGate.test.tsx`, which already stubs
+      the payment section and drives the For-Partner toggle.
+- [ ] Do not touch the submit payload.
+
+### Files to Modify
+
+| Layer    | File                                                        | Change              |
+| -------- | ----------------------------------------------------------- | ------------------- |
+| Frontend | `frontend/src/features/services/pages/Services/index.tsx`   | Gate the PM-fee box |
+

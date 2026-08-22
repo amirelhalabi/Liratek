@@ -1,9 +1,21 @@
 # FOR-PARTNER & COST SEMANTICS — app-wide unification plan
 
-**Status:** **§2 SHIPPED** (`d1a0ad2` + `69c29e8`) · **§3 slice 1 + §5 SHIPPED** (`cc45227`).
-Remaining: §3 slice 2 (wire the legacy field in the other 4 modules), §4 (UI gating), §5b
-(provider taxonomy / the 'syria' request). **No owner decisions outstanding** — every question in
-this plan has been answered; see §2's answer list, §5b, and §6.
+**Status:** **§2 SHIPPED** (`d1a0ad2` + `69c29e8`) · **§3 slice 1 + §5 SHIPPED** (`cc45227`) ·
+**§3 slice 2 SHIPPED** · **§5b COMPLETE** (`bec11b18`, see §5b).
+**Remaining: §4 (UI gating) — nothing else.** **No owner decisions outstanding** — every question in
+this plan has been answered; see §2's answer list, §4's decision block, §5b, and §6.
+
+> ⚠ **This header previously listed §3 slice 2 and §5b as remaining. Both were already done** —
+> corrected 2026-08-22 after re-verifying against source, not against the header (the repo-wide
+> lesson: plan-doc status markers go stale within days). All five repositories now pass their legacy
+> single-method field into `assertNoCounterPayment`: `CustomServiceRepository.ts:303`
+> (`data.paid_by`), `FinancialServiceRepository.ts:2109` (`paidBy`, which unifies `paidByMethod`
+> and `cashoutMethod`), `RechargeRepository.ts:812` (`data.paid_by_method`),
+> `LotoTicketRepository.ts:358` (always did — the convergence target), and `SalesRepository.ts:828`,
+> which passes `undefined` **deliberately**: Sales has no legacy field this parameter is for, and
+> `SalesRepository.forPartnerLegacyAmounts.test.ts` pins the no-legs/non-zero-`payment_usd`
+> combination as already rejected. Do not "finish" slice 2 — it is finished.
+
 **Origin:** owner report 2026-08-08 (LIRA-114) → owner escalated 2026-08-09: *"We should write a
 plan to unify this flow in the whole app… if the customer account payment method is disabled in the
 OMT/Whish page when the For Partner checkbox is true, I think we should apply this in all pages
@@ -190,10 +202,33 @@ Ten surfaces, four different behaviours. Ranked by money risk:
    **dead code**, since the input it feeds is unmounted when `forPartner` is true. Someone already
    saw this conflict and guarded for it.
 
+### 🔴 OWNER DECISION 2026-08-22 — "hide it everywhere" is WRONG for Services SEND
+
+The rule below ("For Partner ON ⇒ payment-method UI hidden, and no payment-method value sent") is
+right for Custom Services, Loto, Exchange and CheckoutModal, where **no money moves** on a
+For-Partner submission. It is **wrong for a Services/OMT-Whish For-Partner SEND**, where the shop
+really does disburse its own money and the chosen method decides **which drawer funds the payout**
+(the payload turns it into an OUT leg, `Services/index.tsx:1070-1086`). Hiding it would discard a
+real operator choice — you could no longer record that a partner payout left Whish rather than the
+till.
+
+**Approved shape (owner, 2026-08-22):**
+
+| For Partner ON | Payment section |
+| --- | --- |
+| **SEND** | **Kept**, relabelled **"Paid from"**, list filtered to drawer-affecting methods only (`usePaymentMethods().drawerAffectingMethods`, `affects_drawer === 1` — the same predicate as the backend's `isDrawerAffectingMethod`). `autoDebtRemainder` off. `ForPartnerNotice` stating BOTH sides (payout **and** the partner's tab). |
+| **RECEIVE** | **Hidden** behind a `ForPartnerNotice` — the operator's choice was already being silently discarded (`:1085` sends `payments: []`). |
+
+**Why it was only a UX defect, not a money bug** (verified 2026-08-22, worth not re-deriving): picking
+Customer Account on a For-Partner SEND made the OUT leg land in `returnLegs`
+(`partitionLegs`, `FinancialServiceRepository.ts:1879`) where
+`assertNoCustomerAccountLeg` (`:2116`) **hard-rejects the whole transaction before any drawer
+write**. So the symptom was a failed submit for a choice the UI offered — never misrouted money.
+
 ### Work
 
 - [ ] Migrate Services/OMT-Whish onto the shared `ForPartnerToggle`/`ForPartnerNotice`.
-- [ ] One rule everywhere: **For Partner ON ⇒ payment-method UI hidden, and no payment-method value
+- [ ] One rule everywhere **except Services SEND (see the decision block above)**: **For Partner ON ⇒ payment-method UI hidden, and no payment-method value
       sent.** (Hidden-and-omitted is the cleanest existing pattern — CheckoutModal, Loto, Exchange,
       CryptoForm already do it.)
 - [ ] Keep the checkbox label **"For Partner"** — owner explicitly confirmed 2026-08-09.

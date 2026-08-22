@@ -36,6 +36,8 @@ import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteI
 import { useSellRate } from "@/hooks/useSellRate";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { useShopBase } from "@/hooks/useShopBase";
+import { ForPartnerNotice } from "@/features/partners/components/ForPartnerToggle";
+import type { Partner } from "@/types/electron";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -279,7 +281,8 @@ export default function Services() {
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
-  const { methods: allPaymentMethods } = usePaymentMethods();
+  const { methods: allPaymentMethods, drawerAffectingMethods } =
+    usePaymentMethods();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
     today: { commission: 0, pending_commission: 0, count: 0, byCurrency: [] },
@@ -289,6 +292,11 @@ export default function Services() {
   const [owedByProvider, setOwedByProvider] = useState<
     Record<string, SupplierOwed>
   >({});
+  // LIRA-114 §4: the active partner list, reused (not re-fetched) from the
+  // same `api.partners.getAll(false)` call `loadData` already makes for
+  // `hasPartnerForSystem` — purely so the For-Partner notice below can show
+  // the actual partner name instead of a generic "the partner".
+  const [activePartnersList, setActivePartnersList] = useState<Partner[]>([]);
 
   // Loading / error state
   const [_isLoading, setIsLoading] = useState(false);
@@ -484,6 +492,30 @@ export default function Services() {
     !activeSession &&
     !forPartner;
 
+  // The render-time SEND total: what the customer pays on a walk-in SEND,
+  // AND (LIRA-114 §4) what the shop itself pays out on a For-Partner SEND —
+  // this single value feeds BOTH the `totals` prop MultiPaymentInput
+  // reconciles against (every SEND, forPartner or not) and the
+  // ForPartnerNotice below (forPartner only). Extracted once per rule 14 so
+  // the notice reuses it instead of pasting a third copy of the formula.
+  // The submit-time OUT leg (~handleSubmit, "PFT-3b" comment) is
+  // intentionally NOT rewritten to share this — it uses the submit-time
+  // resolvedOmtFee/resolvedWhishFee rather than this render-time
+  // renderProviderFee, and the payload construction is out of scope for
+  // this change.
+  const sendPayoutTotal =
+    serviceType === "SEND"
+      ? includingFees
+        ? parseFloat(amount) || 0
+        : (parseFloat(amount) || 0) + renderProviderFee
+      : 0;
+
+  // Real partner name for the notice, falling back to a generic label if
+  // the list hasn't loaded yet or the id doesn't (yet) match anything.
+  const forPartnerName =
+    activePartnersList.find((p) => p.id === forPartnerId)?.name ??
+    "the partner";
+
   // Auto-fill PM fee when amount or eligibility changes
   useEffect(() => {
     if (!pmFeeApplies) {
@@ -518,6 +550,7 @@ export default function Services() {
         })),
       );
       setAnalytics(stats);
+      setActivePartnersList(activePartners);
 
       // Check if any active partner has the partner-system association
       const partnerExists = activePartners.some(
@@ -2092,146 +2125,212 @@ export default function Services() {
                 />
               </div>
 
-              {/* Payment Method */}
-              <div>
-                <MultiPaymentInput
-                  // Remount on toggle so the seeded payment line re-opens in
-                  // the newly selected currency (line currency is mount-only).
-                  key={currency}
-                  totals={[
-                    {
-                      // On SEND:
-                      // - includingFees=false: customer pays amount + fee on top
-                      // - includingFees=true: fee is already inside amount, customer pays just amount
-                      // On RECEIVE (float model, owner-confirmed 2026-07-29)
-                      // this sheet books the shop's PAYOUT to the customer —
-                      // the fee-on-top leg is a separate customer-paid-IN
-                      // amount FinancialServiceRepository books itself, never
-                      // part of these payout legs:
-                      // - includingFees=false (fee on top): payout is the
-                      //   full requested amount — the fee never touches this
-                      //   sheet.
-                      // - includingFees=true (fee included): payout is netted
-                      //   down by the fee, mirroring the repository's
-                      //   payoutAmount = max(0, receiveAmount - fee) so the
-                      //   legs entered here reconcile against exactly what
-                      //   the backend expects to pay out.
-                      amount:
-                        serviceType === "SEND"
-                          ? includingFees
-                            ? parseFloat(amount) || 0
-                            : (parseFloat(amount) || 0) + renderProviderFee
-                          : includingFees
-                            ? Math.max(
-                                0,
-                                (parseFloat(amount) || 0) - renderProviderFee,
-                              )
-                            : parseFloat(amount) || 0,
-                      // The toggle denominates BOTH the amount and
-                      // renderProviderFee (LBP fee table for LBP INTRA), so the
-                      // sum is entirely in the entry currency. Hardcoding USD
-                      // here made a 420,000 LBP send read "$420,000" in the
-                      // payment section and mislabeled split legs.
-                      currency,
-                    },
-                  ]}
-                  currency={currency}
-                  totalAmountCurrency={currency}
-                  onChange={(lines) => {
-                    setPaymentLines(lines);
-                    // Sync paidByMethod from single-payment line for legacy logic
-                    if (lines.length === 1) {
-                      setPaidByMethod(lines[0].method);
-                      // For RECEIVE, sync cashout method
-                      if (serviceType === "RECEIVE") {
-                        const m = lines[0].method;
-                        setCashoutMethod(m);
-                      }
-                    }
-                  }}
-                  requiresClientForDebt={serviceType !== "RECEIVE"}
-                  hasClient={
-                    !!(serviceType === "SEND" ? senderName : receiverName) ||
-                    !!(serviceType === "SEND" ? senderPhone : receiverPhone)
-                  }
-                  // SEND only (RECEIVE is a cashout — CUSTOMER_ACCOUNT there
-                  // means crediting the customer, the opposite direction),
-                  // and only with the name+phone the debt validation below
-                  // demands — name-only would auto-split then hard-block.
-                  autoDebtRemainder={
-                    serviceType === "SEND" &&
-                    !!senderName.trim() &&
-                    !!senderPhone.trim()
-                  }
-                  showPmFee={multiPmFeeApplies}
-                  pmFeeRate={PM_FEE_DEFAULT_RATE}
-                  onPmFeesChange={setMultiPmFees}
-                  // Deliberately SEND-only (not a leftover hardcode): this
-                  // prop drives MultiPaymentInput's OWN built-in breakdown,
-                  // hardcoded inside that shared component as "Send Amount" /
-                  // "Provider Fee" / "Subtotal" — labels that are simply
-                  // wrong for a RECEIVE payout (nothing is being "sent" by
-                  // the shop here). Editing that component's copy is out of
-                  // this lane's owned files (packages/ui components, as
-                  // opposed to packages/ui/src/api/types.ts). The RECEIVE
-                  // fee arithmetic is instead shown with correct, explicit
-                  // copy in the "Including Fees Checkbox" block above
-                  // (data-testid="service-receive-fee-breakdown"), and the
-                  // payout total this sheet reconciles against is already
-                  // fee-netted via `totals` above.
-                  providerFee={
-                    serviceType === "SEND" && !includingFees
-                      ? renderProviderFee
-                      : 0
-                  }
-                  paymentMethods={
-                    serviceType === "RECEIVE"
-                      ? allPaymentMethods.filter(
-                          (pm) =>
-                            pm.code === "CASH" ||
-                            pm.code === "CUSTOMER_ACCOUNT" ||
-                            pm.code === "OMT" ||
-                            pm.code === "WHISH" ||
-                            pm.code === "BINANCE",
-                        )
-                      : allPaymentMethods
-                  }
-                  label={serviceType === "RECEIVE" ? "Cashout" : "Payment"}
-                  currencies={[
-                    { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "LBP" },
-                  ]}
-                  exchangeRate={exchangeRate}
-                  onExchangeRateChange={setEffectiveRate}
-                  onReturnChange={setReturnLegs}
-                  // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: an OMT/WHISH
-                  // system RECEIVE with a fee-on-top collects the customer's
-                  // fee payment via this counter-flow section, independent of
-                  // the payout lines above. GIFT_CARD is excluded — its fee
-                  // leg would hard-reject server-side (FinancialServiceRepository
-                  // only accepts CUSTOMER_ACCOUNT or a drawer-affecting method;
-                  // GIFT_CARD is neither, and this section has no voucher
-                  // picker to back it anyway).
-                  counterFlow={
-                    showFeeCounterFlow
-                      ? {
-                          label: `Customer pays — ${provider} fee`,
-                          totalAmount: renderProviderFee,
-                          currency,
-                          onChange: setFeePaymentLines,
-                          paymentMethods: allPaymentMethods.filter(
-                            (pm) => pm.code !== "GIFT_CARD",
-                          ),
-                          requiresClient: true,
-                          hasClient: canChargeToCustomerAccount({
-                            name: receiverName,
-                            phone: receiverPhone,
-                          }),
+              {/* Payment Method — LIRA-114 §4 (UI gating): a For-Partner
+                  RECEIVE has no payout method to choose at all (the "PFT-3b"
+                  comment above handleSubmit: the provider drawer is
+                  credited automatically server-side) — the section is
+                  replaced by a two-sided notice instead of silently
+                  discarding whatever the operator picked (the pre-fix
+                  behaviour: `payments: []` sent with zero UI cue). A
+                  For-Partner SEND keeps the section — the chosen method
+                  funds the SHOP'S OWN disbursement, not a customer payment
+                  — but restricts it to drawer-affecting methods only (no
+                  walk-in customer exists to charge to Customer Account;
+                  that combination hard-rejects server-side at
+                  FinancialServiceRepository.ts:2116,
+                  `assertNoCustomerAccountLeg`), relabels it "Paid from",
+                  and disables the SEND debt auto-fill. */}
+              {forPartner && serviceType === "RECEIVE" ? (
+                <ForPartnerNotice
+                  testId="services-for-partner-receive-no-payout-notice"
+                  className="text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-4"
+                >
+                  There is no payout method to choose here — the {provider}{" "}
+                  drawer is credited automatically, and the shop ends up owing{" "}
+                  <span className="font-bold">{forPartnerName}</span> the amount
+                  received minus the fee.
+                </ForPartnerNotice>
+              ) : (
+                <div>
+                  <MultiPaymentInput
+                    // Remount on toggle so the seeded payment line re-opens in
+                    // the newly selected currency (line currency is mount-only).
+                    key={currency}
+                    totals={[
+                      {
+                        // On SEND:
+                        // - includingFees=false: customer pays amount + fee on top
+                        // - includingFees=true: fee is already inside amount, customer pays just amount
+                        // On RECEIVE (float model, owner-confirmed 2026-07-29)
+                        // this sheet books the shop's PAYOUT to the customer —
+                        // the fee-on-top leg is a separate customer-paid-IN
+                        // amount FinancialServiceRepository books itself, never
+                        // part of these payout legs:
+                        // - includingFees=false (fee on top): payout is the
+                        //   full requested amount — the fee never touches this
+                        //   sheet.
+                        // - includingFees=true (fee included): payout is netted
+                        //   down by the fee, mirroring the repository's
+                        //   payoutAmount = max(0, receiveAmount - fee) so the
+                        //   legs entered here reconcile against exactly what
+                        //   the backend expects to pay out.
+                        amount:
+                          serviceType === "SEND"
+                            ? sendPayoutTotal
+                            : includingFees
+                              ? Math.max(
+                                  0,
+                                  (parseFloat(amount) || 0) - renderProviderFee,
+                                )
+                              : parseFloat(amount) || 0,
+                        // The toggle denominates BOTH the amount and
+                        // renderProviderFee (LBP fee table for LBP INTRA), so the
+                        // sum is entirely in the entry currency. Hardcoding USD
+                        // here made a 420,000 LBP send read "$420,000" in the
+                        // payment section and mislabeled split legs.
+                        currency,
+                      },
+                    ]}
+                    currency={currency}
+                    totalAmountCurrency={currency}
+                    onChange={(lines) => {
+                      setPaymentLines(lines);
+                      // Sync paidByMethod from single-payment line for legacy logic
+                      if (lines.length === 1) {
+                        setPaidByMethod(lines[0].method);
+                        // For RECEIVE, sync cashout method
+                        if (serviceType === "RECEIVE") {
+                          const m = lines[0].method;
+                          setCashoutMethod(m);
                         }
-                      : undefined
-                  }
-                />
-              </div>
+                      }
+                    }}
+                    requiresClientForDebt={serviceType !== "RECEIVE"}
+                    hasClient={
+                      !!(serviceType === "SEND" ? senderName : receiverName) ||
+                      !!(serviceType === "SEND" ? senderPhone : receiverPhone)
+                    }
+                    // SEND only (RECEIVE is a cashout — CUSTOMER_ACCOUNT there
+                    // means crediting the customer, the opposite direction),
+                    // and only with the name+phone the debt validation below
+                    // demands — name-only would auto-split then hard-block.
+                    // Never on a For-Partner SEND (LIRA-114 §4): there is no
+                    // walk-in customer to auto-debt, and CUSTOMER_ACCOUNT is
+                    // no longer even in the offered method list below.
+                    autoDebtRemainder={
+                      !forPartner &&
+                      serviceType === "SEND" &&
+                      !!senderName.trim() &&
+                      !!senderPhone.trim()
+                    }
+                    showPmFee={multiPmFeeApplies}
+                    pmFeeRate={PM_FEE_DEFAULT_RATE}
+                    onPmFeesChange={setMultiPmFees}
+                    // Deliberately SEND-only (not a leftover hardcode): this
+                    // prop drives MultiPaymentInput's OWN built-in breakdown,
+                    // hardcoded inside that shared component as "Send Amount" /
+                    // "Provider Fee" / "Subtotal" — labels that are simply
+                    // wrong for a RECEIVE payout (nothing is being "sent" by
+                    // the shop here). Editing that component's copy is out of
+                    // this lane's owned files (packages/ui components, as
+                    // opposed to packages/ui/src/api/types.ts). The RECEIVE
+                    // fee arithmetic is instead shown with correct, explicit
+                    // copy in the "Including Fees Checkbox" block above
+                    // (data-testid="service-receive-fee-breakdown"), and the
+                    // payout total this sheet reconciles against is already
+                    // fee-netted via `totals` above.
+                    providerFee={
+                      serviceType === "SEND" && !includingFees
+                        ? renderProviderFee
+                        : 0
+                    }
+                    paymentMethods={
+                      serviceType === "RECEIVE"
+                        ? allPaymentMethods.filter(
+                            (pm) =>
+                              pm.code === "CASH" ||
+                              pm.code === "CUSTOMER_ACCOUNT" ||
+                              pm.code === "OMT" ||
+                              pm.code === "WHISH" ||
+                              pm.code === "BINANCE",
+                          )
+                        : // For-Partner SEND (LIRA-114 §4): the method chosen
+                          // here funds the shop's OWN disbursement, not a
+                          // customer payment — restrict to methods that
+                          // actually affect a drawer (reuses
+                          // usePaymentMethods()'s existing filtered list,
+                          // rule 14 — this is the SAME predicate
+                          // (`affects_drawer === 1`) the backend's
+                          // `isDrawerAffectingMethod` enforces, so it is
+                          // correct by construction, not a hand-rolled
+                          // second copy). CUSTOMER_ACCOUNT is a non-drawer
+                          // method and is excluded by this filter — picking
+                          // it here used to hard-reject the whole submit at
+                          // FinancialServiceRepository.ts:2116.
+                          forPartner
+                          ? drawerAffectingMethods
+                          : allPaymentMethods
+                    }
+                    label={
+                      serviceType === "RECEIVE"
+                        ? "Cashout"
+                        : forPartner
+                          ? "Paid from"
+                          : "Payment"
+                    }
+                    currencies={[
+                      { code: "USD", symbol: "$" },
+                      { code: "LBP", symbol: "LBP" },
+                    ]}
+                    exchangeRate={exchangeRate}
+                    onExchangeRateChange={setEffectiveRate}
+                    onReturnChange={setReturnLegs}
+                    // BIDIRECTIONAL_PAYMENT_LEGS_PLAN.md §4 Phase C: an OMT/WHISH
+                    // system RECEIVE with a fee-on-top collects the customer's
+                    // fee payment via this counter-flow section, independent of
+                    // the payout lines above. GIFT_CARD is excluded — its fee
+                    // leg would hard-reject server-side (FinancialServiceRepository
+                    // only accepts CUSTOMER_ACCOUNT or a drawer-affecting method;
+                    // GIFT_CARD is neither, and this section has no voucher
+                    // picker to back it anyway).
+                    counterFlow={
+                      showFeeCounterFlow
+                        ? {
+                            label: `Customer pays — ${provider} fee`,
+                            totalAmount: renderProviderFee,
+                            currency,
+                            onChange: setFeePaymentLines,
+                            paymentMethods: allPaymentMethods.filter(
+                              (pm) => pm.code !== "GIFT_CARD",
+                            ),
+                            requiresClient: true,
+                            hasClient: canChargeToCustomerAccount({
+                              name: receiverName,
+                              phone: receiverPhone,
+                            }),
+                          }
+                        : undefined
+                    }
+                  />
+                  {forPartner && serviceType === "SEND" && (
+                    <ForPartnerNotice
+                      testId="services-for-partner-send-payout-notice"
+                      className="mt-2 text-sm text-orange-200 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3"
+                    >
+                      You pay out{" "}
+                      <span className="font-bold">
+                        {formatAmount(sendPayoutTotal, currency)}
+                      </span>
+                      . <span className="font-bold">{forPartnerName}</span> owes
+                      you{" "}
+                      <span className="font-bold">
+                        {formatAmount(sendPayoutTotal, currency)}
+                      </span>
+                      .
+                    </ForPartnerNotice>
+                  )}
+                </div>
+              )}
 
               {/* PM Fee Amount Input — shown for SEND with non-cash single payment */}
               {pmFeeApplies && (
