@@ -39,12 +39,25 @@ export class DrawerTopUpService {
    * At least one of amount_usd, amount_lbp, or a valid extra_currencies
    * entry must be greater than zero.
    *
-   * `extra_currencies` (External mode only) accepts top-ups in any OTHER
-   * currency already enabled for the General drawer via Settings →
-   * Currencies (`currency_drawers`) — validated here (not auto-registered
-   * the way ExchangeRepository does for arbitrary currencies), since a
-   * manual cash top-up is a config-gated action, not a market-rate
-   * conversion.
+   * `extra_currencies` (External mode only) accepts a top-up in any OTHER
+   * currency the shop actually deals in — i.e. any ACTIVE currency, plus
+   * anything General still holds.
+   *
+   * This used to be gated on an explicit `currency_drawers` row for the
+   * General drawer, which made the app contradict itself: the Exchange module
+   * deposits ANY currency into General, so an EUR exchange was fine while a
+   * manual EUR cash-in was rejected with "Currency EUR is not enabled for the
+   * General drawer" (owner-reported 2026-08-22). General is unrestricted —
+   * `getCurrenciesForDrawer(GENERAL_DRAWER)` now DERIVES its set (see
+   * `constants/drawerCurrencyPolicy.ts`), so this check has become "is this a
+   * real, active currency" rather than "has an admin pre-authorised it".
+   *
+   * Still a hard reject, not an auto-register: a garbage or unknown code must
+   * not silently create a `drawer_balances` row for a currency the app has no
+   * name, symbol or decimal_places for. `ExchangeRepository` may auto-register
+   * because it is resolving a live market rate for a known API currency; a
+   * hand-keyed cash amount has no such source of truth.
+   * See docs/plans/todo_plans/GENERAL_DRAWER_UNRESTRICTED.md.
    */
   addTopUp(data: CreateDrawerTopUpData, userId: number): DrawerTopUpResult {
     try {
@@ -82,7 +95,7 @@ export class DrawerTopUpService {
           if (!allowed.has(code)) {
             return {
               success: false,
-              error: `Currency "${code}" is not enabled for the General drawer. Enable it in Settings → Currencies first.`,
+              error: `Currency "${code}" is not an active currency. Add it in Settings → Currencies first.`,
             };
           }
         }

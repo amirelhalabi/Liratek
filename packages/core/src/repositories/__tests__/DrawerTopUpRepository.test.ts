@@ -169,6 +169,24 @@ function enableDrawerCurrency(
   drawerName: string,
   currencyCode: string,
 ): void {
+  // The currency must EXIST and be ACTIVE, not merely have a junction row.
+  // The General drawer is unrestricted: its currency set is derived from
+  // `currencies` (plus whatever the drawer still holds), never read from
+  // `currency_drawers` — see `constants/drawerCurrencyPolicy.ts` and
+  // docs/plans/todo_plans/GENERAL_DRAWER_UNRESTRICTED.md.
+  //
+  // Seeding only the junction row modelled a state the real schema forbids:
+  // `currency_drawers` FKs to `currencies(tenant_id, code) ON DELETE CASCADE`,
+  // so an orphan junction row cannot exist outside this FK-less fixture.
+  const code = currencyCode.toUpperCase();
+  const exists = db
+    .prepare("SELECT 1 FROM currencies WHERE code = ? AND tenant_id = 1")
+    .get(code);
+  if (!exists) {
+    db.prepare(
+      "INSERT INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id) VALUES (?, ?, ?, 2, 1, 1)",
+    ).run(code, code, code);
+  }
   db.prepare(
     "INSERT INTO currency_drawers (currency_code, drawer_name, tenant_id) VALUES (?, ?, 1)",
   ).run(currencyCode, drawerName);
@@ -240,8 +258,14 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
     ]);
   });
 
-  it("rejects a currency not enabled for the General drawer — no rows written", () => {
-    enableDrawerCurrency(db, "General", "EUR"); // GBP deliberately NOT enabled
+  // General is unrestricted, so the gate is no longer "has an admin ticked
+  // this currency for the General drawer" but "is this a real, active
+  // currency" (plan Phase 2). Still a HARD reject rather than an
+  // auto-register: an unknown code must not create a `drawer_balances` row for
+  // a currency with no name/symbol/decimal_places. GBP below exists nowhere in
+  // `currencies`, which is exactly that case.
+  it("rejects a currency that is not an active currency — no rows written", () => {
+    enableDrawerCurrency(db, "General", "EUR"); // GBP deliberately absent
 
     const result = service.addTopUp(
       {
@@ -253,12 +277,41 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toMatch(/not enabled for the general drawer/i);
+    expect(result.error).toMatch(/not an active currency/i);
 
     // Nothing was written — the service rejected before calling the repo.
     expect(topUpRowCount(db)).toBe(0);
     expect(paymentsRows(db)).toHaveLength(0);
     expect(balance(db, "General", "GBP")).toBeCloseTo(0, 2);
+  });
+
+  /**
+   * The owner-reported bug, 2026-08-22: "External (Cash In)" of EUR 300 into
+   * General was rejected with "Currency EUR is not enabled for the General
+   * drawer", even though the Exchange module deposits any currency into
+   * General. EUR is an ACTIVE currency here with NO `currency_drawers` row for
+   * General at all — the exact live-DB shape (General = USD, LBP).
+   *
+   * Rule 17: this fails on the pre-fix code with that very message.
+   */
+  it("accepts an ACTIVE currency with no currency_drawers row for General", () => {
+    db.prepare(
+      "INSERT INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id) VALUES ('EUR', 'Euro', '€', 2, 1, 1)",
+    ).run();
+    // deliberately NO enableDrawerCurrency() — that is the whole point
+
+    const result = service.addTopUp(
+      {
+        amount_usd: 0,
+        amount_lbp: 0,
+        extra_currencies: [{ currency_code: "EUR", amount: 300 }],
+      },
+      1,
+    );
+
+    expect(result.success).toBe(true);
+    expect(balance(db, "General", "EUR")).toBeCloseTo(300, 2);
+    expect(paymentsRows(db)).toHaveLength(1);
   });
 
   it("posts two different extra currencies from one submission", () => {

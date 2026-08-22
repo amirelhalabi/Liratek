@@ -11,6 +11,7 @@ import {
   type CreateCurrencyData,
   type UpdateCurrencyData,
 } from "../repositories/index.js";
+import { isUnrestrictedDrawer } from "../constants/drawerCurrencyPolicy.js";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors.js";
 import { clearCurrencyCache } from "../utils/currency.js";
 
@@ -143,12 +144,56 @@ export class CurrencyService {
     return this.currencyRepo.getDrawersForCurrency(code);
   }
 
-  /** Set currencies for a drawer */
+  /**
+   * Set currencies for a drawer (replace-all).
+   *
+   * Two guards, both of which MUST live here rather than in the IPC handler —
+   * the REST route calls this same service and would otherwise bypass them
+   * (rule 19). See `docs/plans/todo_plans/GENERAL_DRAWER_UNRESTRICTED.md` §1a.
+   *
+   * Layer 3 — an unrestricted drawer (General) has no configurable list at
+   * all; its set is derived. Silently accepting a write would let the caller
+   * believe a restriction was applied.
+   *
+   * Layer 2 — this is a DESTRUCTIVE replace-all (DELETE then INSERT), so
+   * unticking a currency in Settings is one click. Combined with the closing
+   * sheet filtering its count fields by this same allowlist, that used to
+   * make real cash **uncountable**: the balance stayed visible on the
+   * Dashboard but lost its count field, i.e. a permanent silent variance.
+   * (Live example when this was written: `Katsh` held 2,957,925 LBP with LBP
+   * in its allowlist — one untick away from stranding it.) So a currency the
+   * drawer still holds cannot be removed. Zero-balance removals stay allowed.
+   */
   setCurrenciesForDrawer(
     drawerName: string,
     currencies: string[],
   ): CurrencyResult {
     try {
+      if (isUnrestrictedDrawer(drawerName)) {
+        return {
+          success: false,
+          error: `The ${drawerName} drawer accepts every currency — its currency list is not configurable.`,
+        };
+      }
+
+      const requested = new Set(currencies.map((c) => c.toUpperCase()));
+      const stranded = this.currencyRepo
+        .getNonZeroBalancesForDrawer(drawerName)
+        .filter((held) => !requested.has(held.currency_code.toUpperCase()));
+
+      if (stranded.length > 0) {
+        const detail = stranded
+          .map(
+            (held) =>
+              `${held.currency_code} (${held.balance.toLocaleString("en-US")})`,
+          )
+          .join(", ");
+        return {
+          success: false,
+          error: `Cannot remove ${detail} from ${drawerName} — the drawer still holds that balance. Move or spend it first, then remove the currency.`,
+        };
+      }
+
       this.currencyRepo.setCurrenciesForDrawer(drawerName, currencies);
       return { success: true };
     } catch (e) {

@@ -11,6 +11,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
+import { isUnrestrictedDrawer } from "@liratek/core";
 import { useApi, DataTable, Select } from "@liratek/ui";
 import { calculateProfitSpread } from "@/utils/currencyUtils";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
@@ -611,6 +612,7 @@ function DrawerCurrencySection() {
   const [activeCurrencies, setActiveCurrencies] = useState<string[]>([]);
   const [pending, setPending] = useState<Record<string, string[]>>({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // OMT_System / Whish_System are the physical cash drawer at the shop's
@@ -652,10 +654,23 @@ function DrawerCurrencySection() {
     load();
   }, [load]);
 
-  const drawerNames =
+  /**
+   * Configurable drawers only. The General drawer is deliberately NOT listed:
+   * it accepts every currency (the Exchange module deposits any currency into
+   * it), so its set is derived, not configured — see
+   * `packages/core/src/constants/drawerCurrencyPolicy.ts` and
+   * docs/plans/todo_plans/GENERAL_DRAWER_UNRESTRICTED.md.
+   *
+   * Rendering a General card here would show checkboxes that cannot do
+   * anything: the backend refuses the write outright, and `handleSave` would
+   * silently reload it back to all-ticked. The footnote below the grid explains
+   * the omission so an admin does not read it as a missing drawer.
+   */
+  const drawerNames = (
     Object.keys(drawerConfig).length > 0
       ? Object.keys(drawerConfig)
-      : Object.keys(DRAWER_LABELS);
+      : Object.keys(DRAWER_LABELS)
+  ).filter((name) => !isUnrestrictedDrawer(name));
 
   const getEffective = (drawer: string): string[] =>
     pending[drawer] ?? drawerConfig[drawer] ?? [];
@@ -685,12 +700,36 @@ function DrawerCurrencySection() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(null);
     try {
-      await Promise.all(
-        Object.entries(pending).map(([drawer, currencies]) =>
+      const entries = Object.entries(pending);
+      const results = await Promise.all(
+        entries.map(([drawer, currencies]) =>
           api.setDrawerCurrencies(drawer, currencies),
         ),
       );
+
+      // A REFUSED save must say why. The backend rejects removing a currency
+      // the drawer still holds — that removal used to strip the currency's
+      // count field at closing while its balance stayed on the Dashboard, a
+      // permanent silent variance. This result envelope used to be discarded,
+      // so the only feedback was the checkbox snapping back on reload, which
+      // reads as a broken screen rather than a deliberate refusal.
+      const failures = results
+        .map((result, i) => ({ drawer: entries[i][0], result }))
+        .filter(({ result }) => !result?.success);
+
+      if (failures.length > 0) {
+        setSaveError(
+          failures
+            .map(
+              ({ drawer, result }) =>
+                `${DRAWER_LABELS[drawer] ?? drawer}: ${result?.error ?? "Save was refused."}`,
+            )
+            .join(" · "),
+        );
+      }
+
       await load();
     } finally {
       setSaving(false);
@@ -766,6 +805,24 @@ function DrawerCurrencySection() {
           );
         })}
       </div>
+
+      {/* Why General is absent from the grid above. Without this an admin
+          reasonably reads the omission as a missing or broken drawer. */}
+      <p className="flex items-start gap-1.5 text-xs text-slate-500">
+        <Info size={13} className="mt-0.5 shrink-0 text-slate-600" />
+        <span>
+          <strong className="text-slate-400">General</strong> is not listed — it
+          accepts every currency, so there is nothing to configure. Exchange can
+          bring any currency into it, and it is counted at closing whenever it
+          holds a balance.
+        </span>
+      </p>
+
+      {saveError && (
+        <div className="rounded-lg border border-rose-600/40 bg-rose-950/80 px-4 py-3 text-sm text-rose-300">
+          {saveError}
+        </div>
+      )}
 
       {hasPending && (
         <div className="flex items-center justify-between rounded-lg border border-amber-600/40 bg-amber-950/80 backdrop-blur-sm px-4 py-3">

@@ -37,6 +37,15 @@ export * from "./utils/phoneNumber.js";
 // systemFloatDrawers.ts's own doc comment calls it the single definition).
 export * from "./constants/systemFloatDrawers.js";
 
+// Drawer currency policy (UNRESTRICTED_DRAWERS / isUnrestrictedDrawer) — pure
+// `as const` tuple + one pure predicate, no Node.js deps. Settings →
+// CurrencyManager imports `isUnrestrictedDrawer` to omit the General drawer
+// from the configurable grid, rather than hardcoding the name a second time
+// (rule 14). Must be exported HERE, not only from index.ts: Vite/Jest resolve
+// @liratek/core to this file, so a renderer import of a symbol missing here
+// fails at load with "does not provide an export named ...".
+export * from "./constants/drawerCurrencyPolicy.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

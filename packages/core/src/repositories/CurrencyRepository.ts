@@ -5,6 +5,10 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import {
+  UNRESTRICTED_DRAWERS,
+  isUnrestrictedDrawer,
+} from "../constants/drawerCurrencyPolicy.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { DatabaseError } from "../utils/errors.js";
 
@@ -197,13 +201,89 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
   // Currency–Drawer Junction Methods
   // =========================================================================
 
-  /** Get all currency-drawer mappings: { drawer_name → currency_code[] } */
+  /**
+   * Codes with a NON-ZERO balance in a drawer — the money that actually
+   * exists there, as opposed to what `currency_drawers` says is allowed.
+   *
+   * Two callers depend on this being the "fact" side of the drawer:
+   *  - the derived set below (an unrestricted drawer shows what it holds even
+   *    if the currency was later deactivated),
+   *  - `CurrencyService.setCurrenciesForDrawer`'s guard, which refuses to
+   *    un-configure a currency the drawer still holds (plan §1a Layer 2 —
+   *    doing so left the balance on the Dashboard but dropped it from the
+   *    closing count sheet, i.e. a permanent silent variance).
+   *
+   * `balance != 0` rather than `> 0` on purpose: a negative balance is still
+   * money (the primary cash drawer is allowed to go negative), and stranding
+   * a deficit is just as wrong as stranding a surplus.
+   */
+  getNonZeroBalancesForDrawer(
+    drawerName: string,
+  ): { currency_code: string; balance: number }[] {
+    return this.db
+      .prepare(
+        `SELECT currency_code, balance FROM drawer_balances
+         WHERE drawer_name = ? AND tenant_id = ? AND balance != 0
+         ORDER BY currency_code`,
+      )
+      .all(drawerName, getCurrentTenantId()) as {
+      currency_code: string;
+      balance: number;
+    }[];
+  }
+
+  /**
+   * The DERIVED currency set for an unrestricted drawer (`General`): every
+   * ACTIVE currency, plus anything the drawer still physically holds — so a
+   * currency that was deactivated while holding cash stays visible and
+   * countable instead of silently vanishing.
+   *
+   * Not read from `currency_drawers` at all: see
+   * `constants/drawerCurrencyPolicy.ts` for why General has no allowlist.
+   */
+  private derivedCurrencyCodesForDrawer(drawerName: string): string[] {
+    const tenantId = getCurrentTenantId();
+    const rows = this.db
+      .prepare(
+        `SELECT code FROM currencies
+         WHERE tenant_id = ?
+           AND (is_active = 1
+                OR code IN (SELECT currency_code FROM drawer_balances
+                            WHERE drawer_name = ? AND tenant_id = ? AND balance != 0))
+         ORDER BY code`,
+      )
+      .all(tenantId, drawerName, tenantId) as { code: string }[];
+
+    // A `drawer_balances` row can in principle name a code with no
+    // `currencies` row (that table has no FK to `currencies`, and
+    // `applyDrawerDelta` upserts freely). Union those in so held money is
+    // never invisible, even in that degenerate case.
+    const codes = new Set(rows.map((r) => r.code));
+    for (const held of this.getNonZeroBalancesForDrawer(drawerName)) {
+      codes.add(held.currency_code);
+    }
+    return [...codes].sort();
+  }
+
+  /**
+   * Get all currency-drawer mappings: { drawer_name → currency_code[] }
+   *
+   * Two behaviours beyond the raw table read:
+   *  - unrestricted drawers report their DERIVED set (never their rows);
+   *  - the KEY set is the drawer **registry**, unioned from
+   *    `currency_drawers`, `drawer_balances` and `UNRESTRICTED_DRAWERS`.
+   *    This table used to be the sole registry, which made deleting a
+   *    drawer's allowlist rows delete the drawer from Settings/Opening
+   *    entirely. Money rows (and the policy constant) now keep a drawer
+   *    alive on their own.
+   */
   getAllDrawerCurrencies(): Record<string, string[]> {
+    const tenantId = getCurrentTenantId();
     const rows = this.db
       .prepare(
         `SELECT drawer_name, currency_code FROM currency_drawers WHERE tenant_id = ? ORDER BY drawer_name, currency_code`,
       )
-      .all(getCurrentTenantId()) as {
+      .all(tenantId) as {
       drawer_name: string;
       currency_code: string;
     }[];
@@ -213,11 +293,25 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
       if (!result[row.drawer_name]) result[row.drawer_name] = [];
       result[row.drawer_name].push(row.currency_code);
     }
+
+    for (const name of this.getConfiguredDrawerNames()) {
+      if (!result[name]) result[name] = [];
+    }
+
+    for (const name of Object.keys(result)) {
+      if (isUnrestrictedDrawer(name)) {
+        result[name] = this.derivedCurrencyCodesForDrawer(name);
+      }
+    }
+
     return result;
   }
 
   /** Get currency codes enabled for a specific drawer */
   getCurrenciesForDrawer(drawerName: string): string[] {
+    if (isUnrestrictedDrawer(drawerName)) {
+      return this.derivedCurrencyCodesForDrawer(drawerName);
+    }
     const rows = this.db
       .prepare(
         `SELECT currency_code FROM currency_drawers WHERE drawer_name = ? AND tenant_id = ? ORDER BY currency_code`,
@@ -229,6 +323,26 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
   /** Get full active currency entities for a drawer (mirrors getCurrenciesForModule) */
   getFullCurrenciesForDrawer(drawerName: string): CurrencyEntity[] {
     const tenantId = getCurrentTenantId();
+
+    // Unrestricted drawer: the derived set, resolved to entities. Mirrors
+    // `derivedCurrencyCodesForDrawer` exactly (active, OR still held here) so
+    // the picker offers precisely what the top-up gate will accept.
+    if (isUnrestrictedDrawer(drawerName)) {
+      return this.db
+        .prepare(
+          `
+      SELECT c.id, c.code, c.name, c.symbol, c.decimal_places, c.is_active
+      FROM currencies c
+      WHERE c.tenant_id = ?
+        AND (c.is_active = 1
+             OR c.code IN (SELECT currency_code FROM drawer_balances
+                           WHERE drawer_name = ? AND tenant_id = ? AND balance != 0))
+      ORDER BY c.code
+    `,
+        )
+        .all(tenantId, drawerName, tenantId) as CurrencyEntity[];
+    }
+
     return this.db
       .prepare(
         `
@@ -272,14 +386,43 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
     })();
   }
 
-  /** Get all distinct drawer names from currency_drawers */
+  /**
+   * The drawer **registry** — every drawer the app should render a card for.
+   *
+   * Unioned from three sources, because `currency_drawers` alone was
+   * load-bearing in a way nothing enforced: it was the sole registry, so
+   * deleting a drawer's allowlist rows (or setting an unrestricted drawer's
+   * list to empty) made the drawer disappear from Settings and Opening
+   * altogether. Now:
+   *  - `currency_drawers` — configured provider drawers (this is the ONLY
+   *    source for a drawer that has never held money, e.g. a freshly seeded
+   *    `Loto`),
+   *  - `drawer_balances`  — anything that has ever held money, so a drawer
+   *    with real cash can never be un-registered by a config edit,
+   *  - `UNRESTRICTED_DRAWERS` — General has no allowlist rows to depend on by
+   *    design, so it is registered structurally.
+   *
+   * Deliberately does NOT introduce a new hardcoded drawer-name list: the
+   * registry is already duplicated across `PRIMARY_CASH_DRAWER_NAMES`,
+   * `CARRIER_DRAWER_NAMES`, `WalletDrawerName`, `SalesRepository`'s static
+   * allow-list and the frontend's `DRAWER_LABELS`. A sixth copy would make
+   * rule 14 worse; consolidating them into a real `drawers` table is the
+   * named follow-up in the plan doc's non-goals.
+   */
   getConfiguredDrawerNames(): string[] {
+    const tenantId = getCurrentTenantId();
     const rows = this.db
       .prepare(
-        `SELECT DISTINCT drawer_name FROM currency_drawers WHERE tenant_id = ? ORDER BY drawer_name`,
+        `SELECT DISTINCT drawer_name FROM currency_drawers WHERE tenant_id = ?
+         UNION
+         SELECT DISTINCT drawer_name FROM drawer_balances  WHERE tenant_id = ?
+         ORDER BY drawer_name`,
       )
-      .all(getCurrentTenantId()) as { drawer_name: string }[];
-    return rows.map((r) => r.drawer_name);
+      .all(tenantId, tenantId) as { drawer_name: string }[];
+
+    const names = new Set(rows.map((r) => r.drawer_name));
+    for (const name of UNRESTRICTED_DRAWERS) names.add(name);
+    return [...names].sort();
   }
 }
 
