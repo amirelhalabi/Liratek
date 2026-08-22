@@ -1839,6 +1839,25 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           tenantId,
         });
       }
+      // Record the commission as a supplier credit ledger entry so it shows
+      // in the Payments table (rule 14: the commission is profit earned, not a
+      // debt owed, so SUPPLIER_PAYS_US records it for visibility).
+      if (
+        Math.abs(data.commission_usd) > 0.005 ||
+        Math.abs(data.commission_lbp) > 0.005
+      ) {
+        this.addLedgerEntry({
+          supplier_id: supplierId,
+          entry_type: "SUPPLIER_PAYS_US",
+          amount_usd: -Math.abs(data.commission_usd),
+          amount_lbp: -Math.abs(data.commission_lbp),
+          note: `Auto: commission credit from settlement #${settlementLedgerId}`,
+          created_by: data.created_by,
+          is_auto: true,
+          source_ref_table: "supplier_ledger",
+          source_ref_id: settlementLedgerId,
+        });
+      }
       return;
     }
 
