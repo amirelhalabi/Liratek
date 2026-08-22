@@ -3356,7 +3356,13 @@ export async function drawerTopUpCreate(data: {
   amount_lbp: number;
   notes?: string;
   /** External (Cash In) mode only — see ElectronApiAdapter's drawerTopUp doc. */
-  extra_currencies?: { currency_code: string; amount: number }[];
+  extra_currencies?: {
+    currency_code: string;
+    amount: number;
+    /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) for a lot-tracked
+     *  (non-USD/LBP) currency_code. */
+    acquisition_usd_per_unit?: number;
+  }[];
 }) {
   return ipcOrHttp(
     async () => getElectronApi().drawerTopUp.create(data),

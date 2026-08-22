@@ -129,6 +129,27 @@ function createTestDb(): Database.Database {
       due_date DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     , refunded_at TEXT DEFAULT NULL);
+
+    -- EXCHANGE_LOT_SETTLEMENT.md Q3 (Phase 6) — every exotic extra_currencies
+    -- entry now opens a lot here; see DrawerTopUpRepository.lotCreation.test.ts
+    -- for the dedicated lot-creation coverage (basis, rejection, rollback).
+    CREATE TABLE exchange_lots (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id      INTEGER DEFAULT 1,
+      currency_code  TEXT NOT NULL,
+      drawer_name    TEXT NOT NULL DEFAULT 'General',
+      source_type    TEXT NOT NULL CHECK(source_type IN ('EXCHANGE_BUY', 'DRAWER_TOPUP', 'ADJUSTMENT')),
+      source_table   TEXT,
+      source_id      INTEGER,
+      original_qty   REAL NOT NULL,
+      remaining_qty  REAL NOT NULL,
+      unit_cost_usd  REAL NOT NULL,
+      acquired_at    DATETIME NOT NULL,
+      is_voided      INTEGER NOT NULL DEFAULT 0,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX idx_exchange_lots_fifo ON exchange_lots(tenant_id, currency_code, acquired_at, id);
   `);
 
   return db;
@@ -227,11 +248,15 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
   it("posts an extra-currency-only top-up (no USD/LBP) to payments and drawer_balances", () => {
     enableDrawerCurrency(db, "General", "EUR");
 
+    // acquisition_usd_per_unit is required for a lot-tracked currency since
+    // EXCHANGE_LOT_SETTLEMENT.md Q3 — see DrawerTopUpRepository.lotCreation.test.ts.
     const result = service.addTopUp(
       {
         amount_usd: 0,
         amount_lbp: 0,
-        extra_currencies: [{ currency_code: "eur", amount: 100 }],
+        extra_currencies: [
+          { currency_code: "eur", amount: 100, acquisition_usd_per_unit: 1.08 },
+        ],
       },
       1,
     );
@@ -254,7 +279,7 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
     // the repository, so metadata_json reflects the normalized value too.
     const metadata = JSON.parse(txn.metadata_json);
     expect(metadata.extra_currencies).toEqual([
-      { currency_code: "EUR", amount: 100 },
+      { currency_code: "EUR", amount: 100, acquisition_usd_per_unit: 1.08 },
     ]);
   });
 
@@ -304,7 +329,9 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
       {
         amount_usd: 0,
         amount_lbp: 0,
-        extra_currencies: [{ currency_code: "EUR", amount: 300 }],
+        extra_currencies: [
+          { currency_code: "EUR", amount: 300, acquisition_usd_per_unit: 1.08 },
+        ],
       },
       1,
     );
@@ -323,8 +350,8 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
         amount_usd: 0,
         amount_lbp: 0,
         extra_currencies: [
-          { currency_code: "EUR", amount: 100 },
-          { currency_code: "GBP", amount: 50 },
+          { currency_code: "EUR", amount: 100, acquisition_usd_per_unit: 1.08 },
+          { currency_code: "GBP", amount: 50, acquisition_usd_per_unit: 1.27 },
         ],
       },
       1,

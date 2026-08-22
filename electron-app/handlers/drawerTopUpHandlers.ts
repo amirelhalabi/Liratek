@@ -36,7 +36,11 @@ export function registerDrawerTopUpHandlers(): void {
         amount_usd: number;
         amount_lbp: number;
         notes?: string;
-        extra_currencies?: { currency_code: string; amount: number }[];
+        extra_currencies?: {
+          currency_code: string;
+          amount: number;
+          acquisition_usd_per_unit?: number;
+        }[];
       },
     ) => {
       try {

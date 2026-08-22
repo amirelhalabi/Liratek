@@ -6,7 +6,9 @@ import {
   PRIMARY_CASH_DRAWER_NAMES,
   type PrimaryCashDrawerName,
 } from "../constants/systemFloatDrawers.js";
+import { isLotTrackedCurrency } from "../constants/exchangeLotPolicy.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
+import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
 
 export interface DrawerTopUpEntity {
   id: number;
@@ -30,7 +32,20 @@ export interface CreateDrawerTopUpData {
    *  silently no-ops on a missing source-drawer currency row, which would
    *  fabricate money for a brand-new currency. External mode has no debit
    *  side, so it's the only safe path for this. */
-  extra_currencies?: Array<{ currency_code: string; amount: number }>;
+  extra_currencies?: Array<{
+    currency_code: string;
+    amount: number;
+    /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required when `currency_code` is
+     *  lot-tracked (`isLotTrackedCurrency`, i.e. anything other than
+     *  USD/LBP). In practice EVERY entry that reaches this array already is
+     *  lot-tracked: `DrawerTopUpService.addTopUp` only lets a currency onto
+     *  `extra_currencies` if it's active AND not USD/LBP. USD per one unit
+     *  of `currency_code` (e.g. `1.08` for "1 EUR cost the shop $1.08") —
+     *  establishes the cost basis for the exchange lot `createTopUp` opens
+     *  for this entry (see the lot-creation block there). Rejected, not
+     *  silently dropped, if supplied for a non-lot-tracked entry. */
+    acquisition_usd_per_unit?: number;
+  }>;
 }
 
 export interface CreateDrawerTopUpFromDrawerData {
@@ -203,7 +218,29 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       // metadata_json at step 2, mirroring ExchangeRepository's use of
       // metadata_json for non-USD/LBP detail. amount_usd/amount_lbp on the
       // transaction row stay USD/LBP-only.
-      for (const entry of data.extra_currencies ?? []) {
+      //
+      // EXCHANGE_LOT_SETTLEMENT.md Q3 — every entry here always targets the
+      // General drawer (this loop never posts anywhere else) and is
+      // guaranteed lot-tracked by the time it reaches the repository
+      // (`DrawerTopUpService.addTopUp` only allows a currency onto this
+      // array if it is active AND not USD/LBP) — so a lot is opened for
+      // EVERY entry, at the operator-entered acquisition rate. `acquiredAt`
+      // is read back from the top-up row itself (SQLite format) rather than
+      // re-derived, mirroring `ExchangeRepository`'s
+      // `findById(id)!.created_at` pattern, so the lot's acquisition
+      // timestamp is byte-identical to the top-up's own `created_at`
+      // regardless of whether `transaction_time` was supplied.
+      //
+      // DRAWER_TOPUP is permanently non-reversible
+      // (`NON_REVERSIBLE_TRANSACTION_TYPES`, transactionTypes.ts — rule 20):
+      // a top-up-sourced lot therefore needs NO reversal owner; the Q15
+      // admin position adjustment is the only correction path if a top-up's
+      // acquisition rate turns out to be wrong.
+      const extraEntries = data.extra_currencies ?? [];
+      const topUpCreatedAt: string | null =
+        extraEntries.length > 0 ? this.findById(topUpId)!.created_at : null;
+
+      for (const entry of extraEntries) {
         if (!entry.amount || entry.amount <= 0) continue;
         insertPaymentRow(this.db, {
           transactionId: txnId,
@@ -221,6 +258,36 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
           delta: entry.amount,
           tenantId,
         });
+
+        if (isLotTrackedCurrency(entry.currency_code)) {
+          if (
+            !(
+              entry.acquisition_usd_per_unit &&
+              entry.acquisition_usd_per_unit > 0
+            )
+          ) {
+            throw new Error(
+              `acquisition_usd_per_unit is required (and must be > 0) for a foreign-currency top-up of ${entry.currency_code} — it sets the exchange-lot cost basis (EXCHANGE_LOT_SETTLEMENT.md Q3)`,
+            );
+          }
+          getExchangeLotRepository().createLot({
+            currencyCode: entry.currency_code,
+            sourceType: "DRAWER_TOPUP",
+            sourceTable: "drawer_topups",
+            sourceId: topUpId,
+            qty: entry.amount,
+            unitCostUsd: entry.acquisition_usd_per_unit,
+            acquiredAt: topUpCreatedAt as string,
+          });
+        } else if (entry.acquisition_usd_per_unit != null) {
+          // Defensive — not reachable via the service today (USD/LBP never
+          // make it into extra_currencies), but a supplied basis that gets
+          // silently dropped for a currency with nothing to attach it to is
+          // worse than a validation error.
+          throw new Error(
+            `acquisition_usd_per_unit is only valid for a foreign (non-USD/LBP) currency — ${entry.currency_code} is not lot-tracked`,
+          );
+        }
       }
 
       return topUpId;

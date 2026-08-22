@@ -1837,7 +1837,13 @@ export interface ElectronAPI {
       notes?: string;
       transaction_time?: string;
       /** External (Cash In) mode only — see preload.ts doc. */
-      extra_currencies?: { currency_code: string; amount: number }[];
+      extra_currencies?: {
+        currency_code: string;
+        amount: number;
+        /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) for a lot-tracked
+         *  (non-USD/LBP) currency_code; USD per one unit of currency_code. */
+        acquisition_usd_per_unit?: number;
+      }[];
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     createFromDrawer: (data: {
       amount_usd: number;

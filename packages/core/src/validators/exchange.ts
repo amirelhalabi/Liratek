@@ -54,5 +54,21 @@ export const getExchangeHistorySchema = z.object({
   limit: z.coerce.number().int().positive().max(500).default(50),
 });
 
+/**
+ * Edit non-financial metadata (client name / note) on an existing exchange
+ * transaction row. EXCHANGE_LOT_SETTLEMENT.md Phase 6 (rule 14/19 cleanup) —
+ * lifted here from a LOCAL copy in backend/src/api/exchange.ts so the IPC
+ * handler (`exchange:update-metadata`) and the REST route
+ * (`POST /api/exchange/update-metadata`) validate against ONE schema.
+ */
+export const updateExchangeMetadataSchema = z.object({
+  id: z.number().int().positive(),
+  client_name: z.string().max(255).optional(),
+  note: z.string().max(500).optional(),
+});
+
 export type CreateExchangeInput = z.infer<typeof createExchangeSchema>;
 export type GetExchangeHistoryInput = z.infer<typeof getExchangeHistorySchema>;
+export type UpdateExchangeMetadataInput = z.infer<
+  typeof updateExchangeMetadataSchema
+>;

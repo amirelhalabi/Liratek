@@ -46,6 +46,15 @@ export * from "./constants/systemFloatDrawers.js";
 // fails at load with "does not provide an export named ...".
 export * from "./constants/drawerCurrencyPolicy.js";
 
+// Exchange lot policy (isLotTrackedCurrency) — pure predicate over a currency
+// code, no Node.js deps. DrawerTopUpModal.tsx imports `isLotTrackedCurrency`
+// to decide whether the "Acquisition rate" field applies to a foreign-
+// currency top-up row (EXCHANGE_LOT_SETTLEMENT.md Q3), instead of
+// hand-maintaining a second USD/LBP exemption list (rule 14). Must be
+// exported HERE, not only from index.ts — see the drawerCurrencyPolicy note
+// above for the exact failure mode this avoids.
+export * from "./constants/exchangeLotPolicy.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

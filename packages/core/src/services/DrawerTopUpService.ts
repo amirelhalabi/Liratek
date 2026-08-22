@@ -58,6 +58,14 @@ export class DrawerTopUpService {
    * because it is resolving a live market rate for a known API currency; a
    * hand-keyed cash amount has no such source of truth.
    * See docs/plans/todo_plans/GENERAL_DRAWER_UNRESTRICTED.md.
+   *
+   * Every `extra_currencies` entry accepted here is, by construction, a
+   * foreign (non-USD/LBP) currency landing in General — i.e. lot-tracked
+   * (EXCHANGE_LOT_SETTLEMENT.md Q3). `DrawerTopUpRepository.createTopUp`
+   * requires each entry's `acquisition_usd_per_unit` and opens an exchange
+   * lot at that cost basis; this service does not duplicate that check, it
+   * only forwards the field through untouched (see the normalization step
+   * below).
    */
   addTopUp(data: CreateDrawerTopUpData, userId: number): DrawerTopUpResult {
     try {
@@ -140,6 +148,12 @@ export class DrawerTopUpService {
               extra_currencies: rawExtraCurrencies.map((entry) => ({
                 currency_code: entry.currency_code.trim().toUpperCase(),
                 amount: entry.amount,
+                // Forwarded untouched (EXCHANGE_LOT_SETTLEMENT.md Q3) — the
+                // repository, inside its own transaction, is the single
+                // place that requires/rejects it. Dropping it here on the
+                // rewrite would be exactly the "a rewrite silently loses a
+                // field" trap CLAUDE.md rule 12 calls out for preload types.
+                acquisition_usd_per_unit: entry.acquisition_usd_per_unit,
               })),
             }
           : data;

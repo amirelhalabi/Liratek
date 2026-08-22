@@ -1,5 +1,4 @@
 import express from "express";
-import { z } from "zod";
 import {
   authenticateJWT,
   requireRole,
@@ -12,23 +11,15 @@ import {
   getCurrencyService,
   createExchangeSchema,
   getExchangeHistorySchema,
+  updateExchangeMetadataSchema,
 } from "@liratek/core";
 import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
 
-// Local schema (EXCHANGE_LOT_SETTLEMENT.md Phase 5 / rule 19b) — normally a
-// write-path schema like this would live in packages/core/src/validators and
-// be shared with the IPC handler (rule 14), but `exchange:update-metadata`'s
-// IPC handler (electron-app/handlers/exchangeHandlers.ts) has NO Zod
-// validation of its own either, and packages/core is out of scope for this
-// change (a concurrent agent owns ExchangeService.ts / the rest of the core
-// package this ticket). Kept local rather than widening that scope.
-const updateExchangeMetadataSchema = z.object({
-  id: z.number().int().positive(),
-  client_name: z.string().max(255).optional(),
-  note: z.string().max(500).optional(),
-});
+// updateExchangeMetadataSchema now lives in packages/core/src/validators/
+// exchange.ts (EXCHANGE_LOT_SETTLEMENT.md Phase 6, rule 14/19 cleanup) —
+// shared with the exchange:update-metadata IPC handler's own validation.
 
 // All exchange routes require auth
 router.use(authenticateJWT);

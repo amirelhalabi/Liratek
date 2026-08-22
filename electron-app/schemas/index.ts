@@ -102,6 +102,8 @@ import {
   type CreateDrawerTransferInput,
   type CreateServiceProviderInput,
   type UpdateServiceProviderInput,
+  updateExchangeMetadataSchema,
+  type UpdateExchangeMetadataInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -627,6 +629,16 @@ export const ExchangeTransactionSchema = z.object({
   tender_exchange_rate: z.number().positive().optional(),
 });
 
+// The update-metadata contract lives in
+// packages/core/src/validators/exchange.ts (EXCHANGE_LOT_SETTLEMENT.md
+// Phase 6, rule 14/19 cleanup — lifted out of a LOCAL duplicate this file and
+// backend/src/api/exchange.ts each used to carry) so the IPC handler
+// (exchange:update-metadata) and the REST route validate against ONE schema.
+// Cast bridges the zod major mismatch (core built against zod 4, this
+// workspace against zod 3); the runtime API used is identical.
+export const UpdateExchangeMetadataSchema =
+  updateExchangeMetadataSchema as unknown as z.ZodSchema<UpdateExchangeMetadataInput>;
+
 // =============================================================================
 // Loto
 // =============================================================================
@@ -777,7 +789,14 @@ export const HoldMoneyCreateSchema =
 export interface DrawerTopUpCreateInput {
   amount_usd: number;
   amount_lbp: number;
-  extra_currencies?: { currency_code: string; amount: number }[];
+  extra_currencies?: {
+    currency_code: string;
+    amount: number;
+    /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) when currency_code is
+     *  lot-tracked (non-USD/LBP); see DrawerTopUpRepository's
+     *  CreateDrawerTopUpData doc. */
+    acquisition_usd_per_unit?: number;
+  }[];
   notes?: string;
   transaction_time?: string;
 }
@@ -801,6 +820,7 @@ export const DrawerTopUpCreateSchema = z
         z.object({
           currency_code: z.string().trim().min(1).max(10),
           amount: z.number().positive(),
+          acquisition_usd_per_unit: z.number().positive().optional(),
         }),
       )
       .optional(),

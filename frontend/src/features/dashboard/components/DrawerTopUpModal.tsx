@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
-import { PRIMARY_CASH_DRAWER_NAMES } from "@liratek/core";
+import { PRIMARY_CASH_DRAWER_NAMES, isLotTrackedCurrency } from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -21,6 +21,11 @@ interface AvailableCurrency {
 interface ExtraCurrencyRow {
   currency_code: string;
   amount: string;
+  /** EXCHANGE_LOT_SETTLEMENT.md Q3 — USD per one unit of currency_code.
+   *  Required whenever currency_code is lot-tracked (isLotTrackedCurrency);
+   *  every row here always is, since USD/LBP have their own dedicated
+   *  inputs above and never appear in `availableExtraCurrencies`. */
+  acquisitionRate: string;
 }
 
 type TopUpMode = "external" | "from_drawer" | "transfer";
@@ -180,7 +185,7 @@ export function DrawerTopUpModal({
     if (!next) return;
     setExtraCurrencies((prev) => [
       ...prev,
-      { currency_code: next.code, amount: "" },
+      { currency_code: next.code, amount: "", acquisitionRate: "" },
     ]);
   }
 
@@ -208,14 +213,36 @@ export function DrawerTopUpModal({
             .filter(
               (row) => row.currency_code && (parseFloat(row.amount) || 0) > 0,
             )
-            .map((row) => ({
-              currency_code: row.currency_code,
-              amount: parseFloat(row.amount) || 0,
-            }))
+            .map((row) => {
+              const acquisitionRate = parseFloat(row.acquisitionRate) || 0;
+              return {
+                currency_code: row.currency_code,
+                amount: parseFloat(row.amount) || 0,
+                ...(acquisitionRate > 0
+                  ? { acquisition_usd_per_unit: acquisitionRate }
+                  : {}),
+              };
+            })
         : [];
 
     if (usd <= 0 && lbp <= 0 && extraLegs.length === 0) {
       alert("Please enter at least one amount greater than 0.");
+      return;
+    }
+
+    // EXCHANGE_LOT_SETTLEMENT.md Q3 — every extra-currency row is a
+    // lot-tracked (non-USD/LBP) currency landing in General, so each one
+    // needs its own acquisition rate before the backend will accept it.
+    // Caught here for a friendlier message than the repository's throw.
+    const missingRate = extraLegs.find(
+      (leg) =>
+        isLotTrackedCurrency(leg.currency_code) &&
+        !("acquisition_usd_per_unit" in leg),
+    );
+    if (missingRate) {
+      alert(
+        `Enter an acquisition rate (USD per ${missingRate.currency_code}) — it sets the cost basis for exchange profit.`,
+      );
       return;
     }
 
@@ -713,37 +740,78 @@ export function DrawerTopUpModal({
                           label: c.symbol ? `${c.code} (${c.symbol})` : c.code,
                         }));
 
+                      // EXCHANGE_LOT_SETTLEMENT.md Q3 — always true today
+                      // (USD/LBP have dedicated inputs above and never reach
+                      // `availableExtraCurrencies`), kept explicit rather
+                      // than assumed so the field tracks the real policy if
+                      // that ever changes.
+                      const needsAcquisitionRate = isLotTrackedCurrency(
+                        row.currency_code,
+                      );
+
                       return (
-                        <div key={index} className="flex items-center gap-2">
-                          <Select
-                            value={row.currency_code}
-                            onChange={(v) =>
-                              updateCurrencyRow(index, { currency_code: v })
-                            }
-                            options={rowOptions}
-                            className="w-28 shrink-0"
-                            buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                          />
-                          <div className="flex-1 flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
-                            <DecimalInput
-                              value={parseFloat(row.amount) || 0}
-                              onChange={(n) =>
-                                updateCurrencyRow(index, {
-                                  amount: n ? String(n) : "",
-                                })
+                        <div key={index} className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <Select
+                              value={row.currency_code}
+                              onChange={(v) =>
+                                updateCurrencyRow(index, { currency_code: v })
                               }
-                              placeholder="0.00"
-                              className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                              options={rowOptions}
+                              className="w-28 shrink-0"
+                              buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
                             />
+                            <div className="flex-1 flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
+                              <DecimalInput
+                                value={parseFloat(row.amount) || 0}
+                                onChange={(n) =>
+                                  updateCurrencyRow(index, {
+                                    amount: n ? String(n) : "",
+                                  })
+                                }
+                                placeholder="0.00"
+                                className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeCurrencyRow(index)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                              aria-label="Remove currency"
+                            >
+                              <X size={16} />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => removeCurrencyRow(index)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
-                            aria-label="Remove currency"
-                          >
-                            <X size={16} />
-                          </button>
+
+                          {needsAcquisitionRate && (
+                            <div className="pl-1">
+                              <label className="text-[11px] text-slate-500 block mb-1">
+                                Acquisition rate (USD per{" "}
+                                {row.currency_code || "unit"})
+                              </label>
+                              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
+                                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                                  $
+                                </span>
+                                <DecimalInput
+                                  value={parseFloat(row.acquisitionRate) || 0}
+                                  onChange={(n) =>
+                                    updateCurrencyRow(index, {
+                                      acquisitionRate: n ? String(n) : "",
+                                    })
+                                  }
+                                  placeholder="0.00"
+                                  data-testid={`drawer-topup-acquisition-rate-${index}`}
+                                  className="flex-1 bg-transparent px-3 py-2 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                                />
+                              </div>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                What one {row.currency_code || "unit"} cost
+                                you in USD — sets the cost basis for exchange
+                                profit.
+                              </p>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

@@ -808,7 +808,13 @@ contextBridge.exposeInMainWorld("api", {
       /** External (Cash In) mode only — top-ups in currencies other than
        *  USD/LBP already enabled for the General drawer (Settings →
        *  Currencies). Not accepted by createFromDrawer (transfer mode). */
-      extra_currencies?: { currency_code: string; amount: number }[];
+      extra_currencies?: {
+        currency_code: string;
+        amount: number;
+        /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) for a lot-tracked
+         *  (non-USD/LBP) currency_code; USD per one unit of currency_code. */
+        acquisition_usd_per_unit?: number;
+      }[];
     }) => ipcRenderer.invoke("drawer-topup:create", data),
     createFromDrawer: (data: {
       amount_usd: number;

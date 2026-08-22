@@ -15,6 +15,7 @@ import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
   ExchangeTransactionSchema,
+  UpdateExchangeMetadataSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -82,6 +83,12 @@ export function registerExchangeHandlers(): void {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      // EXCHANGE_LOT_SETTLEMENT.md Phase 6 — this handler previously had NO
+      // Zod validation at all; now shares UpdateExchangeMetadataSchema with
+      // the REST route (rule 14/19).
+      const validation = validatePayload(UpdateExchangeMetadataSchema, data);
+      if (!validation.ok) return { success: false, error: validation.error };
+
       let editedBy = `user-${auth.userId}`;
       try {
         const userRepo = getUserRepository();
@@ -92,8 +99,11 @@ export function registerExchangeHandlers(): void {
       }
 
       const result = getExchangeServiceInstance().updateExchangeMetadata(
-        data.id,
-        { client_name: data.client_name, note: data.note },
+        validation.data.id,
+        {
+          client_name: validation.data.client_name,
+          note: validation.data.note,
+        },
         editedBy,
       );
 
@@ -105,10 +115,10 @@ export function registerExchangeHandlers(): void {
         audit(event.sender.id, {
           action: "edit_metadata",
           entity_type: "exchange_transaction",
-          entity_id: String(data.id),
-          summary: `Edited exchange #${data.id} metadata`,
+          entity_id: String(validation.data.id),
+          summary: `Edited exchange #${validation.data.id} metadata`,
           old_values: result.oldValues,
-          new_values: data,
+          new_values: validation.data,
         });
       }
 

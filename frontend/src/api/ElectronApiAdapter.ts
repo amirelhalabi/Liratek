@@ -728,7 +728,13 @@ export class ElectronApiAdapter implements ApiAdapter {
       /** External (Cash In) mode only — top-ups in currencies other than
        *  USD/LBP already enabled for the General drawer. Never sent by
        *  createFromDrawer (transfer mode). */
-      extra_currencies?: { currency_code: string; amount: number }[];
+      extra_currencies?: {
+        currency_code: string;
+        amount: number;
+        /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) for a lot-tracked
+         *  (non-USD/LBP) currency_code. */
+        acquisition_usd_per_unit?: number;
+      }[];
     }) => api.drawerTopUpCreate(data),
     createFromDrawer: (data: {
       amount_usd: number;
