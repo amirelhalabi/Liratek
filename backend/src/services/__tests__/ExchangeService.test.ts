@@ -169,6 +169,8 @@ describe("ExchangeService", () => {
           note: null,
           created_at: "2025-01-01",
           created_by: null,
+          lot_summary: null,
+          settler_summary: null,
         },
         {
           id: 2,
@@ -191,6 +193,8 @@ describe("ExchangeService", () => {
           note: null,
           created_at: "2025-01-01",
           created_by: null,
+          lot_summary: null,
+          settler_summary: null,
         },
       ];
       mockRepo.getHistory.mockReturnValue(mockHistory);
@@ -224,6 +228,8 @@ describe("ExchangeService", () => {
           note: null,
           created_at: "2025-01-01",
           created_by: null,
+          lot_summary: null,
+          settler_summary: null,
         },
       ];
       mockRepo.getHistory.mockReturnValue(mockHistory);
