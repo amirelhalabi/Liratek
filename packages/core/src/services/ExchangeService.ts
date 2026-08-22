@@ -11,6 +11,10 @@ import {
   getExchangeRepository,
   type ExchangeTransactionEntity,
   type CreateExchangeData,
+  ExchangeLotRepository,
+  getExchangeLotRepository,
+  type SourceSummary,
+  type SettlerSummary,
 } from "../repositories/index.js";
 import { getRateRepository } from "../repositories/index.js";
 import { calculateExchange } from "../utils/currencyConverter.js";
@@ -40,6 +44,21 @@ export interface ExchangeOpResult {
 /** @deprecated Use ExchangeOpResult */
 export type ExchangeResult = ExchangeOpResult;
 
+/**
+ * EXCHANGE_LOT_SETTLEMENT.md Phase 4b — a history row enriched with its lot
+ * data. `lot_summary` (from `ExchangeLotRepository.getSummaryForSources`) is
+ * populated when THIS exchange created a lot (an exotic-currency BUY leg);
+ * `settler_summary` (from `getSummaryForSettlers`) is populated when THIS
+ * exchange consumed lot(s) (an exotic-currency SELL leg). Both are `null`
+ * for a row that never touched a lot (USD<->LBP, or a lot lookup failure —
+ * see `attachLotSummaries`'s doc). Reuses `SourceSummary`/`SettlerSummary`
+ * verbatim (rule 14) rather than re-declaring the same shape here.
+ */
+export type ExchangeHistoryRow = ExchangeTransactionEntity & {
+  lot_summary: SourceSummary | null;
+  settler_summary: SettlerSummary | null;
+};
+
 export interface AddExchangeInput {
   fromCurrency: string;
   toCurrency: string;
@@ -61,9 +80,11 @@ export interface AddExchangeInput {
 
 export class ExchangeService {
   private exchangeRepo: ExchangeRepository;
+  private lotRepo: ExchangeLotRepository;
 
-  constructor(exchangeRepo?: ExchangeRepository) {
+  constructor(exchangeRepo?: ExchangeRepository, lotRepo?: ExchangeLotRepository) {
     this.exchangeRepo = exchangeRepo ?? getExchangeRepository();
+    this.lotRepo = lotRepo ?? getExchangeLotRepository();
   }
 
   // ---------------------------------------------------------------------------
@@ -216,15 +237,64 @@ export class ExchangeService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Get exchange transaction history
+   * Get exchange transaction history, enriched with per-row lot data
+   * (EXCHANGE_LOT_SETTLEMENT.md Phase 4b — the PINNED CONTRACT the frontend
+   * builds against: `lot_summary`/`settler_summary`, both `SourceSummary`/
+   * `SettlerSummary` | null). Cross-repo assembly belongs here, not in
+   * `ExchangeRepository` (rule 13) — `getColumns()` stays untouched.
    */
-  getHistory(limit: number = 50): ExchangeTransactionEntity[] {
+  getHistory(limit: number = 50): ExchangeHistoryRow[] {
     try {
-      return this.exchangeRepo.getHistory(limit);
+      const rows = this.exchangeRepo.getHistory(limit);
+      return this.attachLotSummaries(rows);
     } catch (error) {
       exchangeLogger.error({ error, limit }, "Failed to get exchange history");
       return [];
     }
+  }
+
+  /**
+   * Batches the two lot-repo aggregate calls (never N+1 — one call each for
+   * ALL rows, keyed by id) and composes them onto each row. `rows.length
+   * === 0` short-circuits before either call — an empty history never
+   * touches the lot repo at all.
+   *
+   * A throw from either lot-repo call degrades to `null` for BOTH summaries
+   * on every row (never a throw that breaks history endpoint entirely, and
+   * never a partial mix of one real summary + one stale/missing one) — the
+   * lot feature must not make the pre-existing history read fragile.
+   */
+  private attachLotSummaries(
+    rows: ExchangeTransactionEntity[],
+  ): ExchangeHistoryRow[] {
+    if (rows.length === 0) return [];
+
+    let sourceSummaries: Record<number, SourceSummary> = {};
+    let settlerSummaries: Record<number, SettlerSummary> = {};
+    try {
+      const ids = rows.map((row) => row.id);
+      sourceSummaries = this.lotRepo.getSummaryForSources(
+        "exchange_transactions",
+        ids,
+      );
+      settlerSummaries = this.lotRepo.getSummaryForSettlers(
+        "exchange_transactions",
+        ids,
+      );
+    } catch (error) {
+      exchangeLogger.warn(
+        { error },
+        "Exchange lot summary lookup failed — returning history with null lot summaries",
+      );
+      sourceSummaries = {};
+      settlerSummaries = {};
+    }
+
+    return rows.map((row) => ({
+      ...row,
+      lot_summary: sourceSummaries[row.id] ?? null,
+      settler_summary: settlerSummaries[row.id] ?? null,
+    }));
   }
 
   /**

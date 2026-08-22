@@ -74,7 +74,7 @@ export {
   getExchangeService,
   resetExchangeService,
 } from "./ExchangeService.js";
-export type { ExchangeResult } from "./ExchangeService.js";
+export type { ExchangeResult, ExchangeHistoryRow } from "./ExchangeService.js";
 
 // Exchange Lot Service (EXCHANGE_LOT_SETTLEMENT.md Phase 4a — read/admin API
 // over the ExchangeLotRepository FIFO engine; does not touch ExchangeService)
