@@ -83,6 +83,13 @@ type LedgerEntry = {
   is_refunded?: number;
   refunded_at?: string | null;
   created_at: string;
+  /** Display-only LEFT JOIN enrichment (SupplierRepository.getSupplierLedger)
+   *  — the batch commission collected at a bills-only settlement, when this
+   *  row IS that settlement's SETTLEMENT row. NOT a ledger amount and never
+   *  summed into the balance — see the Payments table cell's own comment. */
+  settlement_commission_usd?: number | null;
+  /** @see settlement_commission_usd */
+  settlement_commission_lbp?: number | null;
 };
 
 type SupplierTxn = {
@@ -113,6 +120,14 @@ type SupplierTxn = {
   fifo_status: "paid" | "partial" | "unpaid";
   fifo_paid_usd: number;
   created_at: string;
+  /** Display-only LEFT JOIN enrichment (FinancialServiceRepository
+   *  .getAllByProvider) — this row's per-currency share of the commission
+   *  entered at settlement time (settlement_commission_allocations), for a
+   *  settled BILL row whose own `commission` column is 0 by design
+   *  (commission is entered AT settlement, not creation). */
+  settled_commission_usd?: number | null;
+  /** @see settled_commission_usd */
+  settled_commission_lbp?: number | null;
 };
 
 const PROVIDER_DRAWER: Record<string, string> = {
@@ -1724,6 +1739,24 @@ export default function SuppliersPage() {
                                 ) : (
                                   `$${t.commission.toFixed(4)}`
                                 )
+                              ) : (t.settled_commission_usd ?? 0) > 0 ||
+                                (t.settled_commission_lbp ?? 0) > 0 ? (
+                                // BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up
+                                // — a settled BILL row's OWN `commission` is 0
+                                // by design (entered AT settlement, not
+                                // creation); this is the allocated share from
+                                // settlement_commission_allocations, joined in
+                                // by getAllByProvider for display only.
+                                [
+                                  (t.settled_commission_lbp ?? 0) > 0
+                                    ? `${Math.round(t.settled_commission_lbp!).toLocaleString()} LBP`
+                                    : null,
+                                  (t.settled_commission_usd ?? 0) > 0
+                                    ? `$${t.settled_commission_usd!.toFixed(2)}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" + ")
                               ) : (
                                 <span className="text-slate-600">—</span>
                               )}
@@ -1940,20 +1973,73 @@ export default function SuppliersPage() {
                             </span>
                           )}
                         </div>
-                        <div
-                          className={`col-span-2 text-right font-mono ${row.is_refunded ? "line-through text-slate-500" : balanceColor(row.amount_usd)}`}
-                        >
-                          {row.amount_usd !== 0
-                            ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
-                            : "—"}
-                        </div>
-                        <div
-                          className={`col-span-2 text-right font-mono ${row.is_refunded ? "line-through text-slate-500" : balanceColor(row.amount_lbp)}`}
-                        >
-                          {row.amount_lbp !== 0
-                            ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
-                            : "—"}
-                        </div>
+                        {/* BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up — a
+                            bills-only SETTLEMENT row is contractually
+                            amount_usd = amount_lbp = 0 (the commission goes
+                            straight into the provider's own drawer via a
+                            top-up, never through this ledger row's own
+                            amount — see _bookBillsCommissionDrawerTopUp's doc
+                            comment). Without this narrow substitution the
+                            money that DID move has no cell to appear in: both
+                            currency cells would read "—" even though a real
+                            top-up happened. Gated on BOTH amounts being 0 so
+                            a row with a real amount (whose commission is
+                            already visible via the adjacent SUPPLIER_PAYS_US
+                            row) keeps rendering its own amount, unchanged. */}
+                        {(() => {
+                          const isZeroRow =
+                            row.amount_usd === 0 && row.amount_lbp === 0;
+                          const commissionUsd =
+                            row.settlement_commission_usd ?? 0;
+                          const commissionLbp =
+                            row.settlement_commission_lbp ?? 0;
+                          const showUsdCommission =
+                            isZeroRow && commissionUsd > 0;
+                          const showLbpCommission =
+                            isZeroRow && commissionLbp > 0;
+                          const commissionTitle =
+                            "Commission collected at settlement — does not change the balance";
+                          return (
+                            <>
+                              <div
+                                className={`col-span-2 text-right font-mono ${
+                                  row.is_refunded
+                                    ? "line-through text-slate-500"
+                                    : showUsdCommission
+                                      ? "text-emerald-400"
+                                      : balanceColor(row.amount_usd)
+                                }`}
+                                title={
+                                  showUsdCommission ? commissionTitle : undefined
+                                }
+                              >
+                                {row.amount_usd !== 0
+                                  ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
+                                  : showUsdCommission
+                                    ? commissionUsd.toFixed(2)
+                                    : "—"}
+                              </div>
+                              <div
+                                className={`col-span-2 text-right font-mono ${
+                                  row.is_refunded
+                                    ? "line-through text-slate-500"
+                                    : showLbpCommission
+                                      ? "text-emerald-400"
+                                      : balanceColor(row.amount_lbp)
+                                }`}
+                                title={
+                                  showLbpCommission ? commissionTitle : undefined
+                                }
+                              >
+                                {row.amount_lbp !== 0
+                                  ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
+                                  : showLbpCommission
+                                    ? Math.round(commissionLbp).toLocaleString()
+                                    : "—"}
+                              </div>
+                            </>
+                          );
+                        })()}
                         <div className="col-span-4 text-slate-300 truncate text-xs">
                           {row.note || ""}
                         </div>

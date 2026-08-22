@@ -173,6 +173,15 @@ export interface SupplierLedgerEntryEntity {
   source_ref_table: string | null;
   source_ref_id: number | null;
   created_at: string;
+  /** Display-only LEFT JOIN enrichment (getSupplierLedger) — the batch
+   *  commission collected at a bills-only settlement, when this row IS that
+   *  settlement's SETTLEMENT row. NOT a ledger amount and never summed into
+   *  a balance; see the join's doc comment on getSupplierLedger. Undefined
+   *  when `supplier_settlements` isn't joined (pre-v150 fixture), null when
+   *  joined but no matching settlement row exists. */
+  settlement_commission_usd?: number | null;
+  /** @see settlement_commission_usd */
+  settlement_commission_lbp?: number | null;
 }
 
 /**
@@ -415,6 +424,13 @@ export interface SupplierBalance {
 }
 
 export class SupplierRepository extends BaseRepository<SupplierEntity> {
+  /** Memoized result of {@link _hasSupplierSettlementsTable} — the schema
+   *  doesn't change mid-process, so unlike the per-call PRAGMA checks
+   *  elsewhere in this file, this one is safe (and worth it: getSupplierLedger
+   *  is on the Suppliers page's hot path) to check once per repository
+   *  instance. */
+  private _hasSupplierSettlementsTableCache: boolean | null = null;
+
   constructor() {
     super("suppliers", { softDelete: false });
   }
@@ -621,6 +637,27 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       cols.some((c) => c.name === "source_ref_table") &&
       cols.some((c) => c.name === "source_ref_id")
     );
+  }
+
+  /**
+   * Schema-drift guard, same shape as `_supplierLedgerHasSourceRefColumns`
+   * above: `supplier_settlements` only exists from migration v150 onward, and
+   * `packages/core` jest specs hand-roll fresh in-memory schemas per file —
+   * many predate this migration. Feeds `getSupplierLedger`'s LEFT JOIN so a
+   * pre-v150 fixture (or a fresh install mid-migration) still gets a stable
+   * result shape instead of a "no such table" throw. Memoized (unlike the
+   * source-ref check) — see the cache field's own doc comment.
+   */
+  private _hasSupplierSettlementsTable(): boolean {
+    if (this._hasSupplierSettlementsTableCache === null) {
+      const row = this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplier_settlements'`,
+        )
+        .get();
+      this._hasSupplierSettlementsTableCache = !!row;
+    }
+    return this._hasSupplierSettlementsTableCache;
   }
 
   addLedgerEntry(data: CreateSupplierLedgerEntryData): { id: number } {
@@ -905,8 +942,37 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const cols = this._supplierLedgerHasSourceRefColumns()
         ? "id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, source_ref_table, source_ref_id, created_at"
         : "id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, is_refunded, refunded_at, created_at";
+      const prefixedCols = cols
+        .split(", ")
+        .map((c) => `l.${c}`)
+        .join(", ");
+      // Display-only enrichment for the Suppliers page Payments table
+      // (BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up, owner 2026-08-13): a
+      // bills-only settlement's own SETTLEMENT ledger row is CONTRACTUALLY
+      // amount_usd = amount_lbp = 0 (see `_bookBillsCommissionDrawerTopUp`'s
+      // doc comment — the commission goes straight into the provider's own
+      // drawer via a top-up, never through this ledger row's own amount),
+      // so without this join the money that DID move (the commission) is
+      // invisible in the ledger history — both currency cells read "—" even
+      // though a real top-up happened. `supplier_settlements.commission_usd/
+      // commission_lbp` is the batch's snapshot of exactly that number,
+      // uniquely linked via `ledger_entry_id` (never by time proximity — the
+      // LIRA-085 lesson). Deliberately NOT folded into `amount_usd`/
+      // `amount_lbp` and NOT summed into any balance — the ledger balance
+      // must stay byte-identical (lira-137's e2e guard asserts the delta is
+      // 0 for a bills-only settlement); this is purely a read-side label for
+      // a row whose real amount is legitimately zero.
+      const hasSettlements = this._hasSupplierSettlementsTable();
+      const selectSql = hasSettlements
+        ? `SELECT ${prefixedCols}, ss.commission_usd AS settlement_commission_usd, ss.commission_lbp AS settlement_commission_lbp
+           FROM supplier_ledger l
+           LEFT JOIN supplier_settlements ss ON ss.ledger_entry_id = l.id AND ss.tenant_id = l.tenant_id
+           WHERE l.supplier_id = ? AND l.tenant_id = ? ORDER BY l.created_at DESC LIMIT ?`
+        : `SELECT ${prefixedCols}, NULL AS settlement_commission_usd, NULL AS settlement_commission_lbp
+           FROM supplier_ledger l
+           WHERE l.supplier_id = ? AND l.tenant_id = ? ORDER BY l.created_at DESC LIMIT ?`;
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT ${cols} FROM supplier_ledger WHERE supplier_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT ?`,
+        selectSql,
         supplierId,
         getCurrentTenantId(),
         limit,

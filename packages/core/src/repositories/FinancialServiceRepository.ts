@@ -187,6 +187,15 @@ export interface FinancialServiceEntity {
    *  (iPick/Katsh/Whish App/Crypto) never received it. */
   is_refunded: number;
   refunded_at: string | null;
+  /** Display-only LEFT JOIN enrichment (getAllByProvider) — this row's
+   *  per-currency share of the commission entered at settlement time
+   *  (`settlement_commission_allocations`), for a settled BILL row whose own
+   *  `commission` column is 0 by design. Undefined when the join isn't
+   *  applied (pre-v150 fixture), null when joined but no allocation exists
+   *  (row not settled, or settled before the allocations table existed). */
+  settled_commission_usd?: number | null;
+  /** @see settled_commission_usd */
+  settled_commission_lbp?: number | null;
 }
 
 export interface UnsettledSummary {
@@ -818,6 +827,13 @@ export function pendingSettlementSql(
 const NOT_REFUNDED_SQL = `COALESCE(is_refunded, 0) = 0`;
 
 export class FinancialServiceRepository extends BaseRepository<FinancialServiceEntity> {
+  /** Memoized result of {@link _hasSettlementAllocationsTable} — the schema
+   *  doesn't change mid-process, so (unlike `_suppliersHasCommissionEligibleColumn`'s
+   *  per-call PRAGMA check elsewhere in this file) this one is checked once
+   *  per repository instance: getAllByProvider backs the Suppliers page's
+   *  Transactions tab, a hot path. */
+  private _hasSettlementAllocationsTableCache: boolean | null = null;
+
   constructor() {
     super("financial_services", { softDelete: false });
   }
@@ -4092,6 +4108,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     return cols.some((c) => c.name === "commission_eligible");
   }
 
+  /**
+   * Schema-drift guard mirroring `_suppliersHasCommissionEligibleColumn`
+   * above: `settlement_commission_allocations` only exists from migration
+   * v150 onward, and `packages/core` jest specs hand-roll fresh in-memory
+   * schemas per file — many predate this migration. Feeds `getAllByProvider`'s
+   * LEFT JOIN so a pre-v150 fixture still gets a stable result shape instead
+   * of a "no such table" throw. Memoized (unlike the sibling PRAGMA check) —
+   * see the cache field's own doc comment.
+   */
+  private _hasSettlementAllocationsTable(): boolean {
+    if (this._hasSettlementAllocationsTableCache === null) {
+      const row = this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settlement_commission_allocations'`,
+        )
+        .get();
+      this._hasSettlementAllocationsTableCache = !!row;
+    }
+    return this._hasSettlementAllocationsTableCache;
+  }
+
   getUnsettledBySupplier(provider: string): FinancialServiceEntity[] {
     const tenantId = getCurrentTenantId();
     const pendingSql = pendingSettlementSql(
@@ -4161,9 +4198,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    */
   getAllByProvider(provider: string, limit = 200): FinancialServiceEntity[] {
     const tenantId = getCurrentTenantId();
-    return this.db
-      .prepare(
-        `SELECT ${this.getColumns()} FROM financial_services
+    const union = `SELECT ${this.getColumns()} FROM financial_services
            WHERE provider = ?
              AND NOT (service_type = 'SEND' AND cost > 0)
              AND tenant_id = ?
@@ -4172,17 +4207,50 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
            WHERE provider = ?
              AND service_type = 'SEND'
              AND cost > 0
-             AND tenant_id = ?
-         ORDER BY created_at DESC
+             AND tenant_id = ?`;
+    // Display-only enrichment for the Suppliers page Transactions tab
+    // (BILL_COMMISSION_SETTLEMENT_PLAN.md follow-up): a settled BILL row's
+    // OWN `commission` column is 0 by design — the commission for a bill is
+    // entered at settlement time, not guessed at creation (see
+    // SettleTransactionsData's doc comment) — so without this join the
+    // Commission cell reads "—" even though the row's share of the batch
+    // commission was recorded. `settlement_commission_allocations` is that
+    // per-row, per-currency share, written once by `settleTransactions` and
+    // never mutated afterwards. The join matches BOTH the row's id AND its
+    // CURRENT `settlement_id` (not just the fs id) so a voided-then-resettled
+    // row can't surface a stale allocation from the settlement it was
+    // detached from. Deliberately read-only: joining this in changes no
+    // stored value, no balance, no `commission`/`is_settled` column.
+    const hasAllocations = this._hasSettlementAllocationsTable();
+    if (hasAllocations) {
+      return this.db
+        .prepare(
+          `SELECT t.*, sca.commission_usd AS settled_commission_usd, sca.commission_lbp AS settled_commission_lbp
+           FROM (${union}) t
+           LEFT JOIN settlement_commission_allocations sca
+             ON sca.financial_service_id = t.id
+            AND sca.settlement_ledger_id = t.settlement_id
+            AND sca.tenant_id = ?
+           ORDER BY t.created_at DESC
+           LIMIT ?`,
+        )
+        .all(
+          provider,
+          tenantId,
+          provider,
+          tenantId,
+          tenantId,
+          limit,
+        ) as FinancialServiceEntity[];
+    }
+    return this.db
+      .prepare(
+        `SELECT t.*, NULL AS settled_commission_usd, NULL AS settled_commission_lbp
+         FROM (${union}) t
+         ORDER BY t.created_at DESC
          LIMIT ?`,
       )
-      .all(
-        provider,
-        tenantId,
-        provider,
-        tenantId,
-        limit,
-      ) as FinancialServiceEntity[];
+      .all(provider, tenantId, provider, tenantId, limit) as FinancialServiceEntity[];
   }
 
   /**

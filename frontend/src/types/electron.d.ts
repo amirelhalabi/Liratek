@@ -42,6 +42,13 @@ export interface SupplierTransaction {
   fifo_status: "paid" | "partial" | "unpaid";
   fifo_paid_usd: number;
   created_at: string;
+  /** Display-only LEFT JOIN enrichment (FinancialServiceRepository.getAllByProvider)
+   *  — this row's per-currency share of the commission entered at settlement
+   *  time, for a settled BILL row whose own `commission` column is 0 by
+   *  design (commission is entered AT settlement, not creation). */
+  settled_commission_usd?: number | null;
+  /** @see settled_commission_usd */
+  settled_commission_lbp?: number | null;
 }
 
 /**
@@ -1218,6 +1225,13 @@ export interface ElectronAPI {
         is_refunded?: number;
         refunded_at?: string | null;
         created_at: string;
+        /** Display-only LEFT JOIN enrichment (SupplierRepository.getSupplierLedger)
+         *  — the batch commission collected at a bills-only settlement, when
+         *  this row IS that settlement's SETTLEMENT row. Not a ledger amount;
+         *  never summed into the balance. */
+        settlement_commission_usd?: number | null;
+        /** @see settlement_commission_usd */
+        settlement_commission_lbp?: number | null;
       }>
     >;
     create: (data: {
