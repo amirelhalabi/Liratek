@@ -21,6 +21,27 @@ export interface Voucher {
   updated_at: string;
 }
 
+/**
+ * EXCHANGE_LOT_SETTLEMENT.md Phase 4b — per-currency cost-basis lot summary
+ * attached to an exchange history row. `SourceSummary` (a row that CREATED a
+ * lot, i.e. an exotic-currency BUY leg) extends `SettlerSummary` (a row that
+ * CONSUMED lot(s), i.e. an exotic-currency SELL leg) with the source lot's
+ * own remaining/voided state. Mirrors `@liratek/core`'s
+ * `SettlerSummary`/`SourceSummary` (packages/core/src/services/ExchangeService.ts)
+ * verbatim (rule 14).
+ */
+export interface SettlerSummary {
+  settled_qty: number;
+  realized_profit_usd: number;
+}
+
+/** @see SettlerSummary */
+export interface SourceSummary extends SettlerSummary {
+  original_qty: number;
+  remaining_qty: number;
+  is_voided: number;
+}
+
 /** A single financial_services row as returned by the Suppliers history tab. */
 export interface SupplierTransaction {
   id: number;
@@ -858,7 +879,20 @@ export interface ElectronAPI {
         direction?: "IN" | "OUT";
       }>;
       tender_exchange_rate?: number;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    }) => Promise<{
+      success: boolean;
+      id?: number;
+      error?: string;
+      /**
+       * EXCHANGE_LOT_SETTLEMENT.md Phase 3 — the SERVER-computed realized
+       * profit for a lot-tracked toCurrency sell leg (mirrors
+       * `ExchangeOpResult` in packages/core/src/services/ExchangeService.ts).
+       * Wins over the client's pre-submit spread estimate when present.
+       */
+      realizedProfitUsd?: number;
+      lotCoveredQty?: number;
+      lotMarketQty?: number;
+    }>;
     getHistory: () => Promise<
       Array<{
         id: number;
@@ -871,6 +905,12 @@ export interface ElectronAPI {
         // LIRA-131: now projected by ExchangeRepository.getColumns().
         is_refunded?: number;
         refunded_at?: string | null;
+        /** EXCHANGE_LOT_SETTLEMENT.md Phase 4b — populated when this
+         *  exchange created a lot (exotic-currency BUY leg); null otherwise. */
+        lot_summary: SourceSummary | null;
+        /** @see lot_summary — populated when this exchange consumed lot(s)
+         *  (exotic-currency SELL leg); null otherwise. */
+        settler_summary: SettlerSummary | null;
       }>
     >;
     updateMetadata: (data: {
@@ -1965,8 +2005,12 @@ export interface ElectronAPI {
       currencyCode: string;
       qty: number;
       unitProceedsUsd: number;
+      /** The exchange's fromCurrency — lets the server detect a cross pair
+       *  (both sides non-USD) with no USD rate anchor and skip a fabricated
+       *  preview (reason: "NO_RATE_ANCHOR") rather than mirroring reality. */
+      fromCurrency?: string;
     }) => Promise<
-      | { success: true; lotTracked: false }
+      | { success: true; lotTracked: false; reason?: "NO_RATE_ANCHOR" }
       | {
           success: true;
           lotTracked: true;

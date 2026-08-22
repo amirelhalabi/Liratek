@@ -653,6 +653,35 @@ export class ExchangeLotRepository extends BaseRepository<ExchangeLotEntity> {
     return row !== undefined;
   }
 
+  /**
+   * The DISTINCT `settled_by_table` values behind
+   * {@link hasActiveSettlementsAgainstSource}'s `true` answer — lets the
+   * caller (`TransactionRepository._assertExchangeLotsVoidable`, adversarial
+   * review FIX 5) name the REAL blocker instead of a one-size-fits-all
+   * message: `'exchange_transactions'` means a later SELL consumed the lot
+   * (voidable once that sell is voided first); `'exchange_position_
+   * adjustments'` means an admin write-off (Q15) consumed it, which is
+   * permanent — there is no sell to void, so the caller must say so
+   * differently. Empty array when {@link hasActiveSettlementsAgainstSource}
+   * would return `false`.
+   */
+  getActiveSettlerTablesAgainstSource(
+    input: HasActiveSettlementsAgainstSourceInput,
+  ): string[] {
+    const tenantId = getCurrentTenantId();
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT s.settled_by_table AS settled_by_table
+         FROM exchange_lot_settlements s
+         JOIN exchange_lots l ON l.id = s.lot_id AND l.tenant_id = s.tenant_id
+         WHERE s.tenant_id = ? AND l.source_table = ? AND l.source_id = ? AND s.is_refunded = 0`,
+      )
+      .all(tenantId, input.sourceTable, input.sourceId) as {
+      settled_by_table: string;
+    }[];
+    return rows.map((r) => r.settled_by_table);
+  }
+
   // ---------------------------------------------------------------------------
   // Reads
   // ---------------------------------------------------------------------------

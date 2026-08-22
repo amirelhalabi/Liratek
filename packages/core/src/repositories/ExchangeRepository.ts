@@ -788,6 +788,17 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    * table only holds currencies an operator manually configured a buy/sell
    * spread for) — the desktop form's main path, `addDirectTransaction`,
    * computes such a currency's leg rates from a live feed, not this table.
+   *
+   * This method's null-vs-non-null ANSWER (not its math — this stays the
+   * one place that resolves the actual USD amount) is mirrored by the pure
+   * predicate `crossPairHasUsdAnchor` (`utils/lotMarketRate.ts`): "LBP on
+   * either side anchors; else either side's rate row anchors". Adversarial
+   * review (Exchange Lot Settlement, 2026-08): the preview
+   * (`ExchangeLotService.previewSettlement`) has no exchange row to run this
+   * exact method against, so it calls the shared predicate instead of
+   * re-deriving its own copy of this availability rule — keeping submit's
+   * "skip lot tracking" decision and the preview's "don't show a realized
+   * figure the server will discard" decision permanently in sync (rule 14).
    */
   private _crossUsdNotional(data: CreateExchangeData): number | null {
     if (data.fromCurrency === "LBP") {

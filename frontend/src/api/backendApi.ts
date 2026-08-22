@@ -3506,7 +3506,7 @@ interface LotSettlementResultDto {
 }
 
 type PreviewLotSettlementResponse =
-  | { success: true; lotTracked: false }
+  | { success: true; lotTracked: false; reason?: "NO_RATE_ANCHOR" }
   | {
       success: true;
       lotTracked: true;
@@ -3519,7 +3519,7 @@ type PreviewLotSettlementResponse =
   | { success: false; error: string };
 
 export type LotSettlementPreview =
-  | { lotTracked: false }
+  | { lotTracked: false; reason?: "NO_RATE_ANCHOR" }
   | {
       lotTracked: true;
       marketUnitCostUsd: number;
@@ -3533,6 +3533,10 @@ export async function previewLotSettlement(data: {
   currencyCode: string;
   qty: number;
   unitProceedsUsd: number;
+  /** EXCHANGE_LOT_SETTLEMENT.md — the exchange's fromCurrency, needed so the
+   *  server can detect a cross pair (both sides non-USD) with no USD rate
+   *  anchor and skip a fabricated preview (reason: "NO_RATE_ANCHOR"). */
+  fromCurrency?: string;
 }): Promise<LotSettlementPreview> {
   const res = await ipcOrHttp<PreviewLotSettlementResponse>(
     async () => getElectronApi().exchangeLots.preview(data),
@@ -3554,7 +3558,7 @@ export async function previewLotSettlement(data: {
         coveredQty: res.coveredQty,
         marketQty: res.marketQty,
       }
-    : { lotTracked: false };
+    : { lotTracked: false, ...(res.reason ? { reason: res.reason } : {}) };
 }
 
 export interface LotPositionDto {

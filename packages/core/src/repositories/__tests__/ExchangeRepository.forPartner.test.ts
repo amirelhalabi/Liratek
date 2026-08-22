@@ -386,6 +386,21 @@ describe("ExchangeRepository.createTransaction() — for-partner (LIRA-081)", ()
   it("DISCRIMINATING TEST (rule 17 / advisor): after the partner settles, the shop's net cash position matches a normal walk-in exchange of the same amounts — proving profit is realized only once, not phantom", () => {
     const partnerId = seedPartner(db);
 
+    // Seed an unrelated dummy partner_ledger row FIRST so partner_ledger's
+    // own id sequence (2, 3, ...) diverges from exchange_transactions.id (1)
+    // below. Without this, the FOR_EXCHANGE row createTransaction() writes
+    // would coincidentally land at plp.id === reference_id === 1, which
+    // would make this assertion pass even against ProfitRepository's
+    // notPartnerPending correlation bug (bare `id` resolving to the
+    // subquery's own `partner_ledger.id` instead of the correlated
+    // `exchange_transactions.id` — see ProfitRepository.
+    // partnerPendingCorrelation.test.ts). Fully covered so it doesn't gate
+    // anything for real.
+    db.prepare(
+      `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, covered_amount)
+       VALUES (?, 'FOR_TEST_DUMMY', 'sales', 999, 1, 'USD', 'DEBIT', 1)`,
+    ).run(partnerId);
+
     repo.createTransaction({
       fromCurrency: "USD",
       toCurrency: "LBP",

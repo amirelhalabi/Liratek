@@ -136,6 +136,22 @@ function createTestDb(): Database.Database {
       updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- FIX 5 (adversarial review): a write-off (ExchangeLotRepository.adjust,
+    -- qty < 0) writes settled_by_table = 'exchange_position_adjustments'
+    -- against a BUY's lot, which needs its own distinguishable void-block
+    -- message ("_assertExchangeLotsVoidable" below).
+    CREATE TABLE exchange_position_adjustments (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id      INTEGER DEFAULT 1,
+      currency_code  TEXT NOT NULL,
+      qty            REAL NOT NULL,
+      unit_cost_usd  REAL,
+      note           TEXT,
+      created_by     TEXT,
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE partners (
       tenant_id INTEGER DEFAULT 1,
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -512,6 +528,82 @@ describe("TransactionRepository — EXCHANGE lot void/refund reversal (EXCHANGE_
 
       expect(countRows(db, "transactions")).toBe(txnCountBefore);
       expect(lotFor(db, "EUR")).toEqual(lotBefore);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Void/refund a BUY written off by an admin position adjustment — blocked
+  // with the write-off-specific message (adversarial review FIX 5)
+  // ---------------------------------------------------------------------------
+
+  describe("void/refund a BUY written off by an admin adjustment — blocked with the write-off message (FIX 5)", () => {
+    it("names the admin adjustment as the blocker, not 'void the consuming sell transaction(s)'", () => {
+      const buyId = buyEur(1000, 1.16);
+
+      // Admin write-off (Q15) — no sell involved at all.
+      getExchangeLotRepository().adjust({
+        currencyCode: "EUR",
+        qty: -400,
+        createdBy: "admin",
+      });
+
+      const buyTxnId = unifiedTxnIdFor(db, buyId);
+      const txnCountBefore = countRows(db, "transactions");
+      const lotBefore = { ...lotFor(db, "EUR") };
+
+      let thrown: Error | undefined;
+      try {
+        getTransactionRepository().voidTransaction(buyTxnId, 1);
+      } catch (error) {
+        thrown = error as Error;
+      }
+
+      expect(thrown?.message).toMatch(
+        /written off by an admin position adjustment, which cannot be reversed/,
+      );
+      // The pre-fix message would have (misleadingly) named a sell to void
+      // instead — pin that it does NOT, so a regression back to the
+      // one-size-fits-all message is caught here.
+      expect(thrown?.message).not.toMatch(
+        /void the consuming sell transaction\(s\) first/,
+      );
+
+      expect(countRows(db, "transactions")).toBe(txnCountBefore);
+      expect(lotFor(db, "EUR")).toEqual(lotBefore);
+    });
+
+    it("refund throws the same write-off message and writes nothing", () => {
+      const buyId = buyEur(1000, 1.16);
+      getExchangeLotRepository().adjust({
+        currencyCode: "EUR",
+        qty: -1000, // full write-off
+        createdBy: "admin",
+      });
+
+      const buyTxnId = unifiedTxnIdFor(db, buyId);
+      const txnCountBefore = countRows(db, "transactions");
+
+      expect(() =>
+        getTransactionRepository().refundTransaction(buyTxnId, 1),
+      ).toThrow(/an admin position adjustment/);
+
+      expect(countRows(db, "transactions")).toBe(txnCountBefore);
+    });
+
+    it("a MIXED blocker (both a sell AND a write-off active against the same lot) still gets the permanent write-off message", () => {
+      const buyId = buyEur(1000, 1.16);
+      sellEur(300, 1.2); // sell settler
+      getExchangeLotRepository().adjust({
+        currencyCode: "EUR",
+        qty: -200, // adjustment settler, against the SAME remaining lot
+        createdBy: "admin",
+      });
+
+      const buyTxnId = unifiedTxnIdFor(db, buyId);
+
+      expect(() =>
+        getTransactionRepository().voidTransaction(buyTxnId, 1),
+      ).toThrow(/an admin position adjustment/);
     });
   });
 

@@ -2064,16 +2064,31 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     ) {
       return;
     }
-    const hasActiveSettlements = getExchangeLotRepository().hasActiveSettlementsAgainstSource({
+    const settlerTables = getExchangeLotRepository().getActiveSettlerTablesAgainstSource({
       sourceTable: "exchange_transactions",
       sourceId: original.source_id,
     });
-    if (hasActiveSettlements) {
+    if (settlerTables.length === 0) return;
+
+    // Adversarial review FIX 5 — name the REAL blocker instead of always
+    // claiming a sell exists to void. An admin write-off
+    // (`exchange_position_adjustments`, Q15) has no sell to void and is
+    // permanent, so it needs its own message; a mix of both settler tables
+    // still can't be fully unblocked by voiding the sell(s) alone, so it
+    // gets the same permanent-blocker message as adjustments-only.
+    const hasAdjustmentSettler = settlerTables.includes(
+      "exchange_position_adjustments",
+    );
+    if (hasAdjustmentSettler) {
       throw new DatabaseError(
-        "Cannot void/refund — this exchange's acquired currency has already been partially or fully sold; void the consuming sell transaction(s) first.",
+        "Cannot void/refund — this exchange's acquired currency has been partially or fully written off by an admin position adjustment, which cannot be reversed; this exchange can no longer be voided.",
         { entityId: original.id },
       );
     }
+    throw new DatabaseError(
+      "Cannot void/refund — this exchange's acquired currency has already been partially or fully sold; void the consuming sell transaction(s) first.",
+      { entityId: original.id },
+    );
   }
 
   /** See `_assertExchangeLotsVoidable`'s doc for why this check exists. */

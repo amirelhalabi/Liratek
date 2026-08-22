@@ -42,3 +42,35 @@ export function marketRateToUsdPerUnit(
 ): number {
   return isStronger === 1 ? 1 / marketRate : marketRate;
 }
+
+/**
+ * Whether a CROSS pair (both sides non-USD) has a USD anchor to route its
+ * internal "from -> USD -> to" passthrough through — mirrors
+ * `ExchangeRepository._crossUsdNotional`'s availability logic EXACTLY
+ * (rule 14: one predicate, reused by both the write path's decision to skip
+ * lot tracking and the preview's decision to not show a realized figure for
+ * a number the server would then discard):
+ *
+ *   1. Either side is LBP -> anchors (LBP carries a seeded `exchange_rates`
+ *      row since v59 — the one currency this can always trust).
+ *   2. Neither side is LBP -> anchors iff EITHER side has its own
+ *      `exchange_rates` row (an operator-configured buy/sell spread).
+ *
+ * `hasRateRow` is injected (rather than this function reading the DB itself)
+ * so both call sites — `ExchangeRepository` (already has a
+ * `getRateRepository().findByCode` result) and `ExchangeLotService`
+ * (preview, no write-path context) — can supply their own lookup without a
+ * second DB dependency living in this pure-math file.
+ *
+ * Deliberately does NOT decide whether a pair actually IS a cross (that's
+ * "both sides non-USD", decided by the caller) — this only answers "if it
+ * IS a cross, does it have an anchor".
+ */
+export function crossPairHasUsdAnchor(
+  fromCurrency: string,
+  toCurrency: string,
+  hasRateRow: (currencyCode: string) => boolean,
+): boolean {
+  if (fromCurrency === "LBP" || toCurrency === "LBP") return true;
+  return hasRateRow(fromCurrency) || hasRateRow(toCurrency);
+}

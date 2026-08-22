@@ -13,7 +13,13 @@
  * Submission only proceeds once the operator confirms.
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 jest.mock("@liratek/core", () => ({
   TAKE_USD: -1,
@@ -56,14 +62,19 @@ const mockGetRates = jest.fn().mockResolvedValue([
   },
 ]);
 const mockGetExchangeHistory = jest.fn().mockResolvedValue([]);
-const mockPreview = jest.fn().mockResolvedValue({
+// Default resolution — genuine FIFO lot tracking with a realized loss (the
+// Q10 scenario this file was originally written for). Re-applied in
+// `beforeEach` so a test that overrides it (e.g. NO_RATE_ANCHOR, a rejected
+// preview) never leaks its mock resolution into a later test.
+const defaultPreviewResult = {
   lotTracked: true,
   marketUnitCostUsd: 1.1,
   settlements: [],
   realizedProfitUsd: -25,
   coveredQty: 100,
   marketQty: 0,
-});
+};
+const mockPreview = jest.fn().mockResolvedValue(defaultPreviewResult);
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
@@ -194,6 +205,7 @@ describe("Exchange page — lot-tracked loss confirm (Q10) + 10% guard bypass", 
   beforeEach(() => {
     mockAddExchangeTransaction.mockClear();
     mockPreview.mockClear();
+    mockPreview.mockResolvedValue(defaultPreviewResult);
     mockLinkTransaction.mockClear();
   });
 
@@ -253,5 +265,178 @@ describe("Exchange page — lot-tracked loss confirm (Q10) + 10% guard bypass", 
     } finally {
       mockSessionContext.activeSession = null;
     }
+  });
+});
+
+/**
+ * Adversarial-review FIX 2 item 3 — a cross/lot-tracked toCurrency with NO
+ * USD rate anchor. The server (ExchangeLotService.previewSettlement) skips
+ * lot tracking entirely for this case and keeps the plain spread-based
+ * profit model, so the preview now reports `{ lotTracked: false, reason:
+ * "NO_RATE_ANCHOR" }` instead of a fabricated FIFO figure.
+ */
+describe("Exchange page — lot-tracked toCurrency with no rate anchor (NO_RATE_ANCHOR)", () => {
+  beforeEach(() => {
+    mockAddExchangeTransaction.mockClear();
+    mockPreview.mockClear();
+    mockPreview.mockResolvedValue(defaultPreviewResult);
+    mockLinkTransaction.mockClear();
+  });
+
+  it("shows the amber 'cost-basis unavailable' note (never the FIFO line) and never arms the loss-confirm dialog", async () => {
+    mockPreview.mockResolvedValue({
+      lotTracked: false,
+      reason: "NO_RATE_ANCHOR",
+    });
+    render(<Exchange />);
+    await waitFor(() => expect(mockGetRates).toHaveBeenCalled());
+    fireEvent.change(screen.getByTestId("amount-in"), {
+      target: { value: "10" },
+    });
+    await waitFor(() => expect(mockPreview).toHaveBeenCalled());
+
+    expect(
+      await screen.findByText(
+        /Cost-basis tracking unavailable for this pair/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/FIFO vs cost basis/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Confirm Loss/i)).not.toBeInTheDocument();
+  });
+
+  it("REGRESSION (rule 17): keeps the >10% sanity guard active instead of bypassing it just because toCurrency is lot-tracked", async () => {
+    // The mocked calculateExchange reports totalProfitUsd = amountIn * 0.5
+    // — the exact 50% local-spread shape the >10% guard exists to catch.
+    // For NO_RATE_ANCHOR the server keeps this exact spread-based profit
+    // (lot tracking never ran), so the guard must apply here precisely as
+    // it would for a plain non-lot-tracked currency — it must NOT be
+    // silently bypassed just because EUR happens to be lot-tracked in
+    // general. This is the gating bug the adversarial review found: the
+    // pre-fix code bypassed the guard off `isLotTrackedCurrency(toCurrency)`
+    // alone, without checking whether the preview actually confirmed real
+    // lot tracking for THIS pair.
+    mockPreview.mockResolvedValue({
+      lotTracked: false,
+      reason: "NO_RATE_ANCHOR",
+    });
+    render(<Exchange />);
+    await waitFor(() => expect(mockGetRates).toHaveBeenCalled());
+    fireEvent.change(screen.getByTestId("amount-in"), {
+      target: { value: "100" },
+    });
+    await waitFor(() => expect(mockPreview).toHaveBeenCalled());
+    await screen.findByText(/Cost-basis tracking unavailable for this pair/i);
+
+    const btn = await screen.findByRole("button", {
+      name: /Confirm Exchange/i,
+    });
+    await waitFor(() => expect(btn).toBeDisabled());
+    expect(screen.getByText(/Unusually high profit/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Adversarial-review FIX 3 — the preview FETCH itself can fail (network/IPC
+ * error), which must be visibly distinguishable from "not yet started" or
+ * "not applicable" (both also leave the preview state empty). Must never
+ * block or disable submit — the server still computes profit authoritatively
+ * at submit time regardless of whether the client-side preview succeeded.
+ */
+describe("Exchange page — FIFO preview fetch failure", () => {
+  beforeEach(() => {
+    mockAddExchangeTransaction.mockClear();
+    mockPreview.mockClear();
+    mockLinkTransaction.mockClear();
+  });
+
+  it("shows a visible 'preview unavailable' warning and never disables submit because of it", async () => {
+    mockPreview.mockRejectedValue(new Error("network down"));
+    const btn = await renderAndType();
+
+    expect(
+      await screen.findByText(
+        /Realized-profit preview unavailable — profit will be computed at submit/i,
+      ),
+    ).toBeInTheDocument();
+    expect(btn).not.toBeDisabled();
+  });
+});
+
+/**
+ * Adversarial-review FIX 2 item 3 (payload) + FIX 4 — the preview call must
+ * carry `fromCurrency` (so the server can detect a cross pair with no USD
+ * anchor) and its `qty` must be the SAME rounded value `handleProcess`
+ * actually sends as `amountOut`, not the raw unrounded leg amount. 100/1.16
+ * is chosen deliberately: it has more decimal places than EUR's 2-decimal
+ * display precision, so the raw (86.206896551724...) and rounded ("86.21")
+ * values genuinely differ — a non-vacuous check.
+ */
+describe("Exchange page — preview payload correctness", () => {
+  beforeEach(() => {
+    mockAddExchangeTransaction.mockClear();
+    mockPreview.mockClear();
+    mockPreview.mockResolvedValue(defaultPreviewResult);
+    mockLinkTransaction.mockClear();
+  });
+
+  it("sends fromCurrency and the rounded displayed amountOut as qty, not the raw unrounded leg amount", async () => {
+    await renderAndType("100");
+
+    expect(mockPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currencyCode: "EUR",
+        fromCurrency: "USD",
+        qty: 86.21,
+      }),
+    );
+    // The raw leg amount (100 / 1.16) would have been 86.206896551724... —
+    // confirm the call was never made with that unrounded figure.
+    expect(mockPreview).not.toHaveBeenCalledWith(
+      expect.objectContaining({ qty: 100 / 1.16 }),
+    );
+  });
+});
+
+/**
+ * Owner-reported UX bug (2026-08-23), fixed alongside the above — for an
+ * exotic TARGET currency (neither USD nor LBP), the Customer Gets panel
+ * previously showed ONLY the USD/LBP value-equivalents; the actual payout
+ * quantity in the target currency (e.g. "100 EUR") appeared nowhere,
+ * leaving the till operator no way to know how much to hand the customer.
+ */
+describe("Exchange page — exotic target currency amount display (FIX 6)", () => {
+  beforeEach(() => {
+    mockAddExchangeTransaction.mockClear();
+    mockPreview.mockClear();
+    mockPreview.mockResolvedValue(defaultPreviewResult);
+    mockLinkTransaction.mockClear();
+  });
+
+  it("shows the exotic target's own amount prominently for USD -> EUR", async () => {
+    // Mocked calculateExchange: totalAmountOut = amountIn / 1.16. Using 116
+    // gives an exact, easy-to-assert 100.00 EUR.
+    await renderAndType("116");
+
+    const exoticBox = screen.getByTestId("exchange-exotic-payout");
+    expect(within(exoticBox).getByDisplayValue("100.00")).toBeInTheDocument();
+    expect(within(exoticBox).getByText("EUR")).toBeInTheDocument();
+
+    // USD/LBP boxes still render, but only as dimmed "≈" equivalents (both
+    // usdIsPayout and lbpIsPayout are false for an exotic target) — never
+    // primary — for this exotic-target case.
+    expect(screen.getAllByDisplayValue(/^≈ /).length).toBe(2);
+  });
+
+  it("does not regress the USD-target case (EUR -> USD via swap) — no exotic box, USD renders prominently", async () => {
+    await renderAndType("100");
+    fireEvent.click(screen.getByTestId("exchange-swap-button"));
+
+    // Swapped: fromCurrency is now EUR, toCurrency is now USD (a plain
+    // USD-target payout) — the exotic box must not render at all.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("exchange-exotic-payout"),
+      ).not.toBeInTheDocument(),
+    );
   });
 });

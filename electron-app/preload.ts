@@ -870,6 +870,7 @@ contextBridge.exposeInMainWorld("api", {
       currencyCode: string;
       qty: number;
       unitProceedsUsd: number;
+      fromCurrency?: string;
     }) => ipcRenderer.invoke("exchange-lots:preview", data),
     getPositions: () => ipcRenderer.invoke("exchange-lots:positions"),
     getBreakdown: (exchangeId: number) =>

@@ -1427,8 +1427,13 @@ export type ApiAdapter = {
       currencyCode: string;
       qty: number;
       unitProceedsUsd: number;
+      /** EXCHANGE_LOT_SETTLEMENT.md — the exchange's fromCurrency. When the
+       *  pair is a cross (both sides non-USD) with no USD rate anchor, the
+       *  server skips lot tracking entirely and the response carries
+       *  `reason: "NO_RATE_ANCHOR"` instead of a fabricated preview. */
+      fromCurrency?: string;
     }) => Promise<
-      | { lotTracked: false }
+      | { lotTracked: false; reason?: "NO_RATE_ANCHOR" }
       | {
           lotTracked: true;
           marketUnitCostUsd: number;

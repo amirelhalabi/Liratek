@@ -787,6 +787,7 @@ export class ElectronApiAdapter implements ApiAdapter {
       currencyCode: string;
       qty: number;
       unitProceedsUsd: number;
+      fromCurrency?: string;
     }) => api.previewLotSettlement(data),
     getPositions: () => api.getLotPositions(),
     getBreakdown: (exchangeId: number) => api.getLotBreakdown(exchangeId),

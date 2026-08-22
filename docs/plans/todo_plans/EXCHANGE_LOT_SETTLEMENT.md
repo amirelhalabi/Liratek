@@ -1,7 +1,12 @@
 # Exchange Lot Settlement — realized cost-basis profit for exotic currencies
 
-**Status: DESIGN — owner-interviewed 2026-08-22, not yet implemented.**
-Owner answered a 17-question interview (decision record below). No code written yet.
+**Status: IMPLEMENTED 2026-08-23 (commits 5ee10ce9..62a15b1b + review-fix commit(s) after) — desktop/web e2e guard still pending (Phase 8).**
+Owner answered a 17-question interview 2026-08-22 (decision record below). Shipped in phases:
+v156 schema → ExchangeLotRepository engine → money-path wiring + rule-20 reversal owners →
+dual-transport lot API (preview/positions/breakdown/adjust) → history lot summaries →
+frontend (preview, loss confirm, history columns/breakdown/filter, positions panel) →
+top-up lot creation. Full suite green (3,678 tests), two adversarial execution reviews run;
+confirmed findings fixed (see "Review findings & residuals" at the bottom).
 
 ## The feature in one paragraph
 
@@ -90,10 +95,15 @@ strips leg profit fields). Per exchange:
    (leg1 for direct/cross from-side).
 2. **Consume** (to-side exotic): walk `OPEN_LOT` FIFO for `amount_out`; per lot write a
    settlement with frozen `unit_cost_usd`, `unit_proceeds_usd` = executed USD taken per unit
-   (direct: `amount_in`/`amount_out` in USD terms; cross: leg-2 executed rate), decrement
-   `remaining_qty`. Shortfall → one MARKET-basis settlement row at `exchange_rates.market_rate`
-   (USD-normalized via `is_stronger`). Round profit to cents per settlement; the **last**
-   settlement absorbs the qty/profit remainder so sums reconcile exactly.
+   (direct: `amount_in`/`amount_out` in USD terms; cross: derived from the ONE shared USD
+   notional, LBP-anchor priority), decrement `remaining_qty`. Shortfall → one MARKET-basis
+   settlement row at `exchange_rates.market_rate` (USD-normalized via `is_stronger`).
+   **Rounding, as implemented (differs from an earlier draft of this doc):** profit is
+   rounded to the cent PER settlement row and the stamped total is the exact sum of the
+   rounded rows — there is no remainder-absorption step, so the stamped total can drift
+   from the unrounded ideal by up to ½ cent per row (adversarially measured: +$0.11 over
+   52 rows). Quantities are exact (Σ settlement qty ≡ amount_out to <1e-9). The books are
+   internally consistent because every reader sums the same rounded rows.
 3. **Stamp** the realized total as the sell row's exotic-leg profit column
    (`leg1_profit_usd`/`leg2_profit_usd`) and in the unified row's `profit_usd`. Buy-side exotic
    legs stamp **0** (Q8 — spread profit gone for lot currencies). USD↔LBP legs keep today's
@@ -162,6 +172,51 @@ identity + delta assertions only (rule 15); desktop before web (ABI).
 
 Wallet exchange (Q4); USD↔LBP lots (Q1); short positions (Q6); manual lot picking (Q5);
 opening-lot migration (Q14); history-cap lift (Q17); restating historical profit.
+
+## Review findings & residuals (adversarial reviews, 2026-08-23)
+
+Two execution-based adversarial reviews ran against the committed feature (22 hostile money
+scenarios + a parity/checklist sweep). 21/22 money attacks held. Confirmed findings and
+their outcomes:
+
+**Fixed in the review-fix commit(s):**
+- `notPartnerPending("exchange_transactions", "id")`'s unqualified `id` broke the for-partner
+  deferral on `getExchangeTotals` + the `daily_exchange` CTE (correlated against `plp.id`) —
+  PRE-EXISTING since LIRA-081, amplified by lot P&L; fixed by qualifying the outer column,
+  guarded by a diverging-id failing-first test (the old guard test passed only by an id
+  coincidence and was strengthened).
+- Preview didn't mirror the submit-side lot-skip for anchorless crosses (both sides feed-only,
+  no rate row): the loss dialog could confirm a number the server then discarded. Preview now
+  shares the anchor predicate and reports `NO_RATE_ANCHOR`; the form shows "configure a rate"
+  instead of a realized figure.
+- Preview failure silently disarmed the loss dialog (now a visible warning; submit never
+  blocks); preview qty aligned to the exact submitted amount; unvoidable-buy error message
+  now names an adjustment blocker honestly; result-type declarations completed.
+
+**Accepted behavior, documented (no code change):**
+- **Epsilon stranding**: a lot left at 0 < remaining ≤ 0.005 is permanently depleted-by-epsilon
+  (invisible to positions/FIFO). Worst case 0.005 × unit cost per lot — negligible for fiat.
+- **Backdating is trusted**: a sell backdated before its lot's acquisition still consumes at
+  LOT basis and books profit on the backdated day; a later-inserted buy with an earlier
+  `transaction_time` takes FIFO precedence. Operator-driven `transaction_time` is trusted
+  system-wide; noted, not guarded.
+
+**OWNER DECISION NEEDED (blocking nothing, but a real fork):**
+- **A BUY becomes permanently unvoidable once an admin write-off (Q15 adjust) consumes from
+  its lot** — write-off settlements have no reversal path (adjustments tie to no transaction),
+  so `_assertExchangeLotsVoidable` blocks the buy's void forever, and a compensating `adjust(+)`
+  does NOT unblock it. Current behavior: block with an honest message (blocking beats
+  corrupting). Alternatives if ever needed: let the guard ignore ADJUSTMENT-settler rows, or
+  give adjustments a reversal flow. Decide only if this bites in practice.
+
+**Named follow-up (pre-existing, NOT this feature):**
+- **Web exchange-submit parity (F3)**: `POST /api/exchange/transactions` is admin-only (IPC
+  allows staff), returns HTTP 400 on failure (violates the 200-envelope rule), and
+  `createExchangeSchema` strips leg rates/profits so operator rate overrides never reach the
+  web server — on web, lot math runs on server-recomputed rates, so a web operator's edited
+  rate silently diverges from what's stamped. Predates lots (verbatim at 5ee10ce9^). Also:
+  `backendApi.ts` references a plan-doc "Appendix A" that does not exist. Deserves its own
+  ticket before the web exchange page is considered at parity.
 
 ## Open items for implementation time
 

@@ -19,6 +19,14 @@ export const previewLotSettlementSchema = z.object({
   qty: positiveDecimalSchema,
   /** USD proceeds per unit the operator's executed rate implies. */
   unitProceedsUsd: positiveDecimalSchema,
+  /**
+   * The other leg's currency (optional — adversarial review FIX 2). When
+   * provided, lets the service detect a CROSS pair (both sides non-USD)
+   * with no USD anchor and skip the preview instead of showing a
+   * realized-profit figure the server would then discard at submit. See
+   * `ExchangeLotService.previewSettlement`'s doc.
+   */
+  fromCurrency: currencyCodeSchema.optional(),
 });
 
 export type PreviewLotSettlementInput = z.infer<

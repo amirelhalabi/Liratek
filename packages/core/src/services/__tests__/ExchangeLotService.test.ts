@@ -206,6 +206,136 @@ describe("ExchangeLotService — previewSettlement", () => {
       error: "qty must be greater than 0",
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // FIX 2 (adversarial review) — cross pair with no USD anchor
+  // ---------------------------------------------------------------------------
+
+  it("skips the preview with reason NO_RATE_ANCHOR for a cross pair (both sides non-USD) where NEITHER side has a configured rate row", () => {
+    const repo = makeMockRepo();
+    const rateRepo = makeMockRateRepo();
+    (rateRepo.findByCode as jest.Mock).mockReturnValue(null); // neither XAF nor XOF configured
+    const service = new ExchangeLotService(repo, rateRepo);
+
+    const result = service.previewSettlement({
+      currencyCode: "XOF",
+      fromCurrency: "XAF",
+      qty: 900,
+      unitProceedsUsd: 1.1,
+    });
+
+    expect(result).toEqual({
+      success: true,
+      lotTracked: false,
+      reason: "NO_RATE_ANCHOR",
+    });
+    expect(repo.previewConsume).not.toHaveBeenCalled();
+  });
+
+  it("still previews normally when the cross pair HAS an anchor (fromCurrency's own rate row)", () => {
+    const repo = makeMockRepo();
+    const rateRepo = makeMockRateRepo();
+    (rateRepo.findByCode as jest.Mock).mockImplementation((code: string) =>
+      code === "EUR"
+        ? {
+            id: 1,
+            to_code: "EUR",
+            market_rate: 1.18,
+            buy_rate: 1.16,
+            sell_rate: 1.2,
+            is_stronger: -1,
+            updated_at: "2026-08-22 00:00:00",
+          }
+        : null,
+    );
+    (repo.previewConsume as jest.Mock).mockReturnValue({
+      settlements: [],
+      realizedProfitUsd: 250,
+      coveredQty: 500,
+      marketQty: 0,
+    });
+    const service = new ExchangeLotService(repo, rateRepo);
+
+    const result = service.previewSettlement({
+      currencyCode: "GBP", // no rate row of its own
+      fromCurrency: "EUR", // anchors via ITS rate row (_crossUsdNotional's from-side priority)
+      qty: 500,
+      unitProceedsUsd: 2.0,
+    });
+
+    expect(result.success).toBe(true);
+    expect((result as { lotTracked: boolean }).lotTracked).toBe(true);
+    expect(repo.previewConsume).toHaveBeenCalled();
+  });
+
+  it("treats fromCurrency === LBP as always anchored, regardless of any configured rate row", () => {
+    const repo = makeMockRepo();
+    const rateRepo = makeMockRateRepo();
+    (rateRepo.findByCode as jest.Mock).mockReturnValue(null); // no rate row for GBP either
+    (repo.previewConsume as jest.Mock).mockReturnValue({
+      settlements: [],
+      realizedProfitUsd: 10,
+      coveredQty: 100,
+      marketQty: 0,
+    });
+    const service = new ExchangeLotService(repo, rateRepo);
+
+    const result = service.previewSettlement({
+      currencyCode: "GBP",
+      fromCurrency: "LBP",
+      qty: 100,
+      unitProceedsUsd: 1.3,
+    });
+
+    expect(result.success).toBe(true);
+    expect((result as { lotTracked: boolean }).lotTracked).toBe(true);
+  });
+
+  it("a DIRECT trade (fromCurrency === USD) never triggers the anchor check, even with no rate row", () => {
+    const repo = makeMockRepo();
+    const rateRepo = makeMockRateRepo();
+    (rateRepo.findByCode as jest.Mock).mockReturnValue(null);
+    (repo.previewConsume as jest.Mock).mockReturnValue({
+      settlements: [],
+      realizedProfitUsd: 60,
+      coveredQty: 1000,
+      marketQty: 0,
+    });
+    const service = new ExchangeLotService(repo, rateRepo);
+
+    const result = service.previewSettlement({
+      currencyCode: "EUR",
+      fromCurrency: "USD",
+      qty: 1000,
+      unitProceedsUsd: 1.15,
+    });
+
+    expect(result.success).toBe(true);
+    expect((result as { lotTracked: boolean }).lotTracked).toBe(true);
+    expect(repo.previewConsume).toHaveBeenCalled();
+  });
+
+  it("omitting fromCurrency entirely (old caller) keeps the pre-FIX-2 behavior — never skips for a missing anchor", () => {
+    const repo = makeMockRepo();
+    const rateRepo = makeMockRateRepo();
+    (rateRepo.findByCode as jest.Mock).mockReturnValue(null);
+    (repo.previewConsume as jest.Mock).mockReturnValue({
+      settlements: [],
+      realizedProfitUsd: 5,
+      coveredQty: 50,
+      marketQty: 0,
+    });
+    const service = new ExchangeLotService(repo, rateRepo);
+
+    const result = service.previewSettlement({
+      currencyCode: "EUR",
+      qty: 50,
+      unitProceedsUsd: 1.1,
+    });
+
+    expect(result.success).toBe(true);
+    expect((result as { lotTracked: boolean }).lotTracked).toBe(true);
+  });
 });
 
 describe("ExchangeLotService — getPositions", () => {

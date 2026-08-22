@@ -83,7 +83,7 @@ type LotSettlementResult = {
 };
 
 type LotSettlementPreview =
-  | { lotTracked: false }
+  | { lotTracked: false; reason?: "NO_RATE_ANCHOR" }
   | {
       lotTracked: true;
       marketUnitCostUsd: number;
@@ -380,6 +380,11 @@ export default function Exchange() {
     null,
   );
   const [lotPreviewLoading, setLotPreviewLoading] = useState(false);
+  // FIX 3 (adversarial review) — true only when the preview call itself
+  // errored (network/IPC failure), never merely "not started yet" or "not
+  // applicable" (both of which also leave lotPreview at null). Drives a
+  // visible warning; never gates submit.
+  const [lotPreviewError, setLotPreviewError] = useState(false);
   const [showLossConfirm, setShowLossConfirm] = useState(false);
   // Q16 — bumped whenever history reloads so PositionsPanel refetches
   // without a second independent polling loop.
@@ -700,15 +705,25 @@ export default function Exchange() {
         setAmountOut(result.totalAmountOut.toFixed(decimals));
 
         // Sanity check: profit should not exceed 10% of input USD equivalent.
-        // EXCHANGE_LOT_SETTLEMENT.md Q10 — for a lot-tracked toCurrency this
-        // spread-based totalProfitUsd is no longer authoritative (realized
-        // profit comes from the FIFO preview instead, which CAN legitimately
-        // exceed 10% either way on a real rate move); the loss-confirm
-        // dialog on submit replaces this guard for that case rather than
-        // stacking on top of it. USD/LBP stays byte-identical.
-        if (isLotTrackedCurrency(toCurrency)) {
-          setProfitWarning(null);
-        } else {
+        // EXCHANGE_LOT_SETTLEMENT.md Q10 — for a GENUINELY lot-tracked sell
+        // (server confirms it consumed cost-basis lots) this spread-based
+        // totalProfitUsd is no longer authoritative (realized profit comes
+        // from the FIFO preview instead, which CAN legitimately exceed 10%
+        // either way on a real rate move); the loss-confirm dialog on submit
+        // replaces this guard for that case rather than stacking on top of
+        // it. USD/LBP stays byte-identical.
+        //
+        // Gating bug fix (adversarial review, FIX 2 item 3): whether the
+        // bypass applies can NOT be decided here, synchronously, off
+        // `isLotTrackedCurrency(toCurrency)` alone — a lot-tracked
+        // toCurrency with no USD rate anchor (NO_RATE_ANCHOR) keeps the OLD
+        // spread-based profit model server-side, for which this guard is
+        // exactly as meaningful as it always was. That decision needs the
+        // (debounced, async) lot-preview result, so it now lives in its own
+        // effect below that reacts to `lotPreview`/`lotPreviewLoading`
+        // settling — this branch only ever handles the plain, never-lot-
+        // tracked case (byte-identical to before).
+        if (!isLotTrackedCurrency(toCurrency)) {
           const inputUsd =
             fromCurrency === "USD"
               ? val
@@ -741,6 +756,70 @@ export default function Exchange() {
     recalculate();
   }, [recalculate]);
 
+  // EXCHANGE_LOT_SETTLEMENT.md Q10 gating-bug fix (adversarial review, FIX 2
+  // item 3) — the >10% sanity-guard bypass for a lot-tracked toCurrency,
+  // moved out of recalculate() into its own effect. recalculate() runs
+  // SYNCHRONOUSLY on amountIn/fromCurrency/toCurrency/rate changes and
+  // computes calcResult/effectiveResult BEFORE the debounced lot-preview
+  // effect (400ms) has resolved a fresh `lotPreview` for the new inputs —
+  // so `lotPreview` at that moment may be stale (from the previous input)
+  // or null. This effect instead reacts to `effectiveResult` (the base calc
+  // + any custom-rate overrides) and `lotPreview`/`lotPreviewLoading`
+  // settling, so it always judges the CURRENT inputs' actual preview
+  // outcome, never a stale one.
+  //
+  // - Not lot-tracked: nothing to do — recalculate() above already applies
+  //   the guard for this case, unaffected by any of this.
+  // - Lot-tracked, preview still in flight / not yet resolved: suppress the
+  //   warning (as before) rather than flashing something that immediately
+  //   changes once the preview settles.
+  // - Lot-tracked, preview genuinely tracked (server confirms it consumed
+  //   cost-basis lots): suppress permanently — FIFO-realized profit can
+  //   legitimately exceed 10% either way on a real rate move; the
+  //   loss-confirm dialog is the guard for this case.
+  // - Lot-tracked, preview resolved `lotTracked: false` (NO_RATE_ANCHOR —
+  //   the only way this case reaches here, since `toIsLotTracked` is
+  //   already true by definition): the server falls back to the plain
+  //   spread-based profit model, so apply the SAME 10% check non-lot-tracked
+  //   currencies get, off `effectiveResult.totalProfitUsd` — the total the
+  //   server will actually keep.
+  useEffect(() => {
+    if (!toIsLotTracked) return;
+    if (!effectiveResult) {
+      setProfitWarning(null);
+      return;
+    }
+    if (lotPreviewLoading || lotPreview === null) {
+      setProfitWarning(null);
+      return;
+    }
+    if (lotPreview.lotTracked) {
+      setProfitWarning(null);
+      return;
+    }
+    const val = amountIn;
+    const inputUsd =
+      fromCurrency === "USD"
+        ? val
+        : (effectiveResult.legs[0]?.amountOut ?? val / 89500);
+    const profitPct =
+      inputUsd > 0 ? (effectiveResult.totalProfitUsd / inputUsd) * 100 : 0;
+    if (profitPct > 10) {
+      setProfitWarning(
+        `Unusually high profit: $${effectiveResult.totalProfitUsd.toFixed(2)} USD (${profitPct.toFixed(1)}% of input). Please verify your rates.`,
+      );
+    } else {
+      setProfitWarning(null);
+    }
+  }, [
+    toIsLotTracked,
+    effectiveResult,
+    lotPreview,
+    lotPreviewLoading,
+    amountIn,
+    fromCurrency,
+  ]);
+
   // EXCHANGE_LOT_SETTLEMENT.md Q10 — debounced FIFO realized-profit preview
   // for a lot-tracked toCurrency. `unitProceedsUsd` is the executed USD
   // notional per unit disbursed: direct USD→X reuses amountIn/amountOut off
@@ -749,26 +828,47 @@ export default function Exchange() {
   // never new math. `lotPreviewLoading` flips true synchronously (before the
   // debounce fires) so a rushed submit click can be gated on it below.
   useEffect(() => {
-    const qty = consumingLeg?.amountOut;
+    // FIX 3 (adversarial review) — reset at the start of every attempt,
+    // including an early bail-out below, so a stale error from a previous
+    // (now-inapplicable) input never lingers.
+    setLotPreviewError(false);
+
+    // FIX 4 (adversarial review) — the guard and the FIFO cost-basis ratio
+    // still use the raw, unrounded leg amount (mathematically exact); only
+    // the `qty` actually SENT to the preview call is switched to the same
+    // rounded value `handleProcess` sends as `amountOut` (see below).
+    const rawQty = consumingLeg?.amountOut;
     const usdIn = consumingLeg?.amountIn;
 
-    if (!toCurrency || !toIsLotTracked || !qty || qty <= 0 || !usdIn) {
+    if (!toCurrency || !toIsLotTracked || !rawQty || rawQty <= 0 || !usdIn) {
       setLotPreview(null);
       setLotPreviewLoading(false);
       return;
     }
-    const unitProceedsUsd = usdIn / qty;
+    const unitProceedsUsd = usdIn / rawQty;
     if (!Number.isFinite(unitProceedsUsd) || unitProceedsUsd <= 0) {
       setLotPreview(null);
       setLotPreviewLoading(false);
       return;
     }
 
+    // FIX 4 — mirrors handleProcess's `out = parseFloat(amountOut)` exactly:
+    // consumingLeg.amountOut === effectiveResult.totalAmountOut === the raw
+    // value `amountOut` (string state) was rounded from, so this is the
+    // SAME number submit will actually send as amountOut/qty — never the
+    // raw unrounded leg amount, which the server never sees.
+    const previewQty = parseFloat(amountOut);
+
     let cancelled = false;
     setLotPreviewLoading(true);
     const timer = setTimeout(() => {
       api.exchangeLots
-        .preview({ currencyCode: toCurrency, qty, unitProceedsUsd })
+        .preview({
+          currencyCode: toCurrency,
+          qty: previewQty,
+          unitProceedsUsd,
+          fromCurrency,
+        })
         .then((preview) => {
           if (!cancelled) setLotPreview(preview);
         })
@@ -776,6 +876,7 @@ export default function Exchange() {
           if (!cancelled) {
             logger.error("Failed to preview exchange lot settlement", err);
             setLotPreview(null);
+            setLotPreviewError(true);
           }
         })
         .finally(() => {
@@ -793,6 +894,8 @@ export default function Exchange() {
     toIsLotTracked,
     consumingLeg?.amountOut,
     consumingLeg?.amountIn,
+    amountOut,
+    fromCurrency,
   ]);
 
   // Handler: user edits a leg rate
@@ -941,10 +1044,15 @@ export default function Exchange() {
 
   // "Customer Gets" hierarchy: the box matching the SELECTED target currency
   // is the actual payout; the other is only its conversion (prefixed "≈",
-  // dimmed). For an exotic target (EUR etc.) neither is the payout — both
-  // render as dimmed equivalents (the label already says "(X equivalent)").
+  // dimmed). For an exotic target (EUR etc.) neither USD nor LBP is the
+  // payout — both render as dimmed equivalents (the label already says
+  // "(X equivalent)") — and a THIRD box (below) renders the actual exotic
+  // quantity prominently (FIX 6, owner-reported 2026-08-23): without it the
+  // till operator had no way to see how many EUR (etc.) to hand the
+  // customer, only its USD/LBP value-equivalents.
   const usdIsPayout = toCurrency === "USD";
   const lbpIsPayout = toCurrency === "LBP";
+  const exoticIsPayout = !!toCurrency && !usdIsPayout && !lbpIsPayout;
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
@@ -996,6 +1104,7 @@ export default function Exchange() {
               </div>
 
               <button
+                data-testid="exchange-swap-button"
                 onClick={handleSwap}
                 className="mt-5 p-2 rounded-full bg-slate-700 text-slate-400 hover:bg-violet-600 hover:text-white transition-all"
               >
@@ -1028,6 +1137,18 @@ export default function Exchange() {
               <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 px-3 py-2 rounded border border-amber-500/20">
                 <AlertCircle size={14} className="shrink-0" />
                 {profitWarning}
+              </div>
+            )}
+
+            {/* FIX 3 (adversarial review) — the FIFO preview call itself
+              errored; distinct from "not yet started"/"not applicable"
+              (both leave lotPreview at null too). Never blocks or disables
+              submit — the server still computes profit authoritatively. */}
+            {toIsLotTracked && lotPreviewError && (
+              <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 px-3 py-2 rounded border border-amber-500/20">
+                <AlertCircle size={14} className="shrink-0" />
+                Realized-profit preview unavailable — profit will be computed
+                at submit
               </div>
             )}
 
@@ -1132,6 +1253,19 @@ export default function Exchange() {
                     )}
                   </div>
                 )}
+                {/* FIX 2 item 3 (adversarial review) — no cost-basis was
+                  actually calculated for this pair (no USD rate anchor), so
+                  the "FIFO vs cost basis" line above must NOT show; the
+                  profit figures above already fall back to the plain
+                  spread model, which is what the server will actually keep. */}
+                {toIsLotTracked &&
+                  lotPreview?.lotTracked === false &&
+                  lotPreview.reason === "NO_RATE_ANCHOR" && (
+                    <div className="text-[10px] text-amber-400 pt-1">
+                      Cost-basis tracking unavailable for this pair —
+                      configure a rate in Settings to enable it
+                    </div>
+                  )}
               </div>
             )}
 
@@ -1232,6 +1366,17 @@ export default function Exchange() {
                     )}
                   </div>
                 )}
+                {/* FIX 2 item 3 (adversarial review) — see cross-currency
+                  block above for the reasoning: no cost-basis was actually
+                  calculated for this pair, so no "FIFO vs cost basis" line. */}
+                {toIsLotTracked &&
+                  lotPreview?.lotTracked === false &&
+                  lotPreview.reason === "NO_RATE_ANCHOR" && (
+                    <div className="text-[10px] text-amber-400">
+                      Cost-basis tracking unavailable for this pair —
+                      configure a rate in Settings to enable it
+                    </div>
+                  )}
               </div>
             )}
 
@@ -1270,9 +1415,49 @@ export default function Exchange() {
                     </span>
                   )}
                 </label>
+                {/* FIX 6 (owner-reported 2026-08-23) — for an exotic target
+                  (neither USD nor LBP), show the ACTUAL payout quantity in
+                  that currency prominently, first. Before this, only the
+                  USD/LBP value-equivalents below existed, so the till
+                  operator had no way to see how many (e.g.) EUR to hand the
+                  customer. Styled identically to the USD box's own
+                  "prominent" treatment below (same classes, no new visual
+                  language) — USD-target and LBP-target rendering is
+                  untouched; this is purely an added third case. */}
+                {exoticIsPayout && (
+                  <div
+                    data-testid="exchange-exotic-payout"
+                    className="relative mb-2"
+                  >
+                    <input
+                      type="text"
+                      value={
+                        effectiveResult
+                          ? effectiveResult.totalAmountOut.toLocaleString(
+                              undefined,
+                              {
+                                minimumFractionDigits: getDecimals(toCurrency),
+                                maximumFractionDigits: getDecimals(toCurrency),
+                              },
+                            )
+                          : ""
+                      }
+                      readOnly
+                      className="w-full rounded-lg pl-4 pr-16 py-4 text-xl font-bold cursor-not-allowed bg-slate-800/80 border border-violet-500/50 text-white"
+                      placeholder="0.00"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-violet-300">
+                      {toCurrency}
+                    </span>
+                  </div>
+                )}
+
                 {/* The two values are EQUIVALENTS of one payout, not a sum —
                   the target-currency box is primary, the other is a dimmed
-                  "≈" conversion, and the "or" separator seals the reading. */}
+                  "≈" conversion, and the "or" separator seals the reading.
+                  For an exotic target (above), both boxes below render
+                  dimmed automatically (usdIsPayout/lbpIsPayout are both
+                  false) — no change needed to their own logic. */}
                 <div className="flex items-center gap-2">
                   {/* USD output */}
                   <div className="relative flex-1 min-w-0">

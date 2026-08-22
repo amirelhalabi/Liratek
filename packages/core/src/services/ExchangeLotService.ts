@@ -35,7 +35,10 @@ import {
   type RateRepository,
 } from "../repositories/RateRepository.js";
 import { isLotTrackedCurrency } from "../constants/index.js";
-import { marketRateToUsdPerUnit } from "../utils/lotMarketRate.js";
+import {
+  marketRateToUsdPerUnit,
+  crossPairHasUsdAnchor,
+} from "../utils/lotMarketRate.js";
 import { toErrorString } from "../utils/errors.js";
 import { exchangeLogger } from "../utils/logger.js";
 
@@ -47,6 +50,18 @@ export interface PreviewSettlementInput {
   currencyCode: string;
   qty: number;
   unitProceedsUsd: number;
+  /**
+   * The OTHER leg's currency (the acquire side; `currencyCode` above is
+   * always the consume/disburse side). Optional — omitted by any caller that
+   * predates this field, which keeps the old USD/LBP-only short-circuit
+   * behavior. When provided AND the pair is a CROSS (both sides non-USD)
+   * with no USD anchor (adversarial review, FIX 2), the preview mirrors
+   * `ExchangeRepository._crossUsdNotional`'s submit-side "skip lot tracking
+   * entirely" decision via the shared `crossPairHasUsdAnchor` predicate,
+   * instead of showing a realized-profit figure the server would then
+   * silently discard.
+   */
+  fromCurrency?: string;
 }
 
 /** The currency has no lot tracking (USD/LBP, Q1) — the form silently skips
@@ -54,6 +69,13 @@ export interface PreviewSettlementInput {
 export interface NotLotTrackedPreview {
   success: true;
   lotTracked: false;
+  /**
+   * Set ONLY for the FIX 2 cross-with-no-anchor case (never for the plain
+   * USD/LBP short-circuit above) — lets the caller show a specific
+   * "configure a rate to enable this" note instead of silently doing
+   * nothing.
+   */
+  reason?: "NO_RATE_ANCHOR";
 }
 
 export interface LotTrackedPreview extends FifoConsumeResult {
@@ -150,6 +172,24 @@ export class ExchangeLotService {
   previewSettlement(input: PreviewSettlementInput): PreviewSettlementResult {
     if (!isLotTrackedCurrency(input.currencyCode)) {
       return { success: true, lotTracked: false };
+    }
+
+    // FIX 2 (adversarial review, EXCHANGE_LOT_SETTLEMENT.md): a CROSS pair
+    // (both sides non-USD) with no USD anchor skips lot tracking entirely at
+    // submit (`ExchangeRepository._crossUsdNotional` returns `null` ->
+    // `touched: false`, warn-and-continue). `currencyCode` is already known
+    // non-USD/non-LBP here (the guard above), so this pair is a cross
+    // whenever `fromCurrency` is also not USD.
+    if (
+      input.fromCurrency !== undefined &&
+      input.fromCurrency !== "USD" &&
+      !crossPairHasUsdAnchor(
+        input.fromCurrency,
+        input.currencyCode,
+        (code) => this.rateRepo.findByCode(code) !== null,
+      )
+    ) {
+      return { success: true, lotTracked: false, reason: "NO_RATE_ANCHOR" };
     }
 
     try {
