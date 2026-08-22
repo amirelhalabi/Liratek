@@ -27,6 +27,19 @@
  */
 
 import { render, screen, within } from "@testing-library/react";
+
+// EXCHANGE_LOT_SETTLEMENT.md Phase 5 — HistoryModal now calls useApi() (the
+// inline metadata edit + the lot-breakdown expansion fetch), which throws
+// without an ApiProvider in the tree. This suite never exercises either
+// path, so a minimal stub is enough.
+jest.mock("@liratek/ui", () => ({
+  ...jest.requireActual("@liratek/ui"),
+  useApi: () => ({
+    updateExchangeMetadata: jest.fn(),
+    exchangeLots: { getBreakdown: jest.fn() },
+  }),
+}));
+
 import { HistoryModal } from "../HistoryModal";
 
 // This table has no Client column — rows are distinguished by their unique

@@ -91,6 +91,11 @@ export class ElectronApiAdapter implements ApiAdapter {
   getExchangeHistory = (limit?: number) => api.getExchangeHistory(limit);
   addExchangeTransaction = (payload: any) =>
     api.addExchangeTransaction(payload);
+  updateExchangeMetadata = (payload: {
+    id: number;
+    client_name?: string;
+    note?: string;
+  }) => api.updateExchangeMetadata(payload);
 
   // ---------------------------------------------------------------------------
   // Expenses

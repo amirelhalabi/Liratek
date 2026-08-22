@@ -886,6 +886,26 @@ export async function addExchangeTransaction(payload: any) {
   );
 }
 
+// Edit non-financial metadata (client name / note) on an exchange row — the
+// History modal's inline edit (EXCHANGE_LOT_SETTLEMENT.md Phase 5). Was the
+// last raw, unguarded `window.api.exchange.updateMetadata()` call in the
+// Exchange feature (rule 19a) — no REST twin existed, so editing a history
+// row's metadata silently failed in a real browser.
+export async function updateExchangeMetadata(payload: {
+  id: number;
+  client_name?: string;
+  note?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().exchange.updateMetadata(payload),
+    async () =>
+      requestJson<{ success: boolean; data?: any; error?: string }>(
+        `/api/exchange/update-metadata`,
+        { method: "POST", body: payload },
+      ),
+  );
+}
+
 // Expenses
 export async function getTodayExpenses() {
   if (isElectron()) {

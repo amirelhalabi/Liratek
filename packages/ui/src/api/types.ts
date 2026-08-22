@@ -571,9 +571,26 @@ export type ApiAdapter = {
   getExchangeRates: () => Promise<any[]>;
   getCurrenciesList: () => Promise<any[]>;
   getExchangeHistory: (limit?: number) => Promise<any[]>;
-  addExchangeTransaction: (
-    payload: any,
-  ) => Promise<ApiResult & { id?: number }>;
+  addExchangeTransaction: (payload: any) => Promise<
+    ApiResult & {
+      id?: number;
+      /** EXCHANGE_LOT_SETTLEMENT.md Phase 3/5 — server-authoritative realized
+       *  profit from the FIFO lot engine, present only when the toCurrency
+       *  leg consumed lot(s). The frontend MUST prefer this over its own
+       *  pre-submit preview when linking into a session
+       *  (FEATURE_GUIDE §13 item 9). */
+      realizedProfitUsd?: number;
+      lotCoveredQty?: number;
+      lotMarketQty?: number;
+    }
+  >;
+  /** Edit non-financial metadata (client name / note) on an
+   *  exchange_transactions row (IPC: exchange.updateMetadata). */
+  updateExchangeMetadata: (payload: {
+    id: number;
+    client_name?: string;
+    note?: string;
+  }) => Promise<{ success: boolean; data?: any; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Expenses

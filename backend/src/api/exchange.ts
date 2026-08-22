@@ -1,5 +1,10 @@
 import express from "express";
-import { authenticateJWT, requireRole } from "../middleware/auth.js";
+import { z } from "zod";
+import {
+  authenticateJWT,
+  requireRole,
+  type AuthRequest,
+} from "../middleware/auth.js";
 import { validateRequest, validateQuery } from "../middleware/validation.js";
 import {
   getExchangeService,
@@ -11,6 +16,19 @@ import {
 import { auditRest } from "../middleware/audit.js";
 
 const router = express.Router();
+
+// Local schema (EXCHANGE_LOT_SETTLEMENT.md Phase 5 / rule 19b) — normally a
+// write-path schema like this would live in packages/core/src/validators and
+// be shared with the IPC handler (rule 14), but `exchange:update-metadata`'s
+// IPC handler (electron-app/handlers/exchangeHandlers.ts) has NO Zod
+// validation of its own either, and packages/core is out of scope for this
+// change (a concurrent agent owns ExchangeService.ts / the rest of the core
+// package this ticket). Kept local rather than widening that scope.
+const updateExchangeMetadataSchema = z.object({
+  id: z.number().int().positive(),
+  client_name: z.string().max(255).optional(),
+  note: z.string().max(500).optional(),
+});
 
 // All exchange routes require auth
 router.use(authenticateJWT);
@@ -59,6 +77,50 @@ router.post(
       });
     }
     res.status(result.success ? 200 : 400).json(result);
+  },
+);
+
+// POST /api/exchange/update-metadata (admin+staff) — edit non-financial
+// metadata (client name / note) on an exchange_transactions row. Mirrors the
+// `exchange:update-metadata` IPC handler's envelope reshaping exactly:
+// { success: true, data: entity } / { success: false, error }. Closes a
+// rule-19 REST gap — HistoryModal.tsx previously called
+// window.api.exchange.updateMetadata directly with no web-mode route at all.
+router.post(
+  "/update-metadata",
+  requireRole(["admin", "staff"]),
+  validateRequest(updateExchangeMetadataSchema),
+  (req, res) => {
+    const service = getExchangeService();
+    // Never trust a client-sent actor — mirrors the IPC handler's
+    // server-side username resolution (which looks the user up by
+    // auth.userId; the JWT already carries the resolved username).
+    const editedBy = (req as AuthRequest).user!.username;
+    const result = service.updateExchangeMetadata(
+      req.body.id,
+      { client_name: req.body.client_name, note: req.body.note },
+      editedBy,
+    );
+    if (
+      result.success &&
+      result.oldValues &&
+      Object.keys(result.oldValues).length > 0
+    ) {
+      // Mirrors exchangeHandlers.ts's exchange:update-metadata audit.
+      auditRest(req, {
+        action: "edit_metadata",
+        entity_type: "exchange_transaction",
+        entity_id: String(req.body.id),
+        summary: `Edited exchange #${req.body.id} metadata`,
+        old_values: result.oldValues,
+        new_values: req.body,
+      });
+    }
+    res.json(
+      result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error },
+    );
   },
 );
 

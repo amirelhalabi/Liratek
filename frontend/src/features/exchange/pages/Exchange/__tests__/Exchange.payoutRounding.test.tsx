@@ -30,6 +30,10 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 // (the reporter's own repro number).
 jest.mock("@liratek/core", () => ({
   TAKE_USD: -1,
+  // EXCHANGE_LOT_SETTLEMENT.md Q1 — this suite exercises EUR→USD (toCurrency
+  // USD is exempt), so the lot-preview path is never reached, but
+  // Exchange/index.tsx calls this unconditionally every render.
+  isLotTrackedCurrency: (code: string) => !["USD", "LBP"].includes(code),
   convertFromUSD: (usd: number) => ({
     amountOut: usd * 1.16,
     rate: 1.16,
@@ -180,6 +184,13 @@ jest.mock("@/shared/components/TransactionTimeOverride", () => ({
 
 jest.mock("../components/HistoryModal", () => ({
   HistoryModal: () => null,
+}));
+
+// The Exchange page now always renders PositionsPanel (Q16) — stubbed here
+// since this suite doesn't exercise the lot-positions read and the page's
+// `useApi()` mock above doesn't stub `exchangeLots` at all.
+jest.mock("../components/PositionsPanel", () => ({
+  PositionsPanel: () => null,
 }));
 
 jest.mock("@/utils/logger", () => ({

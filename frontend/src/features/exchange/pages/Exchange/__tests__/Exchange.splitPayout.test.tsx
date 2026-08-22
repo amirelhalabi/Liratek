@@ -23,6 +23,11 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 // imports (CurrencyRate, CurrencyExchangeResult) are erased at compile time.
 jest.mock("@liratek/core", () => ({
   TAKE_USD: -1,
+  // EXCHANGE_LOT_SETTLEMENT.md Q1 — this suite only ever exercises USD/LBP,
+  // both exempt from lot tracking; Exchange/index.tsx calls this
+  // unconditionally every render, so it must exist even though the
+  // lot-preview path is never reached here.
+  isLotTrackedCurrency: (code: string) => !["USD", "LBP"].includes(code),
   convertFromUSD: (usd: number) => ({
     amountOut: usd * 89_000,
     rate: 89_000,
@@ -205,6 +210,13 @@ jest.mock("@/shared/components/TransactionTimeOverride", () => ({
 
 jest.mock("../components/HistoryModal", () => ({
   HistoryModal: () => null,
+}));
+
+// The Exchange page now always renders PositionsPanel (Q16) — stubbed here
+// since this suite doesn't exercise the lot-positions read and the page's
+// `useApi()` mock above doesn't stub `exchangeLots` at all.
+jest.mock("../components/PositionsPanel", () => ({
+  PositionsPanel: () => null,
 }));
 
 jest.mock("@/utils/logger", () => ({

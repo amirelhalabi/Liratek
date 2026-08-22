@@ -15,6 +15,7 @@ import {
   useApi,
   DecimalInput,
   roundForCurrency,
+  ConfirmModal,
   type PaymentLine,
 } from "@liratek/ui";
 import { PaymentSheet } from "@/features/recharge/components/PaymentSheet";
@@ -26,11 +27,13 @@ import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { HistoryModal } from "./components/HistoryModal";
 import { LiveRatesPanel } from "./components/LiveRatesPanel";
 import { YourRatesModal } from "./components/YourRatesModal";
+import { PositionsPanel } from "./components/PositionsPanel";
 import type { ExchangeRate } from "@/utils/currencyUtils";
 import {
   calculateExchange,
   convertFromUSD,
   TAKE_USD,
+  isLotTrackedCurrency,
   type CurrencyRate,
   type CurrencyExchangeResult,
 } from "@liratek/core";
@@ -64,6 +67,31 @@ type ExchangeTx = {
   amount_in: string | number;
   amount_out: string | number;
 };
+
+// EXCHANGE_LOT_SETTLEMENT.md Phase 5 — mirrors the ApiAdapter's inline
+// `exchangeLots.preview` return shape (packages/ui/src/api/types.ts) verbatim;
+// kept as a local type since that shape isn't exported there as a standalone
+// named type.
+type LotSettlementResult = {
+  id: number | null;
+  lot_id: number | null;
+  basis_source: "LOT" | "MARKET";
+  qty: number;
+  unit_cost_usd: number;
+  unit_proceeds_usd: number;
+  profit_usd: number;
+};
+
+type LotSettlementPreview =
+  | { lotTracked: false }
+  | {
+      lotTracked: true;
+      marketUnitCostUsd: number;
+      settlements: LotSettlementResult[];
+      realizedProfitUsd: number;
+      coveredQty: number;
+      marketQty: number;
+    };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -344,6 +372,27 @@ export default function Exchange() {
     [leg: number]: boolean;
   }>({});
 
+  // EXCHANGE_LOT_SETTLEMENT.md Q8/Q10 — debounced FIFO realized-profit
+  // preview for a lot-tracked (exotic) toCurrency, and the loss-confirm
+  // dialog it feeds. Any operator may confirm a loss — never a hard block;
+  // the >10% sanity guard below is bypassed for this case instead (recalculate()).
+  const [lotPreview, setLotPreview] = useState<LotSettlementPreview | null>(
+    null,
+  );
+  const [lotPreviewLoading, setLotPreviewLoading] = useState(false);
+  const [showLossConfirm, setShowLossConfirm] = useState(false);
+  // Q16 — bumped whenever history reloads so PositionsPanel refetches
+  // without a second independent polling loop.
+  const [positionsRefreshKey, setPositionsRefreshKey] = useState(0);
+  // Preset by PositionsPanel's per-row "view" action (Q16).
+  const [historyCurrencyFilter, setHistoryCurrencyFilter] = useState<
+    string | undefined
+  >();
+
+  // Lot policy (Q1) — USD/LBP are exempt; every other currency is lot-tracked.
+  const fromIsLotTracked = !!fromCurrency && isLotTrackedCurrency(fromCurrency);
+  const toIsLotTracked = !!toCurrency && isLotTrackedCurrency(toCurrency);
+
   // Set initial currencies once loaded
   useEffect(() => {
     if (currencies.length >= 2 && !fromCurrency && !toCurrency) {
@@ -522,6 +571,40 @@ export default function Exchange() {
   // Effective result (base calc + any custom rate overrides)
   const effectiveResult = calcResult ? applyCustomRates(calcResult) : null;
 
+  // The leg that disburses toCurrency — for a direct exchange this is the
+  // sole leg; for cross-currency (via USD) it's always leg2 (USD→toCurrency
+  // structurally, since isCrossCurrency requires both sides ≠ USD). Reused
+  // by the lot-preview effect below AND the profit-display overrides in the
+  // render (Q7/Q8/Q10) — never invent a second way to find "the leg that
+  // sells toCurrency".
+  const consumingLeg = effectiveResult
+    ? effectiveResult.legs[effectiveResult.legs.length - 1]
+    : null;
+
+  // Q8 — a buy leg (acquire, from-side exotic) books ZERO profit until sold;
+  // a consume leg (to-side exotic) books the FIFO-realized profit from the
+  // preview below, replacing the local spread estimate entirely. Neither
+  // override applies to a USD/LBP leg — byte-identical to the pre-lot
+  // behavior for those (Q1).
+  const displayLegProfits = useMemo<number[]>(() => {
+    if (!effectiveResult) return [];
+    const lastIdx = effectiveResult.legs.length - 1;
+    return effectiveResult.legs.map((leg, i) => {
+      if (i === 0 && fromIsLotTracked) return 0;
+      if (i === lastIdx && toIsLotTracked) {
+        return lotPreview?.lotTracked
+          ? lotPreview.realizedProfitUsd
+          : leg.profitUsd;
+      }
+      return leg.profitUsd;
+    });
+  }, [effectiveResult, fromIsLotTracked, toIsLotTracked, lotPreview]);
+
+  const displayTotalProfitUsd = useMemo(
+    () => displayLegProfits.reduce((sum, p) => sum + p, 0),
+    [displayLegProfits],
+  );
+
   /**
    * Dual-currency view of what the customer receives.
    * Surfaces the output amount in BOTH USD and LBP simultaneously, mirroring
@@ -616,19 +699,29 @@ export default function Exchange() {
         const decimals = getDecimals(toCurrency);
         setAmountOut(result.totalAmountOut.toFixed(decimals));
 
-        // Sanity check: profit should not exceed 10% of input USD equivalent
-        const inputUsd =
-          fromCurrency === "USD"
-            ? val
-            : (result.legs[0]?.amountOut ?? val / 89500);
-        const profitPct =
-          inputUsd > 0 ? (result.totalProfitUsd / inputUsd) * 100 : 0;
-        if (profitPct > 10) {
-          setProfitWarning(
-            `Unusually high profit: $${result.totalProfitUsd.toFixed(2)} USD (${profitPct.toFixed(1)}% of input). Please verify your rates.`,
-          );
-        } else {
+        // Sanity check: profit should not exceed 10% of input USD equivalent.
+        // EXCHANGE_LOT_SETTLEMENT.md Q10 — for a lot-tracked toCurrency this
+        // spread-based totalProfitUsd is no longer authoritative (realized
+        // profit comes from the FIFO preview instead, which CAN legitimately
+        // exceed 10% either way on a real rate move); the loss-confirm
+        // dialog on submit replaces this guard for that case rather than
+        // stacking on top of it. USD/LBP stays byte-identical.
+        if (isLotTrackedCurrency(toCurrency)) {
           setProfitWarning(null);
+        } else {
+          const inputUsd =
+            fromCurrency === "USD"
+              ? val
+              : (result.legs[0]?.amountOut ?? val / 89500);
+          const profitPct =
+            inputUsd > 0 ? (result.totalProfitUsd / inputUsd) * 100 : 0;
+          if (profitPct > 10) {
+            setProfitWarning(
+              `Unusually high profit: $${result.totalProfitUsd.toFixed(2)} USD (${profitPct.toFixed(1)}% of input). Please verify your rates.`,
+            );
+          } else {
+            setProfitWarning(null);
+          }
         }
       } else {
         setCalcResult(null);
@@ -647,6 +740,60 @@ export default function Exchange() {
   useEffect(() => {
     recalculate();
   }, [recalculate]);
+
+  // EXCHANGE_LOT_SETTLEMENT.md Q10 — debounced FIFO realized-profit preview
+  // for a lot-tracked toCurrency. `unitProceedsUsd` is the executed USD
+  // notional per unit disbursed: direct USD→X reuses amountIn/amountOut off
+  // the sole leg; cross-currency (via USD) reuses the SAME ratio off the
+  // final leg (always USD→toCurrency structurally — see consumingLeg above),
+  // never new math. `lotPreviewLoading` flips true synchronously (before the
+  // debounce fires) so a rushed submit click can be gated on it below.
+  useEffect(() => {
+    const qty = consumingLeg?.amountOut;
+    const usdIn = consumingLeg?.amountIn;
+
+    if (!toCurrency || !toIsLotTracked || !qty || qty <= 0 || !usdIn) {
+      setLotPreview(null);
+      setLotPreviewLoading(false);
+      return;
+    }
+    const unitProceedsUsd = usdIn / qty;
+    if (!Number.isFinite(unitProceedsUsd) || unitProceedsUsd <= 0) {
+      setLotPreview(null);
+      setLotPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLotPreviewLoading(true);
+    const timer = setTimeout(() => {
+      api.exchangeLots
+        .preview({ currencyCode: toCurrency, qty, unitProceedsUsd })
+        .then((preview) => {
+          if (!cancelled) setLotPreview(preview);
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            logger.error("Failed to preview exchange lot settlement", err);
+            setLotPreview(null);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLotPreviewLoading(false);
+        });
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    toCurrency,
+    toIsLotTracked,
+    consumingLeg?.amountOut,
+    consumingLeg?.amountIn,
+  ]);
 
   // Handler: user edits a leg rate
   const handleRateChange = (legIndex: number, value: string) => {
@@ -670,6 +817,10 @@ export default function Exchange() {
       setTransactions(history);
     } catch (error) {
       logger.error("Failed to load history:", error);
+    } finally {
+      // Q16 — keep the open-positions panel in sync with newly created or
+      // settled lots whenever history reloads (no second polling loop).
+      setPositionsRefreshKey((k) => k + 1);
     }
   };
 
@@ -745,7 +896,11 @@ export default function Exchange() {
                 fromCurrency === "USD" ? inp : toCurrency === "USD" ? out : 0,
               amountLbp:
                 fromCurrency === "LBP" ? inp : toCurrency === "LBP" ? out : 0,
-              profitUsd: effectiveResult.totalProfitUsd,
+              // EXCHANGE_LOT_SETTLEMENT.md item 9 — the server-authoritative
+              // realized profit (present whenever the toCurrency leg
+              // consumed lot(s)) MUST win over the client's pre-submit
+              // preview/spread estimate.
+              profitUsd: result.realizedProfitUsd ?? effectiveResult.totalProfitUsd,
             });
           } catch (err) {
             logger.error("Failed to link exchange to session:", err);
@@ -760,6 +915,7 @@ export default function Exchange() {
         setAmountOut("");
         setClientName("");
         setCalcResult(null);
+        setLotPreview(null);
         setTransactionTime(undefined);
         setShowPayoutSheet(false);
         setPayoutLines([]);
@@ -821,7 +977,8 @@ export default function Exchange() {
       />
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="w-full max-w-6xl mx-auto flex flex-col lg:flex-row lg:items-stretch gap-6">
+        <div className="w-full max-w-6xl mx-auto flex flex-col gap-6">
+        <div className="w-full flex flex-col lg:flex-row lg:items-stretch gap-6">
           {/* ── Exchange Calculator ── */}
           <div className="w-full lg:flex-1 max-w-2xl mx-auto lg:mx-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col gap-4">
             {/* Currency Selectors */}
@@ -882,55 +1039,99 @@ export default function Exchange() {
                   <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
                     ⚡ Cross-Currency via USD
                   </span>
-                  <span className="text-xs text-emerald-400 font-semibold whitespace-nowrap">
-                    Total +${effectiveResult.totalProfitUsd.toFixed(4)}
+                  <span
+                    className={`text-xs font-semibold whitespace-nowrap ${
+                      displayTotalProfitUsd >= 0
+                        ? "text-emerald-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    Total {displayTotalProfitUsd >= 0 ? "+" : ""}$
+                    {displayTotalProfitUsd.toFixed(4)}
                   </span>
                 </div>
-                {effectiveResult.legs.map((leg, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 text-xs bg-slate-800/50 rounded px-2 py-1.5"
-                  >
-                    <span className="w-4 h-4 rounded-full bg-slate-700 text-slate-400 text-[10px] font-bold flex items-center justify-center shrink-0">
-                      {i + 1}
-                    </span>
-                    <span className="font-mono text-slate-300 whitespace-nowrap">
-                      {formatAmount(leg.amountIn, leg.fromCurrency)}
-                      <span className="text-slate-500"> → </span>
-                      {formatAmount(leg.amountOut, leg.toCurrency)}
-                    </span>
-                    <input
-                      type="number"
-                      value={customRates[i] ?? leg.rate}
-                      onChange={(e) => handleRateChange(i, e.target.value)}
-                      title={`Rate (${legRateUnit(leg.fromCurrency, leg.toCurrency, effectiveRates)})`}
-                      className={`flex-1 min-w-[70px] bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
-                        rateOverridden[i]
-                          ? "border-amber-500/60 bg-amber-500/10"
-                          : "border-slate-600 focus:border-violet-500"
-                      }`}
-                    />
-                    <span className="text-[10px] text-slate-500 shrink-0">
-                      {legRateUnit(
-                        leg.fromCurrency,
-                        leg.toCurrency,
-                        effectiveRates,
+                {effectiveResult.legs.map((leg, i) => {
+                  const isAcquireLeg = i === 0 && fromIsLotTracked;
+                  const isConsumeLeg =
+                    i === effectiveResult.legs.length - 1 && toIsLotTracked;
+                  const legProfit = displayLegProfits[i] ?? leg.profitUsd;
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 text-xs bg-slate-800/50 rounded px-2 py-1.5"
+                    >
+                      <span className="w-4 h-4 rounded-full bg-slate-700 text-slate-400 text-[10px] font-bold flex items-center justify-center shrink-0">
+                        {i + 1}
+                      </span>
+                      <span className="font-mono text-slate-300 whitespace-nowrap">
+                        {formatAmount(leg.amountIn, leg.fromCurrency)}
+                        <span className="text-slate-500"> → </span>
+                        {formatAmount(leg.amountOut, leg.toCurrency)}
+                      </span>
+                      <input
+                        type="number"
+                        value={customRates[i] ?? leg.rate}
+                        onChange={(e) => handleRateChange(i, e.target.value)}
+                        title={`Rate (${legRateUnit(leg.fromCurrency, leg.toCurrency, effectiveRates)})`}
+                        className={`flex-1 min-w-[70px] bg-slate-700 border rounded px-2 py-1 text-xs font-mono text-white focus:outline-none transition-colors ${
+                          rateOverridden[i]
+                            ? "border-amber-500/60 bg-amber-500/10"
+                            : "border-slate-600 focus:border-violet-500"
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-500 shrink-0">
+                        {legRateUnit(
+                          leg.fromCurrency,
+                          leg.toCurrency,
+                          effectiveRates,
+                        )}
+                      </span>
+                      {rateOverridden[i] && (
+                        <button
+                          onClick={() => resetRate(i)}
+                          className="text-xs text-slate-500 hover:text-white transition-colors shrink-0"
+                          title="Reset to default rate"
+                        >
+                          ↺
+                        </button>
                       )}
-                    </span>
-                    {rateOverridden[i] && (
-                      <button
-                        onClick={() => resetRate(i)}
-                        className="text-xs text-slate-500 hover:text-white transition-colors shrink-0"
-                        title="Reset to default rate"
-                      >
-                        ↺
-                      </button>
+                      {isAcquireLeg ? (
+                        <span
+                          className="text-[10px] text-slate-500 italic whitespace-nowrap shrink-0"
+                          title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold."
+                        >
+                          Buy · books at sale
+                        </span>
+                      ) : isConsumeLeg && lotPreviewLoading && !lotPreview ? (
+                        <span className="text-[10px] text-slate-500 whitespace-nowrap shrink-0">
+                          Calculating…
+                        </span>
+                      ) : (
+                        <span
+                          className={`font-semibold whitespace-nowrap shrink-0 ${
+                            legProfit >= 0 ? "text-emerald-400" : "text-red-400"
+                          }`}
+                        >
+                          {legProfit >= 0 ? "+" : ""}${legProfit.toFixed(4)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                {toIsLotTracked && lotPreview?.lotTracked && (
+                  <div className="text-[10px] text-slate-500 pt-1">
+                    FIFO vs cost basis
+                    {lotPreview.marketQty > 0 && (
+                      <span className="text-amber-400">
+                        {" "}
+                        · {lotPreview.marketQty.toLocaleString(undefined, {
+                          maximumFractionDigits: 4,
+                        })}{" "}
+                        {toCurrency} uncovered — settled at today's market rate
+                      </span>
                     )}
-                    <span className="text-emerald-400 font-semibold whitespace-nowrap shrink-0">
-                      +${leg.profitUsd.toFixed(4)}
-                    </span>
                   </div>
-                ))}
+                )}
               </div>
             )}
 
@@ -975,18 +1176,62 @@ export default function Exchange() {
                   )}
                 </div>
                 <div className="flex justify-between text-xs">
-                  <span className="text-slate-400">
-                    Profit:{" "}
-                    <span className="text-emerald-400 font-bold">
-                      ${effectiveResult.totalProfitUsd.toFixed(4)} USD
+                  {fromIsLotTracked ? (
+                    <span
+                      className="text-slate-500 italic"
+                      title="EXCHANGE_LOT_SETTLEMENT.md Q8 — a buy books zero profit; realized profit is stamped when this lot is later sold."
+                    >
+                      Buy — profit books when this {fromCurrency} is later
+                      sold (cost-basis lot)
                     </span>
-                  </span>
+                  ) : toIsLotTracked ? (
+                    lotPreviewLoading && !lotPreview ? (
+                      <span className="text-slate-500">
+                        Calculating realized profit…
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">
+                        Realized profit:{" "}
+                        <span
+                          className={`font-bold ${
+                            displayTotalProfitUsd >= 0
+                              ? "text-emerald-400"
+                              : "text-red-400"
+                          }`}
+                        >
+                          {displayTotalProfitUsd >= 0 ? "" : "-"}$
+                          {Math.abs(displayTotalProfitUsd).toFixed(4)} USD
+                        </span>
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-slate-400">
+                      Profit:{" "}
+                      <span className="text-emerald-400 font-bold">
+                        ${effectiveResult.totalProfitUsd.toFixed(4)} USD
+                      </span>
+                    </span>
+                  )}
                   {rateOverridden[0] && (
                     <span className="text-amber-400 text-xs">
                       ⚡ Custom rate
                     </span>
                   )}
                 </div>
+                {toIsLotTracked && lotPreview?.lotTracked && (
+                  <div className="text-[10px] text-slate-500">
+                    FIFO vs cost basis
+                    {lotPreview.marketQty > 0 && (
+                      <span className="text-amber-400">
+                        {" "}
+                        · {lotPreview.marketQty.toLocaleString(undefined, {
+                          maximumFractionDigits: 4,
+                        })}{" "}
+                        {toCurrency} uncovered — settled at today's market rate
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1157,6 +1402,14 @@ export default function Exchange() {
                   setPayoutTenderRate(undefined);
                   setPayoutSheetKey((k) => k + 1);
                   setShowPayoutSheet(true);
+                } else if (
+                  toIsLotTracked &&
+                  lotPreview?.lotTracked &&
+                  lotPreview.realizedProfitUsd < 0
+                ) {
+                  // Q10 — a legitimate loss is never a hard block; any
+                  // operator confirms before it submits.
+                  setShowLossConfirm(true);
                 } else {
                   void handleProcess();
                 }
@@ -1167,7 +1420,8 @@ export default function Exchange() {
                 !!profitWarning ||
                 isSubmitting ||
                 isSubmittingPartner ||
-                (forPartner && !selectedPartnerId)
+                (forPartner && !selectedPartnerId) ||
+                (toIsLotTracked && lotPreviewLoading)
               }
               className="w-full py-4 mt-2 rounded-xl font-bold text-lg bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -1198,6 +1452,18 @@ export default function Exchange() {
               className="w-full max-h-[28rem] lg:max-h-none lg:absolute lg:inset-0"
             />
           </div>
+        </div>
+
+        {/* Open Positions (Q16) — one row per lot-tracked currency the shop
+            currently holds; links into the History modal pre-filtered to
+            that currency. */}
+        <PositionsPanel
+          refreshKey={positionsRefreshKey}
+          onViewCurrency={(code) => {
+            setHistoryCurrencyFilter(code);
+            setShowHistoryModal(true);
+          }}
+        />
         </div>
       </div>
 
@@ -1270,8 +1536,33 @@ export default function Exchange() {
         <HistoryModal
           transactions={transactions}
           loading={false}
-          onClose={() => setShowHistoryModal(false)}
+          onClose={() => {
+            setShowHistoryModal(false);
+            setHistoryCurrencyFilter(undefined);
+          }}
           onRefresh={loadHistory}
+          {...(historyCurrencyFilter !== undefined
+            ? { initialCurrencyFilter: historyCurrencyFilter }
+            : {})}
+        />
+      )}
+
+      {/* Loss confirm (Q10) — a lot-tracked toCurrency sell whose FIFO
+          preview realizes a loss is never hard-blocked; any operator
+          confirms before it submits. */}
+      {showLossConfirm && lotPreview?.lotTracked && (
+        <ConfirmModal
+          isOpen={showLossConfirm}
+          title="Confirm Loss"
+          message={`This sale realizes -$${Math.abs(lotPreview.realizedProfitUsd).toFixed(2)} against acquisition cost — proceed?`}
+          confirmLabel="Proceed Anyway"
+          cancelLabel="Cancel"
+          variant="warning"
+          onConfirm={() => {
+            setShowLossConfirm(false);
+            void handleProcess();
+          }}
+          onCancel={() => setShowLossConfirm(false)}
         />
       )}
     </div>
