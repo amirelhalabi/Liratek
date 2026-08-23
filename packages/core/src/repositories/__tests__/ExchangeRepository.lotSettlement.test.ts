@@ -19,6 +19,9 @@ import {
   initFixedTenantContext,
   resetTenantContext,
 } from "../../db/tenantContext";
+import { exchangeSubmitSchema } from "../../validators/exchange";
+import { ExchangeService } from "../../services/ExchangeService";
+import type { CreateExchangeData } from "../ExchangeRepository";
 
 // ─── In-memory schema ─────────────────────────────────────────────────────────
 
@@ -971,6 +974,121 @@ describe("ExchangeRepository.createTransaction() — lot settlement wiring (EXCH
           "refunded_at",
         ].sort(),
       );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Schema-validated submit path (EXCHANGE_LOT_SETTLEMENT.md "NEW named
+  // follow-up", owner decision 2026-08-23: ENABLE backdating, no guard).
+  //
+  // Every real caller goes through `exchangeSubmitSchema.safeParse()` first —
+  // the IPC handler (`exchange:add-transaction` -> `validatePayload`) and the
+  // REST route (`POST /api/exchange/transactions` -> `validateRequest`) both
+  // validate against this ONE schema before ever reaching
+  // `ExchangeService.addDirectTransaction` / `ExchangeRepository.createTransaction`.
+  // Every other test in this file calls `repo.createTransaction()` directly
+  // with an already-typed `CreateExchangeData` object, which can never catch
+  // a field the SCHEMA silently drops on the way in. This block mirrors the
+  // transport boundary exactly: raw payload -> schema safeParse -> service.
+  // ---------------------------------------------------------------------------
+
+  describe("schema-validated submit path — transaction_time backdating", () => {
+    it("a backdated BUY submitted through exchangeSubmitSchema stamps the exchange row + its lot at the backdated time, and the backdated lot wins FIFO over an existing later-acquired lot", () => {
+      // Pre-existing lot: chronologically LATER (2026-08-20) but inserted
+      // FIRST, so it has the LOWER id.
+      const preexisting = getExchangeLotRepository().createLot({
+        currencyCode: "EUR",
+        sourceType: "EXCHANGE_BUY",
+        sourceTable: "exchange_transactions",
+        sourceId: 9001,
+        qty: 500,
+        unitCostUsd: 1.3,
+        acquiredAt: "2026-08-20T10:00:00.000Z",
+      });
+
+      // The raw wire payload — exactly what the Exchange page's backdate
+      // override sends over IPC/REST (rule 19), including transaction_time.
+      const rawBuyPayload = {
+        fromCurrency: "EUR",
+        toCurrency: "USD",
+        amountIn: 1000,
+        amountOut: 1160,
+        leg1Rate: 1.16,
+        leg1MarketRate: 1.18,
+        leg1ProfitUsd: 20,
+        totalProfitUsd: 20,
+        transaction_time: "2026-08-01T08:00:00.000Z", // chronologically EARLIER
+      };
+
+      // Mirror validatePayload/validateRequest: safeParse through the SAME
+      // schema both transports validate against before calling the service.
+      const buyParse = exchangeSubmitSchema.safeParse(rawBuyPayload);
+      expect(buyParse.success).toBe(true);
+      if (!buyParse.success) return;
+
+      // Mirror the IPC handler: parsed schema output -> service.addDirectTransaction.
+      const service = new ExchangeService(repo);
+      const buyResult = service.addDirectTransaction(
+        buyParse.data as unknown as CreateExchangeData,
+      );
+      expect(buyResult.success).toBe(true);
+      const buyId = buyResult.id!;
+
+      const ex = exchangeRow(db, buyId);
+      // FAILS pre-fix: exchangeSubmitSchema has no `transaction_time` field,
+      // so zod's default "strip unknown keys" drops it during safeParse —
+      // created_at falls back to CURRENT_TIMESTAMP instead of the backdated
+      // value the operator submitted.
+      expect(ex.created_at).toBe("2026-08-01T08:00:00.000Z");
+
+      const eurLots = lotRows(db, "EUR");
+      expect(eurLots).toHaveLength(2);
+      const backdatedLot = eurLots.find((l) => l.source_id === buyId)!;
+      // FAILS pre-fix for the same reason: the lot's acquired_at is read back
+      // from the exchange row's created_at, which was never backdated.
+      expect(backdatedLot.acquired_at).toBe("2026-08-01T08:00:00.000Z");
+
+      // Now consume: a SELL of 500 EUR must draw FIFO from whichever lot has
+      // the EARLIEST acquired_at — the backdated lot (2026-08-01), even
+      // though the pre-existing lot (2026-08-20) was inserted first and has
+      // the lower id. This is the "affects FIFO order by design" behavior
+      // the plan doc documents as accepted, trusted, unguarded.
+      const rawSellPayload = {
+        fromCurrency: "USD",
+        toCurrency: "EUR",
+        amountIn: 575,
+        amountOut: 500,
+        leg1Rate: 1.15,
+        leg1MarketRate: 1.18,
+        leg1ProfitUsd: 999,
+        totalProfitUsd: 999,
+      };
+      const sellParse = exchangeSubmitSchema.safeParse(rawSellPayload);
+      expect(sellParse.success).toBe(true);
+      if (!sellParse.success) return;
+      const sellResult = service.addDirectTransaction(
+        sellParse.data as unknown as CreateExchangeData,
+      );
+      expect(sellResult.success).toBe(true);
+
+      // FIFO must have consumed the BACKDATED lot (unit_cost 1.16), NOT the
+      // pre-existing later-acquired lot (unit_cost 1.30).
+      const settlements = settlementRows(db);
+      const sellSettlement = settlements.find(
+        (s) => s.settled_by_id === sellResult.id,
+      )!;
+      expect(sellSettlement.unit_cost_usd).toBeCloseTo(1.16, 6);
+      expect(sellSettlement.lot_id).toBe(backdatedLot.id);
+
+      const refreshedPreexisting = db
+        .prepare("SELECT remaining_qty FROM exchange_lots WHERE id = ?")
+        .get(preexisting.id) as { remaining_qty: number };
+      expect(refreshedPreexisting.remaining_qty).toBe(500); // untouched
+
+      const refreshedBackdated = db
+        .prepare("SELECT remaining_qty FROM exchange_lots WHERE id = ?")
+        .get(backdatedLot.id) as { remaining_qty: number };
+      expect(refreshedBackdated.remaining_qty).toBe(500); // 1000 - 500 consumed
     });
   });
 });

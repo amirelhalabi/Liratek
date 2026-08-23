@@ -92,6 +92,18 @@ export const exchangeSubmitSchema = z.object({
   note: z.string().optional(),
   fromCurrencyName: z.string().optional(),
   toCurrencyName: z.string().optional(),
+  /**
+   * Owner decision 2026-08-23 (EXCHANGE_LOT_SETTLEMENT.md "NEW named
+   * follow-up"): backdating exchanges is ENABLED, trusted, no guard. Was
+   * missing from this schema even though `createExchangeSchema` above
+   * already had it via the same `transactionTimeSchema` — the Exchange
+   * page's backdate override field was silently stripped by
+   * validatePayload/validateRequest on BOTH transports before it ever
+   * reached ExchangeRepository.createTransaction (which already honors it
+   * correctly). Backdating a BUY affects FIFO lot-consumption order by
+   * design — see the plan doc's "Accepted behavior" section.
+   */
+  transaction_time: transactionTimeSchema,
   // LIRA-081 (PFT-R): a "for partner" exchange — see
   // ExchangeRepository.createTransaction. Kept in sync with
   // createExchangeSchema's own partnerId/partnerMode fields above (same

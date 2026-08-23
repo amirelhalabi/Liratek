@@ -218,13 +218,26 @@ lira-web-022 (4 tests, each shown failing against the reverted pre-fix route): s
 with verbatim override storage, 200+success:false on business failure, realizedProfitUsd in
 the web response, admin unaffected. The dangling "Appendix A" adapter comment is gone.
 
-**NEW named follow-up (found during F3, pre-existing on BOTH transports):**
-- **`transaction_time` is stripped by the exchange submit schema** — the Exchange page's
-  backdate field never survives `validatePayload`/`validateRequest`, so exchange rows always
-  stamp CURRENT_TIMESTAMP even when the operator backdates. The repository layer honors
-  transaction_time correctly (adversarially verified) — the loss is purely at the schema.
-  One-line schema addition + a guard test; decide whether backdating exchanges is wanted
-  before enabling (it affects lot FIFO order by design — see "Accepted behavior" above).
+**RESOLVED 2026-08-23 (owner decision: ENABLE exchange backdating, trusted, no guard):**
+- **`transaction_time` was stripped by the exchange submit schema** — the Exchange page's
+  backdate field never survived `validatePayload`/`validateRequest`, so exchange rows always
+  stamped CURRENT_TIMESTAMP even when the operator backdated. The repository layer already
+  honored transaction_time correctly (adversarially verified) — the loss was purely at the
+  schema: `exchangeSubmitSchema` (`packages/core/src/validators/exchange.ts`) lacked the field
+  that `createExchangeSchema` in the same file already had via `transactionTimeSchema`. Fixed by
+  adding `transaction_time: transactionTimeSchema` to `exchangeSubmitSchema` — the electron-app
+  re-export (`ExchangeTransactionSchema` in `electron-app/schemas/index.ts`) is a direct cast of
+  the same schema object (no local duplicate to touch), and `preload.ts` /
+  `frontend/src/types/electron.d.ts` already typed `transaction_time?: string` on
+  `exchange.addTransaction`'s data param (the frontend had been sending it all along — verified,
+  not newly added). Proven by a failing-first test in `ExchangeRepository.lotSettlement.test.ts`
+  ("schema-validated submit path — transaction_time backdating") that submits through
+  `exchangeSubmitSchema.safeParse()` the way both transports do, shown failing on the pre-fix
+  schema (`created_at` came back as `CURRENT_TIMESTAMP` instead of the backdated value), then
+  passing after the one-line addition. **Backdating still affects lot FIFO order by design** — a
+  BUY backdated earlier than an existing lot's `acquired_at` wins FIFO precedence over it (same
+  "Accepted behavior" note above); the new test also proves this directly (a backdated lot
+  consumed ahead of a pre-existing later-acquired one).
 
 ## Open items for implementation time
 
