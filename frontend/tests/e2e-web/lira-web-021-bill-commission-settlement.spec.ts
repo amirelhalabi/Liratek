@@ -19,27 +19,42 @@
  *  2. GET /api/suppliers/unsettled-summary shows the bill in Katsh's
  *     `bill_count` (+1 delta) — the Settle-tab-feeding projection.
  *  3. POST /api/suppliers/:id/settle in RATE mode (rate × unit_count) —
- *     books a `SUPPLIER_PAYS_US` credit of exactly that amount, linked to
- *     this settlement via its ledger-entry id (never by time proximity).
+ *     CONFIRMED DESIGN (341ae2ef, reverting aa0d5623/23897d6e's
+ *     `SUPPLIER_PAYS_US` credit attempt): a bills-only settlement's
+ *     commission is DISPLAY-ONLY. It funds the provider drawer directly
+ *     (`_bookBillsCommissionDrawerTopUp`) and books NO supplier-ledger
+ *     credit row — there is no debt for a commission credit to net against,
+ *     so the ledger balance stays byte-identical. The commission is instead
+ *     surfaced by two read-side LEFT JOINs: the SETTLEMENT ledger row's own
+ *     `settlement_commission_usd`/`_lbp` (`getSupplierLedger`, joining
+ *     `supplier_settlements`) and the settled BILL's own
+ *     `settled_commission_usd`/`_lbp` (`getAllByProvider`, joining
+ *     `settlement_commission_allocations`).
  *  4. POST /api/transactions/:id/void on the SUPPLIER_SETTLEMENT row — the
- *     whole create → settle → void cycle nets to 0 (rule 20): both ledger
- *     rows this settlement wrote soft-void, the supplier's LBP balance
- *     returns to its pre-bill baseline, and the bill re-joins the unsettled
- *     queue.
+ *     whole create → settle → void cycle nets to 0: the SETTLEMENT ledger
+ *     row (the only ledger row this design ever writes) soft-voids, the
+ *     supplier's LBP balance stays at its pre-bill baseline throughout (it
+ *     never moved — a bills-only SETTLEMENT row is contractually 0/0), the
+ *     bill re-joins the unsettled queue, and the settlement's derived
+ *     display records (`supplier_settlements`/
+ *     `settlement_commission_allocations`) are hard-deleted
+ *     (`_reverseCommissionAtSettlementRecords` — neither table has a
+ *     soft-void column), so the commission enrichment from step 3
+ *     disappears too and can't leak into a future re-settlement.
  *
  * `settlement_commission_allocations`/`supplier_settlements` have no REST
- * projection either (mirrors the desktop spec's finding) — the SUPPLIER_
- * SETTLEMENT transaction's `metadata_json` (commission_model/entry_mode/
- * commission_lbp, stamped from the SAME data `_bookCommissionAtSettlement`
- * persists onto `supplier_settlements`) is the closest available proof,
- * asserted alongside the ledger credit.
+ * projection of their own (mirrors the desktop spec's finding) — this spec
+ * reads their effect through the two display JOINs above plus the
+ * SUPPLIER_SETTLEMENT transaction's `metadata_json` (commission_model/
+ * entry_mode/commission_lbp, stamped from the SAME data
+ * `_bookCommissionAtSettlement` persists onto `supplier_settlements`).
  *
  * Rule 15: the e2e DB accumulates across runs — every assertion is a DELTA
  * around this run's own action, and every row is matched by IDENTITY (a
- * bill amount unique to this file, this settlement's own ledger-entry id
- * embedded in the credit's note), never by absolute totals or "newest row".
- * Single-worker suite (playwright.web.config.ts: fullyParallel:false,
- * workers:1), so nothing else can write a colliding row between requests.
+ * bill amount unique to this file, this settlement's own ledger-entry id, or
+ * the bill's own id), never by absolute totals or "newest row". Single-
+ * worker suite (playwright.web.config.ts: fullyParallel:false, workers:1),
+ * so nothing else can write a colliding row between requests.
  */
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
 
@@ -58,6 +73,14 @@ type LedgerRow = {
   amount_lbp: number;
   note: string | null;
   is_refunded?: number;
+  /** Display-only LEFT JOIN enrichment (SupplierRepository.getSupplierLedger,
+   *  341ae2ef) — the batch commission collected at a bills-only settlement,
+   *  present only on that settlement's own SETTLEMENT row. Undefined when
+   *  the join isn't applied; null once `_reverseCommissionAtSettlementRecords`
+   *  deletes the underlying `supplier_settlements` row on void. */
+  settlement_commission_usd?: number | null;
+  /** @see settlement_commission_usd */
+  settlement_commission_lbp?: number | null;
 };
 type UnsettledSummaryRow = { provider: string; bill_count: number };
 type SupplierTxnRow = {
@@ -67,6 +90,15 @@ type SupplierTxnRow = {
   amount: number;
   currency: string;
   settlement_id: number | null;
+  /** Display-only LEFT JOIN enrichment (FinancialServiceRepository
+   *  .getAllByProvider, 341ae2ef) — this row's per-currency share of the
+   *  commission entered at settlement time (settlement_commission_allocations),
+   *  keyed on BOTH this row's id and its CURRENT settlement_id. Undefined on
+   *  the /unsettled endpoint (no join there); null once voided (the
+   *  allocation row is hard-deleted and settlement_id resets to NULL). */
+  settled_commission_usd?: number | null;
+  /** @see settled_commission_usd */
+  settled_commission_lbp?: number | null;
 };
 type RecentTxn = {
   id: number;
@@ -144,6 +176,22 @@ test("Katsh BILL books no commission at creation, settles in RATE mode over REST
     return r.transactions ?? [];
   };
 
+  // Transactions-tab equivalent (FinancialServiceRepository.getAllByProvider)
+  // — the ONLY REST read that carries the settled-commission display JOIN.
+  // limit=500: this provider accumulates rows across every past e2e run
+  // (rule 15), so the default limit=200 risks pushing this run's own bill
+  // off the page before it's ever settled.
+  const allTransactionsKatsh = async (): Promise<SupplierTxnRow[]> => {
+    const r = await (
+      await page.request.get(
+        `${BACKEND_URL}/api/suppliers/all-transactions?provider=Katsh&limit=500`,
+        { headers: auth },
+      )
+    ).json();
+    expect(r.success, JSON.stringify(r)).toBeTruthy();
+    return r.transactions ?? [];
+  };
+
   const balBefore = await balanceOf();
   const legacyCreditsBefore = (await ledgerOf()).filter(
     (l) =>
@@ -214,19 +262,55 @@ test("Katsh BILL books no commission at creation, settles in RATE mode over REST
   const settlementLedgerId = settleRes.id as number;
   expect(settlementLedgerId).toBeTruthy();
 
-  // Commission credit, linked to THIS settlement via its note.
+  // ── CONFIRMED DESIGN (341ae2ef): NO commission-credit ledger row ────────
+  // aa0d5623 tried booking a SUPPLIER_PAYS_US credit here and was reverted
+  // (23897d6e) — a bills-only settlement's commission funds the provider
+  // drawer directly and is display-only (see file doc comment). Absence is
+  // scoped by IDENTITY (this exact settlement's would-be note), not by a
+  // whole-ledger count, so an unrelated row elsewhere can never make this
+  // assertion a false pass.
   const ledgerAfterSettle = await ledgerOf();
-  const creditRow = ledgerAfterSettle.find(
+  const legacyCommissionCreditNote = `commission credit from settlement #${settlementLedgerId}`;
+  const commissionCreditRow = ledgerAfterSettle.find(
     (l) =>
       l.entry_type === "SUPPLIER_PAYS_US" &&
-      (l.note ?? "").includes(
-        `commission credit from settlement #${settlementLedgerId}`,
-      ),
+      (l.note ?? "").includes(legacyCommissionCreditNote),
   );
-  expect(creditRow, "commission credit ledger row not found").toBeTruthy();
-  expect(creditRow!.amount_lbp).toBe(-COMMISSION_LBP);
-  expect(creditRow!.amount_usd).toBe(0);
-  expect(creditRow!.is_refunded ?? 0).toBe(0);
+  expect(
+    commissionCreditRow,
+    "a SUPPLIER_PAYS_US commission-credit row was booked, but the confirmed " +
+      "design (341ae2ef) is display-only — no such ledger row should exist",
+  ).toBeUndefined();
+
+  // The commission IS surfaced — on the SETTLEMENT row itself, via
+  // getSupplierLedger's display-only JOIN onto supplier_settlements. This
+  // row's own amount_usd/amount_lbp stay contractually 0/0 (no cash owed for
+  // a bills-only batch); the JOIN substitutes the batch commission into the
+  // same cells the Payments table renders (Suppliers/index.tsx).
+  const settlementRow = ledgerAfterSettle.find(
+    (l) => l.id === settlementLedgerId,
+  );
+  expect(settlementRow, "SETTLEMENT ledger row not found").toBeTruthy();
+  expect(settlementRow!.entry_type).toBe("SETTLEMENT");
+  expect(settlementRow!.amount_usd).toBe(0);
+  expect(settlementRow!.amount_lbp).toBe(0);
+  expect(settlementRow!.settlement_commission_usd ?? 0).toBe(0);
+  expect(settlementRow!.settlement_commission_lbp).toBe(COMMISSION_LBP);
+  expect(settlementRow!.is_refunded ?? 0).toBe(0);
+
+  // The commission is ALSO surfaced on the settled BILL's own Transactions-
+  // tab row, via getAllByProvider's display-only JOIN onto
+  // settlement_commission_allocations (this bill's per-currency share of the
+  // batch commission — 100% of it, since it's the only row in the batch).
+  const allTxnsAfterSettle = await allTransactionsKatsh();
+  const billTxnAfterSettle = allTxnsAfterSettle.find((t) => t.id === billId);
+  expect(
+    billTxnAfterSettle,
+    "settled BILL row not found in all-transactions",
+  ).toBeTruthy();
+  expect(billTxnAfterSettle!.settlement_id).toBe(settlementLedgerId);
+  expect(billTxnAfterSettle!.settled_commission_usd ?? 0).toBe(0);
+  expect(billTxnAfterSettle!.settled_commission_lbp).toBe(COMMISSION_LBP);
 
   // Allocation proof: the SUPPLIER_SETTLEMENT transaction's metadata mirrors
   // the same data persisted onto supplier_settlements (no REST projection of
@@ -261,7 +345,11 @@ test("Katsh BILL books no commission at creation, settles in RATE mode over REST
   const unsettledAfterSettle = await unsettledKatsh();
   expect(unsettledAfterSettle.find((r) => r.id === billId)).toBeUndefined();
 
-  // ── 5. Void the settlement — everything must net to 0 (rule 20) ─────────
+  // ── 5. Void the settlement — everything must net to 0 ───────────────────
+  // Under the display-only design there is only ONE ledger row to reverse
+  // (the SETTLEMENT row itself) — no second SUPPLIER_PAYS_US amount was ever
+  // booked, so there is nothing else for the ledger balance to net back
+  // from; it never moved in the first place (asserted again below).
   const voidRes = await (
     await page.request.post(
       `${BACKEND_URL}/api/transactions/${settlementTxn.id}/void`,
@@ -271,15 +359,25 @@ test("Katsh BILL books no commission at creation, settles in RATE mode over REST
   expect(voidRes.success, JSON.stringify(voidRes)).toBeTruthy();
 
   const ledgerAfterVoid = await ledgerOf();
-  expect(ledgerAfterVoid.find((l) => l.id === creditRow!.id)?.is_refunded).toBe(
-    1,
-  );
   expect(
     ledgerAfterVoid.find((l) => l.id === settlementLedgerId)?.is_refunded,
   ).toBe(1);
 
-  // Supplier LBP balance is back to the pre-bill baseline.
+  // Supplier LBP balance is back to the pre-bill baseline (it never actually
+  // moved — a bills-only SETTLEMENT row is contractually 0/0 both before and
+  // after void).
   expect((await balanceOf()) - balBefore).toBe(0);
+
+  // The settlement's derived display records have no soft-void column —
+  // TransactionRepository._reverseCommissionAtSettlementRecords hard-deletes
+  // them on void — so the commission enrichment from step 4 disappears too,
+  // proving no stale commission linkage survives for a future re-settlement
+  // to pick up by mistake.
+  const settlementRowAfterVoid = ledgerAfterVoid.find(
+    (l) => l.id === settlementLedgerId,
+  );
+  expect(settlementRowAfterVoid!.settlement_commission_usd ?? null).toBeNull();
+  expect(settlementRowAfterVoid!.settlement_commission_lbp ?? null).toBeNull();
 
   // The bill re-joins the unsettled queue.
   const unsettledAfterVoid = await unsettledKatsh();
@@ -290,4 +388,17 @@ test("Katsh BILL books no commission at creation, settles in RATE mode over REST
   ).toBeTruthy();
   expect(billAfterVoid!.settlement_id).toBeNull();
   expect((await billCountOf()) - billCountBefore).toBe(1);
+
+  // ...and its Transactions-tab commission display clears too: settlement_id
+  // resets to NULL, and the allocation row backing settled_commission_* is
+  // gone.
+  const allTxnsAfterVoid = await allTransactionsKatsh();
+  const billTxnAfterVoid = allTxnsAfterVoid.find((t) => t.id === billId);
+  expect(
+    billTxnAfterVoid,
+    "voided BILL row not found in all-transactions",
+  ).toBeTruthy();
+  expect(billTxnAfterVoid!.settlement_id).toBeNull();
+  expect(billTxnAfterVoid!.settled_commission_usd ?? null).toBeNull();
+  expect(billTxnAfterVoid!.settled_commission_lbp ?? null).toBeNull();
 });

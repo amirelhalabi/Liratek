@@ -201,15 +201,16 @@ their outcomes:
   `transaction_time` takes FIFO precedence. Operator-driven `transaction_time` is trusted
   system-wide; noted, not guarded.
 
-**OWNER DECISION NEEDED (blocking nothing, but a real fork):**
+**DECIDED (owner, 2026-08-23): accept as-is.**
 - **A BUY becomes permanently unvoidable once an admin write-off (Q15 adjust) consumes from
   its lot** — write-off settlements have no reversal path (adjustments tie to no transaction),
-  so `_assertExchangeLotsVoidable` blocks the buy's void forever, and a compensating `adjust(+)`
-  does NOT unblock it. Current behavior: block with an honest message (blocking beats
-  corrupting). Alternatives if ever needed: let the guard ignore ADJUSTMENT-settler rows, or
-  give adjustments a reversal flow. Decide only if this bites in practice.
+  so `_assertExchangeLotsVoidable` blocks the buy's void forever (honest message names the
+  adjustment), and a compensating `adjust(+)` does NOT unblock it. Owner accepted: blocking
+  beats corrupting; a write-off means currency physically left outside any transaction, so
+  corrections happen FORWARD via another adjustment, never by voiding the buy. Revisit only
+  if write-offs become frequent (the alternative is an adjustment-reversal flow).
 
-**Named follow-up (pre-existing, NOT this feature):**
+**Named follow-up (pre-existing, NOT this feature — owner confirmed 2026-08-23: separate ticket, not fixed here):**
 - **Web exchange-submit parity (F3)**: `POST /api/exchange/transactions` is admin-only (IPC
   allows staff), returns HTTP 400 on failure (violates the 200-envelope rule), and
   `createExchangeSchema` strips leg rates/profits so operator rate overrides never reach the
