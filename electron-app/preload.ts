@@ -811,9 +811,14 @@ contextBridge.exposeInMainWorld("api", {
       extra_currencies?: {
         currency_code: string;
         amount: number;
-        /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) for a lot-tracked
-         *  (non-USD/LBP) currency_code; USD per one unit of currency_code. */
+        /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — operator
+         *  cost-basis override (USD per one unit of currency_code), sent
+         *  ONLY when the "edit" link in the top-up modal was used. */
         acquisition_usd_per_unit?: number;
+        /** NEW (2026-08-23 refinement) — live-feed USD-per-unit rate,
+         *  attached by the frontend for a currency with no configured
+         *  exchange_rates row. */
+        market_usd_per_unit_hint?: number;
       }[];
     }) => ipcRenderer.invoke("drawer-topup:create", data),
     createFromDrawer: (data: {

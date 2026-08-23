@@ -13,8 +13,15 @@ import type { CurrencyRate } from "@liratek/core";
 
 const API_URL = "https://open.er-api.com/v6/latest/USD";
 
-/** Currencies to exclude from the live API dropdown (managed locally) */
-const EXCLUDED_CURRENCIES = new Set(["USD", "LBP", "EUR"]);
+/**
+ * Currencies to exclude from the live API dropdown (managed locally). Also
+ * the single definition (CLAUDE.md rule 14) of "which currencies are
+ * locally-configured rather than feed-sourced" — `useExchangeCurrencyList`
+ * (the shared Exchange-page/DrawerTopUpModal currency-picker hook) reads
+ * this same set to decide which configured currencies to surface alongside
+ * the feed, instead of re-hardcoding "EUR" a second time.
+ */
+export const EXCLUDED_CURRENCIES = new Set(["USD", "LBP", "EUR"]);
 
 export interface LiveRateResponse {
   result: string;

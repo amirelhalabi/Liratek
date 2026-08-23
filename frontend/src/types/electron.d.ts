@@ -1880,9 +1880,12 @@ export interface ElectronAPI {
       extra_currencies?: {
         currency_code: string;
         amount: number;
-        /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) for a lot-tracked
-         *  (non-USD/LBP) currency_code; USD per one unit of currency_code. */
+        /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — operator
+         *  cost-basis override, sent only via the modal's "edit" link. */
         acquisition_usd_per_unit?: number;
+        /** NEW (2026-08-23 refinement) — live-feed USD-per-unit rate for a
+         *  currency with no configured exchange_rates row. */
+        market_usd_per_unit_hint?: number;
       }[];
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     createFromDrawer: (data: {

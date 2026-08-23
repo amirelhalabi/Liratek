@@ -25,7 +25,7 @@ current spread model unchanged.
 |---|----------|----------|
 | Q1 | Scope | **Exotics only** (non-USD, non-LBP). USD↔LBP stays spread-based. |
 | Q2 | Profit unit | **Always USD.** |
-| Q3 | Lot sources | Exchange BUYs **and** foreign-currency drawer top-ups, at an **operator-entered acquisition rate** (new top-up form field, required for exotic top-ups). |
+| Q3 | Lot sources | Exchange BUYs **and** foreign-currency drawer top-ups. Basis: **market rate by default** (owner refinement 2026-08-23): override via edit link; configured market rate server-side; feed-only uses the client feed hint; error only when none exist. |
 | Q4 | Wallet exchange | **Out of scope** — OMT_App/Whish_App conversions keep booking zero profit. |
 | Q5 | Matching | **FIFO automatic** (no manual lot picking). |
 | Q6 | Oversell | Never block. Uncovered quantity settles at **that day's market rate as basis** (≈ zero profit on the uncovered slice). |

@@ -156,6 +156,7 @@ jest.mock("@/utils/liveExchangeRates", () => ({
     nextUpdateUnix: 1785543661,
   }),
   CURRENCY_NAMES: { USD: "US Dollar", LBP: "Lebanese Pound", EUR: "Euro" },
+  EXCLUDED_CURRENCIES: new Set(["USD", "LBP", "EUR"]),
   getCurrencySymbol: (code: string) =>
     ({ USD: "$", LBP: "LBP", EUR: "€" })[code] ?? code,
 }));

@@ -5,10 +5,8 @@ import {
   CreateDrawerTopUpFromDrawerData,
   TransferBetweenDrawersData,
   SourceDrawerBalance,
-  GENERAL_DRAWER,
   getDrawerTopUpRepository,
 } from "../repositories/DrawerTopUpRepository.js";
-import { getCurrencyRepository } from "../repositories/CurrencyRepository.js";
 import { isAppError, toErrorString } from "../utils/errors.js";
 import { createChildLogger } from "../utils/logger.js";
 
@@ -40,43 +38,43 @@ export class DrawerTopUpService {
    * entry must be greater than zero.
    *
    * `extra_currencies` (External mode only) accepts a top-up in any OTHER
-   * currency the shop actually deals in — i.e. any ACTIVE currency, plus
-   * anything General still holds.
+   * currency the shop actually deals in.
    *
-   * This used to be gated on an explicit `currency_drawers` row for the
-   * General drawer, which made the app contradict itself: the Exchange module
-   * deposits ANY currency into General, so an EUR exchange was fine while a
-   * manual EUR cash-in was rejected with "Currency EUR is not enabled for the
-   * General drawer" (owner-reported 2026-08-22). General is unrestricted —
-   * `getCurrenciesForDrawer(GENERAL_DRAWER)` now DERIVES its set (see
-   * `constants/drawerCurrencyPolicy.ts`), so this check has become "is this a
-   * real, active currency" rather than "has an admin pre-authorised it".
+   * This used to be gated on the currency already being a known ACTIVE
+   * currency (before that, an explicit `currency_drawers` row for General) —
+   * both of which made the app contradict itself: the Exchange module
+   * deposits ANY currency into General, auto-registering an unknown code
+   * on the spot, while a manual cash-in of that same currency was rejected
+   * outright (owner-reported 2026-08-22, then again 2026-08-23 once the
+   * currency picker was widened to mirror Exchange's own list — see
+   * `useExchangeCurrencyList` on the frontend and
+   * docs/plans/todo_plans/GENERAL_DRAWER_UNRESTRICTED.md /
+   * EXCHANGE_LOT_SETTLEMENT.md Q3).
    *
-   * Still a hard reject, not an auto-register: a garbage or unknown code must
-   * not silently create a `drawer_balances` row for a currency the app has no
-   * name, symbol or decimal_places for. `ExchangeRepository` may auto-register
-   * because it is resolving a live market rate for a known API currency; a
-   * hand-keyed cash amount has no such source of truth.
-   * See docs/plans/todo_plans/GENERAL_DRAWER_UNRESTRICTED.md.
+   * The service no longer pre-validates that `currency_code` is already
+   * known: `DrawerTopUpRepository.createTopUp` now auto-registers an unknown
+   * code (INSERT OR IGNORE into `currencies`/`currency_drawers`, mirroring
+   * `ExchangeRepository.ensureCurrency`) before it opens an exchange lot for
+   * it — the same trust model Exchange already uses, extended here since the
+   * frontend now sources `currency_code` from that SAME curated list
+   * (configured currencies + the live FX feed), not a free-text field. USD
+   * and LBP are still hard-rejected here: they have their own dedicated
+   * amount_usd/amount_lbp fields and must never double-post through
+   * extra_currencies.
    *
    * Every `extra_currencies` entry accepted here is, by construction, a
    * foreign (non-USD/LBP) currency landing in General — i.e. lot-tracked
    * (EXCHANGE_LOT_SETTLEMENT.md Q3). `DrawerTopUpRepository.createTopUp`
-   * requires each entry's `acquisition_usd_per_unit` and opens an exchange
-   * lot at that cost basis; this service does not duplicate that check, it
-   * only forwards the field through untouched (see the normalization step
-   * below).
+   * resolves each entry's cost basis (operator override > configured market
+   * rate > client feed hint > error) and opens an exchange lot at it; this
+   * service does not duplicate that resolution, it only forwards the
+   * relevant fields through untouched (see the normalization step below).
    */
   addTopUp(data: CreateDrawerTopUpData, userId: number): DrawerTopUpResult {
     try {
       const rawExtraCurrencies = data.extra_currencies ?? [];
 
       if (rawExtraCurrencies.length > 0) {
-        const allowed = new Set(
-          getCurrencyRepository()
-            .getCurrenciesForDrawer(GENERAL_DRAWER)
-            .filter((code) => code !== "USD" && code !== "LBP"),
-        );
         const seen = new Set<string>();
 
         for (const entry of rawExtraCurrencies) {
@@ -85,6 +83,12 @@ export class DrawerTopUpService {
             return {
               success: false,
               error: "Every extra currency entry must have a currency_code.",
+            };
+          }
+          if (code === "USD" || code === "LBP") {
+            return {
+              success: false,
+              error: `"${code}" has its own dedicated amount field above — remove it from "other currencies".`,
             };
           }
           if (!(entry.amount > 0)) {
@@ -100,12 +104,6 @@ export class DrawerTopUpService {
             };
           }
           seen.add(code);
-          if (!allowed.has(code)) {
-            return {
-              success: false,
-              error: `Currency "${code}" is not an active currency. Add it in Settings → Currencies first.`,
-            };
-          }
         }
       }
 
@@ -154,6 +152,9 @@ export class DrawerTopUpService {
                 // rewrite would be exactly the "a rewrite silently loses a
                 // field" trap CLAUDE.md rule 12 calls out for preload types.
                 acquisition_usd_per_unit: entry.acquisition_usd_per_unit,
+                // Same "forward untouched" rule as acquisition_usd_per_unit
+                // above — the repository resolves it (2026-08-23 refinement).
+                market_usd_per_unit_hint: entry.market_usd_per_unit_hint,
               })),
             }
           : data;

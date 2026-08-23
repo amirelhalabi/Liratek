@@ -37,11 +37,11 @@ import {
   type CurrencyRate,
   type CurrencyExchangeResult,
 } from "@liratek/core";
+import { CURRENCY_NAMES, getCurrencySymbol } from "@/utils/liveExchangeRates";
 import {
-  fetchLiveRatesSnapshot,
-  CURRENCY_NAMES,
-  getCurrencySymbol,
-} from "@/utils/liveExchangeRates";
+  useExchangeCurrencyList,
+  type ExchangeCurrencyOption,
+} from "@/hooks/useExchangeCurrencyList";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import {
   ForPartnerToggle,
@@ -163,8 +163,10 @@ function formatAmount(amount: number, currency: string, decimals = 2): string {
 interface CurrencySelectorProps {
   selected: string;
   onSelect: (code: string) => void;
-  currencies: Array<{ id: number; code: string }>; // from CurrencyContext (USD, LBP, EUR)
-  liveCurrencyRates: CurrencyRate[];
+  /** The merged (configured + live-feed) currency list — from
+   *  `useExchangeCurrencyList` (extracted 2026-08-23, EXCHANGE_LOT_SETTLEMENT.md
+   *  Q3 refinement, so DrawerTopUpModal's picker can share it too). */
+  options: ExchangeCurrencyOption[];
 }
 
 /**
@@ -174,26 +176,14 @@ interface CurrencySelectorProps {
 function CurrencySelector({
   selected,
   onSelect,
-  currencies,
-  liveCurrencyRates,
+  options,
 }: CurrencySelectorProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   // Fixed currencies always shown as buttons
   const fixedCodes = ["USD", "LBP"];
-  // EUR and other currencies go in the dropdown
-  const eurCurrency = currencies.find((c) => c.code === "EUR");
-  const dropdownOptions = useMemo(
-    () => [
-      ...(eurCurrency ? [{ code: "EUR", symbol: "€" }] : []),
-      ...liveCurrencyRates.map((r) => ({
-        code: r.to_code,
-        symbol: getCurrencySymbol(r.to_code),
-      })),
-    ],
-    [eurCurrency, liveCurrencyRates],
-  );
+  const dropdownOptions = options;
 
   // Filter options by search
   const filteredOptions = useMemo(() => {
@@ -315,16 +305,20 @@ export default function Exchange() {
   // the RatesPanel needs for its staleness indicator.
   const [rateRows, setRateRows] = useState<ExchangeRate[]>([]);
   const [ratesLoading, setRatesLoading] = useState(true);
-  const [liveCurrencyRates, setLiveCurrencyRates] = useState<CurrencyRate[]>(
-    [],
-  );
-  // Market reference for the side panel: the FULL feed (keeps LBP/EUR so the
-  // operator can compare against their own configured rates) plus the feed's
-  // publish time, which LiveRatesPanel shows verbatim — the free tier updates
-  // roughly once a day, so it must never be styled as a live ticker.
-  const [marketRates, setMarketRates] = useState<CurrencyRate[]>([]);
-  const [liveUpdatedUtc, setLiveUpdatedUtc] = useState<string | undefined>();
-  const [liveLoading, setLiveLoading] = useState(true);
+  // Live FX feed + the merged (configured + feed) currency-picker options —
+  // extracted into a shared hook (2026-08-23, EXCHANGE_LOT_SETTLEMENT.md Q3
+  // refinement) so DrawerTopUpModal's "Other Currencies" picker can offer the
+  // exact same list. `marketRates`/`liveUpdatedUtc`/`liveLoading` feed the
+  // side panel (full feed, keeps LBP/EUR so the operator can compare against
+  // their own configured rates) — the free tier updates roughly once a day,
+  // so it must never be styled as a live ticker.
+  const {
+    options: currencyOptions,
+    liveCurrencyRates,
+    marketRates,
+    liveUpdatedUtc,
+    liveLoading,
+  } = useExchangeCurrencyList();
   const [showRatesModal, setShowRatesModal] = useState(false);
   const [clientName, setClientName] = useState("");
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
@@ -429,23 +423,6 @@ export default function Exchange() {
       }
     };
     load();
-  }, []);
-
-  // Fetch live exchange rates from public API
-  useEffect(() => {
-    const loadLive = async () => {
-      try {
-        const snapshot = await fetchLiveRatesSnapshot();
-        setLiveCurrencyRates(snapshot.rates);
-        setMarketRates(snapshot.marketRates);
-        setLiveUpdatedUtc(snapshot.lastUpdatedUtc);
-      } catch (e) {
-        logger.error("Failed to load live rates", e);
-      } finally {
-        setLiveLoading(false);
-      }
-    };
-    loadLive();
   }, []);
 
   // Combined rates: local DB rates + selected live currency rate (if applicable)
@@ -1098,8 +1075,7 @@ export default function Exchange() {
                 <CurrencySelector
                   selected={fromCurrency}
                   onSelect={setFromCurrency}
-                  currencies={currencies}
-                  liveCurrencyRates={liveCurrencyRates}
+                  options={currencyOptions}
                 />
               </div>
 
@@ -1118,8 +1094,7 @@ export default function Exchange() {
                 <CurrencySelector
                   selected={toCurrency}
                   onSelect={setToCurrency}
-                  currencies={currencies}
-                  liveCurrencyRates={liveCurrencyRates}
+                  options={currencyOptions}
                 />
               </div>
             </div>

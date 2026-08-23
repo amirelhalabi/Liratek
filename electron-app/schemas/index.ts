@@ -771,10 +771,18 @@ export interface DrawerTopUpCreateInput {
   extra_currencies?: {
     currency_code: string;
     amount: number;
-    /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) when currency_code is
-     *  lot-tracked (non-USD/LBP); see DrawerTopUpRepository's
-     *  CreateDrawerTopUpData doc. */
+    /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — the operator's
+     *  manual cost-basis override (via the top-up modal's "edit" link). No
+     *  longer required for a lot-tracked (non-USD/LBP) entry; see
+     *  DrawerTopUpRepository's CreateDrawerTopUpData doc for the full
+     *  resolution order (override > configured market rate > feed hint >
+     *  error). */
     acquisition_usd_per_unit?: number;
+    /** NEW (2026-08-23 refinement) — the live-feed USD-per-unit rate,
+     *  auto-attached by the frontend ONLY for a currency with no configured
+     *  `exchange_rates` row. Ignored server-side when a configured rate row
+     *  exists. See DrawerTopUpRepository's CreateDrawerTopUpData doc. */
+    market_usd_per_unit_hint?: number;
   }[];
   notes?: string;
   transaction_time?: string;
@@ -800,6 +808,7 @@ export const DrawerTopUpCreateSchema = z
           currency_code: z.string().trim().min(1).max(10),
           amount: z.number().positive(),
           acquisition_usd_per_unit: z.number().positive().optional(),
+          market_usd_per_unit_hint: z.number().positive().optional(),
         }),
       )
       .optional(),

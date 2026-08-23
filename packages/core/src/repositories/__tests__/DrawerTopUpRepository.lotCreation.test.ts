@@ -7,9 +7,10 @@
  * to the General drawer (hardcoded `GENERAL_DRAWER` — `createTopUpFromDrawer`
  * and `transferBetweenDrawers` carry no `currency_code` at all). So every
  * entry that reaches `extra_currencies` is, by construction, both lot-tracked
- * (`isLotTrackedCurrency` — DrawerTopUpService.addTopUp's `allowed` set
- * already excludes USD/LBP) AND targeting General — this file proves the lot
- * this now opens, and the guards around it. The "non-General exotic top-up"
+ * (`isLotTrackedCurrency` — DrawerTopUpService.addTopUp explicitly rejects
+ * USD/LBP in `extra_currencies`, since they have their own dedicated fields)
+ * AND targeting General — this file proves the lot this now opens, and the
+ * guards around it. The "non-General exotic top-up"
  * case EXCHANGE_LOT_SETTLEMENT.md's task list flags as "if constructible" is
  * NOT constructible via the current public repository API: there is no
  * top-up method that accepts both a currency_code and a non-General target,
@@ -24,6 +25,7 @@ import { DrawerTopUpRepository } from "../DrawerTopUpRepository";
 import { DrawerTopUpService } from "../../services/DrawerTopUpService";
 import { resetCurrencyRepository } from "../CurrencyRepository";
 import { resetExchangeLotRepository } from "../ExchangeLotRepository";
+import { resetRateRepository } from "../RateRepository";
 import {
   initFixedTenantContext,
   resetTenantContext,
@@ -31,9 +33,19 @@ import {
 
 // ─── In-memory schema (mirrors DrawerTopUpRepository.test.ts + the
 //     exchange_lots shape from ExchangeRepository.lotSettlement.test.ts) ────
+//
+// `PRAGMA foreign_keys = ON` + `currencies(tenant_id, code)` UNIQUE +
+// `exchange_lots`'s composite FK to it mirror production exactly (see
+// electron-app/create_db.sql) — this is what makes the "unknown-code
+// auto-registration" tests below a real FK proof rather than a no-op: if the
+// repository's `ensureCurrency`/`ensureDrawer` calls were removed,
+// `createLot`'s INSERT would fail with a real
+// `SQLITE_CONSTRAINT_FOREIGNKEY` error, not merely "would have in
+// production".
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");
+  db.pragma("foreign_keys = ON");
 
   db.exec(`
     CREATE TABLE drawer_topups (
@@ -55,7 +67,20 @@ function createTestDb(): Database.Database {
       name TEXT,
       symbol TEXT,
       decimal_places INTEGER DEFAULT 2,
-      is_active INTEGER DEFAULT 1
+      is_active INTEGER DEFAULT 1,
+      UNIQUE (tenant_id, code)
+    );
+
+    CREATE TABLE exchange_rates (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id   INTEGER DEFAULT 1,
+      to_code     TEXT NOT NULL,
+      market_rate REAL NOT NULL,
+      buy_rate    REAL NOT NULL DEFAULT 0,
+      sell_rate   REAL NOT NULL DEFAULT 0,
+      is_stronger INTEGER NOT NULL DEFAULT 1,
+      updated_at  TEXT DEFAULT (datetime('now')),
+      UNIQUE (tenant_id, to_code)
     );
 
     CREATE TABLE currency_drawers (
@@ -125,7 +150,8 @@ function createTestDb(): Database.Database {
       acquired_at    DATETIME NOT NULL,
       is_voided      INTEGER NOT NULL DEFAULT 0,
       created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (tenant_id, currency_code) REFERENCES currencies(tenant_id, code)
     );
     CREATE INDEX idx_exchange_lots_fifo ON exchange_lots(tenant_id, currency_code, acquired_at, id);
   `);
@@ -264,15 +290,19 @@ describe("DrawerTopUpRepository/Service — exchange-lot creation on foreign-cur
   });
 
   /**
-   * Rule 17: this test was run against the pre-fix repository (the
-   * `isLotTrackedCurrency` require-rate block commented out) and FAILED —
-   * `result.success` was `true` and a lot was created with `unit_cost_usd:
-   * undefined` coerced to `NULL`/`0` instead of being rejected. Restored
-   * immediately after confirming the failure; see the task report for the
-   * exact before/after.
+   * Pre-refinement (2026-08-22 Q3 shape), this test asserted the OLD
+   * always-required-rate behavior ("acquisition_usd_per_unit is required").
+   * The 2026-08-23 owner refinement ("market rate by default") replaces that
+   * hard requirement with the 4-step resolution order — this is step 4 (none
+   * of override/rate-row/hint resolve). Rule 17: run against the
+   * pre-refinement code (the old unconditional require-rate check restored),
+   * this test's OWN assertions (`no cost basis available`, naming EUR and
+   * the edit link) fail — the old code raises the different
+   * "acquisition_usd_per_unit is required" message instead. Confirmed, then
+   * reverted back to the refined code — see the task report.
    */
-  it("rejects an exotic top-up with no acquisition rate — the whole transaction rolls back", () => {
-    enableDrawerCurrency(db, "General", "EUR");
+  it("rejects an exotic top-up with no cost basis available anywhere (no override, no rate row, no feed hint) — the whole transaction rolls back", () => {
+    enableDrawerCurrency(db, "General", "EUR"); // no exchange_rates row for EUR
 
     const result = service.addTopUp(
       {
@@ -284,8 +314,9 @@ describe("DrawerTopUpRepository/Service — exchange-lot creation on foreign-cur
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toMatch(/acquisition_usd_per_unit/i);
-    expect(result.error).toMatch(/required/i);
+    expect(result.error).toMatch(/no cost basis available/i);
+    expect(result.error).toMatch(/edit link/i);
+    expect(result.error).toMatch(/EUR/);
 
     // Nothing was written — createTopUp's db.transaction rolled back the
     // topup row, the unified transaction row, the payment leg, AND the
@@ -294,6 +325,199 @@ describe("DrawerTopUpRepository/Service — exchange-lot creation on foreign-cur
     expect(paymentsRows(db)).toHaveLength(0);
     expect(balance(db, "General", "EUR")).toBeCloseTo(0, 2);
     expect(lotsFor(db, "EUR")).toHaveLength(0);
+  });
+
+  // ─── 2026-08-23 refinement — cost-basis resolution order (AC2) ───────────
+
+  describe("cost-basis resolution order (operator override > configured market rate > feed hint > error)", () => {
+    /** Seeds an `exchange_rates` row exactly like `RateRepository.upsert`
+     *  would, for the currently-fixed tenant (1). */
+    function setMarketRate(
+      code: string,
+      marketRate: number,
+      isStronger: 1 | -1,
+    ): void {
+      db.prepare(
+        `INSERT INTO exchange_rates (tenant_id, to_code, market_rate, buy_rate, sell_rate, is_stronger)
+         VALUES (1, ?, ?, ?, ?, ?)`,
+      ).run(code, marketRate, marketRate, marketRate, isStronger);
+    }
+
+    beforeEach(() => {
+      resetRateRepository();
+    });
+
+    afterEach(() => {
+      resetRateRepository();
+    });
+
+    it("falls back to the configured market rate — is_stronger = -1 (EUR-like, market_rate already USD-per-unit)", () => {
+      enableDrawerCurrency(db, "General", "EUR");
+      setMarketRate("EUR", 1.16, -1);
+
+      const result = service.addTopUp(
+        {
+          amount_usd: 0,
+          amount_lbp: 0,
+          extra_currencies: [{ currency_code: "EUR", amount: 100 }],
+        },
+        1,
+      );
+
+      expect(result.success).toBe(true);
+      const lots = lotsFor(db, "EUR");
+      expect(lots).toHaveLength(1);
+      // marketRateToUsdPerUnit(1.16, -1) === 1.16 (already USD-per-unit).
+      expect(lots[0].unit_cost_usd).toBeCloseTo(1.16, 6);
+    });
+
+    it("falls back to the configured market rate — is_stronger = +1 (units-per-USD orientation)", () => {
+      enableDrawerCurrency(db, "General", "JOD");
+      setMarketRate("JOD", 1500, 1);
+
+      const result = service.addTopUp(
+        {
+          amount_usd: 0,
+          amount_lbp: 0,
+          extra_currencies: [{ currency_code: "JOD", amount: 200 }],
+        },
+        1,
+      );
+
+      expect(result.success).toBe(true);
+      const lots = lotsFor(db, "JOD");
+      expect(lots).toHaveLength(1);
+      // marketRateToUsdPerUnit(1500, 1) === 1 / 1500.
+      expect(lots[0].unit_cost_usd).toBeCloseTo(1 / 1500, 8);
+    });
+
+    it("falls back to the client feed hint ONLY when there is no configured rate row", () => {
+      enableDrawerCurrency(db, "General", "GBP"); // no exchange_rates row
+
+      const result = service.addTopUp(
+        {
+          amount_usd: 0,
+          amount_lbp: 0,
+          extra_currencies: [
+            {
+              currency_code: "GBP",
+              amount: 40,
+              market_usd_per_unit_hint: 1.27,
+            },
+          ],
+        },
+        1,
+      );
+
+      expect(result.success).toBe(true);
+      const lots = lotsFor(db, "GBP");
+      expect(lots).toHaveLength(1);
+      expect(lots[0].unit_cost_usd).toBeCloseTo(1.27, 6);
+    });
+
+    it("IGNORES the client feed hint when a configured rate row exists — the server prefers its own rate", () => {
+      enableDrawerCurrency(db, "General", "EUR");
+      setMarketRate("EUR", 1.16, -1);
+
+      const result = service.addTopUp(
+        {
+          amount_usd: 0,
+          amount_lbp: 0,
+          extra_currencies: [
+            {
+              currency_code: "EUR",
+              amount: 100,
+              // Deliberately wrong/different from the configured rate — if
+              // this leaks through, the assertion below catches it.
+              market_usd_per_unit_hint: 999,
+            },
+          ],
+        },
+        1,
+      );
+
+      expect(result.success).toBe(true);
+      const lots = lotsFor(db, "EUR");
+      expect(lots[0].unit_cost_usd).toBeCloseTo(1.16, 6);
+    });
+
+    it("the operator override beats BOTH a configured rate row and a feed hint", () => {
+      enableDrawerCurrency(db, "General", "EUR");
+      setMarketRate("EUR", 1.16, -1);
+
+      const result = service.addTopUp(
+        {
+          amount_usd: 0,
+          amount_lbp: 0,
+          extra_currencies: [
+            {
+              currency_code: "EUR",
+              amount: 100,
+              acquisition_usd_per_unit: 1.5,
+              market_usd_per_unit_hint: 999,
+            },
+          ],
+        },
+        1,
+      );
+
+      expect(result.success).toBe(true);
+      const lots = lotsFor(db, "EUR");
+      expect(lots[0].unit_cost_usd).toBeCloseTo(1.5, 6);
+    });
+
+    /**
+     * Rule 17 — proves the resolution ORDER, not just that each branch works
+     * in isolation. Sabotaged by temporarily short-circuiting step 2 in
+     * DrawerTopUpRepository.ts (`getRateRepository().findByCode(...)` forced
+     * to return `null`, simulating "step 2 skipped"): BOTH orientation tests
+     * above ("falls back to the configured market rate...") then FAILED —
+     * they fell through to the feed-hint branch (no hint supplied) and threw
+     * the step-4 "no cost basis available" error instead of resolving from
+     * `exchange_rates`. Restored immediately after confirming the failure;
+     * see the task report for the exact before/after.
+     */
+    it("unknown-code auto-registration creates currencies + currency_drawers rows and the lot lands (FK proof)", () => {
+      // AED deliberately absent from `currencies`/`currency_drawers` — with
+      // `PRAGMA foreign_keys = ON` and exchange_lots' composite FK to
+      // currencies(tenant_id, code) (this file's schema), createLot's INSERT
+      // would fail outright if the repository didn't auto-register the code
+      // first.
+      const result = service.addTopUp(
+        {
+          amount_usd: 0,
+          amount_lbp: 0,
+          extra_currencies: [
+            {
+              currency_code: "AED",
+              amount: 75,
+              acquisition_usd_per_unit: 0.27,
+            },
+          ],
+        },
+        1,
+      );
+
+      expect(result.success).toBe(true);
+      expect(balance(db, "General", "AED")).toBeCloseTo(75, 2);
+
+      const currencyRow = db
+        .prepare("SELECT * FROM currencies WHERE code = ? AND tenant_id = 1")
+        .get("AED") as { is_active: number } | undefined;
+      expect(currencyRow).toBeTruthy();
+      expect(currencyRow!.is_active).toBe(1);
+
+      const drawerRow = db
+        .prepare(
+          "SELECT * FROM currency_drawers WHERE currency_code = ? AND drawer_name = 'General' AND tenant_id = 1",
+        )
+        .get("AED");
+      expect(drawerRow).toBeTruthy();
+
+      const lots = lotsFor(db, "AED");
+      expect(lots).toHaveLength(1);
+      expect(lots[0].unit_cost_usd).toBeCloseTo(0.27, 6);
+    });
   });
 
   it("a plain USD/LBP top-up (no extra_currencies) opens no lot", () => {
@@ -333,9 +557,9 @@ describe("DrawerTopUpRepository/Service — exchange-lot creation on foreign-cur
   });
 
   /**
-   * `DrawerTopUpService.addTopUp` filters USD/LBP out of the "allowed" set
-   * before an entry ever reaches the repository (a USD/LBP entry is rejected
-   * upstream with a DIFFERENT message — "not an active currency"), so this
+   * `DrawerTopUpService.addTopUp` explicitly rejects USD/LBP in
+   * `extra_currencies` before an entry ever reaches the repository (with a
+   * DIFFERENT message — "has its own dedicated amount field above"), so this
    * defensive branch can only be exercised by a caller that bypasses the
    * service and calls the repository directly, as this test does.
    */

@@ -94,14 +94,37 @@ const mockApi = {
   },
   getSystemExpectedBalancesDynamic: jest.fn().mockResolvedValue({}),
   transferBetweenDrawers: mockTransferBetweenDrawers,
+  // The modal mounts in "external" mode by default (before this file's tests
+  // switch to "from_drawer"), so `useExchangeCurrencyList`'s rate-row fetch
+  // fires briefly on every render regardless of what this file exercises —
+  // stub it so it resolves cleanly instead of throwing (caught, but noisy).
+  getRates: jest.fn().mockResolvedValue([]),
 };
 
 // ─── Contexts / hooks ─────────────────────────────────────────────────────────
 
 jest.mock("@/contexts/CurrencyContext", () => ({
   useCurrencyContext: () => ({
+    activeCurrencies: [],
     getCurrenciesForDrawer: jest.fn().mockResolvedValue([]),
   }),
+}));
+
+// This file doesn't exercise the currency picker (that's
+// DrawerTopUpModal.currencyList.test.tsx) — mocked only so
+// `useExchangeCurrencyList` (called unconditionally by the modal, gated
+// internally on mode==="external") never makes a real network request
+// during these "From Drawer" mode tests.
+jest.mock("@/utils/liveExchangeRates", () => ({
+  fetchLiveRatesSnapshot: jest.fn().mockResolvedValue({
+    raw: {},
+    rates: [],
+    marketRates: [],
+    lastUpdatedUtc: "",
+    nextUpdateUnix: 0,
+  }),
+  CURRENCY_NAMES: {},
+  getCurrencySymbol: (code: string) => code,
 }));
 
 jest.mock("@/hooks/useShopBase", () => ({

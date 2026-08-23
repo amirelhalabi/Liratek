@@ -731,9 +731,12 @@ export class ElectronApiAdapter implements ApiAdapter {
       extra_currencies?: {
         currency_code: string;
         amount: number;
-        /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required (>0) for a lot-tracked
-         *  (non-USD/LBP) currency_code. */
+        /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — operator
+         *  cost-basis override, sent only via the modal's "edit" link. */
         acquisition_usd_per_unit?: number;
+        /** NEW (2026-08-23 refinement) — live-feed USD-per-unit rate for a
+         *  currency with no configured exchange_rates row. */
+        market_usd_per_unit_hint?: number;
       }[];
     }) => api.drawerTopUpCreate(data),
     createFromDrawer: (data: {

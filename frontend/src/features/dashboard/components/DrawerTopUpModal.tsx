@@ -1,10 +1,15 @@
 import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft, Plus, Landmark } from "lucide-react";
-import { PRIMARY_CASH_DRAWER_NAMES, isLotTrackedCurrency } from "@liratek/core";
+import {
+  PRIMARY_CASH_DRAWER_NAMES,
+  isLotTrackedCurrency,
+  marketRateToUsdPerUnit,
+} from "@liratek/core";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents, DecimalInput, Select, useApi } from "@liratek/ui";
 import { useShopBase } from "@/hooks/useShopBase";
-import { useCurrencyContext } from "@/contexts/CurrencyContext";
+import { useExchangeCurrencyList } from "@/hooks/useExchangeCurrencyList";
+import type { ExchangeRate } from "@/utils/currencyUtils";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -12,20 +17,34 @@ interface SourceDrawer {
   balance_lbp: number;
 }
 
-interface AvailableCurrency {
-  code: string;
-  name: string;
-  symbol?: string;
-}
-
 interface ExtraCurrencyRow {
   currency_code: string;
   amount: string;
-  /** EXCHANGE_LOT_SETTLEMENT.md Q3 — USD per one unit of currency_code.
-   *  Required whenever currency_code is lot-tracked (isLotTrackedCurrency);
-   *  every row here always is, since USD/LBP have their own dedicated
-   *  inputs above and never appear in `availableExtraCurrencies`. */
+  /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 (owner decision —
+   *  "market rate by default"): USD per one unit of currency_code, entered
+   *  ONLY when the operator opens the "edit" affordance below
+   *  (`showRateOverride`). No longer required — the server resolves the
+   *  cost basis hands-free (configured market rate, or the live-feed hint
+   *  for a currency with no configured rate) unless this is set. */
   acquisitionRate: string;
+  /** Whether the operator has revealed the manual override input for this
+   *  row. Hands-free (false) by default. */
+  showRateOverride: boolean;
+}
+
+/**
+ * Where this row's cost basis will come from if the operator does not
+ * override it — mirrors the server's own resolution order
+ * (DrawerTopUpRepository.createTopUp): a configured `exchange_rates` row
+ * wins over the live feed. `null` means neither is available — the operator
+ * MUST use the edit link, or the server will reject with its own error.
+ */
+interface ResolvedBasis {
+  usdPerUnit: number;
+  /** True when there is no configured `exchange_rates` row for this
+   *  currency — the basis comes from the live feed instead, and
+   *  `market_usd_per_unit_hint` must be attached on submit. */
+  isFeedOnly: boolean;
 }
 
 type TopUpMode = "external" | "from_drawer" | "transfer";
@@ -73,7 +92,6 @@ export function DrawerTopUpModal({
 }: DrawerTopUpModalProps) {
   const api = useApi();
   useModalFocusFix(isOpen);
-  const { getCurrenciesForDrawer } = useCurrencyContext();
   const [mode, setMode] = useState<TopUpMode>("external");
   const [amountUsd, setAmountUsd] = useState("");
   const [amountLbp, setAmountLbp] = useState("");
@@ -84,40 +102,83 @@ export function DrawerTopUpModal({
   const [extraCurrencies, setExtraCurrencies] = useState<ExtraCurrencyRow[]>(
     [],
   );
-  const [availableExtraCurrencies, setAvailableExtraCurrencies] = useState<
-    AvailableCurrency[]
-  >([]);
 
   /**
-   * Currencies offerable as an extra top-up leg: ONLY currencies explicitly
-   * enabled for the General drawer (Settings → Currencies → "Drawer
-   * Currencies"), minus USD/LBP which have dedicated inputs above.
+   * Currencies offerable as an extra top-up leg (AC1, EXCHANGE_LOT_SETTLEMENT.md
+   * Q3 refinement, 2026-08-23): the SAME merged list the Exchange page offers
+   * — configured currencies + the live FX feed — via the shared
+   * `useExchangeCurrencyList` hook, rather than a drawer-scoped allowlist.
+   * The server now auto-registers an unknown code (mirroring
+   * `ExchangeRepository.ensureCurrency`) before opening its exchange lot, so
+   * offering exactly what Exchange offers no longer risks "pick a currency,
+   * type an amount, get rejected" — see DrawerTopUpRepository.createTopUp's
+   * lot-creation block and DrawerTopUpService.addTopUp's updated doc comment.
    *
-   * This MUST mirror the backend gate exactly. `DrawerTopUpService.addTopUp`
-   * hard-rejects any `extra_currencies` entry whose code is not linked to the
-   * General drawer via `currency_drawers` — offering shop-wide active
-   * currencies or live-feed currencies (as a prior version did) let the
-   * operator pick a currency, type an amount, and only then get rejected.
-   * `getCurrenciesForDrawer` (CurrencyContext) is the same drawer-scoped
-   * lookup the backend enforces, so what's offered here is exactly what will
-   * be accepted.
+   * Gated off (`enabled = isOpen && mode === "external"`): this modal stays
+   * mounted under the Dashboard whether or not it's open, and only External
+   * (Cash In) mode ever shows the extra-currency picker — no reason to hit
+   * the live feed otherwise.
    */
+  const { options: currencyOptions, liveCurrencyRates } =
+    useExchangeCurrencyList(isOpen && mode === "external");
+
+  // Configured `exchange_rates` rows — the basis line's primary source
+  // (AC2: "configured currencies: from api.getRates() market_rate,
+  // orientation-normalized for display the same way the server will").
+  // Fetched only in External mode, same gating as the currency list above.
+  const [rateRows, setRateRows] = useState<ExchangeRate[]>([]);
   useEffect(() => {
     if (!isOpen || mode !== "external") return;
     let cancelled = false;
     (async () => {
-      const drawerCurrencies = await getCurrenciesForDrawer("General");
-      if (cancelled) return;
-      setAvailableExtraCurrencies(
-        drawerCurrencies
-          .filter((c) => c.code !== "USD" && c.code !== "LBP")
-          .map((c) => ({ code: c.code, name: c.name, symbol: c.symbol })),
-      );
+      try {
+        const list = (await api.getRates()) as ExchangeRate[];
+        if (!cancelled) setRateRows(list);
+      } catch {
+        if (!cancelled) setRateRows([]);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isOpen, mode, getCurrenciesForDrawer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, mode]);
+
+  /**
+   * Resolve what this currency's cost basis WOULD be if the operator does
+   * not override it — mirrors the server's own resolution order exactly
+   * (DrawerTopUpRepository.createTopUp, step 2 then step 3): a configured
+   * `exchange_rates` row wins over the live feed; `null` means neither
+   * exists, so the operator must use the edit link or the server will
+   * reject with its own "no cost basis available" error.
+   */
+  function resolveBasis(currencyCode: string): ResolvedBasis | null {
+    const configured = rateRows.find((r) => r.to_code === currencyCode);
+    if (configured) {
+      return {
+        usdPerUnit: marketRateToUsdPerUnit(
+          configured.market_rate,
+          configured.is_stronger,
+        ),
+        isFeedOnly: false,
+      };
+    }
+    const fed = liveCurrencyRates.find((r) => r.to_code === currencyCode);
+    if (fed) {
+      return {
+        usdPerUnit: marketRateToUsdPerUnit(fed.market_rate, fed.is_stronger),
+        isFeedOnly: true,
+      };
+    }
+    return null;
+  }
+
+  function formatBasisRate(usdPerUnit: number): string {
+    return usdPerUnit.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6,
+    });
+  }
 
   // Transfer mode — General <-> the primary cash drawer (PCD), the shop's
   // OWN physical till at the money-transfer counter (Primary Cash Drawer
@@ -173,7 +234,6 @@ export function DrawerTopUpModal({
     setMode("external");
     setSelectedDrawer("");
     setExtraCurrencies([]);
-    setAvailableExtraCurrencies([]);
     setTransferDirection("to_primary");
     setTransferBalances({});
     onClose();
@@ -181,11 +241,16 @@ export function DrawerTopUpModal({
 
   function addCurrencyRow() {
     const used = new Set(extraCurrencies.map((row) => row.currency_code));
-    const next = availableExtraCurrencies.find((c) => !used.has(c.code));
+    const next = currencyOptions.find((c) => !used.has(c.code));
     if (!next) return;
     setExtraCurrencies((prev) => [
       ...prev,
-      { currency_code: next.code, amount: "", acquisitionRate: "" },
+      {
+        currency_code: next.code,
+        amount: "",
+        acquisitionRate: "",
+        showRateOverride: false,
+      },
     ]);
   }
 
@@ -207,6 +272,16 @@ export function DrawerTopUpModal({
 
     const usd = parseFloat(amountUsd) || 0;
     const lbp = parseFloat(amountLbp) || 0;
+    // AC2 (2026-08-23 refinement) — hands-free by default. Per row:
+    //  - `acquisition_usd_per_unit` is sent ONLY when the operator opened the
+    //    "edit" link and entered a value (`showRateOverride` + a positive
+    //    rate) — never merely because a value happens to be typed in a
+    //    hidden field.
+    //  - `market_usd_per_unit_hint` is auto-attached ONLY for a feed-only
+    //    currency (no configured `exchange_rates` row) — the server ignores
+    //    it whenever it has its own configured rate, so attaching it
+    //    unconditionally for a feed-only row is safe even alongside an
+    //    operator override (override always wins server-side).
     const extraLegs =
       mode === "external"
         ? extraCurrencies
@@ -215,11 +290,15 @@ export function DrawerTopUpModal({
             )
             .map((row) => {
               const acquisitionRate = parseFloat(row.acquisitionRate) || 0;
+              const basis = resolveBasis(row.currency_code);
               return {
                 currency_code: row.currency_code,
                 amount: parseFloat(row.amount) || 0,
-                ...(acquisitionRate > 0
+                ...(row.showRateOverride && acquisitionRate > 0
                   ? { acquisition_usd_per_unit: acquisitionRate }
+                  : {}),
+                ...(basis?.isFeedOnly
+                  ? { market_usd_per_unit_hint: basis.usdPerUnit }
                   : {}),
               };
             })
@@ -230,18 +309,21 @@ export function DrawerTopUpModal({
       return;
     }
 
-    // EXCHANGE_LOT_SETTLEMENT.md Q3 — every extra-currency row is a
-    // lot-tracked (non-USD/LBP) currency landing in General, so each one
-    // needs its own acquisition rate before the backend will accept it.
-    // Caught here for a friendlier message than the repository's throw.
-    const missingRate = extraLegs.find(
-      (leg) =>
-        isLotTrackedCurrency(leg.currency_code) &&
-        !("acquisition_usd_per_unit" in leg),
-    );
-    if (missingRate) {
+    // EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — a lot-tracked
+    // (non-USD/LBP) row no longer REQUIRES an operator-entered rate (the
+    // server falls back to the configured market rate or the feed hint
+    // above), but it still needs SOME cost basis: an override, or a
+    // resolvable market/feed rate. Caught here for a friendlier message than
+    // the repository's throw.
+    const missingBasis = extraLegs.find((leg) => {
+      if (!isLotTrackedCurrency(leg.currency_code)) return false;
+      const hasOverride = (leg.acquisition_usd_per_unit ?? 0) > 0;
+      if (hasOverride) return false;
+      return resolveBasis(leg.currency_code) === null;
+    });
+    if (missingBasis) {
       alert(
-        `Enter an acquisition rate (USD per ${missingRate.currency_code}) — it sets the cost basis for exchange profit.`,
+        `No market rate available for ${missingBasis.currency_code} — click "edit" to enter one manually.`,
       );
       return;
     }
@@ -720,7 +802,7 @@ export function DrawerTopUpModal({
                   <span className="text-slate-600">(optional)</span>
                 </label>
 
-                {availableExtraCurrencies.length === 0 ? (
+                {currencyOptions.length === 0 ? (
                   <p className="text-xs text-slate-500 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2.5">
                     No other currencies available — add one in Settings →
                     Currencies, or check the connection for the live list.
@@ -733,7 +815,7 @@ export function DrawerTopUpModal({
                           .filter((_, i) => i !== index)
                           .map((r) => r.currency_code),
                       );
-                      const rowOptions = availableExtraCurrencies
+                      const rowOptions = currencyOptions
                         .filter((c) => !usedElsewhere.has(c.code))
                         .map((c) => ({
                           value: c.code,
@@ -742,12 +824,15 @@ export function DrawerTopUpModal({
 
                       // EXCHANGE_LOT_SETTLEMENT.md Q3 — always true today
                       // (USD/LBP have dedicated inputs above and never reach
-                      // `availableExtraCurrencies`), kept explicit rather
-                      // than assumed so the field tracks the real policy if
-                      // that ever changes.
+                      // `currencyOptions`), kept explicit rather than assumed
+                      // so the field tracks the real policy if that ever
+                      // changes.
                       const needsAcquisitionRate = isLotTrackedCurrency(
                         row.currency_code,
                       );
+                      const basis = row.currency_code
+                        ? resolveBasis(row.currency_code)
+                        : null;
 
                       return (
                         <div key={index} className="space-y-1.5">
@@ -770,6 +855,7 @@ export function DrawerTopUpModal({
                                   })
                                 }
                                 placeholder="0.00"
+                                data-testid={`drawer-topup-currency-amount-${index}`}
                                 className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
                               />
                             </div>
@@ -783,35 +869,69 @@ export function DrawerTopUpModal({
                             </button>
                           </div>
 
-                          {needsAcquisitionRate && (
-                            <div className="pl-1">
-                              <label className="text-[11px] text-slate-500 block mb-1">
-                                Acquisition rate (USD per{" "}
-                                {row.currency_code || "unit"})
-                              </label>
-                              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
-                                <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
-                                  $
+                          {/* AC2 (2026-08-23 refinement) — hands-free by
+                            default: a quiet basis line + an "edit" link,
+                            instead of an always-visible rate input. Clicking
+                            "edit" reveals the manual-override input (same
+                            shape as before), which now overrides rather than
+                            establishes the basis. */}
+                          {needsAcquisitionRate &&
+                            (!row.showRateOverride ? (
+                              <div className="pl-1 flex items-center justify-between gap-2">
+                                <span
+                                  data-testid={`drawer-topup-basis-line-${index}`}
+                                  className="text-[11px] text-slate-500"
+                                >
+                                  {basis
+                                    ? `Cost basis: market rate ${formatBasisRate(
+                                        basis.usdPerUnit,
+                                      )} USD/${row.currency_code || "unit"}`
+                                    : `No market rate found for ${
+                                        row.currency_code || "this currency"
+                                      } — enter one manually.`}
                                 </span>
-                                <DecimalInput
-                                  value={parseFloat(row.acquisitionRate) || 0}
-                                  onChange={(n) =>
+                                <button
+                                  type="button"
+                                  data-testid={`drawer-topup-basis-edit-${index}`}
+                                  onClick={() =>
                                     updateCurrencyRow(index, {
-                                      acquisitionRate: n ? String(n) : "",
+                                      showRateOverride: true,
                                     })
                                   }
-                                  placeholder="0.00"
-                                  data-testid={`drawer-topup-acquisition-rate-${index}`}
-                                  className="flex-1 bg-transparent px-3 py-2 text-sm text-white focus:outline-none placeholder:text-slate-600"
-                                />
+                                  className="shrink-0 text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+                                >
+                                  edit
+                                </button>
                               </div>
-                              <p className="mt-1 text-[11px] text-slate-500">
-                                What one {row.currency_code || "unit"} cost
-                                you in USD — sets the cost basis for exchange
-                                profit.
-                              </p>
-                            </div>
-                          )}
+                            ) : (
+                              <div className="pl-1">
+                                <label className="text-[11px] text-slate-500 block mb-1">
+                                  Acquisition rate (USD per{" "}
+                                  {row.currency_code || "unit"})
+                                </label>
+                                <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-emerald-500 transition-colors">
+                                  <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
+                                    $
+                                  </span>
+                                  <DecimalInput
+                                    value={parseFloat(row.acquisitionRate) || 0}
+                                    onChange={(n) =>
+                                      updateCurrencyRow(index, {
+                                        acquisitionRate: n ? String(n) : "",
+                                      })
+                                    }
+                                    placeholder="0.00"
+                                    data-testid={`drawer-topup-acquisition-rate-${index}`}
+                                    className="flex-1 bg-transparent px-3 py-2 text-sm text-white focus:outline-none placeholder:text-slate-600"
+                                  />
+                                </div>
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  What one {row.currency_code || "unit"} cost
+                                  you in USD — sets the cost basis for
+                                  exchange profit.
+                                </p>
+                              </div>
+                            ))}
                         </div>
                       );
                     })}
@@ -820,8 +940,7 @@ export function DrawerTopUpModal({
                       type="button"
                       onClick={addCurrencyRow}
                       disabled={
-                        extraCurrencies.length >=
-                        availableExtraCurrencies.length
+                        extraCurrencies.length >= currencyOptions.length
                       }
                       className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
                     >

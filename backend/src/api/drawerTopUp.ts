@@ -60,9 +60,11 @@ router.get("/history", (req, res) => {
 // extra_currencies (External/Cash-In only) is passed through as-is — the core
 // DrawerTopUpService validates each entry's currency_code/amount (no
 // duplicate parallel validation here, matching this route's existing style).
-// Each entry's optional acquisition_usd_per_unit (EXCHANGE_LOT_SETTLEMENT.md
-// Q3 — required for a lot-tracked/non-USD/LBP entry) rides along unchanged
-// for the same reason: DrawerTopUpRepository.createTopUp enforces it.
+// Each entry's optional acquisition_usd_per_unit / market_usd_per_unit_hint
+// (EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — cost-basis resolution
+// order: operator override > configured market rate > feed hint > error)
+// ride along unchanged for the same reason: DrawerTopUpRepository.createTopUp
+// resolves them.
 router.post("/", writeGate, (req, res) => {
   try {
     const {

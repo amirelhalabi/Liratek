@@ -40,6 +40,7 @@ export function registerDrawerTopUpHandlers(): void {
           currency_code: string;
           amount: number;
           acquisition_usd_per_unit?: number;
+          market_usd_per_unit_hint?: number;
         }[];
       },
     ) => {

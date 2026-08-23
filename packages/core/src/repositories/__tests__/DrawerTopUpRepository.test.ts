@@ -283,31 +283,67 @@ describe("DrawerTopUpService.addTopUp() — extra_currencies (External Cash-In)"
     ]);
   });
 
-  // General is unrestricted, so the gate is no longer "has an admin ticked
-  // this currency for the General drawer" but "is this a real, active
-  // currency" (plan Phase 2). Still a HARD reject rather than an
-  // auto-register: an unknown code must not create a `drawer_balances` row for
-  // a currency with no name/symbol/decimal_places. GBP below exists nowhere in
-  // `currencies`, which is exactly that case.
-  it("rejects a currency that is not an active currency — no rows written", () => {
-    enableDrawerCurrency(db, "General", "EUR"); // GBP deliberately absent
-
+  // AC1 (EXCHANGE_LOT_SETTLEMENT.md Q3 refinement, owner-approved 2026-08-23)
+  // REMOVED the "is this a real, active currency" gate this test used to
+  // guard (itself a fix for an earlier, still-more-restrictive
+  // `currency_drawers` allowlist gate — see git history). The currency
+  // picker now mirrors the Exchange page's own list (configured currencies +
+  // the live FX feed), and — like Exchange already does via
+  // `ensureCurrency` — the repository auto-registers an unknown code before
+  // opening its exchange lot. GBP below exists nowhere in `currencies`
+  // beforehand, proving the auto-registration (not merely "was already
+  // active somehow").
+  //
+  // Rule 17: this test was run against the pre-refinement code (the
+  // `allowed`/`getCurrenciesForDrawer` gate restored) and FAILED —
+  // `result.success` was `false` with error "not an active currency".
+  it("auto-registers a brand-new currency code (never active before) and opens its lot", () => {
+    // GBP deliberately absent from `currencies`/`currency_drawers`.
     const result = service.addTopUp(
       {
         amount_usd: 0,
         amount_lbp: 0,
-        extra_currencies: [{ currency_code: "GBP", amount: 50 }],
+        extra_currencies: [
+          { currency_code: "GBP", amount: 50, acquisition_usd_per_unit: 1.27 },
+        ],
+      },
+      1,
+    );
+
+    expect(result.success).toBe(true);
+    expect(balance(db, "General", "GBP")).toBeCloseTo(50, 2);
+
+    const currencyRow = db
+      .prepare("SELECT * FROM currencies WHERE code = ?")
+      .get("GBP") as { is_active: number } | undefined;
+    expect(currencyRow).toBeTruthy();
+    expect(currencyRow!.is_active).toBe(1);
+
+    const drawerRow = db
+      .prepare(
+        "SELECT * FROM currency_drawers WHERE currency_code = ? AND drawer_name = ?",
+      )
+      .get("GBP", "General");
+    expect(drawerRow).toBeTruthy();
+  });
+
+  // The USD/LBP-in-extra_currencies guard is now explicit in the SERVICE
+  // (rather than an accidental side effect of the old "active currency"
+  // allowlist, which happened to exclude USD/LBP too) — self-contained proof
+  // it still holds once that allowlist is gone.
+  it("still rejects USD/LBP inside extra_currencies — they have dedicated fields above", () => {
+    const result = service.addTopUp(
+      {
+        amount_usd: 0,
+        amount_lbp: 0,
+        extra_currencies: [{ currency_code: "USD", amount: 10 }],
       },
       1,
     );
 
     expect(result.success).toBe(false);
-    expect(result.error).toMatch(/not an active currency/i);
-
-    // Nothing was written — the service rejected before calling the repo.
+    expect(result.error).toMatch(/dedicated amount field/i);
     expect(topUpRowCount(db)).toBe(0);
-    expect(paymentsRows(db)).toHaveLength(0);
-    expect(balance(db, "General", "GBP")).toBeCloseTo(0, 2);
   });
 
   /**

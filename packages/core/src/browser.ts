@@ -55,6 +55,16 @@ export * from "./constants/drawerCurrencyPolicy.js";
 // above for the exact failure mode this avoids.
 export * from "./constants/exchangeLotPolicy.js";
 
+// Market-rate orientation normalization (marketRateToUsdPerUnit) — pure
+// arithmetic over `exchange_rates.market_rate`/`is_stronger`, no Node.js
+// deps. DrawerTopUpModal.tsx (2026-08-23 refinement, EXCHANGE_LOT_SETTLEMENT.md
+// Q3) imports it to render the same "Cost basis: market rate ..." figure the
+// server will independently compute — rule 14, the ONE orientation-math
+// function, never a second hand-rolled copy in the renderer. Must be
+// exported HERE, not only from index.ts — see the drawerCurrencyPolicy note
+// above for the exact failure mode this avoids.
+export * from "./utils/lotMarketRate.js";
+
 // Type exports used in electron.d.ts (type-only, no runtime impact)
 export type { ProductEntity as Product } from "./repositories/ProductRepository.js";
 export type { ClientEntity as Client } from "./repositories/ClientRepository.js";

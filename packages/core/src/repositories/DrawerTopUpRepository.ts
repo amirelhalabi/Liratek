@@ -9,6 +9,9 @@ import {
 import { isLotTrackedCurrency } from "../constants/exchangeLotPolicy.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
+import { getRateRepository } from "./RateRepository.js";
+import { marketRateToUsdPerUnit } from "../utils/lotMarketRate.js";
+import { exchangeLogger } from "../utils/logger.js";
 
 export interface DrawerTopUpEntity {
   id: number;
@@ -35,16 +38,26 @@ export interface CreateDrawerTopUpData {
   extra_currencies?: Array<{
     currency_code: string;
     amount: number;
-    /** EXCHANGE_LOT_SETTLEMENT.md Q3 — required when `currency_code` is
-     *  lot-tracked (`isLotTrackedCurrency`, i.e. anything other than
-     *  USD/LBP). In practice EVERY entry that reaches this array already is
-     *  lot-tracked: `DrawerTopUpService.addTopUp` only lets a currency onto
-     *  `extra_currencies` if it's active AND not USD/LBP. USD per one unit
-     *  of `currency_code` (e.g. `1.08` for "1 EUR cost the shop $1.08") —
-     *  establishes the cost basis for the exchange lot `createTopUp` opens
-     *  for this entry (see the lot-creation block there). Rejected, not
-     *  silently dropped, if supplied for a non-lot-tracked entry. */
+    /** EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 (owner decision —
+     *  "market rate by default"): the OPERATOR's manual override of the
+     *  cost basis, entered via the top-up modal's "edit" affordance. Optional
+     *  now — a lot-tracked (non-USD/LBP) entry no longer REQUIRES this; see
+     *  the 4-step resolution order documented on the lot-creation block in
+     *  `createTopUp` below (override > configured market rate > client feed
+     *  hint > error). Still rejected, not silently dropped, if supplied for a
+     *  non-lot-tracked entry. */
     acquisition_usd_per_unit?: number;
+    /** NEW (2026-08-23 refinement) — the live-feed USD-per-unit rate the
+     *  frontend has on hand for a currency with NO configured
+     *  `exchange_rates` row (feed-only, e.g. a currency picked straight from
+     *  the Exchange page's live-rate dropdown that nobody has set up in
+     *  Settings yet). Used as the cost basis ONLY when there is no operator
+     *  override AND no configured rate row for `currency_code` — see the
+     *  resolution order on the lot-creation block below. A configured rate
+     *  row always wins over this hint (the server prefers its own data).
+     *  Rejected, not silently dropped, if supplied for a non-lot-tracked
+     *  entry — same rule as `acquisition_usd_per_unit`. */
+    market_usd_per_unit_hint?: number;
   }>;
 }
 
@@ -219,14 +232,22 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       // metadata_json for non-USD/LBP detail. amount_usd/amount_lbp on the
       // transaction row stay USD/LBP-only.
       //
-      // EXCHANGE_LOT_SETTLEMENT.md Q3 — every entry here always targets the
-      // General drawer (this loop never posts anywhere else) and is
-      // guaranteed lot-tracked by the time it reaches the repository
-      // (`DrawerTopUpService.addTopUp` only allows a currency onto this
-      // array if it is active AND not USD/LBP) — so a lot is opened for
-      // EVERY entry, at the operator-entered acquisition rate. `acquiredAt`
-      // is read back from the top-up row itself (SQLite format) rather than
-      // re-derived, mirroring `ExchangeRepository`'s
+      // EXCHANGE_LOT_SETTLEMENT.md Q3, refined 2026-08-23 — every entry here
+      // always targets the General drawer (this loop never posts anywhere
+      // else). Since the currency picker now mirrors the Exchange page's
+      // list (configured currencies + the live FX feed — see
+      // useExchangeCurrencyList on the frontend), an entry's `currency_code`
+      // may be brand new to this shop: auto-register it exactly like
+      // `ExchangeRepository`'s own `ensureCurrency`/`ensureDrawer` pair
+      // (INSERT OR IGNORE, tenant-scoped) — duplicated here rather than
+      // extracted into a shared helper (ExchangeRepository's own call sites
+      // are out of scope for this change; cross-reference this comment if
+      // unifying later). This MUST run before `createLot` below: `exchange_lots`
+      // has a composite FK `(tenant_id, currency_code) REFERENCES
+      // currencies(tenant_id, code)`.
+      //
+      // `acquiredAt` is read back from the top-up row itself (SQLite format)
+      // rather than re-derived, mirroring `ExchangeRepository`'s
       // `findById(id)!.created_at` pattern, so the lot's acquisition
       // timestamp is byte-identical to the top-up's own `created_at`
       // regardless of whether `transaction_time` was supplied.
@@ -240,53 +261,148 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
       const topUpCreatedAt: string | null =
         extraEntries.length > 0 ? this.findById(topUpId)!.created_at : null;
 
-      for (const entry of extraEntries) {
-        if (!entry.amount || entry.amount <= 0) continue;
-        insertPaymentRow(this.db, {
-          transactionId: txnId,
-          method: TOPUP_METHOD,
-          drawerName: GENERAL_DRAWER,
-          currencyCode: entry.currency_code,
-          amount: entry.amount,
-          note,
-          createdBy: userId,
-          tenantId,
-        });
-        applyDrawerDelta(this.db, {
-          drawerName: GENERAL_DRAWER,
-          currencyCode: entry.currency_code,
-          delta: entry.amount,
-          tenantId,
-        });
+      // Guarded on `extraEntries.length > 0` (not just each entry inside the
+      // loop): `.prepare()` validates the SQL against the schema immediately,
+      // so preparing these unconditionally would require every OTHER
+      // top-up path (plain USD/LBP, no extra_currencies at all) to also
+      // carry a `currencies`/`currency_drawers` table — a real regression
+      // this exact guard fixes (caught by DrawerTopUpRepository.cashFlowLeak
+      // .test.ts's minimal fixture, which has neither table and never
+      // touches extra_currencies).
+      if (extraEntries.length > 0) {
+        const ensureCurrency = this.db.prepare(
+          `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active, tenant_id)
+           VALUES (?, ?, ?, 2, 1, ?)`,
+        );
+        const ensureDrawer = this.db.prepare(
+          `INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name, tenant_id)
+           VALUES (?, 'General', ?)`,
+        );
 
-        if (isLotTrackedCurrency(entry.currency_code)) {
-          if (
-            !(
+        for (const entry of extraEntries) {
+          if (!entry.amount || entry.amount <= 0) continue;
+
+          // Auto-register BEFORE anything else touches this currency_code —
+          // see the comment above the loop. Name/symbol default to the code
+          // itself (no display metadata available at this layer), matching
+          // ExchangeRepository.ensureCurrency's own fallback when no
+          // *CurrencyName is supplied. INSERT OR IGNORE is a no-op for a
+          // currency that already exists.
+          ensureCurrency.run(
+            entry.currency_code,
+            entry.currency_code,
+            entry.currency_code,
+            tenantId,
+          );
+          ensureDrawer.run(entry.currency_code, tenantId);
+
+          insertPaymentRow(this.db, {
+            transactionId: txnId,
+            method: TOPUP_METHOD,
+            drawerName: GENERAL_DRAWER,
+            currencyCode: entry.currency_code,
+            amount: entry.amount,
+            note,
+            createdBy: userId,
+            tenantId,
+          });
+          applyDrawerDelta(this.db, {
+            drawerName: GENERAL_DRAWER,
+            currencyCode: entry.currency_code,
+            delta: entry.amount,
+            tenantId,
+          });
+
+          if (isLotTrackedCurrency(entry.currency_code)) {
+            // Cost-basis resolution order (owner refinement 2026-08-23 —
+            // "market rate by default", EXCHANGE_LOT_SETTLEMENT.md Q3
+            // decision row updated to match). Exactly one of these wins per
+            // entry:
+            //
+            //   1. `acquisition_usd_per_unit` (> 0) — the operator used the
+            //      top-up modal's "edit" link to override the basis. Always
+            //      wins, regardless of what a configured rate or feed hint
+            //      say.
+            //   2. A configured `exchange_rates` row for this currency
+            //      exists — use `marketRateToUsdPerUnit(market_rate,
+            //      is_stronger)` (rule 14 — the ONE orientation-math
+            //      function, never hand-rolled here). Any
+            //      `market_usd_per_unit_hint` the client sent is IGNORED in
+            //      this case: the server prefers its OWN configured rate
+            //      over a client-supplied number whenever it has one.
+            //   3. No configured rate row — fall back to
+            //      `market_usd_per_unit_hint` (> 0), stamped as-is. This is
+            //      the same level of trust already extended to the
+            //      operator's tendered exchange rate elsewhere in this app;
+            //      it exists specifically for a currency picked from the
+            //      live FX feed that nobody has configured a rate for yet.
+            //   4. None of the above — throw, naming both remedies.
+            let unitCostUsd: number;
+            let basisSource: "operator" | "market" | "feed";
+
+            if (
               entry.acquisition_usd_per_unit &&
               entry.acquisition_usd_per_unit > 0
-            )
+            ) {
+              unitCostUsd = entry.acquisition_usd_per_unit;
+              basisSource = "operator";
+            } else {
+              const rateRow = getRateRepository().findByCode(
+                entry.currency_code,
+              );
+              if (rateRow) {
+                unitCostUsd = marketRateToUsdPerUnit(
+                  rateRow.market_rate,
+                  rateRow.is_stronger,
+                );
+                basisSource = "market";
+              } else if (
+                entry.market_usd_per_unit_hint &&
+                entry.market_usd_per_unit_hint > 0
+              ) {
+                unitCostUsd = entry.market_usd_per_unit_hint;
+                basisSource = "feed";
+              } else {
+                throw new Error(
+                  `No cost basis available for ${entry.currency_code} — enter a rate via the edit link, or configure ${entry.currency_code} in Settings → Currencies first.`,
+                );
+              }
+            }
+
+            exchangeLogger.info(
+              {
+                topUpId,
+                currencyCode: entry.currency_code,
+                qty: entry.amount,
+                unitCostUsd,
+                basisSource,
+              },
+              "Drawer top-up lot basis resolved",
+            );
+
+            getExchangeLotRepository().createLot({
+              currencyCode: entry.currency_code,
+              sourceType: "DRAWER_TOPUP",
+              sourceTable: "drawer_topups",
+              sourceId: topUpId,
+              qty: entry.amount,
+              unitCostUsd,
+              acquiredAt: topUpCreatedAt as string,
+            });
+          } else if (
+            entry.acquisition_usd_per_unit != null ||
+            entry.market_usd_per_unit_hint != null
           ) {
+            // Defensive — not reachable via the service today (USD/LBP
+            // never make it into extra_currencies), but a supplied basis
+            // that gets silently dropped for a currency with nothing to
+            // attach it to is worse than a validation error. Message text
+            // kept stable (existing tests match on this exact substring)
+            // even though it now also covers market_usd_per_unit_hint.
             throw new Error(
-              `acquisition_usd_per_unit is required (and must be > 0) for a foreign-currency top-up of ${entry.currency_code} — it sets the exchange-lot cost basis (EXCHANGE_LOT_SETTLEMENT.md Q3)`,
+              `acquisition_usd_per_unit is only valid for a foreign (non-USD/LBP) currency — ${entry.currency_code} is not lot-tracked (same restriction applies to market_usd_per_unit_hint)`,
             );
           }
-          getExchangeLotRepository().createLot({
-            currencyCode: entry.currency_code,
-            sourceType: "DRAWER_TOPUP",
-            sourceTable: "drawer_topups",
-            sourceId: topUpId,
-            qty: entry.amount,
-            unitCostUsd: entry.acquisition_usd_per_unit,
-            acquiredAt: topUpCreatedAt as string,
-          });
-        } else if (entry.acquisition_usd_per_unit != null) {
-          // Defensive — not reachable via the service today (USD/LBP never
-          // make it into extra_currencies), but a supplied basis that gets
-          // silently dropped for a currency with nothing to attach it to is
-          // worse than a validation error.
-          throw new Error(
-            `acquisition_usd_per_unit is only valid for a foreign (non-USD/LBP) currency — ${entry.currency_code} is not lot-tracked`,
-          );
         }
       }
 
