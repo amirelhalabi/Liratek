@@ -210,14 +210,21 @@ their outcomes:
   corrections happen FORWARD via another adjustment, never by voiding the buy. Revisit only
   if write-offs become frequent (the alternative is an adjustment-reversal flow).
 
-**Named follow-up (pre-existing, NOT this feature — owner confirmed 2026-08-23: separate ticket, not fixed here):**
-- **Web exchange-submit parity (F3)**: `POST /api/exchange/transactions` is admin-only (IPC
-  allows staff), returns HTTP 400 on failure (violates the 200-envelope rule), and
-  `createExchangeSchema` strips leg rates/profits so operator rate overrides never reach the
-  web server — on web, lot math runs on server-recomputed rates, so a web operator's edited
-  rate silently diverges from what's stamped. Predates lots (verbatim at 5ee10ce9^). Also:
-  `backendApi.ts` references a plan-doc "Appendix A" that does not exist. Deserves its own
-  ticket before the web exchange page is considered at parity.
+**F3 — RESOLVED 2026-08-23 (owner requested same-session follow-up):** the web submit route
+now mirrors IPC exactly — admin+staff, HTTP 200 envelope always, and the full submit schema
+(`exchangeSubmitSchema`) lifted to core validators (killing the electron-app local duplicate,
+rule 14) so operator rate overrides reach the web server via `addDirectTransaction`. Proven by
+lira-web-022 (4 tests, each shown failing against the reverted pre-fix route): staff submit
+with verbatim override storage, 200+success:false on business failure, realizedProfitUsd in
+the web response, admin unaffected. The dangling "Appendix A" adapter comment is gone.
+
+**NEW named follow-up (found during F3, pre-existing on BOTH transports):**
+- **`transaction_time` is stripped by the exchange submit schema** — the Exchange page's
+  backdate field never survives `validatePayload`/`validateRequest`, so exchange rows always
+  stamp CURRENT_TIMESTAMP even when the operator backdates. The repository layer honors
+  transaction_time correctly (adversarially verified) — the loss is purely at the schema.
+  One-line schema addition + a guard test; decide whether backdating exchanges is wanted
+  before enabling (it affects lot FIFO order by design — see "Accepted behavior" above).
 
 ## Open items for implementation time
 

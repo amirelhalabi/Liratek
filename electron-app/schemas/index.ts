@@ -104,6 +104,8 @@ import {
   type UpdateServiceProviderInput,
   updateExchangeMetadataSchema,
   type UpdateExchangeMetadataInput,
+  exchangeSubmitSchema,
+  type ExchangeSubmitInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -592,42 +594,19 @@ export const SelfChargeTelecomItemSchema =
 // Exchange
 // =============================================================================
 
-export const ExchangeTransactionSchema = z.object({
-  fromCurrency: z.string().min(1),
-  toCurrency: z.string().min(1),
-  amountIn: z.number().positive(),
-  amountOut: z.number().positive(),
-  leg1Rate: z.number(),
-  leg1MarketRate: z.number(),
-  leg1ProfitUsd: z.number(),
-  leg2Rate: z.number().optional(),
-  leg2MarketRate: z.number().optional(),
-  leg2ProfitUsd: z.number().optional(),
-  viaCurrency: z.string().optional(),
-  totalProfitUsd: z.number(),
-  clientName: z.string().optional(),
-  note: z.string().optional(),
-  fromCurrencyName: z.string().optional(),
-  toCurrencyName: z.string().optional(),
-  // LIRA-081 — LOCAL duplicate of the core createExchangeSchema field (rule-14
-  // debt, same trap documented elsewhere in this file): fields must exist in
-  // BOTH or the desktop path silently strips them.
-  partnerId: z.number().int().positive().optional(),
-  partnerMode: z.enum(["FOR"]).optional(),
-  // Split payout (2026-07-30) — LOCAL duplicate of the core
-  // createExchangeSchema fields (rule-14 debt, same trap as partnerId above).
-  payments: z
-    .array(
-      z.object({
-        method: z.string(),
-        currencyCode: z.string(),
-        amount: z.number().positive(),
-        direction: z.enum(["IN", "OUT"]).optional(),
-      }),
-    )
-    .optional(),
-  tender_exchange_rate: z.number().positive().optional(),
-});
+// The full submit contract lives in packages/core/src/validators/exchange.ts
+// (EXCHANGE_LOT_SETTLEMENT.md "Named follow-up" F3, rule 14 unification —
+// lifted out of what used to be a LOCAL duplicate right here, the same
+// rule-14 debt createExchangeSchema's own comments used to point at) so the
+// IPC handler (`exchange:add-transaction`) and the REST route
+// (`POST /api/exchange/transactions`) validate against ONE schema, both
+// landing on `ExchangeService.addDirectTransaction`. Cast bridges the zod
+// major mismatch (core built against zod 4, this workspace against zod 3);
+// the runtime API used is identical. Exported under the historical local
+// name — exchangeHandlers.ts imports `ExchangeTransactionSchema` and needs
+// no change.
+export const ExchangeTransactionSchema =
+  exchangeSubmitSchema as unknown as z.ZodSchema<ExchangeSubmitInput>;
 
 // The update-metadata contract lives in
 // packages/core/src/validators/exchange.ts (EXCHANGE_LOT_SETTLEMENT.md

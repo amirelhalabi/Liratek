@@ -129,6 +129,16 @@ type Api = {
         data?: MobileServiceItemRow[];
         error?: string;
       }>;
+      /** `window.api.mobileServiceItems.count()` — see
+       *  `mobile-service-items:count` in mobileServiceItemHandlers.ts, which
+       *  returns `{ success, data: <row count> }` (the count, not the rows),
+       *  so a role failure and a genuinely empty catalog stay distinguishable
+       *  here too. */
+      count: () => Promise<{
+        success: boolean;
+        data?: number;
+        error?: string;
+      }>;
     };
     transactions: {
       /** Returns the RAW array (no `{success,…}` envelope) — see

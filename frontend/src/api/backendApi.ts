@@ -866,24 +866,21 @@ export async function addExchangeTransaction(payload: any) {
   if (isElectron()) {
     return (window as any).api.exchange.addTransaction(payload);
   }
-  // REST createExchangeSchema requires `rate` and a full ISO transaction_time;
-  // the form sends leg-based rates and a datetime-local string (IPC accepts
-  // both). NOTE: the REST validator also strips the leg1*/leg2* profit fields
-  // — leg-profit stamping parity is tracked in the plan doc (Appendix A).
-  const body = {
-    ...payload,
-    rate:
-      payload.rate ??
-      payload.leg1Rate ??
-      (payload.amountIn ? payload.amountOut / payload.amountIn : undefined),
-    ...(payload.transaction_time
-      ? { transaction_time: new Date(payload.transaction_time).toISOString() }
-      : {}),
-  };
-  return requestJson<{ success: boolean; id?: number; error?: string }>(
-    `/api/exchange/transactions`,
-    { method: "POST", body },
-  );
+  // EXCHANGE_LOT_SETTLEMENT.md "Named follow-up" F3: the REST route now
+  // validates against exchangeSubmitSchema — the same full leg-based
+  // contract the IPC handler uses — and calls
+  // ExchangeService.addDirectTransaction, so the payload the form already
+  // built (leg1/leg2 rates, profits, viaCurrency, payments, ...) travels
+  // through unchanged. No more field-stripping, no more server-side rate
+  // recompute.
+  return requestJson<{
+    success: boolean;
+    id?: number;
+    error?: string;
+    realizedProfitUsd?: number;
+    lotCoveredQty?: number;
+    lotMarketQty?: number;
+  }>(`/api/exchange/transactions`, { method: "POST", body: payload });
 }
 
 // Edit non-financial metadata (client name / note) on an exchange row — the

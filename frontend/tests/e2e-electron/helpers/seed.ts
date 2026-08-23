@@ -161,12 +161,21 @@ export async function seedExchangeRate(
   rate: number,
 ): Promise<void> {
   if (IS_WEB) {
+    // EXCHANGE_LOT_SETTLEMENT.md "Named follow-up" F3: the REST route now
+    // validates the same full leg-based schema the IPC branch below always
+    // has (`exchangeSubmitSchema`) — a bare `rate` no longer validates.
+    // Mirrors the IPC branch's payload exactly: a seeded rate marker has no
+    // spread and no profit, so leg1Rate IS the market rate and both profit
+    // fields are 0.
     await webPost(page, "/api/exchange/transactions", {
       fromCurrency: "USD",
       toCurrency: "LBP",
       amountIn: 1,
       amountOut: rate,
-      rate,
+      leg1Rate: rate,
+      leg1MarketRate: rate,
+      leg1ProfitUsd: 0,
+      totalProfitUsd: 0,
     });
     return;
   }
@@ -177,7 +186,12 @@ export async function seedExchangeRate(
         toCurrency: "LBP",
         amountIn: 1,
         amountOut: rate,
-        rate,
+        // A seeded rate marker has no spread and no profit: leg1Rate IS the
+        // market rate, and both profit fields are 0.
+        leg1Rate: rate,
+        leg1MarketRate: rate,
+        leg1ProfitUsd: 0,
+        totalProfitUsd: 0,
       }),
     { rate },
   );
