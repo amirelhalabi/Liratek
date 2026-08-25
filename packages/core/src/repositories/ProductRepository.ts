@@ -58,6 +58,13 @@ export interface ProductDTO {
   is_deleted: number;
   supplier: string | null;
   created_at: string;
+  /** LIRA-143 v157 (decision #9): inherited from the product's category
+   *  (product_categories.tracks_imei_units), 0 for an uncategorized
+   *  product. SQLite boolean (0 or 1). */
+  tracks_imei_units: number;
+  /** LIRA-143 v157 (decision #4): duration on the MODEL; NULL = no
+   *  warranty. The clock starts at sale time, not here. */
+  warranty_months: number | null;
 }
 
 export interface CreateProductData {
@@ -72,6 +79,9 @@ export interface CreateProductData {
   image_url?: string;
   item_type?: string;
   supplier?: string | null;
+  /** LIRA-143 v157 (decision #4): NULL = no warranty. Set on the product
+   *  form; NOT inherited from the category (tracks_imei_units is). */
+  warranty_months?: number | null;
 }
 
 export interface UpdateProductData {
@@ -85,6 +95,8 @@ export interface UpdateProductData {
   image_url?: string;
   supplier?: string | null;
   stock_quantity?: number;
+  /** LIRA-143 v157 (decision #4): NULL = no warranty. */
+  warranty_months?: number | null;
 }
 
 export interface StockStats {
@@ -152,7 +164,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           p.selling_price_usd as retail_price,
           p.supplier,
           p.category_id,
-          COALESCE(pc.name, p.category) as category
+          p.warranty_months,
+          COALESCE(pc.name, p.category) as category,
+          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units
         FROM ${this.tableName} p
         LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
         WHERE p.is_active = 1 AND p.is_deleted = 0
@@ -243,8 +257,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       const stmt = this.db.prepare(`
         INSERT INTO ${this.tableName} (
           barcode, name, category, category_id, cost_price_usd, selling_price_usd,
-          stock_quantity, min_stock_level, image_url, item_type, supplier, created_at, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+          stock_quantity, min_stock_level, image_url, item_type, supplier, warranty_months, created_at, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
       `);
 
       const result = stmt.run(
@@ -259,6 +273,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.image_url ?? null,
         data.item_type ?? "Product",
         data.supplier ?? null,
+        data.warranty_months ?? null,
         tenantId,
       );
 
@@ -281,7 +296,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
                 cost_price_usd = ?, selling_price_usd = ?,
                 stock_quantity = ?, min_stock_level = ?,
                 image_url = COALESCE(?, image_url), item_type = COALESCE(?, item_type),
-                supplier = COALESCE(?, supplier), is_active = 1, is_deleted = 0,
+                supplier = COALESCE(?, supplier), warranty_months = ?,
+                is_active = 1, is_deleted = 0,
                 created_at = COALESCE(created_at, datetime('now')),
                 updated_at = datetime('now')
               WHERE id = ? AND tenant_id = ?`,
@@ -297,6 +313,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
               data.image_url ?? null,
               data.item_type ?? "Product",
               data.supplier ?? null,
+              data.warranty_months ?? null,
               deleted.id,
               tenantId,
             );
@@ -325,6 +342,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           selling_price_usd = COALESCE(?, selling_price_usd),
           min_stock_level = COALESCE(?, min_stock_level),
           image_url = COALESCE(?, image_url),
+          warranty_months = COALESCE(?, warranty_months),
           updated_at = datetime('now')
         WHERE id = ? AND tenant_id = ?
       `);
@@ -337,6 +355,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.retail_price ?? null,
         data.min_stock_level ?? null,
         data.image_url ?? null,
+        data.warranty_months ?? null,
         id,
         getCurrentTenantId(),
       );
@@ -445,6 +464,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       image_url?: string | null;
       supplier?: string | null;
       stock_quantity?: number;
+      /** LIRA-143 v157 (decision #4): NULL = no warranty. */
+      warranty_months?: number | null;
     },
   ): boolean {
     try {
@@ -453,6 +474,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           barcode = ?, name = ?, category = ?, category_id = ?, cost_price_usd = ?,
           selling_price_usd = ?, min_stock_level = ?, image_url = ?,
           supplier = ?, stock_quantity = COALESCE(?, stock_quantity),
+          warranty_months = ?,
           updated_at = datetime('now')
         WHERE id = ? AND tenant_id = ?
       `);
@@ -468,6 +490,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.image_url ?? null,
         data.supplier ?? null,
         data.stock_quantity ?? null,
+        data.warranty_months ?? null,
         id,
         getCurrentTenantId(),
       );

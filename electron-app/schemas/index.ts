@@ -173,6 +173,10 @@ const ProductBaseShape = z.object({
   min_stock_level: z.number().int().nonnegative().optional(),
   image_url: z.string().optional().nullable(),
   supplier: z.string().optional().nullable(),
+  // LIRA-143 v157 (decision #4): duration on the MODEL, set on the product
+  // form; NULL/omitted = no warranty. tracks_imei_units is NOT a product
+  // write field — it lives on the category (see UpdateCategorySchema).
+  warranty_months: z.number().int().nonnegative().optional().nullable(),
 });
 
 /** Create: id must NOT be sent — the database auto-generates it. */

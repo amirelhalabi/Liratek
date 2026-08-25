@@ -92,6 +92,9 @@ router.post(
       stock_quantity: b.stock,
       min_stock_level: b.min_stock_threshold,
       supplier: b.supplier ?? null,
+      // warranty_months is named identically on both sides — straight
+      // through, no remap needed (LIRA-143 v157 decision #4).
+      warranty_months: b.warranty_months ?? null,
     });
 
     if (!result.success) {

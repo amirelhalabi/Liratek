@@ -339,6 +339,7 @@ export class InventoryService {
         ...(data.image_url != null ? { image_url: data.image_url } : {}),
         supplier: data.supplier ?? null,
         stock_quantity: data.stock_quantity,
+        warranty_months: data.warranty_months,
       });
       return { success: true };
     } catch (error) {

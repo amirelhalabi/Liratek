@@ -18,6 +18,10 @@ export const createProductSchema = z.object({
   supplier: z.string().max(200).optional().nullable(),
   is_active: z.boolean().default(true),
   notes: z.string().max(500).optional(),
+  // LIRA-143 v157 (decision #4): duration on the MODEL, set on the product
+  // form; NULL/omitted = no warranty. NOT tracks_imei_units — that lives on
+  // the category, not the product.
+  warranty_months: positiveIntegerSchema.optional().nullable(),
 });
 
 export const updateProductSchema = z.object({
@@ -34,6 +38,7 @@ export const updateProductSchema = z.object({
   supplier: z.string().max(200).optional().nullable(),
   is_active: z.boolean().optional(),
   notes: z.string().max(500).optional(),
+  warranty_months: positiveIntegerSchema.optional().nullable(),
 });
 
 export const updateStockSchema = z.object({

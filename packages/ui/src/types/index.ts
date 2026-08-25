@@ -23,6 +23,12 @@ export interface Product extends Omit<
 > {
   retail_price: number;
   cost_price: number;
+  // LIRA-143 v157: mirrors ProductRepository's ProductDTO (findAllProducts
+  // is the source for POS/Inventory product lists). tracks_imei_units is
+  // inherited from the category (0 for uncategorized); warranty_months is
+  // NULL when the product has no warranty.
+  tracks_imei_units: number;
+  warranty_months: number | null;
 }
 
 // Client type alias

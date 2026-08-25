@@ -40,6 +40,8 @@ interface ProductInput {
   min_stock_level?: number;
   image_url?: string;
   supplier?: string | null;
+  /** LIRA-143 v157 (decision #4): NULL/omitted = no warranty. */
+  warranty_months?: number | null;
 }
 
 // =============================================================================
@@ -141,6 +143,7 @@ export function registerInventoryHandlers(): void {
         ? { image_url: validatedProduct.image_url }
         : {}),
       supplier: validatedProduct.supplier ?? null,
+      warranty_months: validatedProduct.warranty_months ?? null,
     });
     audit(e.sender.id, {
       action: "create",
@@ -193,6 +196,7 @@ export function registerInventoryHandlers(): void {
         : {}),
       supplier: validatedProduct.supplier ?? null,
       stock_quantity: validatedProduct.stock_quantity,
+      warranty_months: validatedProduct.warranty_months ?? null,
     });
     audit(e.sender.id, {
       action: "update",

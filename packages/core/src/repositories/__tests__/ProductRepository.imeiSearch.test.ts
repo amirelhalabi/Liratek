@@ -34,9 +34,10 @@ function createTestDb(): Database.Database {
     INSERT INTO tenants (id, name, slug) VALUES (1, 'One', 'one'), (2, 'Two', 'two');
 
     CREATE TABLE product_categories (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      tenant_id  INTEGER REFERENCES tenants(id),
-      name       TEXT NOT NULL
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER REFERENCES tenants(id),
+      name               TEXT NOT NULL,
+      tracks_imei_units  INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE products (
@@ -57,6 +58,7 @@ function createTestDb(): Database.Database {
       image_url          TEXT,
       supplier           TEXT,
       status             TEXT DEFAULT 'Active',
+      warranty_months    INTEGER,
       is_active          INTEGER NOT NULL DEFAULT 1,
       is_deleted         INTEGER NOT NULL DEFAULT 0,
       created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
