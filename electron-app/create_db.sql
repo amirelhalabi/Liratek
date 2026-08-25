@@ -254,6 +254,9 @@ CREATE TABLE IF NOT EXISTS products (
     color TEXT,
     image_url TEXT,
     warranty_expiry DATE,
+    -- LIRA-143 v157: warranty duration on the MODEL; NULL = no warranty.
+    -- The clock starts at sale time (sale_items.warranty_until), not here.
+    warranty_months INTEGER,
     status TEXT DEFAULT 'Active',
     is_active BOOLEAN DEFAULT 1,
     is_deleted BOOLEAN DEFAULT 0,
@@ -268,17 +271,21 @@ CREATE TABLE IF NOT EXISTS product_categories (
     name TEXT NOT NULL COLLATE NOCASE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
+    -- LIRA-143 v157 (decision #9): products in a category with this flag ON
+    -- require per-unit IMEI tracking (product_units). Seeded ON for the
+    -- seeded "Phones" row below; editable per-category in Settings.
+    tracks_imei_units INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (tenant_id, name)
 );
 
-INSERT OR IGNORE INTO product_categories (tenant_id, name, sort_order) VALUES
-    (1, 'Accessories', 0),
-    (1, 'Phones', 1),
-    (1, 'Chargers', 2),
-    (1, 'Audio', 3),
-    (1, 'Parts', 4),
-    (1, 'Services', 5);
+INSERT OR IGNORE INTO product_categories (tenant_id, name, sort_order, tracks_imei_units) VALUES
+    (1, 'Accessories', 0, 0),
+    (1, 'Phones', 1, 1),
+    (1, 'Chargers', 2, 0),
+    (1, 'Audio', 3, 0),
+    (1, 'Parts', 4, 0),
+    (1, 'Services', 5, 0);
 
 -- Product Suppliers (normalised inventory supplier names)
 CREATE TABLE IF NOT EXISTS product_suppliers (
@@ -291,6 +298,40 @@ CREATE TABLE IF NOT EXISTS product_suppliers (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (tenant_id, name)
 );
+
+-- Product Units (LIRA-143 v157) — one row per physical IMEI-tracked unit of
+-- a product MODEL (decision #1: ONE product row per model at stock N, not
+-- one product row per phone). product_id/sale_item_id are bare
+-- single-column FKs (not the v154/v155/v156 composite-tenant-FK shape)
+-- because both target the PRIMARY KEY of their table — that composite
+-- requirement only applies to FKs targeting a non-PK unique column such as
+-- currencies(tenant_id, code). sale_item_id references sale_items, defined
+-- later in section 3 below; SQLite does not require the referenced table to
+-- exist yet at CREATE TABLE time, only by the time FK enforcement runs.
+CREATE TABLE IF NOT EXISTS product_units (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER REFERENCES tenants(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    imei TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'IN_STOCK' CHECK(status IN ('IN_STOCK', 'SOLD')),
+    sale_item_id INTEGER REFERENCES sale_items(id) ON DELETE SET NULL,
+    is_defective INTEGER NOT NULL DEFAULT 0,
+    warranty_override_until TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Partial unique index: duplicate IMEI blocked only among in-stock units
+-- (decision #3). A SOLD unit's IMEI may be re-registered on a different
+-- product row; a refund flips the SAME row back to IN_STOCK so no dup ever
+-- arises on that path.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_units_active_imei ON product_units(tenant_id, imei) WHERE status = 'IN_STOCK';
+CREATE INDEX IF NOT EXISTS idx_product_units_tenant_id ON product_units(tenant_id);
+-- All statuses (not just IN_STOCK) — backs the sold-unit lookup (decision #7).
+CREATE INDEX IF NOT EXISTS idx_product_units_imei ON product_units(tenant_id, imei);
+CREATE INDEX IF NOT EXISTS idx_product_units_product ON product_units(tenant_id, product_id, status);
+-- Refund-flip lookup: find the unit(s) sold on a given sale_items row.
+CREATE INDEX IF NOT EXISTS idx_product_units_sale_item ON product_units(sale_item_id);
 
 -- =============================================================================
 -- 3. Transactional Tables
@@ -331,6 +372,10 @@ CREATE TABLE IF NOT EXISTS sale_items (
     is_refunded BOOLEAN DEFAULT 0,
     refunded_quantity INTEGER DEFAULT 0,
     imei TEXT,
+    -- LIRA-143 v157 (decision #4): ISO date stamped at checkout as sale
+    -- date + products.warranty_months. Per-line because the sale is the
+    -- event that starts the warranty clock, not the product.
+    warranty_until TEXT,
     FOREIGN KEY (sale_id) REFERENCES sales(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
@@ -1898,4 +1943,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (153, 'add_service_providers_table'),
     (154, 'financial_services_provider_check_to_fk'),
     (155, 'partners_system_association_to_fk'),
-    (156, 'add_exchange_lot_settlement_tables');
+    (156, 'add_exchange_lot_settlement_tables'),
+    (157, 'add_product_imei_units_and_warranty');

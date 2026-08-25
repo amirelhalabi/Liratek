@@ -8908,6 +8908,207 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 157,
+    name: "add_product_imei_units_and_warranty",
+    description:
+      "LIRA-143 phase 1 (current_sprint.md, owner-interviewed 2026-08-23) — schema only, no " +
+      "behaviour change (nothing reads or writes product_units yet; ProductUnitRepository and " +
+      "the sale/refund wiring are follow-up changes). Introduces `product_units`, one row per " +
+      "physical IMEI-tracked unit of a product MODEL (decision #1: ONE product row per model, " +
+      "e.g. 'iPhone 13' at stock N with a shared cost/price, not one product row per phone). " +
+      "status IN_STOCK/SOLD; sale_item_id is the link to the sale line that sold it, nulled on " +
+      "FK ON DELETE SET NULL rather than blocking a sale_items delete; is_defective and " +
+      "warranty_override_until back decision #10's refund-time phone UI (operator may flag a " +
+      "returned unit defective and/or set a forward warranty expiry by hand — an override, not " +
+      "a computed value, per decision #11's lookup precedence: override beats the sale's own " +
+      "stamp, which is voided outright on refund). The partial unique index " +
+      "idx_product_units_active_imei enforces decision #3 (duplicate IMEI blocked) scoped to " +
+      "`WHERE status = 'IN_STOCK'` only: a SOLD unit's IMEI may be re-registered on a different " +
+      "product row (a legitimate correction path), and a refund flips the SAME row back to " +
+      "IN_STOCK rather than inserting a new one, so that path can never collide with itself. " +
+      "product_id/sale_item_id are bare single-column FOREIGN KEYs (not the v154/v155/v156 " +
+      "composite-tenant-FK shape) because both target the PRIMARY KEY of their table — the " +
+      "composite-FK requirement only applies to FKs targeting a non-PK unique column such as " +
+      "currencies(tenant_id, code); do not \"fix\" this to a composite FK. Also: `warranty_months` " +
+      "on products (NULL = no warranty; decision #4 — the clock starts at sale time, not " +
+      "intake, so it lives on the product as a duration, not a date); `tracks_imei_units` on " +
+      "product_categories, backfilled to 1 for the row literally named 'Phones' only (decision " +
+      "#9 — the seeded category, create_db.sql:277; a tenant who renamed it gets no auto-flag " +
+      "by design, their path is the Settings toggle, not this migration); `warranty_until` on " +
+      "sale_items (decision #4 — stamped per sale LINE at checkout as sale date + " +
+      "warranty_months, because the sale is the event that starts the warranty clock, not the " +
+      "product). Does NOT touch products.imei (stays as today's single free-text column this " +
+      "phase) and does NOT remove products.warranty_expiry (the column stays; only " +
+      "ProductRepository's projection of it is retired in this same change, per decision #4's " +
+      "dead-column retirement). Each of the three ALTER TABLE ADD COLUMN blocks is guarded by " +
+      "a sqlite_master table-existence check (not just the column-existence PRAGMA), since " +
+      "some minimal migration-runner test DBs are built from a slice of migrations with no " +
+      "create_db.sql base and may not have products/product_categories/sale_items yet — " +
+      "PRAGMA table_info on a missing table returns an empty array rather than erroring, so " +
+      "the naive column guard alone would walk straight into an ALTER on a table that isn't " +
+      "there. Same house pattern as v154/v155's hasFinancialServices/hasPartners checks.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS product_units (
+          id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id                INTEGER REFERENCES tenants(id),
+          product_id               INTEGER NOT NULL REFERENCES products(id),
+          imei                     TEXT NOT NULL,
+          status                   TEXT NOT NULL DEFAULT 'IN_STOCK' CHECK(status IN ('IN_STOCK', 'SOLD')),
+          sale_item_id             INTEGER REFERENCES sale_items(id) ON DELETE SET NULL,
+          is_defective             INTEGER NOT NULL DEFAULT 0,
+          warranty_override_until  TEXT,
+          created_at               DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at               DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      // Partial unique index: duplicate IMEI blocked only among in-stock
+      // units (decision #3). A SOLD unit's IMEI may be re-registered; a
+      // refund flips the SAME row back to IN_STOCK so no dup ever arises
+      // on that path.
+      db.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_product_units_active_imei ON product_units(tenant_id, imei) WHERE status = 'IN_STOCK';`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_product_units_tenant_id ON product_units(tenant_id);`,
+      );
+      // All statuses (not just IN_STOCK) — backs the sold-unit lookup (decision #7).
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_product_units_imei ON product_units(tenant_id, imei);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_product_units_product ON product_units(tenant_id, product_id, status);`,
+      );
+      // Refund-flip lookup: find the unit(s) sold on a given sale_items row.
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_product_units_sale_item ON product_units(sale_item_id);`,
+      );
+
+      // Some minimal test/runner DBs are built from a slice of migrations
+      // alone (no create_db.sql base) and may not have products /
+      // product_categories / sale_items yet — PRAGMA table_info on a
+      // missing table returns an EMPTY array (not an error), so the naive
+      // `.some(...)` guard above would read as "column missing" and walk
+      // straight into `ALTER TABLE <missing> ...`, which throws. Check
+      // table existence first and skip-with-log when absent, same house
+      // pattern as v154/v155 (e.g. ~:8394-8408).
+      const hasTable = (name: string): boolean =>
+        db
+          .prepare(
+            `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+          )
+          .get(name) !== undefined;
+
+      if (hasTable("products")) {
+        const productsCols = db
+          .prepare("PRAGMA table_info(products)")
+          .all() as { name: string }[];
+        if (!productsCols.some((c) => c.name === "warranty_months")) {
+          db.exec(`ALTER TABLE products ADD COLUMN warranty_months INTEGER;`);
+        }
+      } else {
+        console.log(
+          "Migration v157: 'products' table not present — warranty_months skipped",
+        );
+      }
+
+      if (hasTable("product_categories")) {
+        const categoryCols = db
+          .prepare("PRAGMA table_info(product_categories)")
+          .all() as { name: string }[];
+        if (!categoryCols.some((c) => c.name === "tracks_imei_units")) {
+          db.exec(
+            `ALTER TABLE product_categories ADD COLUMN tracks_imei_units INTEGER NOT NULL DEFAULT 0;`,
+          );
+          // Decision #9 — name-matched by design, no tenant filter: every
+          // tenant's own seeded "Phones" row (COLLATE NOCASE) gets flagged.
+          // A tenant who renamed their "Phones" category gets no auto-flag —
+          // accepted; their path is the Settings toggle, not this backfill.
+          db.exec(
+            `UPDATE product_categories SET tracks_imei_units = 1 WHERE name = 'Phones';`,
+          );
+        }
+      } else {
+        console.log(
+          "Migration v157: 'product_categories' table not present — tracks_imei_units skipped",
+        );
+      }
+
+      if (hasTable("sale_items")) {
+        const saleItemsCols = db
+          .prepare("PRAGMA table_info(sale_items)")
+          .all() as { name: string }[];
+        if (!saleItemsCols.some((c) => c.name === "warranty_until")) {
+          db.exec(`ALTER TABLE sale_items ADD COLUMN warranty_until TEXT;`);
+        }
+      } else {
+        console.log(
+          "Migration v157: 'sale_items' table not present — warranty_until skipped",
+        );
+      }
+
+      console.log(
+        "Migration v157: product_units table created; products.warranty_months, " +
+          "product_categories.tracks_imei_units (backfilled for 'Phones'), and " +
+          "sale_items.warranty_until columns added (where their base tables exist)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS product_units;`);
+
+      // This better-sqlite3 build's bundled SQLite supports DROP COLUMN
+      // (3.35+) — same precedent as v136/v141 (source_ref_table/
+      // source_ref_id, is_primary) — and none of these three columns is
+      // indexed or FK-referenced, so a straight DROP COLUMN is safe. Same
+      // hasTable guard as up() — table_info on a missing table is an empty
+      // array, so `.some(...)` is already false and each ALTER is skipped
+      // as a clean no-op; the explicit hasTable check just makes that
+      // intent visible rather than relying on the empty-array side effect.
+      const hasTable = (name: string): boolean =>
+        db
+          .prepare(
+            `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+          )
+          .get(name) !== undefined;
+
+      if (hasTable("products")) {
+        const productsCols = db
+          .prepare("PRAGMA table_info(products)")
+          .all() as { name: string }[];
+        if (productsCols.some((c) => c.name === "warranty_months")) {
+          db.exec(`ALTER TABLE products DROP COLUMN warranty_months;`);
+        }
+      }
+
+      if (hasTable("product_categories")) {
+        const categoryCols = db
+          .prepare("PRAGMA table_info(product_categories)")
+          .all() as { name: string }[];
+        if (categoryCols.some((c) => c.name === "tracks_imei_units")) {
+          db.exec(
+            `ALTER TABLE product_categories DROP COLUMN tracks_imei_units;`,
+          );
+        }
+      }
+
+      if (hasTable("sale_items")) {
+        const saleItemsCols = db
+          .prepare("PRAGMA table_info(sale_items)")
+          .all() as { name: string }[];
+        if (saleItemsCols.some((c) => c.name === "warranty_until")) {
+          db.exec(`ALTER TABLE sale_items DROP COLUMN warranty_until;`);
+        }
+      }
+
+      console.log(
+        "Migration v157 rolled back: product_units table dropped; " +
+          "products.warranty_months, product_categories.tracks_imei_units, " +
+          "sale_items.warranty_until columns dropped (where their base tables exist)",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

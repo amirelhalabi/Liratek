@@ -32,7 +32,9 @@ export interface ProductEntity {
   image_url: string | null;
   imei: string | null;
   color: string | null;
-  warranty_expiry: string | null;
+  // NOTE: warranty_expiry intentionally NOT projected (LIRA-143 v157 decision
+  // #4) — the column stays in the DB but is dead: no UI reads/writes it, and
+  // warranty is now sourced from products.warranty_months / sale_items.warranty_until.
   status: string;
   is_active: number; // SQLite boolean (0 or 1)
   is_deleted: number;
@@ -115,7 +117,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
 
   // Override getColumns() from BaseRepository
   protected getColumns(): string {
-    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, is_deleted, supplier, created_at, updated_at";
+    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, status, is_active, is_deleted, supplier, created_at, updated_at";
   }
 
   // ---------------------------------------------------------------------------
