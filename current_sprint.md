@@ -1986,6 +1986,34 @@ scanning the IMEI barcode off a phone box finds nothing. Barcode and IMEI are se
 8. **Refund/void**: the generic refund flips the unit back to IN_STOCK in the same motion as the
    stock restore (rule 20 symmetry), warranty voided.
 
+### Owner decision record — round 2 (interviewed 2026-08-23, refund × warranty + gating)
+
+9. **Which products get units — flag on the CATEGORY**: `product_categories` gains a
+   "tracks IMEI units" boolean, seeded ON for the seeded "Phones" category (verified seeded:
+   create_db.sql:275-281). Replaces the cart's fragile `category.includes("phone")` heuristic
+   (Cart.tsx:101 — a category named "Headphones" matches it today; renames kill it silently).
+   Products inherit from their category; flag editable in Settings so Tablets/Smartwatches can
+   join later without code.
+10. **Refund UI for phone sales (owner's own design)**: refunding a sale line whose product
+    tracks IMEI units opens a phone-specific refund UI with TWO optional inputs:
+    - **`is_defective` flag** — recorded on the unit; the unit still returns straight to
+      IN_STOCK (owner explicitly rejected a RETURNED/inspection state: "we don't have to make
+      any changes to the state of the phone"). The flag is informational — visible on the unit
+      list and in IMEI lookup — not a sale blocker.
+    - **New warranty expiry (date)** — the operator may SET the warranty expiry going forward
+      for that IMEI at refund time (covers warranty-swap/repair-return policy by human judgment
+      instead of a hardcoded clock rule; e.g. type the original expiry to preserve the clock, or
+      a new date, or leave empty = warranty simply void with the refunded sale).
+11. **Warranty lookup precedence** (follows from #10): for an IMEI, the effective warranty is
+    (a) the operator-set override from the most recent refund if present, else (b) VOID if its
+    sale was refunded, else (c) the sale line's stamped warranty-until. A refunded sale must
+    never report "covered" from its own stamp.
+12. **Re-sale of a returned unit**: a new sale stamps a fresh warranty-until (sale date +
+    months) as normal. *Answer during build, don't block:* whether an operator warranty
+    override from #10 should prefill/beat the fresh stamp on that unit's next sale — default
+    plan: the new sale's own stamp wins and the override is cleared, since the override exists
+    for customers who KEPT a phone, not for the next buyer.
+
 ### Acceptance Criteria
 
 - [ ] Import 5 iPhone 13s: one product, stock 5, 5 scanned IMEIs (skippable, drift warning).
