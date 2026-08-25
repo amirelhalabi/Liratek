@@ -95,6 +95,23 @@ export type {
   AdjustPositionResult,
 } from "./ExchangeLotService.js";
 
+// Product Unit Service (LIRA-143 phase 2 — per-IMEI phone unit tracking)
+export {
+  ProductUnitService,
+  getProductUnitService,
+  resetProductUnitService,
+  computeWarrantyStatus,
+} from "./ProductUnitService.js";
+export type {
+  WarrantySource,
+  WarrantyState,
+  WarrantyStatusInput,
+  WarrantyStatus,
+  UnitStoryWithWarranty,
+  RegisterUnitsDrift,
+  RegisterUnitsResult,
+} from "./ProductUnitService.js";
+
 // Financial Service (OMT/WHISH/BOB/OTHER/IPEC/KATCH/WHISH_APP/OMT_APP/BINANCE)
 export {
   FinancialService,

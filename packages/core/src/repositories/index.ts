@@ -155,6 +155,20 @@ export type {
   AdjustResult,
 } from "./ExchangeLotRepository.js";
 
+// Product Unit Repository (LIRA-143 phase 2 — per-IMEI phone unit tracking)
+export {
+  ProductUnitRepository,
+  getProductUnitRepository,
+  resetProductUnitRepository,
+} from "./ProductUnitRepository.js";
+export type {
+  ProductUnitStatus,
+  ProductUnitEntity,
+  ProductUnitSummary,
+  UnitStory,
+  MarkInStockOptions,
+} from "./ProductUnitRepository.js";
+
 // Financial Service Repository (OMT, WHISH, BOB, OTHER, iPick, Katsh, WHISH_APP, OMT_APP, BINANCE)
 export {
   FinancialServiceRepository,
