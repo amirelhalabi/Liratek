@@ -2070,21 +2070,40 @@ both fixed same-day with failing-first regression tests:
    `DELETE FROM sale_items` would `ON DELETE SET NULL` the units' decision-#11(b)
    warranty-void pointer.
 
-### Acceptance Criteria
+### Acceptance Criteria — ALL MET (built 2026-08-25, e2e lira-143 + lira-web-023)
 
-- [ ] Import 5 iPhone 13s: one product, stock 5, 5 scanned IMEIs (skippable, drift warning).
-- [ ] Scan an IMEI barcode at POS → the model appears with that unit preselected; selling it marks
-      exactly that IMEI SOLD and stamps warranty-until on the sale line + receipt.
-- [ ] Selling an IMEI-carrying product without identifying the unit is impossible; a no-IMEI
-      product's flow is byte-identical to today.
-- [ ] Searching a sold IMEI (POS or Inventory) shows the full story incl. warranty status.
-- [ ] Duplicate active IMEI rejected, named error.
-- [ ] Refund returns the unit to stock; e2e proves sell+refund nets unit status, stock, and
-      warranty display to the pre-sale state (rule 17: failing-first).
-- [ ] Dual transport (rule 19): unit CRUD/search/lookup mirrored on REST; web e2e coverage.
-- [ ] Migration in BOTH migrations/index.ts and create_db.sql (rule 10); new table gets
-      id/created_at/updated_at/tenant_id (rule 5); FEATURE_GUIDE §13 walkthrough before building
-      (rule 18 — this touches sales money paths via the cart line).
+- [x] Import N phones: one product, stock N, scanned IMEIs (skippable, drift warning) —
+      e2e step (a): register via the real Units section, drift banner shows/clears, warn-only.
+- [x] Scan an IMEI barcode at POS → the model appears with that unit preselected; selling it marks
+      exactly that IMEI SOLD and stamps warranty-until on the sale line + receipt — e2e step (b).
+- [x] Selling an IMEI-carrying product without identifying the unit is impossible (picker always
+      renders while units exist; backend strictness error surfaces on submit — e2e step (c));
+      a no-IMEI product's flow is byte-identical to today (flag-OFF gate unchanged, unit tests).
+- [x] Searching a sold IMEI (Inventory) shows the full story incl. warranty status — e2e step (d)
+      (ImeiStoryCard; POS wiring of the same card is a nice-to-have follow-up).
+- [x] Duplicate active IMEI rejected, named error — repo test + e2e step (a).
+- [x] Refund returns the unit to stock; e2e proves sell+refund nets unit status, stock, drawer,
+      and warranty display to the pre-sale state, failing-first proven (rule 17: with
+      _reverseProductUnits stubbed out the spec fails at Expected IN_STOCK / Received SOLD).
+- [x] Dual transport (rule 19): unit CRUD/search/lookup/refund-extras mirrored on REST;
+      web e2e lira-web-023 (68 passed total).
+- [x] Migration in BOTH migrations/index.ts and create_db.sql (rule 10); product_units has
+      id/created_at/updated_at/tenant_id (rule 5); FEATURE_GUIDE §13 walkthrough done pre-build
+      (recorded in the phase-4 commit and the Build decisions above).
+
+### Phase 7 record (e2e, 2026-08-25)
+
+- Desktop suite: **258 passed, 0 failed** (baseline 257 + lira-143-imei-warranty.spec.ts), 8.0m.
+- Web suite: **68 passed, 0 failed** (baseline 65 + lira-web-023-imei-units.spec.ts, 3 tests), 2.0m.
+- Playwright tsconfig typecheck 0 errors; better-sqlite3 left on Electron ABI; temp profiles cleaned.
+- **Layer-seam bug found by the e2e (fixed same-day)**: `resolveScanCode` returned the raw
+  `ProductEntity` shape instead of `ProductDTO` — the POS scan-add crashed CartLineRow on
+  `retail_price` undefined. Fixed via `ProductRepository.findProductDtoById`; core 2236 +
+  backend 592 re-verified. The class of bug hand-built-IPC specs structurally can't catch.
+- **Follow-up gap (observed, not fixed)**: `POST /api/inventory/products` never resolves
+  `category_id` from the category NAME (the IPC handler does), so `tracks_imei_units` never
+  projects onto a REST-created product. UI affordance only, no backend gate — but a real
+  dual-transport parity gap; documented in lira-web-023's header comment.
 
 ### Technical traps (from the diagnosis)
 

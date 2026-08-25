@@ -25,7 +25,6 @@ import {
   type LowStockProduct,
   type NegativeStockProduct,
   type StockAdjustmentWithUser,
-  type ProductEntity,
   type ProductUnitEntity,
 } from "../repositories/index.js";
 import { ValidationError, NotFoundError } from "../utils/errors.js";
@@ -58,10 +57,13 @@ export interface StockAdjustmentResult {
  * product plus the specific unit the scanned code identified, when the
  * code was an IMEI rather than a barcode (LIRA-143 Phase 3, owner decision
  * #2). `matched_unit` is `null` on a barcode hit — barcode resolves the
- * model only, never a specific unit.
+ * model only, never a specific unit. `product` is the `ProductDTO` shape
+ * (aliased price fields + tracks_imei_units/warranty_months) — every
+ * consumer above this method already declares/expects it (see
+ * `resolveScanCode`'s own doc comment for the bug this fixed).
  */
 export interface ScanCodeResolution {
-  product: ProductEntity;
+  product: ProductDTO;
   matched_unit: ProductUnitEntity | null;
 }
 
@@ -137,12 +139,22 @@ export class InventoryService {
    * unit IMEI. An IMEI hit resolves the owning product AND preselects the
    * specific unit, since scanning one phone's IMEI means the operator
    * means that unit, not just "some unit of this model". Returns `null`
-   * for a blank code or a code that matches neither. `findById` already
-   * excludes soft-deleted/inactive rows (`ProductRepository`'s
-   * `getBaseWhere`), so a dangling `product_units.product_id` — a unit
-   * whose product was deleted after intake — is logged and treated as "no
+   * for a blank code or a code that matches neither. `findProductDtoById`
+   * already excludes soft-deleted/inactive rows (same base WHERE as
+   * `findById`), so a dangling `product_units.product_id` — a unit whose
+   * product was deleted after intake — is logged and treated as "no
    * match" rather than thrown, since a scan is a lookup, not a write that
    * should fail loudly.
+   *
+   * Returns the `ProductDTO` shape (`findProductDtoById`, same
+   * column-aliasing/category-join as `findAllProducts`) — NOT the raw
+   * `findByBarcode`/`findById` `ProductEntity` shape. Every consumer above
+   * this method (electron.d.ts's `Product`, the REST route, and
+   * ProductSearch.tsx's scan-add path) already declares/expects the DTO
+   * shape; returning the raw entity here used to crash the POS scan-add
+   * cart line (`item.retail_price` was `undefined`) — a real
+   * frontend<->repository seam bug only a real e2e run driving the scan-
+   * to-checkout flow surfaced (see `findProductDtoById`'s own doc comment).
    */
   resolveScanCode(code: string): ScanCodeResolution | null {
     const trimmed = code?.trim();
@@ -152,7 +164,11 @@ export class InventoryService {
 
     const byBarcode = this.productRepo.findByBarcode(trimmed);
     if (byBarcode) {
-      return { product: byBarcode, matched_unit: null };
+      const product = this.productRepo.findProductDtoById(byBarcode.id);
+      // Defensive only — byBarcode itself just matched the same active,
+      // non-deleted, same-tenant row, so this should always resolve.
+      if (!product) return null;
+      return { product, matched_unit: null };
     }
 
     const unit = this.productUnitRepo.findActiveByImei(trimmed);
@@ -160,7 +176,7 @@ export class InventoryService {
       return null;
     }
 
-    const product = this.productRepo.findById(unit.product_id);
+    const product = this.productRepo.findProductDtoById(unit.product_id);
     if (!product) {
       inventoryLogger.warn(
         { imei: trimmed, unitId: unit.id, productId: unit.product_id },

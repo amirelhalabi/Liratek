@@ -26,7 +26,21 @@ function createTestDb(): Database.Database {
   // row still points at it, which would otherwise trip the real
   // `product_id REFERENCES products(id)` FK.
   db.pragma("foreign_keys = OFF");
+  // `product_categories` + `products.category_id`/`warranty_months` added
+  // 2026-08-25 alongside the `findProductDtoById` fix (ProductRepository.ts)
+  // — `resolveScanCode` now returns the DTO shape (LEFT JOIN
+  // product_categories), matching every consumer's declared type
+  // (electron.d.ts's `Product`) instead of the raw `ProductEntity` shape
+  // that crashed the POS scan-add cart line. This fixture predates that
+  // join and never needed the table before.
   db.exec(`
+    CREATE TABLE product_categories (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id          INTEGER DEFAULT 1,
+      name               TEXT NOT NULL,
+      tracks_imei_units  INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE products (
       id                 INTEGER PRIMARY KEY AUTOINCREMENT,
       tenant_id          INTEGER DEFAULT 1,
@@ -34,6 +48,7 @@ function createTestDb(): Database.Database {
       name               TEXT NOT NULL,
       item_type          TEXT NOT NULL DEFAULT 'Product',
       category           TEXT,
+      category_id        INTEGER,
       description        TEXT,
       cost_price_usd     REAL DEFAULT 0,
       selling_price_usd  REAL DEFAULT 0,
@@ -43,6 +58,7 @@ function createTestDb(): Database.Database {
       color              TEXT,
       image_url          TEXT,
       status             TEXT DEFAULT 'Active',
+      warranty_months    INTEGER,
       is_active          INTEGER NOT NULL DEFAULT 1,
       is_deleted         INTEGER NOT NULL DEFAULT 0,
       supplier           TEXT,

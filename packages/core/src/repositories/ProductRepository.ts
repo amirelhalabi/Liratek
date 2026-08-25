@@ -226,6 +226,51 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   }
 
   /**
+   * DTO-shaped single-product lookup by id — same column aliasing
+   * (cost_price_usd -> cost_price, selling_price_usd -> retail_price) and
+   * `product_categories` join (tracks_imei_units, warranty_months) as
+   * `findAllProducts`, but for exactly one row.
+   *
+   * LIRA-143 layer-seam fix (2026-08-25): `resolveScanCode`'s barcode/IMEI-
+   * unit hits used to return the RAW `findById`/`findByBarcode` shape
+   * (`ProductEntity`: `cost_price_usd`/`selling_price_usd`, no
+   * `tracks_imei_units`/`warranty_months`) even though every layer above it
+   * (electron.d.ts, the REST route, ProductSearch.tsx) declares/expects the
+   * `ProductDTO` shape `findAllProducts` returns. Feeding that raw shape
+   * into a POS scan-add cart line crashed CartLineRow
+   * (`item.retail_price.toFixed(2)` on `undefined`) — a real
+   * frontend<->repository seam bug the phase-6a unit tests never caught
+   * because they never rendered a `resolveScanCode` result through the
+   * actual Cart/CartLineRow tree (only a real e2e run driving the scan-to-
+   * checkout flow surfaces it).
+   */
+  findProductDtoById(id: number): ProductDTO | null {
+    try {
+      const tenantId = getCurrentTenantId();
+      const query = `
+        SELECT
+          p.id, p.barcode, p.name, p.stock_quantity, p.min_stock_level,
+          p.image_url, p.is_active, p.is_deleted, p.created_at,
+          p.cost_price_usd as cost_price,
+          p.selling_price_usd as retail_price,
+          p.supplier,
+          p.category_id,
+          p.warranty_months,
+          COALESCE(pc.name, p.category) as category,
+          COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units
+        FROM ${this.tableName} p
+        LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
+        WHERE p.id = ? AND p.is_active = 1 AND p.is_deleted = 0 AND p.tenant_id = ?
+      `;
+      return this.queryOne<ProductDTO>(query, tenantId, id, tenantId);
+    } catch (error) {
+      throw new DatabaseError("Failed to find product by id (DTO)", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
    * Check if a barcode exists among active products.
    * Soft-deleted products are excluded so that re-importing a barcode
    * falls through to createProduct(), which reactivates the deleted row.
