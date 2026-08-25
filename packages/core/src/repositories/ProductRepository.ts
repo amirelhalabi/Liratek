@@ -125,6 +125,20 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   // ---------------------------------------------------------------------------
 
   /**
+   * Rule-14 single definition of "this product has a unit whose IMEI
+   * matches" (LIRA-143 Phase 3, owner decision #2: IMEI joins product
+   * search everywhere barcode works). Matches ALL unit statuses
+   * deliberately (owner decision #7: the same search must still find a
+   * SOLD unit's model) — do NOT add `AND pu.status = 'IN_STOCK'` here.
+   * `qualifier` is the products table alias ("p") or the bare table name
+   * ("products") for unaliased queries; both call sites append exactly one
+   * extra `%term%`-style LIKE param for the `?` this fragment introduces.
+   */
+  private static unitImeiMatchFragment(qualifier: string): string {
+    return `EXISTS (SELECT 1 FROM product_units pu WHERE pu.product_id = ${qualifier}.id AND pu.tenant_id = ${qualifier}.tenant_id AND pu.imei LIKE ?)`;
+  }
+
+  /**
    * Get all products with optional search filter (as DTOs for frontend)
    */
   findAllProducts(search?: string): ProductDTO[] {
@@ -148,9 +162,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       const params: (string | number)[] = [tenantId, tenantId];
 
       if (search) {
-        query += ` AND (p.name LIKE ? OR p.barcode LIKE ? OR COALESCE(pc.name, p.category) LIKE ?)`;
+        query += ` AND (p.name LIKE ? OR p.barcode LIKE ? OR COALESCE(pc.name, p.category) LIKE ? OR ${ProductRepository.unitImeiMatchFragment("p")})`;
         const term = `%${search}%`;
-        params.push(term, term, term);
+        params.push(term, term, term, term);
       }
 
       query += ` ORDER BY p.name ASC`;
@@ -704,9 +718,14 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           cost_price_usd as cost_price,
           selling_price_usd as retail_price
         FROM ${this.tableName}
-        WHERE is_active = 1 AND is_deleted = 0 AND (name LIKE ? OR barcode LIKE ?) AND tenant_id = ?
+        WHERE is_active = 1 AND is_deleted = 0 AND (name LIKE ? OR barcode LIKE ? OR ${ProductRepository.unitImeiMatchFragment("products")}) AND tenant_id = ?
       `;
-      const params: (string | number)[] = [searchTerm, searchTerm, tenantId];
+      const params: (string | number)[] = [
+        searchTerm,
+        searchTerm,
+        searchTerm,
+        tenantId,
+      ];
 
       if (category) {
         query += ` AND category = ?`;

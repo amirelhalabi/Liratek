@@ -23,6 +23,7 @@ export {
 export type {
   ProductResult,
   StockAdjustmentResult,
+  ScanCodeResolution,
 } from "./InventoryService.js";
 
 // Client Service

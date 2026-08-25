@@ -16,6 +16,8 @@ import {
   getProductRepository,
   StockAdjustmentRepository,
   getStockAdjustmentRepository,
+  ProductUnitRepository,
+  getProductUnitRepository,
   type ProductDTO,
   type CreateProductData,
   type UpdateProductData,
@@ -23,6 +25,8 @@ import {
   type LowStockProduct,
   type NegativeStockProduct,
   type StockAdjustmentWithUser,
+  type ProductEntity,
+  type ProductUnitEntity,
 } from "../repositories/index.js";
 import { ValidationError, NotFoundError } from "../utils/errors.js";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors.js";
@@ -49,6 +53,18 @@ export interface StockAdjustmentResult {
   error?: string;
 }
 
+/**
+ * Result of {@link InventoryService.resolveScanCode} — the resolved
+ * product plus the specific unit the scanned code identified, when the
+ * code was an IMEI rather than a barcode (LIRA-143 Phase 3, owner decision
+ * #2). `matched_unit` is `null` on a barcode hit — barcode resolves the
+ * model only, never a specific unit.
+ */
+export interface ScanCodeResolution {
+  product: ProductEntity;
+  matched_unit: ProductUnitEntity | null;
+}
+
 // =============================================================================
 // Inventory Service Class
 // =============================================================================
@@ -56,14 +72,17 @@ export interface StockAdjustmentResult {
 export class InventoryService {
   private productRepo: ProductRepository;
   private stockAdjustmentRepo: StockAdjustmentRepository;
+  private productUnitRepo: ProductUnitRepository;
 
   constructor(
     productRepo?: ProductRepository,
     stockAdjustmentRepo?: StockAdjustmentRepository,
+    productUnitRepo?: ProductUnitRepository,
   ) {
     this.productRepo = productRepo ?? getProductRepository();
     this.stockAdjustmentRepo =
       stockAdjustmentRepo ?? getStockAdjustmentRepository();
+    this.productUnitRepo = productUnitRepo ?? getProductUnitRepository();
   }
 
   // ---------------------------------------------------------------------------
@@ -109,6 +128,48 @@ export class InventoryService {
       return [];
     }
     return this.productRepo.search(term.trim(), options);
+  }
+
+  /**
+   * Resolve a scanned/typed code the same way everywhere a scanner feeds
+   * this app (LIRA-143 Phase 3, owner decision #2): barcode first, then —
+   * only when no product has that exact barcode — an active (`IN_STOCK`)
+   * unit IMEI. An IMEI hit resolves the owning product AND preselects the
+   * specific unit, since scanning one phone's IMEI means the operator
+   * means that unit, not just "some unit of this model". Returns `null`
+   * for a blank code or a code that matches neither. `findById` already
+   * excludes soft-deleted/inactive rows (`ProductRepository`'s
+   * `getBaseWhere`), so a dangling `product_units.product_id` — a unit
+   * whose product was deleted after intake — is logged and treated as "no
+   * match" rather than thrown, since a scan is a lookup, not a write that
+   * should fail loudly.
+   */
+  resolveScanCode(code: string): ScanCodeResolution | null {
+    const trimmed = code?.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const byBarcode = this.productRepo.findByBarcode(trimmed);
+    if (byBarcode) {
+      return { product: byBarcode, matched_unit: null };
+    }
+
+    const unit = this.productUnitRepo.findActiveByImei(trimmed);
+    if (!unit) {
+      return null;
+    }
+
+    const product = this.productRepo.findById(unit.product_id);
+    if (!product) {
+      inventoryLogger.warn(
+        { imei: trimmed, unitId: unit.id, productId: unit.product_id },
+        "resolveScanCode: active unit's product not found or inactive",
+      );
+      return null;
+    }
+
+    return { product, matched_unit: unit };
   }
 
   /**
