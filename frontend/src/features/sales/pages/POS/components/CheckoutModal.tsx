@@ -551,6 +551,11 @@ export default function CheckoutModal({
         price: item.retail_price,
         subtotal: item.retail_price * item.quantity,
         imei: item.imei || null,
+        // LIRA-143 phase 6a (owner decision #4) — the sale row doesn't
+        // exist yet at print-preview time, so there's no stamped
+        // warranty_until to read; the formatter computes it from
+        // `warranty_months` + this receipt's own timestamp instead.
+        warranty_months: item.warranty_months ?? null,
       })),
       subtotal: totalAmount,
       discount: discount,

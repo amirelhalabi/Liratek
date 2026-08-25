@@ -176,3 +176,59 @@ export function validateRefundLines(
   }
   return null;
 }
+
+/**
+ * LIRA-143 Phase 6b — the phone-refund UI's per-unit extra, riding alongside
+ * `refundLegs` on the SAME `refundTransaction` call. Mirrors the backend's
+ * `RefundUnitExtraOverride` shape (independently duplicated here, same as
+ * `RefundLegOverride` above is independently duplicated from
+ * `@/api/backendApi`'s own copy — each layer of the dual-mode stack keeps
+ * its own small DTO rather than cross-importing).
+ */
+export interface RefundUnitExtraOverride {
+  unit_id: number;
+  is_defective?: boolean;
+  warranty_override_until?: string | null;
+}
+
+/**
+ * RefundMethodModal's live per-unit form state — one entry per unit the
+ * operator has interacted with. A unit absent from this map, or present but
+ * with both fields at their untouched default (`isDefective: false`,
+ * `warrantyUntil: ""`), contributes NOTHING to the emitted extras — see
+ * `buildUnitExtras`.
+ */
+export interface UnitFlagState {
+  isDefective: boolean;
+  /** ISO date string (`YYYY-MM-DD`, matches a native `<input type="date">`),
+   *  or `""` for "not set — never override". */
+  warrantyUntil: string;
+}
+
+/**
+ * Build the `unitExtras` payload RefundMethodModal sends alongside
+ * `refundLegs`. Mirrors `linesMatchDefault`'s "operator touched nothing ->
+ * no override" contract for the units side: a unit whose defective checkbox
+ * is unchecked AND whose warranty-override date is blank contributes no
+ * entry at all, and if EVERY linked unit is untouched this returns
+ * `undefined` (never `[]`) so the caller omits the argument entirely from
+ * the `refundTransaction` call — same "send nothing when nothing changed"
+ * contract as `refundLegs` above.
+ */
+export function buildUnitExtras(
+  unitIds: number[],
+  flags: Record<number, UnitFlagState>,
+): RefundUnitExtraOverride[] | undefined {
+  const entries: RefundUnitExtraOverride[] = [];
+  for (const id of unitIds) {
+    const flag = flags[id];
+    if (!flag) continue;
+    const warrantyUntil = flag.warrantyUntil.trim();
+    if (!flag.isDefective && warrantyUntil === "") continue;
+    const entry: RefundUnitExtraOverride = { unit_id: id };
+    if (flag.isDefective) entry.is_defective = true;
+    if (warrantyUntil !== "") entry.warranty_override_until = warrantyUntil;
+    entries.push(entry);
+  }
+  return entries.length > 0 ? entries : undefined;
+}

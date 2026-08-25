@@ -1,18 +1,19 @@
-import {
-  Trash2,
-  Plus,
-  Minus,
-  CreditCard,
-  History,
-  ShoppingBag,
-} from "lucide-react";
+import { CreditCard, History, ShoppingBag } from "lucide-react";
 import type { CartItem } from "@liratek/ui";
+import { CartLineRow } from "./CartLineRow";
+import { getCartLineKey } from "@/features/sales/utils/cartLineKey";
 
 interface CartProps {
   items: CartItem[];
-  onUpdateQuantity: (id: number, delta: number) => void;
-  onRemoveItem: (id: number) => void;
-  onUpdateIMEI: (id: number, imei: string) => void;
+  onUpdateQuantity: (lineKey: string, delta: number) => void;
+  onRemoveItem: (lineKey: string) => void;
+  onUpdateIMEI: (lineKey: string, imei: string) => void;
+  /** LIRA-143 phase 6a — sets/clears `product_unit_id` (+ display imei) on
+   *  a unit-picker line. */
+  onSelectUnit: (
+    lineKey: string,
+    unit: { id: number; imei: string } | null,
+  ) => void;
   onClearCart: () => void;
   onCheckout: () => void;
   onOpenDrafts: () => void;
@@ -28,6 +29,7 @@ export default function Cart({
   onUpdateQuantity,
   onRemoveItem,
   onUpdateIMEI,
+  onSelectUnit,
   onClearCart,
   onCheckout,
   onOpenDrafts,
@@ -87,62 +89,15 @@ export default function Cart({
           </div>
         ) : (
           items.map((item) => (
-            <div
-              key={item.id}
-              className="bg-slate-700/30 rounded-xl p-3 border border-slate-700/50 flex gap-3 group hover:bg-slate-700/50 transition-all"
-            >
-              <div className="flex-1">
-                <h4 className="font-medium text-slate-200 text-sm line-clamp-1">
-                  {item.name}
-                </h4>
-                <div className="text-xs text-slate-500 mt-1">
-                  ${item.retail_price.toFixed(2)} / unit
-                </div>
-                {(item.category?.toLowerCase() || "").includes("phone") && (
-                  <div className="mt-2">
-                    <input
-                      type="text"
-                      placeholder="Enter IMEI / Serial"
-                      value={item.imei || ""}
-                      onChange={(e) => onUpdateIMEI(item.id, e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-2 py-1 text-[10px] text-white focus:border-violet-500/50 outline-none placeholder:text-slate-600 font-mono"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-col items-end gap-2">
-                <div className="font-bold text-violet-400">
-                  ${(item.retail_price * item.quantity).toFixed(2)}
-                </div>
-
-                <div className="flex items-center gap-2 bg-slate-800 rounded-lg p-1 border border-slate-700">
-                  <button
-                    onClick={() => onUpdateQuantity(item.id, -1)}
-                    className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white disabled:opacity-30"
-                    disabled={item.quantity <= 1}
-                  >
-                    <Minus size={12} />
-                  </button>
-                  <span className="text-xs font-mono w-4 text-center text-white">
-                    {item.quantity}
-                  </span>
-                  <button
-                    onClick={() => onUpdateQuantity(item.id, 1)}
-                    className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white"
-                  >
-                    <Plus size={12} />
-                  </button>
-                </div>
-              </div>
-
-              <button
-                onClick={() => onRemoveItem(item.id)}
-                className="self-center p-2 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all -mr-2"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
+            <CartLineRow
+              key={getCartLineKey(item)}
+              item={item}
+              allItems={items}
+              onUpdateQuantity={onUpdateQuantity}
+              onRemoveItem={onRemoveItem}
+              onUpdateIMEI={onUpdateIMEI}
+              onSelectUnit={onSelectUnit}
+            />
           ))
         )}
       </div>

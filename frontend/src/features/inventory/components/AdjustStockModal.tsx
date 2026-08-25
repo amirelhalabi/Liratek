@@ -7,18 +7,26 @@ import {
   useAdjustStockMutation,
   useStockAdjustmentsQuery,
 } from "../hooks/useStockAdjustments";
+import { useRegisterUnitsMutation } from "../hooks/useProductUnits";
+import { parseImeiBatch } from "../productUnitsLogic";
 
 /**
  * Deliberately minimal — structurally satisfied by both the full `Product`
  * (@liratek/ui, used from ProductList.tsx) and the negative-stock read shape
  * (`{id, name, barcode, stock_quantity}` from `getNegativeStock()`, used from
  * Settings → Diagnostics) without either caller needing to cast.
+ *
+ * `tracks_imei_units` is OPTIONAL (LIRA-143 Phase 6b, decision #6's intake
+ * prompt): the Diagnostics negative-stock shape doesn't carry it, and a
+ * missing/falsy value means "treat as flag-OFF" — the intake step never
+ * appears for that caller, keeping its flow byte-identical to before.
  */
 export interface AdjustableProduct {
   id: number;
   name: string;
   barcode: string | null;
   stock_quantity?: number;
+  tracks_imei_units?: number;
 }
 
 interface AdjustStockModalProps {
@@ -39,6 +47,11 @@ type AdjustMode = "set" | "delta";
  * quantity change (ProductRepository.adjustStock/adjustStockDelta). Shows
  * the per-product adjustment history below the form.
  */
+/** Post-adjustment step shown only when the category tracks IMEI units AND
+ *  the adjustment INCREASED stock (owner decision #6's intake prompt). Any
+ *  other case ("form") behaves exactly as before this ticket. */
+type Step = "form" | "intake";
+
 export default function AdjustStockModal({
   product,
   onClose,
@@ -49,7 +62,13 @@ export default function AdjustStockModal({
   const [reason, setReason] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [step, setStep] = useState<Step>("form");
+  const [pendingIncrease, setPendingIncrease] = useState(0);
+  const [imeiInput, setImeiInput] = useState("");
+  const [intakeError, setIntakeError] = useState<string | null>(null);
+
   const adjustStock = useAdjustStockMutation();
+  const registerUnits = useRegisterUnitsMutation(product.id);
   const {
     data: adjustments = [],
     isLoading: historyLoading,
@@ -107,11 +126,52 @@ export default function AdjustStockModal({
         `Stock adjusted for "${product.name}"`,
         "success",
       );
+
+      // LIRA-143 Phase 6b (decision #6): an INCREASE on a category that
+      // tracks IMEI units offers an optional intake step instead of closing
+      // immediately. A decrease, a "set" to a lower/equal value, or a
+      // flag-OFF product all fall through to `onSuccess()` exactly as
+      // before this ticket.
+      const increase =
+        mode === "set" ? parsedQuantity - currentStock : parsedQuantity;
+      if ((product.tracks_imei_units ?? 0) === 1 && increase > 0) {
+        setPendingIncrease(increase);
+        setStep("intake");
+        return;
+      }
+
       onSuccess();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error("Failed to adjust stock:", err);
       setFormError(message || "Failed to adjust stock");
+    }
+  }
+
+  const pendingImeis = parseImeiBatch(imeiInput);
+
+  async function handleRegisterImeis() {
+    if (pendingImeis.length === 0) return;
+    setIntakeError(null);
+    try {
+      const result = await registerUnits.mutateAsync(pendingImeis);
+      if (!result.success) {
+        setIntakeError(result.error ?? "Failed to register units");
+        return;
+      }
+      const drift = result.data?.drift;
+      if (drift && !drift.matches) {
+        appEvents.emit(
+          "notification:show",
+          `Unit count drift on "${product.name}": ${drift.inStockUnits} in stock vs ${drift.stockQuantity} on the product record — check when convenient.`,
+          "warning",
+        );
+      }
+      onSuccess();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("Failed to register product units:", err);
+      setIntakeError(message || "Failed to register units");
     }
   }
 
@@ -148,6 +208,7 @@ export default function AdjustStockModal({
             </span>
           </div>
 
+          {step === "form" && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-xs text-slate-400 block mb-1">
@@ -236,6 +297,48 @@ export default function AdjustStockModal({
               </button>
             </div>
           </form>
+          )}
+
+          {step === "intake" && (
+            <div className="space-y-4" data-testid="stock-intake-step">
+              <p className="text-sm text-slate-300">
+                Scan {pendingIncrease} IMEI{pendingIncrease === 1 ? "" : "s"}{" "}
+                for the new stock — optional.
+              </p>
+              <textarea
+                autoFocus
+                value={imeiInput}
+                onChange={(e) => setImeiInput(e.target.value)}
+                placeholder={"356938035643809\n356938035643810"}
+                rows={4}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 resize-none"
+              />
+              {intakeError && (
+                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                  {intakeError}
+                </p>
+              )}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={onSuccess}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
+                >
+                  Skip
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRegisterImeis}
+                  disabled={registerUnits.isPending || pendingImeis.length === 0}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm disabled:opacity-50"
+                >
+                  {registerUnits.isPending
+                    ? "Registering…"
+                    : "Register & Finish"}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="border-t border-slate-700 pt-4">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-3">

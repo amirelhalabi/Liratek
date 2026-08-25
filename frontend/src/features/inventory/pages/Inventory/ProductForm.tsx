@@ -5,6 +5,7 @@ import { useApi, appEvents, DecimalInput } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 import JsBarcode from "jsbarcode";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { ProductUnitsSection } from "../../components/ProductUnitsSection";
 
 interface ProductFormProps {
   onClose: () => void;
@@ -52,6 +53,21 @@ export default function ProductForm({
   const [error, setError] = useState("");
   const [categories, setCategories] = useState<string[]>([]);
   const [supplierNames, setSupplierNames] = useState<string[]>([]);
+  // LIRA-143 Phase 6b — warranty (months), free-standing state rather than
+  // part of `formData`: `formData`'s inferred type is a union with the
+  // `initialFormData` prop's fixed shape (the minimize/restore snapshot),
+  // which doesn't carry this field. Empty string = "no warranty" (-> null).
+  const [warrantyMonths, setWarrantyMonths] = useState<string>(
+    product?.warranty_months != null ? String(product.warranty_months) : "",
+  );
+  // LIRA-143 Phase 6b — categories with their `tracks_imei_units` flag,
+  // fetched once so the Units/IMEIs section's visibility follows the
+  // CURRENTLY SELECTED category live (including a category the operator
+  // just typed/switched to in this form), rather than the possibly-stale
+  // flag baked onto the product row at load time.
+  const [categoriesFull, setCategoriesFull] = useState<
+    Array<{ name: string; tracks_imei_units: number }>
+  >([]);
   const [duplicateInfo, setDuplicateInfo] = useState<null | {
     attempted: string;
     suggested: string;
@@ -84,8 +100,23 @@ export default function ProductForm({
         stock_quantity: product.stock_quantity,
         supplier: (product as any).supplier ?? "",
       });
+      setWarrantyMonths(
+        product.warranty_months != null ? String(product.warranty_months) : "",
+      );
     }
   }, [product, initialFormData]);
+
+  useEffect(() => {
+    const loadCategoriesFull = async () => {
+      try {
+        const data = await api.getCategoriesFull();
+        setCategoriesFull(data ?? []);
+      } catch {
+        setCategoriesFull([]);
+      }
+    };
+    loadCategoriesFull();
+  }, [api]);
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -354,6 +385,9 @@ ${labels}
     setDuplicateInfo(null);
     setIsLoading(true);
 
+    const warrantyMonthsValue =
+      warrantyMonths.trim() === "" ? null : Number(warrantyMonths);
+
     try {
       let result;
       if (product) {
@@ -362,6 +396,7 @@ ${labels}
           ...formData,
           id: product.id,
           supplier: formData.supplier || null,
+          warranty_months: warrantyMonthsValue,
         };
         result = await api.updateProduct(product.id, updatePayload);
       } else {
@@ -369,6 +404,7 @@ ${labels}
         const createPayload = {
           ...formData,
           supplier: formData.supplier || null,
+          warranty_months: warrantyMonthsValue,
         };
         result = await api.createProduct(createPayload);
       }
@@ -392,6 +428,14 @@ ${labels}
       setIsLoading(false);
     }
   };
+
+  // LIRA-143 Phase 6b — the Units/IMEIs section's visibility follows the
+  // CURRENTLY selected/typed category name, not `product.tracks_imei_units`
+  // (which reflects the category the product was saved under, potentially
+  // stale the moment the operator edits the category field in this form).
+  const categoryTracksImei = categoriesFull.some(
+    (c) => c.name === formData.category && c.tracks_imei_units === 1,
+  );
 
   return (
     <div
@@ -648,7 +692,42 @@ ${labels}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
               />
             </div>
+
+            {/* LIRA-143 Phase 6b: warranty length in months, empty = none */}
+            <div>
+              <label
+                htmlFor="product-warranty-months"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
+                Warranty (months)
+              </label>
+              <input
+                id="product-warranty-months"
+                type="number"
+                min={0}
+                step={1}
+                value={warrantyMonths}
+                onChange={(e) => setWarrantyMonths(e.target.value)}
+                placeholder="No warranty"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+              />
+            </div>
           </div>
+
+          {/* LIRA-143 Phase 6b — Units/IMEIs, only for a category that tracks
+              them AND an already-saved product (unit registration needs a
+              product id). */}
+          {categoryTracksImei &&
+            (product?.id != null ? (
+              <ProductUnitsSection
+                productId={product.id}
+                stockQuantity={formData.stock_quantity}
+              />
+            ) : (
+              <div className="text-xs text-slate-400 bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2">
+                Save the product first to register its IMEI units.
+              </div>
+            ))}
 
           <div className="flex justify-between items-center gap-3 mt-6 pt-4 border-t border-slate-700">
             <div className="flex items-center gap-2">

@@ -3,12 +3,34 @@
  * Generates receipt data for thermal printer (58mm and 80mm widths)
  */
 
+import { addMonthsIso } from "./dateMath";
+
 export interface ReceiptItem {
   name: string;
   quantity: number;
   price: number;
   subtotal: number;
   imei?: string | null;
+  /** LIRA-143 phase 6a (owner decision #4) — live checkout preview/print,
+   *  BEFORE the sale row exists: compute "Warranty until" from this
+   *  receipt's `timestamp` + the product's warranty_months. Ignored when
+   *  `warranty_until` (below) is present. */
+  warranty_months?: number | null;
+  /** LIRA-143 phase 6a — historical reprint (SaleDetailModal): the EXACT
+   *  value already stamped on `sale_items.warranty_until` at sale time
+   *  (correct even under a backdated transaction_time, unlike recomputing
+   *  from `warranty_months` + "now"). Takes precedence over
+   *  `warranty_months` when both are present. */
+  warranty_until?: string | null;
+}
+
+/** "Warranty until: YYYY-MM-DD", or null when the item carries neither a
+ *  stamped `warranty_until` nor a `warranty_months` to compute one from. */
+function warrantyLineFor(item: ReceiptItem, timestamp: string): string | null {
+  const until =
+    item.warranty_until ??
+    (item.warranty_months ? addMonthsIso(timestamp, item.warranty_months) : null);
+  return until ? `Warranty until: ${until}` : null;
 }
 
 export interface ReceiptData {
@@ -111,6 +133,11 @@ export function formatReceipt58mm(data: ReceiptData): string {
 
     if (item.imei) {
       receipt += `  IMEI: ${item.imei}\n`;
+    }
+
+    const warrantyLine = warrantyLineFor(item, data.timestamp);
+    if (warrantyLine) {
+      receipt += `  ${warrantyLine}\n`;
     }
   });
 
@@ -244,6 +271,11 @@ export function formatReceipt80mm(data: ReceiptData): string {
     receipt += `${sym}${item.subtotal.toFixed(2)}\n`;
     if (item.imei) {
       receipt += `  IMEI: ${item.imei}\n`;
+    }
+
+    const warrantyLine = warrantyLineFor(item, data.timestamp);
+    if (warrantyLine) {
+      receipt += `  ${warrantyLine}\n`;
     }
   });
 

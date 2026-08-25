@@ -16,12 +16,16 @@ import AdjustStockModal from "../AdjustStockModal";
 
 const mockAdjustStock = jest.fn();
 const mockGetStockAdjustments = jest.fn();
+const mockRegisterProductUnits = jest.fn();
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
   useApi: () => ({
     adjustStock: mockAdjustStock,
     getStockAdjustments: mockGetStockAdjustments,
+    productUnits: {
+      register: mockRegisterProductUnits,
+    },
   }),
 }));
 
@@ -34,6 +38,7 @@ function renderModal(
   overrides: Partial<{
     onClose: () => void;
     onSuccess: () => void;
+    tracksImeiUnits: boolean;
   }> = {},
 ) {
   const queryClient = new QueryClient({
@@ -50,6 +55,7 @@ function renderModal(
           name: "Test Widget",
           barcode: "1234567890",
           stock_quantity: 10,
+          ...(overrides.tracksImeiUnits ? { tracks_imei_units: 1 } : {}),
         }}
         onClose={onClose}
         onSuccess={onSuccess}
@@ -274,5 +280,175 @@ describe("AdjustStockModal — adjustment history states", () => {
     expect(await screen.findByText(/Damaged in transit/)).toBeInTheDocument();
     expect(screen.getByText(/-3 \(10 → 7\)/)).toBeInTheDocument();
     expect(screen.getByText(/by amir/)).toBeInTheDocument();
+  });
+});
+
+// LIRA-143 Phase 6b (decision #6) — the optional IMEI-intake step after a
+// stock INCREASE on a category that tracks IMEI units. Decreases and
+// flag-OFF products must stay byte-identical to the pre-Phase-6b flow
+// (straight to onSuccess(), no intake step ever shown).
+describe("AdjustStockModal — IMEI intake step (decision #6)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetStockAdjustments.mockResolvedValue([]);
+    mockAdjustStock.mockResolvedValue({ success: true });
+  });
+
+  it("flag-OFF product: calls onSuccess immediately on an increase, no intake step", async () => {
+    const { onSuccess } = renderModal({ tracksImeiUnits: false });
+
+    fireEvent.change(screen.getByPlaceholderText("0"), {
+      target: { value: "15" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "e.g. Physical recount, damaged goods, supplier correction…",
+      ),
+      { target: { value: "Restock" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("stock-intake-step")).not.toBeInTheDocument();
+    expect(mockRegisterProductUnits).not.toHaveBeenCalled();
+  });
+
+  it("flag-ON product but a DECREASE: calls onSuccess immediately, no intake step", async () => {
+    const { onSuccess } = renderModal({ tracksImeiUnits: true });
+
+    fireEvent.change(screen.getByPlaceholderText("0"), {
+      target: { value: "5" }, // 10 -> 5 is a decrease
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "e.g. Physical recount, damaged goods, supplier correction…",
+      ),
+      { target: { value: "Damaged units" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("stock-intake-step")).not.toBeInTheDocument();
+  });
+
+  it("flag-ON product with an INCREASE: shows the intake step instead of closing", async () => {
+    const { onSuccess } = renderModal({ tracksImeiUnits: true });
+
+    fireEvent.change(screen.getByPlaceholderText("0"), {
+      target: { value: "13" }, // 10 -> 13, +3
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "e.g. Physical recount, damaged goods, supplier correction…",
+      ),
+      { target: { value: "New shipment" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
+
+    expect(await screen.findByTestId("stock-intake-step")).toBeInTheDocument();
+    expect(screen.getByText(/Scan 3 IMEIs/)).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("Skip calls onSuccess without registering any units", async () => {
+    const { onSuccess } = renderModal({ tracksImeiUnits: true });
+
+    fireEvent.change(screen.getByPlaceholderText("0"), {
+      target: { value: "12" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "e.g. Physical recount, damaged goods, supplier correction…",
+      ),
+      { target: { value: "New shipment" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
+    await screen.findByTestId("stock-intake-step");
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(mockRegisterProductUnits).not.toHaveBeenCalled();
+  });
+
+  it("Register & Finish sends the scanned IMEIs and calls onSuccess", async () => {
+    mockRegisterProductUnits.mockResolvedValue({
+      success: true,
+      data: {
+        units: [],
+        drift: { inStockUnits: 12, stockQuantity: 12, matches: true },
+      },
+    });
+    const { onSuccess } = renderModal({ tracksImeiUnits: true });
+
+    fireEvent.change(screen.getByPlaceholderText("0"), {
+      target: { value: "12" }, // +2
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "e.g. Physical recount, damaged goods, supplier correction…",
+      ),
+      { target: { value: "New shipment" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
+    const textarea = await screen.findByPlaceholderText(/356938035643809/);
+
+    fireEvent.change(textarea, {
+      target: { value: "111111111111111\n222222222222222" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Register & Finish" }));
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(mockRegisterProductUnits).toHaveBeenCalledWith({
+      product_id: 42,
+      imeis: ["111111111111111", "222222222222222"],
+    });
+  });
+
+  it("shows the service error and does not call onSuccess when registration fails", async () => {
+    mockRegisterProductUnits.mockResolvedValue({
+      success: false,
+      error: "IMEI already registered",
+    });
+    const { onSuccess } = renderModal({ tracksImeiUnits: true });
+
+    fireEvent.change(screen.getByPlaceholderText("0"), {
+      target: { value: "11" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "e.g. Physical recount, damaged goods, supplier correction…",
+      ),
+      { target: { value: "New shipment" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
+    const textarea = await screen.findByPlaceholderText(/356938035643809/);
+    fireEvent.change(textarea, { target: { value: "111111111111111" } });
+    fireEvent.click(screen.getByRole("button", { name: "Register & Finish" }));
+
+    expect(
+      await screen.findByText("IMEI already registered"),
+    ).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("delta mode with a positive delta on a flag-ON product also triggers the intake step", async () => {
+    const { onSuccess } = renderModal({ tracksImeiUnits: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add / remove (+/-)" }));
+    fireEvent.change(screen.getByPlaceholderText("+10 or -5"), {
+      target: { value: "4" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "e.g. Physical recount, damaged goods, supplier correction…",
+      ),
+      { target: { value: "New shipment" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
+
+    expect(await screen.findByTestId("stock-intake-step")).toBeInTheDocument();
+    expect(screen.getByText(/Scan 4 IMEIs/)).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 });

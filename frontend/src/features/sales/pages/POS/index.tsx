@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import logger from "@/utils/logger";
 import { FileText, X, ShoppingCart, Trash2 } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
@@ -17,9 +18,20 @@ import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { ConfirmModal } from "@liratek/ui";
+import {
+  resolveCartLineMode,
+  shouldAlwaysAddNewLine,
+  type CartLineMode,
+} from "@/features/sales/utils/cartGate";
+import {
+  getCartLineKey,
+  generateCartLineId,
+} from "@/features/sales/utils/cartLineKey";
+import { fetchInStockUnitsCached } from "@/features/sales/hooks/useProductUnits";
 
 export default function POS() {
   const api = useApi();
+  const queryClient = useQueryClient();
   const {
     activeSession,
     linkTransaction,
@@ -116,24 +128,96 @@ export default function POS() {
     return () => clearTimeout(t);
   }, [isCheckoutOpen, isDraftsOpen, fetchDrafts]);
 
-  const handleAddToCart = useCallback((product: Product) => {
-    setCartItems((prev) => {
-      const existing = prev.find((p) => p.id === product.id);
-      if (existing) {
-        return prev.map((p) =>
-          p.id === product.id
-            ? ({ ...p, quantity: (p.quantity || 0) + 1 } as any)
-            : p,
-        ) as any;
-      }
-      return [...prev, { ...product, quantity: 1 } as any] as any;
-    });
-  }, []);
+  // LIRA-143 phase 6a — the "headline trap" fix. A flag-ON product with
+  // registered IN_STOCK units always gets its OWN qty-1 line (repository
+  // rejects quantity>1 on a unit line), never an incremented existing
+  // line; everything else keeps the pre-existing increment-on-repeat-add
+  // behavior byte-identically. `presetUnit` short-circuits the gate check
+  // for the scan-preselect path (ProductSearch already resolved the unit
+  // via api.resolveScanCode) and returns `false` instead of adding when
+  // that unit is already claimed by another cart line, so the caller can
+  // surface an error instead of silently double-adding.
+  const handleAddToCart = useCallback(
+    async (
+      product: Product,
+      presetUnit?: { id: number; imei: string },
+    ): Promise<boolean> => {
+      let outcome = true;
 
-  const handleUpdateQuantity = useCallback((id: number, delta: number) => {
+      if (presetUnit) {
+        setCartItems((prev) => {
+          const duplicate = prev.some(
+            (p) =>
+              p.id === product.id && p.product_unit_id === presetUnit.id,
+          );
+          if (duplicate) {
+            outcome = false;
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              ...product,
+              quantity: 1,
+              cartLineId: generateCartLineId(),
+              product_unit_id: presetUnit.id,
+              imei: presetUnit.imei,
+            } as CartItem,
+          ];
+        });
+        return outcome;
+      }
+
+      let mode: CartLineMode = "none";
+      if (product.tracks_imei_units) {
+        try {
+          const units = await fetchInStockUnitsCached(
+            queryClient,
+            api,
+            product.id,
+          );
+          mode = resolveCartLineMode(product.tracks_imei_units, units.length);
+        } catch (err) {
+          logger.error(
+            "Failed to check registered units for add-to-cart gate:",
+            err,
+          );
+          // Fail open to the pre-existing free-text capture rather than
+          // silently dropping IMEI entry for a phone product.
+          mode = "free-text";
+        }
+      }
+
+      setCartItems((prev) => {
+        if (shouldAlwaysAddNewLine(mode)) {
+          return [
+            ...prev,
+            {
+              ...product,
+              quantity: 1,
+              cartLineId: generateCartLineId(),
+            } as CartItem,
+          ];
+        }
+        const existing = prev.find((p) => p.id === product.id);
+        if (existing) {
+          return prev.map((p) =>
+            p.id === product.id
+              ? { ...p, quantity: (p.quantity || 0) + 1 }
+              : p,
+          );
+        }
+        return [...prev, { ...product, quantity: 1 } as CartItem];
+      });
+      return outcome;
+    },
+    [api, queryClient],
+  );
+
+  const handleUpdateQuantity = useCallback((lineKey: string, delta: number) => {
     setCartItems((prev) =>
       prev.map((item) => {
-        if (item.id === id) {
+        if (getCartLineKey(item) === lineKey) {
           return { ...item, quantity: Math.max(1, item.quantity + delta) };
         }
         return item;
@@ -141,15 +225,39 @@ export default function POS() {
     );
   }, []);
 
-  const handleRemoveItem = useCallback((id: number) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== id));
-  }, []);
-
-  const handleUpdateIMEI = useCallback((id: number, imei: string) => {
+  const handleRemoveItem = useCallback((lineKey: string) => {
     setCartItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, imei } : item)),
+      prev.filter((item) => getCartLineKey(item) !== lineKey),
     );
   }, []);
+
+  const handleUpdateIMEI = useCallback((lineKey: string, imei: string) => {
+    setCartItems((prev) =>
+      prev.map((item) =>
+        getCartLineKey(item) === lineKey ? { ...item, imei } : item,
+      ),
+    );
+  }, []);
+
+  // LIRA-143 phase 6a — sets/clears a unit-picker line's chosen unit.
+  // Built via key removal rather than `product_unit_id: unit?.id` — under
+  // `exactOptionalPropertyTypes`, an optional field explicitly set to
+  // `undefined` is a type error (missing vs. present-but-undefined are
+  // distinct), so deselecting must drop the key entirely.
+  const handleSelectUnit = useCallback(
+    (lineKey: string, unit: { id: number; imei: string } | null) => {
+      setCartItems((prev) =>
+        prev.map((item) => {
+          if (getCartLineKey(item) !== lineKey) return item;
+          const { product_unit_id: _current, ...rest } = item;
+          return unit
+            ? { ...rest, product_unit_id: unit.id, imei: unit.imei }
+            : { ...rest, imei: "" };
+        }),
+      );
+    },
+    [],
+  );
 
   const handleClearCart = useCallback(() => {
     setCartItems([]);
@@ -190,6 +298,12 @@ export default function POS() {
           quantity: item.quantity,
           price: item.retail_price,
           imei: item.imei || "",
+          // LIRA-143 phase 6a / lira-094-style trap: the session checkout
+          // replayer invokes this formData verbatim — a missing
+          // product_unit_id here would silently sell a unit-tracked
+          // product through the session flow without ever claiming its
+          // unit (or reject at the repository's strictness check).
+          product_unit_id: item.product_unit_id,
         })),
         total_amount: totalAmount,
         discount: 0,
@@ -343,6 +457,12 @@ export default function POS() {
             quantity: item.quantity,
             price: item.retail_price,
             imei: item.imei || "",
+            // `exactOptionalPropertyTypes` rejects `product_unit_id:
+            // undefined` on an optional field — omit the key entirely
+            // instead of assigning `undefined` to it.
+            ...(item.product_unit_id != null
+              ? { product_unit_id: item.product_unit_id }
+              : {}),
           })),
           total_amount: totalAmount,
           discount,
@@ -394,7 +514,7 @@ export default function POS() {
       const all = (await api.getProducts(searchTerm)) as unknown as Product[];
       if (all.length > 0) {
         // Pick the first match (most likely the just-created product)
-        handleAddToCart(all[0]);
+        await handleAddToCart(all[0]);
       }
     } catch (err) {
       logger.error("Failed to fetch newly created product", err);
@@ -417,6 +537,9 @@ export default function POS() {
           quantity: item.quantity,
           price: item.retail_price,
           imei: item.imei || "",
+          ...(item.product_unit_id != null
+            ? { product_unit_id: item.product_unit_id }
+            : {}),
         })),
       };
 
@@ -455,21 +578,75 @@ export default function POS() {
     }
   };
 
-  const handleResumeDraft = (draft: Draft) => {
+  const handleResumeDraft = async (draft: Draft) => {
     // Transform draft items back to CartItems
-    const items = (draft.items || []).map((item: DraftItem) => ({
-      id: item.product_id,
-      name: item.name || "",
-      barcode: item.barcode || "",
-      retail_price: item.sold_price_usd ?? item.price ?? 0,
-      quantity: item.quantity,
-      category: "",
-      cost_price: 0,
-      stock_quantity: 0,
-      min_stock_level: 0,
-      is_active: 1,
-      imei: item.imei || "",
-    }));
+    const baseItems: CartItem[] = (draft.items || []).map(
+      (item: DraftItem) => ({
+        id: item.product_id,
+        name: item.name || "",
+        barcode: item.barcode || "",
+        retail_price: item.sold_price_usd ?? item.price ?? 0,
+        quantity: item.quantity,
+        category: "",
+        cost_price: 0,
+        stock_quantity: 0,
+        min_stock_level: 0,
+        is_active: 1,
+        imei: item.imei || "",
+      }),
+    );
+
+    // LIRA-143 phase 6a (lira-094-style trap): a draft snapshots items as
+    // plain JSON — tracks_imei_units/warranty_months/product_unit_id are
+    // never stored on the draft row, so resuming a phone line would
+    // silently land in gate "none" (item 1's flag-OFF branch) without this
+    // re-fetch. Re-read each item's CURRENT product flags by barcode (the
+    // same search-then-pick-exact-id pattern handleProductCreated already
+    // uses below), then try to re-link a previously chosen unit via its
+    // stamped IMEI so the picker reopens pre-filled. A failed re-link
+    // leaves product_unit_id unset — the repository's strictness check is
+    // the backstop and the picker lets the operator fix it.
+    const items = await Promise.all(
+      baseItems.map(async (item) => {
+        if (!item.barcode) return item;
+        try {
+          const matches = (await api.getProducts(
+            item.barcode,
+          )) as unknown as Product[];
+          const product =
+            matches.find((p) => p.id === item.id) ?? matches[0] ?? null;
+          if (!product) return item;
+
+          const enriched: CartItem = {
+            ...item,
+            tracks_imei_units: product.tracks_imei_units,
+            warranty_months: product.warranty_months,
+          };
+
+          if (product.tracks_imei_units && item.imei) {
+            try {
+              const scan = await api.resolveScanCode(item.imei);
+              if (
+                scan.success &&
+                scan.data?.matched_unit &&
+                scan.data.product?.id === item.id
+              ) {
+                enriched.product_unit_id = scan.data.matched_unit.id;
+              }
+            } catch (err) {
+              logger.error("Failed to re-link unit on draft resume:", err);
+            }
+          }
+          return enriched;
+        } catch (err) {
+          logger.error(
+            "Failed to refresh product flags on draft resume:",
+            err,
+          );
+          return item;
+        }
+      }),
+    );
 
     setCartItems(items);
     setCurrentDraftId(draft.id);
@@ -509,6 +686,9 @@ export default function POS() {
           quantity: item.quantity,
           price: item.retail_price,
           imei: item.imei || "",
+          ...(item.product_unit_id != null
+            ? { product_unit_id: item.product_unit_id }
+            : {}),
         })),
       };
 
@@ -595,6 +775,7 @@ export default function POS() {
             onUpdateQuantity={handleUpdateQuantity}
             onRemoveItem={handleRemoveItem}
             onUpdateIMEI={handleUpdateIMEI}
+            onSelectUnit={handleSelectUnit}
             onClearCart={() => setShowClearConfirm(true)}
             onCheckout={() => setIsCheckoutOpen(true)}
             onOpenDrafts={() => setIsDraftsOpen(true)}

@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Check, X, Tag, Truck } from "lucide-react";
-import { DataTable } from "@liratek/ui";
+import { DataTable, useApi } from "@liratek/ui";
 
 interface Category {
   id: number;
   name: string;
   sort_order: number;
   is_active: number;
+  // LIRA-143 Phase 5/6b — decision #9's per-category IMEI-tracking flag.
+  tracks_imei_units: number;
 }
 
 interface ProductSupplier {
@@ -18,6 +20,8 @@ interface ProductSupplier {
 }
 
 export default function CategoriesManager() {
+  const api = useApi();
+
   // ── Categories state ───────────────────────────────────────────────
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
@@ -72,7 +76,7 @@ export default function CategoriesManager() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await window.api?.inventory.getCategoriesFull();
+      const data = await api.getCategoriesFull();
       setCategories(data ?? []);
       setSelectedIds(new Set());
     } finally {
@@ -101,7 +105,7 @@ export default function CategoriesManager() {
   const handleAdd = async () => {
     if (!newName.trim()) return;
     setError("");
-    const res = await window.api?.inventory.createCategory(newName.trim());
+    const res = await api.createCategory(newName.trim());
     if (res?.success) {
       setNewName("");
       load();
@@ -111,14 +115,22 @@ export default function CategoriesManager() {
   const handleUpdate = async (id: number) => {
     if (!editingName.trim()) return;
     setError("");
-    const res = await window.api?.inventory.updateCategory(
-      id,
-      editingName.trim(),
-    );
+    const res = await api.updateCategory(id, { name: editingName.trim() });
     if (res?.success) {
       setEditingId(null);
       load();
     } else setError(res?.error ?? "Failed to update");
+  };
+
+  // LIRA-143 Phase 6b — decision #9's per-category IMEI-tracking toggle.
+  const handleToggleTracksImei = async (cat: Category) => {
+    setError("");
+    const nextValue = cat.tracks_imei_units !== 1;
+    const res = await api.updateCategory(cat.id, {
+      tracks_imei_units: nextValue,
+    });
+    if (res?.success) load();
+    else setError(res?.error ?? "Failed to update");
   };
 
   const handleDelete = async (id: number, name: string) => {
@@ -128,7 +140,7 @@ export default function CategoriesManager() {
       )
     )
       return;
-    const res = await window.api?.inventory.deleteCategory(id);
+    const res = await api.deleteCategory(id);
     if (res?.success) load();
     else setError(res?.error ?? "Failed to delete");
   };
@@ -144,7 +156,7 @@ export default function CategoriesManager() {
     setError("");
     let failed = 0;
     for (const id of selectedIds) {
-      const res = await window.api?.inventory.deleteCategory(id);
+      const res = await api.deleteCategory(id);
       if (!res?.success) failed++;
     }
     if (failed > 0)
@@ -287,6 +299,11 @@ export default function CategoriesManager() {
                 className: "p-3 border-b border-slate-700",
               },
               {
+                header: "Tracks IMEI Units",
+                className: "p-3 border-b border-slate-700 text-center",
+                width: "150px",
+              },
+              {
                 header: "Actions",
                 className: "p-3 border-b border-slate-700 text-right",
                 width: "100px",
@@ -348,6 +365,33 @@ export default function CategoriesManager() {
                     ) : (
                       <span className="text-sm text-slate-200">{cat.name}</span>
                     )}
+                  </td>
+
+                  {/* Tracks IMEI units toggle (LIRA-143 decision #9) */}
+                  <td
+                    className="p-3 text-center"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={cat.tracks_imei_units === 1}
+                      onClick={() => handleToggleTracksImei(cat)}
+                      title="Toggle whether products in this category track per-unit IMEIs"
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
+                        cat.tracks_imei_units === 1
+                          ? "bg-violet-600"
+                          : "bg-slate-700"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          cat.tracks_imei_units === 1
+                            ? "translate-x-4"
+                            : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
                   </td>
 
                   {/* Actions */}

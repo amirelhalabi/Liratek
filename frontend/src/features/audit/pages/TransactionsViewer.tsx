@@ -12,9 +12,13 @@ import {
   voidTransaction,
   refundTransaction,
   voidCheckoutGroup,
+  getSaleItems,
+  getProductUnitsForSaleItems,
   type TransactionFiltersParam,
+  type ProductUnitDto,
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
+import logger from "@/utils/logger";
 import { FILTER_GROUPS, isSupplierPaymentVisible } from "../auditConstants";
 import { isReceiptableRow } from "../receiptGating";
 import { isReversibleRow } from "../actionGating";
@@ -37,7 +41,10 @@ import { RECHARGE_SUBTYPE_LABELS } from "@/shared/utils/rechargeLabels";
 import { appEvents } from "@liratek/ui";
 import { ReceiptPreviewModal } from "@/shared/components/ReceiptPreviewModal";
 import { RefundMethodModal } from "../components/RefundMethodModal";
-import type { RefundLegOverride } from "../refundLegOverride";
+import type {
+  RefundLegOverride,
+  RefundUnitExtraOverride,
+} from "../refundLegOverride";
 
 // LIRA-064: structured in/out payment leg joined from the payments table.
 // Type + formatting now live in ../cashFlow (Payment-Legs Integrity plan S3 —
@@ -958,9 +965,13 @@ export default function TransactionsViewer({
   );
 
   const doRefund = useCallback(
-    async (id: number, refundLegs?: RefundLegOverride[]) => {
+    async (
+      id: number,
+      refundLegs?: RefundLegOverride[],
+      unitExtras?: RefundUnitExtraOverride[],
+    ) => {
       try {
-        const res = await refundTransaction(id, refundLegs);
+        const res = await refundTransaction(id, refundLegs, unitExtras);
         if (res.success) load();
         else alert("Failed: " + (res.error || "Unknown error"));
       } catch {
@@ -976,28 +987,33 @@ export default function TransactionsViewer({
     null,
   );
   const [isRefunding, setIsRefunding] = useState(false);
+  // LIRA-143 Phase 6b: phone units linked to `refundModalRow`'s sale (empty
+  // for a non-sale row, or a sale with no IMEI-tracked items).
+  const [refundModalUnits, setRefundModalUnits] = useState<ProductUnitDto[]>(
+    [],
+  );
+  // Row id currently awaiting the async sale-items/units lookup below — used
+  // only to disable/label that ONE row's Refund button so a double-click
+  // can't fire the lookup twice.
+  const [refundLookupRowId, setRefundLookupRowId] = useState<number | null>(
+    null,
+  );
 
   const handleRefund = useCallback(
-    (row: TransactionRow) => {
-      // Two cases fall back to the plain bare-reversal refund (today's exact
-      // behavior, no modal) instead of opening the tender-selection modal:
-      //   - no customer-facing legs at all (nothing to override — a scripted/
-      //     legacy row, or a type whose reversal is drawer-only internally);
-      //   - a session-basket row. `TransactionRepository._attachPaymentLegs`
-      //     lets a session member with no OWN legs inherit the basket's
-      //     session-scoped legs (posted with session_id set, transaction_id
-      //     NULL) for DISPLAY — but the backend's per-transaction validation
-      //     (`getCustomerFacingLegs`/`_validateRefundLegOverride`, keyed on
-      //     transaction_id) would see an EMPTY set for that same row and reject
-      //     any override with a confusing "nothing to refund" error. Documented
-      //     out of scope alongside split_group (session-basket refund-by-
-      //     method-override needing an owner decision on which member "owns"
-      //     the basket's legs is a follow-up, not this ticket).
-      if (
-        row.session_id != null ||
-        !row.payments ||
-        row.payments.length === 0
-      ) {
+    async (row: TransactionRow) => {
+      // Session-basket rows always fall back to the plain bare-reversal
+      // refund (today's exact behavior, no modal) — never gated on units.
+      // `TransactionRepository._attachPaymentLegs` lets a session member
+      // with no OWN legs inherit the basket's session-scoped legs (posted
+      // with session_id set, transaction_id NULL) for DISPLAY — but the
+      // backend's per-transaction validation (`getCustomerFacingLegs`/
+      // `_validateRefundLegOverride`, keyed on transaction_id) would see an
+      // EMPTY set for that same row and reject any override with a
+      // confusing "nothing to refund" error. Documented out of scope
+      // alongside split_group (session-basket refund-by-method-override
+      // needing an owner decision on which member "owns" the basket's legs
+      // is a follow-up, not this ticket).
+      if (row.session_id != null) {
         if (
           !confirm("Refund this transaction? A reversal entry will be created.")
         )
@@ -1005,20 +1021,63 @@ export default function TransactionsViewer({
         void doRefund(row.id);
         return;
       }
+
+      // LIRA-143 Phase 6b (owner decisions #10/#11): a sale row may have
+      // phone units linked to it even when it has no drawer-affecting
+      // payment legs of its own (a CUSTOMER_ACCOUNT-only sale) — look those
+      // up BEFORE deciding whether the plain confirm() fallback applies, so
+      // a phone refund always gets the "Returned phones" flagging UI.
+      let linkedUnits: ProductUnitDto[] = [];
+      if (row.source_table === "sales") {
+        setRefundLookupRowId(row.id);
+        try {
+          const items = await getSaleItems(row.source_id);
+          const itemIds = (Array.isArray(items) ? items : [])
+            .map((item: { id?: number }) => item.id)
+            .filter((id): id is number => typeof id === "number");
+          if (itemIds.length > 0) {
+            linkedUnits = await getProductUnitsForSaleItems(itemIds);
+          }
+        } catch (err) {
+          logger.error("Failed to load linked phone units for refund", {
+            error: err,
+          });
+          // Never block a refund on this lookup — fall through with no
+          // units, same as if the sale simply had none.
+        } finally {
+          setRefundLookupRowId(null);
+        }
+      }
+
+      const hasLegs = !!row.payments && row.payments.length > 0;
+      if (!hasLegs && linkedUnits.length === 0) {
+        if (
+          !confirm("Refund this transaction? A reversal entry will be created.")
+        )
+          return;
+        void doRefund(row.id);
+        return;
+      }
+
+      setRefundModalUnits(linkedUnits);
       setRefundModalRow(row);
     },
     [doRefund],
   );
 
   const handleConfirmRefundOverride = useCallback(
-    async (refundLegs: RefundLegOverride[] | undefined) => {
+    async (
+      refundLegs: RefundLegOverride[] | undefined,
+      unitExtras?: RefundUnitExtraOverride[],
+    ) => {
       if (!refundModalRow) return;
       setIsRefunding(true);
       try {
-        await doRefund(refundModalRow.id, refundLegs);
+        await doRefund(refundModalRow.id, refundLegs, unitExtras);
       } finally {
         setIsRefunding(false);
         setRefundModalRow(null);
+        setRefundModalUnits([]);
       }
     },
     [refundModalRow, doRefund],
@@ -1352,9 +1411,10 @@ export default function TransactionsViewer({
                   </button>
                   <button
                     onClick={() => handleRefund(row)}
-                    className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
+                    disabled={refundLookupRowId === row.id}
+                    className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors disabled:opacity-50"
                   >
-                    Refund
+                    {refundLookupRowId === row.id ? "…" : "Refund"}
                   </button>
                 </>
               )
@@ -1621,13 +1681,17 @@ export default function TransactionsViewer({
       {refundModalRow && (
         <RefundMethodModal
           legs={refundModalRow.payments ?? []}
+          units={refundModalUnits}
           paymentMethods={drawerAffectingMethods.map((m) => ({
             code: m.code,
             label: m.label,
           }))}
           exchangeRate={refundModalRow.exchange_rate ?? 89000}
           isSubmitting={isRefunding}
-          onCancel={() => setRefundModalRow(null)}
+          onCancel={() => {
+            setRefundModalRow(null);
+            setRefundModalUnits([]);
+          }}
           onConfirm={handleConfirmRefundOverride}
         />
       )}

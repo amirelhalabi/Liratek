@@ -20,6 +20,7 @@ import { printReceipt } from "@/shared/utils/printReceipt";
 import { ConfirmModal } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
+import { getWarrantyState } from "@/features/sales/utils/warrantyStatus";
 
 interface SaleItem {
   id: number;
@@ -32,6 +33,10 @@ interface SaleItem {
   imei?: string;
   is_refunded?: number;
   refunded_quantity?: number;
+  /** LIRA-143 phase 6a — stamped once at sale time (sale_items.warranty_until,
+   *  already selected via `si.*` in SalesRepository.getSaleItems). Null for a
+   *  non-IMEI-tracked line or a product with no warranty_months. */
+  warranty_until?: string | null;
 }
 
 interface SaleDetail {
@@ -228,6 +233,9 @@ export default function SaleDetailModal({
         price: item.sold_price_usd,
         subtotal: item.sold_price_usd * item.quantity,
         imei: item.imei || null,
+        // LIRA-143 phase 6a — the sale row already exists here, so use the
+        // EXACT stamped value rather than recomputing it.
+        warranty_until: item.warranty_until || null,
       })),
       subtotal: sale.total_amount_usd,
       discount: sale.discount_usd,
@@ -270,6 +278,9 @@ export default function SaleDetailModal({
   };
 
   const isRefunded = sale?.status === "refunded";
+  // LIRA-143 phase 6a — computed once per render for the per-line warranty
+  // hint below (getWarrantyState compares only the YYYY-MM-DD prefix).
+  const todayIso = new Date().toISOString();
 
   return (
     <div
@@ -428,6 +439,37 @@ export default function SaleDetailModal({
                               </span>
                             )}
                           </div>
+                          {/* LIRA-143 phase 6a — minimal warranty hint;
+                              the full precedence UI (overrides, refund
+                              interaction) lives in the IMEI story card. */}
+                          {item.warranty_until &&
+                            (() => {
+                              const state = getWarrantyState(
+                                item.warranty_until,
+                                todayIso,
+                                isFullyRefunded,
+                              );
+                              if (state === "NONE") return null;
+                              const label =
+                                state === "VOID"
+                                  ? "Warranty void (refunded)"
+                                  : state === "COVERED"
+                                    ? `Warranty until ${item.warranty_until} (covered)`
+                                    : `Warranty until ${item.warranty_until} (expired)`;
+                              const colorClass =
+                                state === "VOID"
+                                  ? "text-slate-600"
+                                  : state === "COVERED"
+                                    ? "text-emerald-500"
+                                    : "text-amber-500";
+                              return (
+                                <div
+                                  className={`text-[11px] mt-0.5 ${colorClass}`}
+                                >
+                                  {label}
+                                </div>
+                              );
+                            })()}
                         </div>
 
                         <div className="flex items-center gap-2">

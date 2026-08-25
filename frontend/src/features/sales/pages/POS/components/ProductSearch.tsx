@@ -38,7 +38,17 @@ interface TodaySale {
 }
 
 interface ProductSearchProps {
-  onAddToCart: (product: Product) => void;
+  /** LIRA-143 phase 6a (owner decision #2, scan preselect) — `unit` is set
+   *  when the scan/auto-add path already resolved a specific IN_STOCK
+   *  product_units row (via `api.resolveScanCode`), so the caller can add a
+   *  qty-1 line pre-filled with it instead of re-deriving it later. Returns
+   *  `false` when the caller rejected the add (e.g. that unit is already in
+   *  the cart) so the scan path can surface an error instead of clearing
+   *  the search box as if it had succeeded. */
+  onAddToCart: (
+    product: Product,
+    unit?: { id: number; imei: string },
+  ) => Promise<boolean> | boolean | void;
   onCreateProduct?: (prefill: { name?: string; barcode?: string }) => void;
   onSaleClick?: (saleId: number) => void;
   refreshSalesKey?: number;
@@ -198,19 +208,50 @@ function ProductSearch({
       const results = data as unknown as Product[];
       setProducts(results);
 
-      // Auto-add when scanning a barcode that matches exactly 1 product.
+      // Auto-add on a barcode-shaped scan. LIRA-143 phase 6a (owner
+      // decision #2): try resolveScanCode FIRST — it also matches an
+      // active unit IMEI, which the LIKE search above can't (an IMEI isn't
+      // a product's barcode, so a raw IMEI scan can land here with 0 LIKE
+      // results). A barcode-only hit or no match at all falls through to
+      // today's exactly-one-LIKE-result auto-add, unchanged.
       cancelBarcodeAutoAdd();
-      if (
-        isUserSearch.current &&
-        isBarcodeScan(search) &&
-        results.length === 1
-      ) {
-        const product = results[0];
-        barcodeAutoAddTimer.current = setTimeout(() => {
-          onAddToCart(product);
-          setSearch("");
-          isUserSearch.current = false;
-          requestAnimationFrame(() => searchInputRef.current?.focus());
+      if (isUserSearch.current && isBarcodeScan(search)) {
+        const scannedTerm = search.trim();
+        barcodeAutoAddTimer.current = setTimeout(async () => {
+          try {
+            const scan = await api.resolveScanCode(scannedTerm);
+            if (scan.success && scan.data?.matched_unit) {
+              const matchedUnit = scan.data.matched_unit;
+              const added = await onAddToCart(scan.data.product as Product, {
+                id: matchedUnit.id,
+                imei: matchedUnit.imei,
+              });
+              if (added === false) {
+                appEvents.emit(
+                  "notification:show",
+                  `Unit ${matchedUnit.imei} is already in the cart`,
+                  "error",
+                );
+              } else {
+                setSearch("");
+              }
+              isUserSearch.current = false;
+              requestAnimationFrame(() => searchInputRef.current?.focus());
+              return;
+            }
+          } catch (err) {
+            logger.error("resolveScanCode failed during auto-add:", err);
+            // Fall through to the LIKE-result auto-add below.
+          }
+
+          // Product-only match (or resolveScanCode found/returned
+          // nothing) — today's behavior, unchanged.
+          if (results.length === 1) {
+            onAddToCart(results[0]);
+            setSearch("");
+            isUserSearch.current = false;
+            requestAnimationFrame(() => searchInputRef.current?.focus());
+          }
         }, 800);
       }
     } catch (err) {

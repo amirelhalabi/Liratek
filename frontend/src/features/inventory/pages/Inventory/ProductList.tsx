@@ -17,6 +17,9 @@ import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
 import { DataTable, ConfirmModal } from "@liratek/ui";
 import AdjustStockModal from "../../components/AdjustStockModal";
+import { ImeiStoryCard } from "../../components/ImeiStoryCard";
+import { useUnitStoryQuery } from "../../hooks/useProductUnits";
+import { looksLikeImei } from "../../productUnitsLogic";
 
 interface BatchUpdateFields {
   category?: string;
@@ -322,6 +325,18 @@ export default function ProductList() {
     return () => clearTimeout(timer);
   }, [search, loadProducts]);
 
+  // LIRA-143 Phase 6b (decision #7) — the walk-in IMEI lookup: when the
+  // search box looks like an IMEI, fetch and render every unit's story
+  // above the product list. Silent when there is no match (never shows a
+  // loading/error state of its own) — an IMEI-looking search term still
+  // runs the normal product-name/barcode search below in parallel, so a
+  // non-match here costs nothing.
+  const trimmedSearch = search.trim();
+  const imeiSearchActive = looksLikeImei(trimmedSearch);
+  const { data: unitStories = [] } = useUnitStoryQuery(
+    imeiSearchActive ? trimmedSearch : null,
+  );
+
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
     setIsFormOpen(true);
@@ -625,6 +640,17 @@ export default function ProductList() {
         </div>
         {/* Add filters later (Category, etc) */}
       </div>
+
+      {/* LIRA-143 Phase 6b — walk-in IMEI lookup card(s), shown above the
+          product list only when the search term matches the lookup
+          heuristic AND at least one unit story came back. */}
+      {imeiSearchActive && unitStories.length > 0 && (
+        <div className="space-y-2">
+          {unitStories.map((story) => (
+            <ImeiStoryCard key={story.id} story={story} />
+          ))}
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto shadow-xl">

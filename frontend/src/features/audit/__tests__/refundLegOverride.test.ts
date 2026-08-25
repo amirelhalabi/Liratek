@@ -9,6 +9,8 @@ import {
   buildDefaultRefundLines,
   linesMatchDefault,
   validateRefundLines,
+  buildUnitExtras,
+  type UnitFlagState,
 } from "../refundLegOverride";
 import type { TransactionPaymentLeg } from "../cashFlow";
 
@@ -251,5 +253,86 @@ describe("validateRefundLines", () => {
       { USD: 50, LBP: 900_000 },
     );
     expect(err).toMatch(/LBP/);
+  });
+});
+
+// LIRA-143 Phase 6b — the phone-refund UI's per-unit extras-emission logic.
+describe("buildUnitExtras", () => {
+  const untouched: UnitFlagState = { isDefective: false, warrantyUntil: "" };
+
+  it("returns undefined (never []) when no unit was touched at all", () => {
+    expect(buildUnitExtras([1, 2, 3], {})).toBeUndefined();
+  });
+
+  it("returns undefined when every unit's flag entry is at its untouched default", () => {
+    expect(
+      buildUnitExtras([1, 2], { 1: untouched, 2: { ...untouched } }),
+    ).toBeUndefined();
+  });
+
+  it("includes only is_defective when the checkbox is checked and the date is blank", () => {
+    expect(
+      buildUnitExtras([1], {
+        1: { isDefective: true, warrantyUntil: "" },
+      }),
+    ).toEqual([{ unit_id: 1, is_defective: true }]);
+  });
+
+  it("includes only warranty_override_until when only the date was set", () => {
+    expect(
+      buildUnitExtras([1], {
+        1: { isDefective: false, warrantyUntil: "2027-01-15" },
+      }),
+    ).toEqual([{ unit_id: 1, warranty_override_until: "2027-01-15" }]);
+  });
+
+  it("includes both fields when both were set", () => {
+    expect(
+      buildUnitExtras([1], {
+        1: { isDefective: true, warrantyUntil: "2027-01-15" },
+      }),
+    ).toEqual([
+      { unit_id: 1, is_defective: true, warranty_override_until: "2027-01-15" },
+    ]);
+  });
+
+  it("trims a whitespace-only date to blank (treated as not set)", () => {
+    expect(
+      buildUnitExtras([1], {
+        1: { isDefective: false, warrantyUntil: "   " },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("emits an entry only for the units actually touched, skipping untouched ones", () => {
+    expect(
+      buildUnitExtras([1, 2, 3], {
+        1: untouched,
+        2: { isDefective: true, warrantyUntil: "" },
+        3: untouched,
+      }),
+    ).toEqual([{ unit_id: 2, is_defective: true }]);
+  });
+
+  it("ignores a unit id with no flags entry at all (never defaults it into the output)", () => {
+    expect(
+      buildUnitExtras([1, 2], {
+        2: { isDefective: true, warrantyUntil: "" },
+      }),
+    ).toEqual([{ unit_id: 2, is_defective: true }]);
+  });
+
+  it("preserves the order of unitIds in the output", () => {
+    expect(
+      buildUnitExtras([3, 1, 2], {
+        1: { isDefective: true, warrantyUntil: "" },
+        2: { isDefective: true, warrantyUntil: "" },
+        3: { isDefective: true, warrantyUntil: "" },
+      }),
+    ).toEqual([
+      { unit_id: 3, is_defective: true },
+      { unit_id: 1, is_defective: true },
+      { unit_id: 2, is_defective: true },
+    ]);
   });
 });

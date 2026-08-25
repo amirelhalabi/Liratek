@@ -3,6 +3,7 @@ import {
   formatReceipt80mm,
   type ReceiptData,
 } from "../receiptFormatter";
+import { addMonthsIso } from "../dateMath";
 
 describe("Receipt Formatter", () => {
   const mockReceiptData: ReceiptData = {
@@ -89,6 +90,44 @@ describe("Receipt Formatter", () => {
       const result = formatReceipt58mm(dataWithImei);
       expect(result).toContain("IMEI: 123456789012345");
     });
+
+    it("computes 'Warranty until' from warranty_months + the receipt's own timestamp (owner decision #4)", () => {
+      const dataWithWarranty: ReceiptData = {
+        ...mockReceiptData,
+        items: [
+          {
+            ...mockReceiptData.items[0],
+            warranty_months: 12,
+          },
+        ],
+      };
+      const result = formatReceipt58mm(dataWithWarranty);
+      const expectedDate = addMonthsIso(mockReceiptData.timestamp, 12);
+      expect(result).toContain(`Warranty until: ${expectedDate}`);
+    });
+
+    it("prefers the stamped warranty_until over recomputing from warranty_months", () => {
+      const dataWithBoth: ReceiptData = {
+        ...mockReceiptData,
+        items: [
+          {
+            ...mockReceiptData.items[0],
+            warranty_months: 12,
+            warranty_until: "2099-01-01",
+          },
+        ],
+      };
+      const result = formatReceipt58mm(dataWithBoth);
+      expect(result).toContain("Warranty until: 2099-01-01");
+      expect(result).not.toContain(
+        `Warranty until: ${addMonthsIso(mockReceiptData.timestamp, 12)}`,
+      );
+    });
+
+    it("prints no warranty line when the item has neither warranty field", () => {
+      const result = formatReceipt58mm(mockReceiptData);
+      expect(result).not.toContain("Warranty until");
+    });
   });
 
   describe("formatReceipt80mm", () => {
@@ -100,6 +139,20 @@ describe("Receipt Formatter", () => {
       expect(result).toContain("iPhone 15 Case");
       expect(result).toContain("TOTAL DUE:");
       expect(result).toContain("3,580,000");
+    });
+
+    it("includes the warranty line too", () => {
+      const dataWithWarranty: ReceiptData = {
+        ...mockReceiptData,
+        items: [
+          {
+            ...mockReceiptData.items[0],
+            warranty_until: "2027-06-15",
+          },
+        ],
+      };
+      const result = formatReceipt80mm(dataWithWarranty);
+      expect(result).toContain("Warranty until: 2027-06-15");
     });
   });
 });
