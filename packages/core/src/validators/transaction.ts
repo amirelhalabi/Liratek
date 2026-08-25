@@ -43,3 +43,37 @@ export const refundLegsSchema = z.array(refundLegSchema).min(1);
 
 export type RefundLegInput = z.infer<typeof refundLegSchema>;
 export type RefundLegsInput = z.infer<typeof refundLegsSchema>;
+
+/** YYYY-MM-DD only — same shape `addMonthsIso`/`sale_items.warranty_until`
+ *  use, deliberately narrower than `transactionTimeSchema`'s full ISO
+ *  datetime (a warranty override is a calendar day, not a moment). */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const isoDateSchema = z
+  .string()
+  .regex(ISO_DATE_RE, "must be a date in YYYY-MM-DD format")
+  .refine((v) => !Number.isNaN(Date.parse(v)), "must be a valid calendar date");
+
+/**
+ * LIRA-143 phase 4/5 — the phone-refund UI's per-unit flag override, riding
+ * alongside `refundLegs` on the SAME `refundTransaction` call (rule 16: one
+ * IPC payload, no follow-up call). `unit_id` must belong to the sale being
+ * refunded — the repository (`TransactionRepository._validateRefundUnitExtras`)
+ * is what checks that, not Zod (rule 14: one money-correctness predicate,
+ * kept in the repository layer; Zod only shapes the payload). `is_defective`
+ * omitted/`undefined` leaves the unit's existing flag untouched (matches
+ * `ProductUnitRepository.markInStock`'s option semantics); same for
+ * `warranty_override_until`, where an explicit `null` clears any existing
+ * override.
+ */
+export const refundUnitExtraSchema = z.object({
+  unit_id: z.number().int().positive(),
+  is_defective: z.boolean().optional(),
+  warranty_override_until: isoDateSchema.nullable().optional(),
+});
+
+/** At least one extra — an empty array is meaningless (omit `refundUnitExtras`
+ *  entirely for a plain flip-back-to-stock refund with no flags). */
+export const refundUnitExtrasSchema = z.array(refundUnitExtraSchema).min(1);
+
+export type RefundUnitExtraInput = z.infer<typeof refundUnitExtraSchema>;
+export type RefundUnitExtrasInput = z.infer<typeof refundUnitExtrasSchema>;

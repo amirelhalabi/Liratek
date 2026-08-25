@@ -90,6 +90,11 @@ import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
 import { getPartnerRepository } from "./PartnerRepository.js";
 import { getSettingsRepository } from "./SettingsRepository.js";
+import {
+  getProductUnitRepository,
+  type ProductUnitEntity,
+} from "./ProductUnitRepository.js";
+import { addMonthsIso } from "../utils/dates.js";
 
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
@@ -115,6 +120,13 @@ export interface SaleRequest {
     quantity: number;
     price: number;
     imei?: string;
+    /** LIRA-143 phase 4: the specific IN_STOCK `product_units` row being
+     *  sold on this line. Optional — a product with no registered units
+     *  sells exactly as before; when the product DOES have registered
+     *  IN_STOCK units, omitting this on a `completed` sale is rejected (see
+     *  `processSale`'s strictness check) rather than silently guessing
+     *  which physical unit left the shop. */
+    product_unit_id?: number;
   }[];
   total_amount: number;
   discount: number;
@@ -293,6 +305,29 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     return "id, client_id, total_amount_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot, status, note, created_at, drawer_name, edited_by, edited_at";
   }
 
+  /**
+   * LIRA-143 phase 4 — memoized `product_units` table-existence guard.
+   * Every processSale/refundSaleItem read/write against `product_units` is
+   * gated behind this so the MANY existing tests that hand-build a sales
+   * schema without that table (predating phase 1/migration v157) stay
+   * byte-identical. Mirrors `TransactionRepository._productUnitsTableExists`'
+   * shape (same `sqlite_master` check), but cached per-instance — this
+   * repository is a long-lived singleton and the schema shape never changes
+   * once the process is up, so there is no reason to re-query on every sale.
+   */
+  private _productUnitsTableExistsCache: boolean | null = null;
+  private _productUnitsTableExists(): boolean {
+    if (this._productUnitsTableExistsCache === null) {
+      const row = this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_units'`,
+        )
+        .get();
+      this._productUnitsTableExistsCache = row !== undefined;
+    }
+    return this._productUnitsTableExistsCache;
+  }
+
   // ---------------------------------------------------------------------------
   // Full Transaction Processing
   // ---------------------------------------------------------------------------
@@ -462,20 +497,34 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // Resolve each item's product name alongside its cost price (same
         // lookup, one query per item) so the transaction summary, metadata,
         // and debt note can name what was sold instead of a bare sale id.
+        // Also grabs `warranty_months` (LIRA-143 phase 4, owner decision #4)
+        // in the SAME query — one extra column, not a second per-item
+        // lookup — for the warranty stamp below and the unit-strictness
+        // error message's product name.
         const saleItemDetails: { name: string; quantity: number }[] = [];
+        const productMetaByIndex: {
+          name: string;
+          warrantyMonths: number | null;
+        }[] = [];
         for (const item of sale.items) {
           const productRow = db
             .prepare(
-              "SELECT name, cost_price_usd FROM products WHERE id = ? AND tenant_id = ?",
+              "SELECT name, cost_price_usd, warranty_months FROM products WHERE id = ? AND tenant_id = ?",
             )
             .get(item.product_id, tenantId) as
-            | { name?: string; cost_price_usd: number }
+            | {
+                name?: string;
+                cost_price_usd: number;
+                warranty_months: number | null;
+              }
             | undefined;
           const costPrice = productRow?.cost_price_usd ?? 0;
           saleProfitUsd += (item.price - costPrice) * item.quantity;
-          saleItemDetails.push({
-            name: productRow?.name ?? "Unknown Product",
-            quantity: item.quantity,
+          const name = productRow?.name ?? "Unknown Product";
+          saleItemDetails.push({ name, quantity: item.quantity });
+          productMetaByIndex.push({
+            name,
+            warrantyMonths: productRow?.warranty_months ?? null,
           });
         }
         saleProfitUsd -= sale.discount || 0;
@@ -713,8 +762,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // Process Items & Update Stock
         const itemStmt = db.prepare(`
           INSERT INTO sale_items (
-            sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei, tenant_id
-          ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?), ?, ?)
+            sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei, warranty_until, tenant_id
+          ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ? AND tenant_id = ?), ?, ?, ?)
         `);
 
         const stockStmt = db.prepare(
@@ -727,17 +776,126 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                WHERE id = ? AND tenant_id = ? AND stock_quantity >= ?`,
         );
 
-        for (const item of sale.items) {
-          itemStmt.run(
+        // LIRA-143 phase 4 (owner decision #5 + drift rule #6): unit
+        // consumption + the registered-stock strictness check only apply to
+        // a COMPLETED sale on a connection that actually has product_units
+        // (guards every hand-built test schema predating this phase, and
+        // every draft — a draft never moves stock either).
+        const productUnitsActive =
+          status === "completed" && this._productUnitsTableExists();
+        const claimedUnitIds = new Set<number>();
+        const findUnitStmt = productUnitsActive
+          ? db.prepare(
+              `SELECT id, tenant_id, product_id, imei, status, sale_item_id, is_defective, warranty_override_until, created_at, updated_at
+               FROM product_units WHERE id = ? AND tenant_id = ?`,
+            )
+          : null;
+
+        // The sale-wide business date the warranty clock starts from (owner
+        // decision #4): backdated `transaction_time` when set, else "now" —
+        // the same convention the sale/transaction rows themselves use.
+        const saleDateIso = (sale.transaction_time ?? new Date().toISOString()).slice(
+          0,
+          10,
+        );
+
+        sale.items.forEach((item, index) => {
+          let imeiToWrite = item.imei || null;
+          let matchedUnit: ProductUnitEntity | null = null;
+
+          if (productUnitsActive) {
+            if (item.product_unit_id != null) {
+              if (claimedUnitIds.has(item.product_unit_id)) {
+                throw new BusinessRuleError(
+                  `Product unit #${item.product_unit_id} is claimed by more than one line in this sale`,
+                );
+              }
+              const unit = findUnitStmt!.get(
+                item.product_unit_id,
+                tenantId,
+              ) as ProductUnitEntity | undefined;
+              const productName = productMetaByIndex[index].name;
+              if (!unit) {
+                throw new BusinessRuleError(
+                  `Product unit #${item.product_unit_id} not found`,
+                );
+              }
+              if (unit.status !== "IN_STOCK") {
+                throw new BusinessRuleError(
+                  `Product unit #${item.product_unit_id} on "${productName}" is not in stock (status: ${unit.status})`,
+                );
+              }
+              if (unit.product_id !== item.product_id) {
+                throw new BusinessRuleError(
+                  `Product unit #${item.product_unit_id} does not belong to "${productName}"`,
+                );
+              }
+              if (item.quantity !== 1) {
+                throw new BusinessRuleError(
+                  `"${productName}": unit-tracked lines are one-unit-per-line — sell ${item.quantity} phones as ${item.quantity} separate lines`,
+                );
+              }
+              claimedUnitIds.add(unit.id);
+              matchedUnit = unit;
+              imeiToWrite = unit.imei;
+            } else {
+              // Strictness (owner decision #5 + drift rule #6): if this
+              // product has any IN_STOCK registered units NOT already
+              // claimed by an earlier line in this same sale, the operator
+              // must identify which unit is being sold — never silently
+              // guess. Zero unclaimed registered units (none ever
+              // registered, or all already claimed) proceeds exactly as
+              // today, including surplus unregistered stock (drift).
+              const claimedList = [...claimedUnitIds];
+              const excludeClause =
+                claimedList.length > 0
+                  ? `AND id NOT IN (${claimedList.map(() => "?").join(", ")})`
+                  : "";
+              const countRow = db
+                .prepare(
+                  `SELECT COUNT(*) AS count FROM product_units
+                   WHERE tenant_id = ? AND product_id = ? AND status = 'IN_STOCK' ${excludeClause}`,
+                )
+                .get(tenantId, item.product_id, ...claimedList) as {
+                count: number;
+              };
+              if (countRow.count > 0) {
+                const productName = productMetaByIndex[index].name;
+                throw new BusinessRuleError(
+                  `"${productName}" has ${countRow.count} IMEI-registered unit(s) in stock — identify the unit being sold (scan its IMEI or pick it on the cart line)`,
+                );
+              }
+            }
+          }
+
+          // Warranty stamp (owner decision #4): ANY product with
+          // warranty_months stamps sale date + months, unit-tracked or not.
+          // Only on a completed sale — a draft's date isn't the sale date,
+          // and the completed re-submit stamps fresh.
+          const warrantyMonths = productMetaByIndex[index].warrantyMonths;
+          const warrantyUntil =
+            status === "completed" && warrantyMonths
+              ? addMonthsIso(saleDateIso, warrantyMonths)
+              : null;
+
+          const itemResult = itemStmt.run(
             saleId,
             item.product_id,
             item.quantity,
             item.price,
             item.product_id,
             tenantId,
-            item.imei || null,
+            imeiToWrite,
+            warrantyUntil,
             tenantId,
           );
+
+          if (matchedUnit) {
+            getProductUnitRepository().markSold(
+              matchedUnit.id,
+              Number(itemResult.lastInsertRowid),
+            );
+          }
 
           // Update Stock: ONLY IF COMPLETED.
           if (status === "completed") {
@@ -773,7 +931,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
               }
             }
           }
-        }
+        });
 
         // Handle Debt (If Partial Payment AND Completed)
         // Deferred (session basket): the basket recorder creates ONE debt entry
@@ -1334,6 +1492,29 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       db.prepare(
         `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ? AND tenant_id = ?`,
       ).run(params.refundQuantity, item.product_id, tenantId);
+
+      // 9b. LIRA-143 phase 4 — flip up to `refundQuantity` SOLD product_units
+      // linked to THIS sale_item back to IN_STOCK. No extras here: the
+      // phone-refund UI's defective/warranty-override flagging lives only on
+      // the Transactions-page WHOLE-refund flow (owner decision 2026-07-04),
+      // never on this per-item path. Under the one-unit-per-line rule
+      // (processSale requires quantity === 1 for any unit-tracked line) a
+      // unit-tracked sale_items row always has exactly one linked unit, so
+      // this is exact; the count-based `take` below is graceful degradation
+      // for hand-crafted/legacy data where that invariant might not hold.
+      // `markInStock` is idempotent (no-ops a unit that isn't currently
+      // SOLD), so re-running this on an already-flipped unit is harmless.
+      if (this._productUnitsTableExists()) {
+        const productUnitRepo = getProductUnitRepository();
+        const linkedUnits = productUnitRepo
+          .findBySaleItemIds([params.saleItemId])
+          .filter((u) => u.status === "SOLD")
+          .sort((a, b) => a.id - b.id)
+          .slice(0, params.refundQuantity);
+        for (const unit of linkedUnits) {
+          productUnitRepo.markInStock(unit.id);
+        }
+      }
 
       // 10. If sale was on debt, cancel proportional debt
       if (originalTxn.client_id) {

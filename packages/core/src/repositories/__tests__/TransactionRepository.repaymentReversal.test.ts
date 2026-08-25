@@ -163,6 +163,7 @@ function createTestDb(): Database.Database {
       product_id INTEGER NOT NULL,
       quantity INTEGER NOT NULL DEFAULT 1,
       is_refunded INTEGER DEFAULT 0,
+      refunded_quantity INTEGER DEFAULT 0,
       tenant_id INTEGER DEFAULT 1
     );
 

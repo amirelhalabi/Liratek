@@ -40,6 +40,7 @@ import { getCarrierLineMovementRepository } from "./CarrierLineMovementRepositor
 import { getCarrierLineService } from "../services/CarrierLineService.js";
 import { isPendingSupplierSettlement } from "./FinancialServiceRepository.js";
 import { getExchangeLotRepository } from "./ExchangeLotRepository.js";
+import { getProductUnitRepository } from "./ProductUnitRepository.js";
 
 // A `debt_ledger` row represents an on-account CHARGE (customer paid via their
 // account) that should surface a "Customer Account" method leg — EXCEPT
@@ -247,6 +248,22 @@ export interface RefundLegOverride {
   currencyCode: string;
   /** Absolute amount returned via this method, in `currencyCode`. */
   amount: number;
+}
+
+/**
+ * LIRA-143 phase 4 (rule 20) — the phone-refund UI's per-unit flag override,
+ * riding alongside `refundLegs` on the SAME `refundTransaction` call (rule
+ * 16: one IPC payload, no follow-up call). `unit_id` must be part of the
+ * sale being refunded — validated by `_validateRefundUnitExtras` BEFORE any
+ * unit is flipped (see `_reverseProductUnits`). `is_defective`/
+ * `warranty_override_until` follow `ProductUnitRepository.markInStock`'s own
+ * option semantics: `undefined`/omitted leaves the existing value untouched;
+ * an explicit `null` for `warranty_override_until` clears it.
+ */
+export interface RefundUnitExtra {
+  unit_id: number;
+  is_defective?: boolean;
+  warranty_override_until?: string | null;
 }
 
 /** One row of the D1 currency in/out by-date report. */
@@ -1418,6 +1435,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // Type-agnostic, keyed by transaction_id; no-op when none match.
       this._reverseCarrierLineMovements(original);
 
+      // 5e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied to
+      // this SALE back to IN_STOCK. Void never carries flag extras (the
+      // phone-refund UI's defective/warranty-override flagging lives only on
+      // the refund path, owner decision 2026-07-04). No-op for every
+      // non-SALE transaction, or when product_units doesn't exist.
+      this._reverseProductUnits(original);
+
       // 6. If SALE: cancel sale, restore stock
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
@@ -1481,10 +1505,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   refundTransaction(
     id: number,
     userId: number,
-    opts?: { refundLegs?: RefundLegOverride[] },
+    opts?: {
+      refundLegs?: RefundLegOverride[];
+      /** LIRA-143 phase 4 — phone-refund UI's per-unit defective/warranty-
+       *  override flags, applied to the SAME sale being refunded as the
+       *  units flip back to IN_STOCK. See `_reverseProductUnits`. */
+      refundUnitExtras?: RefundUnitExtra[];
+    },
   ): number {
     return this._refundTransactionInternal(id, userId, {
       refundLegs: opts?.refundLegs,
+      refundUnitExtras: opts?.refundUnitExtras,
     });
   }
 
@@ -1501,6 +1532,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     userId: number,
     opts: {
       refundLegs?: RefundLegOverride[];
+      refundUnitExtras?: RefundUnitExtra[];
       allowSessionMember?: boolean;
     },
   ): number {
@@ -1629,6 +1661,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 4g. LIRA-090 §8, rule 20 — carrier_line_movements reversal. See
       // voidTransaction's identical step.
       this._reverseCarrierLineMovements(original);
+
+      // 4e3. LIRA-143 phase 4, rule 20 — flip every SOLD product_unit tied
+      // to this SALE back to IN_STOCK, applying the operator's chosen
+      // defective/warranty-override flags (`opts.refundUnitExtras`) at the
+      // same time. See voidTransaction's identical step (which never passes
+      // extras). No-op for every non-SALE transaction.
+      this._reverseProductUnits(original, opts.refundUnitExtras);
 
       // 5. If SALE: mark sale & items as refunded, restore stock
       if (original.source_table === "sales" && original.source_id) {
@@ -2099,6 +2138,27 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       )
       .all();
     return row.length === 2;
+  }
+
+  /**
+   * LIRA-143 phase 4 — memoized `product_units` table-existence guard, same
+   * `sqlite_master` shape as `_exchangeLotTablesExist` above but cached
+   * per-instance (this repository is a long-lived singleton and the schema
+   * shape never changes once the process is up). Guards `_reverseProductUnits`
+   * so the many hand-built test schemas that predate this phase (no
+   * `product_units` table) stay byte-identical.
+   */
+  private _productUnitsTableExistsCache: boolean | null = null;
+  private _productUnitsTableExists(): boolean {
+    if (this._productUnitsTableExistsCache === null) {
+      const row = this.db
+        .prepare(
+          `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_units'`,
+        )
+        .get();
+      this._productUnitsTableExistsCache = row !== undefined;
+    }
+    return this._productUnitsTableExistsCache;
   }
 
   /**
@@ -2674,11 +2734,26 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
   /**
    * Restore stock for all items in a sale.
+   *
+   * Restores `quantity - refunded_quantity` per line, NOT the raw `quantity`
+   * (fixed LIRA-143 phase 4 — pre-existing bug, present since
+   * `refunded_quantity` was introduced): a sale that was partially
+   * item-refunded first (`SalesRepository.refundSaleItem`) already restored
+   * `refunded_quantity` units of stock at THAT time. A later full void/refund
+   * of the WHOLE sale calling this method would then re-add the FULL
+   * `quantity` on top, double-crediting the already-returned units back to
+   * stock. Floored at 0 (`Math.max`) so a defensive/duplicate call
+   * (`refunded_quantity >= quantity`, which can't happen through the normal
+   * refundSaleItem guard but costs nothing to floor) can never push stock up.
    */
   private _restoreStock(saleId: number): void {
     const tenantId = getCurrentTenantId();
-    const items = this.query<{ product_id: number; quantity: number }>(
-      `SELECT product_id, quantity FROM sale_items WHERE sale_id = ? AND tenant_id = ?`,
+    const items = this.query<{
+      product_id: number;
+      quantity: number;
+      refunded_quantity: number | null;
+    }>(
+      `SELECT product_id, quantity, refunded_quantity FROM sale_items WHERE sale_id = ? AND tenant_id = ?`,
       saleId,
       tenantId,
     );
@@ -2688,7 +2763,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     );
 
     for (const item of items) {
-      restoreStmt.run(item.quantity, item.product_id, tenantId);
+      const remaining = Math.max(
+        0,
+        item.quantity - (item.refunded_quantity ?? 0),
+      );
+      if (remaining === 0) continue;
+      restoreStmt.run(remaining, item.product_id, tenantId);
     }
   }
 
@@ -3277,6 +3357,139 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       sourceTable: "exchange_transactions",
       sourceId: original.source_id,
     });
+  }
+
+  /**
+   * LIRA-143 phase 4, rule 20 — reversal owner for a SALE's `product_units`
+   * side effects: every SOLD unit tied to this sale's `sale_items` flips
+   * back to IN_STOCK, the unit-tracked counterpart to `_restoreStock`'s
+   * quantity restore.
+   *
+   * `unitExtras` (refund-only — void never passes any, per the phone-refund
+   * UI's owner decision 2026-07-04 that defective/warranty-override flagging
+   * lives only on the Transactions-page WHOLE-refund flow) let the operator
+   * set a returned unit's `is_defective`/`warranty_override_until` at the
+   * SAME moment it flips back to stock. Every `unit_id` is validated against
+   * this sale's own linked-unit set BEFORE any unit is touched —
+   * `_validateRefundUnitExtras` — so an id from another sale (operator
+   * error) throws before any partial effect, same discipline as
+   * `_validateRefundLegOverride`.
+   *
+   * `ProductUnitRepository.markInStock` is idempotent by design: a unit an
+   * EARLIER per-item refund (`SalesRepository.refundSaleItem`) already
+   * flipped back to IN_STOCK is excluded by this method's own `status =
+   * 'SOLD'` query below, so a later whole-sale void/refund simply finds
+   * nothing left to flip for it — UNLESS extras were supplied for that same
+   * unit, in which case the flag-only branch below applies them directly
+   * (status stays IN_STOCK; only is_defective/warranty_override_until move).
+   *
+   * A no-op (before any write) for every non-SALE transaction, and when the
+   * `product_units` table doesn't exist on this connection — every real DB
+   * has carried it since migration v157, but this guard fires for EVERY
+   * sale void/refund, including one that never touched a registered unit; a
+   * minimal hand-rolled test schema predating this feature must not have
+   * every sale void/refund start hard-crashing over a table it only reads
+   * defensively.
+   */
+  private _reverseProductUnits(
+    original: TransactionEntity,
+    unitExtras?: RefundUnitExtra[],
+  ): void {
+    if (
+      original.source_table !== "sales" ||
+      original.source_id == null ||
+      !this._productUnitsTableExists()
+    ) {
+      return;
+    }
+    const tenantId = getCurrentTenantId();
+
+    // Validate BEFORE any flip — every unit_id must belong to THIS sale's
+    // linked-unit set, never a foreign sale's unit (operator error, not data
+    // to half-apply).
+    if (unitExtras && unitExtras.length > 0) {
+      this._validateRefundUnitExtras(original.source_id, unitExtras);
+    }
+
+    const soldUnits = this.query<{ id: number }>(
+      `SELECT pu.id FROM product_units pu
+       JOIN sale_items si ON si.id = pu.sale_item_id AND si.tenant_id = pu.tenant_id
+       WHERE si.sale_id = ? AND pu.tenant_id = ? AND pu.status = 'SOLD'`,
+      original.source_id,
+      tenantId,
+    );
+
+    const extrasByUnitId = new Map<number, RefundUnitExtra>();
+    for (const extra of unitExtras ?? []) {
+      extrasByUnitId.set(extra.unit_id, extra);
+    }
+
+    const productUnitRepo = getProductUnitRepository();
+    for (const { id } of soldUnits) {
+      const extra = extrasByUnitId.get(id);
+      productUnitRepo.markInStock(id, {
+        isDefective: extra?.is_defective,
+        warrantyOverrideUntil: extra?.warranty_override_until,
+      });
+      extrasByUnitId.delete(id);
+    }
+
+    // Anything left in `extrasByUnitId` targets a unit already flipped back
+    // to IN_STOCK by an earlier per-item refund (excluded from `soldUnits`
+    // above, whose WHERE clause is `status = 'SOLD'` only) — apply the flags
+    // directly via a guarded UPDATE that never touches `status`.
+    for (const [unitId, extra] of extrasByUnitId) {
+      const setClauses: string[] = ["updated_at = CURRENT_TIMESTAMP"];
+      const params: unknown[] = [];
+      if (extra.is_defective !== undefined) {
+        setClauses.push("is_defective = ?");
+        params.push(extra.is_defective ? 1 : 0);
+      }
+      if (extra.warranty_override_until !== undefined) {
+        setClauses.push("warranty_override_until = ?");
+        params.push(extra.warranty_override_until);
+      }
+      if (setClauses.length === 1) continue; // nothing besides updated_at to set
+      params.push(unitId, tenantId);
+      this.execute(
+        `UPDATE product_units SET ${setClauses.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        ...params,
+      );
+    }
+  }
+
+  /**
+   * Throws BEFORE any unit is flipped if any `unit_id` in `unitExtras` isn't
+   * part of THIS sale's linked-unit set — a `product_units` row whose
+   * `sale_item_id` points at one of `saleId`'s own `sale_items`, regardless
+   * of current status (a currently-SOLD unit awaiting this flip, OR one an
+   * earlier per-item refund already flipped back to IN_STOCK — both are
+   * legitimate extras targets, see `_reverseProductUnits`'s flag-only
+   * branch). An id belonging to another sale is operator error, not data to
+   * half-apply — same discipline as `_validateRefundLegOverride`.
+   */
+  private _validateRefundUnitExtras(
+    saleId: number,
+    unitExtras: RefundUnitExtra[],
+  ): void {
+    const tenantId = getCurrentTenantId();
+    const linkedUnitIds = new Set(
+      this.query<{ id: number }>(
+        `SELECT pu.id FROM product_units pu
+         JOIN sale_items si ON si.id = pu.sale_item_id AND si.tenant_id = pu.tenant_id
+         WHERE si.sale_id = ? AND pu.tenant_id = ?`,
+        saleId,
+        tenantId,
+      ).map((r) => r.id),
+    );
+    for (const extra of unitExtras) {
+      if (!linkedUnitIds.has(extra.unit_id)) {
+        throw new DatabaseError(
+          `Refund unit extras: product unit #${extra.unit_id} is not linked to sale #${saleId}`,
+          { entityId: saleId },
+        );
+      }
+    }
   }
 
   /**

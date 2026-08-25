@@ -149,6 +149,7 @@ function buildSchema(db: Database.Database): void {
       cost_price_usd       REAL NOT NULL DEFAULT 0,
       stock_quantity       INTEGER DEFAULT 100,
       min_stock_level      INTEGER DEFAULT 0,
+      warranty_months      INTEGER,
       is_active            INTEGER DEFAULT 1,
       created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -185,7 +186,8 @@ function buildSchema(db: Database.Database): void {
       cost_price_snapshot_usd   REAL NOT NULL DEFAULT 0,
       is_refunded               INTEGER DEFAULT 0,
       refunded_quantity         INTEGER DEFAULT 0,
-      imei                      TEXT
+      imei                      TEXT,
+      warranty_until            TEXT
     );
 
     -- ══════════════════════════════════════════

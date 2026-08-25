@@ -2014,6 +2014,38 @@ scanning the IMEI barcode off a phone box finds nothing. Barcode and IMEI are se
     plan: the new sale's own stamp wins and the override is cleared, since the override exists
     for customers who KEPT a phone, not for the next buyer.
 
+### Build decisions (recorded during the build, 2026-08-25 — phases 1-4)
+
+- **#12 answered (default confirmed)**: a re-sold unit gets a FRESH warranty stamp and
+  `ProductUnitRepository.markSold` clears any refund-time `warranty_override_until` — the
+  override exists for a customer who KEPT the phone, not the next buyer. `is_defective` is
+  deliberately KEPT across a re-sale (unit history, informational — decision #10's spirit).
+- **Unit-tracked cart lines are quantity-1** (one unit per line; selling 3 phones = 3 lines).
+  `processSale` rejects `quantity > 1` on a line carrying `product_unit_id`. Keeps the
+  `sale_items.imei` projection exact (one column, one IMEI) and makes per-item refunds and
+  warranty stamps per-unit by construction.
+- **Strictness under drift (decisions #5+#6 combined)**: a line WITHOUT a unit id is rejected
+  while the product still has IN_STOCK registered units unclaimed by earlier lines of the same
+  sale; once registered units are exhausted (or none were ever registered), surplus
+  unregistered stock sells exactly as today. Enforcement keys on registered units, not the
+  category flag — the flag gates UI affordances only.
+- **One owner of "which unit sold" (§13-14)**: the `product_units` row is truth;
+  `sale_items.imei` is a projection stamped from the unit row at sale time (overriding any
+  free-text IMEI). `sale_item_id` is KEPT on the unit after a refund flip — it is the
+  decision-#11(b) warranty-void pointer.
+- **Refund extras transport**: `is_defective` + `warranty_override_until` ride
+  `refundTransaction`'s opts as `refundUnitExtras` (same one-payload pattern as `refundLegs`),
+  Transactions-page whole-refund flow only; void flips units with no extras; the per-item
+  refund path flips its line's unit(s) with no extras.
+- **Fixed pre-existing bug**: `TransactionRepository._restoreStock` over-restored stock when a
+  sale was partially item-refunded then fully refunded/voided (restored full `quantity`,
+  ignoring `refunded_quantity`). Now restores the remainder, failing-first proven.
+- **REPORTED, not fixed (owner decision needed)**: the payment-side analog — a full
+  `refundTransaction` after a partial `refundSaleItem` re-mirrors the ORIGINAL's FULL payment
+  legs (`_reversePayments`), double-debiting the drawer by the already-refunded amount
+  (probe: $30 sale → $10 item refund → full refund moved $40 total). Options: block full
+  refund after a partial, or pro-rate the mirrored legs to the remainder.
+
 ### Acceptance Criteria
 
 - [ ] Import 5 iPhone 13s: one product, stock 5, 5 scanned IMEIs (skippable, drift warning).

@@ -50,6 +50,7 @@ function createTestDb(): Database.Database {
       name           TEXT NOT NULL,
       cost_price_usd REAL NOT NULL DEFAULT 0,
       stock_quantity INTEGER NOT NULL DEFAULT 0,
+      warranty_months INTEGER,
       tenant_id      INTEGER NOT NULL DEFAULT 1
     );
 
@@ -83,6 +84,7 @@ function createTestDb(): Database.Database {
       -- cost snapshot rather than violating a NOT NULL constraint.
       cost_price_snapshot_usd REAL,
       imei                    TEXT,
+      warranty_until          TEXT,
       is_refunded             INTEGER NOT NULL DEFAULT 0,
       refunded_quantity       INTEGER NOT NULL DEFAULT 0,
       tenant_id               INTEGER NOT NULL DEFAULT 1

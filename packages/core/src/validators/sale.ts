@@ -48,6 +48,13 @@ export const saleProcessSchema = z.object({
         quantity: z.number().positive(),
         price: z.number().nonnegative(),
         imei: z.string().optional(),
+        // LIRA-143 phase 4: the specific IN_STOCK product_units row being
+        // sold on this line (checkout scanned/picked an IMEI). Optional —
+        // a product with no registered units still sells exactly as today;
+        // the repository's strictness check (SalesRepository.processSale)
+        // is what actually requires this when the product HAS registered
+        // stock, not this schema.
+        product_unit_id: z.number().int().positive().optional(),
       }),
     )
     .min(1, "Sale must have at least one item"),
