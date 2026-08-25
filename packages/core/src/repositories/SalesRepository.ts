@@ -783,7 +783,30 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // every draft — a draft never moves stock either).
         const productUnitsActive =
           status === "completed" && this._productUnitsTableExists();
-        const claimedUnitIds = new Set<number>();
+
+        // Adversarial-review finding 1 fix: the strictness exclusion below
+        // must be scoped to every unit id referenced ANYWHERE in this
+        // request, not just the ones an earlier forEach iteration happened
+        // to reach first — otherwise the exact same payload passes or fails
+        // depending on cart line order (a plain surplus line placed AHEAD
+        // of its sibling unit lines saw an empty exclusion set and was
+        // wrongly rejected). Collected in one pass over `sale.items` before
+        // any line is processed. A duplicate claim is caught and rejected
+        // HERE too — this replaces the old per-line `claimedUnitIds.has(...)`
+        // check inside the loop, same message, just detected up front.
+        const requestUnitIds = new Set<number>();
+        if (productUnitsActive) {
+          for (const item of sale.items) {
+            if (item.product_unit_id == null) continue;
+            if (requestUnitIds.has(item.product_unit_id)) {
+              throw new BusinessRuleError(
+                `Product unit #${item.product_unit_id} is claimed by more than one line in this sale`,
+              );
+            }
+            requestUnitIds.add(item.product_unit_id);
+          }
+        }
+
         const findUnitStmt = productUnitsActive
           ? db.prepare(
               `SELECT id, tenant_id, product_id, imei, status, sale_item_id, is_defective, warranty_override_until, created_at, updated_at
@@ -805,11 +828,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
           if (productUnitsActive) {
             if (item.product_unit_id != null) {
-              if (claimedUnitIds.has(item.product_unit_id)) {
-                throw new BusinessRuleError(
-                  `Product unit #${item.product_unit_id} is claimed by more than one line in this sale`,
-                );
-              }
+              // Duplicate-claim detection now happens up front (see
+              // `requestUnitIds` above) — reaching here means this id is
+              // unique across the request.
               const unit = findUnitStmt!.get(
                 item.product_unit_id,
                 tenantId,
@@ -835,28 +856,29 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                   `"${productName}": unit-tracked lines are one-unit-per-line — sell ${item.quantity} phones as ${item.quantity} separate lines`,
                 );
               }
-              claimedUnitIds.add(unit.id);
               matchedUnit = unit;
               imeiToWrite = unit.imei;
             } else {
               // Strictness (owner decision #5 + drift rule #6): if this
-              // product has any IN_STOCK registered units NOT already
-              // claimed by an earlier line in this same sale, the operator
-              // must identify which unit is being sold — never silently
-              // guess. Zero unclaimed registered units (none ever
-              // registered, or all already claimed) proceeds exactly as
-              // today, including surplus unregistered stock (drift).
-              const claimedList = [...claimedUnitIds];
+              // product has any IN_STOCK registered units NOT referenced by
+              // ANY line anywhere in this same request (request-scoped, not
+              // iteration-order-scoped — adversarial-review finding 1), the
+              // operator must identify which unit is being sold — never
+              // silently guess. Zero unclaimed registered units (none ever
+              // registered, or all referenced by some line in this
+              // request) proceeds exactly as today, including surplus
+              // unregistered stock (drift).
+              const excludeList = [...requestUnitIds];
               const excludeClause =
-                claimedList.length > 0
-                  ? `AND id NOT IN (${claimedList.map(() => "?").join(", ")})`
+                excludeList.length > 0
+                  ? `AND id NOT IN (${excludeList.map(() => "?").join(", ")})`
                   : "";
               const countRow = db
                 .prepare(
                   `SELECT COUNT(*) AS count FROM product_units
                    WHERE tenant_id = ? AND product_id = ? AND status = 'IN_STOCK' ${excludeClause}`,
                 )
-                .get(tenantId, item.product_id, ...claimedList) as {
+                .get(tenantId, item.product_id, ...excludeList) as {
                 count: number;
               };
               if (countRow.count > 0) {

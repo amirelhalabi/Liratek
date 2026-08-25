@@ -2044,7 +2044,31 @@ scanning the IMEI barcode off a phone box finds nothing. Barcode and IMEI are se
   `refundTransaction` after a partial `refundSaleItem` re-mirrors the ORIGINAL's FULL payment
   legs (`_reversePayments`), double-debiting the drawer by the already-refunded amount
   (probe: $30 sale → $10 item refund → full refund moved $40 total). Options: block full
-  refund after a partial, or pro-rate the mirrored legs to the remainder.
+  refund after a partial, or pro-rate the mirrored legs to the remainder. Re-confirmed
+  still present by the adversarial review (2026-08-25).
+
+### Adversarial review (execution-based, 2026-08-25 — verdict: SHIP WITH FIXES, fixes applied)
+
+Eleven probe scripts against the compiled dist; every reversal path netted to exactly 0
+(stock, drawer, profit, unit state) and every failure failed CLOSED. Two MAJOR findings,
+both fixed same-day with failing-first regression tests:
+
+1. **Order-dependent strictness** (fixed): the plain-line strictness check excluded only
+   unit ids claimed by EARLIER lines, so a drift-surplus sale (2 unit lines + 1 plain
+   line, stock 3) was falsely rejected when the plain line came first in the cart array.
+   Now request-scoped: the exclusion set is every unit id referenced anywhere in the sale.
+2. **Refund flip vs re-registered IMEI** (fixed, error-quality only): refunding a sale
+   whose unit's IMEI was meanwhile re-registered IN_STOCK elsewhere (legal per decision
+   #3) hit the partial unique index and surfaced a raw `UNIQUE constraint failed` with no
+   recovery hint. Still fail-closed (refund blocked, clean rollback), but now a named
+   error telling the operator which product/unit holds the IMEI and to delete/correct it
+   in the product form, then retry.
+3. **NOTE (no fix, no reachable trigger)**: `processSale`'s `if (saleId)` UPDATE branch
+   has no status guard against re-processing an already-COMPLETED sale; today only draft
+   completion uses it (drafts never link units — probed safe). If an "edit completed
+   sale" feature is ever added, add a status guard first: the unconditional
+   `DELETE FROM sale_items` would `ON DELETE SET NULL` the units' decision-#11(b)
+   warranty-void pointer.
 
 ### Acceptance Criteria
 

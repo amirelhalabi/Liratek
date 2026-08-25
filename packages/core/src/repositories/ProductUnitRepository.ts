@@ -208,6 +208,41 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
     }
   }
 
+  /**
+   * Adversarial-review finding 2 fix: throws a named error if ANOTHER unit
+   * (`id != excludeUnitId`) currently holds `imei` `IN_STOCK` for this
+   * tenant. Decision #3 allows a SOLD unit's imei to be re-registered
+   * `IN_STOCK` on a different product — when that happened, flipping the
+   * ORIGINAL unit back to `IN_STOCK` (a refund) collides with the partial
+   * unique index (`idx_product_units_active_imei`) and, unguarded, used to
+   * surface a raw `UNIQUE constraint failed` straight to the operator. This
+   * names both the colliding product and unit id so the message is
+   * actionable — the refund is still blocked either way (fail-closed,
+   * unchanged); only the error's quality changes.
+   */
+  private assertImeiNotActiveElsewhere(
+    tenantId: number,
+    imei: string,
+    excludeUnitId: number,
+  ): void {
+    const holder = this.db
+      .prepare(
+        `SELECT pu.id AS unit_id, p.name AS product_name
+         FROM product_units pu
+         JOIN products p ON p.id = pu.product_id
+         WHERE pu.tenant_id = ? AND pu.imei = ? AND pu.status = 'IN_STOCK' AND pu.id != ?
+         LIMIT 1`,
+      )
+      .get(tenantId, imei, excludeUnitId) as
+      | { unit_id: number; product_name: string }
+      | undefined;
+    if (holder) {
+      throw new Error(
+        `Cannot return IMEI ${imei} to stock: it is currently registered in stock on product "${holder.product_name}" (unit #${holder.unit_id}). Delete or correct that unit in its product form, then retry the refund.`,
+      );
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Reads
   // ---------------------------------------------------------------------------
@@ -405,9 +440,39 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
    * corresponding option key is provided (`undefined` leaves the existing
    * value untouched; an explicit `null` for `warrantyOverrideUntil` clears
    * it).
+   *
+   * Adversarial-review finding 2 fix: decision #3 allows a SOLD unit's imei
+   * to be re-registered `IN_STOCK` on a different product row. If that
+   * happened to THIS unit's imei, the flip below would collide with the
+   * partial unique index (`idx_product_units_active_imei`). Pre-checks for
+   * that collision (`assertImeiNotActiveElsewhere`) and throws a named,
+   * actionable error instead of letting a raw `SQLITE_CONSTRAINT` escape —
+   * the refund is still blocked either way; only the error's quality
+   * changes. The idempotent not-SOLD no-op contract runs FIRST, before any
+   * collision check, so a unit that's already back `IN_STOCK` (whose imei
+   * may since have collided) keeps silently no-oping.
    */
   markInStock(unitId: number, opts?: MarkInStockOptions): boolean {
     const tenantId = getCurrentTenantId();
+
+    const current = this.db
+      .prepare(
+        `SELECT status, imei FROM product_units WHERE id = ? AND tenant_id = ?`,
+      )
+      .get(unitId, tenantId) as
+      | { status: ProductUnitStatus; imei: string }
+      | undefined;
+
+    // Idempotent contract (unchanged): not found, or not currently SOLD —
+    // no-op BEFORE any collision check. A partial-refund-then-full-refund
+    // sequence depends on this staying silent even when this unit's imei
+    // has since collided elsewhere.
+    if (!current || current.status !== "SOLD") {
+      return false;
+    }
+
+    this.assertImeiNotActiveElsewhere(tenantId, current.imei, unitId);
+
     const setClauses = ["status = 'IN_STOCK'", "updated_at = CURRENT_TIMESTAMP"];
     const params: unknown[] = [];
 
@@ -421,17 +486,31 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
     }
 
     params.push(unitId, tenantId);
-    const result = this.db
-      .prepare(
-        `UPDATE product_units SET ${setClauses.join(", ")}
-         WHERE id = ? AND status = 'SOLD' AND tenant_id = ?`,
-      )
-      .run(...params);
 
-    if (result.changes > 0) {
+    let changes: number;
+    try {
+      const result = this.db
+        .prepare(
+          `UPDATE product_units SET ${setClauses.join(", ")}
+           WHERE id = ? AND status = 'SOLD' AND tenant_id = ?`,
+        )
+        .run(...params);
+      changes = result.changes;
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === "SQLITE_CONSTRAINT_UNIQUE" || code === "SQLITE_CONSTRAINT") {
+        // Race backstop: a concurrent registration won between the
+        // pre-check above and this UPDATE. Re-query to name the real
+        // holder rather than surfacing the raw SQLite error.
+        this.assertImeiNotActiveElsewhere(tenantId, current.imei, unitId);
+      }
+      throw error;
+    }
+
+    if (changes > 0) {
       inventoryLogger.info({ unitId }, "Product unit flipped back to stock");
     }
-    return result.changes > 0;
+    return changes > 0;
   }
 
   /**

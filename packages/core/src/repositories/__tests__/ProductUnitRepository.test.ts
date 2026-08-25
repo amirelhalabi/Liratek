@@ -462,6 +462,68 @@ describe("ProductUnitRepository", () => {
       expect(after.warranty_override_until).toBeNull();
       expect(after.is_defective).toBe(1); // untouched by this call
     });
+
+    // Adversarial-review finding 2 (MAJOR): decision #3 allows a SOLD
+    // unit's imei to be re-registered IN_STOCK on a different product.
+    // Refunding the ORIGINAL sale then makes this UPDATE collide with the
+    // partial unique index (idx_product_units_active_imei) and, unguarded,
+    // that raw `UNIQUE constraint failed: product_units.tenant_id,
+    // product_units.imei` propagated straight to the operator. This is the
+    // failing-first proof: run against the unfixed markInStock, it throws
+    // that raw SQLite message instead of the named one asserted below.
+    it("throws a named, actionable error when this unit's imei has been re-registered IN_STOCK on another product (adversarial-review finding 2)", () => {
+      const productA = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const productB = insertProduct(db, { tenantId: 1, name: "Galaxy S23" });
+
+      // Unit A: SOLD, imei X.
+      const [unitA] = runWithTenant(1, () =>
+        repo.addUnits(productA, ["111111111111111"]),
+      );
+      runWithTenant(1, () => repo.markSold(unitA.id, 900));
+
+      // Unit C: legitimately re-registered IN_STOCK with the SAME imei on
+      // product B (decision #3 — allowed while unit A is SOLD).
+      const [unitC] = runWithTenant(1, () =>
+        repo.addUnits(productB, ["111111111111111"]),
+      );
+
+      // Refunding unit A's sale now collides.
+      expect(() => runWithTenant(1, () => repo.markInStock(unitA.id))).toThrow(
+        new RegExp(
+          `Cannot return IMEI 111111111111111 to stock: it is currently registered in stock on product "Galaxy S23" \\(unit #${unitC.id}\\)`,
+        ),
+      );
+
+      // Fail-closed: unit A stays SOLD, unit C is untouched.
+      const afterA = unitRow(db, unitA.id)!;
+      expect(afterA.status).toBe("SOLD");
+      const afterC = unitRow(db, unitC.id)!;
+      expect(afterC.status).toBe("IN_STOCK");
+    });
+
+    it("still returns false (no throw) when the target unit is already IN_STOCK, even though another (SOLD) unit shares its imei", () => {
+      const productA = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const productB = insertProduct(db, { tenantId: 1, name: "Galaxy S23" });
+
+      // Same collision fixture as above: unit A SOLD imei X, unit C
+      // IN_STOCK imei X on a different product.
+      const [unitA] = runWithTenant(1, () =>
+        repo.addUnits(productA, ["444444444444444"]),
+      );
+      runWithTenant(1, () => repo.markSold(unitA.id, 900));
+      const [unitC] = runWithTenant(1, () =>
+        repo.addUnits(productB, ["444444444444444"]),
+      );
+
+      // unitC is the one already IN_STOCK — calling markInStock on it must
+      // no-op silently (the not-SOLD guard fires BEFORE any collision
+      // check), even though unitA elsewhere shares the same imei.
+      const result = runWithTenant(1, () => repo.markInStock(unitC.id));
+      expect(result).toBe(false);
+      expect(unitRow(db, unitC.id)!.status).toBe("IN_STOCK");
+      // Untouched — unitA is still SOLD, unaffected by this no-op call.
+      expect(unitRow(db, unitA.id)!.status).toBe("SOLD");
+    });
   });
 
   // ---------------------------------------------------------------------------

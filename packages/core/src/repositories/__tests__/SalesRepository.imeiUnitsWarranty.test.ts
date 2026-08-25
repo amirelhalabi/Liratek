@@ -465,6 +465,66 @@ describe("SalesRepository.processSale — IMEI units + warranty stamp (LIRA-143 
       const items = getSaleItems(db, result.id!);
       expect(items).toHaveLength(3);
     });
+
+    // Adversarial-review finding 1 (MAJOR): the strictness exclusion was
+    // scoped to `claimedUnitIds` accumulated ONLY from earlier forEach
+    // iterations, so the SAME payload was accepted or rejected depending on
+    // cart line order — a real risk since cart order is user-controlled in
+    // the POS. This reversed-order case is the failing-first proof: it was
+    // run against the unfixed code and failed with the "IMEI-registered
+    // unit(s) in stock" rejection (see PR/handover for the captured output),
+    // then passed once the exclusion became request-scoped.
+    it("selling the plain surplus line FIRST still proceeds — order must not matter (adversarial-review finding 1)", () => {
+      const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 3 });
+      const unitA = insertUnit(db, productId, "888800000000001");
+      const unitB = insertUnit(db, productId, "888800000000002");
+
+      const result = repo.processSale(
+        baseSale({
+          items: [
+            // Plain surplus line comes FIRST this time — reverse of the
+            // "proceeds (drift)" case above, which puts it last.
+            { product_id: productId, quantity: 1, price: 500 },
+            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
+            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitB },
+          ],
+          total_amount: 1500,
+          final_amount: 1500,
+          payment_usd: 1500,
+        }),
+        1,
+      );
+
+      expect(result.success).toBe(true);
+      expect(getUnit(db, unitA).status).toBe("SOLD");
+      expect(getUnit(db, unitB).status).toBe("SOLD");
+      const items = getSaleItems(db, result.id!);
+      expect(items).toHaveLength(3);
+    });
+
+    it("still REJECTS when one registered unit is claimed by a unit line but a SECOND stays unclaimed across two plain lines (not globally blind)", () => {
+      const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 4 });
+      const unitA = insertUnit(db, productId, "888800000000003");
+      // unitB is deliberately left unclaimed by any line below.
+      insertUnit(db, productId, "888800000000004");
+
+      const result = repo.processSale(
+        baseSale({
+          items: [
+            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
+            { product_id: productId, quantity: 1, price: 500 },
+            { product_id: productId, quantity: 1, price: 500 },
+          ],
+          total_amount: 1500,
+          final_amount: 1500,
+          payment_usd: 1500,
+        }),
+        1,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error ?? "").toMatch(/IMEI-registered unit/i);
+    });
   });
 
   // ── (3) drafts ────────────────────────────────────────────────────────────

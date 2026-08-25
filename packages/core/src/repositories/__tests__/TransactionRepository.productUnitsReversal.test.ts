@@ -376,6 +376,62 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
     });
   });
 
+  // Adversarial-review finding 2 (MAJOR): unit A (imei X) is SOLD, then the
+  // same imei X is legitimately re-registered IN_STOCK on a different
+  // product B (decision #3 allows this while A is SOLD). Refunding A's sale
+  // now makes `_reverseProductUnits` → `markInStock(A)` collide with the
+  // partial unique index. The refund correctly rolls back either way
+  // (proven passing today); the failing-first proof is the ERROR MESSAGE —
+  // unfixed, it's the raw `UNIQUE constraint failed: product_units.
+  // tenant_id, product_units.imei` instead of the named, actionable one.
+  describe("whole-sale refund vs. a re-registered IMEI collision (adversarial-review finding 2)", () => {
+    it("throws the named collision error and rolls back the WHOLE refund — sale stays completed, stock/units unchanged, no REFUND row", () => {
+      const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 5 });
+      const unitA = insertUnit(db, productId, "CCCCCCCCCCCCCCC");
+      const result = salesRepo.processSale(
+        baseSale({
+          items: [
+            { product_id: productId, quantity: 1, price: 500, product_unit_id: unitA },
+          ],
+          total_amount: 500,
+          final_amount: 500,
+          payment_usd: 500,
+        }),
+        1,
+      );
+      expect(result.success).toBe(true);
+      const saleId = result.id!;
+      const txnId = getSaleTxnId(db, saleId);
+      const stockAfterSale = getStock(db, productId); // 5 - 1 = 4
+
+      // Legitimately re-register the SAME imei on a different product
+      // while unit A is SOLD (decision #3).
+      const otherProductId = insertProduct(db, { name: "Galaxy S23" });
+      const unitC = insertUnit(db, otherProductId, "CCCCCCCCCCCCCCC");
+
+      const txnRepo = getTransactionRepository();
+      expect(() => txnRepo.refundTransaction(txnId, 1)).toThrow(
+        new RegExp(
+          `Cannot return IMEI CCCCCCCCCCCCCCC to stock: it is currently registered in stock on product "Galaxy S23" \\(unit #${unitC}\\)`,
+        ),
+      );
+
+      // Whole refund rolled back: sale row untouched, unit A still SOLD,
+      // unit C still IN_STOCK and untouched, stock unchanged, no REFUND row.
+      expect(getUnit(db, unitA).status).toBe("SOLD");
+      expect(getUnit(db, unitC).status).toBe("IN_STOCK");
+      expect(getStock(db, productId)).toBe(stockAfterSale);
+      const saleStatus = db
+        .prepare(`SELECT status FROM sales WHERE id = ?`)
+        .get(saleId) as { status: string };
+      expect(saleStatus.status).toBe("completed");
+      const refundRow = db
+        .prepare(`SELECT id FROM transactions WHERE type = 'REFUND' AND source_id = ?`)
+        .get(saleId);
+      expect(refundRow).toBeUndefined();
+    });
+  });
+
   describe("_restoreStock over-restore fix", () => {
     it("a full refund after a prior partial item refund restores stock to EXACTLY the original amount", () => {
       const productId = insertProduct(db, { name: "Charger", stockQuantity: 10 });
