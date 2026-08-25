@@ -1950,3 +1950,65 @@ can be picked".
 | -------- | ----------------------------------------------------------- | ------------------- |
 | Frontend | `frontend/src/features/services/pages/Services/index.tsx`   | Gate the PM-fee box |
 
+
+---
+
+## LIRA-143: Phone IMEI units & warranty-from-sale — NEEDS BUILD (owner-interviewed 2026-08-23)
+
+### Summary
+
+Continuation of archived **T-08 "IMEI & Warranty Tracking"** (SPRINT_FEB_19_28_2026.md, completed
+Jan 24) — T-08 shipped only the sale-line free-text IMEI prompt + receipt print. What exists today:
+`sale_items.imei` (manual text at POS, shown on sale detail/receipt), `products.imei` (single
+column, NOT exposed in any UI, NOT searched anywhere), `products.warranty_expiry` (dead column —
+no UI writes/reads it, no logic). POS/inventory search matches name/barcode/category ONLY —
+scanning the IMEI barcode off a phone box finds nothing. Barcode and IMEI are separate concepts.
+
+### Owner decision record (interviewed 2026-08-23, 8 questions)
+
+1. **Unit model**: ONE product per MODEL ("iPhone 13", stock N, one shared cost/price) with a list
+   of per-unit IMEIs attached — NOT one product row per phone, NOT per-unit pricing. New
+   `product_units`-style table: product_id, imei (unique), status IN_STOCK/SOLD, sale_item link.
+2. **Search**: IMEI joins the search everywhere barcode works — POS product search, scanner lookup
+   (scanning a unit's IMEI barcode resolves the model AND preselects that unit), Inventory search.
+3. **Uniqueness**: duplicate IMEI on any active in-stock unit is BLOCKED with an error naming the
+   existing product.
+4. **Warranty**: `warranty_months` on the product (empty = none); checkout stamps
+   warranty-until = sale date + months on the sale line; receipt prints it; sale detail shows
+   covered/expired. The dead `products.warranty_expiry` column is retired (stop projecting it).
+5. **Sale-time strictness**: a product WITH registered IMEIs requires identifying the unit sold
+   (scan auto-selects, or pick from the in-stock IMEI list on the cart line). Products without
+   IMEIs sell exactly as today.
+6. **Intake**: restocking prompts scan/type one IMEI per unit added, skippable; attach later from
+   the product form; WARN (never block) when registered in-stock IMEIs ≠ stock_quantity.
+7. **Lookup**: the same search finds SOLD units and answers the walk-in question: product, sale
+   date, sold price, client (if recorded), warranty covered-until/expired.
+8. **Refund/void**: the generic refund flips the unit back to IN_STOCK in the same motion as the
+   stock restore (rule 20 symmetry), warranty voided.
+
+### Acceptance Criteria
+
+- [ ] Import 5 iPhone 13s: one product, stock 5, 5 scanned IMEIs (skippable, drift warning).
+- [ ] Scan an IMEI barcode at POS → the model appears with that unit preselected; selling it marks
+      exactly that IMEI SOLD and stamps warranty-until on the sale line + receipt.
+- [ ] Selling an IMEI-carrying product without identifying the unit is impossible; a no-IMEI
+      product's flow is byte-identical to today.
+- [ ] Searching a sold IMEI (POS or Inventory) shows the full story incl. warranty status.
+- [ ] Duplicate active IMEI rejected, named error.
+- [ ] Refund returns the unit to stock; e2e proves sell+refund nets unit status, stock, and
+      warranty display to the pre-sale state (rule 17: failing-first).
+- [ ] Dual transport (rule 19): unit CRUD/search/lookup mirrored on REST; web e2e coverage.
+- [ ] Migration in BOTH migrations/index.ts and create_db.sql (rule 10); new table gets
+      id/created_at/updated_at/tenant_id (rule 5); FEATURE_GUIDE §13 walkthrough before building
+      (rule 18 — this touches sales money paths via the cart line).
+
+### Technical traps (from the diagnosis)
+
+- `sale_items.imei` already exists — the unit link must WRITE it (keep receipts/old readers
+  working) while the unit table owns the state; never two owners of "which unit sold" (§13-14).
+- POS search fragments live in `ProductRepository` (~:149 and ~:705) — extend ONCE per rule 14,
+  not per call site; `findByBarcode` needs the IMEI fallback for scanner flow.
+- Refund restock is generic (`TransactionRepository` sale-stock restore) — the unit flip needs a
+  named owner wired there, same pattern as `_reverseExchangeLotEffects` (rule 20).
+- Warranty stamping at checkout must ride `sale_items` (per-line), NOT `products` — the sale is
+  the event that starts the clock (owner decision #4).
