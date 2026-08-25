@@ -56,6 +56,11 @@ contextBridge.exposeInMainWorld("api", {
     getProduct: (id: number) => ipcRenderer.invoke("inventory:get-product", id),
     getProductByBarcode: (barcode: string) =>
       ipcRenderer.invoke("inventory:get-product-by-barcode", barcode),
+    /** LIRA-143 Phase 3 (owner decision #2): barcode first, then an active
+     *  (IN_STOCK) unit IMEI — resolves the owning product and, on an IMEI
+     *  hit, the specific matched unit. */
+    resolveScanCode: (code: string) =>
+      ipcRenderer.invoke("inventory:resolve-scan-code", { code }),
     createProduct: (product: unknown) =>
       ipcRenderer.invoke("inventory:create-product", product),
     updateProduct: (product: unknown) =>
@@ -83,8 +88,19 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("inventory:get-categories-full"),
     createCategory: (name: string) =>
       ipcRenderer.invoke("inventory:create-category", name),
-    updateCategory: (id: number, name: string) =>
-      ipcRenderer.invoke("inventory:update-category", id, name),
+    /** LIRA-143 Phase 5 (decision #9): `data` accepts a bare name (legacy
+     *  shape, kept so pre-existing callers compile/behave unchanged) OR an
+     *  object setting name and/or the tracks_imei_units Settings toggle —
+     *  normalized to the object shape before crossing the IPC boundary. */
+    updateCategory: (
+      id: number,
+      data: string | { name?: string; tracks_imei_units?: boolean },
+    ) =>
+      ipcRenderer.invoke(
+        "inventory:update-category",
+        id,
+        typeof data === "string" ? { name: data } : data,
+      ),
     deleteCategory: (id: number) =>
       ipcRenderer.invoke("inventory:delete-category", id),
     getProductSuppliers: () =>
@@ -888,6 +904,27 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("exchange-lots:adjust", data),
   },
 
+  // Product Units (LIRA-143 Phase 5 — phone IMEI units & warranty) —
+  // intake/read API over the per-IMEI phone unit tracker.
+  productUnits: {
+    register: (data: { product_id: number; imeis: string[] }) =>
+      ipcRenderer.invoke("product-units:register", data),
+    getForProduct: (productId: number, status?: "IN_STOCK" | "SOLD") =>
+      ipcRenderer.invoke("product-units:for-product", { productId, status }),
+    getSummary: (productIds: number[]) =>
+      ipcRenderer.invoke("product-units:summary", {
+        product_ids: productIds,
+      }),
+    delete: (unitId: number) =>
+      ipcRenderer.invoke("product-units:delete", { id: unitId }),
+    getStory: (imei: string) =>
+      ipcRenderer.invoke("product-units:story", { imei }),
+    getForSaleItems: (saleItemIds: number[]) =>
+      ipcRenderer.invoke("product-units:for-sale-items", {
+        sale_item_ids: saleItemIds,
+      }),
+  },
+
   // Partners
   partners: {
     getAll: (includeInactive?: boolean) =>
@@ -1076,7 +1113,10 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("transactions:get-by-date-range", from, to, type),
     void: (id: number) => ipcRenderer.invoke("transactions:void", id),
     /** LIRA-078: refundLegs is optional — omit for the default (mirror the
-     *  original payment legs verbatim) reversal. */
+     *  original payment legs verbatim) reversal. LIRA-143 phase 5:
+     *  refundUnitExtras is optional too — the phone-refund UI's per-unit
+     *  defective/warranty-override flags, riding alongside refundLegs on
+     *  the SAME call. */
     refund: (
       id: number,
       refundLegs?: Array<{
@@ -1084,7 +1124,18 @@ contextBridge.exposeInMainWorld("api", {
         currencyCode: string;
         amount: number;
       }>,
-    ) => ipcRenderer.invoke("transactions:refund", id, refundLegs),
+      refundUnitExtras?: Array<{
+        unit_id: number;
+        is_defective?: boolean;
+        warranty_override_until?: string | null;
+      }>,
+    ) =>
+      ipcRenderer.invoke(
+        "transactions:refund",
+        id,
+        refundLegs,
+        refundUnitExtras,
+      ),
     /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided
      *  member of a multi-unit split checkout in ONE transaction. */
     voidCheckoutGroup: (groupId: string) =>

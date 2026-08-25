@@ -490,6 +490,35 @@ export type ApiAdapter = {
   /** LIRA-077: adjustment history — one product, or the most recent across
    *  all products when productId is omitted. */
   getStockAdjustments: (productId?: number) => Promise<StockAdjustmentEntity[]>;
+  /** LIRA-143 Phase 3 (owner decision #2): barcode first, then an active
+   *  (IN_STOCK) unit IMEI. `matched_unit` is null on a barcode hit. */
+  resolveScanCode: (code: string) => Promise<{
+    success: boolean;
+    data?: { product: any; matched_unit: any | null } | null;
+    error?: string;
+  }>;
+
+  /** LIRA-143 Phase 5 — Settings manager (decision #9's tracks_imei_units
+   *  toggle). Reads return the raw array. */
+  getCategoriesFull: () => Promise<
+    Array<{
+      id: number;
+      name: string;
+      sort_order: number;
+      is_active: number;
+      tracks_imei_units: number;
+    }>
+  >;
+  createCategory: (
+    name: string,
+  ) => Promise<{ success: boolean; id?: number; error?: string }>;
+  updateCategory: (
+    id: number,
+    data: { name?: string; tracks_imei_units?: boolean },
+  ) => Promise<{ success: boolean; error?: string }>;
+  deleteCategory: (
+    id: number,
+  ) => Promise<{ success: boolean; deleted?: boolean; error?: string }>;
 
   // ---------------------------------------------------------------------------
   // Sales
@@ -1482,6 +1511,39 @@ export type ApiAdapter = {
     }) => Promise<{ success: boolean; data?: any; error?: string }>;
   };
 
+  /** Product Units — LIRA-143 Phase 5 (phone IMEI units & warranty)
+   *  intake/read API. Reads return the raw data shape (throwing on
+   *  failure); `register`/`delete` are writes and return the envelope
+   *  untouched. */
+  productUnits: {
+    register: (data: { product_id: number; imeis: string[] }) => Promise<{
+      success: boolean;
+      data?: {
+        units: any[];
+        drift: {
+          inStockUnits: number;
+          stockQuantity: number;
+          matches: boolean;
+        };
+      };
+      error?: string;
+    }>;
+    getForProduct: (
+      productId: number,
+      status?: "IN_STOCK" | "SOLD",
+    ) => Promise<any[]>;
+    getSummary: (productIds: number[]) => Promise<
+      Record<
+        number,
+        { in_stock: number; sold: number; defective: number }
+      >
+    >;
+    delete: (unitId: number) => Promise<{ success: boolean; error?: string }>;
+    getStory: (imei: string) => Promise<any[]>;
+    /** Phase 6 refund UI — the units linked to a sale being refunded. */
+    getForSaleItems: (saleItemIds: number[]) => Promise<any[]>;
+  };
+
   // ---------------------------------------------------------------------------
   // WhatsApp
   // ---------------------------------------------------------------------------
@@ -1578,13 +1640,20 @@ export type ApiAdapter = {
   /** LIRA-078: `refundLegs` is optional — omit for the default reversal
    *  (mirrors the original payment legs verbatim); pass one entry per
    *  currency to let the operator choose the return method (method-override
-   *  only — amount/currencyCode must net to the original's own total). */
+   *  only — amount/currencyCode must net to the original's own total).
+   *  LIRA-143 phase 5: `unitExtras` is optional too — the phone-refund UI's
+   *  per-unit defective/warranty-override flags, sent on the SAME call. */
   refundTransaction: (
     id: number,
     refundLegs?: Array<{
       method: string;
       currencyCode: string;
       amount: number;
+    }>,
+    unitExtras?: Array<{
+      unit_id: number;
+      is_defective?: boolean;
+      warranty_override_until?: string | null;
     }>,
   ) => Promise<ApiResult & { refundId?: number }>;
   /** CARRIER_LEGS_VOID_ASYMMETRY.md (design B+): void every non-voided

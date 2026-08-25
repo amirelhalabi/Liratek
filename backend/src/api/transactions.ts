@@ -15,6 +15,7 @@ import {
   getReportingService,
   voidCheckoutGroupSchema,
   refundLegsSchema,
+  refundUnitExtrasSchema,
 } from "@liratek/core";
 import { validateParams } from "../middleware/validation.js";
 import { logger } from "../server.js";
@@ -148,6 +149,11 @@ router.post(
 // before (`validateRequest`'s whole-body `schema.parse` would choke on an
 // undefined/empty body here, so this validates the field directly instead of
 // wrapping the route in that middleware).
+//
+// LIRA-143 phase 5: an optional `refundUnitExtras` body field rides alongside
+// `refundLegs` on the SAME call (rule 16 — one payload, no follow-up call) —
+// the phone-refund UI's per-unit defective/warranty-override flags, also
+// validated only when present.
 router.post(
   "/:id/refund",
   requireAuth,
@@ -171,9 +177,28 @@ router.post(
         refundLegs = parsed.data;
       }
 
+      let refundUnitExtras:
+        | ReturnType<typeof refundUnitExtrasSchema.parse>
+        | undefined;
+      if (req.body?.refundUnitExtras !== undefined) {
+        const parsed = refundUnitExtrasSchema.safeParse(
+          req.body.refundUnitExtras,
+        );
+        if (!parsed.success) {
+          const firstError = parsed.error.issues[0];
+          res.status(400).json({
+            success: false,
+            error: firstError?.message ?? "Invalid refundUnitExtras",
+          });
+          return;
+        }
+        refundUnitExtras = parsed.data;
+      }
+
       const txnService = getTransactionService();
       const refundId = txnService.refundTransaction(id, userId, {
         refundLegs,
+        refundUnitExtras,
       });
       // Mirrors transactionHandlers.ts's transactions:refund audit
       // (refund/transaction) — reaching here means the refund committed
@@ -183,7 +208,7 @@ router.post(
         entity_type: "transaction",
         entity_id: String(id),
         summary: `Refunded transaction #${id}`,
-        metadata: { refundId, refundLegs },
+        metadata: { refundId, refundLegs, refundUnitExtras },
       });
       res.json({ success: true, refundId });
     } catch (error) {

@@ -1,3 +1,51 @@
+/**
+ * LIRA-143 Phase 5 — one `product_units` row (per-IMEI phone unit
+ * tracking). Mirrors `@liratek/core`'s `ProductUnitEntity`
+ * (packages/core/src/repositories/ProductUnitRepository.ts) verbatim
+ * (rule 14).
+ */
+export interface ProductUnit {
+  id: number;
+  tenant_id: number | null;
+  product_id: number;
+  imei: string;
+  status: "IN_STOCK" | "SOLD";
+  sale_item_id: number | null;
+  is_defective: number;
+  warranty_override_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Per-product IN_STOCK/SOLD/defective rollup — see
+ *  `ProductUnitRepository.getSummaryForProducts`'s doc for why a unit-less
+ *  product gets no key at all rather than a zeroed entry. */
+export interface ProductUnitSummary {
+  in_stock: number;
+  sold: number;
+  defective: number;
+}
+
+/** The walk-in lookup row (decision #7) — a `ProductUnit` joined with its
+ *  sale provenance and computed warranty status. */
+export interface ProductUnitStory extends ProductUnit {
+  product_name: string | null;
+  warranty_until: string | null;
+  is_refunded: number | null;
+  refunded_quantity: number | null;
+  quantity: number | null;
+  sold_price_usd: number | null;
+  sale_id: number | null;
+  sold_at: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  warranty: {
+    source: "OVERRIDE" | "REFUND" | "SALE" | null;
+    until: string | null;
+    state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
+  };
+}
+
 /** A voucher / gift card */
 export interface Voucher {
   id: number;
@@ -406,6 +454,16 @@ export interface ElectronAPI {
     getProductByBarcode: (
       barcode: string,
     ) => Promise<import("@liratek/core").Product | null>;
+    /** LIRA-143 Phase 3 (owner decision #2): barcode first, then an active
+     *  (IN_STOCK) unit IMEI. `matched_unit` is null on a barcode hit. */
+    resolveScanCode: (code: string) => Promise<{
+      success: boolean;
+      data?: {
+        product: import("@liratek/core").Product;
+        matched_unit: ProductUnit | null;
+      } | null;
+      error?: string;
+    }>;
     createProduct: (product: {
       barcode?: string | null;
       name: string;
@@ -483,15 +541,25 @@ export interface ElectronAPI {
     >;
     getCategories: () => Promise<string[]>;
     getCategoriesFull: () => Promise<
-      Array<{ id: number; name: string; sort_order: number; is_active: number }>
+      Array<{
+        id: number;
+        name: string;
+        sort_order: number;
+        is_active: number;
+        /** LIRA-143 v157 (decision #9): products in this category require
+         *  per-unit IMEI tracking when set. */
+        tracks_imei_units: number;
+      }>
     >;
     createCategory: (
       name: string,
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    /** LIRA-143 Phase 5 (decision #9): a bare name (legacy shape) OR an
+     *  object setting name and/or the tracks_imei_units Settings toggle. */
     updateCategory: (
       id: number,
-      name: string,
-    ) => Promise<{ success: boolean; error?: string }>;
+      data: string | { name?: string; tracks_imei_units?: boolean },
+    ) => Promise<{ success: boolean; updated?: boolean; error?: string }>;
     deleteCategory: (
       id: number,
     ) => Promise<{ success: boolean; error?: string }>;
@@ -2140,6 +2208,44 @@ export interface ElectronAPI {
     }>;
   };
 
+  // Product Units (LIRA-143 Phase 5 — phone IMEI units & warranty) —
+  // intake/read API over the per-IMEI phone unit tracker.
+  productUnits: {
+    register: (data: { product_id: number; imeis: string[] }) => Promise<{
+      success: boolean;
+      data?: {
+        units: ProductUnit[];
+        drift: {
+          inStockUnits: number;
+          stockQuantity: number;
+          matches: boolean;
+        };
+      };
+      error?: string;
+    }>;
+    getForProduct: (
+      productId: number,
+      status?: "IN_STOCK" | "SOLD",
+    ) => Promise<{ success: boolean; data?: ProductUnit[]; error?: string }>;
+    getSummary: (productIds: number[]) => Promise<{
+      success: boolean;
+      data?: Record<number, ProductUnitSummary>;
+      error?: string;
+    }>;
+    delete: (unitId: number) => Promise<{ success: boolean; error?: string }>;
+    getStory: (
+      imei: string,
+    ) => Promise<{
+      success: boolean;
+      data?: ProductUnitStory[];
+      error?: string;
+    }>;
+    /** Phase 6 refund UI — the units linked to a sale being refunded. */
+    getForSaleItems: (
+      saleItemIds: number[],
+    ) => Promise<{ success: boolean; data?: ProductUnit[]; error?: string }>;
+  };
+
   // Session
   session: {
     start: (data: {
@@ -2399,13 +2505,21 @@ export interface ElectronAPI {
     /** LIRA-078: refundLegs is optional — omit for the default reversal
      *  (mirrors the original payment legs verbatim); when provided, each
      *  entry overrides the return method for one currency (method-override
-     *  only — amount/currencyCode must net to the original's own total). */
+     *  only — amount/currencyCode must net to the original's own total).
+     *  LIRA-143 phase 5: refundUnitExtras is optional too — the phone-refund
+     *  UI's per-unit defective/warranty-override flags, riding alongside
+     *  refundLegs on the SAME call. */
     refund: (
       id: number,
       refundLegs?: Array<{
         method: string;
         currencyCode: string;
         amount: number;
+      }>,
+      refundUnitExtras?: Array<{
+        unit_id: number;
+        is_defective?: boolean;
+        warranty_override_until?: string | null;
       }>,
     ) => Promise<{
       success: boolean;

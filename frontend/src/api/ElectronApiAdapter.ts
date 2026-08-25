@@ -46,6 +46,18 @@ export class ElectronApiAdapter implements ApiAdapter {
   }) => api.adjustStock(payload);
   getStockAdjustments = (productId?: number) =>
     api.getStockAdjustments(productId);
+  resolveScanCode = (code: string) => api.resolveScanCode(code);
+
+  // ---------------------------------------------------------------------------
+  // Categories (LIRA-143 Phase 5 — Settings manager)
+  // ---------------------------------------------------------------------------
+  getCategoriesFull = () => api.getCategoriesFull();
+  createCategory = (name: string) => api.createCategory(name);
+  updateCategory = (
+    id: number,
+    data: { name?: string; tracks_imei_units?: boolean },
+  ) => api.updateCategory(id, data);
+  deleteCategory = (id: number) => api.deleteCategory(id);
 
   // ---------------------------------------------------------------------------
   // Sales
@@ -330,8 +342,11 @@ export class ElectronApiAdapter implements ApiAdapter {
   getClientTransactions = (clientId: number, limit?: number) =>
     api.getClientTransactions(clientId, limit);
   voidTransaction = (id: number) => api.voidTransaction(id);
-  refundTransaction = (id: number, refundLegs?: api.RefundLegOverride[]) =>
-    api.refundTransaction(id, refundLegs);
+  refundTransaction = (
+    id: number,
+    refundLegs?: api.RefundLegOverride[],
+    unitExtras?: api.RefundUnitExtraOverride[],
+  ) => api.refundTransaction(id, refundLegs, unitExtras);
   voidCheckoutGroup = (groupId: string) => api.voidCheckoutGroup(groupId);
   getTransactionDailySummary = (date: string) =>
     api.getTransactionDailySummary(date);
@@ -800,6 +815,21 @@ export class ElectronApiAdapter implements ApiAdapter {
       unitCostUsd?: number;
       note?: string;
     }) => api.adjustLotPosition(data),
+  };
+
+  // Nested namespace mirroring window.api.productUnits (dual-mode) — LIRA-143
+  // Phase 5 (phone IMEI units & warranty) intake/read API.
+  productUnits = {
+    register: (data: { product_id: number; imeis: string[] }) =>
+      api.registerProductUnits(data),
+    getForProduct: (productId: number, status?: "IN_STOCK" | "SOLD") =>
+      api.getProductUnitsForProduct(productId, status),
+    getSummary: (productIds: number[]) =>
+      api.getProductUnitsSummary(productIds),
+    delete: (unitId: number) => api.deleteProductUnit(unitId),
+    getStory: (imei: string) => api.getUnitStory(imei),
+    getForSaleItems: (saleItemIds: number[]) =>
+      api.getProductUnitsForSaleItems(saleItemIds),
   };
 
   // ---------------------------------------------------------------------------

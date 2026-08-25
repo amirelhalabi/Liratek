@@ -560,6 +560,8 @@ async function registerHandlers() {
       await import("./handlers/walletExchangeHandlers.js");
     const exchangeLotHandlers =
       await import("./handlers/exchangeLotHandlers.js");
+    const productUnitHandlers =
+      await import("./handlers/productUnitHandlers.js");
     const partnerHandlers = await import("./handlers/partnerHandlers.js");
     const voucherHandlers = await import("./handlers/voucherHandlers.js");
     const holdMoneyHandlers = await import("./handlers/holdMoneyHandlers.js");
@@ -604,6 +606,7 @@ async function registerHandlers() {
     drawerCashoutHandlers.registerDrawerCashoutHandlers();
     walletExchangeHandlers.registerWalletExchangeHandlers();
     exchangeLotHandlers.registerExchangeLotHandlers();
+    productUnitHandlers.registerProductUnitHandlers();
     partnerHandlers.registerPartnerHandlers();
     voucherHandlers.registerVoucherHandlers();
     holdMoneyHandlers.registerHoldMoneyHandlers();

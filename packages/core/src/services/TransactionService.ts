@@ -16,6 +16,7 @@ import {
   type TransactionWithUser,
   type VoidCheckoutGroupResult,
   type RefundLegOverride,
+  type RefundUnitExtra,
   TransactionRepository,
   getTransactionRepository,
 } from "../repositories/TransactionRepository.js";
@@ -190,12 +191,22 @@ export class TransactionService {
    * original (method-override only, see TransactionRepository's money
    * contract doc). Omit for the pre-existing default-reversal behavior.
    *
+   * LIRA-143 phase 5: `opts.refundUnitExtras` rides alongside `refundLegs` on
+   * the SAME call (rule 16 — one IPC/REST payload, no follow-up call) —
+   * per-unit defective/warranty-override flags applied as the sale's units
+   * flip back to IN_STOCK. Forwarded verbatim to the repository, which
+   * validates it against the sale being refunded
+   * (`_validateRefundUnitExtras`) — this service adds no logic of its own.
+   *
    * Returns the refund transaction ID.
    */
   refundTransaction(
     id: number,
     userId: number,
-    opts?: { refundLegs?: RefundLegOverride[] },
+    opts?: {
+      refundLegs?: RefundLegOverride[];
+      refundUnitExtras?: RefundUnitExtra[];
+    },
   ): number {
     try {
       return this.repo.refundTransaction(id, userId, opts);

@@ -7,6 +7,7 @@ import {
   PositiveIdSchema,
   VoidCheckoutGroupSchema,
   RefundLegsSchema,
+  RefundUnitExtrasSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -111,10 +112,15 @@ export function registerTransactionHandlers(): void {
    * choose the return method(s) instead of the default mirror-verbatim
    * reversal — validated only when present (a plain refund, the common
    * case, is byte-identical to pre-LIRA-078 behavior).
+   *
+   * LIRA-143 phase 5: the optional `refundUnitExtras` third positional arg
+   * rides alongside `refundLegs` on the SAME call (rule 16 — one IPC
+   * payload, no follow-up call) — the phone-refund UI's per-unit
+   * defective/warranty-override flags, validated only when present.
    */
   ipcMain.handle(
     "transactions:refund",
-    (e, id: unknown, refundLegs?: unknown) => {
+    (e, id: unknown, refundLegs?: unknown, refundUnitExtras?: unknown) => {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
@@ -128,16 +134,29 @@ export function registerTransactionHandlers(): void {
           legs = legsV.data;
         }
 
+        let unitExtras:
+          | ReturnType<typeof RefundUnitExtrasSchema.parse>
+          | undefined;
+        if (refundUnitExtras !== undefined && refundUnitExtras !== null) {
+          const extrasV = validatePayload(
+            RefundUnitExtrasSchema,
+            refundUnitExtras,
+          );
+          if (!extrasV.ok) return { success: false, error: extrasV.error };
+          unitExtras = extrasV.data;
+        }
+
         const userId = auth.userId ?? 1;
         const refundId = txnService.refundTransaction(idV.data, userId, {
           refundLegs: legs,
+          refundUnitExtras: unitExtras,
         });
         audit(e.sender.id, {
           action: "refund",
           entity_type: "transaction",
           entity_id: String(id),
           summary: `Refunded transaction #${id}`,
-          metadata: { refundId, refundLegs: legs },
+          metadata: { refundId, refundLegs: legs, refundUnitExtras: unitExtras },
         });
         return { success: true, refundId };
       } catch (err) {

@@ -106,6 +106,26 @@ import {
   type UpdateExchangeMetadataInput,
   exchangeSubmitSchema,
   type ExchangeSubmitInput,
+  refundUnitExtrasSchema,
+  type RefundUnitExtrasInput,
+  registerProductUnitsSchema,
+  productUnitsForProductSchema,
+  productUnitsSummarySchema,
+  productUnitIdSchema,
+  unitStoryQuerySchema,
+  unitsForSaleItemsSchema,
+  resolveScanCodeSchema,
+  createCategorySchema,
+  updateCategorySchema,
+  type RegisterProductUnitsInput,
+  type ProductUnitsForProductInput,
+  type ProductUnitsSummaryInput,
+  type ProductUnitIdInput,
+  type UnitStoryQueryInput,
+  type UnitsForSaleItemsInput,
+  type ResolveScanCodeInput,
+  type CreateCategoryInput,
+  type UpdateCategoryInput,
 } from "@liratek/core";
 
 // =============================================================================
@@ -657,6 +677,14 @@ export const VoidCheckoutGroupSchema =
 export const RefundLegsSchema =
   refundLegsSchema as unknown as z.ZodSchema<RefundLegsInput>;
 
+// LIRA-143 phase 5: the phone-refund UI's per-unit defective/warranty-
+// override flags, riding alongside `refundLegs` on the SAME
+// `transactions:refund` call. Shared with the REST route the same way —
+// packages/core/src/validators/transaction.ts, rule 14. Validated only when
+// present — a plain refund (no extras) never reaches this schema.
+export const RefundUnitExtrasSchema =
+  refundUnitExtrasSchema as unknown as z.ZodSchema<RefundUnitExtrasInput>;
+
 // =============================================================================
 // Carrier Lines (LIRA W6.a) / Mobile Service Items (LIRA W6.b)
 // =============================================================================
@@ -1041,6 +1069,37 @@ export const LotBreakdownSchema =
   lotBreakdownSchema as unknown as z.ZodSchema<LotBreakdownInput>;
 export const AdjustLotPositionSchema =
   adjustLotPositionSchema as unknown as z.ZodSchema<AdjustLotPositionInput>;
+
+// =============================================================================
+// Product Units (LIRA-143 phase 5 — phone IMEI units & warranty)
+// =============================================================================
+
+// The product-unit contracts live in packages/core/src/validators/
+// productUnit.ts so the Electron IPC handlers
+// (electron-app/handlers/productUnitHandlers.ts + the
+// inventory:resolve-scan-code/update-category handlers in
+// inventoryHandlers.ts) and the REST routes (backend/src/api/productUnits.ts
+// + the category/resolve-scan routes in backend/src/api/inventory.ts)
+// validate against ONE schema each (rule 14). Casts bridge the zod-major
+// mismatch (core=zod4, this workspace=zod3); runtime API used is identical.
+export const RegisterProductUnitsSchema =
+  registerProductUnitsSchema as unknown as z.ZodSchema<RegisterProductUnitsInput>;
+export const ProductUnitsForProductSchema =
+  productUnitsForProductSchema as unknown as z.ZodSchema<ProductUnitsForProductInput>;
+export const ProductUnitsSummarySchema =
+  productUnitsSummarySchema as unknown as z.ZodSchema<ProductUnitsSummaryInput>;
+export const ProductUnitIdSchema =
+  productUnitIdSchema as unknown as z.ZodSchema<ProductUnitIdInput>;
+export const UnitStoryQuerySchema =
+  unitStoryQuerySchema as unknown as z.ZodSchema<UnitStoryQueryInput>;
+export const UnitsForSaleItemsSchema =
+  unitsForSaleItemsSchema as unknown as z.ZodSchema<UnitsForSaleItemsInput>;
+export const ResolveScanCodeSchema =
+  resolveScanCodeSchema as unknown as z.ZodSchema<ResolveScanCodeInput>;
+export const CreateCategorySchema =
+  createCategorySchema as unknown as z.ZodSchema<CreateCategoryInput>;
+export const UpdateCategorySchema =
+  updateCategorySchema as unknown as z.ZodSchema<UpdateCategoryInput>;
 
 // =============================================================================
 // Helpers

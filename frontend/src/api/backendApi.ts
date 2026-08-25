@@ -2080,22 +2080,43 @@ export interface RefundLegOverride {
   amount: number;
 }
 
+/** LIRA-143 phase 5 — the phone-refund UI's per-unit flag override, riding
+ *  alongside `refundLegs` on the SAME `refundTransaction` call. */
+export interface RefundUnitExtraOverride {
+  unit_id: number;
+  is_defective?: boolean;
+  warranty_override_until?: string | null;
+}
+
 /**
  * Refund a transaction. `refundLegs` is optional — omit for the default
  * reversal (mirrors the original payment legs verbatim, pre-LIRA-078
  * behavior, byte-identical); pass one entry per currency to let the operator
  * choose which drawer/method the money returns through instead.
+ * `unitExtras` is optional too (LIRA-143 phase 5) — the phone-refund UI's
+ * per-unit defective/warranty-override flags, sent on the SAME call.
  */
 export async function refundTransaction(
   id: number,
   refundLegs?: RefundLegOverride[],
+  unitExtras?: RefundUnitExtraOverride[],
 ) {
   if (isElectron()) {
-    return (window as any).api.transactions.refund(id, refundLegs);
+    return (window as any).api.transactions.refund(
+      id,
+      refundLegs,
+      unitExtras,
+    );
   }
   return requestJson<{ success: boolean; refundId?: number; error?: string }>(
     `/api/transactions/${id}/refund`,
-    { method: "POST", body: refundLegs ? { refundLegs } : undefined },
+    {
+      method: "POST",
+      body:
+        refundLegs || unitExtras
+          ? { refundLegs, refundUnitExtras: unitExtras }
+          : undefined,
+    },
   );
 }
 
@@ -3688,6 +3709,284 @@ export async function adjustLotPosition(data: {
         };
         error?: string;
       }>("/api/exchange-lots/adjust", { method: "POST", body: data }),
+  );
+}
+
+// ── Product Units (LIRA-143 Phase 5 — phone IMEI units & warranty). Reads
+// return the RAW data shape (throwing on failure, same convention as the
+// exchange-lot reads above); `registerProductUnits`/`deleteProductUnit` are
+// writes and return the envelope untouched. ──
+
+export interface ProductUnitDto {
+  id: number;
+  tenant_id: number | null;
+  product_id: number;
+  imei: string;
+  status: "IN_STOCK" | "SOLD";
+  sale_item_id: number | null;
+  is_defective: number;
+  warranty_override_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductUnitSummaryDto {
+  in_stock: number;
+  sold: number;
+  defective: number;
+}
+
+export interface ProductUnitStoryDto extends ProductUnitDto {
+  product_name: string | null;
+  warranty_until: string | null;
+  is_refunded: number | null;
+  refunded_quantity: number | null;
+  quantity: number | null;
+  sold_price_usd: number | null;
+  sale_id: number | null;
+  sold_at: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  warranty: {
+    source: "OVERRIDE" | "REFUND" | "SALE" | null;
+    until: string | null;
+    state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
+  };
+}
+
+export interface RegisterProductUnitsResultDto {
+  units: ProductUnitDto[];
+  drift: { inStockUnits: number; stockQuantity: number; matches: boolean };
+}
+
+export async function registerProductUnits(data: {
+  product_id: number;
+  imeis: string[];
+}): Promise<{
+  success: boolean;
+  data?: RegisterProductUnitsResultDto;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().productUnits.register(data),
+    async () =>
+      requestJson("/api/product-units/register", {
+        method: "POST",
+        body: data,
+      }),
+  );
+}
+
+export async function getProductUnitsForProduct(
+  productId: number,
+  status?: "IN_STOCK" | "SOLD",
+): Promise<ProductUnitDto[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().productUnits.getForProduct(
+        productId,
+        status,
+      );
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load product units");
+      }
+      return res.data ?? [];
+    },
+    async () => {
+      const qs = status ? `?status=${status}` : "";
+      const res = await requestJson<{
+        success: boolean;
+        data?: ProductUnitDto[];
+        error?: string;
+      }>(`/api/product-units/for-product/${productId}${qs}`);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load product units");
+      }
+      return res.data ?? [];
+    },
+  );
+}
+
+export async function getProductUnitsSummary(
+  productIds: number[],
+): Promise<Record<number, ProductUnitSummaryDto>> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().productUnits.getSummary(productIds);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load product unit summary");
+      }
+      return res.data ?? {};
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: Record<number, ProductUnitSummaryDto>;
+        error?: string;
+      }>("/api/product-units/summary", {
+        method: "POST",
+        body: { product_ids: productIds },
+      });
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load product unit summary");
+      }
+      return res.data ?? {};
+    },
+  );
+}
+
+export async function deleteProductUnit(
+  unitId: number,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().productUnits.delete(unitId),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/product-units/${unitId}`,
+        { method: "DELETE" },
+      ),
+  );
+}
+
+export async function getUnitStory(
+  imei: string,
+): Promise<ProductUnitStoryDto[]> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().productUnits.getStory(imei);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load unit story");
+      }
+      return res.data ?? [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: ProductUnitStoryDto[];
+        error?: string;
+      }>(`/api/product-units/story?imei=${encodeURIComponent(imei)}`);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load unit story");
+      }
+      return res.data ?? [];
+    },
+  );
+}
+
+/** Phase 6 refund UI — the units linked to a sale being refunded (imei +
+ *  defective checkbox + warranty-override date per unit). */
+export async function getProductUnitsForSaleItems(
+  saleItemIds: number[],
+): Promise<ProductUnitDto[]> {
+  return ipcOrHttp(
+    async () => {
+      const res =
+        await getElectronApi().productUnits.getForSaleItems(saleItemIds);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load units for sale items");
+      }
+      return res.data ?? [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: ProductUnitDto[];
+        error?: string;
+      }>("/api/product-units/for-sale-items", {
+        method: "POST",
+        body: { sale_item_ids: saleItemIds },
+      });
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load units for sale items");
+      }
+      return res.data ?? [];
+    },
+  );
+}
+
+/** LIRA-143 Phase 3 (owner decision #2): barcode first, then an active
+ *  (IN_STOCK) unit IMEI. `matched_unit` is null on a barcode hit. */
+export async function resolveScanCode(code: string): Promise<{
+  success: boolean;
+  data?: { product: any; matched_unit: ProductUnitDto | null } | null;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.resolveScanCode(code),
+    async () =>
+      requestJson(`/api/inventory/resolve-scan?code=${encodeURIComponent(code)}`),
+  );
+}
+
+// ── Categories (LIRA-143 Phase 5 — Settings manager; decision #9's
+// tracks_imei_units toggle). Reads return the RAW data shape; writes return
+// the envelope untouched — same convention as the fns above. ──
+
+export interface CategoryDto {
+  id: number;
+  name: string;
+  sort_order: number;
+  is_active: number;
+  tracks_imei_units: number;
+}
+
+export async function getCategoriesFull(): Promise<CategoryDto[]> {
+  return ipcOrHttp(
+    async () => {
+      const data = await getElectronApi().inventory.getCategoriesFull();
+      return data ?? [];
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: CategoryDto[];
+        error?: string;
+      }>("/api/inventory/categories-full");
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load categories");
+      }
+      return res.data ?? [];
+    },
+  );
+}
+
+export async function createCategory(
+  name: string,
+): Promise<{ success: boolean; id?: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.createCategory(name),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        "/api/inventory/categories",
+        { method: "POST", body: { name } },
+      ),
+  );
+}
+
+export async function updateCategory(
+  id: number,
+  data: { name?: string; tracks_imei_units?: boolean },
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.updateCategory(id, data),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/inventory/categories/${id}`,
+        { method: "PUT", body: data },
+      ),
+  );
+}
+
+export async function deleteCategory(
+  id: number,
+): Promise<{ success: boolean; deleted?: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().inventory.deleteCategory(id),
+    async () =>
+      requestJson<{ success: boolean; deleted?: boolean; error?: string }>(
+        `/api/inventory/categories/${id}`,
+        { method: "DELETE" },
+      ),
   );
 }
 

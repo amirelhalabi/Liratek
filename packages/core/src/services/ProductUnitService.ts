@@ -212,6 +212,23 @@ export class ProductUnitService {
   }
 
   /**
+   * Phase 6 refund UI — the units linked to a sale being refunded (imei +
+   * defective checkbox + warranty-override date per unit), thin pass-through
+   * to `ProductUnitRepository.findBySaleItemIds`.
+   */
+  getUnitsForSaleItems(saleItemIds: number[]): ProductUnitEntity[] {
+    try {
+      return this.repo.findBySaleItemIds(saleItemIds);
+    } catch (error) {
+      inventoryLogger.error(
+        { error, saleItemIds },
+        "getUnitsForSaleItems failed",
+      );
+      throw error;
+    }
+  }
+
+  /**
    * The walk-in lookup (decision #7): every unit matching `imei`, each
    * stamped with its computed {@link WarrantyStatus}. `today` defaults to
    * the current date (ISO, `YYYY-MM-DD`) and is injectable for tests.

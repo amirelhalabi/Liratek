@@ -8,10 +8,22 @@ export interface ProductCategory {
   name: string;
   sort_order: number;
   is_active: number;
+  /** LIRA-143 v157 (decision #9): products in a category with this flag ON
+   *  require per-unit IMEI tracking (product_units). SQLite boolean. */
+  tracks_imei_units: number;
   created_at: string;
 }
 
-const COLUMNS = "id, name, sort_order, is_active, created_at";
+const COLUMNS =
+  "id, name, sort_order, is_active, tracks_imei_units, created_at";
+
+/** Fields `update()` may change — at least one must be provided. `name`
+ *  omitted/`undefined` leaves the existing name untouched; same for
+ *  `tracksImeiUnits`. */
+export interface CategoryUpdateOptions {
+  name?: string;
+  tracksImeiUnits?: boolean;
+}
 
 export class CategoryRepository {
   private db: Database.Database;
@@ -40,14 +52,40 @@ export class CategoryRepository {
     return { id: Number(result.lastInsertRowid) };
   }
 
-  update(id: number, name: string): boolean {
-    const trimmed = name.trim();
-    if (!trimmed) throw new DatabaseError("Category name is required");
+  /**
+   * Update a category's name and/or its `tracks_imei_units` flag (decision
+   * #9 — the Settings toggle). Each field is set only when its option key is
+   * provided (`undefined` leaves the existing value untouched — same
+   * optional-patch convention as `ProductUnitRepository.markInStock`); at
+   * least one of `name`/`tracksImeiUnits` must be given (enforced by the
+   * shared Zod schema at the IPC/REST door, not re-checked here).
+   */
+  update(id: number, opts: CategoryUpdateOptions): boolean {
+    const setClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (opts.name !== undefined) {
+      const trimmed = opts.name.trim();
+      if (!trimmed) throw new DatabaseError("Category name is required");
+      setClauses.push("name = ?");
+      params.push(trimmed);
+    }
+    if (opts.tracksImeiUnits !== undefined) {
+      setClauses.push("tracks_imei_units = ?");
+      params.push(opts.tracksImeiUnits ? 1 : 0);
+    }
+    if (setClauses.length === 0) {
+      throw new DatabaseError(
+        "update: at least one of name/tracksImeiUnits must be provided",
+      );
+    }
+
+    params.push(id, getCurrentTenantId());
     const result = this.db
       .prepare(
-        `UPDATE product_categories SET name = ? WHERE id = ? AND tenant_id = ?`,
+        `UPDATE product_categories SET ${setClauses.join(", ")} WHERE id = ? AND tenant_id = ?`,
       )
-      .run(trimmed, id, getCurrentTenantId());
+      .run(...params);
     return result.changes > 0;
   }
 

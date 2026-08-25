@@ -2,15 +2,26 @@ import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
 import {
   getInventoryService,
+  getCategoryRepository,
   createProductSchema,
   searchProductsSchema,
   stockAdjustSchema,
+  resolveScanCodeSchema,
+  createCategorySchema,
+  updateCategorySchema,
   createErrorResponse,
   createSuccessResponse,
   ErrorCodes,
 } from "@liratek/core";
-import { validateRequest, validateQuery } from "../middleware/validation.js";
+import {
+  validateRequest,
+  validateQuery,
+} from "../middleware/validation.js";
 import { auditRest } from "../middleware/audit.js";
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "Unknown error";
+}
 
 const router = express.Router();
 
@@ -25,6 +36,24 @@ router.get("/products", validateQuery(searchProductsSchema), (req, res) => {
   const products = service.getProducts(search);
   res.json(createSuccessResponse({ products }));
 });
+
+// GET /api/inventory/resolve-scan?code=... — barcode first, then an active
+// (IN_STOCK) unit IMEI (LIRA-143 Phase 3, owner decision #2). Same no-extra-
+// role-gate read as GET /products/:id below — placed before it (static path
+// before any parameterized sibling route).
+router.get(
+  "/resolve-scan",
+  validateQuery(resolveScanCodeSchema),
+  (req, res) => {
+    try {
+      const code = req.query.code as unknown as string;
+      const data = getInventoryService().resolveScanCode(code);
+      res.json({ success: true, data });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
 
 // GET /api/inventory/products/:id
 router.get("/products/:id", (req, res) => {
@@ -236,6 +265,97 @@ router.get("/stock-adjustments", (req, res) => {
   const service = getInventoryService();
   const adjustments = service.getStockAdjustments(productId);
   res.json(createSuccessResponse({ adjustments }));
+});
+
+// ---------------------------------------------------------------------------
+// Category Management (LIRA-143 Phase 5 — Settings manager). Roles mirror
+// the IPC category handlers in inventoryHandlers.ts, which carry NO
+// requireRole gate of their own beyond an authenticated app session — same
+// baseline here (router-level authenticateJWT only, no extra role gate).
+// ---------------------------------------------------------------------------
+
+// GET /api/inventory/categories-full — static path, placed before the
+// parameterized /categories/:id routes below.
+router.get("/categories-full", (_req, res) => {
+  try {
+    const data = getCategoryRepository().getAll();
+    res.json({ success: true, data });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
+// POST /api/inventory/categories
+router.post(
+  "/categories",
+  validateRequest(createCategorySchema),
+  (req, res) => {
+    try {
+      const result = getCategoryRepository().create(req.body.name);
+      auditRest(req, {
+        action: "create",
+        entity_type: "category",
+        entity_id: String(result.id),
+        summary: `Created category "${req.body.name}"`,
+      });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+// PUT /api/inventory/categories/:id — name and/or tracks_imei_units flag
+router.put(
+  "/categories/:id",
+  validateRequest(updateCategorySchema),
+  (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      res.json({ success: false, error: "Invalid id" });
+      return;
+    }
+    try {
+      const updated = getCategoryRepository().update(id, {
+        name: req.body.name,
+        tracksImeiUnits: req.body.tracks_imei_units,
+      });
+      auditRest(req, {
+        action: "update",
+        entity_type: "category",
+        entity_id: String(id),
+        summary:
+          req.body.name !== undefined
+            ? `Updated category #${id} to "${req.body.name}"`
+            : `Updated category #${id} (tracks_imei_units=${req.body.tracks_imei_units})`,
+        new_values: req.body,
+      });
+      res.json({ success: true, updated });
+    } catch (err) {
+      res.json({ success: false, error: errMessage(err) });
+    }
+  },
+);
+
+// DELETE /api/inventory/categories/:id
+router.delete("/categories/:id", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) {
+    res.json({ success: false, error: "Invalid id" });
+    return;
+  }
+  try {
+    const deleted = getCategoryRepository().delete(id);
+    auditRest(req, {
+      action: "delete",
+      entity_type: "category",
+      entity_id: String(id),
+      summary: `Deleted category #${id}`,
+    });
+    res.json({ success: true, deleted });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
 });
 
 export default router;

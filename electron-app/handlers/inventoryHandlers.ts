@@ -19,6 +19,8 @@ import {
   ProductUpdateSchema,
   BatchUpdateSchema,
   StockAdjustSchema,
+  UpdateCategorySchema,
+  ResolveScanCodeSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -72,6 +74,25 @@ export function registerInventoryHandlers(): void {
       return service.getProductByBarcode(barcode);
     },
   );
+
+  // Resolve a scanned/typed code — barcode first, then an active (IN_STOCK)
+  // unit IMEI (LIRA-143 Phase 3, owner decision #2). Same no-auth-gate read
+  // as `inventory:get-product-by-barcode` above (every renderer that can
+  // reach the IPC bridge is already an authenticated app session).
+  ipcMain.handle("inventory:resolve-scan-code", (_event, data: unknown) => {
+    try {
+      const v = validatePayload(ResolveScanCodeSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+      const result = service.resolveScanCode(v.data.code);
+      return { success: true, data: result };
+    } catch (error) {
+      inventoryLogger.error({ error }, "inventory:resolve-scan-code failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to resolve code",
+      };
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // Product CRUD (Admin only)
@@ -383,14 +404,23 @@ export function registerInventoryHandlers(): void {
   });
   ipcMain.handle(
     "inventory:update-category",
-    (_e, id: number, name: string) => {
+    (_e, id: number, data: unknown) => {
       try {
-        const updated = catRepo.update(id, name);
+        const v = validatePayload(UpdateCategorySchema, data);
+        if (!v.ok) return { success: false, error: v.error };
+        const updated = catRepo.update(id, {
+          name: v.data.name,
+          tracksImeiUnits: v.data.tracks_imei_units,
+        });
         audit(_e.sender.id, {
           action: "update",
           entity_type: "category",
           entity_id: String(id),
-          summary: `Updated category #${id} to "${name}"`,
+          summary:
+            v.data.name !== undefined
+              ? `Updated category #${id} to "${v.data.name}"`
+              : `Updated category #${id} (tracks_imei_units=${v.data.tracks_imei_units})`,
+          new_values: v.data,
         });
         return { success: true, updated };
       } catch (e) {

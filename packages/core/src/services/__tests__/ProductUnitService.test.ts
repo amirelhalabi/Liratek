@@ -122,7 +122,7 @@ describe("ProductUnitService", () => {
   });
 
   describe("thin pass-throughs", () => {
-    it("getUnitsForProduct/getSummaryForProducts/deleteUnit/findActiveByImei delegate to the repository", () => {
+    it("getUnitsForProduct/getSummaryForProducts/deleteUnit/findActiveByImei/getUnitsForSaleItems delegate to the repository", () => {
       const mockRepo = {
         getUnitsForProduct: jest.fn().mockReturnValue([makeUnit()]),
         getSummaryForProducts: jest
@@ -130,6 +130,7 @@ describe("ProductUnitService", () => {
           .mockReturnValue({ 1: { in_stock: 1, sold: 0, defective: 0 } }),
         deleteUnit: jest.fn(),
         findActiveByImei: jest.fn().mockReturnValue(makeUnit()),
+        findBySaleItemIds: jest.fn().mockReturnValue([makeUnit()]),
       } as unknown as ProductUnitRepository;
       const mockProductRepo = {} as unknown as ProductRepository;
       const service = new ProductUnitService(mockRepo, mockProductRepo);
@@ -149,6 +150,10 @@ describe("ProductUnitService", () => {
       expect(mockRepo.findActiveByImei).toHaveBeenCalledWith(
         "111111111111111",
       );
+
+      // Phase 6 refund UI — the units linked to a sale being refunded.
+      expect(service.getUnitsForSaleItems([10, 11])).toEqual([makeUnit()]);
+      expect(mockRepo.findBySaleItemIds).toHaveBeenCalledWith([10, 11]);
     });
   });
 
