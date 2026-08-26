@@ -47,6 +47,16 @@
  *      now-IN_STOCK unit again clears its refund-time warranty override and
  *      stamps a fresh sale-based warranty, while `is_defective` (informational,
  *      not a sale blocker) survives the re-sale.
+ *   g. Management view — the shop-wide "Phone Units" register
+ *      (`/inventory/units`), reached through Inventory's real entry button.
+ *      Its server-side status filter + search box are driven for real: with
+ *      `Sold` selected, THIS run's re-sold IMEI shows up carrying its product
+ *      name, its buyer, and the SAME persisted warranty stamp step (f) read
+ *      back; with `In stock` selected that same IMEI is gone from the result
+ *      and one of this run's still-in-stock IMEIs is present instead. Every
+ *      assertion keys on the exact IMEI (identity, rule 15) — never a row
+ *      position, never a count, since the shared e2e DB accumulates units
+ *      from every earlier spec that registered one.
  *
  * Assertion discipline (CLAUDE.md rule 15 / README): every identity is a
  * `Date.now()`-based RUN_ID marker unique to this run (category name is the
@@ -397,6 +407,50 @@ async function completeCashSale(page: Page): Promise<void> {
   });
 }
 
+// ─── Phone Units management view (step g) helpers ───────────────────────────
+
+/** Reach `/inventory/units` the way an operator does — Inventory's own
+ *  "Phone Units" header button (there is deliberately NO sidebar entry, so
+ *  `navigateTo`'s NavLink path doesn't apply to this route). */
+async function openPhoneUnitsPage(page: Page): Promise<Locator> {
+  await navigateTo(page, "/products");
+  const entry = page.getByTestId("phone-units-entry");
+  await expect(entry).toBeVisible({ timeout: 10_000 });
+  await entry.click();
+  const pageRoot = page.getByTestId("phone-units-page");
+  await expect(pageRoot).toBeVisible({ timeout: 10_000 });
+  return pageRoot;
+}
+
+/**
+ * The page's status filter is the house `Select` (@headlessui Listbox), not a
+ * native `<select>`: its trigger is the only `aria-haspopup="listbox"` button
+ * on the page (DataTable's own column picker declares `aria-haspopup="true"`),
+ * and its options are portaled to `<body>` — hence `page.getByRole("option")`
+ * rather than a descendant of the page root. Same two-step drive
+ * lira-114 / lira-services-for-partner use for the partner picker.
+ */
+async function setPhoneUnitsStatus(page: Page, label: string): Promise<void> {
+  const picker = page
+    .getByTestId("phone-units-page")
+    .locator('button[aria-haspopup="listbox"]');
+  await picker.click();
+  await page.getByRole("option", { name: label, exact: true }).click();
+  // The trigger renders the SELECTED option's label — asserting it here is
+  // what makes every "…and now it's filtered" claim below load-bearing. A
+  // silently-missed click would otherwise leave the filter on "All statuses",
+  // where a row expected to be present is still present and the assertion
+  // passes for the wrong reason.
+  await expect(picker).toContainText(label, { timeout: 5_000 });
+}
+
+/** Type an exact IMEI into the page's search box (300ms debounce, then a
+ *  server-side `LIKE` on imei OR product name) — the identity key every
+ *  assertion in step (g) is scoped by. */
+async function searchPhoneUnits(page: Page, term: string): Promise<void> {
+  await page.getByTestId("phone-units-search").fill(term);
+}
+
 // ─── The spec ───────────────────────────────────────────────────────────────
 
 test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real UI", () => {
@@ -676,5 +730,72 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     expect(story1AfterResale[0]?.warranty.source).toBe("SALE");
     expect(story1AfterResale[0]?.warranty.state).toBe("COVERED");
     expect(story1AfterResale[0]?.warranty.until).toBe(sale2Item.warranty_until);
+
+    // ─── (g) Management view (/inventory/units) ─────────────────────────────
+    // The shop-wide register, reached through Inventory's real entry button.
+    // The e2e DB accumulates units across specs, so EVERY assertion below is
+    // keyed on this run's own IMEIs (rule 15) — the row locators are the
+    // unit ids read back above, and the search box is fed the exact IMEI.
+    await openPhoneUnitsPage(appPage);
+
+    const unit1AfterResaleRow = appPage.getByTestId(
+      `phone-unit-row-${unit1AfterResale.id}`,
+    );
+    const unit2Row = appPage.getByTestId(`phone-unit-row-${unit2Initial.id}`);
+
+    // Status=Sold, searched by this run's unique PRODUCT NAME (the search
+    // LIKE-matches imei OR product name, so all three of this run's units
+    // are candidates): only the SOLD one comes back. Asserting the IN_STOCK
+    // sibling's ABSENCE in the same result is what proves the status filter
+    // is really applied server-side rather than the row merely being present
+    // for unrelated reasons — and it stays scoped to this run's own unit ids,
+    // so no other spec's units can decide the outcome (rule 15).
+    await setPhoneUnitsStatus(appPage, "Sold");
+    await searchPhoneUnits(appPage, PRODUCT_NAME);
+    await expect(unit1AfterResaleRow).toBeVisible({ timeout: 10_000 });
+    await expect(unit2Row).toHaveCount(0);
+
+    // Now the exact IMEI as the identity key — the unit re-sold in (f), with
+    // its product name, its buyer (proving the sale_items -> sales -> clients
+    // join), and the SAME persisted warranty stamp (f) read back out of
+    // `sale_items.warranty_until` — never a hardcoded date.
+    await searchPhoneUnits(appPage, IMEI_1);
+
+    await expect(unit1AfterResaleRow).toBeVisible({ timeout: 10_000 });
+    await expect(unit1AfterResaleRow).toContainText(IMEI_1);
+    await expect(unit1AfterResaleRow).toContainText(PRODUCT_NAME);
+    await expect(unit1AfterResaleRow).toContainText("SOLD");
+    await expect(unit1AfterResaleRow).toContainText(CLIENT_2);
+    await expect(
+      unit1AfterResaleRow.getByTestId(
+        `phone-unit-warranty-${unit1AfterResale.id}`,
+      ),
+    ).toHaveText(`Covered (until ${sale2Item.warranty_until})`);
+
+    // Same search term, In stock: the SOLD unit drops out of the result —
+    // an absence scoped to this run's own IMEI, so no other spec's units can
+    // make it pass or fail.
+    await setPhoneUnitsStatus(appPage, "In stock");
+    await expect(unit1AfterResaleRow).toHaveCount(0, { timeout: 10_000 });
+
+    // …and one of this run's still-IN_STOCK IMEIs is there instead (IMEI_2
+    // was never sold, so it carries no warranty stamp at all). IMEI_3 — the
+    // unit registered through the real UI in (a), same product, ALSO
+    // IN_STOCK — must be absent from this same result: the two differ by
+    // nothing except the IMEI typed into the box, so its absence is what
+    // proves the search term itself narrowed the query (and not merely the
+    // status filter re-running).
+    const unit3 = await unitByImei(appPage, productId, IMEI_3);
+    await searchPhoneUnits(appPage, IMEI_2);
+    await expect(unit2Row).toBeVisible({ timeout: 10_000 });
+    await expect(unit2Row).toContainText(IMEI_2);
+    await expect(unit2Row).toContainText(PRODUCT_NAME);
+    await expect(unit2Row).toContainText("IN_STOCK");
+    await expect(
+      unit2Row.getByTestId(`phone-unit-warranty-${unit2Initial.id}`),
+    ).toHaveText("No warranty");
+    await expect(
+      appPage.getByTestId(`phone-unit-row-${unit3.id}`),
+    ).toHaveCount(0);
   });
 });

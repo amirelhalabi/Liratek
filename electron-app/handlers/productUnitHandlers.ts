@@ -22,6 +22,7 @@ import {
   validatePayload,
   RegisterProductUnitsSchema,
   ProductUnitsForProductSchema,
+  ListProductUnitsSchema,
   ProductUnitsSummarySchema,
   ProductUnitIdSchema,
   UnitStoryQuerySchema,
@@ -86,6 +87,28 @@ export function registerProductUnitHandlers(): void {
       return { success: true, data: result };
     } catch (error) {
       inventoryLogger.error({ error }, "product-units:for-product failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load product units",
+      };
+    }
+  });
+
+  // The Phone Units management view — one filtered, paginated page of units
+  // across all products, warranty-stamped. Read: no requireRole gate, same
+  // as product-units:for-product above.
+  ipcMain.handle("product-units:list", (_event, data: unknown) => {
+    try {
+      const validation = validatePayload(ListProductUnitsSchema, data);
+      if (!validation.ok) return { success: false, error: validation.error };
+
+      const result = getProductUnitServiceInstance().listUnits(validation.data);
+      return { success: true, data: result };
+    } catch (error) {
+      inventoryLogger.error({ error }, "product-units:list failed");
       return {
         success: false,
         error:

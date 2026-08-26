@@ -40,6 +40,29 @@ export type ProductUnitsForProductInput = z.infer<
   typeof productUnitsForProductSchema
 >;
 
+/**
+ * The Phone Units management view's filter/page payload — ONE object, sent
+ * as the whole IPC arg (`product-units:list`) and as the whole REST body
+ * (`POST /api/product-units/list`), so the same schema validates both
+ * transports with no per-transport coercion (unlike the path-param schemas
+ * above, every field here arrives already JSON-typed).
+ *
+ * `limit`/`offset` carry the defaults (50/0) so the frontend may omit the
+ * page window entirely on a first load; the repository's `UnitListFilters`
+ * takes them as REQUIRED, which is exactly what this schema guarantees
+ * downstream of `.parse()`. `search` is capped at 64 chars — a LIKE term
+ * longer than that is a paste accident, not a query.
+ */
+export const listProductUnitsSchema = z.object({
+  status: productUnitStatusSchema.optional(),
+  defectiveOnly: z.boolean().optional(),
+  search: z.string().trim().max(64, "Search term is too long").optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
+export type ListProductUnitsInput = z.infer<typeof listProductUnitsSchema>;
+
 export const productUnitsSummarySchema = z.object({
   product_ids: z.array(z.number().int().positive()).min(1),
 });

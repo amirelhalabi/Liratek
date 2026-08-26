@@ -2191,11 +2191,7 @@ export async function refundTransaction(
   unitExtras?: RefundUnitExtraOverride[],
 ) {
   if (isElectron()) {
-    return (window as any).api.transactions.refund(
-      id,
-      refundLegs,
-      unitExtras,
-    );
+    return (window as any).api.transactions.refund(id, refundLegs, unitExtras);
   }
   return requestJson<{ success: boolean; refundId?: number; error?: string }>(
     `/api/transactions/${id}/refund`,
@@ -3657,7 +3653,9 @@ export async function previewLotSettlement(data: {
       }),
   );
   if (!res.success) {
-    throw new Error("error" in res ? res.error : "Failed to preview exchange lot settlement");
+    throw new Error(
+      "error" in res ? res.error : "Failed to preview exchange lot settlement",
+    );
   }
   return res.lotTracked
     ? {
@@ -3896,6 +3894,77 @@ export async function getProductUnitsForProduct(
   );
 }
 
+/** One row of the Phone Units management view — the unit joined with its
+ *  product name, its last sale's provenance, and the computed warranty
+ *  verdict. Every sale-side field is `null` for a never-sold unit;
+ *  `sale_refunded` is `null` there too (vs `0` = sold, not refunded). */
+export interface ProductUnitListRowDto {
+  id: number;
+  product_id: number;
+  imei: string;
+  status: "IN_STOCK" | "SOLD";
+  is_defective: number;
+  warranty_override_until: string | null;
+  created_at: string;
+  product_name: string;
+  sale_item_id: number | null;
+  sold_at: string | null;
+  sold_price_usd: number | null;
+  client_name: string | null;
+  warranty_until: string | null;
+  sale_refunded: 0 | 1 | null;
+  warranty: {
+    source: "OVERRIDE" | "REFUND" | "SALE" | null;
+    until: string | null;
+    state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
+  };
+}
+
+/** `total` is the UNPAGED count over the same filters — the pager's
+ *  denominator, not `rows.length`. */
+export interface ProductUnitListResultDto {
+  rows: ProductUnitListRowDto[];
+  total: number;
+}
+
+/** Filter/page payload. `limit`/`offset` may be omitted — the shared Zod
+ *  schema (`listProductUnitsSchema`) applies 50/0 on BOTH transports. */
+export interface ProductUnitListFiltersDto {
+  status?: "IN_STOCK" | "SOLD";
+  defectiveOnly?: boolean;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** The Phone Units management view read. RAW shape (throws on failure),
+ *  same read convention as the fns around it — the caller gets
+ *  `{ rows, total }` directly, never the envelope. */
+export async function listProductUnits(
+  filters: ProductUnitListFiltersDto,
+): Promise<ProductUnitListResultDto> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().productUnits.list(filters);
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load product units");
+      }
+      return res.data ?? { rows: [], total: 0 };
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        data?: ProductUnitListResultDto;
+        error?: string;
+      }>("/api/product-units/list", { method: "POST", body: filters });
+      if (!res.success) {
+        throw new Error(res.error ?? "Failed to load product units");
+      }
+      return res.data ?? { rows: [], total: 0 };
+    },
+  );
+}
+
 export async function getProductUnitsSummary(
   productIds: number[],
 ): Promise<Record<number, ProductUnitSummaryDto>> {
@@ -4003,7 +4072,9 @@ export async function resolveScanCode(code: string): Promise<{
   return ipcOrHttp(
     async () => getElectronApi().inventory.resolveScanCode(code),
     async () =>
-      requestJson(`/api/inventory/resolve-scan?code=${encodeURIComponent(code)}`),
+      requestJson(
+        `/api/inventory/resolve-scan?code=${encodeURIComponent(code)}`,
+      ),
   );
 }
 

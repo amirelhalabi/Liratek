@@ -920,6 +920,17 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("product-units:register", data),
     getForProduct: (productId: number, status?: "IN_STOCK" | "SOLD") =>
       ipcRenderer.invoke("product-units:for-product", { productId, status }),
+    /** The Phone Units management view — one filters object carries status,
+     *  defective narrowing, the IMEI/product-name search term and the page
+     *  window. `limit`/`offset` may be omitted; the shared Zod schema
+     *  applies 50/0. */
+    list: (filters: {
+      status?: "IN_STOCK" | "SOLD";
+      defectiveOnly?: boolean;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    }) => ipcRenderer.invoke("product-units:list", filters),
     getSummary: (productIds: number[]) =>
       ipcRenderer.invoke("product-units:summary", {
         product_ids: productIds,

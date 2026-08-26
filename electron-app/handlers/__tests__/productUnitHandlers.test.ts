@@ -45,6 +45,7 @@ describe("ProductUnitHandlers", () => {
   const mockService = {
     registerUnits: jest.fn(),
     getUnitsForProduct: jest.fn(),
+    listUnits: jest.fn(),
     getSummaryForProducts: jest.fn(),
     deleteUnit: jest.fn(),
     getUnitStory: jest.fn(),
@@ -67,7 +68,11 @@ describe("ProductUnitHandlers", () => {
   });
 
   describe("Handler Registration", () => {
-    it("registers all six product-units channels", () => {
+    it("registers all seven product-units channels", () => {
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "product-units:list",
+        expect.any(Function),
+      );
       expect(ipcMain.handle).toHaveBeenCalledWith(
         "product-units:register",
         expect.any(Function),
@@ -176,6 +181,85 @@ describe("ProductUnitHandlers", () => {
 
       expect(mockService.getUnitsForProduct).not.toHaveBeenCalled();
       expect((result as { success: boolean }).success).toBe(false);
+    });
+  });
+
+  describe("product-units:list", () => {
+    it("validates the filters, delegates to the service, and wraps in { success, data }", async () => {
+      mockService.listUnits.mockReturnValue({
+        rows: [{ id: 1, imei: "111111111111111" }],
+        total: 137,
+      });
+      const handler = handlers.get("product-units:list")!;
+
+      const result = await handler(
+        {},
+        {
+          status: "SOLD",
+          defectiveOnly: true,
+          search: "  3569  ",
+          limit: 20,
+          offset: 40,
+        },
+      );
+
+      // Zod trims `search`; every other field passes through as sent.
+      expect(mockService.listUnits).toHaveBeenCalledWith({
+        status: "SOLD",
+        defectiveOnly: true,
+        search: "3569",
+        limit: 20,
+        offset: 40,
+      });
+      expect(result).toEqual({
+        success: true,
+        data: { rows: [{ id: 1, imei: "111111111111111" }], total: 137 },
+      });
+    });
+
+    it("applies the schema's limit/offset defaults when the caller omits the page window", async () => {
+      mockService.listUnits.mockReturnValue({ rows: [], total: 0 });
+      const handler = handlers.get("product-units:list")!;
+
+      const result = await handler({}, {});
+
+      expect(mockService.listUnits).toHaveBeenCalledWith({
+        limit: 50,
+        offset: 0,
+      });
+      expect(result).toEqual({ success: true, data: { rows: [], total: 0 } });
+    });
+
+    it("rejects an out-of-range limit at the door WITHOUT calling the service", async () => {
+      const handler = handlers.get("product-units:list")!;
+
+      const result = await handler({}, { limit: 500 });
+
+      expect(mockService.listUnits).not.toHaveBeenCalled();
+      expect((result as { success: boolean }).success).toBe(false);
+      expect((result as { error: string }).error).toEqual(
+        expect.stringContaining("Validation failed"),
+      );
+    });
+
+    it("rejects an unknown status enum value at the door WITHOUT calling the service", async () => {
+      const handler = handlers.get("product-units:list")!;
+
+      const result = await handler({}, { status: "RESERVED" });
+
+      expect(mockService.listUnits).not.toHaveBeenCalled();
+      expect((result as { success: boolean }).success).toBe(false);
+    });
+
+    it("returns the envelope's error when the service throws", async () => {
+      mockService.listUnits.mockImplementation(() => {
+        throw new Error("boom");
+      });
+      const handler = handlers.get("product-units:list")!;
+
+      const result = await handler({}, { limit: 50, offset: 0 });
+
+      expect(result).toEqual({ success: false, error: "boom" });
     });
   });
 

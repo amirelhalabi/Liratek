@@ -21,6 +21,8 @@ import {
   type ProductUnitStatus,
   type ProductUnitSummary,
   type UnitStory,
+  type UnitListFilters,
+  type UnitListRow,
 } from "../repositories/ProductUnitRepository.js";
 import {
   getProductRepository,
@@ -97,6 +99,23 @@ function isSaleRefunded(row: UnitStory): boolean {
 
 export interface UnitStoryWithWarranty extends UnitStory {
   warranty: WarrantyStatus;
+}
+
+/**
+ * One Phone Units management-view row, warranty-stamped by the SAME
+ * {@link computeWarrantyStatus} precedence `getUnitStory` uses — a given
+ * unit must never show "COVERED" in the list and "VOID" in the walk-in
+ * lookup. The list row carries the repository's pre-derived
+ * `sale_refunded` flag (the SQL twin of {@link isSaleRefunded}) rather than
+ * the raw `is_refunded`/`quantity`/`refunded_quantity` triple.
+ */
+export type UnitListRowWithWarranty = UnitListRow & {
+  warranty: WarrantyStatus;
+};
+
+export interface UnitListResult {
+  rows: UnitListRowWithWarranty[];
+  total: number;
 }
 
 // =============================================================================
@@ -224,6 +243,42 @@ export class ProductUnitService {
         { error, saleItemIds },
         "getUnitsForSaleItems failed",
       );
+      throw error;
+    }
+  }
+
+  /**
+   * The Phone Units management view: one filtered, paginated page of units
+   * across all products, each stamped with its computed
+   * {@link WarrantyStatus} — the same `computeWarrantyStatus` call
+   * `getUnitStory` makes, fed the same three inputs (override date, refund
+   * flag, sale-stamped date), so the two reads can never disagree about a
+   * unit's verdict. `today` defaults to the current date (ISO,
+   * `YYYY-MM-DD`) and is injectable for tests.
+   *
+   * `total` passes through untouched from the repository — it is the
+   * unpaged count over the same filters, for the pager.
+   */
+  listUnits(
+    filters: UnitListFilters,
+    today: string = new Date().toISOString().slice(0, 10),
+  ): UnitListResult {
+    try {
+      const page = this.repo.listUnits(filters);
+      return {
+        rows: page.rows.map((row) => ({
+          ...row,
+          warranty: computeWarrantyStatus({
+            overrideUntil: row.warranty_override_until,
+            saleRefunded: row.sale_refunded === 1,
+            stampedUntil: row.warranty_until,
+            today,
+          }),
+        })),
+        total: page.total,
+      };
+    } catch (error) {
+      inventoryLogger.error({ error, filters }, "listUnits failed");
       throw error;
     }
   }

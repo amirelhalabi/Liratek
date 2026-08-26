@@ -18,6 +18,7 @@ import {
   getProductUnitService,
   registerProductUnitsSchema,
   productUnitsForProductSchema,
+  listProductUnitsSchema,
   productUnitsSummarySchema,
   productUnitIdSchema,
   unitStoryQuerySchema,
@@ -87,6 +88,21 @@ router.get("/for-product/:productId", (req, res) => {
       parsed.data.productId,
       parsed.data.status,
     );
+    res.json({ success: true, data });
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
+});
+
+// POST /api/product-units/list — body = the whole filters object (status,
+// defectiveOnly, search, limit, offset). POST rather than GET because the
+// filter set is one object shared byte-for-byte with the IPC channel
+// (`product-units:list`) and validated by the SAME schema — a query-string
+// twin would need per-field coercion that the IPC side does not.
+// Declared BEFORE the DELETE /:id route below (static paths first).
+router.post("/list", validateRequest(listProductUnitsSchema), (req, res) => {
+  try {
+    const data = getProductUnitService().listUnits(req.body);
     res.json({ success: true, data });
   } catch (err) {
     res.json({ success: false, error: errMessage(err) });

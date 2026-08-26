@@ -167,6 +167,9 @@ export type {
   ProductUnitEntity,
   ProductUnitSummary,
   UnitStory,
+  UnitListFilters,
+  UnitListRow,
+  UnitListPage,
   MarkInStockOptions,
 } from "./ProductUnitRepository.js";
 

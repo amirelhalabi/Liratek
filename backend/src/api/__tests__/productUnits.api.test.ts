@@ -139,6 +139,98 @@ describe("Product Unit REST routes", () => {
     });
   });
 
+  describe("POST /api/product-units/list", () => {
+    it("passes the whole validated filters object through to the service", async () => {
+      const spy = jest
+        .spyOn(productUnitService, "listUnits")
+        .mockReturnValue({ rows: [{ id: 1 } as any], total: 137 });
+
+      const res = await request(app)
+        .post("/api/product-units/list")
+        .set("x-test-role", "staff")
+        .send({
+          status: "SOLD",
+          defectiveOnly: true,
+          search: "  3569  ",
+          limit: 20,
+          offset: 40,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: true,
+        data: { rows: [{ id: 1 }], total: 137 },
+      });
+      // Zod trims `search`; validateRequest replaces req.body with the
+      // parsed value, so the route hands the service the SAME object shape
+      // the IPC handler does.
+      expect(spy).toHaveBeenCalledWith({
+        status: "SOLD",
+        defectiveOnly: true,
+        search: "3569",
+        limit: 20,
+        offset: 40,
+      });
+    });
+
+    it("applies the shared schema's 50/0 page defaults on an empty body", async () => {
+      const spy = jest
+        .spyOn(productUnitService, "listUnits")
+        .mockReturnValue({ rows: [], total: 0 });
+
+      const res = await request(app)
+        .post("/api/product-units/list")
+        .set("x-test-role", "staff")
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true, data: { rows: [], total: 0 } });
+      expect(spy).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+    });
+
+    it("rejects an out-of-range limit — rule 19c: HTTP 200 + string error, service never called", async () => {
+      const spy = jest.spyOn(productUnitService, "listUnits");
+
+      const res = await request(app)
+        .post("/api/product-units/list")
+        .set("x-test-role", "staff")
+        .send({ limit: 500 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(typeof res.body.error).toBe("string");
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unauthenticated request with no role header, never reaching the service", async () => {
+      const spy = jest.spyOn(productUnitService, "listUnits");
+
+      const res = await request(app)
+        .post("/api/product-units/list")
+        .send({ limit: 50, offset: 0 });
+
+      expect(res.status).toBe(401);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a service-level failure verbatim with HTTP 200", async () => {
+      jest.spyOn(productUnitService, "listUnits").mockImplementation(() => {
+        throw new Error("no such column: pu.bogus");
+      });
+
+      const res = await request(app)
+        .post("/api/product-units/list")
+        .set("x-test-role", "staff")
+        .send({ limit: 50, offset: 0 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        success: false,
+        error: "no such column: pu.bogus",
+      });
+    });
+  });
+
   describe("POST /api/product-units/summary", () => {
     it("returns the service's per-product rollup", async () => {
       jest.spyOn(productUnitService, "getSummaryForProducts").mockReturnValue({

@@ -112,6 +112,7 @@ import {
   type RefundUnitExtrasInput,
   registerProductUnitsSchema,
   productUnitsForProductSchema,
+  listProductUnitsSchema,
   productUnitsSummarySchema,
   productUnitIdSchema,
   unitStoryQuerySchema,
@@ -121,6 +122,7 @@ import {
   updateCategorySchema,
   type RegisterProductUnitsInput,
   type ProductUnitsForProductInput,
+  type ListProductUnitsInput,
   type ProductUnitsSummaryInput,
   type ProductUnitIdInput,
   type UnitStoryQueryInput,
@@ -1100,6 +1102,8 @@ export const RegisterProductUnitsSchema =
   registerProductUnitsSchema as unknown as z.ZodSchema<RegisterProductUnitsInput>;
 export const ProductUnitsForProductSchema =
   productUnitsForProductSchema as unknown as z.ZodSchema<ProductUnitsForProductInput>;
+export const ListProductUnitsSchema =
+  listProductUnitsSchema as unknown as z.ZodSchema<ListProductUnitsInput>;
 export const ProductUnitsSummarySchema =
   productUnitsSummarySchema as unknown as z.ZodSchema<ProductUnitsSummaryInput>;
 export const ProductUnitIdSchema =

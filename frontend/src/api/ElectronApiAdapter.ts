@@ -827,6 +827,8 @@ export class ElectronApiAdapter implements ApiAdapter {
       api.registerProductUnits(data),
     getForProduct: (productId: number, status?: "IN_STOCK" | "SOLD") =>
       api.getProductUnitsForProduct(productId, status),
+    list: (filters: api.ProductUnitListFiltersDto) =>
+      api.listProductUnits(filters),
     getSummary: (productIds: number[]) =>
       api.getProductUnitsSummary(productIds),
     delete: (unitId: number) => api.deleteProductUnit(unitId),

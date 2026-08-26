@@ -109,6 +109,8 @@ export type {
   WarrantyStatusInput,
   WarrantyStatus,
   UnitStoryWithWarranty,
+  UnitListRowWithWarranty,
+  UnitListResult,
   RegisterUnitsDrift,
   RegisterUnitsResult,
 } from "./ProductUnitService.js";

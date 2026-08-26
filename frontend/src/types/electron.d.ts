@@ -46,6 +46,50 @@ export interface ProductUnitStory extends ProductUnit {
   };
 }
 
+/** One row of the Phone Units management view: the unit's own columns, its
+ *  product model's name, the sale provenance it was last sold on, and the
+ *  computed warranty verdict. Every sale-side field is `null` for a unit
+ *  that has never been sold — `sale_refunded` included, which is how "never
+ *  sold" stays distinguishable from "sold and not refunded" (`0`). */
+export interface ProductUnitListRow {
+  id: number;
+  product_id: number;
+  imei: string;
+  status: "IN_STOCK" | "SOLD";
+  is_defective: number;
+  warranty_override_until: string | null;
+  created_at: string;
+  product_name: string;
+  sale_item_id: number | null;
+  sold_at: string | null;
+  sold_price_usd: number | null;
+  client_name: string | null;
+  warranty_until: string | null;
+  sale_refunded: 0 | 1 | null;
+  warranty: {
+    source: "OVERRIDE" | "REFUND" | "SALE" | null;
+    until: string | null;
+    state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
+  };
+}
+
+/** One page of {@link ProductUnitListRow}s plus the UNPAGED total over the
+ *  same filters — the pager's denominator. */
+export interface ProductUnitListResult {
+  rows: ProductUnitListRow[];
+  total: number;
+}
+
+/** Filter/page payload for the Phone Units management view.
+ *  `limit`/`offset` may be omitted — the shared Zod schema applies 50/0. */
+export interface ProductUnitListFilters {
+  status?: "IN_STOCK" | "SOLD";
+  defectiveOnly?: boolean;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
 /** A voucher / gift card */
 export interface Voucher {
   id: number;
@@ -2232,6 +2276,13 @@ export interface ElectronAPI {
       productId: number,
       status?: "IN_STOCK" | "SOLD",
     ) => Promise<{ success: boolean; data?: ProductUnit[]; error?: string }>;
+    /** The Phone Units management view — filtered, paginated, warranty-
+     *  stamped units across all products. */
+    list: (filters: ProductUnitListFilters) => Promise<{
+      success: boolean;
+      data?: ProductUnitListResult;
+      error?: string;
+    }>;
     getSummary: (productIds: number[]) => Promise<{
       success: boolean;
       data?: Record<number, ProductUnitSummary>;

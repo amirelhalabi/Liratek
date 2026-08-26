@@ -25,6 +25,53 @@ export type DebtorSummary = {
   total_debt_lbp: number;
 };
 
+/**
+ * LIRA-143 — one row of the Phone Units management view: the unit's own
+ * columns, its product model's name, the provenance of the sale it was last
+ * sold on, and the computed warranty verdict. Every sale-side field is
+ * `null` for a unit that has never been sold, `sale_refunded` included
+ * (which is what keeps "never sold" distinct from `0` = "sold, not
+ * refunded").
+ */
+export type ProductUnitListRow = {
+  id: number;
+  product_id: number;
+  imei: string;
+  status: "IN_STOCK" | "SOLD";
+  is_defective: number;
+  warranty_override_until: string | null;
+  created_at: string;
+  product_name: string;
+  sale_item_id: number | null;
+  sold_at: string | null;
+  sold_price_usd: number | null;
+  client_name: string | null;
+  warranty_until: string | null;
+  sale_refunded: 0 | 1 | null;
+  warranty: {
+    source: "OVERRIDE" | "REFUND" | "SALE" | null;
+    until: string | null;
+    state: "COVERED" | "EXPIRED" | "VOID" | "NONE";
+  };
+};
+
+/** One page of {@link ProductUnitListRow}s plus the UNPAGED total over the
+ *  same filters — the pager's denominator, not `rows.length`. */
+export type ProductUnitListResult = {
+  rows: ProductUnitListRow[];
+  total: number;
+};
+
+/** Filter/page payload for the Phone Units management view. `limit`/`offset`
+ *  may be omitted — the shared Zod schema applies 50/0 on both transports. */
+export type ProductUnitListFilters = {
+  status?: "IN_STOCK" | "SOLD";
+  defectiveOnly?: boolean;
+  search?: string;
+  limit?: number;
+  offset?: number;
+};
+
 /** LIRA-077 — one row of the `stock_adjustments` audit trail. */
 export type StockAdjustmentEntity = {
   id: number;
@@ -1543,11 +1590,14 @@ export type ApiAdapter = {
       productId: number,
       status?: "IN_STOCK" | "SOLD",
     ) => Promise<any[]>;
-    getSummary: (productIds: number[]) => Promise<
-      Record<
-        number,
-        { in_stock: number; sold: number; defective: number }
-      >
+    /** The Phone Units management view — filtered, paginated, warranty-
+     *  stamped units across all products. RAW read: resolves to
+     *  `{ rows, total }`, throws on failure. */
+    list: (filters: ProductUnitListFilters) => Promise<ProductUnitListResult>;
+    getSummary: (
+      productIds: number[],
+    ) => Promise<
+      Record<number, { in_stock: number; sold: number; defective: number }>
     >;
     delete: (unitId: number) => Promise<{ success: boolean; error?: string }>;
     getStory: (imei: string) => Promise<any[]>;

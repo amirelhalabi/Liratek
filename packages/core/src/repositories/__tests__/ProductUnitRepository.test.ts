@@ -678,6 +678,395 @@ describe("ProductUnitRepository", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // listUnits — the Phone Units management view read
+  // ---------------------------------------------------------------------------
+
+  describe("listUnits", () => {
+    /** Registers `imeis` on a product and returns the units, newest-first
+     *  (the order `listUnits` itself uses) for easy id assertions. */
+    function seedUnits(productId: number, imeis: string[]) {
+      const units = runWithTenant(1, () => repo.addUnits(productId, imeis));
+      return [...units].reverse();
+    }
+
+    it("orders pu.id DESC and reports the unpaged total alongside the page", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const newestFirst = seedUnits(productId, [
+        "100000000000001",
+        "100000000000002",
+        "100000000000003",
+        "100000000000004",
+        "100000000000005",
+      ]);
+
+      const page1 = runWithTenant(1, () =>
+        repo.listUnits({ limit: 2, offset: 0 }),
+      );
+      expect(page1.total).toBe(5);
+      expect(page1.rows.map((r) => r.id)).toEqual([
+        newestFirst[0].id,
+        newestFirst[1].id,
+      ]);
+
+      const page2 = runWithTenant(1, () =>
+        repo.listUnits({ limit: 2, offset: 2 }),
+      );
+      expect(page2.total).toBe(5); // total is UNPAGED — same on every page
+      expect(page2.rows.map((r) => r.id)).toEqual([
+        newestFirst[2].id,
+        newestFirst[3].id,
+      ]);
+
+      const page3 = runWithTenant(1, () =>
+        repo.listUnits({ limit: 2, offset: 4 }),
+      );
+      expect(page3.total).toBe(5);
+      expect(page3.rows.map((r) => r.id)).toEqual([newestFirst[4].id]);
+
+      // Past the end: empty page, total unchanged.
+      const page4 = runWithTenant(1, () =>
+        repo.listUnits({ limit: 2, offset: 6 }),
+      );
+      expect(page4.rows).toHaveLength(0);
+      expect(page4.total).toBe(5);
+    });
+
+    it("filters by status, and the total follows the SAME filter as the rows", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const units = runWithTenant(1, () =>
+        repo.addUnits(productId, [
+          "200000000000001",
+          "200000000000002",
+          "200000000000003",
+        ]),
+      );
+      runWithTenant(1, () => repo.markSold(units[0].id, 601));
+
+      const sold = runWithTenant(1, () =>
+        repo.listUnits({ status: "SOLD", limit: 50, offset: 0 }),
+      );
+      expect(sold.total).toBe(1);
+      expect(sold.rows.map((r) => r.id)).toEqual([units[0].id]);
+
+      const inStock = runWithTenant(1, () =>
+        repo.listUnits({ status: "IN_STOCK", limit: 50, offset: 0 }),
+      );
+      expect(inStock.total).toBe(2);
+      expect(inStock.rows.map((r) => r.id).sort()).toEqual(
+        [units[1].id, units[2].id].sort(),
+      );
+
+      // A page window smaller than the match set must NOT shrink the total.
+      const firstPage = runWithTenant(1, () =>
+        repo.listUnits({ status: "IN_STOCK", limit: 1, offset: 0 }),
+      );
+      expect(firstPage.rows).toHaveLength(1);
+      expect(firstPage.total).toBe(2);
+    });
+
+    it("narrows to defective units when defectiveOnly is true, and widens back when false/absent", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const units = runWithTenant(1, () =>
+        repo.addUnits(productId, ["300000000000001", "300000000000002"]),
+      );
+      db.prepare(
+        `UPDATE product_units SET is_defective = 1 WHERE id = ?`,
+      ).run(units[1].id);
+
+      const defective = runWithTenant(1, () =>
+        repo.listUnits({ defectiveOnly: true, limit: 50, offset: 0 }),
+      );
+      expect(defective.total).toBe(1);
+      expect(defective.rows.map((r) => r.id)).toEqual([units[1].id]);
+      expect(defective.rows[0].is_defective).toBe(1);
+
+      // false is "no defect filter", NOT "only healthy units".
+      const explicitFalse = runWithTenant(1, () =>
+        repo.listUnits({ defectiveOnly: false, limit: 50, offset: 0 }),
+      );
+      expect(explicitFalse.total).toBe(2);
+
+      const absent = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      expect(absent.total).toBe(2);
+    });
+
+    it("search LIKE-matches a partial IMEI", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const units = runWithTenant(1, () =>
+        repo.addUnits(productId, ["356938035643809", "356938035643810"]),
+      );
+
+      const hit = runWithTenant(1, () =>
+        repo.listUnits({ search: "43809", limit: 50, offset: 0 }),
+      );
+      expect(hit.total).toBe(1);
+      expect(hit.rows.map((r) => r.id)).toEqual([units[0].id]);
+
+      const both = runWithTenant(1, () =>
+        repo.listUnits({ search: "3569380356438", limit: 50, offset: 0 }),
+      );
+      expect(both.total).toBe(2);
+
+      const miss = runWithTenant(1, () =>
+        repo.listUnits({ search: "999999", limit: 50, offset: 0 }),
+      );
+      expect(miss.rows).toHaveLength(0);
+      expect(miss.total).toBe(0);
+    });
+
+    it("search LIKE-matches the product name too — and the COUNT(*) twin keeps the join, so the total agrees", () => {
+      const iphoneId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const galaxyId = insertProduct(db, { tenantId: 1, name: "Galaxy S23" });
+      const iphoneUnits = runWithTenant(1, () =>
+        repo.addUnits(iphoneId, ["400000000000001", "400000000000002"]),
+      );
+      const galaxyUnits = runWithTenant(1, () =>
+        repo.addUnits(galaxyId, ["400000000000003"]),
+      );
+
+      const galaxy = runWithTenant(1, () =>
+        repo.listUnits({ search: "galaxy", limit: 50, offset: 0 }),
+      );
+      expect(galaxy.total).toBe(1);
+      expect(galaxy.rows.map((r) => r.id)).toEqual([galaxyUnits[0].id]);
+      expect(galaxy.rows[0].product_name).toBe("Galaxy S23");
+
+      const iphone = runWithTenant(1, () =>
+        repo.listUnits({ search: "iPhone", limit: 50, offset: 0 }),
+      );
+      expect(iphone.total).toBe(2);
+      expect(iphone.rows.map((r) => r.id).sort()).toEqual(
+        [iphoneUnits[0].id, iphoneUnits[1].id].sort(),
+      );
+
+      // A whitespace-only search must NOT degenerate into LIKE '%%'-matches-
+      // everything with a bogus filter applied — it is dropped entirely.
+      const blank = runWithTenant(1, () =>
+        repo.listUnits({ search: "   ", limit: 50, offset: 0 }),
+      );
+      expect(blank.total).toBe(3);
+    });
+
+    it("combines status + search + defectiveOnly in one WHERE", () => {
+      const iphoneId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const galaxyId = insertProduct(db, { tenantId: 1, name: "Galaxy S23" });
+      const iphoneUnits = runWithTenant(1, () =>
+        repo.addUnits(iphoneId, ["500000000000001", "500000000000002"]),
+      );
+      runWithTenant(1, () => repo.addUnits(galaxyId, ["500000000000003"]));
+
+      // iPhone unit 0: SOLD + defective. iPhone unit 1: IN_STOCK + defective.
+      runWithTenant(1, () => repo.markSold(iphoneUnits[0].id, 701));
+      db.prepare(
+        `UPDATE product_units SET is_defective = 1 WHERE id IN (?, ?)`,
+      ).run(iphoneUnits[0].id, iphoneUnits[1].id);
+
+      const result = runWithTenant(1, () =>
+        repo.listUnits({
+          status: "SOLD",
+          defectiveOnly: true,
+          search: "iPhone",
+          limit: 50,
+          offset: 0,
+        }),
+      );
+      expect(result.total).toBe(1);
+      expect(result.rows.map((r) => r.id)).toEqual([iphoneUnits[0].id]);
+    });
+
+    it("joins the sale provenance for a sold unit (sold_at/sold_price_usd/client_name/warranty_until) and derives sale_refunded = 0", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const clientId = insertClient(db, 1, "Jane Doe");
+      const saleId = insertSale(db, 1, clientId);
+      const saleItemId = insertSaleItem(db, {
+        tenantId: 1,
+        saleId,
+        productId,
+        soldPriceUsd: 999.99,
+        warrantyUntil: "2027-01-01",
+      });
+      const [unit] = runWithTenant(1, () =>
+        repo.addUnits(productId, ["600000000000001"]),
+      );
+      runWithTenant(1, () => repo.markSold(unit.id, saleItemId));
+
+      const { rows, total } = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      expect(total).toBe(1);
+      const row = rows[0];
+      const saleCreatedAt = (
+        db.prepare(`SELECT created_at FROM sales WHERE id = ?`).get(saleId) as {
+          created_at: string;
+        }
+      ).created_at;
+
+      expect(row).toMatchObject({
+        id: unit.id,
+        product_id: productId,
+        imei: "600000000000001",
+        status: "SOLD",
+        is_defective: 0,
+        warranty_override_until: null,
+        product_name: "iPhone 13",
+        sale_item_id: saleItemId,
+        sold_at: saleCreatedAt,
+        sold_price_usd: 999.99,
+        client_name: "Jane Doe",
+        warranty_until: "2027-01-01",
+        sale_refunded: 0,
+      });
+      expect(typeof row.created_at).toBe("string");
+    });
+
+    it("derives sale_refunded = 1 from the is_refunded flag", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const saleId = insertSale(db, 1, null);
+      const saleItemId = insertSaleItem(db, {
+        tenantId: 1,
+        saleId,
+        productId,
+        isRefunded: true,
+        warrantyUntil: "2027-01-01",
+      });
+      const [unit] = runWithTenant(1, () =>
+        repo.addUnits(productId, ["700000000000001"]),
+      );
+      runWithTenant(1, () => repo.markSold(unit.id, saleItemId));
+
+      const { rows } = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      expect(rows[0].sale_refunded).toBe(1);
+      expect(rows[0].client_name).toBeNull(); // walk-in sale, no client
+    });
+
+    it("derives sale_refunded = 1 from refunded_quantity >= quantity even with is_refunded still 0", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const saleId = insertSale(db, 1, null);
+      const fullyRefunded = insertSaleItem(db, {
+        tenantId: 1,
+        saleId,
+        productId,
+        quantity: 2,
+        refundedQuantity: 2,
+        isRefunded: false,
+      });
+      const partiallyRefunded = insertSaleItem(db, {
+        tenantId: 1,
+        saleId,
+        productId,
+        quantity: 2,
+        refundedQuantity: 1,
+        isRefunded: false,
+      });
+      const units = runWithTenant(1, () =>
+        repo.addUnits(productId, ["800000000000001", "800000000000002"]),
+      );
+      runWithTenant(1, () => repo.markSold(units[0].id, fullyRefunded));
+      runWithTenant(1, () => repo.markSold(units[1].id, partiallyRefunded));
+
+      const { rows } = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      expect(byId.get(units[0].id)!.sale_refunded).toBe(1);
+      expect(byId.get(units[1].id)!.sale_refunded).toBe(0);
+    });
+
+    it("returns null sale fields — including sale_refunded — for a unit that was never sold", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const [unit] = runWithTenant(1, () =>
+        repo.addUnits(productId, ["900000000000001"]),
+      );
+
+      const { rows } = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      expect(rows[0]).toMatchObject({
+        id: unit.id,
+        product_name: "iPhone 13",
+        sale_item_id: null,
+        sold_at: null,
+        sold_price_usd: null,
+        client_name: null,
+        warranty_until: null,
+        // null, NOT 0 — "no sale to refund" is distinguishable from "sold
+        // and not refunded".
+        sale_refunded: null,
+      });
+    });
+
+    it("never shows tenant B's units to tenant A — rows AND total", () => {
+      const productA = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const productB = insertProduct(db, { tenantId: 2, name: "iPhone 13" });
+      const unitsA = runWithTenant(1, () =>
+        repo.addUnits(productA, ["110000000000001", "110000000000002"]),
+      );
+      const unitsB = runWithTenant(2, () =>
+        repo.addUnits(productB, [
+          "120000000000001",
+          "120000000000002",
+          "120000000000003",
+        ]),
+      );
+
+      const seenByA = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      expect(seenByA.total).toBe(2);
+      expect(seenByA.rows.map((r) => r.id).sort()).toEqual(
+        [unitsA[0].id, unitsA[1].id].sort(),
+      );
+
+      const seenByB = runWithTenant(2, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      expect(seenByB.total).toBe(3);
+      expect(seenByB.rows.map((r) => r.id).sort()).toEqual(
+        unitsB.map((u) => u.id).sort(),
+      );
+
+      // Tenant A searching for tenant B's IMEI finds nothing.
+      const crossSearch = runWithTenant(1, () =>
+        repo.listUnits({ search: "120000000000001", limit: 50, offset: 0 }),
+      );
+      expect(crossSearch.rows).toHaveLength(0);
+      expect(crossSearch.total).toBe(0);
+    });
+
+    it("does not leak another tenant's client/sale names through the join", () => {
+      // Tenant A's unit points at a sale line that belongs to tenant B (the
+      // corrupted-FK case the per-join tenant guards exist for).
+      const productA = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const clientB = insertClient(db, 2, "Tenant B Client");
+      const saleB = insertSale(db, 2, clientB);
+      const saleItemB = insertSaleItem(db, {
+        tenantId: 2,
+        saleId: saleB,
+        productId: productA,
+        soldPriceUsd: 500,
+        warrantyUntil: "2027-06-01",
+      });
+      const [unitA] = runWithTenant(1, () =>
+        repo.addUnits(productA, ["130000000000001"]),
+      );
+      runWithTenant(1, () => repo.markSold(unitA.id, saleItemB));
+
+      const { rows } = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      expect(rows[0].sale_item_id).toBe(saleItemB); // the raw pointer is kept
+      expect(rows[0].client_name).toBeNull();
+      expect(rows[0].sold_at).toBeNull();
+      expect(rows[0].sold_price_usd).toBeNull();
+      expect(rows[0].warranty_until).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // countInStock
   // ---------------------------------------------------------------------------
 

@@ -84,6 +84,61 @@ export interface UnitStory {
   client_name: string | null;
 }
 
+/**
+ * Filters for the Phone Units management view (`listUnits`). `limit`/
+ * `offset` are REQUIRED here — the Zod schema
+ * (`validators/productUnit.ts#listProductUnitsSchema`) supplies the
+ * 50/0 defaults at the transport door, so by the time a filter set reaches
+ * the repository the page window is always explicit.
+ */
+export interface UnitListFilters {
+  status?: ProductUnitStatus;
+  /** `true` narrows to `is_defective = 1`; `false`/absent means "no defect
+   *  filter" (NOT "only healthy units"). */
+  defectiveOnly?: boolean;
+  /** LIKE-matches the unit's IMEI OR its product's name. */
+  search?: string;
+  limit: number;
+  offset: number;
+}
+
+/**
+ * One row of the Phone Units management view: the unit's own columns plus
+ * the sale provenance it was last sold on (`sold_at`, `sold_price_usd`,
+ * `client_name`, `warranty_until`) and the derived {@link
+ * ProductUnitRepository.SALE_REFUNDED_EXPR} flag. Every sale-side field is
+ * `null` for a unit that has never been sold; `sale_refunded` is `null` in
+ * that case too (distinct from `0` = sold and NOT refunded).
+ *
+ * `product_name` is typed non-null because `product_units.product_id` is a
+ * NOT NULL FK to a same-tenant product row — the join is a LEFT JOIN only
+ * to keep it byte-identical to `getUnitStoryByImei`'s shape (both build
+ * from the same {@link ProductUnitRepository.UNIT_PROVENANCE_JOIN}).
+ */
+export interface UnitListRow {
+  id: number;
+  product_id: number;
+  imei: string;
+  status: ProductUnitStatus;
+  is_defective: number;
+  warranty_override_until: string | null;
+  created_at: string;
+  product_name: string;
+  sale_item_id: number | null;
+  sold_at: string | null;
+  sold_price_usd: number | null;
+  client_name: string | null;
+  warranty_until: string | null;
+  sale_refunded: 0 | 1 | null;
+}
+
+/** One page of {@link UnitListRow}s plus the unpaged total over the
+ *  IDENTICAL filter set (see `listUnits`). */
+export interface UnitListPage {
+  rows: UnitListRow[];
+  total: number;
+}
+
 export interface MarkInStockOptions {
   /** Overwrites `is_defective` only when provided (`undefined` leaves the
    *  existing flag untouched). */
@@ -115,6 +170,89 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
       "created_at",
       "updated_at",
     ].join(", ");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared SQL fragments (rule 14 — defined ONCE, reused)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Rule-14 single definition of the unit-provenance join: a unit, its
+   * product model, and — when it has ever been sold — the sale line, the
+   * sale, and the sale's client. Shared by `getUnitStoryByImei` (the
+   * walk-in lookup, decision #7) and `listUnits` (the Phone Units
+   * management view) plus that view's `COUNT(*)` twin, so all three see
+   * exactly the same row set.
+   *
+   * Every LEFT JOIN is tenant-guarded (`AND ….tenant_id = pu.tenant_id`) so
+   * a corrupted cross-tenant FK can never leak another tenant's product,
+   * sale, or client name through the join. Each join is on a PRIMARY KEY
+   * (`id`), so it can match at most one row — no query built on this
+   * fragment can multiply `product_units` rows, which is what makes the
+   * `COUNT(*)` twin's total exact.
+   *
+   * Aliases (`pu`, `p`, `si`, `s`, `c`) are part of the contract: any query
+   * interpolating this fragment must reference those names, and must supply
+   * `pu.tenant_id = ?` itself (the fragment introduces NO `?` of its own).
+   */
+  private static readonly UNIT_PROVENANCE_JOIN = `FROM product_units pu
+         LEFT JOIN products p ON p.id = pu.product_id AND p.tenant_id = pu.tenant_id
+         LEFT JOIN sale_items si ON si.id = pu.sale_item_id AND si.tenant_id = pu.tenant_id
+         LEFT JOIN sales s ON s.id = si.sale_id AND s.tenant_id = pu.tenant_id
+         LEFT JOIN clients c ON c.id = s.client_id AND c.tenant_id = pu.tenant_id`;
+
+  /**
+   * Rule-14 single definition of "this unit's sale was refunded", the SQL
+   * twin of `ProductUnitService`'s `isSaleRefunded` predicate: the sale
+   * line's own `is_refunded` flag OR a fully-refunded quantity
+   * (`refunded_quantity >= quantity`, quantity may be 1). `NULL` — not `0`
+   * — when the unit has never been sold, so the caller can tell "no sale to
+   * refund" apart from "sold and not refunded". Requires the
+   * {@link UNIT_PROVENANCE_JOIN} aliases (`pu`, `si`).
+   */
+  private static readonly SALE_REFUNDED_EXPR = `CASE
+             WHEN pu.sale_item_id IS NULL THEN NULL
+             WHEN COALESCE(si.is_refunded, 0) <> 0 THEN 1
+             WHEN si.quantity > 0 AND COALESCE(si.refunded_quantity, 0) >= si.quantity THEN 1
+             ELSE 0
+           END`;
+
+  /**
+   * Translate a {@link UnitListFilters} set into the ONE `WHERE` clause
+   * that both of `listUnits`' queries use — the page read and its
+   * `COUNT(*)` twin — so the total can never disagree with the rows
+   * (rule 14: the filter predicate is written once, never pasted into the
+   * second query). Always emits `pu.tenant_id = ?` first, so the returned
+   * params are already correctly ordered for the caller.
+   *
+   * `defectiveOnly: false` is treated as absent (no defect predicate),
+   * NOT as "only healthy units" — the UI's checkbox is a narrowing filter,
+   * so unchecking it must widen back to everything. `search` is trimmed and
+   * an empty result is dropped, so `search: "   "` never degenerates into a
+   * `LIKE '%%'` that matches every row by accident.
+   */
+  private static buildUnitListWhere(
+    tenantId: number,
+    filters: UnitListFilters,
+  ): { sql: string; params: unknown[] } {
+    const clauses = ["pu.tenant_id = ?"];
+    const params: unknown[] = [tenantId];
+
+    if (filters.status) {
+      clauses.push("pu.status = ?");
+      params.push(filters.status);
+    }
+    if (filters.defectiveOnly) {
+      clauses.push("pu.is_defective = 1");
+    }
+    const search = filters.search?.trim();
+    if (search) {
+      clauses.push("(pu.imei LIKE ? OR p.name LIKE ?)");
+      const term = `%${search}%`;
+      params.push(term, term);
+    }
+
+    return { sql: `WHERE ${clauses.join(" AND ")}`, params };
   }
 
   // ---------------------------------------------------------------------------
@@ -359,9 +497,10 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
    * matching `imei` exactly, regardless of status, newest unit first
    * (`id DESC` — same second-granularity reasoning as `transactions.
    * created_at`, rule 15: two units created in the same second would sort
-   * arbitrarily on `created_at` alone). LEFT JOINs are all tenant-guarded
-   * (`AND ... .tenant_id = pu.tenant_id`) so a corrupted cross-tenant FK can
-   * never leak another tenant's product/sale/client name through the join.
+   * arbitrarily on `created_at` alone). The joins come from the shared
+   * {@link ProductUnitRepository.UNIT_PROVENANCE_JOIN} fragment (rule 14) —
+   * every one of them tenant-guarded, so a corrupted cross-tenant FK can
+   * never leak another tenant's product/sale/client name.
    */
   getUnitStoryByImei(imei: string): UnitStory[] {
     const tenantId = getCurrentTenantId();
@@ -381,15 +520,62 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
            s.created_at AS sold_at,
            s.client_id AS client_id,
            c.full_name AS client_name
-         FROM product_units pu
-         LEFT JOIN products p ON p.id = pu.product_id AND p.tenant_id = pu.tenant_id
-         LEFT JOIN sale_items si ON si.id = pu.sale_item_id AND si.tenant_id = pu.tenant_id
-         LEFT JOIN sales s ON s.id = si.sale_id AND s.tenant_id = pu.tenant_id
-         LEFT JOIN clients c ON c.id = s.client_id AND c.tenant_id = pu.tenant_id
+         ${ProductUnitRepository.UNIT_PROVENANCE_JOIN}
          WHERE pu.tenant_id = ? AND pu.imei = ?
          ORDER BY pu.id DESC`,
       )
       .all(tenantId, imei) as UnitStory[];
+  }
+
+  /**
+   * The Phone Units management view read: one filtered, paginated page of
+   * units across ALL products, newest unit first (`pu.id DESC` — same
+   * second-granularity reasoning as `getUnitStoryByImei`, rule 15), plus
+   * the unpaged `total` for the pager.
+   *
+   * `total` is a `COUNT(*)` over the IDENTICAL join + `WHERE` (both built
+   * from {@link ProductUnitRepository.UNIT_PROVENANCE_JOIN} and
+   * {@link ProductUnitRepository.buildUnitListWhere}, never a second
+   * hand-written predicate) — that is what makes "showing 20 of 137"
+   * trustworthy. The join needs to be present in the count query too, not
+   * just the page query: `search` matches `p.name`, so dropping the join
+   * there would break the filter, not merely slow it down.
+   *
+   * Tenant-scoped through `buildUnitListWhere`'s leading
+   * `pu.tenant_id = ?` plus the per-join tenant guards.
+   */
+  listUnits(filters: UnitListFilters): UnitListPage {
+    const tenantId = getCurrentTenantId();
+    const where = ProductUnitRepository.buildUnitListWhere(tenantId, filters);
+
+    const rows = this.db
+      .prepare(
+        `SELECT
+           pu.id, pu.product_id, pu.imei, pu.status, pu.is_defective,
+           pu.warranty_override_until, pu.created_at,
+           p.name AS product_name,
+           pu.sale_item_id,
+           s.created_at AS sold_at,
+           si.sold_price_usd AS sold_price_usd,
+           c.full_name AS client_name,
+           si.warranty_until AS warranty_until,
+           ${ProductUnitRepository.SALE_REFUNDED_EXPR} AS sale_refunded
+         ${ProductUnitRepository.UNIT_PROVENANCE_JOIN}
+         ${where.sql}
+         ORDER BY pu.id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...where.params, filters.limit, filters.offset) as UnitListRow[];
+
+    const totalRow = this.db
+      .prepare(
+        `SELECT COUNT(*) AS total
+         ${ProductUnitRepository.UNIT_PROVENANCE_JOIN}
+         ${where.sql}`,
+      )
+      .get(...where.params) as { total: number };
+
+    return { rows, total: totalRow.total };
   }
 
   // ---------------------------------------------------------------------------

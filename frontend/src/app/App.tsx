@@ -14,6 +14,9 @@ import Dashboard from "@/features/dashboard/pages/Dashboard";
 const ProductList = lazy(
   () => import("@/features/inventory/pages/Inventory/ProductList"),
 );
+const PhoneUnits = lazy(
+  () => import("@/features/inventory/pages/PhoneUnits"),
+);
 const ClientList = lazy(
   () => import("@/features/clients/pages/Clients/ClientList"),
 );
@@ -193,6 +196,16 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <ProductList />
+            </ProtectedRoute>
+          }
+        />
+        {/* LIRA-143 — the shop-wide IMEI register. Reached from the Inventory
+            header, not the sidebar (no nav entry by design). */}
+        <Route
+          path="/inventory/units"
+          element={
+            <ProtectedRoute>
+              <PhoneUnits />
             </ProtectedRoute>
           }
         />

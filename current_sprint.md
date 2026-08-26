@@ -2105,6 +2105,30 @@ both fixed same-day with failing-first regression tests:
   projects onto a REST-created product. UI affordance only, no backend gate — but a real
   dual-transport parity gap; documented in lira-web-023's header comment.
 
+### Phone Units management view (owner-requested follow-up, built 2026-08-26)
+
+Dedicated view at `/inventory/units` (button on the Inventory page — the button itself
+shipped early inside LIRA-144's 44eb2d17 via the shared working tree; this build adds the
+route/page that makes it live). Built by a 7-agent workflow (2 parallel implementers +
+integrator + 3 adversarial verifiers + fixer): `product-units:list` + `POST
+/api/product-units/list` (one Zod schema, envelope/role parity, rows + COUNT share ONE
+extracted WHERE — mutation-proven), page with status/defective/search filters, pagination,
+story-card row expand, IN_STOCK delete. The story join was extracted into a shared
+`UNIT_PROVENANCE_JOIN` used by both the walk-in lookup and the list (rule 14). One BLOCKER
+found and fixed failing-first (mount-armed debounce cancelled pagination clicks; 5/5 full
+runs stable after). e2e: management-view step appended to lira-143 spec.
+
+**Follow-ups from the adversarial pass (MINOR/NOTE, none blocking, owner to prioritize):**
+- `search` does not escape LIKE metacharacters — a typed `%`/`_` acts as a wildcard.
+- Excel/PDF export on the server-paginated table exports only the visible page.
+- `electron-app/handlers/__tests__/` runs under NO jest runner and no CI job (pre-existing —
+  affects all 20+ handler tests, not just the new ones); CI also never runs core's jest.
+- Units of soft-deleted/deactivated products still appear in the register (arguably correct
+  for history; flagging for a deliberate decision).
+- A partially-refunded multi-IMEI legacy line can show its returned unit as COVERED
+  (impossible under the qty-1 rule; only hand-crafted data).
+- Web-mode execution proof for the new page is REST-route-level only (house convention).
+
 ### Technical traps (from the diagnosis)
 
 - `sale_items.imei` already exists — the unit link must WRITE it (keep receipts/old readers
