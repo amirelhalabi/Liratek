@@ -24,7 +24,11 @@ import {
 } from "../constants/transactionTypes.js";
 import { BaseRepository, type BaseEntity } from "./BaseRepository.js";
 import { getRateRepository } from "./RateRepository.js";
-import { DatabaseError, NotFoundError } from "../utils/errors.js";
+import {
+  BusinessRuleError,
+  DatabaseError,
+  NotFoundError,
+} from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { applyDrawerDelta, insertPaymentRow } from "./moneyPosting.js";
 import { allocateFifo } from "../utils/fifoCoverage.js";
@@ -1342,6 +1346,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         { entityId: id },
       );
     }
+    // Owner decision 2026-08-26 — refuse a WHOLE-sale void once any of the
+    // sale's lines has been item-refunded. Placed AFTER the two guards above
+    // so an already-voided/already-refunded transaction still gets its own
+    // (more specific) message. See `_assertNoPartialItemRefunds`.
+    this._assertNoPartialItemRefunds(original);
 
     return this.transaction(() => {
       // 1. Mark original as VOIDED
@@ -1570,6 +1579,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         entityId: id,
       });
     }
+
+    // Owner decision 2026-08-26 — refuse a WHOLE-sale refund once any of the
+    // sale's lines has been item-refunded. Same placement rationale as
+    // voidTransaction's identical step (after the double-refund guard, so the
+    // more specific message wins). See `_assertNoPartialItemRefunds`.
+    this._assertNoPartialItemRefunds(original);
 
     // LIRA-078: validate the operator's chosen return method(s) BEFORE any
     // row is written — a throw here never enters this.transaction(), so a
@@ -2127,6 +2142,102 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     throw new DatabaseError(
       "Cannot void/refund — this exchange's acquired currency has already been partially or fully sold; void the consuming sell transaction(s) first.",
       { entityId: original.id },
+    );
+  }
+
+  /**
+   * Owner decision 2026-08-26 — refuse a WHOLE-sale void/refund up-front
+   * (before any write) when ANY of the sale's lines has already been refunded
+   * individually via `SalesRepository.refundSaleItem`.
+   *
+   * ## The money bug
+   *
+   * `refundSaleItem` refunds ONE line: it pro-rates the original tender
+   * (`lineShareOfSale = refundAmount / sales.total_amount_usd` — the line's
+   * share of the sale's PRE-discount total) across the SALE's
+   * payment legs and debits the drawers by that share. The REFUND row it
+   * writes deliberately carries NO `reverses_id` — it is a standalone row,
+   * not a reversal of the SALE — so the double-refund guard immediately above
+   * this call (`reverses_id = <sale txn> AND type = 'REFUND'`) never saw item
+   * refunds at all. A whole-sale void/refund then mirrors the original's FULL
+   * legs through `_reversePayments`, handing back the entire tender INCLUDING
+   * the share already returned. Probe-proven on a $30 sale (3 x $10): a $10
+   * item refund followed by a whole refund moved $40 out of the drawer, and
+   * the void path did the same.
+   *
+   * The stock/unit halves of that same sequence were already fixed in place
+   * (`_restoreStock` restores `quantity - refunded_quantity`;
+   * `_reverseProductUnits` only touches units still `SOLD`) — the MONEY half
+   * had no such netting, which is what made the drawer the only ledger that
+   * went wrong.
+   *
+   * ## Why block rather than pro-rate (the alternative NOT taken)
+   *
+   * The money twin of `_restoreStock`'s netting would be to reverse only the
+   * un-refunded remainder of each leg. Rejected by the owner: that remainder
+   * is not reconstructible from the rows. An item refund's legs are a RATIO
+   * of the original tender spread over every method/drawer/currency the
+   * customer used, and LIRA-078's `refundLegs` overrides let the operator
+   * hand money back through a DIFFERENT method than it came in on — so
+   * "net out what's left" would have to guess which drawer still owes what,
+   * and a wrong guess is a silent cash error instead of a visible refusal.
+   * The per-item path refunds the remaining lines exactly and is itself
+   * reversible, so no capability is lost — only the one-click shortcut.
+   *
+   * "Exactly" is load-bearing here — this guard makes the per-item route the
+   * ONLY sanctioned one — and it was NOT true when this decision was taken.
+   * `refundSaleItem` divided the leg ratio by `originalTxn.amount_usd`, the
+   * POST-discount final, while its numerator is the line's PRE-discount value:
+   * on a discounted sale the per-line shares summed to total/final > 1, so
+   * refunding every line individually handed back the full pre-discount price
+   * against a discounted tender — over by exactly the discount, in every
+   * currency leg, and over-cancelling an on-account sale's debt into a phantom
+   * credit of the same size. Fixed by pro-rating on `sales.total_amount_usd`
+   * (the base the same function's PROFIT arm already used correctly), which
+   * makes line-by-line refunding of a discounted sale net every ledger to 0.
+   * Proven by `SalesRepository.discountItemRefundTender.test.ts` (failing-first
+   * on the old denominator: $27 tender, $30 returned; 810,000 LBP tender,
+   * 900,000 returned; $54 debt, $60 cancelled).
+   *
+   * ## Scope
+   *
+   * A no-op for every non-`sales` transaction (short-circuits before any
+   * query), and for a sale whose lines are all untouched — which is every
+   * ordinary void/refund, so the common path is byte-identical to before.
+   *
+   * A FULLY refunded sale is not this guard's job: whether it got there by a
+   * whole-sale refund (which stamps `reverses_id`, caught by the double-
+   * refund guard) or by item-refunding every line (which leaves
+   * `sales.status = 'refunded'`), the existing guards and `refundSaleItem`'s
+   * own "Cannot refund items from a fully refunded sale" already close it.
+   * This predicate happens to cover the all-lines-item-refunded case too,
+   * which is correct — it is the same double-refund.
+   *
+   * The `is_refunded` half of the predicate is a legacy net, not the main
+   * event: the ONLY writer of `sale_items.is_refunded = 1` is the whole-sale
+   * refund path (which stamps every line at once, and stamps `reverses_id` on
+   * the transaction), so on any DB written by current code the
+   * `refunded_quantity > 0` half is what fires. It catches a pre-v44 row
+   * (before `refunded_quantity` existed) whose transaction link was lost —
+   * blocking a reversal there is the safe direction.
+   */
+  private _assertNoPartialItemRefunds(original: TransactionEntity): void {
+    if (original.source_table !== "sales" || original.source_id == null) {
+      return;
+    }
+    const partial = this.queryOne<{ id: number }>(
+      `SELECT id FROM sale_items
+        WHERE sale_id = ? AND tenant_id = ?
+          AND (COALESCE(refunded_quantity, 0) > 0
+               OR (COALESCE(is_refunded, 0) <> 0
+                   AND COALESCE(refunded_quantity, 0) < quantity))
+        LIMIT 1`,
+      original.source_id,
+      getCurrentTenantId(),
+    );
+    if (!partial) return;
+    throw new BusinessRuleError(
+      "This sale was partially refunded — refund the remaining items individually from the sale detail (a whole-sale refund would double-refund the already-returned items)",
     );
   }
 
@@ -2743,8 +2854,16 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * of the WHOLE sale calling this method would then re-add the FULL
    * `quantity` on top, double-crediting the already-returned units back to
    * stock. Floored at 0 (`Math.max`) so a defensive/duplicate call
-   * (`refunded_quantity >= quantity`, which can't happen through the normal
-   * refundSaleItem guard but costs nothing to floor) can never push stock up.
+   * (`refunded_quantity >= quantity`) can never push stock up.
+   *
+   * As of the owner's 2026-08-26 decision this netting is defence-in-depth
+   * rather than the load-bearing fix: `_assertNoPartialItemRefunds` now
+   * refuses the whole-sale void/refund outright when any line carries a
+   * `refunded_quantity`, so neither caller can reach this method with a
+   * nonzero one. Deliberately KEPT — it costs one subtraction, it is the only
+   * thing standing between legacy/hand-repaired rows and an inflated stock
+   * count, and removing it would make the netting depend on a guard living
+   * 700 lines away.
    */
   private _restoreStock(saleId: number): void {
     const tenantId = getCurrentTenantId();

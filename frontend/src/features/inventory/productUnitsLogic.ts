@@ -108,50 +108,180 @@ export function warrantyBadgeInfo(warranty: WarrantyStatus): {
   }
 }
 
-/**
- * What a unit's Warranty cell actually shows — {@link warrantyBadgeInfo}'s
- * verdict for every unit EXCEPT unsold stock of a model that carries a
- * warranty term, which gets the term instead of "No warranty".
- *
- * Why this exists (owner-reported 2026-08-26): the warranty CLOCK starts at
- * the SALE (decision #4 — `sale_items.warranty_until` is stamped at
- * checkout), so an IN_STOCK unit has no coverage yet and
- * `computeWarrantyStatus` correctly returns `NONE`. Rendering that as "No
- * warranty" told the operator something false about a 6-month model's fresh
- * stock. The fix is display-only and stays strictly inside the `NONE` branch:
- *
- *   - `NONE` + `IN_STOCK` + a model term  -> "N mo — starts at sale" (sky:
- *     informative, deliberately NOT the emerald of real coverage, because
- *     nothing is covered yet).
- *   - `NONE` + `IN_STOCK` + no model term -> "No warranty" (unchanged — the
- *     honest answer for a model that grants none).
- *   - Anything SOLD, or any OVERRIDE/VOID/COVERED/EXPIRED verdict ->
- *     `warrantyBadgeInfo` verbatim. A unit sold BEFORE its model gained a
- *     term stamped no `warranty_until`, and the model's term must never
- *     retroactively imply that sale carried one.
- *
- * `months <= 0` (or a null/absent column) counts as no term, so the form's
- * `min={0}` and the DB's NULL both land on "No warranty".
- *
- * Shared by the Phone Units table and `ImeiStoryCard` so both surfaces can
- * never disagree about one unit (rule 14).
- */
-export function warrantyDisplayBadge(input: {
+/** The inputs both surface mappings below need: the computed verdict, the
+ *  unit's stock status, and the owning MODEL's term. */
+export interface WarrantyBadgeInput {
   warranty: WarrantyStatus;
   status: "IN_STOCK" | "SOLD";
   /** The owning MODEL's `products.warranty_months` — a term, not coverage. */
   productWarrantyMonths: number | null;
-}): WarrantyBadge {
-  const months = input.productWarrantyMonths ?? 0;
+}
+
+/** "N mo — starts at sale" in sky: informative, deliberately NOT the emerald
+ *  of real coverage, because nothing is covered yet. */
+function termBadge(months: number): WarrantyBadge {
+  return {
+    label: `${months} mo — starts at sale`,
+    className: "bg-sky-500/10 text-sky-400 border-sky-500/30",
+  };
+}
+
+/** A model term is present only when it is a positive number of months —
+ *  `null` (no column value) and `0` (the form's `min`) both mean "none". */
+function modelTermMonths(input: WarrantyBadgeInput): number {
+  return input.productWarrantyMonths ?? 0;
+}
+
+/**
+ * ── SURFACE 1 of 2: the Phone Units TABLE cell (FORWARD-looking) ───────────
+ *
+ * The register answers "what does this unit carry from here on?", so for a
+ * unit sitting IN STOCK it shows the term the NEXT sale will stamp rather
+ * than a verdict about a sale that is over.
+ *
+ * Why the `NONE` half exists (owner-reported 2026-08-26): the warranty CLOCK
+ * starts at the SALE (decision #4 — `sale_items.warranty_until` is stamped at
+ * checkout), so an IN_STOCK unit has no coverage yet and
+ * `computeWarrantyStatus` correctly returns `NONE`. Rendering that as "No
+ * warranty" told the operator something false about a 6-month model's fresh
+ * stock.
+ *
+ * Why the `VOID` half exists (owner decision, 2026-08-27): a refund voids the
+ * warranty of the sale it reverses AND puts the unit back on the shelf. The
+ * verdict `VOID` is the truth about that finished sale, but on a shelved unit
+ * it reads as "this phone has no warranty" — false, since selling it again
+ * stamps the model's full term. Both branches are therefore the same rule:
+ * *an in-stock unit's warranty is a promise about its next sale.*
+ *
+ *   - (`NONE` | `VOID`) + `IN_STOCK` + a model term -> "N mo — starts at sale"
+ *   - (`NONE` | `VOID`) + `IN_STOCK` + no model term -> `warrantyBadgeInfo`
+ *     verbatim ("No warranty" / "Void (refunded)") — the honest answer for a
+ *     model that grants none.
+ *   - `COVERED` / `EXPIRED` on an IN_STOCK unit -> verbatim. These can only
+ *     come from an operator OVERRIDE on a shelved unit, which is a deliberate
+ *     statement about THIS unit and must outrank the model's default.
+ *   - Anything SOLD -> verbatim, always. A unit sold BEFORE its model gained
+ *     a term stamped no `warranty_until`, and the model's term must never
+ *     retroactively imply that sale carried one.
+ *
+ * NOT for the story card — see {@link warrantyStoryBadge}. A third surface
+ * must pick one of the two deliberately, never default to this one.
+ */
+export function warrantyDisplayBadge(input: WarrantyBadgeInput): WarrantyBadge {
+  const months = modelTermMonths(input);
+  const forwardLooking =
+    input.warranty.state === "NONE" || input.warranty.state === "VOID";
+  if (forwardLooking && input.status === "IN_STOCK" && months > 0) {
+    return termBadge(months);
+  }
+  return warrantyBadgeInfo(input.warranty);
+}
+
+/**
+ * ── SURFACE 2 of 2: `ImeiStoryCard` (BACKWARD-looking) ─────────────────────
+ *
+ * The story card is this unit's provenance — product, sale, client, and what
+ * happened to the warranty of that sale. It therefore keeps the TRUE verdict
+ * including `VOID`: "Void (refunded)" is exactly the fact the operator opened
+ * the card to learn, and hiding it behind the model's term would erase the
+ * refund from the one surface whose job is to show it.
+ *
+ * Diverges from {@link warrantyDisplayBadge} in exactly one pair — `VOID` +
+ * `IN_STOCK` — and is otherwise identical: `NONE` + `IN_STOCK` + a term still
+ * reads "N mo — starts at sale", because `NONE` records no past event to
+ * preserve (nothing ever happened to this unit's warranty), so the forward
+ * statement is also the complete backward one.
+ */
+export function warrantyStoryBadge(input: WarrantyBadgeInput): WarrantyBadge {
+  const months = modelTermMonths(input);
   if (
     input.warranty.state === "NONE" &&
     input.status === "IN_STOCK" &&
     months > 0
   ) {
-    return {
-      label: `${months} mo — starts at sale`,
-      className: "bg-sky-500/10 text-sky-400 border-sky-500/30",
-    };
+    return termBadge(months);
   }
   return warrantyBadgeInfo(input.warranty);
+}
+
+// =============================================================================
+// Product-delete confirmation copy (owner decision #7 — inform, never block)
+// =============================================================================
+
+/** How many IMEIs a single product spells out before the message truncates.
+ *  A confirm dialog that scrolls is a confirm dialog nobody reads. */
+export const UNIT_DELETE_IMEI_PREVIEW_MAX = 12;
+
+/** One product about to be deleted, with the `IN_STOCK` IMEIs found for it. */
+export interface UnitDeleteEntry {
+  name?: string | null;
+  /** The product's `IN_STOCK` IMEIs. Empty when it has none registered. */
+  imeis: string[];
+}
+
+/**
+ * The extra paragraph the product-delete confirm shows when the product(s)
+ * being deleted still hold registered `IN_STOCK` units — the cascade removes
+ * those `product_units` rows too, so the operator is told the count and the
+ * actual IMEIs BEFORE confirming.
+ *
+ * Returns `null` when there is nothing to disclose (no entry has a unit and
+ * nothing failed to check) — the caller then shows its existing message
+ * unchanged, so a normal grocery-item delete is exactly as it was.
+ *
+ * `probeFailed` is the honest half: the units are fetched per product, and a
+ * failed fetch must NOT be reported as "no units" (a silent under-count on a
+ * destructive dialog). It adds a line saying the check was incomplete.
+ */
+export function buildUnitDeleteWarning(
+  entries: UnitDeleteEntry[],
+  probeFailed = false,
+): string | null {
+  const withUnits = entries.filter((e) => e.imeis.length > 0);
+  const totalImeis = withUnits.reduce((sum, e) => sum + e.imeis.length, 0);
+
+  if (totalImeis === 0) {
+    return probeFailed
+      ? "Some products could not be checked for registered IMEIs — any that exist will be removed too."
+      : null;
+  }
+
+  const plural = totalImeis === 1 ? "" : "s";
+  const lines: string[] = [];
+
+  if (entries.length === 1) {
+    lines.push(
+      `Deleting this product also removes ${totalImeis} registered in-stock IMEI${plural}: ${formatImeiList(
+        withUnits[0]!.imeis,
+      )}`,
+    );
+  } else {
+    lines.push(
+      `Deleting these products also removes ${totalImeis} registered in-stock IMEI${plural} across ${withUnits.length} product${
+        withUnits.length === 1 ? "" : "s"
+      }:`,
+    );
+    for (const entry of withUnits) {
+      const label = entry.name?.trim() ? entry.name.trim() : "Unnamed product";
+      lines.push(
+        `• ${label} (${entry.imeis.length}): ${formatImeiList(entry.imeis)}`,
+      );
+    }
+  }
+
+  if (probeFailed) {
+    lines.push(
+      "Some products could not be checked for registered IMEIs — any that exist will be removed too.",
+    );
+  }
+
+  return lines.join("\n");
+}
+
+/** Comma-joined IMEIs, truncated past {@link UNIT_DELETE_IMEI_PREVIEW_MAX}. */
+function formatImeiList(imeis: string[]): string {
+  if (imeis.length <= UNIT_DELETE_IMEI_PREVIEW_MAX) return imeis.join(", ");
+  const shown = imeis.slice(0, UNIT_DELETE_IMEI_PREVIEW_MAX);
+  const hidden = imeis.length - shown.length;
+  return `${shown.join(", ")} … and ${hidden} more`;
 }

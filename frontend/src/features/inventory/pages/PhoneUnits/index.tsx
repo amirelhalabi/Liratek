@@ -4,26 +4,43 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  FileSpreadsheet,
+  FileText,
   Search,
   Smartphone,
   Trash2,
 } from "lucide-react";
-import { DataTable, PageHeader, Select, appEvents } from "@liratek/ui";
+import {
+  DataTable,
+  PageHeader,
+  Select,
+  appEvents,
+  exportToExcel,
+  exportToPdf,
+  useApi,
+} from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { ImeiStoryCard } from "../../components/ImeiStoryCard";
 import { warrantyDisplayBadge } from "../../productUnitsLogic";
 import {
+  fetchAllUnitsForExport,
   useDeleteUnitMutation,
   useUnitListQuery,
   useUnitStoryQuery,
   type UnitListRowWithWarranty,
 } from "../../hooks/useProductUnits";
 import {
+  PHONE_UNITS_EXPORT_MAX_ROWS,
+  PHONE_UNITS_EXPORT_PAGE_SIZE,
   PHONE_UNITS_PAGE_SIZE,
   PHONE_UNITS_SEARCH_DEBOUNCE_MS,
   PHONE_UNITS_SEARCH_MAX,
+  buildUnitExportTable,
   buildUnitListFilters,
   computePageRange,
+  exportCapConfirmMessage,
+  phoneUnitsExportFilename,
+  planExportFetch,
   unitStatusBadgeClass,
   type PhoneUnitsStatusFilter,
 } from "./phoneUnitsLogic";
@@ -48,6 +65,7 @@ const STATUS_OPTIONS = [
  */
 export default function PhoneUnits() {
   const navigate = useNavigate();
+  const api = useApi();
 
   // ── Filter state ───────────────────────────────────────────────────────
   const [status, setStatus] = useState<PhoneUnitsStatusFilter>("");
@@ -133,6 +151,83 @@ export default function PhoneUnits() {
     setExpandedImei((prev) => (prev === imei ? null : imei));
   };
 
+  // ── Export ALL filtered rows (owner item #6) ───────────────────────────
+  // This page paginates SERVER-side, so `DataTable`'s own export bar — which
+  // builds its file from the `data` prop it was handed — would have written
+  // whatever 25 rows happened to be on screen. Its buttons are therefore
+  // switched off (`exportExcel`/`exportPdf` omitted below, `showRowCount`
+  // kept so the count label still renders) and the page drives the same house
+  // writers (`exportToExcel`/`exportToPdf`) itself, after looping the list
+  // endpoint for every row matching the CURRENT filters.
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
+
+  const handleExport = async (kind: "excel" | "pdf") => {
+    if (exporting || total === 0) return;
+
+    // `total` is the server's COUNT(*) over these exact filters — the same
+    // number the pager labels itself with — so the cap decision is made
+    // BEFORE any fetching, and a cancel costs zero requests.
+    if (
+      total > PHONE_UNITS_EXPORT_MAX_ROWS &&
+      !confirm(exportCapConfirmMessage(total))
+    ) {
+      return;
+    }
+
+    setExporting(kind);
+    try {
+      const plan = planExportFetch(total);
+      // The SAME builder the on-screen query uses, so the export can never
+      // apply a different filter set than the table it came from — only the
+      // page size differs (200, the contract's ceiling).
+      const { limit: _limit, offset: _offset, ...base } = buildUnitListFilters({
+        status,
+        defectiveOnly,
+        search,
+        page: 0,
+        pageSize: PHONE_UNITS_EXPORT_PAGE_SIZE,
+      });
+
+      const { rows: allRows, capped } = await fetchAllUnitsForExport(
+        (filters) => api.productUnits.list(filters),
+        base,
+        plan,
+      );
+
+      if (allRows.length === 0) {
+        appEvents.emit(
+          "notification:show",
+          "Nothing to export — no units match these filters.",
+          "info",
+        );
+        return;
+      }
+
+      const filename = phoneUnitsExportFilename();
+      const table = buildUnitExportTable(allRows);
+      if (kind === "excel") exportToExcel(table, filename);
+      else exportToPdf(table, filename);
+
+      if (capped) {
+        appEvents.emit(
+          "notification:show",
+          `Exported the first ${PHONE_UNITS_EXPORT_MAX_ROWS.toLocaleString()} of ${total.toLocaleString()} matching units.`,
+          "warning",
+        );
+      }
+    } catch (err) {
+      appEvents.emit(
+        "notification:show",
+        err instanceof Error ? err.message : "Failed to export units",
+        "error",
+      );
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const exportDisabled = exporting !== null || isLoading || total === 0;
+
   // ── Delete (IN_STOCK only) ─────────────────────────────────────────────
   // No productId in hand here — the mutation invalidates the list prefix, so
   // the current page refetches regardless.
@@ -170,15 +265,43 @@ export default function PhoneUnits() {
         title="Phone Units"
         subtitle="Every registered IMEI — stock status, sale, and warranty"
         actions={
-          <button
-            type="button"
-            data-testid="phone-units-back"
-            onClick={() => navigate("/products")}
-            className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all"
-          >
-            <ArrowLeft size={18} />
-            Back to Inventory
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Export ALL rows matching the current filters, not the page on
+                screen. Same emerald/red pairing as every other table's
+                ExportBar so the affordance still reads as "the export
+                buttons" despite living up here. */}
+            <button
+              type="button"
+              data-testid="phone-units-export-excel"
+              onClick={() => handleExport("excel")}
+              disabled={exportDisabled}
+              title="Export every unit matching the current filters to Excel"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/20 px-3 py-2 text-xs font-medium text-emerald-400 hover:bg-emerald-600/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FileSpreadsheet size={14} />
+              {exporting === "excel" ? "Exporting…" : "Excel"}
+            </button>
+            <button
+              type="button"
+              data-testid="phone-units-export-pdf"
+              onClick={() => handleExport("pdf")}
+              disabled={exportDisabled}
+              title="Export every unit matching the current filters to PDF"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FileText size={14} />
+              {exporting === "pdf" ? "Exporting…" : "PDF"}
+            </button>
+            <button
+              type="button"
+              data-testid="phone-units-back"
+              onClick={() => navigate("/products")}
+              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all"
+            >
+              <ArrowLeft size={18} />
+              Back to Inventory
+            </button>
+          </div>
         }
       />
 
@@ -264,9 +387,11 @@ export default function PhoneUnits() {
           emptyMessage={
             isError ? "Failed to load units." : "No units match these filters."
           }
-          exportExcel
-          exportPdf
-          exportFilename="phone-units"
+          /* No exportExcel/exportPdf here on purpose — DataTable's exporter
+             builds from the `data` prop, which on this server-paginated page
+             is ONE page. The page-header buttons export every matching row
+             instead (see `handleExport`). `showRowCount` keeps the count
+             label, which ExportBar renders independently of the buttons. */
           showRowCount
           totalRowCount={total}
           className="w-full text-left border-collapse"

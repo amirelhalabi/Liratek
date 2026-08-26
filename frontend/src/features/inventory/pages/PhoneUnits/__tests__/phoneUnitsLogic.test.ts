@@ -5,13 +5,21 @@
  * component test that proves the page actually FEEDS them its state).
  */
 import {
+  PHONE_UNITS_EXPORT_HEADERS,
+  PHONE_UNITS_EXPORT_MAX_ROWS,
+  PHONE_UNITS_EXPORT_PAGE_SIZE,
   PHONE_UNITS_PAGE_SIZE,
   PHONE_UNITS_SEARCH_MAX,
+  buildUnitExportTable,
   buildUnitListFilters,
   computePageRange,
+  exportCapConfirmMessage,
+  phoneUnitsExportFilename,
+  planExportFetch,
   unitStatusBadgeClass,
   type PhoneUnitsFilterState,
 } from "../phoneUnitsLogic";
+import type { UnitListRowWithWarranty } from "../../../hooks/useProductUnits";
 
 const base: PhoneUnitsFilterState = {
   status: "",
@@ -167,5 +175,197 @@ describe("unitStatusBadgeClass", () => {
   it("uses sky for IN_STOCK and slate for SOLD", () => {
     expect(unitStatusBadgeClass("IN_STOCK")).toContain("sky");
     expect(unitStatusBadgeClass("SOLD")).toContain("slate");
+  });
+});
+
+/**
+ * Owner item #6 — the export must cover every row matching the CURRENT
+ * filters, not the 25 on screen. This is the page-loop arithmetic behind that:
+ * how many `productUnits.list` calls, at what offsets, and where the hard cap
+ * stops it.
+ */
+describe("planExportFetch — the export page loop", () => {
+  it("fires ZERO calls when nothing matched", () => {
+    expect(planExportFetch(0)).toEqual({
+      rowCount: 0,
+      calls: 0,
+      capped: false,
+      pages: [],
+    });
+  });
+
+  it("450 rows at 200 per call -> 3 calls, the last one short", () => {
+    const plan = planExportFetch(450);
+    expect(plan.calls).toBe(3);
+    expect(plan.rowCount).toBe(450);
+    expect(plan.capped).toBe(false);
+    expect(plan.pages).toEqual([
+      { limit: 200, offset: 0 },
+      { limit: 200, offset: 200 },
+      { limit: 50, offset: 400 },
+    ]);
+  });
+
+  it("a single short page when the total fits in one call", () => {
+    expect(planExportFetch(12).pages).toEqual([{ limit: 12, offset: 0 }]);
+    expect(planExportFetch(12).calls).toBe(1);
+  });
+
+  it("does not add an empty trailing call on an exact multiple", () => {
+    const plan = planExportFetch(400);
+    expect(plan.calls).toBe(2);
+    expect(plan.pages[plan.pages.length - 1]).toEqual({
+      limit: 200,
+      offset: 200,
+    });
+  });
+
+  it("honours the hard cap, flags it, and stops exactly ON it", () => {
+    const plan = planExportFetch(12_431);
+    expect(plan.capped).toBe(true);
+    expect(plan.rowCount).toBe(PHONE_UNITS_EXPORT_MAX_ROWS);
+    // 5000 / 200 = 25 full calls, no overshoot past the cap.
+    expect(plan.calls).toBe(25);
+    expect(plan.pages[24]).toEqual({ limit: 200, offset: 4800 });
+    const planned = plan.pages.reduce((sum, p) => sum + p.limit, 0);
+    expect(planned).toBe(PHONE_UNITS_EXPORT_MAX_ROWS);
+  });
+
+  it("is NOT capped at exactly the cap", () => {
+    const plan = planExportFetch(PHONE_UNITS_EXPORT_MAX_ROWS);
+    expect(plan.capped).toBe(false);
+    expect(plan.rowCount).toBe(PHONE_UNITS_EXPORT_MAX_ROWS);
+  });
+
+  it("is capped one row past it, and the last page is short-limited", () => {
+    const plan = planExportFetch(PHONE_UNITS_EXPORT_MAX_ROWS + 1);
+    expect(plan.capped).toBe(true);
+    expect(plan.rowCount).toBe(PHONE_UNITS_EXPORT_MAX_ROWS);
+  });
+
+  it("keeps the fetch page size within the list contract's limit ceiling", () => {
+    expect(PHONE_UNITS_EXPORT_PAGE_SIZE).toBe(200);
+    expect(PHONE_UNITS_EXPORT_PAGE_SIZE).toBeLessThanOrEqual(200);
+  });
+
+  it("treats a negative or non-finite total as nothing to export", () => {
+    expect(planExportFetch(-5).calls).toBe(0);
+    expect(planExportFetch(Number.NaN).calls).toBe(0);
+  });
+
+  it("respects a caller-supplied page size and cap", () => {
+    const plan = planExportFetch(450, 100, 250);
+    expect(plan.rowCount).toBe(250);
+    expect(plan.capped).toBe(true);
+    expect(plan.pages).toEqual([
+      { limit: 100, offset: 0 },
+      { limit: 100, offset: 100 },
+      { limit: 50, offset: 200 },
+    ]);
+  });
+});
+
+describe("exportCapConfirmMessage", () => {
+  it("names BOTH the cap and the real total so the operator can narrow instead", () => {
+    const message = exportCapConfirmMessage(12_431);
+    expect(message).toContain("12,431");
+    expect(message).toContain("5,000");
+    expect(message).toMatch(/narrow the filters/i);
+  });
+});
+
+describe("phoneUnitsExportFilename", () => {
+  it("stamps the same <name>-<dd-mm-yyyy> shape every other table's export uses", () => {
+    expect(phoneUnitsExportFilename(new Date(2026, 7, 5))).toBe(
+      "phone-units-05-08-2026",
+    );
+    expect(phoneUnitsExportFilename(new Date(2026, 11, 31))).toBe(
+      "phone-units-31-12-2026",
+    );
+  });
+});
+
+describe("buildUnitExportTable", () => {
+  const row = (
+    overrides: Partial<UnitListRowWithWarranty> = {},
+  ): UnitListRowWithWarranty => ({
+    id: 1,
+    product_id: 7,
+    imei: "356938035643809",
+    status: "IN_STOCK",
+    is_defective: 0,
+    warranty_override_until: null,
+    created_at: "2026-08-01 10:00:00",
+    product_name: "iPhone 15 Pro",
+    product_warranty_months: null,
+    sale_item_id: null,
+    sold_at: null,
+    sold_price_usd: null,
+    client_name: null,
+    warranty_until: null,
+    sale_refunded: null,
+    warranty: { source: null, until: null, state: "NONE" },
+    ...overrides,
+  });
+
+  it("exports the visible columns, Actions excluded", () => {
+    const table = buildUnitExportTable([row()]);
+    expect(table.headers).toEqual([...PHONE_UNITS_EXPORT_HEADERS]);
+    expect(table.headers).not.toContain("Actions");
+    expect(table.rows[0]).toHaveLength(table.headers.length);
+  });
+
+  it("writes the same text the table cells show, em dashes included", () => {
+    const table = buildUnitExportTable([
+      row({ imei: "111111111111111", is_defective: 1 }),
+    ]);
+    expect(table.rows[0]).toEqual([
+      "111111111111111",
+      "iPhone 15 Pro",
+      "IN_STOCK",
+      "Defective",
+      "—", // never sold
+      "—", // no client
+      "No warranty",
+    ]);
+  });
+
+  it("uses the TABLE warranty mapping, so refunded stock exports its next-sale term", () => {
+    const table = buildUnitExportTable([
+      row({
+        status: "IN_STOCK",
+        product_warranty_months: 6,
+        warranty: { source: "REFUND", until: null, state: "VOID" },
+      }),
+    ]);
+    // The story card would say "Void (refunded)"; the table — and therefore
+    // its export — says what the next sale will carry.
+    expect(table.rows[0]![6]).toBe("6 mo — starts at sale");
+  });
+
+  it("renders a sold unit's date and client", () => {
+    const table = buildUnitExportTable([
+      row({
+        status: "SOLD",
+        sale_item_id: 9,
+        sold_at: "2026-07-04 09:30:00",
+        client_name: "Rita Haddad",
+        warranty: { source: "SALE", until: "2027-01-31", state: "COVERED" },
+      }),
+    ]);
+    expect(table.rows[0]![2]).toBe("SOLD");
+    expect(table.rows[0]![5]).toBe("Rita Haddad");
+    expect(table.rows[0]![6]).toBe("Covered (until 2027-01-31)");
+    // Locale-formatted, so assert the parse rather than one locale's layout.
+    expect(table.rows[0]![4]).toBe(
+      new Date("2026-07-04T09:30:00Z").toLocaleDateString(),
+    );
+  });
+
+  it("returns headers and no rows for an empty set", () => {
+    expect(buildUnitExportTable([])).toEqual({
+      headers: [...PHONE_UNITS_EXPORT_HEADERS],
+      rows: [],
+    });
   });
 });

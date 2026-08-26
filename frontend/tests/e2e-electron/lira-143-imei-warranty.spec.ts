@@ -67,6 +67,30 @@
  *      are read before the edit, inside the 30s default staleTime) and as
  *      the decision-#4 honesty proof: a unit sold BEFORE the edit stamped no
  *      `warranty_until`, so it keeps reading "No warranty" forever.
+ *   i. Delete cascade (THIRD test, owner decision 2026-08-26 "zero-burden
+ *      delete") — a model holding 2 IN_STOCK units plus 1 SOLD one is
+ *      deleted through the REAL Inventory row-delete button. Its confirm
+ *      dialog must NAME both in-stock IMEIs (and never the sold one), and
+ *      after confirming: one of those freed IMEIs re-registers cleanly on a
+ *      DIFFERENT model through the real ProductForm — the exact operation
+ *      that used to fail with `IMEI … is already registered in stock on
+ *      product "<the deleted model>"`, naming a product the operator could
+ *      no longer open. The SOLD unit's history survives untouched in the
+ *      Phone Units register (product name, buyer, warranty stamp), which is
+ *      what makes the cascade's `status = 'IN_STOCK'` predicate load-bearing
+ *      rather than an optimisation. The pre-delete half of that pair is
+ *      asserted first (the same re-registration REFUSED while the model is
+ *      alive) so the post-delete success cannot pass for the wrong reason.
+ *   j. Whole-sale refund refused after a per-item refund (FOURTH test, the
+ *      money bug fixed 2026-08-26) — driven on PLAIN (non-IMEI) products so
+ *      it isolates the guard from every unit mechanism above. A 2-line cash
+ *      sale, one line refunded through POS's real sale-detail per-item
+ *      refund, then the Transactions page's real Refund button on the SALE
+ *      row: the operator must see the NAMED refusal and the drawer must not
+ *      move by a cent (the guard throws before any write). The remaining
+ *      line is then refunded through the exact route that refusal names, and
+ *      the drawer nets back to its pre-sale value — so the message is proven
+ *      honest, not merely present.
  *
  * Assertion discipline (CLAUDE.md rule 15 / README): every identity is a
  * `Date.now()`-based RUN_ID marker unique to this run (category name is the
@@ -121,6 +145,37 @@ const NW_STOCK_QUANTITY = 2;
 /** The term set through the real form in step (h) — the model starts with
  *  none at all (`warranty_months` NULL). */
 const NW_WARRANTY_MONTHS = 6;
+
+// ─── Step (i) — the delete cascade. Two IN_STOCK units that must go with the
+// model, one SOLD unit whose history must NOT, and a second live model to
+// re-home a freed IMEI onto. Same IMEI-tracking CATEGORY_NAME (so the real
+// ProductForm renders its Units section for both), own RUN_ID-unique names. ─
+
+const PRODUCT_NAME_DEL = `LIRA143 DelPhone ${RUN_ID}`;
+const PRODUCT_NAME_REHOME = `LIRA143 RehomePhone ${RUN_ID}`;
+const IMEI_6 = `${IMEI_BASE}6`; // IN_STOCK, freed by the delete, then re-homed
+const IMEI_7 = `${IMEI_BASE}7`; // IN_STOCK, expected gone from the register
+const IMEI_8 = `${IMEI_BASE}8`; // SOLD before the delete — history must survive
+const CLIENT_4 = `L143-SELL4-${RUN_ID}`;
+const DEL_RETAIL_PRICE = 74.29;
+const DEL_STOCK_QUANTITY = 3;
+
+// ─── Step (j) — the partial-refund guard, on PLAIN products in their own
+// non-IMEI category so nothing about units, pickers or warranties can
+// influence the result. PLAIN_CATEGORY_NAME is the second deliberately
+// shared/idempotent resource (auto-created by createProduct's getOrCreate,
+// never flagged for IMEI tracking). ────────────────────────────────────────
+
+const PLAIN_CATEGORY_NAME = "LIRA143 Plain";
+const PLAIN_PRODUCT_A = `LIRA143 PlainA ${RUN_ID}`;
+const PLAIN_PRODUCT_B = `LIRA143 PlainB ${RUN_ID}`;
+const PLAIN_PRICE_A = 41.17;
+const PLAIN_PRICE_B = 23.29;
+/** Written out rather than computed so the sale total this spec matches rows
+ *  by is a stated figure, re-derived against the two prices in the test. */
+const PLAIN_SALE_TOTAL = 64.46;
+const PLAIN_STOCK_QUANTITY = 5;
+const CLIENT_5 = `L143-PART-${RUN_ID}`;
 
 /** The Phone Units / story badge copy for an unsold unit of a model that HAS
  *  a term (`productUnitsLogic.warrantyDisplayBadge`) — the em dash is part of
@@ -385,6 +440,45 @@ async function provisionNoWarrantyProduct(page: Page): Promise<number> {
   return result.id;
 }
 
+/**
+ * Parameterised twin of the two provisioners above, for steps (i)/(j) —
+ * which each need several models (and one of them a NON-IMEI category), so a
+ * name-per-product helper would be four near-identical copies. The two
+ * originals are left exactly as they are: they are referenced by the first
+ * two tests and carry their own step-specific doc comments.
+ */
+async function provisionCategoryProduct(
+  page: Page,
+  opts: {
+    name: string;
+    category: string;
+    cost: number;
+    retail: number;
+    stock: number;
+    warrantyMonths: number | null;
+  },
+): Promise<number> {
+  const result = await page.evaluate((o) => {
+    const api = window.api.inventory as unknown as CreateProductWithWarrantyApi;
+    return api.createProduct({
+      barcode: "",
+      name: o.name,
+      category: o.category,
+      cost_price: o.cost,
+      retail_price: o.retail,
+      stock_quantity: o.stock,
+      min_stock_level: 0,
+      warranty_months: o.warrantyMonths,
+    });
+  }, opts);
+  if (!result.success || result.id == null) {
+    throw new Error(
+      `Failed to provision product ${opts.name}: ${result.error}`,
+    );
+  }
+  return result.id;
+}
+
 async function registerImeisViaIpc(
   page: Page,
   productId: number,
@@ -587,6 +681,134 @@ async function expandedStoryWarrantyBadge(
   const panel = page.getByTestId("phone-units-story-panel");
   await expect(panel).toBeVisible({ timeout: 10_000 });
   return panel.getByTestId("imei-story-warranty-badge").first();
+}
+
+// ─── Step (i) helpers — the real Inventory row-delete flow ─────────────────
+
+/** Land on the real Inventory list filtered to ONE product by this run's
+ *  unique name, and return that row. */
+async function findProductRow(
+  page: Page,
+  productName: string,
+): Promise<Locator> {
+  await navigateTo(page, "/products");
+  const searchBox = page.getByPlaceholder("Search by name, barcode...");
+  await expect(searchBox).toBeVisible({ timeout: 10_000 });
+  await searchBox.fill(productName);
+  const row = page.locator("tbody tr").filter({ hasText: productName });
+  await expect(row).toHaveCount(1, { timeout: 10_000 });
+  return row;
+}
+
+/**
+ * Click the row's real Delete icon and return the `ConfirmModal` once its
+ * IMEI disclosure has finished loading.
+ *
+ * The confirm opens IMMEDIATELY and fills the IMEI paragraph in from an
+ * async per-product read, labelling its button "Checking…" until that
+ * resolves (ProductList's `requestDelete`/`composeDeleteMessage`). Waiting
+ * for the label to settle back to "Confirm" is what makes the disclosure
+ * assertions below load-bearing: asserted against the in-flight state, a
+ * "does not mention the SOLD IMEI" check would pass on an empty message.
+ */
+async function openProductDeleteConfirm(
+  page: Page,
+  productId: number,
+  productName: string,
+): Promise<Locator> {
+  await findProductRow(page, productName);
+  await page.getByTestId(`inventory-delete-${productId}`).click();
+  const modal = page.getByTestId("confirm-modal");
+  await expect(modal).toBeVisible({ timeout: 5_000 });
+  await expect(
+    modal.getByRole("button", { name: "Confirm", exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
+  return modal;
+}
+
+// ─── Step (j) helpers — plain-product checkout and the per-item refund ─────
+
+/** Add a plain (non-IMEI) product to the POS cart the way an operator does:
+ *  type its name, click the result. */
+async function addPlainProductToCart(
+  page: Page,
+  productName: string,
+): Promise<void> {
+  const posSearch = page.getByPlaceholder(
+    "Search products by name or barcode...",
+  );
+  await expect(posSearch).toBeVisible({ timeout: 10_000 });
+  await posSearch.fill(productName);
+  await page.getByText(productName, { exact: true }).first().click();
+  await expect(cartLineFor(page, productName)).toBeVisible({ timeout: 5_000 });
+}
+
+/**
+ * Open one sale's detail modal from POS's own today's-sales panel — the ONLY
+ * surface carrying the per-item refund the guard's message points the
+ * operator to.
+ *
+ * That panel has two layouts (a card grid by default, a `DataTable` once the
+ * operator turns product images off — `pos_show_images` in localStorage,
+ * which is per-profile and therefore not this spec's to assume), so the
+ * entry is matched as "whatever clickable element carries this run's client
+ * marker" rather than by layout. The returned locator is the modal box
+ * itself, reached by the same ancestor-xpath discipline `closeProductForm`
+ * uses; the modal is identified by `Sale #<id>` — the id this spec resolved
+ * by identity, never a row position (rule 15).
+ */
+async function openSaleDetail(
+  page: Page,
+  saleId: number,
+  clientName: string,
+): Promise<Locator> {
+  await navigateTo(page, "/pos");
+  const posSearch = page.getByPlaceholder(
+    "Search products by name or barcode...",
+  );
+  await expect(posSearch).toBeVisible({ timeout: 10_000 });
+  // The sales panel only renders while the search box is empty.
+  await posSearch.fill("");
+  await page
+    .locator("button, tbody tr")
+    .filter({ hasText: clientName })
+    .first()
+    .click();
+  const heading = page.getByRole("heading", { name: `Sale #${saleId}` });
+  await expect(heading).toBeVisible({ timeout: 10_000 });
+  return heading.locator("xpath=ancestor::div[contains(@class,'max-w-lg')][1]");
+}
+
+/** Refund exactly 1 of one line through the sale-detail modal's real
+ *  per-item Refund button + its quantity step. */
+async function refundOneItemViaSaleDetail(
+  page: Page,
+  modal: Locator,
+  itemName: string,
+): Promise<void> {
+  const itemRow = modal
+    .getByText(itemName, { exact: true })
+    .locator("xpath=ancestor::div[contains(@class,'justify-between')][1]");
+  await expect(itemRow).toBeVisible({ timeout: 5_000 });
+  await itemRow.locator('button[title="Refund item"]').click();
+
+  const qtyHeading = page.getByRole("heading", {
+    name: "Refund Item Quantity",
+  });
+  await expect(qtyHeading).toBeVisible({ timeout: 5_000 });
+  await page.getByRole("button", { name: /^Refund 1x$/ }).click();
+  await expect(qtyHeading).not.toBeVisible({ timeout: 15_000 });
+}
+
+/** `sales.status` as persisted — the "did the per-item route actually finish
+ *  the reversal" read for step (j). */
+async function saleStatus(page: Page, saleId: number): Promise<string | null> {
+  return page.evaluate(async (id) => {
+    const sale = (await window.api.sales.get(id)) as unknown as {
+      status?: string;
+    } | null;
+    return sale?.status ?? null;
+  }, saleId);
 }
 
 // ─── The spec ───────────────────────────────────────────────────────────────
@@ -1085,5 +1307,336 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(
       await expandedStoryWarrantyBadge(appPage, unit4.id),
     ).toHaveText(termBadgeLabel(NW_WARRANTY_MONTHS), { timeout: 10_000 });
+  });
+
+  /**
+   * Step (i) — the delete cascade (owner decision 2026-08-26, "zero-burden
+   * delete"; `ProductUnitRepository.deleteInStockForProducts` +
+   * `InventoryService.deleteProduct`, disclosed by ProductList's confirm).
+   *
+   * Three things have to be true at once, and each is asserted on the
+   * surface the operator actually sees:
+   *
+   *   1. The confirm NAMES the in-stock IMEIs it is about to destroy, and
+   *      names ONLY those — the SOLD unit must not appear, because it is not
+   *      going anywhere.
+   *   2. The delete FREES those IMEIs. Proven as a pair: the same
+   *      re-registration is REFUSED first (while the model is alive, with
+   *      the named "already registered … product" error), then ACCEPTED
+   *      after. Without the refusal half, a success afterwards could just
+   *      mean the IMEI was never locked — a green test proving nothing.
+   *   3. The SOLD unit's history SURVIVES the model's deletion, complete
+   *      with the deleted model's name, the buyer, and the sale's warranty
+   *      stamp — the Phone Units register's `LEFT JOIN products` carries no
+   *      `is_deleted` filter, which is exactly what keeps a customer's
+   *      warranty story readable after the shop stops stocking the model.
+   *
+   * Rule 15: every product/IMEI/client here is RUN_ID-unique and every
+   * register assertion is keyed on an exact IMEI or unit id, never a row
+   * position or a count — the shared e2e DB accumulates units from every
+   * earlier spec (including the two tests above).
+   */
+  test("deleting a product removes its in-stock units, frees their IMEIs, and keeps the sold unit's history", async ({
+    appPage,
+  }) => {
+    await closeAllActiveSessions(appPage);
+
+    // ─── Provision: the doomed model (2 in-stock + 1 to sell) and a live
+    // second model in the same IMEI-tracking category to re-home onto ─────
+    await ensureImeiCategory(appPage);
+    const delProductId = await provisionCategoryProduct(appPage, {
+      name: PRODUCT_NAME_DEL,
+      category: CATEGORY_NAME,
+      cost: COST_PRICE,
+      retail: DEL_RETAIL_PRICE,
+      stock: DEL_STOCK_QUANTITY,
+      warrantyMonths: WARRANTY_MONTHS,
+    });
+    const rehomeProductId = await provisionCategoryProduct(appPage, {
+      name: PRODUCT_NAME_REHOME,
+      category: CATEGORY_NAME,
+      cost: COST_PRICE,
+      retail: DEL_RETAIL_PRICE,
+      stock: 1,
+      warrantyMonths: WARRANTY_MONTHS,
+    });
+    await registerImeisViaIpc(appPage, delProductId, [IMEI_6, IMEI_7, IMEI_8]);
+    const unit6 = await unitByImei(appPage, delProductId, IMEI_6);
+    const unit7 = await unitByImei(appPage, delProductId, IMEI_7);
+    const unit8 = await unitByImei(appPage, delProductId, IMEI_8);
+
+    // ─── Sell IMEI_8 through the real POS scan path, so the surviving unit
+    // is a genuine sale with a stamped warranty (not a hand-set row) ──────
+    await navigateTo(appPage, "/pos");
+    const delPosSearch = appPage.getByPlaceholder(
+      "Search products by name or barcode...",
+    );
+    await expect(delPosSearch).toBeVisible({ timeout: 10_000 });
+    await delPosSearch.fill(IMEI_8);
+    await expect(delPosSearch).toHaveValue("", { timeout: 10_000 });
+
+    const delCartLine = cartLineFor(appPage, PRODUCT_NAME_DEL);
+    await expect(delCartLine).toBeVisible({ timeout: 5_000 });
+    await expect(delCartLine.locator("select")).toHaveValue(String(unit8.id));
+
+    await appPage.getByRole("button", { name: "Proceed to Checkout" }).click();
+    await expect(appPage.getByTestId("checkout-modal")).toBeVisible({
+      timeout: 5_000,
+    });
+    await fillClientName(appPage, CLIENT_4);
+    await completeCashSale(appPage);
+
+    const unit8AfterSale = await unitByImei(appPage, delProductId, IMEI_8);
+    expect(unit8AfterSale.status).toBe("SOLD");
+    const story8 = await storyFor(appPage, IMEI_8);
+    const soldWarrantyUntil = story8[0]?.warranty.until;
+    if (!soldWarrantyUntil) {
+      throw new Error("Expected a stamped warranty on the sold unit");
+    }
+
+    // ─── The lock, BEFORE the delete: re-registering IMEI_6 on the OTHER
+    // live model is refused, naming the model that holds it (decision #3).
+    // This is the half that makes the post-delete success meaningful. ─────
+    await openEditProduct(appPage, PRODUCT_NAME_REHOME);
+    const rehomeSection = unitsSection(appPage);
+    await expect(rehomeSection).toBeVisible({ timeout: 5_000 });
+    await registerImeiViaUi(appPage, IMEI_6);
+    await expect(
+      rehomeSection.getByText(
+        new RegExp(
+          `IMEI ${escapeRegExp(IMEI_6)} is already registered in stock on product "${escapeRegExp(PRODUCT_NAME_DEL)}"`,
+        ),
+      ),
+    ).toBeVisible({ timeout: 5_000 });
+    // The refusal wrote nothing — the rehome model still has no units.
+    expect(await unitsForProduct(appPage, rehomeProductId)).toHaveLength(0);
+    await closeProductForm(appPage);
+
+    // ─── Delete the model through the REAL Inventory row-delete button ────
+    const deleteConfirm = await openProductDeleteConfirm(
+      appPage,
+      delProductId,
+      PRODUCT_NAME_DEL,
+    );
+    // Today's base copy is untouched…
+    await expect(deleteConfirm).toContainText(
+      "This action cannot be undone.",
+    );
+    // …plus the disclosure of exactly what else goes.
+    await expect(deleteConfirm).toContainText(
+      "also removes 2 registered in-stock IMEIs",
+    );
+    await expect(deleteConfirm).toContainText(IMEI_6);
+    await expect(deleteConfirm).toContainText(IMEI_7);
+    // The SOLD unit is NOT part of the cascade and must not be threatened.
+    await expect(deleteConfirm).not.toContainText(IMEI_8);
+
+    await deleteConfirm
+      .getByRole("button", { name: "Confirm", exact: true })
+      .click();
+    await expect(deleteConfirm).not.toBeVisible({ timeout: 10_000 });
+
+    // The product is gone from the list it was deleted from…
+    await navigateTo(appPage, "/products");
+    const invSearchAfterDelete = appPage.getByPlaceholder(
+      "Search by name, barcode...",
+    );
+    await expect(invSearchAfterDelete).toBeVisible({ timeout: 10_000 });
+    await invSearchAfterDelete.fill(PRODUCT_NAME_DEL);
+    await expect(
+      appPage.locator("tbody tr").filter({ hasText: PRODUCT_NAME_DEL }),
+    ).toHaveCount(0, { timeout: 10_000 });
+
+    // …and so are its two IN_STOCK units, while the SOLD one is still there.
+    const unitsAfterDelete = await unitsForProduct(appPage, delProductId);
+    expect(unitsAfterDelete.map((u) => u.imei)).toEqual([IMEI_8]);
+    expect(unitsAfterDelete[0]?.status).toBe("SOLD");
+    expect(unitsAfterDelete[0]?.id).toBe(unit8.id);
+    expect(unitsAfterDelete.map((u) => u.id)).not.toContain(unit6.id);
+    expect(unitsAfterDelete.map((u) => u.id)).not.toContain(unit7.id);
+
+    // ─── The lock is FREED: the same re-registration now succeeds through
+    // the same real ProductForm path that refused it above ────────────────
+    await openEditProduct(appPage, PRODUCT_NAME_REHOME);
+    const rehomeSection2 = unitsSection(appPage);
+    await expect(rehomeSection2).toBeVisible({ timeout: 5_000 });
+    await registerImeiViaUi(appPage, IMEI_6);
+    await expect(
+      rehomeSection2.getByText(IMEI_6, { exact: false }),
+    ).toBeVisible({ timeout: 5_000 });
+    await expect(
+      rehomeSection2.getByText(/is already registered in stock on product/),
+    ).toHaveCount(0);
+    await closeProductForm(appPage);
+
+    const rehomedUnits = await unitsForProduct(appPage, rehomeProductId);
+    expect(rehomedUnits.map((u) => u.imei)).toEqual([IMEI_6]);
+    expect(rehomedUnits[0]?.status).toBe("IN_STOCK");
+    // A NEW row on the NEW model — never the old one relabelled.
+    expect(rehomedUnits[0]?.id).not.toBe(unit6.id);
+    expect(rehomedUnits[0]?.product_id).toBe(rehomeProductId);
+
+    // ─── The sold unit's history survives in the shop-wide register ───────
+    await openPhoneUnitsPage(appPage);
+    await searchPhoneUnits(appPage, IMEI_8);
+    const soldRow = appPage.getByTestId(`phone-unit-row-${unit8.id}`);
+    await expect(soldRow).toBeVisible({ timeout: 10_000 });
+    // The DELETED model's name is still readable on the row, together with
+    // the buyer and the warranty the sale stamped.
+    await expect(soldRow).toContainText(PRODUCT_NAME_DEL);
+    await expect(soldRow).toContainText(CLIENT_4);
+    await expect(soldRow).toContainText("SOLD");
+    await expect(phoneUnitWarrantyBadge(appPage, unit8.id)).toHaveText(
+      `Covered (until ${soldWarrantyUntil})`,
+    );
+
+    // The deleted in-stock unit is gone from that same register.
+    await searchPhoneUnits(appPage, IMEI_7);
+    await expect(
+      appPage.getByTestId(`phone-unit-row-${unit7.id}`),
+    ).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  /**
+   * Step (j) — a whole-sale refund/void is refused once ANY line of that
+   * sale has already been refunded individually
+   * (`TransactionRepository._assertNoPartialItemRefunds`, owner decision
+   * 2026-08-26).
+   *
+   * The bug it closes was money-shaped: `refundSaleItem` pro-rates the
+   * original tender and debits the drawers by that share, but writes a
+   * standalone REFUND row with NO `reverses_id` — so the double-refund guard
+   * never saw item refunds, and a whole-sale refund afterwards mirrored the
+   * FULL legs, handing back the share already returned (probe-proven: $40 out
+   * of the drawer for a $30 sale).
+   *
+   * Deliberately driven on PLAIN, non-IMEI products: the guard is about
+   * payment legs, and using phone units here would entangle it with the
+   * unit/warranty mechanisms the tests above own.
+   *
+   * Rule 15 throughout: the sale is found by its client marker plus this
+   * run's unique total, the audit row is filtered by both (never a row
+   * position), and every money figure is a DELTA snapshotted immediately
+   * around its own action.
+   */
+  test("a whole-sale refund is refused after a per-item refund, and the drawer never moves", async ({
+    appPage,
+  }) => {
+    await closeAllActiveSessions(appPage);
+
+    // Re-derive the stated total from its two parts, so a later edit to one
+    // price can't leave this spec matching audit rows by a stale figure.
+    expect(PLAIN_PRICE_A + PLAIN_PRICE_B).toBeCloseTo(PLAIN_SALE_TOTAL, 2);
+
+    for (const [name, price] of [
+      [PLAIN_PRODUCT_A, PLAIN_PRICE_A],
+      [PLAIN_PRODUCT_B, PLAIN_PRICE_B],
+    ] as const) {
+      await provisionCategoryProduct(appPage, {
+        name,
+        category: PLAIN_CATEGORY_NAME,
+        cost: 10,
+        retail: price,
+        stock: PLAIN_STOCK_QUANTITY,
+        warrantyMonths: null,
+      });
+    }
+
+    // ─── The 2-line cash sale ─────────────────────────────────────────────
+    const drawerBeforeSale = await generalUsd(appPage);
+
+    await navigateTo(appPage, "/pos");
+    await addPlainProductToCart(appPage, PLAIN_PRODUCT_A);
+    await addPlainProductToCart(appPage, PLAIN_PRODUCT_B);
+
+    await appPage.getByRole("button", { name: "Proceed to Checkout" }).click();
+    await expect(appPage.getByTestId("checkout-modal")).toBeVisible({
+      timeout: 5_000,
+    });
+    await fillClientName(appPage, CLIENT_5);
+    await completeCashSale(appPage);
+
+    await expect
+      .poll(async () => generalUsd(appPage), { timeout: 8_000 })
+      .toBeCloseTo(drawerBeforeSale + PLAIN_SALE_TOTAL, 2);
+
+    const partialSaleId = await findTodaysSaleId(
+      appPage,
+      CLIENT_5,
+      PLAIN_SALE_TOTAL,
+    );
+
+    // ─── Refund ONE line through POS's real per-item refund ───────────────
+    const saleDetail = await openSaleDetail(appPage, partialSaleId, CLIENT_5);
+    await refundOneItemViaSaleDetail(appPage, saleDetail, PLAIN_PRODUCT_A);
+
+    await expect
+      .poll(async () => generalUsd(appPage), { timeout: 8_000 })
+      .toBeCloseTo(drawerBeforeSale + PLAIN_PRICE_B, 2);
+    // The sale is NOT finished — one line is still live, which is precisely
+    // the state that used to offer a double-refunding one-click reversal.
+    expect(await saleStatus(appPage, partialSaleId)).not.toBe("refunded");
+
+    // ─── The whole-sale refund on the Transactions page is REFUSED ────────
+    await navigateTo(appPage, "/");
+    await navigateTo(appPage, "/audit");
+
+    const partialSaleRow = appPage
+      .locator("tbody tr")
+      .filter({ hasText: CLIENT_5 })
+      .filter({ hasText: PLAIN_SALE_TOTAL.toFixed(2) });
+    await expect(partialSaleRow).toHaveCount(1, { timeout: 10_000 });
+    await partialSaleRow.scrollIntoViewIfNeeded();
+
+    // TransactionsViewer surfaces a rejected refund through `alert("Failed:
+    // " + error)`. The fixture auto-accepts dialogs globally; this listener
+    // only records what the operator was shown (lira-142's precedent).
+    const dialogLog: string[] = [];
+    appPage.on("dialog", (d) => dialogLog.push(d.message()));
+
+    const refundBtn = partialSaleRow.getByRole("button", { name: /^Refund$/ });
+    await expect(refundBtn).toBeVisible();
+    await refundBtn.click();
+
+    // A cash sale has payment legs, so the real refund-method modal opens
+    // (no confirm() on this branch) — the guard has to fire from inside the
+    // repository, after the operator committed to the action.
+    const refundModal = appPage.getByTestId("counterparty-settle-modal");
+    await expect(refundModal).toBeVisible({ timeout: 10_000 });
+    const confirmRefundBtn = appPage.getByRole("button", {
+      name: "Confirm Refund",
+    });
+    await expect(confirmRefundBtn).toBeEnabled({ timeout: 10_000 });
+
+    const drawerBeforeBlocked = await generalUsd(appPage);
+    const seen = dialogLog.length;
+    await confirmRefundBtn.click();
+    await expect
+      .poll(() => dialogLog.length, { timeout: 10_000 })
+      .toBeGreaterThan(seen);
+
+    const blockedMsg = dialogLog[seen] ?? "";
+    expect(blockedMsg).toMatch(/^Failed:/);
+    expect(blockedMsg).toContain("This sale was partially refunded");
+    expect(blockedMsg).toContain("refund the remaining items individually");
+
+    // The guard throws BEFORE any write — not a cent moved, and the sale is
+    // untouched. This is the assertion the money bug fails.
+    expect(await generalUsd(appPage)).toBeCloseTo(drawerBeforeBlocked, 2);
+    expect(await saleStatus(appPage, partialSaleId)).not.toBe("refunded");
+
+    // ─── The route the refusal NAMES actually completes the reversal ──────
+    // Without this, the guard would only be proven to block; the message
+    // ("refund the remaining items individually from the sale detail") is
+    // what makes it a redirect rather than a dead end.
+    const saleDetail2 = await openSaleDetail(appPage, partialSaleId, CLIENT_5);
+    await refundOneItemViaSaleDetail(appPage, saleDetail2, PLAIN_PRODUCT_B);
+
+    await expect
+      .poll(async () => generalUsd(appPage), { timeout: 8_000 })
+      .toBeCloseTo(drawerBeforeSale, 2);
+    await expect
+      .poll(async () => saleStatus(appPage, partialSaleId), { timeout: 8_000 })
+      .toBe("refunded");
   });
 });

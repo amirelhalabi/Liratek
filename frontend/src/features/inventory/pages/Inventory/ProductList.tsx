@@ -27,7 +27,11 @@ import AdjustStockModal from "../../components/AdjustStockModal";
 import { ImeiStoryCard } from "../../components/ImeiStoryCard";
 import { InventoryFiltersPopover } from "../../components/InventoryFiltersPopover";
 import { useUnitStoryQuery } from "../../hooks/useProductUnits";
-import { looksLikeImei } from "../../productUnitsLogic";
+import {
+  buildUnitDeleteWarning,
+  looksLikeImei,
+  type UnitDeleteEntry,
+} from "../../productUnitsLogic";
 import {
   EMPTY_PRODUCT_FILTERS,
   activeFilterChips,
@@ -241,6 +245,23 @@ export default function ProductList() {
     id: number;
   } | null>(null);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  /**
+   * LIRA-143 item #7 — the extra paragraph the delete confirm shows when the
+   * product(s) being deleted still hold registered IN_STOCK units. The delete
+   * cascade removes those `product_units` rows too, so the dialog names the
+   * count and the actual IMEIs first. `null` = nothing to disclose, and the
+   * dialog reads exactly as it always did.
+   *
+   * State, not a computed value: the IMEIs come from an IPC/REST read fired
+   * when the operator asks to delete, so the dialog opens immediately (with
+   * "Checking…") and gains the disclosure a moment later. It is NOT a gate —
+   * a failed check is disclosed as a failed check (see
+   * `buildUnitDeleteWarning`'s `probeFailed`), never as "no units".
+   */
+  const [deleteUnitWarning, setDeleteUnitWarning] = useState<string | null>(
+    null,
+  );
+  const [checkingUnits, setCheckingUnits] = useState(false);
 
   const allSelected =
     products.length > 0 && selectedIds.size === products.length;
@@ -420,6 +441,103 @@ export default function ProductList() {
     setIsFormOpen(true);
   };
 
+  /**
+   * The IN_STOCK IMEIs registered against each product about to be deleted.
+   *
+   * Probed for EVERY target, not only those whose category currently says it
+   * tracks IMEIs: `tracks_imei_units` is inherited from the CATEGORY, so a
+   * product that was re-categorised (or whose category later had the flag
+   * turned off) can still hold registered units — and a delete dialog that
+   * under-reports a destructive cascade is exactly the failure this exists to
+   * prevent. One indexed read per product, chunked so a large batch selection
+   * doesn't open one request per product at once.
+   *
+   * A failed read yields an entry with NO imeis plus `probeFailed` — the
+   * message then says the check was incomplete instead of implying zero.
+   * Entries stay 1:1 with `targets` so the copy can tell "this product" from
+   * "these products" by count, even when some reads failed.
+   */
+  const probeInStockUnits = async (
+    targets: Product[],
+  ): Promise<{ entries: UnitDeleteEntry[]; probeFailed: boolean }> => {
+    const UNIT_PROBE_CONCURRENCY = 8;
+    const entries: UnitDeleteEntry[] = [];
+    let probeFailed = false;
+
+    for (let i = 0; i < targets.length; i += UNIT_PROBE_CONCURRENCY) {
+      const chunk = targets.slice(i, i + UNIT_PROBE_CONCURRENCY);
+      const results = await Promise.all(
+        chunk.map(async (product) => {
+          try {
+            const units = (await api.productUnits.getForProduct(
+              product.id,
+              "IN_STOCK",
+            )) as Array<{ imei: string }>;
+            return {
+              entry: { name: product.name, imeis: units.map((u) => u.imei) },
+              failed: false,
+            };
+          } catch (error) {
+            logger.error("Failed to read registered IMEIs before delete:", {
+              productId: product.id,
+              error,
+            });
+            return { entry: { name: product.name, imeis: [] }, failed: true };
+          }
+        }),
+      );
+      for (const result of results) {
+        entries.push(result.entry);
+        if (result.failed) probeFailed = true;
+      }
+    }
+
+    return { entries, probeFailed };
+  };
+
+  /** Open the single-product delete confirm, then fill in its IMEI
+   *  disclosure. The dialog opens immediately — the read only decides whether
+   *  an extra paragraph appears in it. */
+  const requestDelete = async (product: Product) => {
+    setDeleteUnitWarning(null);
+    setShowDeleteConfirm({ id: product.id });
+    setCheckingUnits(true);
+    try {
+      const { entries, probeFailed } = await probeInStockUnits([product]);
+      setDeleteUnitWarning(buildUnitDeleteWarning(entries, probeFailed));
+    } finally {
+      setCheckingUnits(false);
+    }
+  };
+
+  /** Same, for the batch-delete confirm over the current selection. */
+  const requestBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setDeleteUnitWarning(null);
+    setShowBatchDeleteConfirm(true);
+    setCheckingUnits(true);
+    try {
+      const targets = products.filter((p) => selectedIds.has(p.id));
+      const { entries, probeFailed } = await probeInStockUnits(targets);
+      setDeleteUnitWarning(buildUnitDeleteWarning(entries, probeFailed));
+    } finally {
+      setCheckingUnits(false);
+    }
+  };
+
+  /** The confirm's base copy plus the IMEI disclosure (or the in-flight
+   *  notice), so both dialogs compose their message the same way. */
+  const composeDeleteMessage = (base: string): string => {
+    if (checkingUnits) return `${base}\n\nChecking for registered IMEIs…`;
+    return deleteUnitWarning ? `${base}\n\n${deleteUnitWarning}` : base;
+  };
+
+  const closeDeleteConfirms = () => {
+    setShowDeleteConfirm(null);
+    setShowBatchDeleteConfirm(false);
+    setDeleteUnitWarning(null);
+  };
+
   const handleDelete = async (id: number) => {
     try {
       const result = await api.deleteProduct(id);
@@ -440,7 +558,7 @@ export default function ProductList() {
       );
       loadProducts(); // Refresh list
       loadFilterOptions();
-      setShowDeleteConfirm(null);
+      closeDeleteConfirms();
       // Windows focus fix
       window.api?.display?.fixFocus();
     } catch (error) {
@@ -473,7 +591,7 @@ export default function ProductList() {
         `${deleted} product${deleted !== 1 ? "s" : ""} deleted`,
         "success",
       );
-      setShowBatchDeleteConfirm(false);
+      closeDeleteConfirms();
       // Windows focus fix
       window.api?.display?.fixFocus();
     } catch (error) {
@@ -840,7 +958,8 @@ export default function ProductList() {
                   Batch Edit ({selectedIds.size})
                 </button>
                 <button
-                  onClick={() => setShowBatchDeleteConfirm(true)}
+                  onClick={requestBatchDelete}
+                  data-testid="inventory-batch-delete"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors cursor-pointer"
                 >
                   <Trash2 size={14} />
@@ -1051,8 +1170,10 @@ export default function ProductList() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setShowDeleteConfirm({ id: product.id });
+                        requestDelete(product);
                       }}
+                      data-testid={`inventory-delete-${product.id}`}
+                      aria-label={`Delete ${product.name}`}
                       className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
                     >
                       <Trash2 size={16} />
@@ -1213,23 +1334,34 @@ export default function ProductList() {
       )}
 
       {/* Confirmation Modals */}
+      {/* LIRA-143 item #7 — both dialogs disclose the registered IN_STOCK
+          IMEIs the delete cascade will also remove (composed by
+          `composeDeleteMessage`); a product with none reads exactly as before.
+          The confirm label reports the in-flight check so a confirm made
+          inside that window isn't a blind one. */}
       <ConfirmModal
         isOpen={showDeleteConfirm !== null}
         title="Delete Product"
-        message="Are you sure you want to delete this product? This action cannot be undone."
+        message={composeDeleteMessage(
+          "Are you sure you want to delete this product? This action cannot be undone.",
+        )}
+        confirmLabel={checkingUnits ? "Checking…" : "Confirm"}
         onConfirm={() =>
           showDeleteConfirm && handleDelete(showDeleteConfirm.id)
         }
-        onCancel={() => setShowDeleteConfirm(null)}
+        onCancel={closeDeleteConfirms}
         variant="danger"
       />
 
       <ConfirmModal
         isOpen={showBatchDeleteConfirm}
         title="Batch Delete Products"
-        message={`Are you sure you want to delete ${selectedIds.size} selected products? This action cannot be undone.`}
+        message={composeDeleteMessage(
+          `Are you sure you want to delete ${selectedIds.size} selected products? This action cannot be undone.`,
+        )}
+        confirmLabel={checkingUnits ? "Checking…" : "Confirm"}
         onConfirm={handleBatchDelete}
-        onCancel={() => setShowBatchDeleteConfirm(false)}
+        onCancel={closeDeleteConfirms}
         variant="danger"
       />
 

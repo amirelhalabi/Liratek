@@ -1415,16 +1415,42 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         (item.sold_price_usd - item.cost_price_snapshot_usd) *
         params.refundQuantity;
       const saleTotalUsd = sale.total_amount_usd || 0;
-      const discountShareUsd =
-        saleTotalUsd > 0
-          ? (sale.discount_usd || 0) * (refundAmount / saleTotalUsd)
-          : 0;
+      // ONE pro-rata base for this entire refund (rule 14): the line's share of
+      // the sale's PRE-DISCOUNT total. `refundAmount` above is a PRE-discount
+      // line value, so the denominator must be the PRE-discount total or the
+      // per-line shares don't sum to 1. Every consumer below is a share of the
+      // SAME line — the discount stamped on profit, the tender reversed across
+      // the payment legs, the Sale Debt cancelled — so all of them use this.
+      //
+      // The payment/debt arm used to divide by `originalTxn.amount_usd` (the
+      // POST-discount final) instead, so the shares summed to total/final > 1:
+      // item-refunding every line of a discounted sale handed back the full
+      // pre-discount price against a discounted tender, over by exactly the
+      // discount in EVERY currency leg, and over-cancelled an on-account
+      // sale's debt into a phantom credit of the same size. One business rule,
+      // two disagreeing denominators — the profit arm here was the correct one.
+      // Guarded by `SalesRepository.discountItemRefundTender.test.ts`; load-
+      // bearing now that `TransactionRepository._assertNoPartialItemRefunds`
+      // blocks the whole-sale refund of a part-refunded sale and names this
+      // per-item route as the exact one.
+      //
+      // `saleTotalUsd > 0` keeps the ratio finite on legacy/hand-crafted rows
+      // with no total: 0 (no money movement) is the safe direction, never
+      // Infinity/NaN. Behaviour is identical to before whenever there is no
+      // discount (total === final), which is every existing refund test.
+      const lineShareOfSale =
+        saleTotalUsd > 0 ? refundAmount / saleTotalUsd : 0;
+      const discountShareUsd = (sale.discount_usd || 0) * lineShareOfSale;
       const refundProfitUsd = grossMarginUsd - discountShareUsd;
 
       // 5. Get the original SALE transaction
+      // `amount_usd`/`amount_lbp` are deliberately NOT selected: the SALE row's
+      // amount is the POST-discount final, and it was the wrong denominator for
+      // this function's pro-rating (see `lineShareOfSale`). Keeping it out of
+      // reach is the point — nothing here needs it.
       const originalTxn = db
         .prepare(
-          `SELECT id, source_table, source_id, amount_usd, amount_lbp, exchange_rate, client_id, device_id
+          `SELECT id, source_table, source_id, exchange_rate, client_id, device_id
            FROM transactions
            WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE' AND tenant_id = ?`,
         )
@@ -1433,8 +1459,6 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             id: number;
             source_table: string;
             source_id: number;
-            amount_usd: number;
-            amount_lbp: number;
             exchange_rate: number;
             client_id: number | null;
             device_id: string | null;
@@ -1483,10 +1507,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         amount: number;
       }[];
 
-      const refundRatio = refundAmount / originalTxn.amount_usd;
-
+      // Pro-rate the tender by the SAME base the profit arm uses — see
+      // `lineShareOfSale`. NOT `refundAmount / originalTxn.amount_usd`.
       for (const payment of originalPayments) {
-        const negatedAmount = -(payment.amount * refundRatio);
+        const negatedAmount = -(payment.amount * lineShareOfSale);
         insertPaymentRow(db, {
           transactionId: refundTxnId,
           method: payment.method,
@@ -1558,7 +1582,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         for (const debt of debts) {
           insertReversal.run(
             debt.client_id,
-            -(debt.amount_usd * refundRatio),
+            // Same pro-rata base again — see `lineShareOfSale`.
+            -(debt.amount_usd * lineShareOfSale),
             refundTxnId,
             params.userId,
             tenantId,

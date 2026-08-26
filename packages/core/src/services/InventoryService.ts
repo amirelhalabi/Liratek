@@ -49,6 +49,12 @@ export interface ProductResult {
   error?: string;
   code?: "DUPLICATE_BARCODE";
   suggested_barcode?: string;
+  /** Set by {@link InventoryService.deleteProduct} only, and only when the
+   *  cascade actually removed something: how many IN_STOCK IMEI units went
+   *  with the product, and which ones. Absent (not `0`) when the product had
+   *  no units, so a caller can distinguish the two. */
+  removed_unit_count?: number;
+  removed_unit_imeis?: string[];
 }
 
 export interface StockAdjustmentResult {
@@ -477,7 +483,27 @@ export class InventoryService {
   }
 
   /**
-   * Soft delete a product
+   * Soft delete a product, cascading its IN_STOCK IMEI units.
+   *
+   * Owner decision 2026-08-26 ("zero-burden delete"): deleting a phone model
+   * must not leave the operator with leftover paperwork. Its unsold units go
+   * with it in the SAME transaction; its SOLD units are never touched (see
+   * `ProductUnitRepository.deleteInStockForProducts` for why each half is
+   * required — in short, an invisible IN_STOCK unit of a soft-deleted product
+   * kept holding its IMEI under the partial unique index, so re-registering
+   * that IMEI failed while naming a product the operator could no longer
+   * open; a SOLD unit is a customer's warranty provenance).
+   *
+   * The transaction is owned by the repository layer (rule 13 — this service
+   * never touches the DB): `transaction()` is a `BaseRepository` affordance,
+   * the same way `PartnerService` and `TenantProvisioningService` wrap their
+   * multi-repository units of work. Without it, a failure between the two
+   * statements would leave a deleted product with live units or vice versa.
+   *
+   * `removed_unit_count`/`removed_unit_imeis` are reported back so the UI's
+   * confirmation can state what actually happened instead of hiding it. They
+   * are absent (not `0`) when the product had no units at all, so a caller
+   * can tell "no units" from "units removed: none".
    */
   deleteProduct(id: number): ProductResult {
     if (!id) {
@@ -485,8 +511,20 @@ export class InventoryService {
     }
 
     try {
-      this.productRepo.softDeleteById(id);
-      return { success: true };
+      const removed = this.productUnitRepo.transaction(() => {
+        this.productRepo.softDeleteById(id);
+        return this.productUnitRepo.deleteInStockForProduct(id);
+      });
+      if (removed.count === 0) return { success: true };
+      inventoryLogger.info(
+        { productId: id, removedUnits: removed.count },
+        "Product soft-deleted with its in-stock IMEI units",
+      );
+      return {
+        success: true,
+        removed_unit_count: removed.count,
+        removed_unit_imeis: removed.imeis,
+      };
     } catch (error) {
       return { success: false, error: toErrorString(error) };
     }
@@ -495,18 +533,42 @@ export class InventoryService {
   /**
    * Soft delete multiple products in a single operation.
    * Returns `{ success, deleted }` with the count of affected rows.
+   *
+   * Cascades IN_STOCK units for EVERY id, exactly as `deleteProduct` does for
+   * one — the batch path is reached from the inventory grid's multi-select, so
+   * skipping it here would leave the identical orphaned-IMEI bug behind a
+   * different button (the trap rule 20 warns about: extending a capability to
+   * a second call site re-triggers the obligation).
    */
   batchDeleteProducts(ids: number[]): {
     success: boolean;
     deleted?: number;
+    removed_unit_count?: number;
+    removed_unit_imeis?: string[];
     error?: string;
   } {
     if (!ids || ids.length === 0) {
       return { success: false, error: "No product IDs provided" };
     }
     try {
-      const deleted = this.productRepo.batchSoftDelete(ids);
-      return { success: true, deleted };
+      const { deleted, removed } = this.productUnitRepo.transaction(() => {
+        const deletedCount = this.productRepo.batchSoftDelete(ids);
+        return {
+          deleted: deletedCount,
+          removed: this.productUnitRepo.deleteInStockForProducts(ids),
+        };
+      });
+      if (removed.count === 0) return { success: true, deleted };
+      inventoryLogger.info(
+        { productIds: ids, removedUnits: removed.count },
+        "Products soft-deleted with their in-stock IMEI units",
+      );
+      return {
+        success: true,
+        deleted,
+        removed_unit_count: removed.count,
+        removed_unit_imeis: removed.imeis,
+      };
     } catch (error) {
       return { success: false, error: toErrorString(error) };
     }

@@ -433,7 +433,22 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
   });
 
   describe("_restoreStock over-restore fix", () => {
-    it("a full refund after a prior partial item refund restores stock to EXACTLY the original amount", () => {
+    /**
+     * 2026-08-26: this case used to drive a per-item refund followed by a
+     * WHOLE-sale `refundTransaction` — the exact sequence the owner has since
+     * made illegal (`_assertNoPartialItemRefunds`), because its MONEY half
+     * double-debited the drawer with no reconstructible netting. The stock
+     * invariant it guards is unchanged and still proven end-to-end: the
+     * refusal leaves stock exactly where the partial refund left it, and
+     * returning the remaining quantity through the per-item path lands on
+     * EXACTLY the original count, never above it.
+     *
+     * `_restoreStock`'s own `quantity - refunded_quantity` netting is now
+     * defence-in-depth rather than the load-bearing fix (the outer guard
+     * means it can no longer be reached with a nonzero `refunded_quantity`)
+     * — see its doc comment.
+     */
+    it("a whole-sale refund after a prior partial item refund is refused, and the per-item route restores stock to EXACTLY the original amount", () => {
       const productId = insertProduct(db, { name: "Charger", stockQuantity: 10 });
       const result = salesRepo.processSale(
         baseSale({
@@ -460,10 +475,20 @@ describe("TransactionRepository — product_units reversal owner (LIRA-143 phase
       expect(getStock(db, productId)).toBe(8); // 7 + 1 (partial restore)
 
       const txnId = getSaleTxnId(db, saleId);
-      getTransactionRepository().refundTransaction(txnId, 1);
+      expect(() => getTransactionRepository().refundTransaction(txnId, 1)).toThrow(
+        /This sale was partially refunded/,
+      );
+      // Refused before any write — stock unmoved by the rejected call.
+      expect(getStock(db, productId)).toBe(8);
 
-      // Only the REMAINING 2 units (3 - 1 already restored) come back —
-      // landing exactly at the original 10, never 11.
+      // The REMAINING 2 units come back through the per-item path, landing
+      // exactly at the original 10, never 11.
+      salesRepo.refundSaleItem({
+        saleId,
+        saleItemId: saleItem.id,
+        refundQuantity: 2,
+        userId: 1,
+      });
       expect(getStock(db, productId)).toBe(10);
     });
   });

@@ -2141,7 +2141,30 @@ no BLOCKER/MAJOR; cross-tenant canary held; 84-combo badge truth table exact.
   category_id no longer forwarded (name is authoritative); recorded TODO: PUT
   /products/:id still has no Zod schema (rule 19c) and the existing updateProductSchema
   speaks REST field names, so it is not a drop-in.
-- ALL REMAINING ITEMS DECIDED by the owner (2026-08-26, build queued as one pass):
+- ALL REMAINING ITEMS **BUILT + ADVERSARIALLY VERIFIED + SHIPPED 2026-08-27** (verified
+  workflow: 2 implementers, integrator, 2 verify lenses, fixer). During verification a
+  MAJOR pre-existing money bug surfaced and was fixed at the root: `refundSaleItem`
+  pro-rated payment/debt legs on the WRONG denominator (transaction amount, i.e. the
+  discounted total) while refunding the undiscounted line price — every per-item refund
+  of a DISCOUNTED sale over-refunded by the discount share, in every currency leg. Legs
+  and debt now pro-rate on one named base (line share of sale total); profit arm
+  unchanged; 5-case failing-first guard (SalesRepository.discountItemRefundTender).
+  This also retires the old "payment-side double-debit" open item entirely: partial-
+  then-whole is now BLOCKED (named error, refund/void/refundBySaleId all guarded,
+  zero deltas on a blocked attempt), and the per-item route it directs to is now exact.
+  E2E: lira-143 spec grew to 4 tests (delete-cascade frees IMEIs + keeps sold history;
+  whole-refund refused after per-item, drawer unmoved), green twice + post-fix;
+  lira-web-023 3/3 green (also the rule-19d proof for fad39e58).
+  NEW FOLLOW-UPS from this pass (MINOR/NOTE): fully-item-refunded sales get a dead-end
+  block message (nothing left to refund — message could say so); item refunds have no
+  undo (a mis-keyed per-item refund has no reversal path — pre-existing, now the forced
+  route); deleteProduct/batch hard-depend on product_units without a table-exists guard
+  (only matters on pre-v157 DBs); batch-delete has NO REST twin (pre-existing, cascade
+  widens the gap) and REST delete answers failures with HTTP 400 not the 200 envelope;
+  the delete-confirm dialog's IMEI fetch lacks a stale-response guard; DEFERRED: the
+  register's "product deleted" label on sold units (needs the shared typing files the
+  parallel carrier-lines session holds).
+  Original decision record (2026-08-26, one pass):
   (1) whole-sale refund after a partial item refund is BLOCKED with a named error
   directing to per-item refunds (fixes the drawer double-debit; per-item math already
   pro-rates correctly; known edge: phone-refund extras UI unreachable for such sales);

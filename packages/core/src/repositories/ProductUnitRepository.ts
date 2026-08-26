@@ -24,6 +24,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { inventoryLogger } from "../utils/logger.js";
+import { escapeLike, LIKE_ESCAPE_CLAUSE } from "../utils/sqlLike.js";
 
 // =============================================================================
 // Entity Types
@@ -103,7 +104,9 @@ export interface UnitListFilters {
   /** `true` narrows to `is_defective = 1`; `false`/absent means "no defect
    *  filter" (NOT "only healthy units"). */
   defectiveOnly?: boolean;
-  /** LIKE-matches the unit's IMEI OR its product's name. */
+  /** LIKE-matches the unit's IMEI OR its product's name. Matched as a
+   *  LITERAL substring: `%`, `_` and `\` in the term are escaped
+   *  (`utils/sqlLike.ts`), so they are characters, not wildcards. */
   search?: string;
   limit: number;
   offset: number;
@@ -247,7 +250,10 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
    * NOT as "only healthy units" — the UI's checkbox is a narrowing filter,
    * so unchecking it must widen back to everything. `search` is trimmed and
    * an empty result is dropped, so `search: "   "` never degenerates into a
-   * `LIKE '%%'` that matches every row by accident.
+   * `LIKE '%%'` that matches every row by accident — and its `%`/`_`/`\` are
+   * escaped (`utils/sqlLike.ts`) so a NON-empty term can't degenerate the
+   * same way either (LIRA-143 item 5: `search: "%"` used to return the whole
+   * table).
    */
   private static buildUnitListWhere(
     tenantId: number,
@@ -265,8 +271,17 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
     }
     const search = filters.search?.trim();
     if (search) {
-      clauses.push("(pu.imei LIKE ? OR p.name LIKE ?)");
-      const term = `%${search}%`;
+      // LIRA-143 item 5 — the term's own `%`/`_`/`\` are escaped and the
+      // matching `ESCAPE '\'` clause is attached (`utils/sqlLike.ts` owns the
+      // pair; using either half alone is a bug). Without it, a search for
+      // `%` returned the entire table and `81_9` matched `8139…`. Scope is
+      // deliberately this ONE search — see `sqlLike.ts`'s scope note for why
+      // ProductRepository's product name/barcode search keeps its
+      // long-standing raw-LIKE behaviour.
+      clauses.push(
+        `(pu.imei LIKE ? ${LIKE_ESCAPE_CLAUSE} OR p.name LIKE ? ${LIKE_ESCAPE_CLAUSE})`,
+      );
+      const term = `%${escapeLike(search)}%`;
       params.push(term, term);
     }
 
@@ -749,6 +764,94 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
       throw new Error(`deleteUnit: product unit ${unitId} not found`);
     }
     inventoryLogger.info({ unitId }, "Product unit deleted");
+  }
+
+  /**
+   * Cascade for a product soft-delete (owner decision 2026-08-26,
+   * "zero-burden delete"): hard-delete every `IN_STOCK` unit belonging to the
+   * given products, and report exactly what went.
+   *
+   * ## Why the units must go with the product
+   *
+   * A soft-deleted product disappears from every product read
+   * (`is_deleted = 0` is in `LISTABLE_PRODUCTS_WHERE` and every by-id/by-
+   * barcode lookup), but its `product_units` rows are NOT soft-deletable —
+   * this table has no `is_deleted` column and `super("product_units", {
+   * softDelete: false })` says so. So before this cascade the IN_STOCK units
+   * of a deleted product survived as invisible rows that still held their
+   * IMEIs under the partial unique index
+   * (`idx_product_units_active_imei`): re-registering that same IMEI on a
+   * live product failed with `IMEI … is already registered in stock on
+   * product "<the deleted one>"`, naming a product the operator can no
+   * longer see or open to fix. Deleting the rows frees the IMEIs — the index
+   * only covers `status = 'IN_STOCK'`, so the delete is exactly what lifts
+   * the block.
+   *
+   * ## SOLD units are NEVER touched
+   *
+   * A SOLD unit is the provenance of a real sale: it carries the
+   * `sale_item_id` that `getUnitStoryByImei` (the walk-in warranty lookup,
+   * decision #7) joins through, and `deleteUnit` already refuses to delete
+   * one for that reason. Deleting the model must not erase a customer's
+   * warranty story, so the `status = 'IN_STOCK'` predicate here is
+   * load-bearing, not an optimisation. A SOLD unit also cannot block anyone:
+   * the unique index ignores it.
+   *
+   * ## Transaction ownership
+   *
+   * Deliberately opens NO transaction of its own — it is designed to be
+   * called inside the caller's (`InventoryService.deleteProduct` /
+   * `batchDeleteProducts` wrap this together with the product soft-delete via
+   * `transaction()`), so the product row and its units can never end up
+   * half-deleted.
+   *
+   * Returns `{ count, imeis }` so the service can log it and hand the UI an
+   * honest number ("also removed 2 in-stock IMEIs") instead of a silent
+   * side effect. `productIds: []` short-circuits with no query.
+   */
+  deleteInStockForProducts(productIds: number[]): {
+    count: number;
+    imeis: string[];
+  } {
+    if (productIds.length === 0) return { count: 0, imeis: [] };
+    const tenantId = getCurrentTenantId();
+    const placeholders = productIds.map(() => "?").join(", ");
+
+    // Read the IMEIs first — after the DELETE there is nothing left to report.
+    const doomed = this.db
+      .prepare(
+        `SELECT imei FROM product_units
+         WHERE tenant_id = ? AND product_id IN (${placeholders})
+           AND status = 'IN_STOCK'
+         ORDER BY id ASC`,
+      )
+      .all(tenantId, ...productIds) as { imei: string }[];
+    if (doomed.length === 0) return { count: 0, imeis: [] };
+
+    const result = this.db
+      .prepare(
+        `DELETE FROM product_units
+         WHERE tenant_id = ? AND product_id IN (${placeholders})
+           AND status = 'IN_STOCK'`,
+      )
+      .run(tenantId, ...productIds);
+
+    const imeis = doomed.map((r) => r.imei);
+    inventoryLogger.info(
+      { productIds, count: result.changes, imeis },
+      "In-stock product units removed with their deleted product",
+    );
+    return { count: result.changes, imeis };
+  }
+
+  /** Single-product form of {@link deleteInStockForProducts} — same contract,
+   *  same (caller-owned) transaction requirement. Rule 14: the batch method
+   *  is the ONE implementation; this is a name for the common case. */
+  deleteInStockForProduct(productId: number): {
+    count: number;
+    imeis: string[];
+  } {
+    return this.deleteInStockForProducts([productId]);
   }
 
   /** Count of `IN_STOCK` units for a product — the drift-check input for

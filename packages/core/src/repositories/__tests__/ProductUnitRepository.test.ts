@@ -924,6 +924,74 @@ describe("ProductUnitRepository", () => {
       expect(result.rows.map((r) => r.id)).toEqual([iphoneUnits[0].id]);
     });
 
+    // -------------------------------------------------------------------------
+    // LIRA-143 item 5 — LIKE metacharacter escaping (`utils/sqlLike.ts`)
+    //
+    // Rule 17 (failing-first): all three of these were verified RED against
+    // the pre-fix `buildUnitListWhere` (raw `%${search}%`, no `ESCAPE`) —
+    // see the exact recorded output in the fix's report. `%` returned every
+    // row instead of the one literal match, `_` matched the wildcard decoy,
+    // and `\` matched the `%` row (proving the escape character itself has to
+    // be escaped, not just the two wildcards).
+    // -------------------------------------------------------------------------
+
+    it("treats a literal % in the search term as a character, not a wildcard", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const [percentUnit] = runWithTenant(1, () =>
+        repo.addUnits(productId, ["12%34567890123"]),
+      );
+      // Decoy: `%12%34%` (unescaped) matches this too — "12" … "34" — while
+      // the escaped pattern `%12\%34%` cannot.
+      runWithTenant(1, () => repo.addUnits(productId, ["129999934567890"]));
+      runWithTenant(1, () => repo.addUnits(productId, ["700000000000001"]));
+
+      // A bare "%" must find ONLY the imei that literally contains one.
+      const bare = runWithTenant(1, () =>
+        repo.listUnits({ search: "%", limit: 50, offset: 0 }),
+      );
+      expect(bare.total).toBe(1);
+      expect(bare.rows.map((r) => r.id)).toEqual([percentUnit.id]);
+
+      // A term with an embedded "%" must not wildcard-span the decoy.
+      const embedded = runWithTenant(1, () =>
+        repo.listUnits({ search: "12%34", limit: 50, offset: 0 }),
+      );
+      expect(embedded.total).toBe(1);
+      expect(embedded.rows.map((r) => r.id)).toEqual([percentUnit.id]);
+    });
+
+    it("treats a literal _ in the search term as a character, not a single-char wildcard", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const [underscoreUnit] = runWithTenant(1, () =>
+        repo.addUnits(productId, ["81_9000000000001"]),
+      );
+      // Decoy: `%81_9%` (unescaped) matches "8139…" via the `_` wildcard.
+      runWithTenant(1, () => repo.addUnits(productId, ["8139000000000001"]));
+
+      const hit = runWithTenant(1, () =>
+        repo.listUnits({ search: "81_9", limit: 50, offset: 0 }),
+      );
+      expect(hit.total).toBe(1);
+      expect(hit.rows.map((r) => r.id)).toEqual([underscoreUnit.id]);
+    });
+
+    it("treats a literal backslash (the ESCAPE character itself) as a character", () => {
+      const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
+      const [backslashUnit] = runWithTenant(1, () =>
+        repo.addUnits(productId, ["91\\9000000000001"]),
+      );
+      // Escaping the two wildcards but NOT the escape character degenerates
+      // the pattern to `%\%`, whose trailing `\%` is a literal percent with
+      // no wildcard behind it — this then matches NOTHING (verified RED).
+      runWithTenant(1, () => repo.addUnits(productId, ["92%000000000001"]));
+
+      const hit = runWithTenant(1, () =>
+        repo.listUnits({ search: "\\", limit: 50, offset: 0 }),
+      );
+      expect(hit.total).toBe(1);
+      expect(hit.rows.map((r) => r.id)).toEqual([backslashUnit.id]);
+    });
+
     it("joins the sale provenance for a sold unit (sold_at/sold_price_usd/client_name/warranty_until) and derives sale_refunded = 0", () => {
       const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
       const clientId = insertClient(db, 1, "Jane Doe");

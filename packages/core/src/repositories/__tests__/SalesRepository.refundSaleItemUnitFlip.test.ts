@@ -9,6 +9,14 @@
  * (owner decision 2026-07-04), covered separately in
  * TransactionRepository.productUnitsReversal.test.ts.
  *
+ * 2026-08-26 update: the second case here used to run a per-item refund and
+ * then a WHOLE-sale `refundTransaction` on the same sale. That sequence is now
+ * refused outright (owner decision — it double-debited the drawer by the
+ * already-refunded share; see
+ * TransactionRepository.partialRefundWholeGuard.test.ts), so the case asserts
+ * the refusal and then completes the return through the per-item path, which
+ * is the same no-double-effects proof for stock and units.
+ *
  * Rule 17 (failing-first): "flips the linked SOLD unit back to IN_STOCK" was
  * verified RED when the 9b block (`if (this._productUnitsTableExists()) {
  * ... }` in `refundSaleItem`) was temporarily commented out — the unit
@@ -279,7 +287,7 @@ describe("SalesRepository.refundSaleItem — product_units per-item flip (LIRA-1
     expect(getUnitStatus(db, unitId)).toBe("IN_STOCK");
   });
 
-  it("a unit line refunded via refundSaleItem, then a whole-sale refundTransaction, produces no double effects", () => {
+  it("a unit line refunded via refundSaleItem blocks the whole-sale refund; refunding the remaining line produces no double effects", () => {
     const productId = insertProduct(db, { name: "iPhone 13", stockQuantity: 5 });
     const unitA = insertUnit(db, productId, "DDDDDDDDDDDDDDD");
     const unitB = insertUnit(db, productId, "EEEEEEEEEEEEEEE");
@@ -316,23 +324,34 @@ describe("SalesRepository.refundSaleItem — product_units per-item flip (LIRA-1
     expect(getUnitStatus(db, unitB)).toBe("SOLD");
     expect(getStock(db, productId)).toBe(stockAfterSale + 1);
 
-    // Now fully refund the whole sale via TransactionRepository. Unit A's
-    // markInStock call must no-op (it's already IN_STOCK, not SOLD) instead
-    // of double-crediting stock or erroring; unit B flips normally.
+    // A whole-sale refund is now REFUSED once any line has been
+    // item-refunded (owner decision 2026-08-26) — the money half of this
+    // sequence double-debited the drawer, and no netting of the payment legs
+    // is reconstructible. See
+    // TransactionRepository.partialRefundWholeGuard.test.ts.
     const txn = db
       .prepare(
         `SELECT id FROM transactions WHERE type = 'SALE' AND source_table = 'sales' AND source_id = ?`,
       )
       .get(saleId) as { id: number };
-    getTransactionRepository().refundTransaction(txn.id, 1);
+    expect(() => getTransactionRepository().refundTransaction(txn.id, 1)).toThrow(
+      /This sale was partially refunded/,
+    );
+    // Refused before any write: unit B is still SOLD and stock is unmoved.
+    expect(getUnitStatus(db, unitB)).toBe("SOLD");
+    expect(getStock(db, productId)).toBe(stockAfterSale + 1);
 
+    // The remaining line goes back through the per-item path — the route the
+    // operator is now directed to. Both units end IN_STOCK and stock lands on
+    // EXACTLY the original 5, never 6.
+    salesRepo.refundSaleItem({
+      saleId,
+      saleItemId: items[1].id,
+      refundQuantity: 1,
+      userId: 1,
+    });
     expect(getUnitStatus(db, unitA)).toBe("IN_STOCK");
     expect(getUnitStatus(db, unitB)).toBe("IN_STOCK");
-    // Exactly the original stock — the fixed _restoreStock restores only
-    // the REMAINING (3 - 1 already-restored - wait, quantity per line is 1
-    // each) — line A's own quantity (1) minus its already-refunded (1) = 0
-    // more; line B's quantity (1) minus 0 refunded = 1 more. Net: +1, landing
-    // back at the original 5, never 6.
     expect(getStock(db, productId)).toBe(5);
   });
 });

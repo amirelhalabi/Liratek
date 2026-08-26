@@ -20,6 +20,7 @@ import {
   InventoryService,
   resetInventoryService,
   ProductRepository,
+  ProductUnitRepository,
   CategoryRepository,
   ValidationError,
   NotFoundError,
@@ -39,6 +40,14 @@ describe("InventoryService", () => {
    * exactly what that constructor parameter exists to prevent.
    */
   let mockCategoryRepo: jest.Mocked<CategoryRepository>;
+  /**
+   * Stub for the 3rd constructor slot. `deleteProduct`/`batchDeleteProducts`
+   * cascade the product's IN_STOCK IMEI units (owner decision 2026-08-26) and
+   * own the unit of work through this repository's `transaction()` — leaving
+   * the slot `undefined` fell back to the real singleton, whose `this.db` is
+   * the better-sqlite3 module mock with no `transaction` on it.
+   */
+  let mockUnitRepo: jest.Mocked<ProductUnitRepository>;
 
   beforeEach(() => {
     resetInventoryService();
@@ -55,6 +64,7 @@ describe("InventoryService", () => {
       exists: jest.fn(),
       updateProductFull: jest.fn(),
       softDeleteById: jest.fn(),
+      batchSoftDelete: jest.fn(),
       adjustStock: jest.fn(),
       adjustStockDelta: jest.fn(),
       deductStockForSale: jest.fn(),
@@ -66,10 +76,19 @@ describe("InventoryService", () => {
       getOrCreate: jest.fn(() => STUB_CATEGORY_ID),
     } as unknown as jest.Mocked<CategoryRepository>;
 
+    mockUnitRepo = {
+      // Pass-through: these unit tests assert the service's orchestration,
+      // not SQLite's atomicity (the real transaction is proven in core's
+      // InventoryService.deleteUnitCascade.test.ts against a live DB).
+      transaction: jest.fn((fn: () => unknown) => fn()),
+      deleteInStockForProduct: jest.fn(() => ({ count: 0, imeis: [] })),
+      deleteInStockForProducts: jest.fn(() => ({ count: 0, imeis: [] })),
+    } as unknown as jest.Mocked<ProductUnitRepository>;
+
     service = new InventoryService(
       mockRepo,
       undefined,
-      undefined,
+      mockUnitRepo,
       mockCategoryRepo,
     );
   });
@@ -425,13 +444,38 @@ describe("InventoryService", () => {
       const result = service.deleteProduct(1);
 
       expect(mockRepo.softDeleteById).toHaveBeenCalledWith(1);
+      // The IMEI-unit cascade runs for every delete, inside the repository-
+      // owned transaction — and reports nothing when there was nothing to
+      // remove (absent, not 0).
+      expect(mockUnitRepo.transaction).toHaveBeenCalledTimes(1);
+      expect(mockUnitRepo.deleteInStockForProduct).toHaveBeenCalledWith(1);
       expect(result).toEqual({ success: true });
+    });
+
+    it("reports the IN_STOCK units the cascade removed", () => {
+      mockRepo.softDeleteById.mockReturnValue(true);
+      (
+        mockUnitRepo.deleteInStockForProduct as unknown as jest.Mock
+      ).mockReturnValue({
+        count: 2,
+        imeis: ["111000000000001", "111000000000002"],
+      });
+
+      const result = service.deleteProduct(1);
+
+      expect(result).toEqual({
+        success: true,
+        removed_unit_count: 2,
+        removed_unit_imeis: ["111000000000001", "111000000000002"],
+      });
     });
 
     it("returns error for missing product ID", () => {
       const result = service.deleteProduct(0);
 
       expect(result).toEqual({ success: false, error: "Product ID required" });
+      // Refused before the transaction opens — nothing cascaded.
+      expect(mockUnitRepo.transaction).not.toHaveBeenCalled();
     });
 
     it("handles repository error", () => {
@@ -442,6 +486,43 @@ describe("InventoryService", () => {
       const result = service.deleteProduct(1);
 
       expect(result).toEqual({ success: false, error: "DB error" });
+      // The soft delete throws first, so the cascade never runs — the real
+      // transaction rolls the whole unit of work back.
+      expect(mockUnitRepo.deleteInStockForProduct).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("batchDeleteProducts", () => {
+    it("cascades the IMEI units for every id in the batch", () => {
+      (
+        mockRepo.batchSoftDelete as unknown as jest.Mock
+      ).mockReturnValue(2);
+      (
+        mockUnitRepo.deleteInStockForProducts as unknown as jest.Mock
+      ).mockReturnValue({ count: 3, imeis: ["a", "b", "c"] });
+
+      const result = service.batchDeleteProducts([1, 2]);
+
+      expect(mockRepo.batchSoftDelete).toHaveBeenCalledWith([1, 2]);
+      expect(mockUnitRepo.deleteInStockForProducts).toHaveBeenCalledWith([
+        1, 2,
+      ]);
+      expect(result).toEqual({
+        success: true,
+        deleted: 2,
+        removed_unit_count: 3,
+        removed_unit_imeis: ["a", "b", "c"],
+      });
+    });
+
+    it("rejects an empty id list before opening the transaction", () => {
+      const result = service.batchDeleteProducts([]);
+
+      expect(result).toEqual({
+        success: false,
+        error: "No product IDs provided",
+      });
+      expect(mockUnitRepo.transaction).not.toHaveBeenCalled();
     });
   });
 

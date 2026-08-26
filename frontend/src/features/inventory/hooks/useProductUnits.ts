@@ -222,6 +222,63 @@ export function useUnitListQuery(filters: UnitListFilters) {
   });
 }
 
+/**
+ * A `productUnits.list` caller. Declared structurally (rather than reaching
+ * into the shared `ApiAdapter` type) so {@link fetchAllUnitsForExport} can be
+ * unit-tested with a plain jest mock, and so the page passes an arrow that
+ * type-checks at the call site exactly like `useUnitListQuery` does.
+ */
+export type UnitListFetcher = (
+  filters: UnitListFilters,
+) => Promise<UnitListResult>;
+
+export interface UnitExportFetchResult {
+  /** Every row matching the filters, up to the plan's cap. */
+  rows: UnitListRowWithWarranty[];
+  /** True when the filters matched MORE rows than the cap allows. */
+  capped: boolean;
+  /** How many `list` calls were made — the loop's own accounting. */
+  calls: number;
+}
+
+/**
+ * Owner item #6 — assemble EVERY row matching the current filters by looping
+ * the paginated list, so an export is the whole filtered result set and not
+ * just the page on screen.
+ *
+ * `plan` comes from `planExportFetch(total)` (page-owned pure arithmetic), so
+ * the cap and the page size are decided in one testable place and this
+ * function is only the I/O.
+ *
+ * Two deliberate properties:
+ *   - It stops as soon as a page comes back SHORT. A concurrent delete can
+ *     shrink the result set mid-loop; continuing would fire requests for
+ *     offsets past the end and pad nothing useful.
+ *   - It never over-collects: the final slice honours `plan.rowCount`, so a
+ *     server that ignores a short last `limit` still yields exactly the capped
+ *     number of rows.
+ */
+export async function fetchAllUnitsForExport(
+  list: UnitListFetcher,
+  baseFilters: Omit<UnitListFilters, "limit" | "offset">,
+  plan: { rowCount: number; capped: boolean; pages: Array<{ limit: number; offset: number }> },
+): Promise<UnitExportFetchResult> {
+  const rows: UnitListRowWithWarranty[] = [];
+  let calls = 0;
+  for (const page of plan.pages) {
+    const result = await list({
+      ...baseFilters,
+      limit: page.limit,
+      offset: page.offset,
+    });
+    calls += 1;
+    rows.push(...result.rows);
+    if (result.rows.length < page.limit) break;
+    if (rows.length >= plan.rowCount) break;
+  }
+  return { rows: rows.slice(0, plan.rowCount), capped: plan.capped, calls };
+}
+
 /** The walk-in lookup (decision #7) — every unit matching `imei` exactly,
  *  warranty-stamped. `imei === null` (heuristic didn't match the search
  *  term) disables the query entirely — no request, no cache entry. */

@@ -136,8 +136,34 @@ describe("ImeiStoryCard render", () => {
     ).toHaveTextContent("No warranty");
   });
 
+  /**
+   * Owner decision 2026-08-27 — the ONE case where this card deliberately
+   * DISAGREES with the Phone Units table. A refund voids the sale's warranty
+   * and returns the unit to stock; the table then advertises the term the next
+   * sale will carry, but this card is the unit's provenance, so it must keep
+   * reporting the refund. Rendered through `warrantyStoryBadge`, not the
+   * table's `warrantyDisplayBadge`.
+   */
+  it("keeps Void (refunded) for a refunded unit back in stock, even with a model term", () => {
+    render(
+      <ImeiStoryCard
+        story={makeStory({
+          status: "IN_STOCK",
+          sale_item_id: null,
+          is_refunded: 1,
+          warranty_until: null,
+          product_warranty_months: 6,
+          warranty: { source: "REFUND", until: null, state: "VOID" },
+        })}
+      />,
+    );
+    const badge = screen.getByTestId("imei-story-warranty-badge");
+    expect(badge).toHaveTextContent("Void (refunded)");
+    expect(badge).not.toHaveTextContent("starts at sale");
+  });
+
   /** Owner-reported 2026-08-26 — the story card is the SECOND surface that
-   *  renders a verdict; it must agree with the Phone Units table. */
+   *  renders a verdict; for a NEVER-SOLD unit it agrees with the table. */
   it("shows the model's term for an unsold unit instead of No warranty", () => {
     render(
       <ImeiStoryCard

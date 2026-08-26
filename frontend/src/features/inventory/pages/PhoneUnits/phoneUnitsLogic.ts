@@ -6,7 +6,13 @@
  * `react-refresh/only-export-components`), the same split
  * `productUnitsLogic.ts` uses for `warrantyBadgeInfo`.
  */
-import type { UnitListFilters } from "../../hooks/useProductUnits";
+import type { TableData } from "@liratek/ui";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
+import type {
+  UnitListFilters,
+  UnitListRowWithWarranty,
+} from "../../hooks/useProductUnits";
+import { warrantyDisplayBadge } from "../../productUnitsLogic";
 
 /** Rows per page. Well under the Zod ceiling (limit ≤ 200). */
 export const PHONE_UNITS_PAGE_SIZE = 25;
@@ -105,4 +111,147 @@ export function unitStatusBadgeClass(status: "IN_STOCK" | "SOLD"): string {
   return status === "IN_STOCK"
     ? "bg-sky-500/10 text-sky-400 border-sky-500/30"
     : "bg-slate-700/40 text-slate-300 border-slate-600/40";
+}
+
+// =============================================================================
+// Export ALL filtered rows (owner item #6)
+// =============================================================================
+
+/**
+ * Rows fetched per call while assembling an export. The list contract's Zod
+ * ceiling for `limit` is 200, so this is the largest legal page — the fewest
+ * round trips for a given result set.
+ */
+export const PHONE_UNITS_EXPORT_PAGE_SIZE = 200;
+
+/**
+ * Hard cap on the rows a single export may pull. Beyond this the operator is
+ * asked to confirm and gets the FIRST `PHONE_UNITS_EXPORT_MAX_ROWS` rows —
+ * never a silent truncation, and never a browser-hanging 40k-row PDF.
+ */
+export const PHONE_UNITS_EXPORT_MAX_ROWS = 5000;
+
+/** One `productUnits.list` call the export loop will make. */
+export interface ExportFetchPage {
+  limit: number;
+  offset: number;
+}
+
+export interface ExportFetchPlan {
+  /** Rows the export will actually pull: `min(total, cap)`. */
+  rowCount: number;
+  /** How many `productUnits.list` calls `pages` describes. */
+  calls: number;
+  /** True when `total` exceeded the cap, so the export is a prefix. */
+  capped: boolean;
+  /** The (limit, offset) pairs to request, in order. */
+  pages: ExportFetchPage[];
+}
+
+/**
+ * The page-loop arithmetic for "export every row matching the CURRENT
+ * filters", derived from the server's `total` (the same COUNT(*) the pager
+ * labels itself with — never `rows.length`, which is one page).
+ *
+ * The LAST page is short-limited to exactly the rows still wanted rather than
+ * a full `pageSize`: it keeps the response small and, when the cap bites, it
+ * is what makes the loop stop exactly ON the cap instead of overshooting and
+ * relying on the caller to slice.
+ *
+ * A `total` of 0 yields zero calls — an export of nothing must not fire a
+ * request.
+ */
+export function planExportFetch(
+  total: number,
+  pageSize: number = PHONE_UNITS_EXPORT_PAGE_SIZE,
+  cap: number = PHONE_UNITS_EXPORT_MAX_ROWS,
+): ExportFetchPlan {
+  const safeTotal = Number.isFinite(total) && total > 0 ? Math.floor(total) : 0;
+  const rowCount = Math.min(safeTotal, cap);
+  const pages: ExportFetchPage[] = [];
+  for (let offset = 0; offset < rowCount; offset += pageSize) {
+    pages.push({ limit: Math.min(pageSize, rowCount - offset), offset });
+  }
+  return {
+    rowCount,
+    calls: pages.length,
+    capped: safeTotal > cap,
+    pages,
+  };
+}
+
+/**
+ * The confirm text shown when the filters match more rows than the cap allows.
+ * Names the cap AND the real total so the operator can narrow the filters
+ * instead, rather than being handed a silently partial file.
+ */
+export function exportCapConfirmMessage(
+  total: number,
+  cap: number = PHONE_UNITS_EXPORT_MAX_ROWS,
+): string {
+  return (
+    `${total.toLocaleString()} units match these filters, but an export is ` +
+    `limited to ${cap.toLocaleString()} rows.\n\n` +
+    `Export the first ${cap.toLocaleString()}? ` +
+    `Cancel to narrow the filters first.`
+  );
+}
+
+/**
+ * The export's column headers. Mirrors the visible table's headers minus
+ * "Actions" — exactly the set `DataTable`'s own exporter would have chosen
+ * (it drops action/checkbox columns). Declared here so the export cannot
+ * silently drift from the on-screen table; `PhoneUnits.test.tsx` asserts this
+ * array against the rendered `<th>` labels.
+ */
+export const PHONE_UNITS_EXPORT_HEADERS = [
+  "IMEI",
+  "Product",
+  "Status",
+  "Defective",
+  "Sold",
+  "Client",
+  "Warranty",
+] as const;
+
+/**
+ * Rows → the `TableData` the house Excel/PDF writers consume
+ * (`exportToExcel` / `exportToPdf`).
+ *
+ * Every cell is the SAME text the table renders, produced by the same
+ * helpers — the em dash for an absent value, `unit.status` verbatim, and the
+ * warranty label from `warrantyDisplayBadge` (the TABLE mapping, so a
+ * refunded-back-to-stock unit exports "6 mo — starts at sale" exactly as the
+ * screen shows it, not the story card's "Void (refunded)").
+ */
+export function buildUnitExportTable(
+  rows: UnitListRowWithWarranty[],
+): TableData {
+  return {
+    headers: [...PHONE_UNITS_EXPORT_HEADERS],
+    rows: rows.map((unit) => [
+      unit.imei,
+      unit.product_name,
+      unit.status,
+      unit.is_defective ? "Defective" : "—",
+      unit.sold_at ? parseDbDate(unit.sold_at).toLocaleDateString() : "—",
+      unit.client_name ?? "—",
+      warrantyDisplayBadge({
+        warranty: unit.warranty,
+        status: unit.status,
+        productWarrantyMonths: unit.product_warranty_months,
+      }).label,
+    ]),
+  };
+}
+
+/**
+ * `phone-units-DD-MM-YYYY` — the same `<name>-<dd-mm-yyyy>` shape
+ * `ExportBar` stamps on every other table's download, kept identical here
+ * because this page drives the writers itself (see `index.tsx`).
+ */
+export function phoneUnitsExportFilename(now: Date = new Date()): string {
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  return `phone-units-${dd}-${mm}-${now.getFullYear()}`;
 }
