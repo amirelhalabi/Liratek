@@ -1,14 +1,13 @@
 /**
  * LIRA-143 Phase 6b — pure logic for the inventory Units/IMEIs UI: the
  * intake-vs-stock_quantity drift predicate (owner decision #6, warn-never-
- * block), the scan-friendly IMEI batch parser, and the walk-in-lookup
- * heuristic (decision #7). Same pattern as features/audit/cashFlow.test.ts.
+ * block) and the walk-in-lookup heuristic (decision #7). Same pattern as
+ * features/audit/cashFlow.test.ts. (The scan-friendly batch parser that used
+ * to live here, `parseImeiBatch`, was removed in the owner-requested UI
+ * rework that replaced the multi-line textarea with `ImeiAddRow`'s one-
+ * IMEI-at-a-time input.)
  */
-import {
-  computeUnitDrift,
-  parseImeiBatch,
-  looksLikeImei,
-} from "../productUnitsLogic";
+import { computeUnitDrift, looksLikeImei } from "../productUnitsLogic";
 
 describe("computeUnitDrift", () => {
   it("matches when in-stock count equals stock_quantity", () => {
@@ -31,46 +30,6 @@ describe("computeUnitDrift", () => {
     const result = computeUnitDrift(100, 1);
     expect(result.matches).toBe(false);
     expect(() => computeUnitDrift(100, 1)).not.toThrow();
-  });
-});
-
-describe("parseImeiBatch", () => {
-  it("splits one IMEI per line", () => {
-    expect(parseImeiBatch("111111111111111\n222222222222222")).toEqual([
-      "111111111111111",
-      "222222222222222",
-    ]);
-  });
-
-  it("trims whitespace on each line", () => {
-    expect(parseImeiBatch("  111111111111111  \n\t222222222222222\t")).toEqual(
-      ["111111111111111", "222222222222222"],
-    );
-  });
-
-  it("drops blank lines", () => {
-    expect(parseImeiBatch("111111111111111\n\n\n222222222222222\n")).toEqual([
-      "111111111111111",
-      "222222222222222",
-    ]);
-  });
-
-  it("de-duplicates within the batch, keeping first occurrence order", () => {
-    expect(
-      parseImeiBatch("111111111111111\n222222222222222\n111111111111111"),
-    ).toEqual(["111111111111111", "222222222222222"]);
-  });
-
-  it("handles CRLF line endings", () => {
-    expect(parseImeiBatch("111111111111111\r\n222222222222222")).toEqual([
-      "111111111111111",
-      "222222222222222",
-    ]);
-  });
-
-  it("returns [] for empty/whitespace-only input", () => {
-    expect(parseImeiBatch("")).toEqual([]);
-    expect(parseImeiBatch("   \n\n  ")).toEqual([]);
   });
 });
 

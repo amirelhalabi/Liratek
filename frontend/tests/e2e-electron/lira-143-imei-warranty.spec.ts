@@ -12,7 +12,7 @@
  *      for an existing product whose CATEGORY tracks IMEI units, decision
  *      #9) shows the 2 self-provisioned IMEIs IN_STOCK plus a warn-only
  *      drift banner (2 registered vs stock 3); registering a 3rd IMEI
- *      through the real textarea clears the drift; re-registering an
+ *      through the real input+Add row (ImeiAddRow) clears the drift; re-registering an
  *      already-in-stock IMEI is rejected with the named "already registered
  *      ... product" error (decision #3), rendered inline (not a toast).
  *   b. Scan-sell — POS's product search auto-add path (decision #2): typing
@@ -362,16 +362,19 @@ async function openEditProduct(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 5_000 });
 }
 
-/** The Units/IMEIs section's textarea + submit button (ProductUnitsSection). */
+/** The Units/IMEIs section's single-IMEI input + Add button (ImeiAddRow,
+ *  embedded in ProductUnitsSection) — owner-requested rework replacing the
+ *  old multi-line textarea. Enter submits too (scanner-friendly); this
+ *  helper drives that same path since it's what a real scan sends. */
 function unitsSection(page: Page): Locator {
   return page.getByTestId("product-units-section");
 }
 
 async function registerImeiViaUi(page: Page, imei: string): Promise<void> {
   const section = unitsSection(page);
-  const textarea = section.locator("textarea");
-  await textarea.fill(imei);
-  await section.getByRole("button", { name: /^Add \d+ Unit/ }).click();
+  const input = section.getByTestId("imei-add-input");
+  await input.fill(imei);
+  await input.press("Enter");
 }
 
 /** Cart line for PRODUCT_NAME — CartLineRow's own container class. */
@@ -430,7 +433,7 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(drift).toContainText("2 units registered in-stock");
     await expect(drift).toContainText("stock quantity is 3");
 
-    // Register the 3rd unit through the real textarea — drift clears.
+    // Register the 3rd unit through the real input+Add row — drift clears.
     await registerImeiViaUi(appPage, IMEI_3);
     await expect(
       section.getByText(IMEI_3, { exact: false }),

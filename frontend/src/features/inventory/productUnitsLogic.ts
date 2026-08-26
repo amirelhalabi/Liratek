@@ -34,28 +34,6 @@ export function computeUnitDrift(
 }
 
 /**
- * Splits a scan-friendly textarea/input value into individual IMEI
- * candidates — one per line (a barcode scanner's trailing Enter naturally
- * becomes a newline in a plain `<textarea>`), each trimmed, blank lines
- * dropped, and de-duplicated within the batch. The backend's own
- * `ProductUnitRepository.addUnits` already rejects an in-batch duplicate
- * outright (no partial intake) — de-duping here just avoids a guaranteed-
- * to-fail round trip for the most common mis-scan (the same IMEI scanned
- * twice in a row), never changes what a clean batch resolves to.
- */
-export function parseImeiBatch(raw: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
-}
-
-/**
  * Permissive IMEI-ish heuristic for the walk-in lookup (decision #7): digits
  * only, at least 6 characters. A real IMEI is 15 digits, but this is
  * deliberately permissive (per the ticket) so a shorter test value or a

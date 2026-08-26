@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { appEvents } from "@liratek/ui";
 import {
@@ -6,7 +5,8 @@ import {
   useRegisterUnitsMutation,
   useDeleteUnitMutation,
 } from "../hooks/useProductUnits";
-import { computeUnitDrift, parseImeiBatch } from "../productUnitsLogic";
+import { computeUnitDrift } from "../productUnitsLogic";
+import { ImeiAddRow, type ImeiAddRowResult } from "./ImeiAddRow";
 
 export interface ProductUnitsSectionProps {
   productId: number;
@@ -17,10 +17,12 @@ export interface ProductUnitsSectionProps {
  * LIRA-143 Phase 6b — the "Units / IMEIs" section embedded in ProductForm,
  * shown only for an existing product whose category tracks IMEI units (see
  * ProductForm for the flag-source decision). Lists every registered unit
- * (IN_STOCK/SOLD, defective flag), accepts a scan-friendly batch of new
- * IMEIs, and allows deleting an IN_STOCK intake mistake. The intake-vs-
- * stock_quantity drift (owner decision #6) is WARN-ONLY — it is rendered as
- * an amber banner and never blocks saving the product or adding more units.
+ * (IN_STOCK/SOLD, defective flag), accepts new IMEIs one scan at a time via
+ * `ImeiAddRow` (owner-requested rework — replaced a multi-line textarea that
+ * split a pasted paragraph into a batch), and allows deleting an IN_STOCK
+ * intake mistake. The intake-vs-stock_quantity drift (owner decision #6) is
+ * WARN-ONLY — it is rendered as an amber banner and never blocks saving the
+ * product or adding more units.
  */
 export function ProductUnitsSection({
   productId,
@@ -34,28 +36,15 @@ export function ProductUnitsSection({
   const registerUnits = useRegisterUnitsMutation(productId);
   const deleteUnit = useDeleteUnitMutation(productId);
 
-  const [imeiInput, setImeiInput] = useState("");
-  const [registerError, setRegisterError] = useState<string | null>(null);
-
   const inStockCount = units.filter((u) => u.status === "IN_STOCK").length;
   const drift = computeUnitDrift(inStockCount, stockQuantity);
-  const pendingImeis = parseImeiBatch(imeiInput);
 
-  const handleAddImeis = async () => {
-    if (pendingImeis.length === 0) return;
-    setRegisterError(null);
-    try {
-      const result = await registerUnits.mutateAsync(pendingImeis);
-      if (!result.success) {
-        setRegisterError(result.error ?? "Failed to register unit(s)");
-        return;
-      }
-      setImeiInput("");
-    } catch (err) {
-      setRegisterError(
-        err instanceof Error ? err.message : "Failed to register unit(s)",
-      );
+  const handleAddImei = async (imei: string): Promise<ImeiAddRowResult> => {
+    const result = await registerUnits.mutateAsync([imei]);
+    if (!result.success) {
+      return { success: false, error: result.error ?? "Failed to register unit" };
     }
+    return { success: true };
   };
 
   const handleDelete = async (unitId: number) => {
@@ -158,30 +147,9 @@ export function ProductUnitsSection({
 
       <div>
         <label className="block text-xs text-slate-400 mb-1">
-          Add IMEIs — scan or type, one per line
+          Add a unit — scan or type the IMEI, then press Enter
         </label>
-        <textarea
-          value={imeiInput}
-          onChange={(e) => setImeiInput(e.target.value)}
-          placeholder={"356938035643809\n356938035643810"}
-          rows={3}
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-600 resize-none"
-        />
-        {registerError && (
-          <p className="text-sm text-red-400 mt-1">{registerError}</p>
-        )}
-        <button
-          type="button"
-          onClick={handleAddImeis}
-          disabled={registerUnits.isPending || pendingImeis.length === 0}
-          className="mt-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors"
-        >
-          {registerUnits.isPending
-            ? "Adding…"
-            : pendingImeis.length > 0
-              ? `Add ${pendingImeis.length} Unit${pendingImeis.length === 1 ? "" : "s"}`
-              : "Add Unit(s)"}
-        </button>
+        <ImeiAddRow onAdd={handleAddImei} placeholder="356938035643809" />
       </div>
     </div>
   );

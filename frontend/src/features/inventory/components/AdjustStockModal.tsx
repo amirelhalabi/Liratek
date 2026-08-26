@@ -8,7 +8,7 @@ import {
   useStockAdjustmentsQuery,
 } from "../hooks/useStockAdjustments";
 import { useRegisterUnitsMutation } from "../hooks/useProductUnits";
-import { parseImeiBatch } from "../productUnitsLogic";
+import { ImeiAddRow, type ImeiAddRowResult } from "./ImeiAddRow";
 
 /**
  * Deliberately minimal — structurally satisfied by both the full `Product`
@@ -64,8 +64,7 @@ export default function AdjustStockModal({
 
   const [step, setStep] = useState<Step>("form");
   const [pendingIncrease, setPendingIncrease] = useState(0);
-  const [imeiInput, setImeiInput] = useState("");
-  const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [scannedImeis, setScannedImeis] = useState<string[]>([]);
 
   const adjustStock = useAdjustStockMutation();
   const registerUnits = useRegisterUnitsMutation(product.id);
@@ -148,17 +147,16 @@ export default function AdjustStockModal({
     }
   }
 
-  const pendingImeis = parseImeiBatch(imeiInput);
-
-  async function handleRegisterImeis() {
-    if (pendingImeis.length === 0) return;
-    setIntakeError(null);
+  async function handleAddImei(imei: string): Promise<ImeiAddRowResult> {
     try {
-      const result = await registerUnits.mutateAsync(pendingImeis);
+      const result = await registerUnits.mutateAsync([imei]);
       if (!result.success) {
-        setIntakeError(result.error ?? "Failed to register units");
-        return;
+        return {
+          success: false,
+          error: result.error ?? "Failed to register unit",
+        };
       }
+      setScannedImeis((prev) => [...prev, imei]);
       const drift = result.data?.drift;
       if (drift && !drift.matches) {
         appEvents.emit(
@@ -167,11 +165,11 @@ export default function AdjustStockModal({
           "warning",
         );
       }
-      onSuccess();
+      return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error("Failed to register product units:", err);
-      setIntakeError(message || "Failed to register units");
+      logger.error("Failed to register product unit:", err);
+      return { success: false, error: message || "Failed to register unit" };
     }
   }
 
@@ -305,38 +303,35 @@ export default function AdjustStockModal({
                 Scan {pendingIncrease} IMEI{pendingIncrease === 1 ? "" : "s"}{" "}
                 for the new stock — optional.
               </p>
-              <textarea
+              <ImeiAddRow
+                onAdd={handleAddImei}
+                placeholder="356938035643809"
                 autoFocus
-                value={imeiInput}
-                onChange={(e) => setImeiInput(e.target.value)}
-                placeholder={"356938035643809\n356938035643810"}
-                rows={4}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 resize-none"
               />
-              {intakeError && (
-                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-                  {intakeError}
-                </p>
+              {scannedImeis.length > 0 && (
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {scannedImeis.map((imei) => (
+                    <div
+                      key={imei}
+                      className="flex items-center justify-between bg-slate-900/50 rounded-lg px-3 py-2 text-sm"
+                    >
+                      <span className="font-mono text-white truncate">
+                        {imei}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded border bg-sky-500/10 text-sky-400 border-sky-500/30 shrink-0">
+                        Added
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={onSuccess}
-                  className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm"
-                >
-                  Skip
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRegisterImeis}
-                  disabled={registerUnits.isPending || pendingImeis.length === 0}
-                  className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm disabled:opacity-50"
-                >
-                  {registerUnits.isPending
-                    ? "Registering…"
-                    : "Register & Finish"}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={onSuccess}
+                className="w-full px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors text-sm"
+              >
+                Done
+              </button>
             </div>
           )}
 

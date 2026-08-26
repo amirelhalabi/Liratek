@@ -160,7 +160,7 @@ describe("ProductUnitsSection — drift warning (decision #6, warn-never-block)"
     );
   });
 
-  it("never disables the Add Unit(s) button when a drift is present (warn only)", async () => {
+  it("never disables the Add button when a drift is present (warn only)", async () => {
     mockGetForProduct.mockResolvedValue([
       { id: 1, imei: "111111111111111", status: "IN_STOCK", is_defective: 0 },
     ]);
@@ -170,48 +170,97 @@ describe("ProductUnitsSection — drift warning (decision #6, warn-never-block)"
       "1 unit registered in-stock",
     );
 
-    fireEvent.change(
-      screen.getByPlaceholderText(/356938035643809/),
-      { target: { value: "222222222222222" } },
-    );
-    expect(
-      screen.getByRole("button", { name: "Add 1 Unit" }),
-    ).not.toBeDisabled();
+    fireEvent.change(screen.getByTestId("imei-add-input"), {
+      target: { value: "222222222222222" },
+    });
+    expect(screen.getByTestId("imei-add-button")).not.toBeDisabled();
   });
 });
 
-describe("ProductUnitsSection — batch IMEI intake", () => {
+describe("ProductUnitsSection — single-IMEI add row (ImeiAddRow)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetForProduct.mockResolvedValue([]);
   });
 
-  it("registers a multi-line batch, one IMEI per line", async () => {
+  it("registers exactly one IMEI via the register mutation on Add click", async () => {
     mockRegister.mockResolvedValue({
       success: true,
       data: {
         units: [],
-        drift: { inStockUnits: 2, stockQuantity: 2, matches: true },
+        drift: { inStockUnits: 1, stockQuantity: 1, matches: true },
       },
     });
     renderSection(0);
     await screen.findByText("No units registered yet.");
 
-    fireEvent.change(
-      screen.getByPlaceholderText(/356938035643809/),
-      { target: { value: "111111111111111\n222222222222222" } },
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Add 2 Units" }));
+    fireEvent.change(screen.getByTestId("imei-add-input"), {
+      target: { value: "111111111111111" },
+    });
+    fireEvent.click(screen.getByTestId("imei-add-button"));
 
     await waitFor(() =>
       expect(mockRegister).toHaveBeenCalledWith({
         product_id: 42,
-        imeis: ["111111111111111", "222222222222222"],
+        imeis: ["111111111111111"],
       }),
     );
   });
 
-  it("shows the service error when registration fails", async () => {
+  it("registers on Enter in the input (scanner-friendly) and clears + refocuses on success", async () => {
+    mockRegister.mockResolvedValue({
+      success: true,
+      data: {
+        units: [],
+        drift: { inStockUnits: 1, stockQuantity: 1, matches: true },
+      },
+    });
+    renderSection(0);
+    await screen.findByText("No units registered yet.");
+
+    const input = screen.getByTestId("imei-add-input");
+    fireEvent.change(input, { target: { value: "111111111111111" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(mockRegister).toHaveBeenCalledWith({
+        product_id: 42,
+        imeis: ["111111111111111"],
+      }),
+    );
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(input).toHaveFocus();
+  });
+
+  it("registers a second scan immediately after the first (consecutive adds, no clicks)", async () => {
+    mockRegister
+      .mockResolvedValueOnce({
+        success: true,
+        data: { units: [], drift: { inStockUnits: 1, stockQuantity: 2, matches: false } },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: { units: [], drift: { inStockUnits: 2, stockQuantity: 2, matches: true } },
+      });
+    renderSection(0);
+    await screen.findByText("No units registered yet.");
+
+    const input = screen.getByTestId("imei-add-input");
+    fireEvent.change(input, { target: { value: "111111111111111" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(mockRegister).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(input).toHaveValue(""));
+
+    fireEvent.change(input, { target: { value: "222222222222222" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(mockRegister).toHaveBeenCalledTimes(2));
+    expect(mockRegister).toHaveBeenNthCalledWith(2, {
+      product_id: 42,
+      imeis: ["222222222222222"],
+    });
+  });
+
+  it("shows the named service error inline and KEEPS the input value on failure", async () => {
     mockRegister.mockResolvedValue({
       success: false,
       error: "IMEI already registered in stock on product X",
@@ -219,22 +268,26 @@ describe("ProductUnitsSection — batch IMEI intake", () => {
     renderSection(0);
     await screen.findByText("No units registered yet.");
 
-    fireEvent.change(
-      screen.getByPlaceholderText(/356938035643809/),
-      { target: { value: "111111111111111" } },
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Add 1 Unit" }));
+    const input = screen.getByTestId("imei-add-input");
+    fireEvent.change(input, { target: { value: "111111111111111" } });
+    fireEvent.click(screen.getByTestId("imei-add-button"));
 
     expect(
       await screen.findByText("IMEI already registered in stock on product X"),
     ).toBeInTheDocument();
+    expect(input).toHaveValue("111111111111111");
   });
 
-  it("disables the Add button when the textarea is empty/whitespace-only", async () => {
+  it("no-ops on an empty/whitespace-only submit — Add stays disabled, no call made", async () => {
     renderSection(0);
     await screen.findByText("No units registered yet.");
-    expect(
-      screen.getByRole("button", { name: "Add Unit(s)" }),
-    ).toBeDisabled();
+
+    const input = screen.getByTestId("imei-add-input");
+    expect(screen.getByTestId("imei-add-button")).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(screen.getByTestId("imei-add-button")).toBeDisabled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(mockRegister).not.toHaveBeenCalled();
   });
 });

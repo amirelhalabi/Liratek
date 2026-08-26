@@ -350,7 +350,7 @@ describe("AdjustStockModal — IMEI intake step (decision #6)", () => {
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
-  it("Skip calls onSuccess without registering any units", async () => {
+  it("Done calls onSuccess without registering any units when none were scanned", async () => {
     const { onSuccess } = renderModal({ tracksImeiUnits: true });
 
     fireEvent.change(screen.getByPlaceholderText("0"), {
@@ -365,20 +365,28 @@ describe("AdjustStockModal — IMEI intake step (decision #6)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
     await screen.findByTestId("stock-intake-step");
 
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(mockRegisterProductUnits).not.toHaveBeenCalled();
   });
 
-  it("Register & Finish sends the scanned IMEIs and calls onSuccess", async () => {
-    mockRegisterProductUnits.mockResolvedValue({
-      success: true,
-      data: {
-        units: [],
-        drift: { inStockUnits: 12, stockQuantity: 12, matches: true },
-      },
-    });
+  it("registers each scanned IMEI immediately via ImeiAddRow, one call per scan", async () => {
+    mockRegisterProductUnits
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          units: [],
+          drift: { inStockUnits: 11, stockQuantity: 12, matches: false },
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          units: [],
+          drift: { inStockUnits: 12, stockQuantity: 12, matches: true },
+        },
+      });
     const { onSuccess } = renderModal({ tracksImeiUnits: true });
 
     fireEvent.change(screen.getByPlaceholderText("0"), {
@@ -391,21 +399,36 @@ describe("AdjustStockModal — IMEI intake step (decision #6)", () => {
       { target: { value: "New shipment" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
-    const textarea = await screen.findByPlaceholderText(/356938035643809/);
+    const input = await screen.findByTestId("imei-add-input");
 
-    fireEvent.change(textarea, {
-      target: { value: "111111111111111\n222222222222222" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Register & Finish" }));
+    fireEvent.change(input, { target: { value: "111111111111111" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(mockRegisterProductUnits).toHaveBeenNthCalledWith(1, {
+        product_id: 42,
+        imeis: ["111111111111111"],
+      }),
+    );
+    await waitFor(() => expect(input).toHaveValue(""));
 
-    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-    expect(mockRegisterProductUnits).toHaveBeenCalledWith({
-      product_id: 42,
-      imeis: ["111111111111111", "222222222222222"],
-    });
+    fireEvent.change(input, { target: { value: "222222222222222" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(mockRegisterProductUnits).toHaveBeenNthCalledWith(2, {
+        product_id: 42,
+        imeis: ["222222222222222"],
+      }),
+    );
+
+    expect(await screen.findByText("111111111111111")).toBeInTheDocument();
+    expect(screen.getByText("222222222222222")).toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(onSuccess).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the service error and does not call onSuccess when registration fails", async () => {
+  it("shows the service error inline and keeps the input value when registration fails", async () => {
     mockRegisterProductUnits.mockResolvedValue({
       success: false,
       error: "IMEI already registered",
@@ -422,13 +445,14 @@ describe("AdjustStockModal — IMEI intake step (decision #6)", () => {
       { target: { value: "New shipment" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Apply Adjustment" }));
-    const textarea = await screen.findByPlaceholderText(/356938035643809/);
-    fireEvent.change(textarea, { target: { value: "111111111111111" } });
-    fireEvent.click(screen.getByRole("button", { name: "Register & Finish" }));
+    const input = await screen.findByTestId("imei-add-input");
+    fireEvent.change(input, { target: { value: "111111111111111" } });
+    fireEvent.click(screen.getByTestId("imei-add-button"));
 
     expect(
       await screen.findByText("IMEI already registered"),
     ).toBeInTheDocument();
+    expect(input).toHaveValue("111111111111111");
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
