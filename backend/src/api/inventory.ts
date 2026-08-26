@@ -4,7 +4,9 @@ import {
   getInventoryService,
   getCategoryRepository,
   createProductSchema,
-  searchProductsSchema,
+  productListQuerySchema,
+  type ProductListQuery,
+  type ProductListFilters,
   stockAdjustSchema,
   resolveScanCodeSchema,
   createCategorySchema,
@@ -28,13 +30,71 @@ const router = express.Router();
 // All inventory routes require auth
 router.use(authenticateJWT);
 
-// GET /api/inventory/products?search=...
-router.get("/products", validateQuery(searchProductsSchema), (req, res) => {
+// GET /api/inventory/products?search=…&category=A&category=B&costMin=…
+//
+// HTTP twin of the `inventory:get-products` IPC channel. The structured
+// filters are pushed down into SQL by ProductRepository (rule 19b: ONE core
+// service for both transports, ONE shared schema for both).
+//
+// `productListQuerySchema` parses the RAW query string — every value arrives
+// as `string | string[]` — and outputs the real-typed `ProductListFilters`
+// shape, folding the repeated wire params `category`/`supplier` into the
+// plural `categories`/`suppliers` keys the repository reads. `validateQuery`
+// REPLACES `req.query` with that parsed output, so the cast below is to the
+// schema's own output type, not a reinterpretation of raw strings.
+//
+// With NO filter params the parsed object's filter fields are all
+// `undefined`, `buildFilterClauses` contributes no SQL, and the response is
+// byte-identical to what this route returned before filtering existed.
+//
+// `barcode`/`activeOnly` are parsed for back-compat with the older
+// `searchProductsSchema` (so a stale caller's params still validate) and
+// deliberately dropped here — neither was ever applied by this route.
+router.get("/products", validateQuery(productListQuerySchema), (req, res) => {
   const service = getInventoryService();
-  const search =
-    typeof req.query.search === "string" ? req.query.search : undefined;
-  const products = service.getProducts(search);
+  const q = req.query as unknown as ProductListQuery;
+  // Picked field-by-field rather than spread, for two reasons: it keeps
+  // `search`/`barcode`/`activeOnly` out of the filter set entirely, and —
+  // because this is an object LITERAL annotated as ProductListFilters —
+  // TypeScript's excess-property check turns any future core rename of a
+  // filter key into a compile error here instead of a silently dropped
+  // filter. Same reason the POST route below remaps explicitly.
+  const filters: ProductListFilters = {
+    categories: q.categories,
+    suppliers: q.suppliers,
+    addedFrom: q.addedFrom,
+    addedTo: q.addedTo,
+    costMin: q.costMin,
+    costMax: q.costMax,
+    retailMin: q.retailMin,
+    retailMax: q.retailMax,
+    profitPctMin: q.profitPctMin,
+    profitPctMax: q.profitPctMax,
+    stockMin: q.stockMin,
+    stockMax: q.stockMax,
+  };
+  const products = service.getProducts(q.search, filters);
   res.json(createSuccessResponse({ products }));
+});
+
+// GET /api/inventory/product-filter-options — distinct categories/suppliers
+// backing the inventory list's filter dropdowns, drawn from exactly the row
+// set the list itself shows. No params, so no request validation.
+//
+// Static single-segment path; declared here, above every parameterized
+// route in this file. It cannot be shadowed by `/products/:id` (different
+// first segment) and this router has no root-level `/:param` route, but the
+// position keeps it safe if one is ever added.
+//
+// Reads on this router carry no `requireRole` beyond the router-level
+// `authenticateJWT` above — same baseline as GET /products and
+// GET /products/:id, and the same as the mirroring IPC channel.
+router.get("/product-filter-options", (_req, res) => {
+  try {
+    res.json(createSuccessResponse(getInventoryService().getProductFilterOptions()));
+  } catch (err) {
+    res.json({ success: false, error: errMessage(err) });
+  }
 });
 
 // GET /api/inventory/resolve-scan?code=... — barcode first, then an active

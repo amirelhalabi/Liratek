@@ -1,4 +1,6 @@
 export { default as Select } from "./Select";
+export { default as MultiSelect } from "./MultiSelect";
+export type { MultiSelectProps } from "./MultiSelect";
 export { default as NotificationCenter } from "./NotificationCenter";
 export {
   default as DateRangeFilter,

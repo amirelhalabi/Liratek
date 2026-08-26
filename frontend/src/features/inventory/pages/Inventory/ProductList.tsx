@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import logger from "@/utils/logger";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import {
@@ -11,15 +12,33 @@ import {
   X,
   Layers,
   PackagePlus,
+  Smartphone,
 } from "lucide-react";
 import { PageHeader, useApi, appEvents } from "@liratek/ui";
 import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
-import { DataTable, ConfirmModal } from "@liratek/ui";
+import {
+  DataTable,
+  ConfirmModal,
+  MultiSelect,
+  DateRangeFilter,
+} from "@liratek/ui";
 import AdjustStockModal from "../../components/AdjustStockModal";
 import { ImeiStoryCard } from "../../components/ImeiStoryCard";
+import { InventoryFiltersPopover } from "../../components/InventoryFiltersPopover";
 import { useUnitStoryQuery } from "../../hooks/useProductUnits";
 import { looksLikeImei } from "../../productUnitsLogic";
+import {
+  EMPTY_PRODUCT_FILTERS,
+  activeFilterChips,
+  buildProductListFilters,
+  clearFilterGroup,
+  clearNumericFilters,
+  countNumericFilters,
+  type NumericFilterField,
+  type ProductFilterChipKey,
+  type ProductFiltersUiState,
+} from "../../productListFilters";
 
 interface BatchUpdateFields {
   category?: string;
@@ -156,9 +175,19 @@ function parseToonFile(text: string): ToonRecord[] {
 
 export default function ProductList() {
   const api = useApi();
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  /** All product-list filters. The BACKEND applies them (SQL), so `products`
+   *  already arrives filtered — nothing below re-filters it client-side. */
+  const [filters, setFilters] = useState<ProductFiltersUiState>(
+    EMPTY_PRODUCT_FILTERS,
+  );
+  const [filterOptions, setFilterOptions] = useState<{
+    categories: string[];
+    suppliers: string[];
+  }>({ categories: [], suppliers: [] });
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(
@@ -284,6 +313,7 @@ export default function ProductList() {
         setBatchFields({});
         setSelectedIds(new Set());
         loadProducts();
+        loadFilterOptions();
         appEvents.emit(
           "notification:show",
           "Batch update successful",
@@ -308,22 +338,60 @@ export default function ProductList() {
   const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.getProducts(search);
+      const data = await api.getProducts(
+        search,
+        buildProductListFilters(filters),
+      );
       setProducts(data as unknown as Product[]);
     } catch (error) {
       logger.error("Failed to load products:", error);
     } finally {
       setLoading(false);
     }
-  }, [search]);
+    // `api` is the module-level ElectronApiAdapter singleton (api/adapter.ts)
+    // handed down by ApiProvider — a stable reference, so listing it here
+    // costs nothing and keeps this callback honest for exhaustive-deps.
+  }, [api, search, filters]);
 
-  // Debounce search
+  /** Distinct category/supplier values for the two dropdowns. Refreshed after
+   *  mutations only — NOT on every debounced reload. */
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      const options = await api.getProductFilterOptions();
+      setFilterOptions({
+        categories: options.categories ?? [],
+        suppliers: options.suppliers ?? [],
+      });
+    } catch (error) {
+      logger.error("Failed to load product filter options:", error);
+    }
+  }, [api]);
+
+  // Debounce search AND filter changes (loadProducts' identity carries both).
   useEffect(() => {
     const timer = setTimeout(() => {
       loadProducts();
     }, 300);
     return () => clearTimeout(timer);
-  }, [search, loadProducts]);
+  }, [search, filters, loadProducts]);
+
+  useEffect(() => {
+    loadFilterOptions();
+  }, [loadFilterOptions]);
+
+  const setFilterField = useCallback(
+    (field: NumericFilterField, value: string) => {
+      setFilters((prev) => ({ ...prev, [field]: value }));
+    },
+    [],
+  );
+
+  const handleClearChip = useCallback((key: ProductFilterChipKey) => {
+    setFilters((prev) => clearFilterGroup(prev, key));
+  }, []);
+
+  const chips = activeFilterChips(filters);
+  const numericFilterCount = countNumericFilters(filters);
 
   // LIRA-143 Phase 6b (decision #7) — the walk-in IMEI lookup: when the
   // search box looks like an IMEI, fetch and render every unit's story
@@ -361,6 +429,7 @@ export default function ProductList() {
         "success",
       );
       loadProducts(); // Refresh list
+      loadFilterOptions();
       setShowDeleteConfirm(null);
       // Windows focus fix
       window.api?.display?.fixFocus();
@@ -404,12 +473,14 @@ export default function ProductList() {
 
     setSelectedIds(new Set());
     loadProducts();
+    loadFilterOptions();
   };
 
   const handleSave = () => {
     setIsFormOpen(false);
     setEditingProduct(null);
     loadProducts();
+    loadFilterOptions();
     appEvents.emit(
       "notification:show",
       editingProduct
@@ -575,6 +646,7 @@ export default function ProductList() {
       }
 
       loadProducts();
+      loadFilterOptions();
       // Windows focus fix
       window.api?.display?.fixFocus();
     } catch (err) {
@@ -615,6 +687,16 @@ export default function ProductList() {
               <Upload size={18} />
               {isImporting ? "Importing..." : "Import .toon"}
             </button>
+            {/* LIRA-143 — entry point for the shop-wide IMEI register
+                (/inventory/units). Deliberately not in the sidebar. */}
+            <button
+              onClick={() => navigate("/inventory/units")}
+              data-testid="phone-units-entry"
+              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all"
+            >
+              <Smartphone size={18} />
+              Phone Units
+            </button>
             <button
               onClick={() => setIsFormOpen(true)}
               className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-violet-900/20"
@@ -627,18 +709,90 @@ export default function ProductList() {
       />
 
       {/* Toolbar */}
-      <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-2.5 text-slate-500 h-5 w-5" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, barcode..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+      <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[16rem] max-w-md">
+            <Search className="absolute left-3 top-2.5 text-slate-500 h-5 w-5" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, barcode..."
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+            />
+          </div>
+
+          <MultiSelect
+            label="Category"
+            testId="inventory-filter-category"
+            className="w-44"
+            values={filters.categories}
+            onChange={(categories) =>
+              setFilters((prev) => ({ ...prev, categories }))
+            }
+            options={filterOptions.categories}
+          />
+
+          <MultiSelect
+            label="Supplier"
+            testId="inventory-filter-supplier"
+            className="w-44"
+            values={filters.suppliers}
+            onChange={(suppliers) =>
+              setFilters((prev) => ({ ...prev, suppliers }))
+            }
+            options={filterOptions.suppliers}
+          />
+
+          <DateRangeFilter
+            from={filters.addedFrom}
+            to={filters.addedTo}
+            onFromChange={(addedFrom) =>
+              setFilters((prev) => ({ ...prev, addedFrom }))
+            }
+            onToChange={(addedTo) =>
+              setFilters((prev) => ({ ...prev, addedTo }))
+            }
+          />
+
+          <InventoryFiltersPopover
+            filters={filters}
+            onFieldChange={setFilterField}
+            onReset={() => setFilters((prev) => clearNumericFilters(prev))}
+            activeCount={numericFilterCount}
           />
         </div>
-        {/* Add filters later (Category, etc) */}
+
+        {/* Active-filter chips — one per active filter GROUP */}
+        {chips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-slate-700 pt-3">
+            {chips.map((chip) => (
+              <span
+                key={chip.key}
+                data-testid={`inventory-filter-chip-${chip.key}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/40 bg-violet-600/15 px-2.5 py-1 text-xs text-violet-200"
+              >
+                {chip.label}
+                <button
+                  type="button"
+                  onClick={() => handleClearChip(chip.key)}
+                  aria-label={`Remove filter ${chip.label}`}
+                  className="text-violet-300 transition-colors hover:text-white"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={() => setFilters(EMPTY_PRODUCT_FILTERS)}
+              data-testid="inventory-filters-clear"
+              className="ml-1 rounded-lg px-2 py-1 text-xs text-slate-400 transition-colors hover:bg-slate-700 hover:text-white"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
       </div>
 
       {/* LIRA-143 Phase 6b — walk-in IMEI lookup card(s), shown above the

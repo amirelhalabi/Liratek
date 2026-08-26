@@ -21,6 +21,7 @@ import {
   StockAdjustSchema,
   UpdateCategorySchema,
   ResolveScanCodeSchema,
+  ProductListFiltersSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -55,10 +56,37 @@ export function registerInventoryHandlers(): void {
   // Product Queries (No auth required for read operations)
   // ---------------------------------------------------------------------------
 
-  // Get all products (optional filter by name/barcode)
-  ipcMain.handle("inventory:get-products", (_event, search?: string) => {
-    return service.getProducts(search);
-  });
+  // Get all products (optional free-text search over name/barcode, plus an
+  // optional structured filter set pushed down to SQL by the repository).
+  //
+  // Contract note: this channel returns a RAW ProductDTO[] — no
+  // `{ success }` envelope — so a bad `filters` payload cannot be reported
+  // in-band. It rejects the invoke instead. `filters` is built by our own
+  // frontend, so an invalid one is a programmer error, not user input.
+  // Calls that omit `filters` take the identical path they always did.
+  ipcMain.handle(
+    "inventory:get-products",
+    (_event, search?: string, filters?: unknown) => {
+      if (filters === undefined || filters === null) {
+        return service.getProducts(search);
+      }
+      const v = validatePayload(ProductListFiltersSchema, filters);
+      if (!v.ok) {
+        inventoryLogger.error(
+          { error: v.error },
+          "inventory:get-products received invalid filters",
+        );
+        throw new Error(`inventory:get-products — ${v.error}`);
+      }
+      return service.getProducts(search, v.data);
+    },
+  );
+
+  // Distinct categories/suppliers backing the product-list filter dropdowns.
+  // Raw `{ categories, suppliers }` object, matching the other read channels.
+  ipcMain.handle("inventory:get-product-filter-options", () =>
+    service.getProductFilterOptions(),
+  );
 
   // Get single product by ID
   ipcMain.handle("inventory:get-product", (_event, id: number) => {

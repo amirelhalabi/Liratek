@@ -7,6 +7,7 @@
  */
 
 import type { ApiAdapter } from "@liratek/ui";
+import type { ProductListFilters } from "@liratek/core";
 import * as api from "./backendApi";
 
 export class ElectronApiAdapter implements ApiAdapter {
@@ -33,7 +34,9 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   // Inventory / Products
   // ---------------------------------------------------------------------------
-  getProducts = (search?: string) => api.getProducts(search ?? "");
+  getProducts = (search?: string, filters?: ProductListFilters) =>
+    api.getProducts(search ?? "", filters);
+  getProductFilterOptions = () => api.getProductFilterOptions();
   createProduct = (payload: any) => api.createProduct(payload);
   updateProduct = (id: number, payload: any) => api.updateProduct(id, payload);
   deleteProduct = (id: number) => api.deleteProduct(id);

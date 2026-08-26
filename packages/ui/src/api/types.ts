@@ -5,10 +5,10 @@
 // All other entity types used only by the adapter are declared here.
 // =============================================================================
 
-import type { ClientEntity } from "@liratek/core";
+import type { ClientEntity, ProductListFilters } from "@liratek/core";
 
 // Re-export so api consumers don't need a separate import
-export type { ClientEntity };
+export type { ClientEntity, ProductListFilters };
 
 export type ApiUser = {
   id: number;
@@ -474,7 +474,18 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Inventory / Products
   // ---------------------------------------------------------------------------
-  getProducts: (search?: string) => Promise<any[]>;
+  /** `filters` is applied server-side (SQL), so the returned array is already
+   *  the filtered set — callers must not re-filter it client-side. */
+  getProducts: (
+    search?: string,
+    filters?: ProductListFilters,
+  ) => Promise<any[]>;
+  /** Distinct category / supplier values across the tenant's products —
+   *  the option lists for the inventory filter dropdowns. */
+  getProductFilterOptions: () => Promise<{
+    categories: string[];
+    suppliers: string[];
+  }>;
   createProduct: (payload: any) => Promise<ProductWriteResult>;
   updateProduct: (id: number, payload: any) => Promise<ProductWriteResult>;
   deleteProduct: (id: number) => Promise<ProductWriteResult>;

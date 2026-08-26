@@ -32,6 +32,7 @@ import {
   partnerSettleSchema,
   partnerWriteOffSchema,
   stockAdjustSchema,
+  productListFiltersSchema,
   voidCheckoutGroupSchema,
   refundLegsSchema,
   carrierLineCreateSchema,
@@ -66,6 +67,7 @@ import {
   type UpdateRechargeMetadataInput,
   type SelfChargeTelecomItemInput,
   type StockAdjustInput,
+  type ProductListFilters,
   type VoidCheckoutGroupInput,
   type RefundLegsInput,
   type CarrierLineCreateInput,
@@ -214,6 +216,14 @@ export const BatchUpdateSchema = z.object({
 // zod 4, this workspace types against zod 3); the runtime API used is identical.
 export const StockAdjustSchema =
   stockAdjustSchema as unknown as z.ZodSchema<StockAdjustInput>;
+
+// The product-list filter contract lives in packages/core/src/validators/product.ts
+// so the Electron IPC handler and the REST route validate against ONE schema
+// (CLAUDE.md rule 14) — REST parses the query-string variant into this same
+// shape. Cast bridges the zod major mismatch (core types against zod 4, this
+// workspace types against zod 3); the runtime API used is identical.
+export const ProductListFiltersSchema =
+  productListFiltersSchema as unknown as z.ZodSchema<ProductListFilters>;
 
 // =============================================================================
 // Auth / Users

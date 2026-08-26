@@ -1,4 +1,11 @@
 import { contextBridge, ipcRenderer, webFrame } from "electron";
+// Type-only: erased at compile time, so the preload bundle gains no runtime
+// dependency on @liratek/core (which is main-process only). preload.ts is
+// compiled to CommonJS (tsconfig.preload.json, module: Node16) while core is
+// ESM, hence the explicit resolution-mode attribute — without it TS1541.
+import type { ProductListFilters } from "@liratek/core" with {
+  "resolution-mode": "import",
+};
 
 console.log("[PRELOAD] Starting preload script...");
 
@@ -51,8 +58,10 @@ contextBridge.exposeInMainWorld("api", {
 
   // Inventory
   inventory: {
-    getProducts: (search?: string) =>
-      ipcRenderer.invoke("inventory:get-products", search),
+    getProducts: (search?: string, filters?: ProductListFilters) =>
+      ipcRenderer.invoke("inventory:get-products", search, filters),
+    getProductFilterOptions: () =>
+      ipcRenderer.invoke("inventory:get-product-filter-options"),
     getProduct: (id: number) => ipcRenderer.invoke("inventory:get-product", id),
     getProductByBarcode: (barcode: string) =>
       ipcRenderer.invoke("inventory:get-product-by-barcode", barcode),

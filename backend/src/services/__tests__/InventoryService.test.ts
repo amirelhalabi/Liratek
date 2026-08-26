@@ -58,6 +58,11 @@ describe("InventoryService", () => {
   // ===========================================================================
 
   describe("getProducts", () => {
+    // `getProducts(search?, filters?)` forwards BOTH args straight to
+    // `findAllProducts(search?, filters?)` — the structured inventory-list
+    // filters are pushed down into SQL by the repository, so the service
+    // stays a pass-through. `toHaveBeenCalledWith` is arity-sensitive, hence
+    // the explicit trailing `undefined` on the no-filter calls.
     it("returns all products without filter", () => {
       const mockProducts = [
         { id: 1, barcode: "123", name: "Product A" },
@@ -67,7 +72,7 @@ describe("InventoryService", () => {
 
       const result = service.getProducts();
 
-      expect(mockRepo.findAllProducts).toHaveBeenCalledWith(undefined);
+      expect(mockRepo.findAllProducts).toHaveBeenCalledWith(undefined, undefined);
       expect(result).toEqual(mockProducts);
     });
 
@@ -76,7 +81,21 @@ describe("InventoryService", () => {
 
       service.getProducts("phone");
 
-      expect(mockRepo.findAllProducts).toHaveBeenCalledWith("phone");
+      expect(mockRepo.findAllProducts).toHaveBeenCalledWith("phone", undefined);
+    });
+
+    it("forwards the structured filter set to the repository untouched", () => {
+      mockRepo.findAllProducts.mockReturnValue([]);
+      const filters = {
+        categories: ["Phones"],
+        suppliers: ["Acme"],
+        costMin: 10,
+        stockMax: 5,
+      };
+
+      service.getProducts("phone", filters);
+
+      expect(mockRepo.findAllProducts).toHaveBeenCalledWith("phone", filters);
     });
   });
 

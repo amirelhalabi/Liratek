@@ -449,7 +449,12 @@ export interface ElectronAPI {
   inventory: {
     getProducts: (
       search?: string,
+      filters?: import("@liratek/core").ProductListFilters,
     ) => Promise<Array<import("@liratek/core").Product>>;
+    getProductFilterOptions: () => Promise<{
+      categories: string[];
+      suppliers: string[];
+    }>;
     getProduct: (id: number) => Promise<import("@liratek/core").Product | null>;
     getProductByBarcode: (
       barcode: string,

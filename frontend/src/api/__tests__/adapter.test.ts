@@ -9,6 +9,10 @@ jest.mock("../backendApi", () => ({
   getClients: jest.fn(async () => []),
   deleteClient: jest.fn(async () => ({ success: true })),
   getProducts: jest.fn(async () => []),
+  getProductFilterOptions: jest.fn(async () => ({
+    categories: [],
+    suppliers: [],
+  })),
   createProduct: jest.fn(async () => ({ success: true })),
   updateProduct: jest.fn(async () => ({ success: true })),
   deleteProduct: jest.fn(async () => ({ success: true })),
@@ -207,9 +211,15 @@ describe("ElectronApiAdapter (via backendApiAdapter)", () => {
     expect(backendApi.getClients).toHaveBeenCalledWith("");
   });
 
-  it("maps getProducts(undefined) to getProducts('')", async () => {
+  it("maps getProducts(undefined) to getProducts('', undefined)", async () => {
     await backendApiAdapter.getProducts();
-    expect(backendApi.getProducts).toHaveBeenCalledWith("");
+    expect(backendApi.getProducts).toHaveBeenCalledWith("", undefined);
+  });
+
+  it("forwards the product list filters through untouched", async () => {
+    const filters = { categories: ["Phones"], stockMin: 0 };
+    await backendApiAdapter.getProducts("iphone", filters);
+    expect(backendApi.getProducts).toHaveBeenCalledWith("iphone", filters);
   });
 
   it("delegates setRate with single object argument", async () => {
@@ -248,6 +258,7 @@ describe("ElectronApiAdapter (via backendApiAdapter)", () => {
       "getClients",
       "deleteClient",
       "getProducts",
+      "getProductFilterOptions",
       "createProduct",
       "updateProduct",
       "deleteProduct",

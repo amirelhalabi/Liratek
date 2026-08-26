@@ -6,6 +6,9 @@ import {
   clearImpersonationSession,
 } from "./httpClient";
 import { decodeJwtPayload } from "@/shared/utils/jwt";
+import type { ProductListFilters } from "@liratek/core";
+
+export type { ProductListFilters };
 
 export function isElectron(): boolean {
   // The e2e web-mode `window.api` shim (tests/e2e-electron/helpers/webApiShim.ts)
@@ -242,12 +245,59 @@ export async function deleteClient(id: number) {
 }
 
 // Inventory
-export async function getProducts(search: string = "") {
+
+/** Appends a scalar query param ONLY when it carries a value — the REST route
+ *  rejects an EMPTY param (`?costMin=`) rather than treating it as absent, so
+ *  unset filters must be omitted from the query string entirely. */
+function setIfPresent(
+  qs: URLSearchParams,
+  key: string,
+  value: string | number | undefined,
+): void {
+  if (value === undefined) return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return;
+    qs.set(key, String(value));
+    return;
+  }
+  if (value === "") return;
+  qs.set(key, value);
+}
+
+/**
+ * Product list. `filters` is applied SERVER-SIDE (SQL) on both transports, so
+ * the returned array is already the filtered set.
+ *
+ * REST takes `category` / `supplier` as REPEATED params (one per selected
+ * value), not a comma-joined list.
+ */
+export async function getProducts(
+  search: string = "",
+  filters?: ProductListFilters,
+) {
   return ipcOrHttp(
-    async () => getElectronApi().inventory.getProducts(search),
+    async () => getElectronApi().inventory.getProducts(search, filters),
     async () => {
       const qs = new URLSearchParams();
       if (search) qs.set("search", search);
+      if (filters) {
+        for (const c of filters.categories ?? []) {
+          if (c) qs.append("category", c);
+        }
+        for (const s of filters.suppliers ?? []) {
+          if (s) qs.append("supplier", s);
+        }
+        setIfPresent(qs, "addedFrom", filters.addedFrom);
+        setIfPresent(qs, "addedTo", filters.addedTo);
+        setIfPresent(qs, "costMin", filters.costMin);
+        setIfPresent(qs, "costMax", filters.costMax);
+        setIfPresent(qs, "retailMin", filters.retailMin);
+        setIfPresent(qs, "retailMax", filters.retailMax);
+        setIfPresent(qs, "profitPctMin", filters.profitPctMin);
+        setIfPresent(qs, "profitPctMax", filters.profitPctMax);
+        setIfPresent(qs, "stockMin", filters.stockMin);
+        setIfPresent(qs, "stockMax", filters.stockMax);
+      }
       // Route wraps in createSuccessResponse ({success, data:{products}})
       const res = await requestJson<{
         success: boolean;
@@ -255,6 +305,36 @@ export async function getProducts(search: string = "") {
         data?: { products?: any[] };
       }>(`/api/inventory/products?${qs.toString()}`);
       return (res.data ?? res).products ?? [];
+    },
+  );
+}
+
+/** Distinct category / supplier values across the tenant's products — feeds
+ *  the inventory filter dropdowns. Reads return the RAW object shape. */
+export async function getProductFilterOptions(): Promise<{
+  categories: string[];
+  suppliers: string[];
+}> {
+  return ipcOrHttp(
+    async () => {
+      const res = await getElectronApi().inventory.getProductFilterOptions();
+      return {
+        categories: res?.categories ?? [],
+        suppliers: res?.suppliers ?? [],
+      };
+    },
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        categories?: string[];
+        suppliers?: string[];
+        data?: { categories?: string[]; suppliers?: string[] };
+      }>(`/api/inventory/product-filter-options`);
+      const payload = res.data ?? res;
+      return {
+        categories: payload.categories ?? [],
+        suppliers: payload.suppliers ?? [],
+      };
     },
   );
 }
