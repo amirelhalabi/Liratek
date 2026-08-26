@@ -698,12 +698,24 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     return result.changes;
   }
 
+  /**
+   * Full-row product edit (single call site: `InventoryService.updateProduct`).
+   *
+   * `category`/`category_id` are OPTIONAL and behave like the sibling
+   * `stock_quantity` in this same statement: omitted (or null) leaves the
+   * stored value untouched via `COALESCE(?, <column>)`, it does not clear it.
+   * That is what lets the service express "an update that names no category
+   * keeps the product's existing classification" without a read-modify-write
+   * (and without the pre-2026-08-26 behaviour, where an unvalidated REST PUT
+   * body with no `category` NULLed both columns). Clearing `category_id` is
+   * `CategoryRepository.delete`'s job, which nullifies orphans itself.
+   */
   updateProductFull(
     id: number,
     data: {
       barcode: string;
       name: string;
-      category: string;
+      category?: string;
       category_id?: number | null;
       cost_price: number;
       retail_price: number;
@@ -718,7 +730,10 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     try {
       const stmt = this.db.prepare(`
         UPDATE ${this.tableName} SET
-          barcode = ?, name = ?, category = ?, category_id = ?, cost_price_usd = ?,
+          barcode = ?, name = ?,
+          category = COALESCE(?, category),
+          category_id = COALESCE(?, category_id),
+          cost_price_usd = ?,
           selling_price_usd = ?, min_stock_level = ?, image_url = ?,
           supplier = ?, stock_quantity = COALESCE(?, stock_quantity),
           warranty_months = ?,
@@ -729,7 +744,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       const result = stmt.run(
         data.barcode,
         data.name,
-        data.category,
+        data.category ?? null,
         data.category_id ?? null,
         data.cost_price,
         data.retail_price,

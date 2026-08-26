@@ -33,20 +33,20 @@
  * money/stock number is a DELTA snapshotted immediately around its own
  * action — the DB accumulates across runs.
  *
- * NOTE (deviation, not fixed — out of this ticket's scope): unlike the
- * Electron IPC handler (`inventory:create-product`, which resolves
- * `category_id` from the category NAME via `catRepo.getOrCreate`), the REST
- * `POST /api/inventory/products` route passes `category` straight through
- * to `InventoryService.createProduct` WITHOUT resolving `category_id` —
- * observed while writing this spec (backend/src/api/inventory.ts:76-134).
- * A product created over REST therefore never gets `tracks_imei_units`
- * projected from its category, even when the category itself has the flag
- * set. This doesn't block any assertion below (unit register/duplicate/
- * search/story/sale/refund all key on `product_units` rows and registered-
- * unit counts, never on the category flag — that flag is a pure UI
- * affordance gate, confirmed by reading SalesRepository's strictness check
- * and ProductRepository's scan/search code), so category provisioning (a)
- * and product provisioning (b)/(c) are intentionally independent below.
+ * NOTE — FIXED 2026-08-26 (was a deviation this spec documented as open):
+ * the REST `POST /api/inventory/products` route used to pass `category`
+ * straight through to `InventoryService.createProduct` without resolving
+ * `category_id`, while the Electron IPC handler resolved it via
+ * `catRepo.getOrCreate` — so a product created over REST never got
+ * `tracks_imei_units` projected from its category. The resolution now lives
+ * in `InventoryService` itself (`resolveCategoryId`) and BOTH transports go
+ * through it; the two handler blocks that duplicated it are gone (rule
+ * 14/19b). Test (a) below now asserts that projection over REST end-to-end.
+ * Tests (b)/(c) still provision their products independently of the flagged
+ * category on purpose: they key on `product_units` rows and registered-unit
+ * counts, never on the category flag (which is a UI affordance gate — see
+ * SalesRepository's strictness check and ProductRepository's scan/search
+ * code), so they stay valid either way.
  */
 import { test, expect, loginAsAdmin, BACKEND_URL } from "./fixtures";
 import type { Page } from "@playwright/test";
@@ -218,6 +218,38 @@ test.describe("LIRA-143 — phone IMEI units & warranty over REST", () => {
       (c) => c.id === categoryId,
     );
     expect(rowAfter?.tracks_imei_units).toBe(1);
+
+    // …and a product created over REST in that category inherits the flag:
+    // `InventoryService.createProduct` resolves the category NAME to
+    // `products.category_id`, which is what the product read COALESCEs
+    // `tracks_imei_units` off (LIRA-143 decision #9). Before 2026-08-26 only
+    // the IPC handler resolved it, so this projected 0 over REST — see the
+    // fixed NOTE at the top of this file. Rule 15: the row is matched by the
+    // id the create returned, never by position.
+    const flaggedProductName = `L143-Web-FlaggedProduct-${Date.now()}`;
+    const flaggedProductId = await createProduct(page, headers, {
+      name: flaggedProductName,
+      category: categoryName,
+      cost_price_usd: 10,
+      retail_price_usd: 20,
+      stock: 1,
+    });
+    const productList = await (
+      await page.request.get(
+        `${BACKEND_URL}/api/inventory/products?search=${encodeURIComponent(flaggedProductName)}`,
+        { headers },
+      )
+    ).json();
+    expect(productList.success, JSON.stringify(productList)).toBeTruthy();
+    const flaggedProduct = (
+      productList.data.products as Array<{
+        id: number;
+        category: string;
+        tracks_imei_units: number;
+      }>
+    ).find((p) => p.id === flaggedProductId);
+    expect(flaggedProduct?.category).toBe(categoryName);
+    expect(flaggedProduct?.tracks_imei_units).toBe(1);
   });
 
   test("(b) register/duplicate/search/story — product-units REST parity", async ({

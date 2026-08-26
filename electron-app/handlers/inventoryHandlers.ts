@@ -145,9 +145,11 @@ export function registerInventoryHandlers(): void {
       { barcode: validatedProduct.barcode, name: validatedProduct.name },
       "Creating product",
     );
-    // Auto-create category if needed and get its ID
-    const categoryName = validatedProduct.category || "General";
-    const categoryId = catRepo.getOrCreate(categoryName);
+    // Category resolution (NAME → product_categories.id, find-or-create)
+    // deliberately NOT done here: it lives in `InventoryService`, so IPC and
+    // REST share ONE site for that domain rule (rule 14/19b). Pass the NAME
+    // only. The old `|| "General"` fallback here was unreachable anyway —
+    // ProductCreateSchema requires a non-empty `category`.
 
     // Auto-register product supplier if provided
     if (validatedProduct.supplier) {
@@ -157,8 +159,7 @@ export function registerInventoryHandlers(): void {
     const result = service.createProduct({
       barcode: validatedProduct.barcode || null,
       name: validatedProduct.name,
-      category: categoryName,
-      category_id: categoryId,
+      category: validatedProduct.category,
       cost_price: validatedProduct.cost_price,
       retail_price: validatedProduct.retail_price,
       ...(validatedProduct.stock_quantity != null
@@ -201,9 +202,9 @@ export function registerInventoryHandlers(): void {
     if (!v.ok) return { success: false, error: v.error };
     const validatedProduct = v.data;
 
-    // Resolve category_id for the updated category
-    const updCategoryName = validatedProduct.category || "General";
-    const updCategoryId = catRepo.getOrCreate(updCategoryName);
+    // Same as create: `InventoryService.updateProduct` resolves the category
+    // NAME itself (rule 14/19b — one site for both transports), so no
+    // `catRepo.getOrCreate` here and no `category_id` in the payload.
 
     // Auto-register product supplier if provided
     if (validatedProduct.supplier) {
@@ -214,8 +215,7 @@ export function registerInventoryHandlers(): void {
     const result = service.updateProduct(validatedProduct.id, {
       barcode: validatedProduct.barcode,
       name: validatedProduct.name,
-      category: updCategoryName,
-      category_id: updCategoryId,
+      category: validatedProduct.category,
       cost_price: validatedProduct.cost_price,
       retail_price: validatedProduct.retail_price,
       min_stock_level: validatedProduct.min_stock_level ?? 5,

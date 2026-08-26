@@ -2130,12 +2130,30 @@ staleTime; ProductForm now prefix-invalidates both on save. E2E drives the owner
 repro through the real form (failing-first captured for both causes). Adversarial verify:
 no BLOCKER/MAJOR; cross-tenant canary held; 84-combo badge truth table exact.
 
-**Follow-ups from the adversarial pass (MINOR/NOTE, none blocking, owner to prioritize):**
-- CSV bulk product import can change warranty_months without invalidating the unit caches
-  (the only other product-write path; same prefix-invalidation fix applies).
-- A refunded-back-to-stock unit of a term-carrying model shows VOID, not the term — VOID is
-  historically true, but the unit IS for sale again with a fresh stamp coming; owner call
-  on which reading serves the counter better.
+**Owner decisions on the open items (2026-08-26):**
+- Category endpoints ungated → **ACCEPTED AS-IS** (JWT-only, matching the IPC handlers).
+- CSV bulk import cache invalidation → **DISMISSED** (the import format carries no warranty
+  fields; not a real path).
+- REST create/update category_id resolution → **DONE 2026-08-27**: resolution moved INTO
+  InventoryService (one site — the duplicate IPC-handler resolution deleted per rule 14);
+  omitted/blank category on update = classification unchanged (COALESCE in
+  updateProductFull, matching the stock_quantity idiom); caller-supplied conflicting
+  category_id no longer forwarded (name is authoritative); recorded TODO: PUT
+  /products/:id still has no Zod schema (rule 19c) and the existing updateProductSchema
+  speaks REST field names, so it is not a drop-in.
+- ALL REMAINING ITEMS DECIDED by the owner (2026-08-26, build queued as one pass):
+  (1) whole-sale refund after a partial item refund is BLOCKED with a named error
+  directing to per-item refunds (fixes the drawer double-debit; per-item math already
+  pro-rates correctly; known edge: phone-refund extras UI unreachable for such sales);
+  (4) Phone Units TABLE shows the forward-looking term for IN_STOCK units whose verdict
+  is NONE or VOID ("N mo — starts at sale"); operator-override verdicts and the story
+  card keep showing the true verdict incl. VOID; (5) LIKE metacharacters escaped in the
+  Phone Units search (shared escape helper, ESCAPE clause); (6) Phone Units Excel/PDF
+  export fetches ALL rows matching the current filters (paged loop, capped ~5000), not
+  the visible page; (7) product soft-delete CASCADE-deletes its IN_STOCK units after a
+  confirm listing the IMEIs (frees the locked IMEIs in the active-unique index); SOLD
+  units are NEVER touched — they remain as history, labeled "product deleted" in the
+  register. Owner explicitly rejected block-on-delete (more burden, not less).
 - `search` does not escape LIKE metacharacters — a typed `%`/`_` acts as a wildcard.
 - Excel/PDF export on the server-paginated table exports only the visible page.
 - `electron-app/handlers/__tests__/` runs under NO jest runner and no CI job (pre-existing —

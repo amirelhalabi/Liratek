@@ -18,6 +18,8 @@ import {
   getStockAdjustmentRepository,
   ProductUnitRepository,
   getProductUnitRepository,
+  CategoryRepository,
+  getCategoryRepository,
   type ProductDTO,
   type CreateProductData,
   type UpdateProductData,
@@ -77,16 +79,69 @@ export class InventoryService {
   private productRepo: ProductRepository;
   private stockAdjustmentRepo: StockAdjustmentRepository;
   private productUnitRepo: ProductUnitRepository;
+  /**
+   * Injected override for the category repo, or `null` until the default
+   * singleton is resolved on first use. Deliberately NOT resolved in the
+   * constructor like the three above: `CategoryRepository`'s constructor
+   * grabs a live `getDatabase()` handle (it is not a `BaseRepository`, which
+   * reads the handle per query), and this service is constructed by
+   * read-only callers — and by unit tests with partially mocked repos —
+   * that never touch categories.
+   */
+  private categoryRepoRef: CategoryRepository | null;
 
   constructor(
     productRepo?: ProductRepository,
     stockAdjustmentRepo?: StockAdjustmentRepository,
     productUnitRepo?: ProductUnitRepository,
+    categoryRepo?: CategoryRepository,
   ) {
     this.productRepo = productRepo ?? getProductRepository();
     this.stockAdjustmentRepo =
       stockAdjustmentRepo ?? getStockAdjustmentRepository();
     this.productUnitRepo = productUnitRepo ?? getProductUnitRepository();
+    this.categoryRepoRef = categoryRepo ?? null;
+  }
+
+  private get categoryRepo(): CategoryRepository {
+    if (!this.categoryRepoRef) {
+      this.categoryRepoRef = getCategoryRepository();
+    }
+    return this.categoryRepoRef;
+  }
+
+  /**
+   * Resolve a category NAME to its `product_categories.id`, creating the
+   * row if this tenant doesn't have one yet (case-insensitive match,
+   * tenant-scoped — `CategoryRepository.getOrCreate`).
+   *
+   * Rule 14/19b — ONE resolution path for BOTH transports, and this is it:
+   * the resolution used to live in the Electron IPC handlers only
+   * (`inventory:create-product` / `inventory:update-product` called
+   * `catRepo.getOrCreate` and handed the service a ready `category_id`),
+   * while the REST twin (`backend/src/api/inventory.ts`) passed the name
+   * straight through. A web-created product therefore had `category_id`
+   * NULL, so `tracks_imei_units` — COALESCE'd off the joined category on
+   * EVERY product read (LIRA-143 decision #9) — was always 0 for it, and
+   * every other category-joined field was lost. Worse on update:
+   * `updateProductFull` writes `category_id` unconditionally, so a web edit
+   * of a desktop-created product actively NULLed a correct id. Those two
+   * handler blocks are GONE (2026-08-26) — the handlers now pass the NAME
+   * only, exactly like the REST routes, so there is one resolution site.
+   *
+   * The NAME is the source of truth. `providedId` is a create-only
+   * short-circuit for a caller that already resolved the row itself (no
+   * second lookup); `updateProduct` deliberately does NOT pass it, so a
+   * caller-supplied `category_id` can never disagree with the name it is
+   * stored next to. There is no `'General'` fallback here: `createProduct`
+   * rejects a blank category outright, and on update a missing category
+   * means "leave the existing classification alone" (see `updateProduct`).
+   */
+  private resolveCategoryId(
+    categoryName: string,
+    providedId?: number | null,
+  ): number {
+    return providedId ?? this.categoryRepo.getOrCreate(categoryName);
   }
 
   // ---------------------------------------------------------------------------
@@ -262,11 +317,15 @@ export class InventoryService {
     }
 
     try {
+      const categoryName = data.category.trim();
       const result = this.productRepo.createProduct({
         ...data,
         barcode,
         name: data.name.trim(),
-        category: data.category.trim(),
+        category: categoryName,
+        // See resolveCategoryId: the category name is resolved HERE so IPC
+        // and REST both stamp category_id (rule 14/19b).
+        category_id: this.resolveCategoryId(categoryName, data.category_id),
       });
       return { success: true, id: result.id };
     } catch (error) {
@@ -313,7 +372,10 @@ export class InventoryService {
     data: UpdateProductData & {
       barcode: string;
       name: string;
-      category: string;
+      /** Omitted/blank = keep the product's existing category (see below). */
+      category?: string;
+      /** Accepted for compatibility and IGNORED — the NAME is authoritative
+       *  on update, so the two columns can never be written in conflict. */
       category_id?: number | null;
       cost_price: number;
       retail_price: number;
@@ -357,11 +419,45 @@ export class InventoryService {
     }
 
     try {
+      // Category on UPDATE: omitted/blank means "leave this product's
+      // existing category AND category_id exactly as they are" — both keys
+      // stay out of the repo payload and `updateProductFull`'s
+      // `COALESCE(?, category)` / `COALESCE(?, category_id)` keep the stored
+      // values. Desktop cannot reach that branch (`ProductUpdateSchema`
+      // requires a non-empty `category`, so `validatePayload` rejects
+      // first); the unvalidated REST `PUT /products/:id` can — see the TODO
+      // below — and pre-change it NULLed both columns there. A `'General'`
+      // fallback would be no better: it silently reclassifies the product
+      // and creates a category row the operator never asked for. That
+      // default belongs to CREATE alone (`products.category DEFAULT
+      // 'General'`, create_db.sql:243 — which in practice never fires
+      // either, since `createProduct` rejects a blank category).
+      //
+      // When a name IS given it is normalized ONCE and both the free-text
+      // `category` column and the resolved `category_id` are written from
+      // that same value, so this path cannot leave the two disagreeing.
+      // `data.category_id` is intentionally NOT forwarded (see
+      // resolveCategoryId): the name is authoritative, which is also what
+      // the IPC handler did before the resolution moved in here.
+      //
+      // TODO (rule 19c) — `PUT /api/inventory/products/:id` has no
+      // `validateRequest`, so every field it hands us is caller-shaped:
+      // that is the durable fix for this whole class of hole, not more
+      // defaults down here. `validators/product.ts` already exports
+      // `updateProductSchema`, but it speaks the REST field names
+      // (`cost_price_usd`, `stock`, …) while this route and
+      // `backendApi.updateProduct` send the IPC names (`cost_price`,
+      // `stock_quantity`, …) — wiring it up means reconciling those first.
+      const categoryName = data.category?.trim();
       this.productRepo.updateProductFull(id, {
         barcode: data.barcode,
         name: data.name,
-        category: data.category,
-        category_id: data.category_id ?? null,
+        ...(categoryName
+          ? {
+              category: categoryName,
+              category_id: this.resolveCategoryId(categoryName),
+            }
+          : {}),
         cost_price: data.cost_price,
         retail_price: data.retail_price,
         min_stock_level: data.min_stock_level,

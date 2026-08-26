@@ -20,13 +20,25 @@ import {
   InventoryService,
   resetInventoryService,
   ProductRepository,
+  CategoryRepository,
   ValidationError,
   NotFoundError,
 } from "@liratek/core";
 
+/** What the stub category repo resolves every name to. */
+const STUB_CATEGORY_ID = 4242;
+
 describe("InventoryService", () => {
   let service: InventoryService;
   let mockRepo: jest.Mocked<ProductRepository>;
+  /**
+   * Stub for the 4th constructor slot. Without it the service's lazy
+   * `categoryRepo` getter falls back to the REAL `getCategoryRepository()`
+   * singleton — a unit test that injects a mock product repo would silently
+   * be running category SQL against the shared better-sqlite3 mock, which is
+   * exactly what that constructor parameter exists to prevent.
+   */
+  let mockCategoryRepo: jest.Mocked<CategoryRepository>;
 
   beforeEach(() => {
     resetInventoryService();
@@ -50,7 +62,16 @@ describe("InventoryService", () => {
       findLowStock: jest.fn(),
     } as unknown as jest.Mocked<ProductRepository>;
 
-    service = new InventoryService(mockRepo);
+    mockCategoryRepo = {
+      getOrCreate: jest.fn(() => STUB_CATEGORY_ID),
+    } as unknown as jest.Mocked<CategoryRepository>;
+
+    service = new InventoryService(
+      mockRepo,
+      undefined,
+      undefined,
+      mockCategoryRepo,
+    );
   });
 
   // ===========================================================================
@@ -198,17 +219,23 @@ describe("InventoryService", () => {
       min_stock_level: 10,
     };
 
-    it("creates product successfully", () => {
+    it("creates product successfully, stamping the resolved category_id", () => {
       mockRepo.barcodeExists.mockReturnValue(false);
       mockRepo.createProduct.mockReturnValue({ id: 1 });
 
       const result = service.createProduct(validProductData);
 
+      // Rule 14/19b: the category NAME is resolved HERE (one site for IPC
+      // and REST alike) and the id goes onto the row — a create that left
+      // `category_id` NULL is what made `tracks_imei_units` always 0 for
+      // web-created products (LIRA-143 decision #9).
+      expect(mockCategoryRepo.getOrCreate).toHaveBeenCalledWith("Electronics");
       expect(mockRepo.createProduct).toHaveBeenCalledWith({
         ...validProductData,
         barcode: "123456",
         name: "Test Product",
         category: "Electronics",
+        category_id: STUB_CATEGORY_ID,
       });
       expect(result).toEqual({ success: true, id: 1 });
     });
@@ -313,15 +340,49 @@ describe("InventoryService", () => {
       supplier: null,
     };
 
-    it("updates product successfully", () => {
+    it("updates product successfully, re-resolving category_id from the NAME", () => {
       mockRepo.exists.mockReturnValue(true);
       mockRepo.barcodeExists.mockReturnValue(false);
       mockRepo.updateProductFull.mockReturnValue(true);
 
       const result = service.updateProduct(1, updateData);
 
-      expect(mockRepo.updateProductFull).toHaveBeenCalledWith(1, updateData);
+      // `updateData` carries `category_id: null` — the pre-fix contract wrote
+      // that straight through, which NULLed a correct id on every web edit.
+      // The name now wins and the caller's id is ignored entirely.
+      expect(mockCategoryRepo.getOrCreate).toHaveBeenCalledWith("Electronics");
+      expect(mockRepo.updateProductFull).toHaveBeenCalledWith(1, {
+        ...updateData,
+        category_id: STUB_CATEGORY_ID,
+      });
       expect(result).toEqual({ success: true });
+    });
+
+    it("leaves category/category_id out of the write when the update names no category", () => {
+      mockRepo.exists.mockReturnValue(true);
+      mockRepo.barcodeExists.mockReturnValue(false);
+      mockRepo.updateProductFull.mockReturnValue(true);
+      // Same edit as above with the two category keys ABSENT — what the
+      // unvalidated REST `PUT /api/inventory/products/:id` can deliver.
+      const result = service.updateProduct(1, {
+        barcode: "123456",
+        name: "Updated Product",
+        cost_price: 15,
+        retail_price: 30,
+        min_stock_level: 5,
+        supplier: null,
+      });
+
+      expect(result).toEqual({ success: true });
+      // Omitted category = "leave this product's classification alone": no
+      // find-or-create (so no invented 'General' row) and both keys absent
+      // from the payload, which `updateProductFull`'s COALESCE reads as
+      // "keep the stored values".
+      expect(mockCategoryRepo.getOrCreate).not.toHaveBeenCalled();
+      const written = mockRepo.updateProductFull.mock.calls[0][1];
+      expect("category" in written).toBe(false);
+      expect("category_id" in written).toBe(false);
+      expect(written.name).toBe("Updated Product");
     });
 
     it("returns error for missing product ID", () => {
