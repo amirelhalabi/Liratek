@@ -147,6 +147,37 @@ function createTestDb(): Database.Database {
   return db;
 }
 
+/**
+ * The UTC instant at which the wall clock on THIS machine reads `local`
+ * ('YYYY-MM-DD HH:MM:SS'), computed BY SQLITE — never by JS.
+ *
+ * The added-date filter buckets rows with `date(p.created_at, 'localtime')`,
+ * so a fixture seeded with a hard-coded UTC string lands on a different
+ * calendar day depending on the machine's timezone (with the +3 offset this
+ * was written under, '2026-03-20 23:59:59' is LOCAL 2026-03-21). Storing "the
+ * UTC instant that IS 09:00 local on this day" instead pins every row to a
+ * known LOCAL day everywhere, and leaves the assertions below readable as the
+ * plain days a user would type into the filter.
+ *
+ * It must be SQLite's own conversion, not `Date`: jest's `TZ` is honored by
+ * Node but IGNORED by the MSVC CRT that SQLite's 'localtime' calls on Windows
+ * (the hazard documented at `ClosingRepository.hasOpeningBalanceToday`), so a
+ * JS-computed offset can disagree with the one the query itself uses. Both
+ * sides of every assertion here go through SQLite, so they cannot disagree.
+ */
+function utcInstantForLocal(db: Database.Database, local: string): string {
+  return db
+    .prepare(`SELECT datetime(?, 'utc') AS t`)
+    .pluck()
+    .get(local) as string;
+}
+
+/** Same instant in the ISO-`T` storage form — the other shape this column
+ *  holds (rows written by JS `toISOString()` rather than CURRENT_TIMESTAMP). */
+function isoInstantForLocal(db: Database.Database, local: string): string {
+  return `${utcInstantForLocal(db, local).replace(" ", "T")}.000Z`;
+}
+
 interface SeedProduct {
   tenantId?: number;
   name: string;
@@ -202,6 +233,11 @@ const CATEGORY_ACCESSORIES = 2;
  *  Delta Zero     | Cables (legacy)  |    0 |      0 |       0 |     0 | (null)   | 2026-03-20
  *  Epsilon Loss   | Accessories      |  100 |     80 |     -20 |    -2 | ''       | 2026-04-01
  *  Gamma Freebie  | Accessories      |    0 |     20 |     100 |     3 | Acme     | 2026-03-20 (ISO-T)
+ *
+ * The "added" column is the LOCAL day each row belongs to — the day the
+ * Inventory list prints and the day the filter buckets it under. The stored
+ * instant is derived from it via {@link utcInstantForLocal}, so these stay
+ * the same five days on any machine's timezone.
  */
 function seedFixture(db: Database.Database): void {
   db.prepare(
@@ -219,7 +255,7 @@ function seedFixture(db: Database.Database): void {
     retail: 150,
     stock: 5,
     supplier: "Acme",
-    createdAt: "2026-01-10 09:00:00",
+    createdAt: utcInstantForLocal(db, "2026-01-10 09:00:00"),
   });
   insertProduct(db, {
     name: "Beta Cable",
@@ -228,7 +264,7 @@ function seedFixture(db: Database.Database): void {
     retail: 4,
     stock: 50,
     supplier: "Bolt",
-    createdAt: "2026-02-15 09:00:00",
+    createdAt: utcInstantForLocal(db, "2026-02-15 09:00:00"),
   });
   insertProduct(db, {
     name: "Delta Zero",
@@ -237,7 +273,11 @@ function seedFixture(db: Database.Database): void {
     retail: 0,
     stock: 0,
     supplier: null,
-    createdAt: "2026-03-20 23:59:59",
+    // Late evening LOCAL — the end of its day, so `addedTo: '2026-03-20'`
+    // has to include it. Not 23:59:59: a DST transition can move a local
+    // wall-clock time by an hour, and only a value that close to midnight
+    // could be pushed across the day boundary by it.
+    createdAt: utcInstantForLocal(db, "2026-03-20 22:00:00"),
   });
   insertProduct(db, {
     name: "Epsilon Loss",
@@ -246,7 +286,7 @@ function seedFixture(db: Database.Database): void {
     retail: 80,
     stock: -2,
     supplier: "",
-    createdAt: "2026-04-01 09:00:00",
+    createdAt: utcInstantForLocal(db, "2026-04-01 09:00:00"),
   });
   // ISO-`T` created_at: both storage forms exist in this DB and date()
   // must normalize them the same way.
@@ -257,7 +297,7 @@ function seedFixture(db: Database.Database): void {
     retail: 20,
     stock: 3,
     supplier: "Acme",
-    createdAt: "2026-03-20T08:30:00.000Z",
+    createdAt: isoInstantForLocal(db, "2026-03-20 08:30:00"),
   });
 
   // Rows that must be invisible to BOTH findAllProducts and
@@ -436,8 +476,9 @@ describe("ProductRepository — inventory list filters", () => {
     });
 
     it("normalizes both created_at storage forms to the same day", () => {
-      // Delta Zero is '2026-03-20 23:59:59'; Gamma Freebie is the ISO-`T`
-      // '2026-03-20T08:30:00.000Z'. A single-day window must catch both.
+      // Delta Zero is stored in the space form ('YYYY-MM-DD HH:MM:SS'), Gamma
+      // Freebie in the ISO-`T` form — and they sit at opposite ends of the
+      // same local day (22:00 vs 08:30). A single-day window must catch both.
       expect(names({ addedFrom: "2026-03-20", addedTo: "2026-03-20" })).toEqual([
         "Delta Zero",
         "Gamma Freebie",
@@ -446,6 +487,34 @@ describe("ProductRepository — inventory list filters", () => {
 
     it("returns an empty set for an inverted range rather than rejecting it", () => {
       expect(names({ addedFrom: "2026-04-01", addedTo: "2026-01-01" })).toEqual([]);
+    });
+
+    it("buckets a row by its LOCAL day, not by its UTC day", () => {
+      // `created_at` is stamped in UTC (CURRENT_TIMESTAMP) but the list's
+      // "Added" column renders it with toLocaleDateString(), so the filter has
+      // to agree with the LOCAL day or a product the operator watched itself
+      // being added today drops out of today's window.
+      //
+      // Whichever way this machine's offset points, one of these two rows is
+      // on a different UTC day than 2026-06-15: east of Greenwich the 00:30
+      // one (its UTC instant is still the 14th), west of it the 23:30 one.
+      // A UTC-bucketing clause therefore always loses at least one. (Under
+      // TZ=UTC the two days coincide and the assertion is a tautology —
+      // harmless, and CI runs TZ=Asia/Beirut.)
+      const LOCAL_DAY = "2026-06-15";
+      insertProduct(db, {
+        name: "Dawn Edge",
+        createdAt: utcInstantForLocal(db, `${LOCAL_DAY} 00:30:00`),
+      });
+      insertProduct(db, {
+        name: "Dusk Edge",
+        createdAt: utcInstantForLocal(db, `${LOCAL_DAY} 23:30:00`),
+      });
+
+      expect(names({ addedFrom: LOCAL_DAY, addedTo: LOCAL_DAY })).toEqual([
+        "Dawn Edge",
+        "Dusk Edge",
+      ]);
     });
   });
 

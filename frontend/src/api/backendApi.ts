@@ -301,9 +301,18 @@ export async function getProducts(
       // Route wraps in createSuccessResponse ({success, data:{products}})
       const res = await requestJson<{
         success: boolean;
+        error?: string;
         products?: any[];
         data?: { products?: any[] };
       }>(`/api/inventory/products?${qs.toString()}`);
+      // A refused call (a filter bound the core schema rejects, a tenant/auth
+      // problem) answers `{success:false}` with HTTP 200. Falling through to
+      // `?? []` would render that as "no products match" and hide the error;
+      // throwing puts web on the SAME path as desktop, where the IPC handler
+      // throws and the caller's catch reports it.
+      if (res.success === false) {
+        throw new Error(res.error ?? "Failed to load products");
+      }
       return (res.data ?? res).products ?? [];
     },
   );

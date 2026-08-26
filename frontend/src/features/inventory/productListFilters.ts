@@ -7,6 +7,12 @@
  * field OMITTED. Omission is load-bearing on both transports:
  *   - REST rejects an empty param value (`?costMin=`) instead of ignoring it;
  *   - a blank number input must mean "no bound", never `0` (a real bound).
+ *
+ * The second rule is SANITIZATION: whatever the user typed, the payload built
+ * here must satisfy core's `productListFiltersSchema`. An invalid bound makes
+ * the backend reject the whole call — the desktop handler throws and the list
+ * freezes, REST answers `{success:false}` and the list empties — so a bound
+ * the schema cannot accept is repaired or dropped before it is ever sent.
  */
 
 import type { ProductListFilters } from "@liratek/core";
@@ -66,6 +72,41 @@ function toNumber(raw: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * A cost/retail bound, sanitized to what the CORE SCHEMA accepts.
+ *
+ * `productListFiltersSchema` declares these as `z.number().min(0)`, so a
+ * negative value is not a narrower filter — it is a payload the backend
+ * REJECTS. Rejection is not a soft failure on either transport: the desktop
+ * handler throws (the list freezes on its last result) and REST answers
+ * `{success:false}`. Dropping the impossible bound instead keeps the list
+ * alive; the user sees their other filters applied rather than nothing.
+ *
+ * Sanitized HERE and not by importing the zod schema: this module is renderer
+ * code and must stay dependency-free — the schema is duplicated as a
+ * hand-checked contract, which is why the guard tests below name each rule.
+ */
+function toMoneyBound(raw: string): number | undefined {
+  const n = toNumber(raw);
+  if (n === undefined || n < 0) return undefined;
+  return n;
+}
+
+/**
+ * A stock bound, sanitized to `z.number().int()`.
+ *
+ * There is deliberately NO lower clamp: `stock_quantity` legitimately goes
+ * negative in this system (the negative-stock reports depend on it), so
+ * `stockMin: -5` is a real, valid filter. Only the integer rule is enforced —
+ * a `<input type="number">` hands back "2.5" from the keyboard however small
+ * its `step` is. Truncation toward zero keeps a typed "2.5" a usable bound
+ * rather than silently dropping the filter the user asked for.
+ */
+function toIntBound(raw: string): number | undefined {
+  const n = toNumber(raw);
+  return n === undefined ? undefined : Math.trunc(n);
+}
+
 /** `""` / whitespace → undefined (field omitted). */
 function toText(raw: string): string | undefined {
   const trimmed = raw.trim();
@@ -76,6 +117,52 @@ function toText(raw: string): string | undefined {
 function toList(values: string[]): string[] | undefined {
   const cleaned = [...new Set(values.map((v) => v.trim()).filter(Boolean))];
   return cleaned.length > 0 ? cleaned : undefined;
+}
+
+/** Which sanitizer each numeric bound goes through — the ONE place the
+ *  per-field rule is decided. */
+const NUMERIC_FIELD_SANITIZERS: Record<
+  NumericFilterField,
+  (raw: string) => number | undefined
+> = {
+  costMin: toMoneyBound,
+  costMax: toMoneyBound,
+  retailMin: toMoneyBound,
+  retailMax: toMoneyBound,
+  // Signed and unconstrained in the schema — a loss-making product has a
+  // negative margin. `toNumber` already rejects NaN/Infinity, as z.number() would.
+  profitPctMin: toNumber,
+  profitPctMax: toNumber,
+  stockMin: toIntBound,
+  stockMax: toIntBound,
+};
+
+/** Each numeric bound as the PAYLOAD will carry it — `undefined` where the
+ *  payload omits the field. */
+export type EffectiveNumericBounds = Record<
+  NumericFilterField,
+  number | undefined
+>;
+
+/**
+ * The single sanitized view of the numeric bounds that the payload, the chips
+ * and the badge all read.
+ *
+ * They must agree exactly: a bound the payload drops (a negative cost) is a
+ * bound that never happened, so it can neither raise the badge count nor draw
+ * a "Cost: ≥ $-5" chip promising a filter the list is not applying — and a
+ * bound the payload repairs (stock "2.5" → 2) must be shown as the 2 that is
+ * actually in force. Reading the raw strings in any one of the three is how
+ * they drift apart.
+ */
+export function effectiveNumericBounds(
+  ui: ProductFiltersUiState,
+): EffectiveNumericBounds {
+  const bounds = {} as EffectiveNumericBounds;
+  for (const field of NUMERIC_FILTER_FIELDS) {
+    bounds[field] = NUMERIC_FIELD_SANITIZERS[field](ui[field]);
+  }
+  return bounds;
 }
 
 /**
@@ -97,33 +184,22 @@ export function buildProductListFilters(
   const addedTo = toText(ui.addedTo);
   if (addedTo) filters.addedTo = addedTo;
 
-  const costMin = toNumber(ui.costMin);
-  if (costMin !== undefined) filters.costMin = costMin;
-  const costMax = toNumber(ui.costMax);
-  if (costMax !== undefined) filters.costMax = costMax;
-
-  const retailMin = toNumber(ui.retailMin);
-  if (retailMin !== undefined) filters.retailMin = retailMin;
-  const retailMax = toNumber(ui.retailMax);
-  if (retailMax !== undefined) filters.retailMax = retailMax;
-
-  const profitPctMin = toNumber(ui.profitPctMin);
-  if (profitPctMin !== undefined) filters.profitPctMin = profitPctMin;
-  const profitPctMax = toNumber(ui.profitPctMax);
-  if (profitPctMax !== undefined) filters.profitPctMax = profitPctMax;
-
-  const stockMin = toNumber(ui.stockMin);
-  if (stockMin !== undefined) filters.stockMin = stockMin;
-  const stockMax = toNumber(ui.stockMax);
-  if (stockMax !== undefined) filters.stockMax = stockMax;
+  const bounds = effectiveNumericBounds(ui);
+  for (const field of NUMERIC_FILTER_FIELDS) {
+    const value = bounds[field];
+    if (value !== undefined) filters[field] = value;
+  }
 
   return Object.keys(filters).length > 0 ? filters : undefined;
 }
 
-/** How many of the popover's numeric bounds are set — the button's badge. */
+/** How many of the popover's numeric bounds are IN FORCE — the button's
+ *  badge. Counts the sanitized bounds, so it can never advertise a filter the
+ *  payload dropped. */
 export function countNumericFilters(ui: ProductFiltersUiState): number {
+  const bounds = effectiveNumericBounds(ui);
   return NUMERIC_FILTER_FIELDS.reduce(
-    (n, field) => (toNumber(ui[field]) !== undefined ? n + 1 : n),
+    (n, field) => (bounds[field] !== undefined ? n + 1 : n),
     0,
   );
 }
@@ -143,15 +219,19 @@ export interface ProductFilterChip {
   label: string;
 }
 
-/** `min`/`max` → "1 – 5" / "≥ 1" / "≤ 5"; null when neither bound is set. */
+/**
+ * `min`/`max` → "1 – 5" / "≥ 1" / "≤ 5"; null when neither bound is set.
+ *
+ * Takes the ALREADY-SANITIZED numbers, never the raw input strings — the chip
+ * has to describe the filter the backend is applying, not the text still
+ * sitting in the box.
+ */
 function rangeLabel(
-  min: string,
-  max: string,
+  lo: number | undefined,
+  hi: number | undefined,
   prefix: string,
   suffix: string,
 ): string | null {
-  const lo = toNumber(min);
-  const hi = toNumber(max);
   if (lo === undefined && hi === undefined) return null;
   const fmt = (n: number) => `${prefix}${n}${suffix}`;
   if (lo !== undefined && hi !== undefined) return `${fmt(lo)} – ${fmt(hi)}`;
@@ -191,16 +271,18 @@ export function activeFilterChips(
     chips.push({ key: "added", label });
   }
 
-  const cost = rangeLabel(ui.costMin, ui.costMax, "$", "");
+  const bounds = effectiveNumericBounds(ui);
+
+  const cost = rangeLabel(bounds.costMin, bounds.costMax, "$", "");
   if (cost) chips.push({ key: "cost", label: `Cost: ${cost}` });
 
-  const retail = rangeLabel(ui.retailMin, ui.retailMax, "$", "");
+  const retail = rangeLabel(bounds.retailMin, bounds.retailMax, "$", "");
   if (retail) chips.push({ key: "retail", label: `Retail: ${retail}` });
 
-  const profit = rangeLabel(ui.profitPctMin, ui.profitPctMax, "", "%");
+  const profit = rangeLabel(bounds.profitPctMin, bounds.profitPctMax, "", "%");
   if (profit) chips.push({ key: "profit", label: `Profit: ${profit}` });
 
-  const stock = rangeLabel(ui.stockMin, ui.stockMax, "", "");
+  const stock = rangeLabel(bounds.stockMin, bounds.stockMax, "", "");
   if (stock) chips.push({ key: "stock", label: `Stock: ${stock}` });
 
   return chips;

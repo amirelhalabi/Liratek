@@ -238,12 +238,21 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     // date() normalizes both storage forms present in this DB:
     // 'YYYY-MM-DD HH:MM:SS' and the ISO 'YYYY-MM-DDTHH:MM:SS.sssZ' form.
     // Both bounds are inclusive whole days.
+    //
+    // 'localtime' on the COLUMN side only. `created_at` is stamped by
+    // CURRENT_TIMESTAMP (UTC) while the list's "Added" column renders it with
+    // toLocaleDateString() — bucketing by the UTC day would put a product the
+    // operator sees as added today into yesterday's (or tomorrow's) filter
+    // window for part of every 24h. Local-day bucketing is the app-wide
+    // convention for user-facing date ranges (see ClosingRepository).
+    // The bound is already a LOCAL 'YYYY-MM-DD' the user picked, so it stays
+    // a bare date(?) — converting it too would shift it twice.
     if (filters.addedFrom !== undefined) {
-      clauses.push(`date(p.created_at) >= date(?)`);
+      clauses.push(`date(p.created_at, 'localtime') >= date(?)`);
       params.push(filters.addedFrom);
     }
     if (filters.addedTo !== undefined) {
-      clauses.push(`date(p.created_at) <= date(?)`);
+      clauses.push(`date(p.created_at, 'localtime') <= date(?)`);
       params.push(filters.addedTo);
     }
 

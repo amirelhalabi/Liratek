@@ -21,6 +21,17 @@ interface NumericRange {
   /** testid stem — inputs become `inventory-filter-<stem>-min` / `-max`. */
   testIdStem: string;
   step?: string;
+  /**
+   * Lower limit for the spinner, where the CORE SCHEMA has one. Cost and
+   * retail are `z.number().min(0)` there, so a negative bound is a payload the
+   * backend rejects outright, not a narrower filter. Profit % is signed (a
+   * loss-making product) and stock legitimately goes negative in this system
+   * (the negative-stock reports depend on it) — both stay unbounded.
+   *
+   * This is the nudge, not the guard: `min` does not stop a pasted or typed
+   * value from reaching React state. `buildProductListFilters` sanitizes.
+   */
+  min?: string;
 }
 
 const RANGES: NumericRange[] = [
@@ -30,6 +41,7 @@ const RANGES: NumericRange[] = [
     maxField: "costMax",
     testIdStem: "cost",
     step: "0.01",
+    min: "0",
   },
   {
     label: "Retail ($)",
@@ -37,6 +49,7 @@ const RANGES: NumericRange[] = [
     maxField: "retailMax",
     testIdStem: "retail",
     step: "0.01",
+    min: "0",
   },
   {
     label: "Profit (%)",
@@ -108,6 +121,7 @@ export function InventoryFiltersPopover({
                 <input
                   type="number"
                   step={range.step}
+                  min={range.min}
                   placeholder="Min"
                   data-testid={`inventory-filter-${range.testIdStem}-min`}
                   value={filters[range.minField]}
@@ -120,6 +134,7 @@ export function InventoryFiltersPopover({
                 <input
                   type="number"
                   step={range.step}
+                  min={range.min}
                   placeholder="Max"
                   data-testid={`inventory-filter-${range.testIdStem}-max`}
                   value={filters[range.maxField]}

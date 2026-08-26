@@ -345,6 +345,16 @@ export default function ProductList() {
       setProducts(data as unknown as Product[]);
     } catch (error) {
       logger.error("Failed to load products:", error);
+      // Surface it — a swallowed failure here looks exactly like "the list
+      // just stopped responding to the filters" (the rows on screen are the
+      // last successful result, still rendered).
+      appEvents.emit(
+        "notification:show",
+        `Failed to load products: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        "error",
+      );
     } finally {
       setLoading(false);
     }

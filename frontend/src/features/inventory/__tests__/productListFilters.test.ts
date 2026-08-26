@@ -102,6 +102,127 @@ describe("buildProductListFilters — omission", () => {
   });
 });
 
+/**
+ * The payload must satisfy core's `productListFiltersSchema` no matter what
+ * was typed. A bound the schema refuses does NOT degrade to "filter ignored":
+ * the desktop handler throws (the list keeps showing its last result and stops
+ * responding) and REST answers `{success:false}` (the list empties). Every
+ * rule below is one line of that schema.
+ */
+describe("buildProductListFilters — sanitization to the core schema", () => {
+  it("drops a negative cost/retail bound (schema: z.number().min(0))", () => {
+    expect(buildProductListFilters(ui({ costMin: "-5" }))).toBeUndefined();
+    expect(buildProductListFilters(ui({ costMax: "-0.01" }))).toBeUndefined();
+    expect(buildProductListFilters(ui({ retailMin: "-1" }))).toBeUndefined();
+    expect(buildProductListFilters(ui({ retailMax: "-1" }))).toBeUndefined();
+  });
+
+  it("drops ONLY the invalid bound — the rest of the filter set still ships", () => {
+    expect(
+      buildProductListFilters(
+        ui({ categories: ["Phones"], costMin: "-5", costMax: "20" }),
+      ),
+    ).toEqual({ categories: ["Phones"], costMax: 20 });
+  });
+
+  it("keeps cost/retail 0 — the boundary the schema allows", () => {
+    expect(buildProductListFilters(ui({ costMin: "0" }))).toEqual({
+      costMin: 0,
+    });
+  });
+
+  it("truncates a fractional stock bound (schema: z.number().int())", () => {
+    expect(buildProductListFilters(ui({ stockMin: "2.5" }))).toEqual({
+      stockMin: 2,
+    });
+    expect(buildProductListFilters(ui({ stockMax: "9.9" }))).toEqual({
+      stockMax: 9,
+    });
+  });
+
+  it("keeps a NEGATIVE stock bound — stock_quantity really does go negative", () => {
+    expect(buildProductListFilters(ui({ stockMin: "-3" }))).toEqual({
+      stockMin: -3,
+    });
+    // Truncation is toward zero, so a negative fraction stays negative.
+    expect(buildProductListFilters(ui({ stockMax: "-2.5" }))).toEqual({
+      stockMax: -2,
+    });
+  });
+
+  it("leaves profit % alone — it is signed and unconstrained", () => {
+    expect(
+      buildProductListFilters(ui({ profitPctMin: "-20", profitPctMax: "12.5" })),
+    ).toEqual({ profitPctMin: -20, profitPctMax: 12.5 });
+  });
+
+  it("keeps fractional cost/retail — only stock is an integer field", () => {
+    expect(buildProductListFilters(ui({ costMin: "1.25" }))).toEqual({
+      costMin: 1.25,
+    });
+  });
+});
+
+/**
+ * The payload, the chips and the badge read ONE sanitized view of the numeric
+ * bounds (`effectiveNumericBounds`), so they cannot disagree. A bound the
+ * payload drops must be invisible everywhere — a "Cost: ≥ $-5" chip over a
+ * list that is not filtered by cost is a lie the user acts on — and a bound
+ * the payload repairs must be shown repaired.
+ */
+describe("chips + badge agree with the payload", () => {
+  it("a dropped negative bound draws no chip and does not count", () => {
+    const state = ui({ costMin: "-5" });
+    expect(buildProductListFilters(state)).toBeUndefined();
+    expect(activeFilterChips(state)).toEqual([]);
+    expect(countNumericFilters(state)).toBe(0);
+  });
+
+  it("labels the surviving half of a partly-invalid range", () => {
+    const state = ui({ costMin: "-5", costMax: "20" });
+    expect(buildProductListFilters(state)).toEqual({ costMax: 20 });
+    expect(activeFilterChips(state)).toEqual([
+      { key: "cost", label: "Cost: ≤ $20" },
+    ]);
+    expect(countNumericFilters(state)).toBe(1);
+  });
+
+  it("shows the TRUNCATED stock bound the backend will actually apply", () => {
+    const state = ui({ stockMin: "2.5" });
+    expect(buildProductListFilters(state)).toEqual({ stockMin: 2 });
+    expect(activeFilterChips(state)).toEqual([
+      { key: "stock", label: "Stock: ≥ 2" },
+    ]);
+    expect(countNumericFilters(state)).toBe(1);
+  });
+
+  it("keeps negative stock and negative profit visible — both are valid", () => {
+    const state = ui({ stockMax: "-2", profitPctMin: "-20" });
+    expect(buildProductListFilters(state)).toEqual({
+      stockMax: -2,
+      profitPctMin: -20,
+    });
+    expect(activeFilterChips(state)).toEqual([
+      { key: "profit", label: "Profit: ≥ -20%" },
+      { key: "stock", label: "Stock: ≤ -2" },
+    ]);
+    expect(countNumericFilters(state)).toBe(2);
+  });
+
+  it("every field the badge counts is a field the payload carries", () => {
+    const state = ui({
+      costMin: "-5", // dropped
+      costMax: "20", // kept
+      retailMin: "-1", // dropped
+      profitPctMax: "-3.5", // kept, signed
+      stockMin: "4.9", // kept, truncated
+    });
+    const payload = buildProductListFilters(state);
+    expect(Object.keys(payload ?? {}).length).toBe(countNumericFilters(state));
+    expect(payload).toEqual({ costMax: 20, profitPctMax: -3.5, stockMin: 4 });
+  });
+});
+
 describe("countNumericFilters", () => {
   it("counts only set numeric bounds — list/date filters do not count", () => {
     expect(countNumericFilters(EMPTY_PRODUCT_FILTERS)).toBe(0);
