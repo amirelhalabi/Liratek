@@ -30,6 +30,10 @@ export interface ProductUnitSummary {
  *  sale provenance and computed warranty status. */
 export interface ProductUnitStory extends ProductUnit {
   product_name: string | null;
+  /** The owning MODEL's warranty term (`products.warranty_months`) —
+   *  display-only (decision #4 starts the clock at the sale), never a
+   *  coverage claim. */
+  product_warranty_months: number | null;
   warranty_until: string | null;
   is_refunded: number | null;
   refunded_quantity: number | null;
@@ -60,6 +64,10 @@ export interface ProductUnitListRow {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** The owning MODEL's warranty term (`products.warranty_months`) —
+   *  display-only, so unsold stock can show "N mo — starts at sale" instead
+   *  of "No warranty". Never a coverage claim (decision #4). */
+  product_warranty_months: number | null;
   sale_item_id: number | null;
   sold_at: string | null;
   sold_price_usd: number | null;

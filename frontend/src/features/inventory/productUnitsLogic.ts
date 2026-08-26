@@ -74,6 +74,11 @@ export interface WarrantyStatus {
  *     (ran out vs. voided by a refund) — the label spells out which.
  *   - NONE: neutral slate — the unit never had a warranty to begin with.
  */
+export interface WarrantyBadge {
+  label: string;
+  className: string;
+}
+
 export function warrantyBadgeInfo(warranty: WarrantyStatus): {
   label: string;
   className: string;
@@ -101,4 +106,52 @@ export function warrantyBadgeInfo(warranty: WarrantyStatus): {
         className: "bg-slate-700/40 text-slate-400 border-slate-600/40",
       };
   }
+}
+
+/**
+ * What a unit's Warranty cell actually shows — {@link warrantyBadgeInfo}'s
+ * verdict for every unit EXCEPT unsold stock of a model that carries a
+ * warranty term, which gets the term instead of "No warranty".
+ *
+ * Why this exists (owner-reported 2026-08-26): the warranty CLOCK starts at
+ * the SALE (decision #4 — `sale_items.warranty_until` is stamped at
+ * checkout), so an IN_STOCK unit has no coverage yet and
+ * `computeWarrantyStatus` correctly returns `NONE`. Rendering that as "No
+ * warranty" told the operator something false about a 6-month model's fresh
+ * stock. The fix is display-only and stays strictly inside the `NONE` branch:
+ *
+ *   - `NONE` + `IN_STOCK` + a model term  -> "N mo — starts at sale" (sky:
+ *     informative, deliberately NOT the emerald of real coverage, because
+ *     nothing is covered yet).
+ *   - `NONE` + `IN_STOCK` + no model term -> "No warranty" (unchanged — the
+ *     honest answer for a model that grants none).
+ *   - Anything SOLD, or any OVERRIDE/VOID/COVERED/EXPIRED verdict ->
+ *     `warrantyBadgeInfo` verbatim. A unit sold BEFORE its model gained a
+ *     term stamped no `warranty_until`, and the model's term must never
+ *     retroactively imply that sale carried one.
+ *
+ * `months <= 0` (or a null/absent column) counts as no term, so the form's
+ * `min={0}` and the DB's NULL both land on "No warranty".
+ *
+ * Shared by the Phone Units table and `ImeiStoryCard` so both surfaces can
+ * never disagree about one unit (rule 14).
+ */
+export function warrantyDisplayBadge(input: {
+  warranty: WarrantyStatus;
+  status: "IN_STOCK" | "SOLD";
+  /** The owning MODEL's `products.warranty_months` — a term, not coverage. */
+  productWarrantyMonths: number | null;
+}): WarrantyBadge {
+  const months = input.productWarrantyMonths ?? 0;
+  if (
+    input.warranty.state === "NONE" &&
+    input.status === "IN_STOCK" &&
+    months > 0
+  ) {
+    return {
+      label: `${months} mo — starts at sale`,
+      className: "bg-sky-500/10 text-sky-400 border-sky-500/30",
+    };
+  }
+  return warrantyBadgeInfo(input.warranty);
 }

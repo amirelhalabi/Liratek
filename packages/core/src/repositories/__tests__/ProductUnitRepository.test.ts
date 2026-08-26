@@ -116,13 +116,26 @@ function createTestDb(): Database.Database {
 
 function insertProduct(
   db: Database.Database,
-  opts: { tenantId: number; name: string; stockQuantity?: number },
+  opts: {
+    tenantId: number;
+    name: string;
+    stockQuantity?: number;
+    /** The MODEL's warranty term. Omitted/undefined = NULL, i.e. a model with
+     *  no warranty at all — the default every pre-existing test relies on. */
+    warrantyMonths?: number | null;
+  },
 ): number {
   const result = db
     .prepare(
-      `INSERT INTO products (tenant_id, name, stock_quantity) VALUES (?, ?, ?)`,
+      `INSERT INTO products (tenant_id, name, stock_quantity, warranty_months)
+       VALUES (?, ?, ?, ?)`,
     )
-    .run(opts.tenantId, opts.name, opts.stockQuantity ?? 0);
+    .run(
+      opts.tenantId,
+      opts.name,
+      opts.stockQuantity ?? 0,
+      opts.warrantyMonths ?? null,
+    );
   return Number(result.lastInsertRowid);
 }
 
@@ -658,6 +671,41 @@ describe("ProductUnitRepository", () => {
       expect(story[0].warranty_until).toBeNull();
     });
 
+    /**
+     * Owner-reported 2026-08-26: the owning MODEL's warranty term now rides
+     * on the same shared join, so the walk-in lookup card can tell an unsold
+     * unit apart from a genuinely warranty-less one. Read straight off
+     * `products.warranty_months` — never derived from the sale — so a unit
+     * that has NEVER been sold still carries the term while `warranty_until`
+     * stays null (decision #4: the clock starts at the sale).
+     */
+    it("carries the model's warranty term as product_warranty_months, null when the model has none", () => {
+      const withTerm = insertProduct(db, {
+        tenantId: 1,
+        name: "iPhone 13",
+        warrantyMonths: 6,
+      });
+      const withoutTerm = insertProduct(db, {
+        tenantId: 1,
+        name: "Nokia 3310",
+      });
+      runWithTenant(1, () => repo.addUnits(withTerm, ["111111111111111"]));
+      runWithTenant(1, () => repo.addUnits(withoutTerm, ["222222222222222"]));
+
+      const covered = runWithTenant(1, () =>
+        repo.getUnitStoryByImei("111111111111111"),
+      );
+      expect(covered[0].product_warranty_months).toBe(6);
+      // Never sold — the term is present, the SALE stamp is not.
+      expect(covered[0].status).toBe("IN_STOCK");
+      expect(covered[0].warranty_until).toBeNull();
+
+      const bare = runWithTenant(1, () =>
+        repo.getUnitStoryByImei("222222222222222"),
+      );
+      expect(bare[0].product_warranty_months).toBeNull();
+    });
+
     it("orders newest unit first across multiple rows sharing one IMEI", () => {
       const productId = insertProduct(db, { tenantId: 1, name: "iPhone 13" });
       const [unit] = runWithTenant(1, () =>
@@ -997,6 +1045,63 @@ describe("ProductUnitRepository", () => {
         // and not refunded".
         sale_refunded: null,
       });
+    });
+
+    /**
+     * Owner-reported 2026-08-26 (the display gap): an IN_STOCK unit of a
+     * 6-month model used to reach the Phone Units page with nothing but a
+     * `NONE` verdict, so fresh stock read "No warranty". The MODEL's term now
+     * rides on the same shared provenance join for BOTH the in-stock and the
+     * sold row, while the sale stamp stays untouched — the term is display
+     * information, never retroactive coverage (decision #4).
+     */
+    it("carries the model's warranty term as product_warranty_months for in-stock AND sold rows", () => {
+      const withTerm = insertProduct(db, {
+        tenantId: 1,
+        name: "iPhone 13",
+        warrantyMonths: 6,
+      });
+      const withoutTerm = insertProduct(db, {
+        tenantId: 1,
+        name: "Nokia 3310",
+      });
+
+      const [inStock] = runWithTenant(1, () =>
+        repo.addUnits(withTerm, ["910000000000001"]),
+      );
+      const [sold] = runWithTenant(1, () =>
+        repo.addUnits(withTerm, ["910000000000002"]),
+      );
+      const [bare] = runWithTenant(1, () =>
+        repo.addUnits(withoutTerm, ["910000000000003"]),
+      );
+
+      const saleId = insertSale(db, 1, null);
+      const saleItemId = insertSaleItem(db, {
+        tenantId: 1,
+        saleId,
+        productId: withTerm,
+        warrantyUntil: "2027-02-01",
+      });
+      runWithTenant(1, () => repo.markSold(sold.id, saleItemId));
+
+      const { rows } = runWithTenant(1, () =>
+        repo.listUnits({ limit: 50, offset: 0 }),
+      );
+      const byId = new Map(rows.map((r) => [r.id, r]));
+
+      // In stock: the term is there even though there is no sale stamp at all.
+      expect(byId.get(inStock.id)!.product_warranty_months).toBe(6);
+      expect(byId.get(inStock.id)!.status).toBe("IN_STOCK");
+      expect(byId.get(inStock.id)!.warranty_until).toBeNull();
+
+      // Sold: the term and the sale's own stamp are independent columns.
+      expect(byId.get(sold.id)!.product_warranty_months).toBe(6);
+      expect(byId.get(sold.id)!.warranty_until).toBe("2027-02-01");
+
+      // A model with no term at all stays null — this is what keeps a
+      // genuinely warranty-less unit distinguishable from unsold stock.
+      expect(byId.get(bare.id)!.product_warranty_months).toBeNull();
     });
 
     it("never shows tenant B's units to tenant A — rows AND total", () => {

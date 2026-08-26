@@ -42,6 +42,11 @@ export type ProductUnitListRow = {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** The owning MODEL's warranty term (`products.warranty_months`) —
+   *  display-only, so unsold stock can show "N mo — starts at sale" instead
+   *  of "No warranty". Never a coverage claim (decision #4: the clock starts
+   *  at the sale). */
+  product_warranty_months: number | null;
   sale_item_id: number | null;
   sold_at: string | null;
   sold_price_usd: number | null;

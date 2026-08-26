@@ -258,6 +258,14 @@ export class ProductUnitService {
    *
    * `total` passes through untouched from the repository — it is the
    * unpaged count over the same filters, for the pager.
+   *
+   * The row spread also carries the repository's `product_warranty_months`
+   * (the owning MODEL's warranty term) through to the caller UNTOUCHED. It is
+   * deliberately NOT one of `computeWarrantyStatus`'s inputs: decision #4
+   * starts the clock at the sale and decision #11's precedence is
+   * owner-locked, so a model's term can never retro-stamp coverage onto a
+   * unit — it exists only so the UI can label unsold stock with the term it
+   * WILL get ("6 mo — starts at sale") instead of a misleading "No warranty".
    */
   listUnits(
     filters: UnitListFilters,
@@ -287,6 +295,10 @@ export class ProductUnitService {
    * The walk-in lookup (decision #7): every unit matching `imei`, each
    * stamped with its computed {@link WarrantyStatus}. `today` defaults to
    * the current date (ISO, `YYYY-MM-DD`) and is injectable for tests.
+   *
+   * As in `listUnits`, the row spread carries `product_warranty_months`
+   * (display-only model term) through untouched and never feeds it to
+   * `computeWarrantyStatus`.
    */
   getUnitStory(
     imei: string,

@@ -60,6 +60,12 @@ export interface ProductUnitSummary {
  * back to `IN_STOCK` by a refund) — the sale line's warranty stamp/refund
  * state, the sale's timestamp/client, and the client's name. All the joined
  * fields are `null` for a unit that has never been sold.
+ *
+ * `product_warranty_months` is the owning MODEL's warranty term — same
+ * display-only role (and the same non-retroactive caveat) as on
+ * {@link UnitListRow}; both reads take it off the ONE shared
+ * {@link ProductUnitRepository.UNIT_PROVENANCE_JOIN} so the two surfaces can
+ * never disagree.
  */
 export interface UnitStory {
   id: number;
@@ -73,6 +79,7 @@ export interface UnitStory {
   created_at: string;
   updated_at: string;
   product_name: string | null;
+  product_warranty_months: number | null;
   warranty_until: string | null;
   is_refunded: number | null;
   refunded_quantity: number | null;
@@ -114,6 +121,16 @@ export interface UnitListFilters {
  * NOT NULL FK to a same-tenant product row — the join is a LEFT JOIN only
  * to keep it byte-identical to `getUnitStoryByImei`'s shape (both build
  * from the same {@link ProductUnitRepository.UNIT_PROVENANCE_JOIN}).
+ *
+ * `product_warranty_months` is the owning MODEL's warranty TERM
+ * (`products.warranty_months`), NOT this unit's coverage: decision #4 starts
+ * the warranty clock at the sale, so an unsold unit has no `warranty_until`
+ * to show and its computed `warranty` is `NONE`. Carrying the term lets the
+ * UI say "6 mo — starts at sale" for fresh stock instead of the misleading
+ * "No warranty" (owner-reported 2026-08-26). It is display information only
+ * — it is deliberately NOT fed to `computeWarrantyStatus`, whose precedence
+ * is owner-locked, and it never retro-stamps a unit sold before the model
+ * had a term.
  */
 export interface UnitListRow {
   id: number;
@@ -124,6 +141,7 @@ export interface UnitListRow {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  product_warranty_months: number | null;
   sale_item_id: number | null;
   sold_at: string | null;
   sold_price_usd: number | null;
@@ -511,6 +529,7 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
            pu.sale_item_id, pu.is_defective, pu.warranty_override_until,
            pu.created_at, pu.updated_at,
            p.name AS product_name,
+           p.warranty_months AS product_warranty_months,
            si.warranty_until AS warranty_until,
            si.is_refunded AS is_refunded,
            si.refunded_quantity AS refunded_quantity,
@@ -554,6 +573,7 @@ export class ProductUnitRepository extends BaseRepository<ProductUnitEntity> {
            pu.id, pu.product_id, pu.imei, pu.status, pu.is_defective,
            pu.warranty_override_until, pu.created_at,
            p.name AS product_name,
+           p.warranty_months AS product_warranty_months,
            pu.sale_item_id,
            s.created_at AS sold_at,
            si.sold_price_usd AS sold_price_usd,

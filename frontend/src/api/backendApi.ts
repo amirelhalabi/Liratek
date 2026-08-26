@@ -3825,6 +3825,9 @@ export interface ProductUnitSummaryDto {
 
 export interface ProductUnitStoryDto extends ProductUnitDto {
   product_name: string | null;
+  /** The owning MODEL's warranty term — display-only (decision #4 starts the
+   *  warranty clock at the sale), never a coverage claim. */
+  product_warranty_months: number | null;
   warranty_until: string | null;
   is_refunded: number | null;
   refunded_quantity: number | null;
@@ -3907,6 +3910,9 @@ export interface ProductUnitListRowDto {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** The owning MODEL's warranty term — display-only, so unsold stock reads
+   *  "N mo — starts at sale" rather than "No warranty". */
+  product_warranty_months: number | null;
   sale_item_id: number | null;
   sold_at: string | null;
   sold_price_usd: number | null;

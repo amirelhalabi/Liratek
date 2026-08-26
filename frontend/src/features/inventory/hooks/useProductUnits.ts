@@ -35,6 +35,10 @@ export interface ProductUnit {
  *  for a unit that was never sold. */
 export interface UnitStoryEntry extends ProductUnit {
   product_name: string | null;
+  /** The owning MODEL's warranty term (`products.warranty_months`) —
+   *  display-only: decision #4 starts the warranty clock at the SALE, so an
+   *  unsold unit has no coverage yet, only a term it will get. */
+  product_warranty_months: number | null;
   warranty_until: string | null;
   is_refunded: number | null;
   refunded_quantity: number | null;
@@ -79,6 +83,11 @@ export interface UnitListRow {
   warranty_override_until: string | null;
   created_at: string;
   product_name: string;
+  /** The owning MODEL's warranty term — display-only (see
+   *  {@link UnitStoryEntry.product_warranty_months}); what lets fresh stock
+   *  of a 6-month model read "6 mo — starts at sale" instead of the
+   *  misleading "No warranty". */
+  product_warranty_months: number | null;
   sale_item_id: number | null;
   sold_at: string | null;
   sold_price_usd: number | null;
@@ -115,6 +124,11 @@ export interface RegisterUnitsResult {
 export const PRODUCT_UNITS_KEYS = {
   byProduct: (productId: number) => ["product-units", productId] as const,
   story: (imei: string) => ["product-units-story", imei] as const,
+  /** Prefix shared by EVERY IMEI's story entry — invalidating this refetches
+   *  whichever unit card is expanded. Needed because a unit's rendered
+   *  warranty text depends on its PRODUCT's `warranty_months`, which a
+   *  product save can change without touching any `product_units` row. */
+  storyRoot: ["product-units-story"] as const,
   /** Prefix shared by EVERY filter/page combination of the unit list —
    *  invalidating this refetches whichever page is on screen. */
   listRoot: ["product-units-list"] as const,

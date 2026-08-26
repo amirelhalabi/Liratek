@@ -97,6 +97,9 @@ function row(
     warranty_override_until: null,
     created_at: "2026-08-01 10:00:00",
     product_name: "iPhone 15 Pro",
+    // Default: the MODEL grants no warranty at all, so a NONE verdict really
+    // does mean "No warranty" for these rows.
+    product_warranty_months: null,
     sale_item_id: null,
     sold_at: null,
     sold_price_usd: null,
@@ -382,6 +385,69 @@ describe("PhoneUnits — row rendering", () => {
     );
     expect(screen.getByTestId("phone-unit-warranty-4")).toHaveTextContent(
       "No warranty",
+    );
+  });
+
+  /**
+   * Owner-reported 2026-08-26: fresh stock of a model that HAS a warranty
+   * term used to read "No warranty" here, because the clock only starts at
+   * the sale (decision #4) so the computed verdict is `NONE`. The page now
+   * shows the term for exactly that case — and for nothing else.
+   */
+  it("shows the model's term for unsold stock, and never for a sold unit or a real verdict", async () => {
+    mockList.mockResolvedValue(
+      result([
+        // Unsold, model grants 6 months -> the term.
+        row({
+          id: 1,
+          imei: "111111111111111",
+          status: "IN_STOCK",
+          product_warranty_months: 6,
+          warranty: NONE,
+        }),
+        // Unsold, model grants nothing -> unchanged.
+        row({
+          id: 2,
+          imei: "222222222222222",
+          status: "IN_STOCK",
+          product_warranty_months: null,
+          warranty: NONE,
+        }),
+        // SOLD before the model had a term (no stamp on its sale line) ->
+        // stays "No warranty": the term is never applied retroactively.
+        row({
+          id: 3,
+          imei: "333333333333333",
+          status: "SOLD",
+          sale_item_id: 9,
+          sale_refunded: 0,
+          product_warranty_months: 6,
+          warranty: NONE,
+        }),
+        // A real verdict wins over the term, even in stock (refund override).
+        row({
+          id: 4,
+          imei: "444444444444444",
+          status: "IN_STOCK",
+          product_warranty_months: 6,
+          warranty: COVERED,
+        }),
+      ]),
+    );
+    renderPage();
+
+    await screen.findByText("111111111111111");
+    expect(screen.getByTestId("phone-unit-warranty-1")).toHaveTextContent(
+      "6 mo — starts at sale",
+    );
+    expect(screen.getByTestId("phone-unit-warranty-2")).toHaveTextContent(
+      "No warranty",
+    );
+    expect(screen.getByTestId("phone-unit-warranty-3")).toHaveTextContent(
+      "No warranty",
+    );
+    expect(screen.getByTestId("phone-unit-warranty-4")).toHaveTextContent(
+      "Covered (until 2027-01-31)",
     );
   });
 

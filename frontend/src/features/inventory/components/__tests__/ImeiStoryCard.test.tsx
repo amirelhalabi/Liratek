@@ -90,6 +90,9 @@ function makeStory(overrides: Partial<UnitStoryEntry> = {}): UnitStoryEntry {
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     product_name: "iPhone 13",
+    // Default: the MODEL grants no warranty term, so a NONE verdict below
+    // really is "No warranty" rather than "not yet".
+    product_warranty_months: null,
     warranty_until: "2027-01-01",
     is_refunded: 0,
     refunded_quantity: 0,
@@ -131,6 +134,44 @@ describe("ImeiStoryCard render", () => {
     expect(
       screen.getByTestId("imei-story-warranty-badge"),
     ).toHaveTextContent("No warranty");
+  });
+
+  /** Owner-reported 2026-08-26 — the story card is the SECOND surface that
+   *  renders a verdict; it must agree with the Phone Units table. */
+  it("shows the model's term for an unsold unit instead of No warranty", () => {
+    render(
+      <ImeiStoryCard
+        story={makeStory({
+          status: "IN_STOCK",
+          sale_item_id: null,
+          client_name: null,
+          sold_at: null,
+          sold_price_usd: null,
+          warranty_until: null,
+          product_warranty_months: 6,
+          warranty: { source: null, until: null, state: "NONE" },
+        })}
+      />,
+    );
+    expect(screen.getByTestId("imei-story-warranty-badge")).toHaveTextContent(
+      "6 mo — starts at sale",
+    );
+  });
+
+  it("keeps No warranty for a unit SOLD before its model had a term", () => {
+    render(
+      <ImeiStoryCard
+        story={makeStory({
+          status: "SOLD",
+          warranty_until: null,
+          product_warranty_months: 6,
+          warranty: { source: null, until: null, state: "NONE" },
+        })}
+      />,
+    );
+    expect(screen.getByTestId("imei-story-warranty-badge")).toHaveTextContent(
+      "No warranty",
+    );
   });
 
   it("shows a Defective badge only when is_defective is truthy", () => {

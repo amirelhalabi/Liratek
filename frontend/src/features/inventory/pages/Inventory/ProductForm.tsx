@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import logger from "@/utils/logger";
 import { X, Save, Printer, Minus, Sparkles } from "lucide-react";
 import { useApi, appEvents, DecimalInput } from "@liratek/ui";
@@ -6,6 +7,7 @@ import type { Product } from "@liratek/ui";
 import JsBarcode from "jsbarcode";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { ProductUnitsSection } from "../../components/ProductUnitsSection";
+import { PRODUCT_UNITS_KEYS } from "../../hooks/useProductUnits";
 
 interface ProductFormProps {
   onClose: () => void;
@@ -49,6 +51,7 @@ export default function ProductForm({
 }: ProductFormProps) {
   useModalFocusFix(true);
   const api = useApi();
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [categories, setCategories] = useState<string[]>([]);
@@ -410,6 +413,20 @@ ${labels}
       }
 
       if (result.success) {
+        // The phone-unit reads carry their PRODUCT's `warranty_months` (so
+        // unsold stock can show "N mo — starts at sale"), and a product save
+        // can change it without touching a single `product_units` row — no
+        // unit mutation runs, so nothing else invalidates these keys. With
+        // the app's 30s default `staleTime`, walking back to /inventory/units
+        // right after an edit otherwise re-rendered the CACHED pre-edit term
+        // (owner-reported 2026-08-26). Invalidated by PREFIX so every
+        // filter/page combination and every expanded IMEI story refetches.
+        queryClient.invalidateQueries({
+          queryKey: PRODUCT_UNITS_KEYS.listRoot,
+        });
+        queryClient.invalidateQueries({
+          queryKey: PRODUCT_UNITS_KEYS.storyRoot,
+        });
         onSave();
       } else {
         if (result.code === "DUPLICATE_BARCODE" && result.suggested_barcode) {

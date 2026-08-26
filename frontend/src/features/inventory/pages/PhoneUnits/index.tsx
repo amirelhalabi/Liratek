@@ -11,7 +11,7 @@ import {
 import { DataTable, PageHeader, Select, appEvents } from "@liratek/ui";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import { ImeiStoryCard } from "../../components/ImeiStoryCard";
-import { warrantyBadgeInfo } from "../../productUnitsLogic";
+import { warrantyDisplayBadge } from "../../productUnitsLogic";
 import {
   useDeleteUnitMutation,
   useUnitListQuery,
@@ -273,7 +273,16 @@ export default function PhoneUnits() {
           theadClassName="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold"
           tbodyClassName="divide-y divide-slate-700 text-sm"
           renderRow={(unit) => {
-            const badge = warrantyBadgeInfo(unit.warranty);
+            // Unsold stock of a model that HAS a warranty term shows the term
+            // ("6 mo — starts at sale") instead of "No warranty": the clock
+            // starts at the sale (decision #4), so `NONE` here means "not yet",
+            // not "never" (owner-reported 2026-08-26). Every other verdict —
+            // and every SOLD unit — renders exactly as before.
+            const badge = warrantyDisplayBadge({
+              warranty: unit.warranty,
+              status: unit.status,
+              productWarrantyMonths: unit.product_warranty_months,
+            });
             const isExpanded = expandedImei === unit.imei;
             return (
               <tr

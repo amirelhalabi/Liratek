@@ -7,7 +7,13 @@
  * rework that replaced the multi-line textarea with `ImeiAddRow`'s one-
  * IMEI-at-a-time input.)
  */
-import { computeUnitDrift, looksLikeImei } from "../productUnitsLogic";
+import {
+  computeUnitDrift,
+  looksLikeImei,
+  warrantyBadgeInfo,
+  warrantyDisplayBadge,
+  type WarrantyStatus,
+} from "../productUnitsLogic";
 
 describe("computeUnitDrift", () => {
   it("matches when in-stock count equals stock_quantity", () => {
@@ -30,6 +36,97 @@ describe("computeUnitDrift", () => {
     const result = computeUnitDrift(100, 1);
     expect(result.matches).toBe(false);
     expect(() => computeUnitDrift(100, 1)).not.toThrow();
+  });
+});
+
+/**
+ * The display fix for the owner's 2026-08-26 report: a 6-month model's fresh
+ * stock read "No warranty" because the warranty clock only starts at the sale
+ * (decision #4), so `computeWarrantyStatus` returns `NONE` for every unsold
+ * unit. `warrantyDisplayBadge` re-labels exactly that one case and defers to
+ * `warrantyBadgeInfo` for everything else — the cases below are the fence.
+ */
+describe("warrantyDisplayBadge", () => {
+  const NONE: WarrantyStatus = { source: null, until: null, state: "NONE" };
+
+  it("NONE + IN_STOCK + a model term -> the term, informative (not the emerald of real coverage)", () => {
+    const badge = warrantyDisplayBadge({
+      warranty: NONE,
+      status: "IN_STOCK",
+      productWarrantyMonths: 6,
+    });
+    expect(badge.label).toBe("6 mo — starts at sale");
+    expect(badge.className).toMatch(/sky/);
+    expect(badge.className).not.toMatch(/emerald/);
+  });
+
+  it("carries the model's own number, whatever it is", () => {
+    expect(
+      warrantyDisplayBadge({
+        warranty: NONE,
+        status: "IN_STOCK",
+        productWarrantyMonths: 12,
+      }).label,
+    ).toBe("12 mo — starts at sale");
+    expect(
+      warrantyDisplayBadge({
+        warranty: NONE,
+        status: "IN_STOCK",
+        productWarrantyMonths: 1,
+      }).label,
+    ).toBe("1 mo — starts at sale");
+  });
+
+  it("NONE + IN_STOCK + no model term -> No warranty, unchanged", () => {
+    expect(
+      warrantyDisplayBadge({
+        warranty: NONE,
+        status: "IN_STOCK",
+        productWarrantyMonths: null,
+      }),
+    ).toEqual(warrantyBadgeInfo(NONE));
+  });
+
+  it("treats a 0-month term as no term (the form's min is 0)", () => {
+    expect(
+      warrantyDisplayBadge({
+        warranty: NONE,
+        status: "IN_STOCK",
+        productWarrantyMonths: 0,
+      }).label,
+    ).toBe("No warranty");
+  });
+
+  it("NEVER applies the term to a SOLD unit — decision #4 forbids retro-stamping", () => {
+    // Sold before the model had a term: its sale line stamped nothing, so the
+    // honest badge is still "No warranty".
+    expect(
+      warrantyDisplayBadge({
+        warranty: NONE,
+        status: "SOLD",
+        productWarrantyMonths: 6,
+      }).label,
+    ).toBe("No warranty");
+  });
+
+  it("leaves every real verdict exactly as warrantyBadgeInfo renders it, term or not", () => {
+    const verdicts: WarrantyStatus[] = [
+      { source: "SALE", until: "2027-01-15", state: "COVERED" },
+      { source: "SALE", until: "2025-06-01", state: "EXPIRED" },
+      { source: "REFUND", until: null, state: "VOID" },
+      { source: "OVERRIDE", until: "2027-03-01", state: "COVERED" },
+    ];
+    for (const warranty of verdicts) {
+      for (const status of ["IN_STOCK", "SOLD"] as const) {
+        expect(
+          warrantyDisplayBadge({
+            warranty,
+            status,
+            productWarrantyMonths: 6,
+          }),
+        ).toEqual(warrantyBadgeInfo(warranty));
+      }
+    }
   });
 });
 

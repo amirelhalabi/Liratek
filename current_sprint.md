@@ -2118,7 +2118,24 @@ story-card row expand, IN_STOCK delete. The story join was extracted into a shar
 found and fixed failing-first (mount-armed debounce cancelled pagination clicks; 5/5 full
 runs stable after). e2e: management-view step appended to lira-143 spec.
 
+**Warranty-term display (owner-reported 2026-08-26, fixed same day):** editing a product's
+warranty_months did not reflect on the Phone Units page. Two stacked causes, both fixed:
+(1) display gap — in-stock units never carried the model's TERM (only sale-stamped facts),
+so fresh stock of a 6-month model read "No warranty"; the unit reads now carry
+`product_warranty_months` (display-only, never fed to computeWarrantyStatus, no retroactive
+stamping — verified with 19 probe checks through the real update path) and NONE+IN_STOCK
+renders "N mo — starts at sale". (2) real cache staleness — a product save touches no
+product_units row, so nothing invalidated the unit list/story caches inside the 30s
+staleTime; ProductForm now prefix-invalidates both on save. E2E drives the owner's exact
+repro through the real form (failing-first captured for both causes). Adversarial verify:
+no BLOCKER/MAJOR; cross-tenant canary held; 84-combo badge truth table exact.
+
 **Follow-ups from the adversarial pass (MINOR/NOTE, none blocking, owner to prioritize):**
+- CSV bulk product import can change warranty_months without invalidating the unit caches
+  (the only other product-write path; same prefix-invalidation fix applies).
+- A refunded-back-to-stock unit of a term-carrying model shows VOID, not the term — VOID is
+  historically true, but the unit IS for sale again with a fresh stamp coming; owner call
+  on which reading serves the counter better.
 - `search` does not escape LIKE metacharacters — a typed `%`/`_` acts as a wildcard.
 - Excel/PDF export on the server-paginated table exports only the visible page.
 - `electron-app/handlers/__tests__/` runs under NO jest runner and no CI job (pre-existing —

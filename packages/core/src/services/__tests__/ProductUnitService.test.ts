@@ -266,6 +266,7 @@ describe("ProductUnitService", () => {
         warranty_override_until: null,
         created_at: "2026-08-25 10:00:00",
         product_name: "iPhone 13",
+        product_warranty_months: null,
         sale_item_id: null,
         sold_at: null,
         sold_price_usd: null,
@@ -352,6 +353,42 @@ describe("ProductUnitService", () => {
       // The row's own columns survive the stamping untouched.
       expect(rows[0].imei).toBe("111111111111111");
       expect(rows[0].product_name).toBe("iPhone 13");
+    });
+
+    /**
+     * Owner-reported 2026-08-26 (display fix): the owning MODEL's warranty
+     * term rides through the service untouched so the UI can label unsold
+     * stock, and it must NEVER change the verdict — decision #4 starts the
+     * clock at the sale, so an IN_STOCK unit of a 6-month model is still
+     * `NONE` here (the "6 mo — starts at sale" wording is a display concern,
+     * asserted in the frontend's own tests).
+     */
+    it("passes product_warranty_months through untouched and never lets it produce coverage", () => {
+      const mockRepo = {
+        listUnits: jest.fn().mockReturnValue({
+          rows: [
+            makeListRow({ id: 1, product_warranty_months: 6 }),
+            makeListRow({ id: 2, product_warranty_months: null }),
+          ],
+          total: 2,
+        }),
+      } as unknown as ProductUnitRepository;
+      const service = new ProductUnitService(
+        mockRepo,
+        {} as unknown as ProductRepository,
+      );
+
+      const { rows } = service.listUnits({ limit: 50, offset: 0 }, "2026-08-25");
+
+      expect(rows[0].product_warranty_months).toBe(6);
+      expect(rows[1].product_warranty_months).toBeNull();
+      // A model term is NOT coverage — both verdicts stay NONE.
+      expect(rows[0].warranty).toEqual({
+        source: null,
+        until: null,
+        state: "NONE",
+      });
+      expect(rows[1].warranty.state).toBe("NONE");
     });
 
     it("treats sale_refunded = null (never sold) as NOT refunded", () => {

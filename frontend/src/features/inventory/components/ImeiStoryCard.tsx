@@ -1,6 +1,6 @@
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 import type { UnitStoryEntry } from "../hooks/useProductUnits";
-import { warrantyBadgeInfo } from "../productUnitsLogic";
+import { warrantyDisplayBadge } from "../productUnitsLogic";
 
 export interface ImeiStoryCardProps {
   story: UnitStoryEntry;
@@ -13,7 +13,14 @@ export interface ImeiStoryCardProps {
  * Inventory page wiring below.
  */
 export function ImeiStoryCard({ story }: ImeiStoryCardProps) {
-  const badge = warrantyBadgeInfo(story.warranty);
+  // Same mapping the Phone Units table uses (rule 14) — so an unsold unit of
+  // a model with a warranty term reads "N mo — starts at sale" on BOTH
+  // surfaces instead of "No warranty" here and something else there.
+  const badge = warrantyDisplayBadge({
+    warranty: story.warranty,
+    status: story.status,
+    productWarrantyMonths: story.product_warranty_months,
+  });
   const statusBadgeClass =
     story.status === "IN_STOCK"
       ? "bg-sky-500/10 text-sky-400 border-sky-500/30"

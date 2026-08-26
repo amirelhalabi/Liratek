@@ -57,6 +57,16 @@
  *      assertion keys on the exact IMEI (identity, rule 15) — never a row
  *      position, never a count, since the shared e2e DB accumulates units
  *      from every earlier spec that registered one.
+ *   h. Model term vs. sale stamp (SECOND test in this file, owner-reported
+ *      2026-08-26) — a model created with NO `warranty_months` gains 6
+ *      through the REAL ProductForm; navigating back to /inventory/units the
+ *      way the owner did, its IN_STOCK unit must show the MODEL's term
+ *      ("6 mo — starts at sale", a promise about the next sale) instead of
+ *      the misleading "No warranty", on BOTH the table and the expanded
+ *      `ImeiStoryCard`. Doubles as the cache-freshness proof (both surfaces
+ *      are read before the edit, inside the 30s default staleTime) and as
+ *      the decision-#4 honesty proof: a unit sold BEFORE the edit stamped no
+ *      `warranty_until`, so it keeps reading "No warranty" forever.
  *
  * Assertion discipline (CLAUDE.md rule 15 / README): every identity is a
  * `Date.now()`-based RUN_ID marker unique to this run (category name is the
@@ -97,6 +107,27 @@ const RETAIL_PRICE = 137.31;
 const COST_PRICE = 60;
 const STOCK_QUANTITY = 3;
 const WARRANTY_MONTHS = 6;
+
+// ─── Step (h) — the owner's 2026-08-26 repro: a model with NO warranty term
+// that gains one through the real ProductForm. Its own product/IMEIs/client/
+// price, all RUN_ID-unique, so nothing here can disturb steps (a)-(g). ─────
+
+const PRODUCT_NAME_NW = `LIRA143 NoWarrPhone ${RUN_ID}`;
+const IMEI_4 = `${IMEI_BASE}4`; // stays IN_STOCK — the repro subject
+const IMEI_5 = `${IMEI_BASE}5`; // SOLD before the term exists (decision #4)
+const CLIENT_3 = `L143-SELL3-${RUN_ID}`;
+const NW_RETAIL_PRICE = 88.13;
+const NW_STOCK_QUANTITY = 2;
+/** The term set through the real form in step (h) — the model starts with
+ *  none at all (`warranty_months` NULL). */
+const NW_WARRANTY_MONTHS = 6;
+
+/** The Phone Units / story badge copy for an unsold unit of a model that HAS
+ *  a term (`productUnitsLogic.warrantyDisplayBadge`) — the em dash is part of
+ *  the string, so it is written once here rather than retyped per assertion. */
+function termBadgeLabel(months: number): string {
+  return `${months} mo — starts at sale`;
+}
 
 // ─── Ambient window.api types are narrower than what a couple of these IPC
 // calls actually accept/return (createProduct's type omits warranty_months;
@@ -221,6 +252,7 @@ async function productStock(page: Page, productId: number): Promise<number> {
 async function findTodaysSaleId(
   page: Page,
   clientName: string,
+  expectedPrice: number = RETAIL_PRICE,
 ): Promise<number> {
   const sale = await page.evaluate(
     async ({ name, price }) => {
@@ -233,7 +265,7 @@ async function findTodaysSaleId(
         ) ?? null
       );
     },
-    { name: clientName, price: RETAIL_PRICE },
+    { name: clientName, price: expectedPrice },
   );
   if (!sale) throw new Error(`Today's sale for client ${clientName} not found`);
   return sale.id;
@@ -318,6 +350,41 @@ async function provisionProduct(page: Page): Promise<number> {
   return result.id;
 }
 
+/**
+ * Step (h)'s subject: the SAME IMEI-tracking category, but a model created
+ * with NO warranty term at all (`warranty_months: null`) — the exact state
+ * the owner's "test phone" was in before they set 6 months in the form. Its
+ * own name/price/stock keep it independent of the step (a)-(g) product.
+ */
+async function provisionNoWarrantyProduct(page: Page): Promise<number> {
+  const result = await page.evaluate(
+    ({ name, category, cost, retail, stock }) => {
+      const api = window.api.inventory as unknown as CreateProductWithWarrantyApi;
+      return api.createProduct({
+        barcode: "",
+        name,
+        category,
+        cost_price: cost,
+        retail_price: retail,
+        stock_quantity: stock,
+        min_stock_level: 0,
+        warranty_months: null,
+      });
+    },
+    {
+      name: PRODUCT_NAME_NW,
+      category: CATEGORY_NAME,
+      cost: COST_PRICE,
+      retail: NW_RETAIL_PRICE,
+      stock: NW_STOCK_QUANTITY,
+    },
+  );
+  if (!result.success || result.id == null) {
+    throw new Error(`Failed to provision no-warranty product: ${result.error}`);
+  }
+  return result.id;
+}
+
 async function registerImeisViaIpc(
   page: Page,
   productId: number,
@@ -357,12 +424,15 @@ async function closeProductForm(page: Page): Promise<void> {
   await expect(heading).not.toBeVisible({ timeout: 5_000 });
 }
 
-async function openEditProduct(page: Page): Promise<void> {
+async function openEditProduct(
+  page: Page,
+  productName: string = PRODUCT_NAME,
+): Promise<void> {
   await navigateTo(page, "/products");
   const searchBox = page.getByPlaceholder("Search by name, barcode...");
   await expect(searchBox).toBeVisible({ timeout: 10_000 });
-  await searchBox.fill(PRODUCT_NAME);
-  const row = page.locator("tbody tr").filter({ hasText: PRODUCT_NAME });
+  await searchBox.fill(productName);
+  const row = page.locator("tbody tr").filter({ hasText: productName });
   await expect(row).toBeVisible({ timeout: 10_000 });
   // Row's action cell renders exactly 3 icon buttons in this fixed JSX
   // order: [0] Adjust stock, [1] Edit, [2] Delete (ProductList.tsx).
@@ -387,10 +457,11 @@ async function registerImeiViaUi(page: Page, imei: string): Promise<void> {
   await input.press("Enter");
 }
 
-/** Cart line for PRODUCT_NAME — CartLineRow's own container class. */
-function cartLineFor(page: Page): Locator {
+/** Cart line for a product by name (PRODUCT_NAME unless told otherwise) —
+ *  CartLineRow's own container class. */
+function cartLineFor(page: Page, productName: string = PRODUCT_NAME): Locator {
   return page
-    .locator("h4", { hasText: PRODUCT_NAME })
+    .locator("h4", { hasText: productName })
     .locator("xpath=ancestor::div[contains(@class,'bg-slate-700/30')][1]");
 }
 
@@ -449,6 +520,73 @@ async function setPhoneUnitsStatus(page: Page, label: string): Promise<void> {
  *  assertion in step (g) is scoped by. */
 async function searchPhoneUnits(page: Page, term: string): Promise<void> {
   await page.getByTestId("phone-units-search").fill(term);
+}
+
+// ─── Step (h) helpers ───────────────────────────────────────────────────────
+
+/** The Warranty (months) field of the real ProductForm, then Save. Drives the
+ *  operator's exact path (type a term into the form, submit it) — never an
+ *  `inventory.updateProduct` IPC shortcut, since the whole point of step (h)
+ *  is that the value reaches the units view after a REAL form save. */
+async function setProductWarrantyMonthsViaForm(
+  page: Page,
+  months: number,
+): Promise<void> {
+  const field = page.locator("#product-warranty-months");
+  await expect(field).toBeVisible({ timeout: 5_000 });
+  await field.fill(String(months));
+  await page.getByRole("button", { name: /Save Product/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Edit Product" }),
+  ).not.toBeVisible({ timeout: 10_000 });
+}
+
+/**
+ * `products.warranty_months` as persisted — read back so a later badge
+ * assertion can never be blamed on a form save that silently failed.
+ *
+ * Deliberately the DTO LIST read (`inventory.getProducts`, filtered by this
+ * run's unique product name and then matched by id), not
+ * `inventory.getProduct`: the latter goes through `findById`, whose raw
+ * entity column projection (`ProductRepository.getColumns()`) does NOT
+ * include `warranty_months`, so it reports `undefined` for every product no
+ * matter what is stored. Using it here produced a false "the form save
+ * dropped the term" failure during this spec's own development.
+ */
+async function productWarrantyMonths(
+  page: Page,
+  productId: number,
+  productName: string,
+): Promise<number | null> {
+  return page.evaluate(
+    async ({ id, name }) => {
+      const products = (await window.api.inventory.getProducts(
+        name,
+      )) as unknown as Array<{ id: number; warranty_months?: number | null }>;
+      return products.find((p) => p.id === id)?.warranty_months ?? null;
+    },
+    { id: productId, name: productName },
+  );
+}
+
+/** The Warranty cell of one unit's row on the Phone Units page. */
+function phoneUnitWarrantyBadge(page: Page, unitId: number): Locator {
+  return page
+    .getByTestId(`phone-unit-row-${unitId}`)
+    .getByTestId(`phone-unit-warranty-${unitId}`);
+}
+
+/** Expand a unit's row and return its `ImeiStoryCard` warranty badge — the
+ *  SECOND surface that renders a warranty verdict, kept consistent with the
+ *  table by the same pure mapping. */
+async function expandedStoryWarrantyBadge(
+  page: Page,
+  unitId: number,
+): Promise<Locator> {
+  await page.getByTestId(`phone-unit-row-${unitId}`).click();
+  const panel = page.getByTestId("phone-units-story-panel");
+  await expect(panel).toBeVisible({ timeout: 10_000 });
+  return panel.getByTestId("imei-story-warranty-badge").first();
 }
 
 // ─── The spec ───────────────────────────────────────────────────────────────
@@ -779,7 +917,11 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(unit1AfterResaleRow).toHaveCount(0, { timeout: 10_000 });
 
     // …and one of this run's still-IN_STOCK IMEIs is there instead (IMEI_2
-    // was never sold, so it carries no warranty stamp at all). IMEI_3 — the
+    // was never sold, so it carries no warranty STAMP at all — and since
+    // 2026-08-26 its cell states the MODEL's term instead of a misleading
+    // "No warranty", because this product was created with
+    // `warranty_months: 6`; the warranty-less case is covered by test (h)'s
+    // own product, which has none). IMEI_3 — the
     // unit registered through the real UI in (a), same product, ALSO
     // IN_STOCK — must be absent from this same result: the two differ by
     // nothing except the IMEI typed into the box, so its absence is what
@@ -793,9 +935,155 @@ test.describe("LIRA-143 — phone IMEI units & warranty, driven through the real
     await expect(unit2Row).toContainText("IN_STOCK");
     await expect(
       unit2Row.getByTestId(`phone-unit-warranty-${unit2Initial.id}`),
-    ).toHaveText("No warranty");
+    ).toHaveText(termBadgeLabel(WARRANTY_MONTHS));
     await expect(
       appPage.getByTestId(`phone-unit-row-${unit3.id}`),
     ).toHaveCount(0);
+  });
+
+  /**
+   * (h) The owner's exact repro (reported 2026-08-26): a model whose
+   * `warranty_months` was NULL gains a 6-month term through the real
+   * ProductForm; its IN_STOCK units must stop reading "No warranty" the
+   * moment the operator navigates back to /inventory/units.
+   *
+   * Its own test rather than a further step on the first one: this drives a
+   * second full POS sale plus four page navigations, which would push the
+   * single test past the 90s config timeout. It self-provisions everything it
+   * touches (own product name, own IMEIs, own client, own price — only
+   * CATEGORY_NAME is shared and that read is idempotent), so it neither
+   * depends on nor disturbs steps (a)-(g), and the shared accumulating DB is
+   * only ever queried through this run's own identities (rule 15).
+   *
+   * The two halves are deliberately opposed, because the fix must NOT be
+   * "show a warranty everywhere":
+   *   - IMEI_4 is IN_STOCK: after the edit it shows the MODEL's term
+   *     ("6 mo — starts at sale") — a statement about what the buyer will
+   *     get, not a coverage claim.
+   *   - IMEI_5 was SOLD BEFORE the edit, so its sale line stamped no
+   *     `warranty_until` at all: it keeps reading "No warranty" forever
+   *     (decision #4 — the clock starts at the sale and is never
+   *     retro-stamped). If a change ever makes the term leak onto sold
+   *     units, this half fails.
+   *
+   * It is also the cache-freshness proof: both surfaces (the table and the
+   * expanded `ImeiStoryCard`) are READ before the edit, so their TanStack
+   * entries are warm inside the 30s default `staleTime` — without the
+   * product-save invalidation the post-edit assertions get served the stale
+   * pre-edit term.
+   */
+  test("model term appears on in-stock units after a real ProductForm warranty edit, never on a unit sold before it", async ({
+    appPage,
+  }) => {
+    await closeAllActiveSessions(appPage);
+
+    // ─── Provision: same IMEI-tracking category, model with NO term ───────
+    await ensureImeiCategory(appPage);
+    const nwProductId = await provisionNoWarrantyProduct(appPage);
+    expect(
+      await productWarrantyMonths(appPage, nwProductId, PRODUCT_NAME_NW),
+    ).toBeNull();
+    await registerImeisViaIpc(appPage, nwProductId, [IMEI_4, IMEI_5]);
+    const unit4 = await unitByImei(appPage, nwProductId, IMEI_4);
+    const unit5 = await unitByImei(appPage, nwProductId, IMEI_5);
+
+    // ─── Sell IMEI_5 while the model still has NO warranty term ───────────
+    await navigateTo(appPage, "/pos");
+    const posSearch = appPage.getByPlaceholder(
+      "Search products by name or barcode...",
+    );
+    await expect(posSearch).toBeVisible({ timeout: 10_000 });
+    await posSearch.fill(IMEI_5);
+    await expect(posSearch).toHaveValue("", { timeout: 10_000 });
+
+    const nwCartLine = cartLineFor(appPage, PRODUCT_NAME_NW);
+    await expect(nwCartLine).toBeVisible({ timeout: 5_000 });
+    await expect(nwCartLine.locator("select")).toHaveValue(String(unit5.id));
+
+    await appPage.getByRole("button", { name: "Proceed to Checkout" }).click();
+    await expect(appPage.getByTestId("checkout-modal")).toBeVisible({
+      timeout: 5_000,
+    });
+    await fillClientName(appPage, CLIENT_3);
+    await completeCashSale(appPage);
+
+    const unit5AfterSale = await unitByImei(appPage, nwProductId, IMEI_5);
+    expect(unit5AfterSale.status).toBe("SOLD");
+
+    // The sale line stamped NOTHING — there was no term to stamp. This is
+    // what makes the later "still No warranty" assertion meaningful rather
+    // than a tautology about the badge.
+    const nwSaleId = await findTodaysSaleId(appPage, CLIENT_3, NW_RETAIL_PRICE);
+    const nwSaleItems = await saleItemsFor(appPage, nwSaleId);
+    const nwSaleItem = nwSaleItems.find((it) => it.product_id === nwProductId);
+    if (!nwSaleItem) throw new Error("Sale item for the no-warranty sale not found");
+    expect(nwSaleItem.imei).toBe(IMEI_5);
+    expect(nwSaleItem.warranty_until).toBeNull();
+
+    // ─── Before the edit: both units read as warranty-less ────────────────
+    await openPhoneUnitsPage(appPage);
+
+    await searchPhoneUnits(appPage, IMEI_4);
+    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(phoneUnitWarrantyBadge(appPage, unit4.id)).toHaveText(
+      "No warranty",
+    );
+
+    await searchPhoneUnits(appPage, IMEI_5);
+    await expect(appPage.getByTestId(`phone-unit-row-${unit5.id}`)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(phoneUnitWarrantyBadge(appPage, unit5.id)).toHaveText(
+      "No warranty",
+    );
+
+    // Warm the story cache for IMEI_4 too — the second surface.
+    await searchPhoneUnits(appPage, IMEI_4);
+    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(
+      await expandedStoryWarrantyBadge(appPage, unit4.id),
+    ).toHaveText("No warranty");
+
+    // ─── The owner's edit: Warranty (months) = 6 in the REAL ProductForm ──
+    await openEditProduct(appPage, PRODUCT_NAME_NW);
+    await setProductWarrantyMonthsViaForm(appPage, NW_WARRANTY_MONTHS);
+    // Persisted — so a stale badge below is a display/cache defect and can
+    // never be a silently-failed save.
+    expect(
+      await productWarrantyMonths(appPage, nwProductId, PRODUCT_NAME_NW),
+    ).toBe(NW_WARRANTY_MONTHS);
+
+    // ─── The owner's exact navigation: back to /inventory/units ───────────
+    await openPhoneUnitsPage(appPage);
+    await searchPhoneUnits(appPage, IMEI_4);
+    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(phoneUnitWarrantyBadge(appPage, unit4.id)).toHaveText(
+      termBadgeLabel(NW_WARRANTY_MONTHS),
+      { timeout: 10_000 },
+    );
+
+    // Decision #4 honesty: the unit sold BEFORE the term existed keeps none.
+    await searchPhoneUnits(appPage, IMEI_5);
+    await expect(appPage.getByTestId(`phone-unit-row-${unit5.id}`)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(phoneUnitWarrantyBadge(appPage, unit5.id)).toHaveText(
+      "No warranty",
+    );
+
+    // Both surfaces agree — the expanded story card shows the term too.
+    await searchPhoneUnits(appPage, IMEI_4);
+    await expect(appPage.getByTestId(`phone-unit-row-${unit4.id}`)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(
+      await expandedStoryWarrantyBadge(appPage, unit4.id),
+    ).toHaveText(termBadgeLabel(NW_WARRANTY_MONTHS), { timeout: 10_000 });
   });
 });
