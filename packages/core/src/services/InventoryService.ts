@@ -24,9 +24,11 @@ import {
   type StockStats,
   type LowStockProduct,
   type NegativeStockProduct,
+  type ProductFilterOptions,
   type StockAdjustmentWithUser,
   type ProductUnitEntity,
 } from "../repositories/index.js";
+import type { ProductListFilters } from "../validators/product.js";
 import { ValidationError, NotFoundError } from "../utils/errors.js";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors.js";
 import {
@@ -92,10 +94,21 @@ export class InventoryService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Get all products with optional search filter
+   * Get all products with optional search filter and the inventory list's
+   * structured filters (category/supplier/added-date/cost/retail/profit%/
+   * stock). All of them AND together, and with `filters` omitted the
+   * result is exactly the unfiltered list every other caller expects.
    */
-  getProducts(search?: string): ProductDTO[] {
-    return this.productRepo.findAllProducts(search);
+  getProducts(search?: string, filters?: ProductListFilters): ProductDTO[] {
+    return this.productRepo.findAllProducts(search, filters);
+  }
+
+  /**
+   * Distinct category and supplier values for the inventory list's filter
+   * dropdowns, scoped to the same rows the list shows.
+   */
+  getProductFilterOptions(): ProductFilterOptions {
+    return this.productRepo.getProductFilterOptions();
   }
 
   /**

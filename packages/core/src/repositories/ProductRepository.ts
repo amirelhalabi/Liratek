@@ -13,6 +13,7 @@ import {
 import { DatabaseError } from "../utils/errors.js";
 import { getCurrentTenantId } from "../db/tenantContext.js";
 import { getStockAdjustmentRepository } from "./StockAdjustmentRepository.js";
+import type { ProductListFilters } from "../validators/product.js";
 
 // =============================================================================
 // Types
@@ -118,6 +119,15 @@ export interface NegativeStockProduct {
   stock_quantity: number;
 }
 
+/**
+ * Distinct values backing the inventory list's filter dropdowns, drawn
+ * from exactly the row set the list itself shows.
+ */
+export interface ProductFilterOptions {
+  categories: string[];
+  suppliers: string[];
+}
+
 // =============================================================================
 // Repository
 // =============================================================================
@@ -130,6 +140,123 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   // Override getColumns() from BaseRepository
   protected getColumns(): string {
     return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, status, is_active, is_deleted, supplier, created_at, updated_at";
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared SQL fragments (rule 14 — define a business predicate ONCE)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Rule-14 single definition of "this product belongs on an inventory /
+   * POS product list": active, not soft-deleted, and not a virtual telecom
+   * credit line (those are tracked via drawer_balances, never as stock).
+   * Written with the `p` table alias, so any query using it must alias
+   * `products` as `p`.
+   *
+   * Introduces NO `?` and deliberately STOPS SHORT of the tenant clause:
+   * every call site writes its own literal `AND p.tenant_id = ?`. Tenant
+   * scoping is not a business rule that benefits from being hidden behind
+   * a constant — it is the invariant `scripts/check-tenant-scoping.mjs`
+   * enforces in CI by reading the SQL text, and that linter cannot see
+   * through an interpolated fragment (it flags such a statement
+   * fail-closed). Keeping `tenant_id` literal in every query is both the
+   * house convention and what keeps the guard working.
+   *
+   * The embedded line breaks/indentation are deliberate: interpolated into
+   * `findAllProducts` after `WHERE `, this reproduces that query's
+   * previous SQL byte for byte, so extracting the fragment cannot have
+   * changed the plan for the POS / low-stock / inventory callers that
+   * pass no filters.
+   */
+  private static readonly LISTABLE_PRODUCTS_WHERE = `p.is_active = 1 AND p.is_deleted = 0
+          AND p.item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')`;
+
+  /**
+   * The category value the UI actually DISPLAYS: the joined
+   * `product_categories.name` when the product is categorized, falling
+   * back to the legacy free-text `products.category` column when it is
+   * not. Filtering and the filter-option list must both agree with the
+   * column the user is looking at, so both build from this one expression.
+   */
+  private static readonly DISPLAY_CATEGORY_EXPR = `COALESCE(pc.name, p.category)`;
+
+  /**
+   * The profit-percent value the UI DISPLAYS, as SQL. Used for both the
+   * min and the max bound so a range can never be evaluated against two
+   * subtly different formulas.
+   *
+   * The `cost = 0 AND retail > 0 => 100` branch is a deliberate product
+   * decision (margin on a free-to-acquire item is reported as 100%, not
+   * infinity/undefined) and mirrors the frontend's displayed column. Do
+   * not "correct" it to a NULL/skip — the filter would then disagree with
+   * the number on screen.
+   */
+  private static readonly PROFIT_PCT_EXPR = `CASE WHEN p.cost_price_usd > 0 THEN (p.selling_price_usd - p.cost_price_usd) * 100.0 / p.cost_price_usd WHEN p.selling_price_usd > 0 THEN 100 ELSE 0 END`;
+
+  /** `(?, ?, ?)` for a dynamic `IN` list — placeholders only, never values. */
+  private static placeholders(count: number): string {
+    return Array.from({ length: count }, () => "?").join(", ");
+  }
+
+  /**
+   * Translate a {@link ProductListFilters} set into `AND …` clauses plus
+   * their bound params.
+   *
+   * Contract relied on by every existing caller: when `filters` is absent
+   * — or present but with every field `undefined` — this returns an EMPTY
+   * sql string and NO params, so the generated query is unchanged. An
+   * empty array (`categories: []`) means "the user cleared this filter",
+   * not "match nothing", and is likewise treated as absent.
+   */
+  private static buildFilterClauses(filters?: ProductListFilters): {
+    sql: string;
+    params: (string | number)[];
+  } {
+    const clauses: string[] = [];
+    const params: (string | number)[] = [];
+    if (!filters) return { sql: "", params };
+
+    const pushIn = (expr: string, values?: string[]): void => {
+      if (!values || values.length === 0) return;
+      clauses.push(`${expr} IN (${ProductRepository.placeholders(values.length)})`);
+      params.push(...values);
+    };
+    const pushRange = (expr: string, min?: number, max?: number): void => {
+      if (min !== undefined) {
+        clauses.push(`${expr} >= ?`);
+        params.push(min);
+      }
+      if (max !== undefined) {
+        clauses.push(`${expr} <= ?`);
+        params.push(max);
+      }
+    };
+
+    pushIn(ProductRepository.DISPLAY_CATEGORY_EXPR, filters.categories);
+    pushIn(`p.supplier`, filters.suppliers);
+
+    // date() normalizes both storage forms present in this DB:
+    // 'YYYY-MM-DD HH:MM:SS' and the ISO 'YYYY-MM-DDTHH:MM:SS.sssZ' form.
+    // Both bounds are inclusive whole days.
+    if (filters.addedFrom !== undefined) {
+      clauses.push(`date(p.created_at) >= date(?)`);
+      params.push(filters.addedFrom);
+    }
+    if (filters.addedTo !== undefined) {
+      clauses.push(`date(p.created_at) <= date(?)`);
+      params.push(filters.addedTo);
+    }
+
+    pushRange(`p.cost_price_usd`, filters.costMin, filters.costMax);
+    pushRange(`p.selling_price_usd`, filters.retailMin, filters.retailMax);
+    pushRange(
+      ProductRepository.PROFIT_PCT_EXPR,
+      filters.profitPctMin,
+      filters.profitPctMax,
+    );
+    pushRange(`p.stock_quantity`, filters.stockMin, filters.stockMax);
+
+    return { sql: clauses.map((c) => ` AND ${c}`).join(""), params };
   }
 
   // ---------------------------------------------------------------------------
@@ -151,9 +278,20 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   }
 
   /**
-   * Get all products with optional search filter (as DTOs for frontend)
+   * Get all products with optional search filter (as DTOs for frontend),
+   * optionally narrowed by the inventory list's structured filters.
+   *
+   * `filters` only ever ADDS `AND …` clauses — with it omitted (POS,
+   * low-stock, every pre-existing caller) the generated SQL and params are
+   * exactly what they were before filtering existed.
+   *
+   * ⚠ WHERE-only. The SELECT list here must stay column-identical to
+   * `findProductDtoById` — the two feed the same `ProductDTO` consumers and
+   * a past divergence between them shipped a real crash (see that method's
+   * doc comment). Both are left as literal text rather than a shared
+   * constant precisely so the two lists can be diffed by eye.
    */
-  findAllProducts(search?: string): ProductDTO[] {
+  findAllProducts(search?: string, filters?: ProductListFilters): ProductDTO[] {
     try {
       const tenantId = getCurrentTenantId();
       let query = `
@@ -169,22 +307,77 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           COALESCE(pc.tracks_imei_units, 0) as tracks_imei_units
         FROM ${this.tableName} p
         LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
-        WHERE p.is_active = 1 AND p.is_deleted = 0
-          AND p.item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
+        WHERE ${ProductRepository.LISTABLE_PRODUCTS_WHERE}
           AND p.tenant_id = ?
       `;
       const params: (string | number)[] = [tenantId, tenantId];
 
       if (search) {
-        query += ` AND (p.name LIKE ? OR p.barcode LIKE ? OR COALESCE(pc.name, p.category) LIKE ? OR ${ProductRepository.unitImeiMatchFragment("p")})`;
+        query += ` AND (p.name LIKE ? OR p.barcode LIKE ? OR ${ProductRepository.DISPLAY_CATEGORY_EXPR} LIKE ? OR ${ProductRepository.unitImeiMatchFragment("p")})`;
         const term = `%${search}%`;
         params.push(term, term, term, term);
       }
+
+      const filterClauses = ProductRepository.buildFilterClauses(filters);
+      query += filterClauses.sql;
+      params.push(...filterClauses.params);
 
       query += ` ORDER BY p.name ASC`;
       return this.query<ProductDTO>(query, ...params);
     } catch (error) {
       throw new DatabaseError("Failed to find products", { cause: error });
+    }
+  }
+
+  /**
+   * The distinct values that populate the inventory list's category and
+   * supplier filter dropdowns.
+   *
+   * Scoped to exactly the same row set the list itself shows
+   * (`LISTABLE_PRODUCTS_WHERE`) so an option can never be offered that
+   * matches zero visible products. Categories use the DISPLAYED value
+   * (joined category name, else the legacy free-text column), the same
+   * expression the `categories` filter matches against. NULL and empty
+   * values are excluded; ordering is case-insensitive.
+   */
+  getProductFilterOptions(): ProductFilterOptions {
+    try {
+      const tenantId = getCurrentTenantId();
+
+      const categoryRows = this.query<{ v: string }>(
+        `
+        SELECT DISTINCT ${ProductRepository.DISPLAY_CATEGORY_EXPR} AS v
+        FROM ${this.tableName} p
+        LEFT JOIN product_categories pc ON pc.id = p.category_id AND pc.tenant_id = ?
+        WHERE ${ProductRepository.LISTABLE_PRODUCTS_WHERE}
+          AND p.tenant_id = ?
+          AND COALESCE(${ProductRepository.DISPLAY_CATEGORY_EXPR}, '') != ''
+        ORDER BY v COLLATE NOCASE ASC
+      `,
+        tenantId,
+        tenantId,
+      );
+
+      const supplierRows = this.query<{ v: string }>(
+        `
+        SELECT DISTINCT p.supplier AS v
+        FROM ${this.tableName} p
+        WHERE ${ProductRepository.LISTABLE_PRODUCTS_WHERE}
+          AND p.tenant_id = ?
+          AND p.supplier IS NOT NULL AND p.supplier != ''
+        ORDER BY p.supplier COLLATE NOCASE ASC
+      `,
+        tenantId,
+      );
+
+      return {
+        categories: categoryRows.map((r) => r.v),
+        suppliers: supplierRows.map((r) => r.v),
+      };
+    } catch (error) {
+      throw new DatabaseError("Failed to get product filter options", {
+        cause: error,
+      });
     }
   }
 

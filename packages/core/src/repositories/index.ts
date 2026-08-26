@@ -38,6 +38,7 @@ export type {
   StockStats,
   LowStockProduct,
   NegativeStockProduct,
+  ProductFilterOptions,
 } from "./ProductRepository.js";
 
 // Stock Adjustment Repository (LIRA-077 audit trail)
