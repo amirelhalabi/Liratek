@@ -443,11 +443,11 @@ ${labels}
       role="presentation"
     >
       <div
-        className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl overflow-hidden shadow-2xl"
+        className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
         role="presentation"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
+        <div className="shrink-0 flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <h2 className="text-xl font-bold text-white">
             {product ? "Edit Product" : "New Product"}
           </h2>
@@ -475,261 +475,266 @@ ${labels}
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {duplicateInfo && (
-            <div className="bg-slate-950 border border-amber-500/40 rounded-lg p-4 text-sm">
-              <div className="font-semibold text-amber-300 mb-1">
-                Duplicate Barcode Detected
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col flex-1 min-h-0"
+        >
+          <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-4">
+            {duplicateInfo && (
+              <div className="bg-slate-950 border border-amber-500/40 rounded-lg p-4 text-sm">
+                <div className="font-semibold text-amber-300 mb-1">
+                  Duplicate Barcode Detected
+                </div>
+                <div className="text-slate-300">
+                  The barcode{" "}
+                  <span className="font-mono">{duplicateInfo.attempted}</span>{" "}
+                  already exists.
+                </div>
+                <div className="text-slate-400 mt-1">
+                  Suggested:{" "}
+                  <span className="font-mono">{duplicateInfo.suggested}</span>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        barcode: duplicateInfo.suggested,
+                      }));
+                      setDuplicateInfo(null);
+                    }}
+                    className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium"
+                  >
+                    Duplicate Barcode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDuplicateInfo(null)}
+                    className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-              <div className="text-slate-300">
-                The barcode{" "}
-                <span className="font-mono">{duplicateInfo.attempted}</span>{" "}
-                already exists.
+            )}
+            {error && (
+              <div className="bg-red-500/10 text-red-400 p-3 rounded-lg text-sm border border-red-500/50">
+                {error}
               </div>
-              <div className="text-slate-400 mt-1">
-                Suggested:{" "}
-                <span className="font-mono">{duplicateInfo.suggested}</span>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData((prev) => ({
-                      ...prev,
-                      barcode: duplicateInfo.suggested,
-                    }));
-                    setDuplicateInfo(null);
-                  }}
-                  className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium"
-                >
-                  Duplicate Barcode
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDuplicateInfo(null)}
-                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-          {error && (
-            <div className="bg-red-500/10 text-red-400 p-3 rounded-lg text-sm border border-red-500/50">
-              {error}
-            </div>
-          )}
+            )}
 
-          <div className="grid grid-cols-2 gap-4">
-            {/* Row 1: Product Name | Barcode */}
-            <div>
-              <label
-                htmlFor="product-name"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Product Name
-              </label>
-              <input
-                id="product-name"
-                name="name"
-                type="text"
-                value={formData.name}
-                onChange={handleChange}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-                required
-              />
-            </div>
-
-            {/* Row 1 col 2: Barcode | Row 2: Category */}
-            <div>
-              <label
-                htmlFor="product-barcode"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Barcode
-              </label>
-              <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-4">
+              {/* Row 1: Product Name | Barcode */}
+              <div>
+                <label
+                  htmlFor="product-name"
+                  className="block text-sm font-medium text-slate-400 mb-1"
+                >
+                  Product Name
+                </label>
                 <input
-                  id="product-barcode"
-                  name="barcode"
+                  id="product-name"
+                  name="name"
                   type="text"
-                  value={formData.barcode}
+                  value={formData.name}
                   onChange={handleChange}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                    }
-                  }}
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                  required
                 />
-                <button
-                  type="button"
-                  onClick={handleGenerateBarcode}
-                  disabled={isGenerating}
-                  title="Generate barcode"
-                  className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 text-sm"
+              </div>
+
+              {/* Row 1 col 2: Barcode | Row 2: Category */}
+              <div>
+                <label
+                  htmlFor="product-barcode"
+                  className="block text-sm font-medium text-slate-400 mb-1"
                 >
-                  <Sparkles size={16} />
-                </button>
+                  Barcode
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="product-barcode"
+                    name="barcode"
+                    type="text"
+                    value={formData.barcode}
+                    onChange={handleChange}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                      }
+                    }}
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGenerateBarcode}
+                    disabled={isGenerating}
+                    title="Generate barcode"
+                    className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 text-sm"
+                  >
+                    <Sparkles size={16} />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label
+                  htmlFor="product-category"
+                  className="block text-sm font-medium text-slate-400 mb-1"
+                >
+                  Category
+                </label>
+                <input
+                  id="product-category"
+                  type="text"
+                  list="category-options"
+                  value={formData.category}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, category: e.target.value }))
+                  }
+                  placeholder="Select or type category name"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
+                />
+                <datalist id="category-options">
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat} />
+                  ))}
+                </datalist>
+              </div>
+
+              {/* Row 3: Supplier | Quantity */}
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">
+                  Supplier
+                </label>
+                <input
+                  type="text"
+                  list="supplier-options"
+                  value={formData.supplier ?? ""}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, supplier: e.target.value }))
+                  }
+                  placeholder="Select or type supplier name"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
+                />
+                <datalist id="supplier-options">
+                  {supplierNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </div>
+
+              {/* Row 4: Cost Price | Retail Price */}
+              <div>
+                <label
+                  htmlFor="product-cost-price"
+                  className="block text-sm font-medium text-slate-400 mb-1"
+                >
+                  Cost Price ($)
+                </label>
+                <DecimalInput
+                  id="product-cost-price"
+                  name="cost_price"
+                  value={formData.cost_price}
+                  onChange={(cost_price) =>
+                    setFormData((prev) => ({ ...prev, cost_price }))
+                  }
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                  required
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="product-retail-price"
+                  className="block text-sm font-medium text-slate-400 mb-1"
+                >
+                  Retail Price ($)
+                </label>
+                <DecimalInput
+                  id="product-retail-price"
+                  name="retail_price"
+                  value={formData.retail_price}
+                  onChange={(retail_price) =>
+                    setFormData((prev) => ({ ...prev, retail_price }))
+                  }
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                  required
+                />
+              </div>
+
+              {/* Row 5: Min Stock Alert (half width) */}
+              <div>
+                <label
+                  htmlFor="product-stock"
+                  className="block text-sm font-medium text-slate-400 mb-1"
+                >
+                  Quantity
+                </label>
+                <input
+                  id="product-stock"
+                  name="stock_quantity"
+                  type="number"
+                  value={formData.stock_quantity}
+                  onChange={handleChange}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="product-min-stock"
+                  className="block text-sm font-medium text-slate-400 mb-1"
+                >
+                  Min. Stock Alert
+                </label>
+                <input
+                  id="product-min-stock"
+                  name="min_stock_level"
+                  type="number"
+                  value={formData.min_stock_level}
+                  onChange={handleChange}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                />
+              </div>
+
+              {/* LIRA-143 Phase 6b: warranty length in months, empty = none */}
+              <div>
+                <label
+                  htmlFor="product-warranty-months"
+                  className="block text-sm font-medium text-slate-400 mb-1"
+                >
+                  Warranty (months)
+                </label>
+                <input
+                  id="product-warranty-months"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={warrantyMonths}
+                  onChange={(e) => setWarrantyMonths(e.target.value)}
+                  placeholder="No warranty"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                />
               </div>
             </div>
-            <div>
-              <label
-                htmlFor="product-category"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Category
-              </label>
-              <input
-                id="product-category"
-                type="text"
-                list="category-options"
-                value={formData.category}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, category: e.target.value }))
-                }
-                placeholder="Select or type category name"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
-              />
-              <datalist id="category-options">
-                {categories.map((cat) => (
-                  <option key={cat} value={cat} />
-                ))}
-              </datalist>
-            </div>
 
-            {/* Row 3: Supplier | Quantity */}
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">
-                Supplier
-              </label>
-              <input
-                type="text"
-                list="supplier-options"
-                value={formData.supplier ?? ""}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, supplier: e.target.value }))
-                }
-                placeholder="Select or type supplier name"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
-              />
-              <datalist id="supplier-options">
-                {supplierNames.map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-            </div>
-
-            {/* Row 4: Cost Price | Retail Price */}
-            <div>
-              <label
-                htmlFor="product-cost-price"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Cost Price ($)
-              </label>
-              <DecimalInput
-                id="product-cost-price"
-                name="cost_price"
-                value={formData.cost_price}
-                onChange={(cost_price) =>
-                  setFormData((prev) => ({ ...prev, cost_price }))
-                }
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-                required
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="product-retail-price"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Retail Price ($)
-              </label>
-              <DecimalInput
-                id="product-retail-price"
-                name="retail_price"
-                value={formData.retail_price}
-                onChange={(retail_price) =>
-                  setFormData((prev) => ({ ...prev, retail_price }))
-                }
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-                required
-              />
-            </div>
-
-            {/* Row 5: Min Stock Alert (half width) */}
-            <div>
-              <label
-                htmlFor="product-stock"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Quantity
-              </label>
-              <input
-                id="product-stock"
-                name="stock_quantity"
-                type="number"
-                value={formData.stock_quantity}
-                onChange={handleChange}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="product-min-stock"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Min. Stock Alert
-              </label>
-              <input
-                id="product-min-stock"
-                name="min_stock_level"
-                type="number"
-                value={formData.min_stock_level}
-                onChange={handleChange}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-              />
-            </div>
-
-            {/* LIRA-143 Phase 6b: warranty length in months, empty = none */}
-            <div>
-              <label
-                htmlFor="product-warranty-months"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Warranty (months)
-              </label>
-              <input
-                id="product-warranty-months"
-                type="number"
-                min={0}
-                step={1}
-                value={warrantyMonths}
-                onChange={(e) => setWarrantyMonths(e.target.value)}
-                placeholder="No warranty"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-              />
-            </div>
+            {/* LIRA-143 Phase 6b — Units/IMEIs, only for a category that tracks
+                them AND an already-saved product (unit registration needs a
+                product id). */}
+            {categoryTracksImei &&
+              (product?.id != null ? (
+                <ProductUnitsSection
+                  productId={product.id}
+                  stockQuantity={formData.stock_quantity}
+                />
+              ) : (
+                <div className="text-xs text-slate-400 bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2">
+                  Save the product first to register its IMEI units.
+                </div>
+              ))}
           </div>
 
-          {/* LIRA-143 Phase 6b — Units/IMEIs, only for a category that tracks
-              them AND an already-saved product (unit registration needs a
-              product id). */}
-          {categoryTracksImei &&
-            (product?.id != null ? (
-              <ProductUnitsSection
-                productId={product.id}
-                stockQuantity={formData.stock_quantity}
-              />
-            ) : (
-              <div className="text-xs text-slate-400 bg-slate-950/50 border border-slate-700 rounded-lg px-3 py-2">
-                Save the product first to register its IMEI units.
-              </div>
-            ))}
-
-          <div className="flex justify-between items-center gap-3 mt-6 pt-4 border-t border-slate-700">
+          <div className="shrink-0 flex justify-between items-center gap-3 px-6 py-4 border-t border-slate-700">
             <div className="flex items-center gap-2">
               {formData.barcode?.trim() && (
                 <>
