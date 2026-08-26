@@ -182,9 +182,11 @@ export default function POS() {
             "Failed to check registered units for add-to-cart gate:",
             err,
           );
-          // Fail open to the pre-existing free-text capture rather than
-          // silently dropping IMEI entry for a phone product.
-          mode = "free-text";
+          // Fail open to "none" — with the free-text input removed there is
+          // no ad-hoc IMEI capture to fall back to; a units-fetch error
+          // just means this line sells the same as any non-unit-tracked
+          // product (owner decision 2026-08-26).
+          mode = "none";
         }
       }
 
@@ -228,14 +230,6 @@ export default function POS() {
   const handleRemoveItem = useCallback((lineKey: string) => {
     setCartItems((prev) =>
       prev.filter((item) => getCartLineKey(item) !== lineKey),
-    );
-  }, []);
-
-  const handleUpdateIMEI = useCallback((lineKey: string, imei: string) => {
-    setCartItems((prev) =>
-      prev.map((item) =>
-        getCartLineKey(item) === lineKey ? { ...item, imei } : item,
-      ),
     );
   }, []);
 
@@ -774,7 +768,6 @@ export default function POS() {
             items={cartItems}
             onUpdateQuantity={handleUpdateQuantity}
             onRemoveItem={handleRemoveItem}
-            onUpdateIMEI={handleUpdateIMEI}
             onSelectUnit={handleSelectUnit}
             onClearCart={() => setShowClearConfirm(true)}
             onCheckout={() => setIsCheckoutOpen(true)}

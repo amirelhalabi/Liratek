@@ -9,9 +9,17 @@
  * independently testable source of truth instead of an inline JSX
  * conditional. `resolveCartLineMode` never looks at `category` at all —
  * that is the fix.
+ *
+ * Owner decision 2026-08-26: the free-text typed-IMEI input is removed
+ * entirely. The unit system now owns IMEIs — a registered IN_STOCK unit
+ * gets the picker, and a flag-ON product with zero registered units (the
+ * drift case) gets NO imei field at all, same as flag-OFF. The accepted
+ * trade-off is that an unregistered phone can still be sold (drift stock
+ * isn't blocked), just with no IMEI captured on the line or the receipt;
+ * the fix for that is to register the unit first, not to type one in.
  */
 
-export type CartLineMode = "unit-picker" | "free-text" | "none";
+export type CartLineMode = "unit-picker" | "none";
 
 /**
  * Decide what IMEI-capture UI (if any) a cart line should render.
@@ -19,7 +27,7 @@ export type CartLineMode = "unit-picker" | "free-text" | "none";
  * - flag ON, at least one registered IN_STOCK unit -> "unit-picker" (a
  *   select of the product's IN_STOCK unit IMEIs).
  * - flag ON, zero registered units (drift: surplus unregistered stock
- *   sells as before) -> "free-text" (today's typed-IMEI input, unchanged).
+ *   sells as before, just with no IMEI UI) -> "none".
  * - flag OFF -> "none" — byte-identical to a product outside phone
  *   tracking, including categories that used to false-positive on the old
  *   heuristic.
@@ -29,7 +37,7 @@ export function resolveCartLineMode(
   registeredUnitCount: number,
 ): CartLineMode {
   if (!tracksImeiUnits) return "none";
-  return registeredUnitCount > 0 ? "unit-picker" : "free-text";
+  return registeredUnitCount > 0 ? "unit-picker" : "none";
 }
 
 /**

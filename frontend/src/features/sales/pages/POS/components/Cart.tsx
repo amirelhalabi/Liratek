@@ -7,7 +7,6 @@ interface CartProps {
   items: CartItem[];
   onUpdateQuantity: (lineKey: string, delta: number) => void;
   onRemoveItem: (lineKey: string) => void;
-  onUpdateIMEI: (lineKey: string, imei: string) => void;
   /** LIRA-143 phase 6a — sets/clears `product_unit_id` (+ display imei) on
    *  a unit-picker line. */
   onSelectUnit: (
@@ -28,7 +27,6 @@ export default function Cart({
   items,
   onUpdateQuantity,
   onRemoveItem,
-  onUpdateIMEI,
   onSelectUnit,
   onClearCart,
   onCheckout,
@@ -95,7 +93,6 @@ export default function Cart({
               allItems={items}
               onUpdateQuantity={onUpdateQuantity}
               onRemoveItem={onRemoveItem}
-              onUpdateIMEI={onUpdateIMEI}
               onSelectUnit={onSelectUnit}
             />
           ))

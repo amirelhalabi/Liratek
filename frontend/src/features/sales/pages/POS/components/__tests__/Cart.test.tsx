@@ -6,11 +6,13 @@
  * both false-positived (e.g. "Headphones") and missed every real phone
  * category not literally named "phone". This drives the REAL Cart
  * component (not a hand-built decision table) through
- * `resolveCartLineMode`'s three branches plus the same-product
- * unit-filtering rule (item 1) and the qty-lock rule (item 2).
+ * `resolveCartLineMode`'s two branches ("unit-picker" / "none" — the
+ * free-text typed-IMEI mode was removed by owner decision 2026-08-26; the
+ * unit system now owns IMEIs) plus the same-product unit-filtering rule
+ * (item 1) and the qty-lock rule (item 2).
  */
 
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Cart from "../Cart";
 import type { CartItem } from "@liratek/ui";
@@ -50,7 +52,6 @@ function renderCart(items: CartItem[]) {
     items,
     onUpdateQuantity: jest.fn(),
     onRemoveItem: jest.fn(),
-    onUpdateIMEI: jest.fn(),
     onSelectUnit: jest.fn(),
     onClearCart: jest.fn(),
     onCheckout: jest.fn(),
@@ -81,17 +82,20 @@ describe("Cart — IMEI line gate (resolveCartLineMode)", () => {
     expect(mockGetForProduct).not.toHaveBeenCalled();
   });
 
-  it("flag ON with zero registered units keeps today's free-text input (drift case)", async () => {
+  it("flag ON with zero registered units renders no IMEI UI at all (drift case; owner decision 2026-08-26)", async () => {
     mockGetForProduct.mockResolvedValue([]);
     renderCart([makeItem({ tracks_imei_units: 1, category: "Mobiles" })]);
 
+    // Wait for the units query to resolve before asserting absence, so this
+    // isn't just catching the pre-load state.
+    await waitFor(() => expect(mockGetForProduct).toHaveBeenCalled());
     expect(
-      await screen.findByPlaceholderText(/Enter IMEI \/ Serial/i),
-    ).toBeInTheDocument();
+      screen.queryByPlaceholderText(/Enter IMEI/i),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
-  it("flag ON with registered units renders a unit picker instead of free text", async () => {
+  it("flag ON with registered units renders a unit picker and no free-text input", async () => {
     mockGetForProduct.mockResolvedValue([
       { id: 101, product_id: 1, imei: "IMEI-A", status: "IN_STOCK" },
       { id: 102, product_id: 1, imei: "IMEI-B", status: "IN_STOCK" },
@@ -122,11 +126,11 @@ describe("Cart — IMEI line gate (resolveCartLineMode)", () => {
     ).toBeDisabled();
   });
 
-  it("does not lock qty for a free-text (drift) line", async () => {
+  it("does not lock qty for a zero-registered-units (drift, mode 'none') line", async () => {
     mockGetForProduct.mockResolvedValue([]);
     renderCart([makeItem({ tracks_imei_units: 1, quantity: 2 })]);
 
-    await screen.findByPlaceholderText(/Enter IMEI/i);
+    await waitFor(() => expect(mockGetForProduct).toHaveBeenCalled());
     // Decrease is enabled because quantity (2) > 1; the point under test is
     // that isLockedQty is false, not the quantity>=1 disable rule.
     expect(

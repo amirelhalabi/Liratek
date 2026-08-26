@@ -9,9 +9,9 @@ import type { CartItem } from "@liratek/ui";
  * IMEI), those lines all share the same `id`, so matching by `id` would
  * update/remove/react-key ALL of them at once. `cartLineId` is the
  * disambiguator: POS/index.tsx stamps one on every unit-picker line;
- * everything else (free-text and flag-off lines, and every other CartItem
- * producer in the app) leaves it unset and this falls back to `id`,
- * unchanged from before.
+ * everything else (drift-mode "none" and flag-off lines, and every other
+ * CartItem producer in the app) leaves it unset and this falls back to
+ * `id`, unchanged from before.
  */
 export function getCartLineKey(item: CartItem): string {
   return item.cartLineId ?? String(item.id);

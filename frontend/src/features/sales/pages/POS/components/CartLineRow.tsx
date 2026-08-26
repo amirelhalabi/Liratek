@@ -14,7 +14,6 @@ interface CartLineRowProps {
   allItems: CartItem[];
   onUpdateQuantity: (lineKey: string, delta: number) => void;
   onRemoveItem: (lineKey: string) => void;
-  onUpdateIMEI: (lineKey: string, imei: string) => void;
   onSelectUnit: (
     lineKey: string,
     unit: { id: number; imei: string } | null,
@@ -24,16 +23,15 @@ interface CartLineRowProps {
 /**
  * One cart row. LIRA-143 phase 6a extracted this out of Cart.tsx because it
  * now needs a per-product IN_STOCK-units query (resolveCartLineMode) to
- * decide between the unit picker, the free-text IMEI input, and neither —
- * hooks can't be called conditionally inside Cart.tsx's `.map`, so each row
- * is its own component instead.
+ * decide between the unit picker and neither — hooks can't be called
+ * conditionally inside Cart.tsx's `.map`, so each row is its own component
+ * instead.
  */
 export function CartLineRow({
   item,
   allItems,
   onUpdateQuantity,
   onRemoveItem,
-  onUpdateIMEI,
   onSelectUnit,
 }: CartLineRowProps) {
   const lineKey = getCartLineKey(item);
@@ -67,18 +65,6 @@ export function CartLineRow({
         <div className="text-xs text-slate-500 mt-1">
           ${item.retail_price.toFixed(2)} / unit
         </div>
-
-        {mode === "free-text" && (
-          <div className="mt-2">
-            <input
-              type="text"
-              placeholder="Enter IMEI / Serial"
-              value={item.imei || ""}
-              onChange={(e) => onUpdateIMEI(lineKey, e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-2 py-1 text-[10px] text-white focus:border-violet-500/50 outline-none placeholder:text-slate-600 font-mono"
-            />
-          </div>
-        )}
 
         {mode === "unit-picker" && (
           <div className="mt-2">

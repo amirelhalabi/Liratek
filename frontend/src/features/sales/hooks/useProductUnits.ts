@@ -5,8 +5,8 @@ import { useApi } from "@liratek/ui";
  * LIRA-143 phase 6a — the POS cart's IN_STOCK unit picker (CartLineRow) and
  * the add-to-cart gate (POS/index.tsx's `handleAddToCart`) both need the
  * same per-product IN_STOCK unit list. Sharing one TanStack Query key means
- * the add-time `fetchInStockUnits` call (which decides picker vs free-text
- * vs nothing, per cartGate.ts) populates the cache the picker then reads
+ * the add-time `fetchInStockUnits` call (which decides picker vs nothing,
+ * per cartGate.ts) populates the cache the picker then reads
  * instantly instead of re-fetching — the DB-level IN_STOCK count for a
  * product doesn't change while the cart is being built (units only flip to
  * SOLD when the sale actually completes), so there's no staleness risk in

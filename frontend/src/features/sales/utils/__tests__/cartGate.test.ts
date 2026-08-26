@@ -6,8 +6,8 @@ describe("resolveCartLineMode", () => {
     expect(resolveCartLineMode(true, 1)).toBe("unit-picker");
   });
 
-  it("flag ON with zero registered units -> free-text (drift case)", () => {
-    expect(resolveCartLineMode(1, 0)).toBe("free-text");
+  it("flag ON with zero registered units -> none (drift case; no ad-hoc IMEI entry)", () => {
+    expect(resolveCartLineMode(1, 0)).toBe("none");
   });
 
   it("flag OFF -> none, regardless of unit count", () => {
@@ -23,14 +23,13 @@ describe("resolveCartLineMode", () => {
     // heuristic's false positive) and a mislabeled real phone category
     // (the old heuristic's false negative) must land on.
     expect(resolveCartLineMode(0, 2)).toBe("none"); // e.g. "Headphones", flag off
-    expect(resolveCartLineMode(1, 0)).toBe("free-text"); // e.g. "Mobiles", flag on
+    expect(resolveCartLineMode(1, 1)).toBe("unit-picker"); // e.g. "Mobiles", flag on
   });
 });
 
 describe("shouldAlwaysAddNewLine", () => {
   it("is true only for unit-picker mode", () => {
     expect(shouldAlwaysAddNewLine("unit-picker")).toBe(true);
-    expect(shouldAlwaysAddNewLine("free-text")).toBe(false);
     expect(shouldAlwaysAddNewLine("none")).toBe(false);
   });
 });
